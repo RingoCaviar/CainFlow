@@ -10,6 +10,12 @@
     - 优化了图片分辨率自动缩放逻辑，防止超大图引起的 API 崩溃。
     - 增强了通知系统的稳定性，工作流完成时支持系统级 Push 提醒。
 
+---
+
+### 📥 **[点击此处一键下载本项目 (ZIP 压缩包)](https://github.com/RingoCaviar/CainFlow/archive/refs/heads/main.zip)**
+
+---
+
 **CainFlow** 是一款受 ComfyUI 启发的轻量级节点式 AI 编排工具。基于原生网页技术，免去复杂依赖，双击即得。
 
 ## ✨ 核心特性
