@@ -1869,6 +1869,35 @@ function initUI() {
         document.getElementById('history-batch-toolbar').classList.add('hidden');
         renderHistoryList();
     });
+
+    // Factory Reset
+    document.getElementById('btn-factory-reset')?.addEventListener('click', () => {
+        const confirmed = confirm('确定要恢复出厂设置吗？\n这将清空所有画布节点、API配置和图片历史记录，且无法撤销。');
+        if (confirmed) {
+            // Clear LocalStorage
+            localStorage.clear();
+            
+            // Delete IndexedDB
+            const deleteRequest = indexedDB.deleteDatabase('NodeFlowDB');
+            
+            deleteRequest.onsuccess = () => {
+                console.log('Database deleted successfully');
+                location.reload();
+            };
+            
+            deleteRequest.onerror = () => {
+                console.error('Error deleting database');
+                alert('数据库清理失败，请手动清除浏览器缓存。');
+                location.reload();
+            };
+            
+            deleteRequest.onblocked = () => {
+                console.warn('Delete blocked');
+                alert('数据库清理被阻塞，请关闭其他标签页后重试。');
+                location.reload();
+            };
+        }
+    });
 }
 
 // ===== Utilities =====

@@ -146,10 +146,12 @@
                 <h3>生成历史</h3>
             </div>
             <div class="header-right">
-                <button id="btn-history-batch" class="btn-tool" title="批量操作">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                <button id="btn-history-batch" class="icon-btn" title="批量操作">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                 </button>
-                <button id="btn-close-history" class="close-btn">&times;</button>
+                <button id="btn-close-history" class="icon-btn" title="关闭">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
         </div>
         <div id="history-batch-toolbar" class="drawer-subheader hidden">
@@ -209,6 +211,14 @@
                     <div id="models-list" class="api-configs-list"></div>
                 </div>
             </div>
+            <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between;">
+                <div class="footer-left">
+                    <span style="font-size: 11px; color: var(--text-dim); opacity: 0.7;">⚠ 注意：恢复出厂设置将清空所有画布、API配置及历史记录。</span>
+                </div>
+                <div class="footer-right">
+                    <button id="btn-factory-reset" class="btn btn-danger btn-sm">恢复出厂设置</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -218,12 +228,17 @@
     <!-- Log Drawer -->
     <div id="log-drawer" class="drawer">
         <div class="drawer-header">
-            <h3>执行日志</h3>
-            <div class="drawer-actions">
-                <button id="btn-clear-logs" class="btn btn-icon-sm" title="清空日志">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <div class="header-left">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <h3>执行日志</h3>
+            </div>
+            <div class="header-right">
+                <button id="btn-clear-logs" class="icon-btn" title="清空日志">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                 </button>
-                <button id="btn-close-logs" class="btn btn-icon-sm" title="关闭">×</button>
+                <button id="btn-close-logs" class="icon-btn" title="关闭">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
             </div>
         </div>
         <div id="log-list" class="log-list">
