@@ -36,6 +36,50 @@ function getImageResolution(dataUrl) {
     });
 }
 
+/**
+ * Auto-resize image if total pixels exceed maxTotalPixels
+ * Preserves aspect ratio.
+ */
+function processImageResolution(dataUrl, maxTotalPixels = 2048 * 2048) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const w = img.naturalWidth;
+            const h = img.naturalHeight;
+            const currentPixels = w * h;
+            
+            if (currentPixels <= maxTotalPixels) {
+                resolve({ data: dataUrl, resized: false, originalRes: `${w}x${h}` });
+                return;
+            }
+            
+            // Calculate scaling factor S = sqrt(TargetPixels / CurrentPixels)
+            const scale = Math.sqrt(maxTotalPixels / currentPixels);
+            const newW = Math.floor(w * scale);
+            const newH = Math.floor(h * scale);
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = newW;
+            canvas.height = newH;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, newW, newH);
+            
+            // Output as PNG to maintain maximum quality for generation nodes
+            const resizedData = canvas.toDataURL('image/png');
+            resolve({ 
+                data: resizedData, 
+                resized: true, 
+                originalRes: `${w}x${h}`, 
+                newRes: `${newW}x${newH}` 
+            });
+        };
+        img.onerror = () => resolve({ data: dataUrl, resized: false });
+        img.src = dataUrl;
+    });
+}
+
 // Convert dataURL to Blob properly
 function dataURLtoBlob(dataUrl) {
     const parts = dataUrl.split(',');
@@ -1022,7 +1066,18 @@ function loadImageFile(nodeId, file) {
     reader.onload = async (e) => {
         const node = state.nodes.get(nodeId);
         if (!node) return;
-        const data = e.target.result;
+        
+        const rawData = e.target.result;
+        
+        // Auto-resize high resolution images
+        const result = await processImageResolution(rawData);
+        const data = result.data;
+        
+        if (result.resized) {
+            showToast(`图片尺寸较大 (${result.originalRes})，已自动缩小为约 4MP (${result.newRes}) 以保证性能`, 'warning', 5000);
+            addLog('info', '图片自动缩小', `原始分辨率: ${result.originalRes} -> 目标分辨率: ${result.newRes}`);
+        }
+        
         node.imageData = data;
         await saveImageAsset(nodeId, data);
         const dropZone = node.el.querySelector(`#${nodeId}-drop`);
