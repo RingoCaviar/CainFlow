@@ -258,6 +258,9 @@ async function renderHistoryList() {
         `;
     }).join('');
 
+    const countEl = document.getElementById('selected-count');
+    if (countEl) countEl.textContent = state.selectedHistoryIds.size;
+
     // Selection Count Update
     document.getElementById('selected-count').textContent = state.selectedHistoryIds.size;
 
@@ -375,6 +378,7 @@ canvasContainer.addEventListener('mousedown', (e) => {
         state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
         canvasContainer.classList.add('grabbing');
         document.body.classList.add('is-interacting');
+        document.getElementById('connections-group').classList.add('is-panning');
     }
 });
 
@@ -794,10 +798,16 @@ function addNode(type, x, y, restoreData) {
             <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
             <div class="node-field"><label>文件名前缀/文件名</label>
                 <input type="text" id="${id}-filename" value="${rd.filename || 'generated_image'}" placeholder="不填默认生成" /></div>
-            <button class="save-btn" id="${id}-manual-save" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                手动保存
-            </button>
+            <div class="save-btn-group">
+                <button class="save-btn-secondary" id="${id}-view-full" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    查看图片
+                </button>
+                <button class="save-btn" id="${id}-manual-save" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    保存
+                </button>
+            </div>
         `;
     }
 
@@ -875,6 +885,8 @@ function addNode(type, x, y, restoreData) {
 
         const nodesToDrag = Array.from(state.selectedNodes);
         const startPositions = new Map();
+        const draggedNodeIds = new Set(nodesToDrag);
+        
         nodesToDrag.forEach(nid => {
             const n = state.nodes.get(nid);
             if (n) {
@@ -883,16 +895,27 @@ function addNode(type, x, y, restoreData) {
             }
         });
 
+        // Optimization: Pre-cache port offsets and connection path elements for zero-lookup rendering during drag
         const portOffsets = new Map();
+        const connectionsToUpdate = [];
+        
         for (const conn of state.connections) {
-            [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach(item => {
-                const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
-                if (!portOffsets.has(key)) {
-                    const pos = getPortPosition(item.p.nodeId, item.p.port, item.d);
-                    const n = state.nodes.get(item.p.nodeId);
-                    if (n) portOffsets.set(key, { dx: pos.x - n.x, dy: pos.y - n.y });
+            const isFromDragged = draggedNodeIds.has(conn.from.nodeId);
+            const isToDragged = draggedNodeIds.has(conn.to.nodeId);
+            if (isFromDragged || isToDragged) {
+                const pathEl = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
+                if (pathEl) {
+                    connectionsToUpdate.push({ conn, pathEl });
+                    [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach(item => {
+                        const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
+                        if (!portOffsets.has(key)) {
+                            const pos = getPortPosition(item.p.nodeId, item.p.port, item.d);
+                            const n = state.nodes.get(item.p.nodeId);
+                            if (n) portOffsets.set(key, { dx: pos.x - n.x, dy: pos.y - n.y });
+                        }
+                    });
                 }
-            });
+            }
         }
 
         state.dragging = {
@@ -901,6 +924,7 @@ function addNode(type, x, y, restoreData) {
             startY: pos.y,
             startPositions: startPositions,
             portOffsets: portOffsets,
+            connectionsToUpdate: connectionsToUpdate,
             altClone: isAlt,
             cloned: false
         };
@@ -1079,6 +1103,12 @@ function setupImageImport(id, el) {
         const file = e.dataTransfer.files[0];
         if (file && file.type.startsWith('image/')) loadImageFile(id, file);
     });
+
+    dropZone.addEventListener('click', (e) => {
+        if (state.justDragged) return;
+        const node = state.nodes.get(id);
+        if (node && node.imageData) openFullscreenPreview(node.imageData);
+    });
 }
 
 function loadImageFile(nodeId, file) {
@@ -1156,8 +1186,14 @@ function setupImageSave(id, el) {
     previewContainer.addEventListener('click', (e) => {
         e.stopPropagation();
         if (state.justDragged) return;
-        const img = previewContainer.querySelector('img');
-        if (img) openFullscreenPreview(img.src);
+        const node = state.nodes.get(id);
+        if (node && node.data.image) openFullscreenPreview(node.data.image);
+    });
+
+    el.querySelector(`#${id}-view-full`).addEventListener('click', (e) => {
+        e.stopPropagation();
+        const node = state.nodes.get(id);
+        if (node && node.data.image) openFullscreenPreview(node.data.image);
     });
 }
 
@@ -1305,20 +1341,42 @@ function createBezierPath(x1, y1, x2, y2) {
 function updateAllConnections() {
     const { x, y, zoom } = state.canvas;
     const isDragging = !!state.dragging;
+    const isPanning = state.canvas.isPanning;
     
     connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
     
-    if (isDragging) {
+    if (isDragging || isPanning) {
         connectionsGroup.classList.add('is-dragging');
+        // Fast rendering: skip complex curves and DOM updates
+        if (isDragging && state.dragging.connectionsToUpdate) {
+            for (const item of state.dragging.connectionsToUpdate) {
+                const from = getPortPosition(item.conn.from.nodeId, item.conn.from.port, 'output');
+                const to = getPortPosition(item.conn.to.nodeId, item.conn.to.port, 'input');
+                item.pathEl.setAttribute('d', `M ${from.x} ${from.y} L ${to.x} ${to.y}`);
+            }
+            return;
+        }
+        if (isPanning) {
+            // Also enable linear paths for panning to maintain 120 FPS
+            for (const conn of state.connections) {
+                let path = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
+                if (path) {
+                    const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
+                    const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
+                    path.setAttribute('d', `M ${from.x} ${from.y} L ${to.x} ${to.y}`);
+                }
+            }
+            return;
+        }
     } else {
         connectionsGroup.classList.remove('is-dragging');
+        connectionsGroup.classList.remove('is-panning');
     }
 
-    // Reuse path elements if possible to avoid DOM trashing during drag
+    // Full update (reconciliation) when not dragging
     const existingPaths = Array.from(connectionsGroup.querySelectorAll('path[data-conn-id]'));
     const currentConnIds = new Set(state.connections.map(c => c.id));
     
-    // Remove stale paths
     existingPaths.forEach(p => {
         if (!currentConnIds.has(p.getAttribute('data-conn-id'))) p.remove();
     });
@@ -1328,15 +1386,8 @@ function updateAllConnections() {
         const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
         const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
         
-        let pathStr;
-        if (isDragging) {
-            // Fast linear path
-            pathStr = `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
-        } else {
-            // High-quality bezier path
-            const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
-            pathStr = `M ${from.x} ${from.y} C ${from.x + cp} ${from.y}, ${to.x - cp} ${to.y}, ${to.x} ${to.y}`;
-        }
+        const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
+        const pathStr = `M ${from.x} ${from.y} C ${from.x + cp} ${from.y}, ${to.x - cp} ${to.y}, ${to.x} ${to.y}`;
 
         if (path) {
             path.setAttribute('d', pathStr);
@@ -1507,14 +1558,25 @@ async function runWorkflow() {
             if (timeBadge) timeBadge.textContent = 'Err';
             addLog('error', `节点失败: ${nodeTitle}`, errorMsg, { nodeId: nid, error: err.stack || err });
             showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
+            
+            if (state.notificationsEnabled && Notification.permission === 'granted') {
+                new Notification('CainFlow 运行失败', {
+                    body: `节点「${nodeTitle}」执行出错: ${errorMsg}`,
+                    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNlZjQ0NDQiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWdvbiBwb2ludHM9IjcuODYgMiAxNi4xNCAyIDIyIDcuODYgMjIgMTYuMTQgMTYuMTQgMjIgNy44NiAyMiAyIDExLjE0IDIgNy44NiA3Ljg2IDIiPjwvcG9seWdvbj48bGluZSB4MT0iMTIiIHkxPSI4IiB4Mj0iMTIiIHkyPSIxMiI+PC9saW5lPjxsaW5lIHgxPSIxMiIgeTE9IjE2IiB4Mj0iMTIuMDEiIHkyPSIxNiI+PC9saW5lPjwvc3ZnPg==',
+                    tag: 'cainflow-error'
+                });
+            }
+
             state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
             return; // Stop execution on error
         }
     }
     for (const [id, n] of state.nodes) {
         if (n.type === 'ImageSave' && n.data.image) {
-            const btn = n.el.querySelector(`#${id}-manual-save`);
-            if (btn) btn.disabled = false;
+            const btnSave = n.el.querySelector(`#${id}-manual-save`);
+            const btnView = n.el.querySelector(`#${id}-view-full`);
+            if (btnSave) btnSave.disabled = false;
+            if (btnView) btnView.disabled = false;
         }
     }
     state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
@@ -1523,7 +1585,8 @@ async function runWorkflow() {
     // Trigger System Notification
     if (state.notificationsEnabled && Notification.permission === 'granted') {
         new Notification('CainFlow 运行完成', {
-            body: `所有节点已执行成功。`,
+            body: `工作流中的所有节点已顺序执行成功。`,
+            icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyMmM1NWUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTEuMDhWMTJhMTAgMTAgMCAxIDEtNS45My05LjE0Ij48L3BhdGg+PHBvbHlsaW5lIHBvaW50cz0iMjIgNCAxMiAxNS4wMSA5IDExLjk3Ij48L3BvbHlsaW5lPjwvc3ZnPg==',
             tag: 'cainflow-finish',
             renotify: true
         });
@@ -2008,6 +2071,12 @@ function initUI() {
         state.historySelectionMode = true;
         state.selectedHistoryIds.clear();
         document.getElementById('history-batch-toolbar').classList.remove('hidden');
+        renderHistoryList();
+    });
+
+    document.getElementById('btn-batch-select-all')?.addEventListener('click', async () => {
+        const items = await getHistory();
+        items.forEach(item => state.selectedHistoryIds.add(item.id));
         renderHistoryList();
     });
 

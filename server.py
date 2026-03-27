@@ -3,8 +3,32 @@ import socketserver
 import urllib.request
 import urllib.error
 import ssl
+import socket
+import sys
+import webbrowser
 
 PORT = 8767
+
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+        except socket.error:
+            return True
+        return False
+
+if is_port_in_use(PORT):
+    print("\n" + "="*50)
+    print(f" ERROR: 端口 {PORT} 已被占用！")
+    print("="*50)
+    print(f" 提示: CainFlow 无法在端口 {PORT} 上启动。")
+    print(" 可能原因:")
+    print(" 1. 您已经运行了一个 CainFlow 实例。")
+    print(" 2. 另一个程序正在使用该端口。")
+    print("\n 解决方法:")
+    print(" 请关闭占用该端口的程序，或重启您的电脑，然后再次启动。")
+    print("="*50 + "\n")
+    sys.exit(1)
 
 class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -86,6 +110,12 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 # Allow port reuse to prevent address already in use error
 socketserver.TCPServer.allow_reuse_address = True
 
-with socketserver.TCPServer(("127.0.0.1", PORT), ProxyHTTPRequestHandler) as httpd:
-    print(f"CainFlow Server with Native CORS Proxy running at http://127.0.0.1:{PORT}")
-    httpd.serve_forever()
+try:
+    with socketserver.TCPServer(("127.0.0.1", PORT), ProxyHTTPRequestHandler) as httpd:
+        print(f"CainFlow Server with Native CORS Proxy running at http://127.0.0.1:{PORT}")
+        # Only open browser if server bound successfully
+        webbrowser.open(f"http://127.0.0.1:{PORT}")
+        httpd.serve_forever()
+except Exception as e:
+    print(f"\n[ERROR] 无法启动服务器: {e}")
+    sys.exit(1)

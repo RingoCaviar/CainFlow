@@ -252,6 +252,10 @@ body {
     stroke-width: 4;
 }
 
+#connections-group.is-dragging {
+    pointer-events: none !important;
+}
+
 #connections-group.is-dragging path {
     stroke-dasharray: 6 4;
     stroke-width: 1.5;
@@ -295,6 +299,13 @@ body {
     min-height: 100px;
     user-select: none;
     -webkit-user-select: none;
+    
+    /* Modern Performance Stack */
+    contain: layout; /* Isolate layout from rest of DOM */
+    content-visibility: auto; /* Skip rendering when off-screen */
+    contain-intrinsic-size: 220px 300px; /* Placeholder size for off-screen */
+    will-change: transform; /* Hardware acceleration hint */
+    transform: translateZ(0); /* Force GPU layer */
 }
 
 .node input, .node textarea, .node select, [contenteditable="true"] {
@@ -302,20 +313,27 @@ body {
     -webkit-user-select: auto;
 }
 
-/* Optimization during drag/resize to prevent expensive image repaints and layout calcs */
+/* Global optimization: during ANY interaction, hide ALL heavy previews and disable blur to maximize FPS */
+body.is-interacting .preview-container img,
+body.is-interacting .save-preview-container img,
+body.is-interacting .chat-response-area,
+body.is-interacting .text-display-box,
+body.is-interacting .file-drop-zone img {
+    visibility: hidden !important;
+}
+
+body.is-interacting .node {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transition: none !important;
+}
+
+/* Specific optimization for the node being dragged: hardware acceleration and Z-index boost */
 .node.is-interacting {
     will-change: left, top;
     z-index: 9999;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-}
-
-.node.is-interacting .preview-container,
-.node.is-interacting .save-preview-container,
-.node.is-interacting .chat-response-area,
-.node.is-interacting .text-display-box,
-.node.is-interacting .file-drop-zone {
-    display: none !important;
 }
 
 #resize-ghost {
@@ -893,6 +911,46 @@ body {
     background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(16, 185, 129, 0.12));
     border: 1px solid rgba(34, 197, 94, 0.2);
     color: #22c55e;
+}
+
+.save-btn-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.save-btn-group .save-btn,
+.save-btn-group .save-btn-secondary {
+    flex: 1;
+    margin-top: 0;
+}
+
+.save-btn-secondary {
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+}
+
+.save-btn-secondary:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.save-btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: grayscale(1);
 }
 
 .choose-dir-btn:hover {
