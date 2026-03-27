@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Node-based AI image generation tool with infinite canvas, inspired by ComfyUI">
+    <title>CainFlow — 节点式 AI 工具</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div id="toolbar">
+        <div class="toolbar-left">
+            <div class="logo">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                </svg>
+                <span>CainFlow</span>
+            </div>
+        </div>
+        <div class="toolbar-center">
+            <button id="btn-run" class="btn btn-run" title="运行工作流 (Ctrl+Enter)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                运行
+            </button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-zoom-in" class="btn btn-icon" title="放大">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </button>
+            <span id="zoom-level" class="zoom-level">100%</span>
+            <button id="btn-zoom-out" class="btn btn-icon" title="缩小">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </button>
+            <button id="btn-zoom-reset" class="btn btn-icon" title="重置视图">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-export" class="btn btn-ghost" title="导出工作流 (.json)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                导出
+            </button>
+            <button id="btn-import" class="btn btn-ghost" title="导入工作流 (.json)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                导入
+            </button>
+            <input type="file" id="import-file" accept=".json" style="display:none" />
+        </div>
+        <div class="toolbar-right">
+            <button id="btn-history" class="btn btn-ghost" title="查看生成历史">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+                历史
+            </button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-save" class="btn btn-primary" title="保存当前工作流 (Ctrl+S)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存
+            </button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-settings" class="btn btn-ghost" title="API 设置">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                设置
+            </button>
+            <button id="btn-logs" class="btn btn-ghost" title="执行日志">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                日志
+            </button>
+            <button id="btn-clear" class="btn btn-ghost" title="清除画布">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                清除
+            </button>
+        </div>
+    </div>
+
+    <!-- Canvas -->
+    <div id="canvas-container">
+        <!-- SVG layer for connections -->
+        <svg id="connections-svg">
+            <defs>
+                <linearGradient id="conn-gradient-image" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#a855f7"/>
+                    <stop offset="100%" style="stop-color:#6366f1"/>
+                </linearGradient>
+                <linearGradient id="conn-gradient-text" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#22d3ee"/>
+                    <stop offset="100%" style="stop-color:#3b82f6"/>
+                </linearGradient>
+                <filter id="glow">
+                    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                    <feMerge>
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+            <g id="connections-group"></g>
+            <path id="temp-connection" class="temp-connection" d="" fill="none"/>
+        </svg>
+        <!-- Nodes layer -->
+        <div id="nodes-layer"></div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu hidden">
+        <div class="context-menu-header">添加节点</div>
+        <div class="context-menu-item" data-type="ImageImport">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            图片导入
+        </div>
+        <div class="context-menu-item" data-type="ImageGenerate">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            图片生成
+        </div>
+        <div class="context-menu-item" data-type="TextChat">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            智能对话
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" data-type="TextInput">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            文本输入
+        </div>
+        <div class="context-menu-item" data-type="TextDisplay">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            文本显示
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" data-type="ImagePreview">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            图片预览
+        </div>
+        <div class="context-menu-item" data-type="ImageSave">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            图片保存
+        </div>
+    </div>
+
+    <!-- History Sidebar -->
+    <div id="history-sidebar" class="drawer">
+        <div class="drawer-header">
+            <div class="header-left">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+                <h3>生成历史</h3>
+            </div>
+            <div class="header-right">
+                <button id="btn-history-batch" class="btn-tool" title="批量操作">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                </button>
+                <button id="btn-close-history" class="close-btn">&times;</button>
+            </div>
+        </div>
+        <div id="history-batch-toolbar" class="drawer-subheader hidden">
+            <span>已选择 <span id="selected-count">0</span> 项</span>
+            <div class="spacer"></div>
+            <button id="btn-batch-download" class="btn btn-xs btn-primary">下载选中</button>
+            <button id="btn-batch-cancel" class="btn btn-xs btn-ghost">取消</button>
+        </div>
+        <div id="history-list" class="drawer-content history-grid">
+            <!-- History items injected here -->
+        </div>
+    </div>
+
+    <!-- History Preview Modal -->
+    <div id="history-preview-modal" class="modal-overlay hidden" style="background: rgba(0,0,0,0.95); z-index: 3000;">
+        <div id="preview-viewport" class="preview-viewport">
+            <img id="history-preview-img" src="" draggable="false" />
+        </div>
+        <div class="preview-controls">
+            <button id="btn-download-preview" class="btn-close-preview" style="right: 80px;" title="下载此图片">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button id="btn-close-preview" class="btn-close-preview" title="关闭 (Esc)">&times;</button>
+        </div>
+        <div class="preview-info">
+            <div class="preview-prompt-container">
+                <div id="preview-prompt" class="preview-prompt-text"></div>
+                <button id="btn-copy-prompt" class="copy-btn" title="复制提示词">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+            </div>
+            <div id="preview-meta" class="preview-meta"></div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h2>⚙ API 设置</h2>
+                <button id="settings-close" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="settings-body">
+                <div class="settings-section">
+                    <div class="settings-toolbar">
+                        <h3>API 供应商 (Providers)</h3>
+                        <button id="btn-add-provider" class="btn btn-accent btn-sm">+ 添加供应商</button>
+                    </div>
+                    <div id="providers-list" class="api-configs-list"></div>
+                </div>
+                <div class="settings-divider"></div>
+                <div class="settings-section">
+                    <div class="settings-toolbar">
+                        <h3>模型管理 (Models)</h3>
+                        <button id="btn-add-model" class="btn btn-accent btn-sm">+ 添加模型</button>
+                    </div>
+                    <div id="models-list" class="api-configs-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-container"></div>
+
+    <!-- Log Drawer -->
+    <div id="log-drawer" class="drawer">
+        <div class="drawer-header">
+            <h3>执行日志</h3>
+            <div class="drawer-actions">
+                <button id="btn-clear-logs" class="btn btn-icon-sm" title="清空日志">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+                <button id="btn-close-logs" class="btn btn-icon-sm" title="关闭">×</button>
+            </div>
+        </div>
+        <div id="log-list" class="log-list">
+            <div class="log-empty">暂无执行记录</div>
+        </div>
+    </div>
+
+    <!-- Error Detail Modal -->
+    <div id="modal-error" class="modal">
+        <div class="modal-content modal-error-content">
+            <div class="modal-header">
+                <h3 id="error-modal-title">执行错误</h3>
+                <button class="modal-close" onclick="closeModal('modal-error')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="error-modal-msg" class="error-msg-box"></div>
+                <div class="error-detail-label">详细信息：</div>
+                <pre id="error-modal-detail" class="error-detail-pre"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('modal-error')">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="selection-box" class="hidden"></div>
+    <script src="index.js?v=2.2"></script>
+</body>
+</html>
