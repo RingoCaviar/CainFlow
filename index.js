@@ -298,6 +298,7 @@ const state = {
     marquee: null,
     contextMenu: { x: 0, y: 0 },
     isRunning: false,
+    notificationsEnabled: false,
     clipboard: null,
     mouseCanvas: { x: 0, y: 0 },
     selectedNodes: new Set(),
@@ -528,6 +529,7 @@ window.addEventListener('mouseup', (e) => {
             if (n) n.el.classList.remove('is-interacting');
         }
         state.dragging = null; 
+        updateAllConnections();
         scheduleSave(); 
     }
     if (state.resizing) { 
@@ -881,12 +883,25 @@ function addNode(type, x, y, restoreData) {
             }
         });
 
+        const portOffsets = new Map();
+        for (const conn of state.connections) {
+            [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach(item => {
+                const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
+                if (!portOffsets.has(key)) {
+                    const pos = getPortPosition(item.p.nodeId, item.p.port, item.d);
+                    const n = state.nodes.get(item.p.nodeId);
+                    if (n) portOffsets.set(key, { dx: pos.x - n.x, dy: pos.y - n.y });
+                }
+            });
+        }
+
         state.dragging = {
             nodes: nodesToDrag,
             startX: pos.x,
             startY: pos.y,
             startPositions: startPositions,
-            altClone: isAlt, // Alt clone currently only works for the primary node if implemented simply
+            portOffsets: portOffsets,
+            altClone: isAlt,
             cloned: false
         };
         
@@ -905,6 +920,11 @@ function addNode(type, x, y, restoreData) {
             if (nData) {
                 nData.enabled = targetState;
                 nData.el.classList.toggle('disabled', !targetState);
+                if (targetState) {
+                    nData.el.classList.remove('completed', 'error', 'running');
+                    const timeBadge = document.getElementById(`${nid}-time`);
+                    if (timeBadge && timeBadge.textContent === 'Skip') timeBadge.textContent = '';
+                }
             }
         });
         
@@ -1258,6 +1278,13 @@ function openFullscreenPreview(src) {
 function getPortPosition(nodeId, portName, direction) {
     const node = state.nodes.get(nodeId);
     if (!node) return { x: 0, y: 0 };
+    
+    // Performance optimization: during drag, use cached relative offsets to dodge getBoundingClientRect reflows
+    if (state.dragging && state.dragging.portOffsets) {
+        const offset = state.dragging.portOffsets.get(`${nodeId}-${portName}-${direction}`);
+        if (offset) return { x: node.x + offset.dx, y: node.y + offset.dy };
+    }
+
     const portEl = node.el.querySelector(`.node-port[data-node-id="${nodeId}"][data-port="${portName}"][data-direction="${direction}"]`);
     if (!portEl) return { x: node.x, y: node.y };
     const dot = portEl.querySelector('.port-dot');
@@ -1276,21 +1303,56 @@ function createBezierPath(x1, y1, x2, y2) {
 }
 
 function updateAllConnections() {
-    connectionsGroup.innerHTML = '';
     const { x, y, zoom } = state.canvas;
+    const isDragging = !!state.dragging;
+    
     connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
+    
+    if (isDragging) {
+        connectionsGroup.classList.add('is-dragging');
+    } else {
+        connectionsGroup.classList.remove('is-dragging');
+    }
+
+    // Reuse path elements if possible to avoid DOM trashing during drag
+    const existingPaths = Array.from(connectionsGroup.querySelectorAll('path[data-conn-id]'));
+    const currentConnIds = new Set(state.connections.map(c => c.id));
+    
+    // Remove stale paths
+    existingPaths.forEach(p => {
+        if (!currentConnIds.has(p.getAttribute('data-conn-id'))) p.remove();
+    });
+
     for (const conn of state.connections) {
+        let path = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
         const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
         const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', createBezierPath(from.x, from.y, to.x, to.y));
-        path.setAttribute('stroke', `url(#conn-gradient-${conn.type})`);
-        path.addEventListener('dblclick', () => {
-            state.connections = state.connections.filter(c => c.id !== conn.id);
-            updateAllConnections(); updatePortStyles();
-            showToast('连接已删除', 'info'); scheduleSave();
-        });
-        connectionsGroup.appendChild(path);
+        
+        let pathStr;
+        if (isDragging) {
+            // Fast linear path
+            pathStr = `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+        } else {
+            // High-quality bezier path
+            const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
+            pathStr = `M ${from.x} ${from.y} C ${from.x + cp} ${from.y}, ${to.x - cp} ${to.y}, ${to.x} ${to.y}`;
+        }
+
+        if (path) {
+            path.setAttribute('d', pathStr);
+        } else {
+            path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('data-conn-id', conn.id);
+            path.setAttribute('d', pathStr);
+            path.setAttribute('stroke', `url(#conn-gradient-${conn.type || 'image'})`);
+            path.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                state.connections = state.connections.filter(c => c.id !== conn.id);
+                updateAllConnections(); updatePortStyles();
+                showToast('连接已删除', 'info'); scheduleSave();
+            });
+            connectionsGroup.appendChild(path);
+        }
     }
 }
 
@@ -1359,6 +1421,42 @@ async function runWorkflow() {
     for (const [, n] of state.nodes) { n.el.classList.remove('completed', 'error', 'running'); n.data = {}; }
     const order = topologicalSort();
     if (!order) { state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false; return; }
+
+    // Auto-inject ImageSave nodes for unconnected ImageGenerate nodes
+    let injected = false;
+    for (const nid of order) {
+        const node = state.nodes.get(nid);
+        if (node && node.type === 'ImageGenerate') {
+            const hasConnection = state.connections.some(c => c.from.nodeId === nid && c.from.port === 'image');
+            if (!hasConnection) {
+                const rect = node.el.getBoundingClientRect();
+                const nodeWidth = rect.width || 240; 
+                const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
+                if (saveId) {
+                    state.connections.push({
+                        id: 'conn_' + generateId(),
+                        from: { nodeId: nid, port: 'image', type: 'image' },
+                        to: { nodeId: saveId, port: 'image', type: 'image' },
+                        type: 'image'
+                    });
+                    injected = true;
+                    addLog('info', '自动注入节点', `为「${NODE_CONFIGS[node.type].title}」自动添加了图片保存节点`);
+                }
+            }
+        }
+    }
+    if (injected) {
+        updateAllConnections();
+        updatePortStyles();
+        // Since we added nodes, let's re-sort or just assume ImageSave is after its parent (it is)
+        // Actually, better to re-run topologicalSort if we added nodes that might be needed in order
+        // but ImageSave is always a leaf. So the current order (which includes all nodes) is mostly fine, 
+        // BUT the new node is NOT in the current 'order' array.
+        // Let's re-sort to be safe and include the new node.
+        const newOrder = topologicalSort();
+        if (newOrder) order.splice(0, order.length, ...newOrder);
+    }
+
     addLog('info', '工作流启动', `开始运行 ${order.length} 个节点...`);
     for (const nid of order) {
         const node = state.nodes.get(nid);
@@ -1421,6 +1519,15 @@ async function runWorkflow() {
     }
     state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
     showToast('工作流运行完成 ✓', 'success');
+
+    // Trigger System Notification
+    if (state.notificationsEnabled && Notification.permission === 'granted') {
+        new Notification('CainFlow 运行完成', {
+            body: `所有节点已执行成功。`,
+            tag: 'cainflow-finish',
+            renotify: true
+        });
+    }
 }
 
 async function executeNode(node, inputs) {
@@ -1650,7 +1757,8 @@ function saveState() {
             nodes: serializeNodes(),
             connections: state.connections.map(c => ({ id: c.id, from: c.from, to: c.to, type: c.type })),
             providers: state.providers,
-            models: state.models
+            models: state.models,
+            notificationsEnabled: state.notificationsEnabled
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { 
@@ -1735,14 +1843,23 @@ async function loadState() {
             if (data.providers) state.providers = data.providers;
             if (data.models) state.models = data.models;
         }
+        if (data.notificationsEnabled !== undefined) {
+            state.notificationsEnabled = data.notificationsEnabled;
+            const toggle = document.getElementById('toggle-notifications');
+            if (toggle) toggle.checked = state.notificationsEnabled;
+        }
         if (data.canvas) { state.canvas.x = data.canvas.x || 0; state.canvas.y = data.canvas.y || 0; state.canvas.zoom = data.canvas.zoom || 1; }
         if (data.nodes?.length) {
             for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd);
             await restoreHandles();
         }
         if (data.connections?.length) {
-            for (const conn of data.connections)
-                if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) state.connections.push(conn);
+            for (const conn of data.connections) {
+                if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
+                    if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
+                    state.connections.push(conn);
+                }
+            }
             updateAllConnections(); updatePortStyles();
         }
         updateCanvasTransform();
@@ -1952,6 +2069,25 @@ function initUI() {
                 location.reload();
             };
         }
+    });
+
+    // Workflow Notification Toggle
+    document.getElementById('toggle-notifications')?.addEventListener('change', async (e) => {
+        const enabled = e.target.checked;
+        if (enabled && Notification.permission !== 'granted') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                e.target.checked = false;
+                state.notificationsEnabled = false;
+                showToast('未开启通知权限，请在浏览器设置中手动允许此网站发送通知', 'warning', 5000);
+                saveState();
+                return;
+            }
+        }
+        state.notificationsEnabled = enabled;
+        saveState();
+        if (enabled) showToast('运行完成通知已开启 🔔', 'success');
+        else showToast('运行完成通知已关闭', 'info');
     });
 }
 
