@@ -476,25 +476,22 @@ body.is-interacting .node {
     box-shadow: 0 0 40px rgba(168, 85, 247, 0.6);
 }
 
-.node.running {
-    z-index: 1000 !important;
-    /* Super-aggressive multi-stack glow on the root element */
-    box-shadow: 
-        0 0 40px 10px rgba(34, 211, 238, 0.6),
-        0 0 80px 20px rgba(34, 211, 238, 0.3) !important;
-    filter: drop-shadow(0 0 20px rgba(34, 211, 238, 1)) !important;
-    animation: node-running-super-glow 0.8s ease-in-out infinite !important;
-}
-
 @keyframes node-running-super-glow {
     0%, 100% { 
-        box-shadow: 0 0 30px 5px rgba(34, 211, 238, 0.5), 0 0 60px 15px rgba(34, 211, 238, 0.2) !important;
-        transform: scale(1);
+        box-shadow: 0 0 5px 1px rgba(34, 211, 238, 0.3), 0 0 10px 3px rgba(34, 211, 238, 0.1);
+        background: rgba(34, 211, 238, 0.02);
+        filter: drop-shadow(0 0 2px rgba(34, 211, 238, 0.3));
     }
     50% { 
-        box-shadow: 0 0 60px 20px rgba(34, 211, 238, 0.9), 0 0 120px 40px rgba(34, 211, 238, 0.5) !important;
-        transform: scale(1.04);
+        box-shadow: 0 0 20px 8px rgba(34, 211, 238, 0.8), 0 0 40px 15px rgba(34, 211, 238, 0.4);
+        background: rgba(34, 211, 238, 0.12);
+        filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.9));
     }
+}
+
+.node.running {
+    z-index: 1000 !important;
+    animation: node-running-super-glow 2.5s ease-in-out infinite !important;
 }
 
 .node.running .node-glass-bg {
