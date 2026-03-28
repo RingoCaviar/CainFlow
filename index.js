@@ -231,11 +231,39 @@ async function getImageAsset(nodeId) {
     } catch (e) { return null; }
 }
 
+function createThumbnail(dataUrl, size = 256) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Calculate center crop to avoid stretching
+            let sx = 0, sy = 0, sw = img.width, sh = img.height;
+            if (sw > sh) {
+                sx = (sw - sh) / 2;
+                sw = sh;
+            } else if (sh > sw) {
+                sy = (sh - sw) / 2;
+                sh = sw;
+            }
+            
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+            resolve(canvas.toDataURL('image/webp', 0.8));
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+    });
+}
+
 async function saveHistoryEntry(data) {
     try {
+        const thumb = await createThumbnail(data.image, 256);
         const db = await openDB();
         const tx = db.transaction(STORE_HISTORY, 'readwrite');
-        tx.objectStore(STORE_HISTORY).add({ ...data, timestamp: Date.now() });
+        tx.objectStore(STORE_HISTORY).add({ ...data, thumb, timestamp: Date.now() });
         return new Promise((res) => tx.oncomplete = () => res(true));
     } catch (e) { console.warn('IDB save history failed:', e); }
 }
@@ -249,6 +277,15 @@ async function getHistory() {
             req.onerror = () => resolve([]);
         });
     } catch (e) { return []; }
+}
+
+async function clearHistory() {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_HISTORY, 'readwrite');
+        tx.objectStore(STORE_HISTORY).clear();
+        return new Promise((res) => tx.oncomplete = () => res(true));
+    } catch (e) { console.warn('IDB clear history failed:', e); }
 }
 
 async function deleteHistoryEntry(id) {
@@ -267,22 +304,42 @@ async function renderHistoryList() {
         list.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding: 40px 0; font-size:13px;">暂无历史记录</div>';
         return;
     }
-    list.innerHTML = items.map(item => {
+    
+    // Performance Optimization: Limit rendering to first 100 items to avoid DOM lag
+    const displayItems = items.slice(0, 100);
+    const hasMore = items.length > 100;
+
+    let html = displayItems.map(item => {
         const isSelected = state.selectedHistoryIds.has(item.id);
         const modeClass = state.historySelectionMode ? 'multi-select-mode' : '';
         const selectedClass = isSelected ? 'selected' : '';
+        
+        // Background Migration: Generate thumb if missing
+        if (!item.thumb && item.image) {
+            setTimeout(async () => {
+                const thumb = await createThumbnail(item.image);
+                const db = await openDB();
+                const tx = db.transaction(STORE_HISTORY, 'readwrite');
+                const store = tx.objectStore(STORE_HISTORY);
+                const fullItem = { ...item, thumb };
+                store.put(fullItem); // update with thumbnail
+            }, 0);
+        }
+
         return `
             <div class="history-card ${modeClass} ${selectedClass}" data-id="${item.id}">
-                <img src="${item.image}" loading="lazy" />
+                <img src="${item.thumb || item.image}" loading="lazy" decoding="async" />
                 <div class="selection-checkbox"></div>
                 <button class="delete-btn" data-id="${item.id}" title="删除记录">×</button>
-                <div class="info-overlay">
-                    <div style="font-weight:600; margin-bottom:2px; font-size: 10px;">${item.model}</div>
-                    <div style="opacity:0.8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size: 9px;">${item.prompt}</div>
-                </div>
             </div>
         `;
     }).join('');
+
+    if (hasMore) {
+        html += `<div style="grid-column: 1/-1; color:var(--text-dim); text-align:center; padding: 20px; font-size:12px;">已显示最近 100 条记录 (共 ${items.length} 条)</div>`;
+    }
+    
+    list.innerHTML = html;
 
     const countEl = document.getElementById('selected-count');
     if (countEl) countEl.textContent = state.selectedHistoryIds.size;
@@ -341,7 +398,8 @@ const state = {
         { id: 'model_banana', name: 'Banana Pro 2', modelId: 'gemini-3.1-flash-image-preview', providerId: 'prov_gxp' },
         { id: 'model_chat', name: '对话', modelId: 'gemini-3-flash-preview', providerId: 'prov_gxp' }
     ],
-    logs: []
+    logs: [],
+    abortController: null
 };
 
 // Directory handles for Save nodes (not serializable)
@@ -360,6 +418,9 @@ function updateCanvasTransform() {
     const { x, y, zoom } = state.canvas;
     nodesLayer.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
     nodesLayer.style.transformOrigin = '0 0';
+    // Sync zoom level to CSS for resolution-independent borders
+    nodesLayer.style.setProperty('--canvas-zoom', zoom);
+    
     const gridSize = 20 * zoom;
     canvasContainer.style.backgroundSize = `${gridSize}px ${gridSize}px`;
     canvasContainer.style.backgroundPosition = `${x}px ${y}px`;
@@ -373,8 +434,19 @@ function screenToCanvas(sx, sy) {
     return { x: (sx - rect.left - x) / zoom, y: (sy - rect.top - y) / zoom };
 }
 
-// Pan
+// Pan & Selection & Focus Management
 canvasContainer.addEventListener('mousedown', (e) => {
+    // Stage 1: Absolute Focus Sovereignty
+    // Canvas MUST be focused to receive the 'paste' event reliably
+    canvasContainer.focus();
+
+    // Focus Management: Blur any active inputs when clicking the workspace background
+    if (e.target === canvasContainer || e.target === nodesLayer || e.target.id === 'connections-layer') {
+        if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+            document.activeElement.blur();
+        }
+    }
+
     if (e.button === 1 || (e.button === 0 && e.target === canvasContainer)) {
         if (e.ctrlKey) {
             e.preventDefault(); // Prevents native drag which highlights text
@@ -497,13 +569,15 @@ window.addEventListener('mousemove', (e) => {
         const dy = (e.clientY - r.startY) / zoom;
         const node = state.nodes.get(r.nodeId);
         if (node) {
-            r.newWidth = Math.max(200, r.startWidth + dx);
-            r.newHeight = Math.max(100, r.startHeight + dy);
-            const ghost = document.getElementById('resize-ghost');
-            if (ghost) {
-                ghost.style.width = r.newWidth + 'px';
-                ghost.style.height = r.newHeight + 'px';
-            }
+            // High-Performance Flux Resizing: Use pre-calculated minimums to eliminate lag
+            const targetW = r.startWidth + dx;
+            const targetH = r.startHeight + dy;
+            
+            node.el.style.width = Math.max(targetW, r.minWidth) + 'px';
+            node.el.style.height = Math.max(targetH, r.minHeight) + 'px';
+            
+            // Sync wires in real-time
+            updateAllConnections();
         }
     }
     if (state.connecting) {
@@ -567,17 +641,15 @@ window.addEventListener('mouseup', (e) => {
         const r = state.resizing;
         const node = state.nodes.get(r.nodeId);
         if (node) {
-            node.width = r.newWidth;
-            node.height = r.newHeight;
-            node.el.style.width = r.newWidth + 'px';
-            node.el.style.height = r.newHeight + 'px';
+            // Finalize dimensions from the lived-rendered style
+            node.width = parseInt(node.el.style.width);
+            node.height = parseInt(node.el.style.height);
+            
             node.el.classList.remove('is-interacting');
             scheduleUIUpdate();
         }
-        const ghost = document.getElementById('resize-ghost');
-        if (ghost) ghost.style.display = 'none';
         state.resizing = null; 
-        scheduleSave(); 
+        scheduleSave();
     }
     if (state.connecting) {
         // If the user was dragging (moved more than 5px), we clear on mouseup.
@@ -873,16 +945,16 @@ function addNode(type, x, y, restoreData) {
                 if (type === 'ImageImport') {
                     const dropZone = el.querySelector(`#${id}-drop`);
                     dropZone.classList.add('has-image');
-                    dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" />`;
+                    dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
                     showResolutionBadge(id, data);
                 } else if (type === 'ImagePreview') {
                     const previewContainer = el.querySelector(`#${id}-preview`);
-                    previewContainer.innerHTML = `<img src="${data}" alt="预览" style="cursor:pointer" draggable="false" />`;
+                    previewContainer.innerHTML = `<img src="${data}" alt="预览" draggable="false" style="pointer-events: none;" />`;
                     el.querySelector(`#${id}-controls`).style.display = 'flex';
                     showResolutionBadge(id, data);
                 } else if (type === 'ImageSave') {
                     const savePreview = el.querySelector(`#${id}-save-preview`);
-                    savePreview.innerHTML = `<img src="${data}" alt="待保存" draggable="false" />`;
+                    savePreview.innerHTML = `<img src="${data}" alt="待保存" draggable="false" style="pointer-events: none;" />`;
                     showResolutionBadge(id, data);
                 }
             }
@@ -984,24 +1056,28 @@ function addNode(type, x, y, restoreData) {
         scheduleSave();
     });
 
-    // Resize handle — both width and height (Ghost outlining)
+    // Resize handle — both width and height (Direct Real-time Scaling)
     el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => {
         e.stopPropagation(); e.preventDefault();
-        state.resizing = { nodeId: id, startX: e.clientX, startY: e.clientY, startWidth: el.offsetWidth, startHeight: el.offsetHeight, newWidth: el.offsetWidth, newHeight: el.offsetHeight };
         
-        let ghost = document.getElementById('resize-ghost');
-        if (!ghost) {
-            ghost = document.createElement('div');
-            ghost.id = 'resize-ghost';
-            nodesLayer.appendChild(ghost);
-        }
-        const nodeData = state.nodes.get(id);
-        ghost.style.left = nodeData.x + 'px';
-        ghost.style.top = nodeData.y + 'px';
-        ghost.style.width = el.offsetWidth + 'px';
-        ghost.style.height = el.offsetHeight + 'px';
-        ghost.style.display = 'block';
+        // Final optimization: Measure 'Natural Footprint' (intrinsic size) as the actual floor
+        const oldW = el.style.width;
+        const oldH = el.style.height;
+        el.style.width = '';
+        el.style.height = '';
+        const intrinsicW = el.offsetWidth;
+        const intrinsicH = el.offsetHeight;
+        el.style.width = oldW;
+        el.style.height = oldH;
 
+        state.resizing = { 
+            nodeId: id, 
+            startX: e.clientX, startY: e.clientY, 
+            startWidth: el.offsetWidth, startHeight: el.offsetHeight,
+            minWidth: intrinsicW, 
+            minHeight: intrinsicH
+        };
+        
         el.classList.add('is-interacting');
         document.body.classList.add('is-interacting');
         document.getElementById('connections-group').classList.add('is-interacting');
@@ -1063,6 +1139,7 @@ function addNode(type, x, y, restoreData) {
     if (type === 'ImageImport') setupImageImport(id, el);
     else if (type === 'ImageSave') setupImageSave(id, el);
     else if (type === 'ImagePreview') setupImagePreview(id, el);
+
 
     el.querySelectorAll('input, select, textarea').forEach(input => {
         input.addEventListener('change', () => scheduleSave());
@@ -1160,7 +1237,9 @@ function loadImageFile(nodeId, file) {
         await saveImageAsset(nodeId, data);
         const dropZone = node.el.querySelector(`#${nodeId}-drop`);
         dropZone.classList.add('has-image');
-        dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" />`;
+        // Fix for ImageImport dragging: use pointer-events: none on img so clicks fall through to the node container
+        // and draggable="false" to prevent native browser ghost drags
+        dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
         showResolutionBadge(nodeId, data);
         scheduleSave();
     };
@@ -1332,7 +1411,7 @@ function openFullscreenPreview(src) {
     window.addEventListener('mousemove', function fd(e) { if (!isDragging) return; fsX = e.clientX - dragStart.x; fsY = e.clientY - dragStart.y; updateFsT(); });
     window.addEventListener('mouseup', function fu() { isDragging = false; iw.style.cursor = 'grab'; });
     overlay.querySelector('.fullscreen-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === iw) overlay.remove(); });
     function onEsc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } }
     document.addEventListener('keydown', onEsc);
     requestAnimationFrame(() => overlay.classList.add('active'));
@@ -1495,8 +1574,12 @@ function topologicalSort() {
 async function runWorkflow() {
     if (state.isRunning) return;
     state.isRunning = true;
+    state.abortController = new AbortController();
+    
     const runBtn = document.getElementById('btn-run');
+    const stopBtn = document.getElementById('btn-stop');
     runBtn.classList.add('running'); runBtn.disabled = true;
+    if (stopBtn) { stopBtn.classList.add('running'); stopBtn.disabled = false; }
     
     // Reset all nodes
     for (const [, n] of state.nodes) { 
@@ -1507,7 +1590,15 @@ async function runWorkflow() {
     
     const order = topologicalSort();
     if (!order) { 
-        state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false; return; 
+        finalizeWorkflow();
+        return; 
+    }
+
+    function finalizeWorkflow() {
+        state.isRunning = false;
+        runBtn.classList.remove('running'); runBtn.disabled = false;
+        if (stopBtn) { stopBtn.classList.remove('running'); stopBtn.disabled = true; }
+        state.abortController = null;
     }
 
     // Auto-inject ImageSave nodes
@@ -1542,132 +1633,155 @@ async function runWorkflow() {
     const failedNodes = new Set();
     const runningNodes = new Set();
 
-    while (true) {
-        let hasNewFailuresInRound = false;
-        
-        // Parallel execution loop for this round
+    try {
         while (true) {
-            // Find nodes that are ready (all dependencies completed successfully)
-            const readyNodes = order.filter(nid => {
-                if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
-                const node = state.nodes.get(nid);
-                if (!node || node.enabled === false) { completedNodes.add(nid); return false; }
-                
-                const deps = state.connections.filter(c => c.to.nodeId === nid).map(c => c.from.nodeId);
-                return deps.every(dnid => completedNodes.has(dnid));
-            });
+            let hasNewFailuresInRound = false;
+            
+            // Parallel execution loop for this round
+            while (true) {
+                if (!state.isRunning) break;
 
-            if (readyNodes.length === 0 && runningNodes.size === 0) break;
-
-            if (readyNodes.length > 0) {
-                readyNodes.forEach(nid => {
-                    runningNodes.add(nid);
+                // Find nodes that are ready (all dependencies completed successfully)
+                const readyNodes = order.filter(nid => {
+                    if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
                     const node = state.nodes.get(nid);
-                    const nodeTitle = NODE_CONFIGS[node.type].title;
+                    if (!node || node.enabled === false) { completedNodes.add(nid); return false; }
                     
-                    (async () => {
-                        node.el.classList.add('running');
-                        node.el.classList.remove('completed', 'error');
-                        const timeBadge = document.getElementById(`${nid}-time`);
-                        const startTime = Date.now();
-                        let timerId = null;
-                        if (timeBadge) {
-                            timerId = setInterval(() => {
-                                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                                timeBadge.textContent = `${elapsed}s`;
-                            }, 100);
-                        }
-
-                        try {
-                            const inputs = {};
-                            for (const c of state.connections.filter(c => c.to.nodeId === nid)) {
-                                const fn = state.nodes.get(c.from.nodeId);
-                                if (fn && fn.data[c.from.port] !== undefined) inputs[c.to.port] = fn.data[c.from.port];
-                            }
-
-                            await executeNode(node, inputs);
-                            
-                            const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
-                            node.isSucceeded = true;
-                            node.el.classList.remove('running');
-                            node.el.classList.add('completed');
-                            if (timeBadge) timeBadge.textContent = `${durationSec}s`;
-                            addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
-                            
-                            completedNodes.add(nid);
-                        } catch (err) {
-                            hasNewFailuresInRound = true;
-                            node.el.classList.remove('running');
-                            node.el.classList.add('error');
-                            const errorMsg = err.message || '未知错误';
-                            if (timeBadge) timeBadge.textContent = 'Err';
-                            addLog('error', `节点失败: ${nodeTitle}`, errorMsg, { nodeId: nid, error: err.stack || err });
-                            
-                            failedNodes.add(nid);
-
-                            if (!state.autoRetry) {
-                                showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
-                                state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
-                                // In non-retry mode, we stop everything, though other branches might still be running
-                                // but we won't launch new ones.
-                            }
-                        } finally {
-                            if (timerId) clearInterval(timerId);
-                            runningNodes.delete(nid);
-                        }
-                    })();
+                    const deps = state.connections.filter(c => c.to.nodeId === nid).map(c => c.from.nodeId);
+                    return deps.every(dnid => completedNodes.has(dnid));
                 });
+
+                if (readyNodes.length === 0 && runningNodes.size === 0) break;
+
+                if (readyNodes.length > 0) {
+                    readyNodes.forEach(nid => {
+                        runningNodes.add(nid);
+                        const node = state.nodes.get(nid);
+                        const nodeTitle = NODE_CONFIGS[node.type].title;
+                        
+                        (async () => {
+                            node.el.classList.add('running');
+                            node.el.classList.remove('completed', 'error');
+                            const timeBadge = document.getElementById(`${nid}-time`);
+                            const startTime = Date.now();
+                            let timerId = null;
+                            if (timeBadge) {
+                                timerId = setInterval(() => {
+                                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                                    timeBadge.textContent = `${elapsed}s`;
+                                }, 100);
+                            }
+
+                            try {
+                                const inputs = {};
+                                for (const c of state.connections.filter(c => c.to.nodeId === nid)) {
+                                    const fn = state.nodes.get(c.from.nodeId);
+                                    if (fn && fn.data[c.from.port] !== undefined) inputs[c.to.port] = fn.data[c.from.port];
+                                }
+
+                                await executeNode(node, inputs, state.abortController?.signal);
+                                
+                                const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+                                node.isSucceeded = true;
+                                node.el.classList.remove('running');
+                                node.el.classList.add('completed');
+                                if (timeBadge) timeBadge.textContent = `${durationSec}s`;
+                                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
+                                
+                                completedNodes.add(nid);
+                            } catch (err) {
+                                if (err.name === 'AbortError') {
+                                    node.el.classList.remove('running');
+                                    addLog('warning', `节点已中止: ${nodeTitle}`, '用户终止了工作流');
+                                    return;
+                                }
+                                hasNewFailuresInRound = true;
+                                node.el.classList.remove('running');
+                                node.el.classList.add('error');
+                                const errorMsg = err.message || '未知错误';
+                                if (timeBadge) timeBadge.textContent = 'Err';
+                                addLog('error', `节点失败: ${nodeTitle}`, errorMsg, { nodeId: nid, error: err.stack || err });
+                                
+                                failedNodes.add(nid);
+
+                                if (!state.autoRetry) {
+                                    showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
+                                    state.isRunning = false; 
+                                }
+                            } finally {
+                                if (timerId) clearInterval(timerId);
+                                runningNodes.delete(nid);
+                            }
+                        })();
+                    });
+                }
+
+                // Wait a small amount for state changes to propagate and UI to breathe
+                await new Promise(r => setTimeout(r, 100));
+                if (!state.isRunning) break; // User stopped or fatal error
             }
 
-            // Wait a small amount for state changes to propagate and UI to breathe
-            await new Promise(r => setTimeout(r, 100));
-            if (!state.isRunning) break; // User stopped or fatal error
+            if (!state.isRunning) break;
+
+            // Check round results
+            const actualFailures = order.filter(id => {
+                const n = state.nodes.get(id);
+                return n && n.enabled !== false && !n.isSucceeded;
+            });
+
+            if (actualFailures.length === 0) {
+                if (retryAttempt > 0) addLog('success', '工作流并行重试完成', `经过 ${retryAttempt} 次重试后，所有节点已成功执行。`);
+                break;
+            }
+
+            if (!state.autoRetry) break;
+
+            retryAttempt++;
+            if (retryAttempt >= maxRetries) {
+                showToast('已达到最大重试次数 (100)，停止运行', 'error');
+                break;
+            }
+
+            addLog('warning', `自动重试开始 (第 ${retryAttempt} 轮)`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
+            failedNodes.clear(); // Clear failures to allow retry in next round
+            await new Promise(r => setTimeout(r, 1500));
+            if (!state.isRunning) break;
+        }
+    } finally {
+        if (!state.isRunning) {
+            addLog('info', '工作流停止', '用户手动终止了运行流程');
+            // Cleanup UI for any running nodes
+            for (const nid of runningNodes) {
+                const node = state.nodes.get(nid);
+                if (node) node.el.classList.remove('running');
+            }
         }
 
-        if (!state.isRunning) break;
-
-        // Check round results
-        const actualFailures = order.filter(id => {
-            const n = state.nodes.get(id);
-            return n && n.enabled !== false && !n.isSucceeded;
-        });
-
-        if (actualFailures.length === 0) {
-            if (retryAttempt > 0) addLog('success', '工作流并行重试完成', `经过 ${retryAttempt} 次重试后，所有节点已成功执行。`);
-            break;
+        // Wrap up
+        for (const [id, n] of state.nodes) {
+            if (n.type === 'ImageSave' && n.data.image) {
+                const btnSave = n.el.querySelector(`#${id}-manual-save`);
+                const btnView = n.el.querySelector(`#${id}-view-full`);
+                if (btnSave) btnSave.disabled = false;
+                if (btnView) btnView.disabled = false;
+            }
         }
-
-        if (!state.autoRetry) break;
-
-        retryAttempt++;
-        if (retryAttempt >= maxRetries) {
-            showToast('已达到最大重试次数 (100)，停止运行', 'error');
-            break;
+        
+        const wasRunning = state.isRunning;
+        finalizeWorkflow();
+        
+        if (wasRunning) {
+            showToast('工作流运行完成 ✓', 'success');
+            if (Notification.permission === 'granted' && state.notificationsEnabled) {
+                new Notification('CainFlow 运行结束', { body: '所有就绪的流程已并行执行完毕。', icon: 'data:image/svg+xml;base64,...' });
+            }
+        } else {
+            showToast('已停止运行', 'info');
         }
-
-        addLog('warning', `自动重试开始 (第 ${retryAttempt} 轮)`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
-        failedNodes.clear(); // Clear failures to allow retry in next round
-        await new Promise(r => setTimeout(r, 1500));
-    }
-
-    // Wrap up
-    for (const [id, n] of state.nodes) {
-        if (n.type === 'ImageSave' && n.data.image) {
-            const btnSave = n.el.querySelector(`#${id}-manual-save`);
-            const btnView = n.el.querySelector(`#${id}-view-full`);
-            if (btnSave) btnSave.disabled = false;
-            if (btnView) btnView.disabled = false;
-        }
-    }
-    state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
-    showToast('工作流运行完成 ✓', 'success');
-
-    if (Notification.permission === 'granted' && state.notificationsEnabled) {
-        new Notification('CainFlow 运行结束', { body: '所有就绪的流程已并行执行完毕。', icon: 'data:image/svg+xml;base64,...' });
     }
 }
 
-async function executeNode(node, inputs) {
+async function executeNode(node, inputs, signal) {
     const { id, type } = node;
     switch (type) {
         case 'ImageImport': {
@@ -1713,7 +1827,8 @@ async function executeNode(node, inputs) {
             const response = await fetch('/proxy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-target-url': url },
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(requestBody),
+                signal
             });
             if (!response.ok) {
                 const t = await response.text();
@@ -1776,7 +1891,7 @@ async function executeNode(node, inputs) {
                     if (sysprompt) body.systemInstruction = { parts: [{ text: sysprompt }] };
                     
                     const url = `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`;
-                    const res = await fetch('/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-target-url': url }, body: JSON.stringify(body) });
+                    const res = await fetch('/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-target-url': url }, body: JSON.stringify(body), signal });
                     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
                     const json = await res.json();
                     responseText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -1797,7 +1912,8 @@ async function executeNode(node, inputs) {
                     const res = await fetch('/proxy', { 
                         method: 'POST', 
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiCfg.apikey}`, 'x-target-url': url }, 
-                        body: JSON.stringify({ model: modelCfg.modelId, messages }) 
+                        body: JSON.stringify({ model: modelCfg.modelId, messages }),
+                        signal 
                     });
                     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
                     const json = await res.json();
@@ -2030,6 +2146,12 @@ async function restoreHandles() {
 
 // ===== Toolbar =====
 document.getElementById('btn-run').addEventListener('click', runWorkflow);
+document.getElementById('btn-stop').addEventListener('click', () => {
+    if (state.isRunning) {
+        state.isRunning = false;
+        state.abortController?.abort();
+    }
+});
 document.getElementById('toggle-retry')?.addEventListener('change', (e) => {
     state.autoRetry = e.target.checked;
     saveState();
@@ -2097,18 +2219,76 @@ function cloneNodeAt(nodeId, x, y) {
 }
 
 function copySelectedNode() {
-    const selected = Array.from(state.selectedNodes);
-    if (selected.length === 0) return showToast('未选中节点', 'warning');
-    // For now, copy the first selected node for single paste
-    state.clipboard = serializeOneNode(selected[0]);
-    if (state.clipboard) showToast('节点已复制', 'success');
+    const selectedIds = Array.from(state.selectedNodes);
+    if (selectedIds.length === 0) return showToast('未选中节点', 'warning');
+    
+    // Group Serialization: capture all nodes and connections between them
+    const nodes = selectedIds.map(id => serializeOneNode(id)).filter(n => !!n);
+    if (nodes.length === 0) return;
+
+    // Calculate bounding box for mouse-relative placement
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+        minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + (n.width || 240)); maxY = Math.max(maxY, n.y + (n.height || 100));
+    });
+
+    const internalConnections = state.connections.filter(c => 
+        selectedIds.includes(c.from.nodeId) && selectedIds.includes(c.to.nodeId)
+    );
+
+    state.clipboard = {
+        nodes,
+        connections: internalConnections,
+        center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+    };
+    
+    showToast(`已复制 ${nodes.length} 个节点`, 'success');
 }
 
 function pasteNode() {
-    if (!state.clipboard) return showToast('剪贴板为空', 'warning');
-    const data = { ...state.clipboard, id: null };
-    const newId = addNode(data.type, state.mouseCanvas.x, state.mouseCanvas.y, data);
-    if (newId) { selectNode(newId); showToast('节点已粘贴', 'success'); }
+    if (!state.clipboard || !state.clipboard.nodes.length) return showToast('剪贴板为空', 'warning');
+    
+    const mousePos = state.mouseCanvas;
+    const clip = state.clipboard;
+    const idMap = new Map(); // oldId -> newId
+
+    // Clear current selection to focus on pasted ones
+    state.selectedNodes.forEach(nid => {
+        const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected');
+    });
+    state.selectedNodes.clear();
+
+    // Step 1: Instantiate nodes at relative positions
+    clip.nodes.forEach(data => {
+        const offsetX = data.x - clip.center.x;
+        const offsetY = data.y - clip.center.y;
+        const newId = addNode(data.type, mousePos.x + offsetX, mousePos.y + offsetY, { ...data, id: null });
+        if (newId) {
+            idMap.set(data.id, newId);
+            state.selectedNodes.add(newId);
+            state.nodes.get(newId).el.classList.add('selected');
+        }
+    });
+
+    // Step 2: Restore internal connections
+    clip.connections.forEach(c => {
+        const newFromId = idMap.get(c.from.nodeId);
+        const newToId = idMap.get(c.to.nodeId);
+        if (newFromId && newToId) {
+            state.connections.push({
+                id: 'c_' + Math.random().toString(36).substr(2, 9),
+                from: { nodeId: newFromId, port: c.from.port },
+                to: { nodeId: newToId, port: c.to.port },
+                type: c.type
+            });
+        }
+    });
+
+    updateAllConnections();
+    updatePortStyles();
+    scheduleSave();
+    showToast(`已粘贴 ${idMap.size} 个节点`, 'success');
 }
 
 // ===== Shortcuts =====
@@ -2140,6 +2320,14 @@ function initUI() {
         sidebar?.classList.remove('active');
     });
 
+    document.getElementById('btn-clear-history')?.addEventListener('click', async () => {
+        if (confirm('确定要清空所有历史记录吗？此操作无法撤销。')) {
+            await clearHistory();
+            renderHistoryList();
+            showToast('历史记录已清空', 'info');
+        }
+    });
+
     document.getElementById('btn-close-logs')?.addEventListener('click', () => {
         logDrawer?.classList.remove('active');
     });
@@ -2148,6 +2336,20 @@ function initUI() {
         state.logs = [];
         renderLogs();
         showToast('日志已清空', 'info');
+    });
+
+    document.getElementById('btn-copy-error')?.addEventListener('click', () => {
+        const title = document.getElementById('error-modal-title').textContent;
+        const msg = document.getElementById('error-modal-msg').textContent;
+        const detail = document.getElementById('error-modal-detail').textContent;
+        const fullText = `【${title}】\n${msg}\n\n详细信息：\n${detail}`;
+        
+        navigator.clipboard.writeText(fullText).then(() => {
+            showToast('错误信息已复制', 'success');
+        }).catch(err => {
+            console.error('Copy failed:', err);
+            showToast('复制失败', 'error');
+        });
     });
 
     // History Batch Mode
@@ -2589,5 +2791,91 @@ window.addEventListener('keydown', (e) => {
         document.getElementById('history-preview-modal')?.classList.add('hidden');
         document.getElementById('history-sidebar')?.classList.remove('active');
         document.getElementById('log-drawer')?.classList.remove('active');
+    }
+});
+
+window.addEventListener('paste', (e) => {
+    // Stage 1: Immediate Synchronous Scope Entry
+    const active = document.activeElement;
+    const isEditing = ['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable;
+    if (isEditing) return;
+
+    // Stage 2: Atomic Data Capture (Crucial for Chromium stability)
+    const data = e.clipboardData;
+    if (!data) return;
+
+    // Verbose Diagnostic log (visible in F12 console)
+    const items = Array.from(data.items);
+    console.log('--- Clipboard Event Logs ---');
+    console.table(items.map(i => ({ kind: i.kind, type: i.type })));
+
+    const pos = state.mouseCanvas || { 
+        x: (window.innerWidth / 2 - state.canvas.x) / state.canvas.zoom, 
+        y: (window.innerHeight / 2 - state.canvas.y) / state.canvas.zoom 
+    };
+
+    let imageFile = null;
+    let textContent = data.getData('text/plain');
+    let htmlContent = data.getData('text/html');
+
+    // Synchronous Capture Pipeline
+    for (const item of items) {
+        if (item.kind === 'file' && item.type.includes('image')) {
+            imageFile = item.getAsFile();
+            if (imageFile) break;
+        }
+    }
+
+    if (!imageFile && data.files && data.files.length > 0) {
+        for (const f of data.files) {
+            if (f.type.includes('image')) { imageFile = f; break; }
+        }
+    }
+
+    // Stage 3: Immediate Execution
+    if (imageFile) {
+        e.preventDefault();
+        const nodeId = addNode('ImageImport', pos.x, pos.y);
+        if (nodeId) { 
+            loadImageFile(nodeId, imageFile); 
+            showToast('已原子化导入剪切板图片', 'success'); 
+        }
+    } else if (htmlContent && htmlContent.includes('src="data:image')) {
+        const match = htmlContent.match(/src="([^"]+)"/);
+        if (match && match[1].startsWith('data:image')) {
+            e.preventDefault();
+            const nodeId = addNode('ImageImport', pos.x, pos.y);
+            if (nodeId) {
+                const node = state.nodes.get(nodeId);
+                node.imageData = match[1];
+                const dropZone = document.getElementById(`${nodeId}-drop`);
+                if (dropZone) {
+                    dropZone.classList.add('has-image');
+                    dropZone.innerHTML = `<img src="${match[1]}" alt="解析导入" draggable="false" />`;
+                }
+                showResolutionBadge(nodeId, match[1]);
+                showToast('已紧急提取并解析HTML内嵌图', 'success');
+            }
+        }
+    } else if (textContent && textContent.trim().length > 0) {
+        e.preventDefault();
+        const nodeId = addNode('TextInput', pos.x, pos.y);
+        if (nodeId) {
+            const textEl = document.getElementById(`${nodeId}-text`);
+            if (textEl) {
+                textEl.value = textContent;
+                textEl.dispatchEvent(new Event('change'));
+            }
+            showToast('完成剪切板文本原子导入', 'success');
+            scheduleSave();
+        }
+    } else {
+        // Diagnostic failure
+        if (data.types.length === 0) {
+            showToast('浏览器拦截了剪切板访问或剪切板为空 (请点击画布后重试)', 'warning');
+        } else {
+            console.warn('Unsupported clipboard types:', Array.from(data.types));
+            showToast(`不支持的粘贴格式: [${Array.from(data.types).join(', ')}]`, 'warning');
+        }
     }
 });

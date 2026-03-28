@@ -27,6 +27,10 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                 运行
             </button>
+            <button id="btn-stop" class="btn btn-stop" title="强制停止运行" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12"/></svg>
+                停止
+            </button>
             <div class="toolbar-toggle-group" title="开启后，运行失败的节点会自动重新执行直到成功">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-dim); margin-right:4px;">
                     <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
@@ -98,7 +102,7 @@
     </div>
 
     <!-- Canvas -->
-    <div id="canvas-container">
+    <div id="canvas-container" tabindex="0">
         <!-- SVG layer for connections -->
         <svg id="connections-svg">
             <defs>
@@ -168,6 +172,9 @@
                 <h3>生成历史</h3>
             </div>
             <div class="header-right">
+                <button id="btn-clear-history" class="icon-btn" title="清空所有记录">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
                 <button id="btn-history-batch" class="icon-btn" title="批量操作">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
                 </button>
@@ -281,13 +288,17 @@
                 <div class="error-detail-label">详细信息：</div>
                 <pre id="error-modal-detail" class="error-detail-pre"></pre>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end;">
+                <button id="btn-copy-error" class="btn btn-secondary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                    复制错误
+                </button>
                 <button class="btn btn-primary" onclick="closeModal('modal-error')">确定</button>
             </div>
         </div>
     </div>
 
     <div id="selection-box" class="hidden"></div>
-    <script src="index.js?v=2.2"></script>
+    <script src="index.js?v=3.2"></script>
 </body>
 </html>

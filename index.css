@@ -35,6 +35,30 @@
     --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Custom Scrollbar for a premium look */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    border: 1px solid rgba(0,0,0,0.2);
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
 *, *::before, *::after {
     margin: 0;
     padding: 0;
@@ -141,6 +165,13 @@ body {
     transition: all var(--transition);
     color: var(--text-primary);
     background: rgba(255, 255, 255, 0.06);
+    opacity: 1;
+}
+
+.btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+    cursor: not-allowed;
 }
 
 .btn:hover {
@@ -178,6 +209,27 @@ body {
 
 .btn-run.running {
     animation: pulse-run 1.5s ease-in-out infinite;
+}
+
+.btn-stop {
+    background: linear-gradient(135deg, #451a1a, #2a0a0a);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.btn-stop:not(:disabled):hover {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+.btn-stop.running {
+    animation: pulse-stop 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-stop {
+    0%, 100% { box-shadow: 0 0 5px rgba(239, 68, 68, 0.2); }
+    50% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); border-color: rgba(239, 68, 68, 0.4); }
 }
 
 @keyframes pulse-run {
@@ -218,6 +270,7 @@ body {
         radial-gradient(circle, var(--bg-grid-dot) 1px, transparent 1px);
     background-size: 20px 20px;
     background-position: 0 0;
+    outline: none;
 }
 
 #canvas-container.grabbing {
@@ -232,6 +285,22 @@ body {
     height: 100%;
     pointer-events: none;
     z-index: 1;
+}
+
+@keyframes connection-pulse {
+    0% { stroke-opacity: 0.4; stroke-width: 4; filter: drop-shadow(0 0 2px var(--accent-purple)); }
+    50% { stroke-opacity: 1; stroke-width: 6; filter: drop-shadow(0 0 8px var(--accent-purple)); }
+    100% { stroke-opacity: 0.4; stroke-width: 4; filter: drop-shadow(0 0 2px var(--accent-purple)); }
+}
+
+.connection-path {
+    stroke-width: 3;
+    transition: stroke 0.3s, stroke-width 0.3s;
+    pointer-events: none;
+}
+
+.connection-breathing {
+    animation: connection-pulse 2s infinite ease-in-out;
 }
 
 #connections-group path {
@@ -286,14 +355,14 @@ body {
 /* ===== Nodes ===== */
 .node {
     position: absolute;
-    min-width: 220px;
+    min-width: 120px;
     background: transparent; /* Visuals moved to .node-glass-bg */
     border: 1px solid transparent; 
     border-radius: var(--radius-node);
     transition: box-shadow var(--transition);
     cursor: default;
     overflow: visible !important;
-    min-height: 100px;
+    min-height: 60px;
     user-select: none;
     -webkit-user-select: none;
     z-index: 10;
@@ -311,13 +380,20 @@ body {
     -webkit-user-select: auto;
 }
 
-/* Global optimization: during ANY interaction, hide ALL heavy previews and disable blur to maximize FPS */
+/* Global optimization: during ANY interaction, hide HEAVY overlays for max FPS, but keep node content visible */
 body.is-interacting .preview-container img,
 body.is-interacting .save-preview-container img,
 body.is-interacting .chat-response-area,
-body.is-interacting .text-display-box,
-body.is-interacting .file-drop-zone img {
-    visibility: hidden !important;
+body.is-interacting .text-display-box {
+    opacity: 0.7 !important;
+}
+
+/* Ensure images don't steal clicks from the node container (so dragging works everywhere) */
+.file-drop-zone img, 
+.save-preview-container img, 
+.preview-container img {
+    pointer-events: none;
+    user-select: none;
 }
 
 body.is-interacting .node {
@@ -350,9 +426,15 @@ body.is-interacting .node {
     box-shadow: var(--shadow-node-hover);
 }
 
+.node.selected {
+    /* Constant border width regardless of zoom using custom var synced from JS */
+    outline: calc(4px / var(--canvas-zoom, 1)) solid var(--accent-primary);
+    outline-offset: -1px;
+}
+
 .node.selected .node-glass-bg {
-    border-color: var(--accent-purple);
-    box-shadow: var(--shadow-node-hover), 0 0 0 1px var(--accent-purple);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 40px rgba(168, 85, 247, 0.6);
 }
 
 .node.running {
@@ -395,26 +477,16 @@ body.is-interacting .node-glass-bg {
     -webkit-backdrop-filter: none !important;
 }
 
-#resize-ghost {
-    position: absolute;
-    border: 2px dashed var(--accent-purple);
-    background: rgba(168, 85, 247, 0.08);
-    z-index: 9999;
-    pointer-events: none;
-    display: none;
-    border-radius: var(--radius-node);
-}
-
-/* Node resize handle */
+/* Node resize handle — Reduced hitbox to avoid interference with image dragging */
 .node-resize-handle {
     position: absolute;
     bottom: 0;
     right: 0;
-    width: 20px;
-    height: 20px;
+    width: 14px;
+    height: 14px;
     cursor: nwse-resize;
-    z-index: 100;
-    opacity: 0.4;
+    z-index: 50; /* Above glass background but below main ports/interactive content if needed */
+    opacity: 0.3;
     transition: opacity var(--transition);
 }
 
@@ -439,22 +511,9 @@ body.is-interacting .node-glass-bg {
     box-shadow: var(--shadow-node-hover);
 }
 
-.node.selected {
-    /* Styles moved to .node-glass-bg */
-}
-
+/* Legacy styles migrated to .node-glass-bg */
 .node.running {
-    z-index: 1000; /* Keep high z-index for running node */
-    /* Visuals moved to .node-glass-bg */
-}
-
-.node.completed {
-    /* Visuals moved to .node-glass-bg */
-}
-
-
-.node.error {
-    /* Visuals moved to .node-glass-bg */
+    z-index: 1000;
 }
 
 .node-header {
@@ -1610,25 +1669,41 @@ body.is-interacting * {
 }
 
 /* ===== Log Drawer ===== */
+/* Drawer (Sidebar) System */
 .drawer {
     position: fixed;
-    top: 48px;
-    right: -400px;
-    width: 400px;
-    height: calc(100vh - 48px);
-    background: var(--bg-drawer);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: var(--shadow-drawer);
-    z-index: 1500;
+    top: 52px;
+    bottom: 0;
+    right: -320px;
+    width: 320px;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border-color);
+    box-shadow: -10px 0 30px rgba(0,0,0,0.3);
+    z-index: 2000;
+    transition: right var(--transition);
     display: flex;
     flex-direction: column;
-    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
 }
 
 .drawer.active {
     right: 0;
+}
+
+.drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.drawer-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
 }
 
 .drawer-subheader {
@@ -1639,16 +1714,25 @@ body.is-interacting * {
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     font-size: 12px;
     color: var(--text-secondary);
+    flex-shrink: 0;
 }
 
 .drawer-subheader.hidden {
     display: none;
 }
+
+.drawer-content {
+    flex: 1;
+    overflow-y: auto;
+    /* Smooth scroll for modern browsers */
+    scroll-behavior: smooth;
+}
+
 .history-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    padding: 12px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    padding: 8px;
 }
 
 .history-card {
@@ -1660,6 +1744,14 @@ body.is-interacting * {
     overflow: hidden;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.history-card.node.selected {
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+    /* Constant border width regardless of zoom using custom var synced from JS */
+    outline: calc(3px / var(--canvas-zoom, 1)) solid var(--accent-primary);
+    outline-offset: -1px;
+    z-index: 100;
 }
 
 .history-card.selected {
@@ -1742,18 +1834,7 @@ body.is-interacting * {
     background: #ef4444;
 }
 
-.history-card .info-overlay {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 8px;
-    background: linear-gradient(transparent, rgba(0,0,0,0.85));
-    color: white;
-    font-size: 11px;
-    pointer-events: none;
-    opacity: 0.9;
-}
+/* Removed info-overlay styles for cleaner thumbnails */
 
 .preview-viewport {
     width: 100%;
@@ -1817,8 +1898,14 @@ body.is-interacting * {
 .preview-prompt-text {
     flex: 1;
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.5;
     color: var(--text-primary);
+    opacity: 0.9;
+    max-height: 120px;
+    overflow-y: auto;
+    text-align: left;
+    padding-right: 4px;
+    user-select: text !important;
 }
 
 .copy-btn {
@@ -1863,38 +1950,22 @@ body.is-interacting * {
     bottom: 32px;
     left: 50%;
     transform: translateX(-50%);
+    width: 90%;
     max-width: 600px;
-    background: rgba(15, 15, 20, 0.8);
+    background: rgba(15, 15, 20, 0.85);
     backdrop-filter: blur(20px);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: var(--radius-md);
     padding: 16px 24px;
     color: var(--text-primary);
     font-size: 14px;
-    text-align: center;
-    pointer-events: none;
     z-index: 3010;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    pointer-events: auto;
 }
 
-.preview-prompt-text {
-    line-height: 1.5;
-    opacity: 0.9;
-}
 
-.drawer.active {
-    right: 0;
-}
-
-.drawer-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.02);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
+/* Sidebar Component Extras */
 .header-left, .header-right {
     display: flex;
     align-items: center;
@@ -1913,6 +1984,7 @@ body.is-interacting * {
     color: var(--text-dim);
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
 }
 
 .icon-btn svg {
@@ -1930,12 +2002,6 @@ body.is-interacting * {
     background: rgba(255, 255, 255, 0.12);
 }
 
-.drawer-header h3 {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
 .drawer-actions {
     display: flex;
     gap: 8px;
@@ -1949,6 +2015,8 @@ body.is-interacting * {
     flex-direction: column;
     gap: 8px;
 }
+
+/* Consolidated drawer styles moved to top of drawer section */
 
 .log-empty {
     padding: 40px;
@@ -2084,6 +2152,7 @@ body.is-interacting * {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    line-clamp: 2;
     overflow: hidden;
 }
 
