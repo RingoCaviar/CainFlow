@@ -397,7 +397,7 @@ body {
     cursor: default;
     overflow: visible !important;
     min-height: 60px;
-    max-height: 90vh; /* Prevent nodes from being taller than the viewport */
+    max-height: none; /* Removed 90vh limit to allow arbitrary scaling on the infinite canvas */
     user-select: none;
     -webkit-user-select: none;
     z-index: 10;
@@ -1681,7 +1681,7 @@ body.is-interacting * {
     padding: 10px;
     padding-top: 30px; /* Space for the floating copy button */
     min-height: 60px;
-    max-height: 300px;
+    max-height: 2000px; /* Greatly increased to 2K to allow long logs without premature clipping */
     overflow-y: auto;
     font-size: 12px;
     line-height: 1.6;
@@ -1721,6 +1721,31 @@ body.is-interacting * {
     padding: 16px;
 }
 
+/* Make response areas expandable when node is resized */
+.node-chat .node-field:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100px;
+}
+.node-chat .chat-response-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.node-chat .chat-response-area {
+    flex: 1;
+}
+
+.node-text-out .node-field:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.node-text-out .text-display-box {
+    flex: 1;
+}
+
 /* ===== Node: TextInput & TextDisplay ===== */
 .node-text-in .node-header-color {
     background: linear-gradient(90deg, #f59e0b, #d97706);
@@ -1741,7 +1766,7 @@ body.is-interacting * {
     border-radius: var(--radius-sm);
     padding: 10px;
     min-height: 40px;
-    max-height: 250px;
+    max-height: 2000px; /* Greatly increased to 2K */
     overflow-y: auto;
     font-size: 13px;
     line-height: 1.5;

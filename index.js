@@ -596,8 +596,8 @@ window.addEventListener('mousemove', (e) => {
             const body = node.el.querySelector('.node-body');
             if (body) body.style.maxHeight = 'none';
             
-            // Remove max-height caps on image containers so they fill the space
-            node.el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone').forEach(c => {
+            // Remove max-height caps on containers so they fill the space
+            node.el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone, .chat-response-area, .text-display-box').forEach(c => {
                 c.style.maxHeight = 'none';
             });
             
@@ -1169,8 +1169,8 @@ function addNode(type, x, y, restoreData, silent = false) {
         const oldW = el.style.width;
         const oldH = el.style.height;
         
-        // Temporarily constrain image containers to small max-heights for compact measurement
-        const containers = el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone');
+        // Temporarily constrain expandable containers to small max-heights for compact measurement
+        const containers = el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone, .chat-response-area, .text-display-box');
         const oldMaxHeights = [];
         containers.forEach(c => {
             oldMaxHeights.push(c.style.maxHeight);
