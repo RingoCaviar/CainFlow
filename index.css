@@ -72,8 +72,12 @@ body {
     overflow: hidden;
     width: 100vw;
     height: 100vh;
+    height: 100vh;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-font-smoothing: subpixel-antialiased;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: geometricPrecision;
 }
 
 /* ===== Toolbar ===== */
@@ -312,22 +316,21 @@ body {
 }
 
 .connection-path {
+    stroke: #33334d; /* Baseline gray */
     stroke-width: 1.5;
-    transition: stroke 0.3s, stroke-width 0.2s, filter 0.2s;
+    stroke-opacity: 0.4;
+    transition: stroke-width 0.2s, stroke-opacity 0.2s;
     pointer-events: none;
     fill: none;
 }
 
 .connection-path.selected {
+    stroke: #a855f7 !important; /* Force solid purple for selection as requested */
     stroke-width: 3.5;
     stroke-opacity: 1;
-    filter: drop-shadow(0 0 6px var(--accent-purple)); /* Default glow, will be overridden by JS if needed */
+    filter: none !important; /* Remove all glow effects */
     z-index: 10;
 }
-
-/* Specific glows based on port type if needed */
-.connection-path.selected[stroke*="image"] { filter: drop-shadow(0 0 6px var(--accent-purple)); }
-.connection-path.selected[stroke*="text"] { filter: drop-shadow(0 0 6px var(--accent-cyan)); }
 
 .connection-breathing {
     animation: connection-pulse 2s infinite ease-in-out;
@@ -336,10 +339,9 @@ body {
 #connections-group path {
     stroke-width: 2.5;
     fill: none;
-    filter: url(#glow);
     pointer-events: stroke;
     cursor: pointer;
-    transition: stroke-width 0.15s ease;
+    transition: stroke-width 0.15s ease, filter 0.1s ease;
 }
 
 #connections-group.is-interacting path {
@@ -349,6 +351,7 @@ body {
 
 #connections-group path:hover {
     stroke-width: 4;
+    filter: url(#glow);
 }
 
 #connections-group.is-dragging {
@@ -380,6 +383,7 @@ body {
     width: 0;
     height: 0;
     z-index: 2;
+    will-change: transform;
 }
 
 /* ===== Nodes ===== */
@@ -399,13 +403,6 @@ body {
     z-index: 10;
     display: flex;
     flex-direction: column;
-    
-    /* Modern Performance Stack */
-    contain: none;
-    content-visibility: auto;
-    contain-intrinsic-size: 220px 300px;
-    will-change: transform;
-    transform: translateZ(0);
 }
 
 .node input, .node textarea, .node select, [contenteditable="true"] {
@@ -447,7 +444,6 @@ body.is-interacting .node {
 
 /* Specific optimization for the node being dragged: hardware acceleration and Z-index boost */
 .node.is-interacting {
-    will-change: left, top;
     z-index: 9999;
 }
 

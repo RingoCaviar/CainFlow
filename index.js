@@ -400,6 +400,8 @@ const state = {
     ],
     logs: [],
     justDragged: false,
+    isInteracting: false,
+    zoomTimer: null,
     abortController: null
 };
 
@@ -417,7 +419,8 @@ const contextMenu = document.getElementById('context-menu');
 // ===== Canvas System =====
 function updateCanvasTransform() {
     const { x, y, zoom } = state.canvas;
-    nodesLayer.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+    // Use translate3d to force a more robust rendering context during scale changes
+    nodesLayer.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`;
     nodesLayer.style.transformOrigin = '0 0';
     // Sync zoom level to CSS for resolution-independent borders
     nodesLayer.style.setProperty('--canvas-zoom', zoom);
@@ -696,6 +699,38 @@ window.addEventListener('mouseup', (e) => {
 
 canvasContainer.addEventListener('wheel', (e) => {
     e.preventDefault();
+    
+    // Add interaction class to disable heavy blurs during zoom
+    if (!state.isInteracting) {
+        state.isInteracting = true;
+        document.body.classList.add('is-interacting');
+        document.getElementById('connections-group').classList.add('is-interacting');
+    }
+    
+    // Reset timer to remove interaction class
+    clearTimeout(state.zoomTimer);
+    state.zoomTimer = setTimeout(() => {
+        // Step 1: Ensure final transform is applied while interaction state is still active (no blurs)
+        // This ensures the browser rasterizes the text sharply at the final scale
+        updateCanvasTransform();
+        
+        requestAnimationFrame(() => {
+            // Step 2: Direct nudge to force a compositor refresh if needed
+            // Slightly nudge the layer and update connections to wake up the renderer
+            updateCanvasTransform();
+            
+            requestAnimationFrame(() => {
+                // Step 3: Now that text is sharp, restore the backdrop filters and transitions
+                state.isInteracting = false;
+                document.body.classList.remove('is-interacting');
+                document.getElementById('connections-group').classList.remove('is-interacting');
+                
+                // Final sync to ensure everything is perfectly aligned with the restored layout
+                updateCanvasTransform();
+            });
+        });
+    }, 250); // Slightly more delay to allow the browser to finish its layout work
+
     const rect = canvasContainer.getBoundingClientRect();
     const mx = e.clientX - rect.left, my = e.clientY - rect.top;
     const oldZoom = state.canvas.zoom;
@@ -703,7 +738,14 @@ canvasContainer.addEventListener('wheel', (e) => {
     state.canvas.x = mx - (mx - state.canvas.x) * (newZoom / oldZoom);
     state.canvas.y = my - (my - state.canvas.y) * (newZoom / oldZoom);
     state.canvas.zoom = newZoom;
-    updateCanvasTransform();
+    
+    // Use RAF for the intermediate zoom transforms to maintain frame alignment
+    if (!state._zoomRaf) {
+        state._zoomRaf = requestAnimationFrame(() => {
+            updateCanvasTransform();
+            state._zoomRaf = null;
+        });
+    }
 }, { passive: false });
 
 // ===== Context Menu =====
@@ -1604,17 +1646,10 @@ function updateAllConnections() {
 
         const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
         
-        if (path) {
-            path.setAttribute('d', pathStr);
-            if (isSelected) path.classList.add('selected');
-            else path.classList.remove('selected');
-        } else {
+        if (!path) {
             path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             path.setAttribute('data-conn-id', conn.id);
-            path.setAttribute('d', pathStr);
             path.classList.add('connection-path');
-            if (isSelected) path.classList.add('selected');
-            path.setAttribute('stroke', `url(#conn-gradient-${conn.type || 'image'})`);
             path.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 state.connections = state.connections.filter(c => c.id !== conn.id);
@@ -1622,6 +1657,16 @@ function updateAllConnections() {
                 showToast('连接已删除', 'info'); scheduleSave();
             });
             connectionsGroup.appendChild(path);
+        }
+
+        path.setAttribute('d', pathStr);
+        // Let CSS classes and !important rules handle all stroke colors and effects
+        if (isSelected) {
+            path.classList.add('selected');
+            path.removeAttribute('stroke');
+        } else {
+            path.classList.remove('selected');
+            path.removeAttribute('stroke');
         }
     }
 }
@@ -2278,18 +2323,26 @@ document.getElementById('import-file').addEventListener('change', (e) => {
     if (e.target.files[0]) importWorkflow(e.target.files[0]);
 });
 document.getElementById('btn-zoom-in').addEventListener('click', () => {
+    document.body.classList.add('is-interacting');
     const nz = Math.min(5, state.canvas.zoom * 1.2), cx = canvasContainer.clientWidth / 2, cy = canvasContainer.clientHeight / 2;
     state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
     state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
     state.canvas.zoom = nz; updateCanvasTransform();
+    setTimeout(() => document.body.classList.remove('is-interacting'), 300);
 });
 document.getElementById('btn-zoom-out').addEventListener('click', () => {
+    document.body.classList.add('is-interacting');
     const nz = Math.max(0.1, state.canvas.zoom * 0.8), cx = canvasContainer.clientWidth / 2, cy = canvasContainer.clientHeight / 2;
     state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
     state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
     state.canvas.zoom = nz; updateCanvasTransform();
+    setTimeout(() => document.body.classList.remove('is-interacting'), 300);
 });
-document.getElementById('btn-zoom-reset').addEventListener('click', () => { state.canvas.x = 0; state.canvas.y = 0; state.canvas.zoom = 1; updateCanvasTransform(); });
+document.getElementById('btn-zoom-reset').addEventListener('click', () => { 
+    document.body.classList.add('is-interacting');
+    state.canvas.x = 0; state.canvas.y = 0; state.canvas.zoom = 1; updateCanvasTransform(); 
+    setTimeout(() => document.body.classList.remove('is-interacting'), 300);
+});
 document.getElementById('btn-clear').addEventListener('click', () => {
     if (state.nodes.size === 0) return;
     if (confirm('确定要清除所有节点和连接吗？')) {
