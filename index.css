@@ -287,21 +287,19 @@ body {
 .node {
     position: absolute;
     min-width: 220px;
-    background: var(--bg-node);
-    border: 1px solid var(--border-node);
+    background: transparent; /* Visuals moved to .node-glass-bg */
+    border: 1px solid transparent; 
     border-radius: var(--radius-node);
-    box-shadow: var(--shadow-node);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     transition: box-shadow var(--transition);
     cursor: default;
-    overflow: visible;
+    overflow: visible !important;
     min-height: 100px;
     user-select: none;
     -webkit-user-select: none;
+    z-index: 10;
     
     /* Modern Performance Stack */
-    contain: layout; /* Isolate layout from rest of DOM */
+    contain: none; /* Was layout, causing some clipping in accelerated modes */
     content-visibility: auto; /* Skip rendering when off-screen */
     contain-intrinsic-size: 220px 300px; /* Placeholder size for off-screen */
     will-change: transform; /* Hardware acceleration hint */
@@ -332,6 +330,67 @@ body.is-interacting .node {
 .node.is-interacting {
     will-change: left, top;
     z-index: 9999;
+}
+
+.node-glass-bg {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-node);
+    border: 1px solid var(--border-node);
+    border-radius: var(--radius-node);
+    box-shadow: var(--shadow-node);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: -1; /* Behind all content and ports */
+    pointer-events: none;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.node:hover .node-glass-bg {
+    box-shadow: var(--shadow-node-hover);
+}
+
+.node.selected .node-glass-bg {
+    border-color: var(--accent-purple);
+    box-shadow: var(--shadow-node-hover), 0 0 0 1px var(--accent-purple);
+}
+
+.node.running {
+    z-index: 1000 !important;
+    /* Super-aggressive multi-stack glow on the root element */
+    box-shadow: 
+        0 0 40px 10px rgba(34, 211, 238, 0.6),
+        0 0 80px 20px rgba(34, 211, 238, 0.3) !important;
+    filter: drop-shadow(0 0 20px rgba(34, 211, 238, 1)) !important;
+    animation: node-running-super-glow 0.8s ease-in-out infinite !important;
+}
+
+@keyframes node-running-super-glow {
+    0%, 100% { 
+        box-shadow: 0 0 30px 5px rgba(34, 211, 238, 0.5), 0 0 60px 15px rgba(34, 211, 238, 0.2) !important;
+        transform: scale(1);
+    }
+    50% { 
+        box-shadow: 0 0 60px 20px rgba(34, 211, 238, 0.9), 0 0 120px 40px rgba(34, 211, 238, 0.5) !important;
+        transform: scale(1.04);
+    }
+}
+
+.node.running .node-glass-bg {
+    border-color: #22d3ee !important;
+    border-width: 2px !important;
+}
+
+.node.completed .node-glass-bg {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+
+.node.error .node-glass-bg {
+    border-color: var(--accent-red);
+}
+
+body.is-interacting .node-glass-bg {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }
@@ -381,31 +440,21 @@ body.is-interacting .node {
 }
 
 .node.selected {
-    border-color: var(--accent-purple);
-    box-shadow: var(--shadow-node-hover), 0 0 0 1px var(--accent-purple);
+    /* Styles moved to .node-glass-bg */
 }
 
 .node.running {
-    border-color: var(--accent-cyan);
-    box-shadow: 0 0 20px rgba(34, 211, 238, 0.4), 0 0 40px rgba(34, 211, 238, 0.1);
-    animation: node-running-glow 1.5s ease-in-out infinite;
-    z-index: 1000;
-}
-
-@keyframes node-running-glow {
-    0%, 100% { box-shadow: 0 0 15px rgba(34, 211, 238, 0.3), 0 0 30px rgba(34, 211, 238, 0.1); }
-    50% { box-shadow: 0 0 30px rgba(34, 211, 238, 0.7), 0 0 60px rgba(34, 211, 238, 0.2); }
+    z-index: 1000; /* Keep high z-index for running node */
+    /* Visuals moved to .node-glass-bg */
 }
 
 .node.completed {
-    border-color: var(--accent-green);
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
-    transition: all 0.5s ease;
+    /* Visuals moved to .node-glass-bg */
 }
 
 
 .node.error {
-    border-color: var(--accent-red);
+    /* Visuals moved to .node-glass-bg */
 }
 
 .node-header {
@@ -545,6 +594,9 @@ body.is-interacting .node {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow: visible;
+    position: relative;
+    z-index: 1;
 }
 
 .node-field {
@@ -632,35 +684,35 @@ body.is-interacting .node {
     padding: 4px 0;
     display: flex;
     align-items: center;
+    gap: 10px; /* Space between dot and text as requested */
 }
 
 .node-port.input {
-    padding-left: 4px;
+    justify-content: flex-start;
 }
 
 .node-port.output {
     justify-content: flex-end;
-    padding-right: 4px;
 }
 
 .port-dot {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     border: 2px solid;
     background: var(--bg-node);
     transition: all var(--transition);
     flex-shrink: 0;
-    position: absolute;
-    z-index: 5;
+    position: relative; /* No longer absolute to avoid edge clipping */
+    z-index: 100;
 }
 
 .node-port.input .port-dot {
-    left: -20px;
+    margin-left: -5px; /* Offset just enough to align nicely inside */
 }
 
 .node-port.output .port-dot {
-    right: -20px;
+    margin-right: -5px;
 }
 
 .port-dot.type-image {
@@ -827,6 +879,7 @@ body.is-interacting .node {
     display: flex;
     gap: 4px;
     justify-content: center;
+    margin-top: 4px;
 }
 
 .preview-ctrl-btn {

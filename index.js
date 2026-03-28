@@ -90,20 +90,46 @@ function dataURLtoBlob(dataUrl) {
     return new Blob([u8arr], { type: mime });
 }
 
+function sanitizeDetails(details) {
+    if (!details) return null;
+    if (typeof details === 'string') {
+        if (details.startsWith('data:image/') && details.length > 500) return '[图片数据已隐藏以优化性能]';
+        return details.length > 2000 ? details.substring(0, 2000) + '... [已截断]' : details;
+    }
+    if (typeof details === 'object') {
+        try {
+            const copy = JSON.parse(JSON.stringify(details));
+            const traverse = (obj) => {
+                for (const key in obj) {
+                    if (typeof obj[key] === 'string' && obj[key].length > 500) {
+                        if (obj[key].startsWith('data:image/')) obj[key] = '[图片数据已隐藏]';
+                        else obj[key] = obj[key].substring(0, 500) + '... [已截断]';
+                    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                        traverse(obj[key]);
+                    }
+                }
+            };
+            traverse(copy);
+            return JSON.stringify(copy, null, 2);
+        } catch (e) { return '[无法序列化的详细信息]'; }
+    }
+    return details;
+}
+
 function addLog(type, title, message, details = null) {
     const log = {
         id: 'log_' + Date.now() + Math.random().toString(36).substr(2, 5),
         time: new Date().toLocaleTimeString(),
-        type, // 'success' | 'error' | 'info'
+        type, // 'success' | 'error' | 'info' | 'warning'
         title,
         message,
-        details: details ? (typeof details === 'object' ? JSON.stringify(details, null, 2) : details) : null
+        details: sanitizeDetails(details)
     };
     state.logs.unshift(log);
     if (state.logs.length > 50) state.logs.pop();
     renderLogs();
     
-    if (type === 'error') {
+    if (type === 'error' && !state.autoRetry) {
         showErrorModal(title, message, log.details);
     }
 }
@@ -117,7 +143,7 @@ function renderLogs() {
     list.innerHTML = state.logs.map(log => `
         <div class="log-item ${log.type}" onclick="showLogDetail('${log.id}')">
             <div class="log-item-header">
-                <span class="log-status">${log.type === 'success' ? '成功' : (log.type === 'error' ? '错误' : '信息')}</span>
+                <span class="log-status">${log.type === 'success' ? '成功' : (log.type === 'error' ? '错误' : (log.type === 'warning' ? '警告' : '信息'))}</span>
                 <span class="log-time">${log.time}</span>
             </div>
             <div class="log-title">${log.title}</div>
@@ -302,6 +328,7 @@ const state = {
     contextMenu: { x: 0, y: 0 },
     isRunning: false,
     notificationsEnabled: false,
+    autoRetry: false,
     clipboard: null,
     mouseCanvas: { x: 0, y: 0 },
     selectedNodes: new Set(),
@@ -662,6 +689,7 @@ function addNode(type, x, y, restoreData) {
     if (restoreData && restoreData.height) el.style.height = restoreData.height + 'px';
 
     let html = `
+        <div class="node-glass-bg"></div>
         <div class="node-header">
             <div class="node-header-color"></div>
             <div class="header-left">
@@ -1469,11 +1497,20 @@ async function runWorkflow() {
     state.isRunning = true;
     const runBtn = document.getElementById('btn-run');
     runBtn.classList.add('running'); runBtn.disabled = true;
-    for (const [, n] of state.nodes) { n.el.classList.remove('completed', 'error', 'running'); n.data = {}; }
+    
+    // Reset all nodes
+    for (const [, n] of state.nodes) { 
+        n.el.classList.remove('completed', 'error', 'running'); 
+        n.data = {}; 
+        n.isSucceeded = false;
+    }
+    
     const order = topologicalSort();
-    if (!order) { state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false; return; }
+    if (!order) { 
+        state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false; return; 
+    }
 
-    // Auto-inject ImageSave nodes for unconnected ImageGenerate nodes
+    // Auto-inject ImageSave nodes
     let injected = false;
     for (const nid of order) {
         const node = state.nodes.get(nid);
@@ -1484,12 +1521,7 @@ async function runWorkflow() {
                 const nodeWidth = rect.width || 240; 
                 const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
                 if (saveId) {
-                    state.connections.push({
-                        id: 'conn_' + generateId(),
-                        from: { nodeId: nid, port: 'image', type: 'image' },
-                        to: { nodeId: saveId, port: 'image', type: 'image' },
-                        type: 'image'
-                    });
+                    state.connections.push({ id: 'conn_' + generateId(), from: { nodeId: nid, port: 'image', type: 'image' }, to: { nodeId: saveId, port: 'image', type: 'image' }, type: 'image' });
                     injected = true;
                     addLog('info', '自动注入节点', `为「${NODE_CONFIGS[node.type].title}」自动添加了图片保存节点`);
                 }
@@ -1497,80 +1529,128 @@ async function runWorkflow() {
         }
     }
     if (injected) {
-        updateAllConnections();
-        updatePortStyles();
-        // Since we added nodes, let's re-sort or just assume ImageSave is after its parent (it is)
-        // Actually, better to re-run topologicalSort if we added nodes that might be needed in order
-        // but ImageSave is always a leaf. So the current order (which includes all nodes) is mostly fine, 
-        // BUT the new node is NOT in the current 'order' array.
-        // Let's re-sort to be safe and include the new node.
+        updateAllConnections(); updatePortStyles();
         const newOrder = topologicalSort();
         if (newOrder) order.splice(0, order.length, ...newOrder);
     }
 
-    addLog('info', '工作流启动', `开始运行 ${order.length} 个节点...`);
-    for (const nid of order) {
-        const node = state.nodes.get(nid);
-        if (!node) continue;
-        node.el.classList.add('running');
-        const nodeTitle = NODE_CONFIGS[node.type].title;
-        try {
-            const inputs = {};
-            for (const c of state.connections.filter(c => c.to.nodeId === nid)) {
-                const fn = state.nodes.get(c.from.nodeId);
-                if (fn && fn.data[c.from.port] !== undefined) inputs[c.to.port] = fn.data[c.from.port];
-            }
-            const timeBadge = document.getElementById(`${nid}-time`);
-            if (node.enabled === false) {
-                addLog('info', `跳过禁用节点: ${nodeTitle}`, '该节点已被手动禁用');
-                node.el.classList.add('completed');
-                if (timeBadge) timeBadge.textContent = 'Skip';
-                continue;
-            }
+    addLog('info', '并发工作流启动', `开始运行 ${order.length} 个节点...`);
 
-            const startTime = Date.now();
-            let timerId = null;
-            if (timeBadge) {
-                timerId = setInterval(() => {
-                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                    timeBadge.textContent = `${elapsed}s`;
-                }, 100);
-            }
+    let retryAttempt = 0;
+    const maxRetries = 100;
+    const completedNodes = new Set();
+    const failedNodes = new Set();
+    const runningNodes = new Set();
 
-            try {
-                await executeNode(node, inputs);
-            } finally {
-                if (timerId) clearInterval(timerId);
-            }
+    while (true) {
+        let hasNewFailuresInRound = false;
+        
+        // Parallel execution loop for this round
+        while (true) {
+            // Find nodes that are ready (all dependencies completed successfully)
+            const readyNodes = order.filter(nid => {
+                if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
+                const node = state.nodes.get(nid);
+                if (!node || node.enabled === false) { completedNodes.add(nid); return false; }
+                
+                const deps = state.connections.filter(c => c.to.nodeId === nid).map(c => c.from.nodeId);
+                return deps.every(dnid => completedNodes.has(dnid));
+            });
 
-            const durationMs = Date.now() - startTime;
-            const durationSec = (durationMs / 1000).toFixed(2);
-            node.el.classList.remove('running'); node.el.classList.add('completed');
-            
-            // Update time badge
-            if (timeBadge) timeBadge.textContent = `${durationSec}s`;
+            if (readyNodes.length === 0 && runningNodes.size === 0) break;
 
-            addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
-        } catch (err) {
-            node.el.classList.remove('running'); node.el.classList.add('error');
-            const errorMsg = err.message || '未知错误';
-            const timeBadge = document.getElementById(`${nid}-time`);
-            if (timeBadge) timeBadge.textContent = 'Err';
-            addLog('error', `节点失败: ${nodeTitle}`, errorMsg, { nodeId: nid, error: err.stack || err });
-            showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
-            
-            if (state.notificationsEnabled && Notification.permission === 'granted') {
-                new Notification('CainFlow 运行失败', {
-                    body: `节点「${nodeTitle}」执行出错: ${errorMsg}`,
-                    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNlZjQ0NDQiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWdvbiBwb2ludHM9IjcuODYgMiAxNi4xNCAyIDIyIDcuODYgMjIgMTYuMTQgMTYuMTQgMjIgNy44NiAyMiAyIDExLjE0IDIgNy44NiA3Ljg2IDIiPjwvcG9seWdvbj48bGluZSB4MT0iMTIiIHkxPSI4IiB4Mj0iMTIiIHkyPSIxMiI+PC9saW5lPjxsaW5lIHgxPSIxMiIgeTE9IjE2IiB4Mj0iMTIuMDEiIHkyPSIxNiI+PC9saW5lPjwvc3ZnPg==',
-                    tag: 'cainflow-error'
+            if (readyNodes.length > 0) {
+                readyNodes.forEach(nid => {
+                    runningNodes.add(nid);
+                    const node = state.nodes.get(nid);
+                    const nodeTitle = NODE_CONFIGS[node.type].title;
+                    
+                    (async () => {
+                        node.el.classList.add('running');
+                        node.el.classList.remove('completed', 'error');
+                        const timeBadge = document.getElementById(`${nid}-time`);
+                        const startTime = Date.now();
+                        let timerId = null;
+                        if (timeBadge) {
+                            timerId = setInterval(() => {
+                                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                                timeBadge.textContent = `${elapsed}s`;
+                            }, 100);
+                        }
+
+                        try {
+                            const inputs = {};
+                            for (const c of state.connections.filter(c => c.to.nodeId === nid)) {
+                                const fn = state.nodes.get(c.from.nodeId);
+                                if (fn && fn.data[c.from.port] !== undefined) inputs[c.to.port] = fn.data[c.from.port];
+                            }
+
+                            await executeNode(node, inputs);
+                            
+                            const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+                            node.isSucceeded = true;
+                            node.el.classList.remove('running');
+                            node.el.classList.add('completed');
+                            if (timeBadge) timeBadge.textContent = `${durationSec}s`;
+                            addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
+                            
+                            completedNodes.add(nid);
+                        } catch (err) {
+                            hasNewFailuresInRound = true;
+                            node.el.classList.remove('running');
+                            node.el.classList.add('error');
+                            const errorMsg = err.message || '未知错误';
+                            if (timeBadge) timeBadge.textContent = 'Err';
+                            addLog('error', `节点失败: ${nodeTitle}`, errorMsg, { nodeId: nid, error: err.stack || err });
+                            
+                            failedNodes.add(nid);
+
+                            if (!state.autoRetry) {
+                                showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
+                                state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
+                                // In non-retry mode, we stop everything, though other branches might still be running
+                                // but we won't launch new ones.
+                            }
+                        } finally {
+                            if (timerId) clearInterval(timerId);
+                            runningNodes.delete(nid);
+                        }
+                    })();
                 });
             }
 
-            state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
-            return; // Stop execution on error
+            // Wait a small amount for state changes to propagate and UI to breathe
+            await new Promise(r => setTimeout(r, 100));
+            if (!state.isRunning) break; // User stopped or fatal error
         }
+
+        if (!state.isRunning) break;
+
+        // Check round results
+        const actualFailures = order.filter(id => {
+            const n = state.nodes.get(id);
+            return n && n.enabled !== false && !n.isSucceeded;
+        });
+
+        if (actualFailures.length === 0) {
+            if (retryAttempt > 0) addLog('success', '工作流并行重试完成', `经过 ${retryAttempt} 次重试后，所有节点已成功执行。`);
+            break;
+        }
+
+        if (!state.autoRetry) break;
+
+        retryAttempt++;
+        if (retryAttempt >= maxRetries) {
+            showToast('已达到最大重试次数 (100)，停止运行', 'error');
+            break;
+        }
+
+        addLog('warning', `自动重试开始 (第 ${retryAttempt} 轮)`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
+        failedNodes.clear(); // Clear failures to allow retry in next round
+        await new Promise(r => setTimeout(r, 1500));
     }
+
+    // Wrap up
     for (const [id, n] of state.nodes) {
         if (n.type === 'ImageSave' && n.data.image) {
             const btnSave = n.el.querySelector(`#${id}-manual-save`);
@@ -1582,14 +1662,8 @@ async function runWorkflow() {
     state.isRunning = false; runBtn.classList.remove('running'); runBtn.disabled = false;
     showToast('工作流运行完成 ✓', 'success');
 
-    // Trigger System Notification
-    if (state.notificationsEnabled && Notification.permission === 'granted') {
-        new Notification('CainFlow 运行完成', {
-            body: `工作流中的所有节点已顺序执行成功。`,
-            icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyMmM1NWUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjIgMTEuMDhWMTJhMTAgMTAgMCAxIDEtNS45My05LjE0Ij48L3BhdGg+PHBvbHlsaW5lIHBvaW50cz0iMjIgNCAxMiAxNS4wMSA5IDExLjk3Ij48L3BvbHlsaW5lPjwvc3ZnPg==',
-            tag: 'cainflow-finish',
-            renotify: true
-        });
+    if (Notification.permission === 'granted' && state.notificationsEnabled) {
+        new Notification('CainFlow 运行结束', { body: '所有就绪的流程已并行执行完毕。', icon: 'data:image/svg+xml;base64,...' });
     }
 }
 
@@ -1821,7 +1895,8 @@ function saveState() {
             connections: state.connections.map(c => ({ id: c.id, from: c.from, to: c.to, type: c.type })),
             providers: state.providers,
             models: state.models,
-            notificationsEnabled: state.notificationsEnabled
+            notificationsEnabled: state.notificationsEnabled,
+            autoRetry: state.autoRetry
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) { 
@@ -1911,6 +1986,11 @@ async function loadState() {
             const toggle = document.getElementById('toggle-notifications');
             if (toggle) toggle.checked = state.notificationsEnabled;
         }
+        if (data.autoRetry !== undefined) {
+            state.autoRetry = data.autoRetry;
+            const toggle = document.getElementById('toggle-retry');
+            if (toggle) toggle.checked = state.autoRetry;
+        }
         if (data.canvas) { state.canvas.x = data.canvas.x || 0; state.canvas.y = data.canvas.y || 0; state.canvas.zoom = data.canvas.zoom || 1; }
         if (data.nodes?.length) {
             for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd);
@@ -1950,6 +2030,10 @@ async function restoreHandles() {
 
 // ===== Toolbar =====
 document.getElementById('btn-run').addEventListener('click', runWorkflow);
+document.getElementById('toggle-retry')?.addEventListener('change', (e) => {
+    state.autoRetry = e.target.checked;
+    saveState();
+});
 document.getElementById('btn-save').addEventListener('click', () => {
     saveState();
     showToast('工作流已手动保存', 'success');
