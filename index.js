@@ -399,6 +399,7 @@ const state = {
         { id: 'model_chat', name: '对话', modelId: 'gemini-3-flash-preview', providerId: 'prov_gxp' }
     ],
     logs: [],
+    justDragged: false,
     abortController: null
 };
 
@@ -447,30 +448,13 @@ canvasContainer.addEventListener('mousedown', (e) => {
         }
     }
 
-    if (e.button === 1 || (e.button === 0 && e.target === canvasContainer)) {
-        if (e.ctrlKey) {
-            e.preventDefault(); // Prevents native drag which highlights text
-            state.marquee = { 
-                startX: e.clientX, startY: e.clientY, 
-                endX: e.clientX, endY: e.clientY,
-                initialSelection: new Set(state.selectedNodes)
-            };
-            const box = document.getElementById('selection-box');
-            box.style.left = e.clientX + 'px';
-            box.style.top = e.clientY + 'px';
-            box.style.width = '0px';
-            box.style.height = '0px';
-            box.classList.remove('hidden');
-            return;
-        }
-        // Click on empty canvas without Ctrl -> Clear Selection
-        if (!e.metaKey && !e.shiftKey) {
-            state.selectedNodes.forEach(nid => {
-                const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected');
-            });
-            state.selectedNodes.clear();
-        }
-        
+    // Canvas Logic: Panning vs Selection
+    // Pan: Middle button (1) OR Alt + Left Click (0)
+    const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
+    // Marquee: Left click (0) on background
+    const isMarqueeAction = e.button === 0 && e.target === canvasContainer;
+
+    if (isPanAction) {
         e.preventDefault();
         state.canvas.isPanning = true;
         state.canvas.panStart = { x: e.clientX, y: e.clientY };
@@ -478,6 +462,32 @@ canvasContainer.addEventListener('mousedown', (e) => {
         canvasContainer.classList.add('grabbing');
         document.body.classList.add('is-interacting');
         document.getElementById('connections-group').classList.add('is-panning');
+        return;
+    }
+
+    if (isMarqueeAction) {
+        // Toggle selection logic: Clear if not holding CTRL/SHIFT
+        const isToggle = e.ctrlKey || e.metaKey || e.shiftKey;
+        if (!isToggle) {
+            state.selectedNodes.forEach(nid => {
+                const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected');
+            });
+            state.selectedNodes.clear();
+            updateAllConnections();
+        }
+
+        e.preventDefault(); 
+        state.marquee = { 
+            startX: e.clientX, startY: e.clientY, 
+            endX: e.clientX, endY: e.clientY,
+            initialSelection: new Set(state.selectedNodes)
+        };
+        const box = document.getElementById('selection-box');
+        box.style.left = e.clientX + 'px';
+        box.style.top = e.clientY + 'px';
+        box.style.width = '0px';
+        box.style.height = '0px';
+        box.classList.remove('hidden');
     }
 });
 
@@ -531,6 +541,7 @@ window.addEventListener('mousemove', (e) => {
                 }
             }
         });
+        updateAllConnections();
     }
     if (state.dragging) {
         // Alt+drag clone: on first move with alt held, clone the node
@@ -573,8 +584,19 @@ window.addEventListener('mousemove', (e) => {
             const targetW = r.startWidth + dx;
             const targetH = r.startHeight + dy;
             
-            node.el.style.width = Math.max(targetW, r.minWidth) + 'px';
-            node.el.style.height = Math.max(targetH, r.minHeight) + 'px';
+            const newW = Math.max(targetW, r.minWidth);
+            const newH = Math.max(targetH, r.minHeight);
+            node.el.style.width = newW + 'px';
+            node.el.style.height = newH + 'px';
+            
+            // Remove max-height caps on body during resize so containers can expand
+            const body = node.el.querySelector('.node-body');
+            if (body) body.style.maxHeight = 'none';
+            
+            // Remove max-height caps on image containers so they fill the space
+            node.el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone').forEach(c => {
+                c.style.maxHeight = 'none';
+            });
             
             // Sync wires in real-time
             updateAllConnections();
@@ -619,6 +641,13 @@ window.addEventListener('mouseup', (e) => {
                 }
             }
         });
+
+        const dw = Math.abs(state.marquee.startX - e.clientX);
+        const dh = Math.abs(state.marquee.startY - e.clientY);
+        if (dw > 5 || dh > 5) {
+            state.justDragged = true;
+            setTimeout(() => { state.justDragged = false; }, 100);
+        }
 
         document.getElementById('selection-box').classList.add('hidden');
         state.marquee = null;
@@ -685,7 +714,18 @@ canvasContainer.addEventListener('contextmenu', (e) => {
     contextMenu.style.top = e.clientY + 'px';
     contextMenu.classList.remove('hidden');
 });
-document.addEventListener('click', (e) => { if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden'); });
+document.addEventListener('click', (e) => { 
+    if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden'); 
+    // If clicked on canvas background, we usually clear selection.
+    // Optimization: Skip clearing if we just finished a drag or selection box (state.justDragged)
+    if (e.target.id === 'canvas-container' && !state.justDragged) {
+        state.selectedNodes.forEach(nid => {
+            const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected');
+        });
+        state.selectedNodes.clear();
+        updateAllConnections();
+    }
+});
 document.querySelectorAll('.context-menu-item').forEach(item => {
     item.addEventListener('click', () => {
         const pos = screenToCanvas(state.contextMenu.x, state.contextMenu.y);
@@ -748,7 +788,7 @@ const NODE_CONFIGS = {
 };
 
 // ===== Node Creation =====
-function addNode(type, x, y, restoreData) {
+function addNode(type, x, y, restoreData, silent = false) {
     const config = NODE_CONFIGS[type];
     if (!config) return;
     const id = (restoreData && restoreData.id) ? restoreData.id : generateId();
@@ -849,8 +889,13 @@ function addNode(type, x, y, restoreData) {
             <div class="node-field"><label>提问内容</label>
                 <textarea id="${id}-prompt" placeholder="输入你的问题..." rows="3">${rd.prompt || ''}</textarea></div>
             <div class="node-field"><label>对话回复</label>
-                <div class="chat-response-area" id="${id}-response">
-                    <div class="chat-response-placeholder">运行后显示对话结果</div>
+                <div class="chat-response-wrapper" id="${id}-wrapper">
+                    <button class="chat-copy-btn" id="${id}-copy-btn" title="复制回复内容">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                    <div class="chat-response-area" id="${id}-response">
+                        <div class="chat-response-placeholder">运行后显示对话结果</div>
+                    </div>
                 </div>
             </div>
         `;
@@ -927,6 +972,14 @@ function addNode(type, x, y, restoreData) {
     el.innerHTML = html;
     nodesLayer.appendChild(el);
 
+    // If the node has explicit dimensions from restore/resize, remove max-height caps
+    // so flex containers fill the saved space properly
+    if (restoreData && restoreData.height) {
+        el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone').forEach(c => {
+            c.style.maxHeight = 'none';
+        });
+    }
+
     const nodeData = { 
         id, type, x, y, el, data: {}, imageData: null, previewZoom: 1, 
         width: restoreData?.width || null, height: restoreData?.height || null, 
@@ -970,6 +1023,14 @@ function addNode(type, x, y, restoreData) {
         if (isInteractive) return;
 
         if (target.closest('.node-delete')) return;
+
+        // Ensure canvas focus when clicking a node to receive paste events reliably
+        canvasContainer.focus();
+        
+        // NEW: Prioritize canvas panning for Middle Click (1) or Alt + Left Click (0)
+        // This allows dragging the canvas even when the mouse is over a node.
+        const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
+        if (isPanAction) return;
         
         // Prevent default browser behaviors like drag-and-drop for images and text selection
         e.preventDefault(); 
@@ -1058,24 +1119,44 @@ function addNode(type, x, y, restoreData) {
 
     // Resize handle — both width and height (Direct Real-time Scaling)
     el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => {
+        const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
+        if (isPanAction) return;
         e.stopPropagation(); e.preventDefault();
         
-        // Final optimization: Measure 'Natural Footprint' (intrinsic size) as the actual floor
+        // Measure minimum viable size: temporarily strip explicit sizing and add measurement caps
         const oldW = el.style.width;
         const oldH = el.style.height;
+        
+        // Temporarily constrain image containers to small max-heights for compact measurement
+        const containers = el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone');
+        const oldMaxHeights = [];
+        containers.forEach(c => {
+            oldMaxHeights.push(c.style.maxHeight);
+            c.style.maxHeight = '120px';
+        });
+        const body = el.querySelector('.node-body');
+        const oldBodyMaxH = body ? body.style.maxHeight : '';
+        if (body) body.style.maxHeight = '';
+        
         el.style.width = '';
         el.style.height = '';
         const intrinsicW = el.offsetWidth;
         const intrinsicH = el.offsetHeight;
         el.style.width = oldW;
         el.style.height = oldH;
+        
+        // Restore container max-heights
+        containers.forEach((c, i) => {
+            c.style.maxHeight = oldMaxHeights[i];
+        });
+        if (body) body.style.maxHeight = oldBodyMaxH;
 
         state.resizing = { 
             nodeId: id, 
             startX: e.clientX, startY: e.clientY, 
             startWidth: el.offsetWidth, startHeight: el.offsetHeight,
-            minWidth: intrinsicW, 
-            minHeight: intrinsicH
+            minWidth: Math.max(intrinsicW, 120), 
+            minHeight: Math.max(intrinsicH, 80)
         };
         
         el.classList.add('is-interacting');
@@ -1087,6 +1168,8 @@ function addNode(type, x, y, restoreData) {
     el.querySelectorAll('.node-port').forEach(portEl => {
         const dot = portEl.querySelector('.port-dot');
         dot.addEventListener('mousedown', (e) => {
+            const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
+            if (isPanAction) return;
             e.stopPropagation(); e.preventDefault();
             
             const tgt = { nodeId: portEl.dataset.nodeId, port: portEl.dataset.port, type: portEl.dataset.type, dir: portEl.dataset.direction };
@@ -1141,12 +1224,26 @@ function addNode(type, x, y, restoreData) {
     else if (type === 'ImagePreview') setupImagePreview(id, el);
 
 
+    else if (type === 'TextChat') {
+        const copyBtn = el.querySelector(`#${id}-copy-btn`);
+        if (copyBtn) {
+            copyBtn.onclick = () => {
+                const area = el.querySelector(`#${id}-response`);
+                if (area && !area.querySelector('.chat-response-placeholder')) {
+                    copyToClipboard(area.innerText);
+                } else {
+                    showToast('暂无内容可复制', 'warning');
+                }
+            };
+        }
+    }
+
     el.querySelectorAll('input, select, textarea').forEach(input => {
         input.addEventListener('change', () => scheduleSave());
         input.addEventListener('input', debounce(() => scheduleSave(), 500));
     });
 
-    if (!restoreData) showToast(`已添加「${config.title}」节点`, 'success');
+    if (!restoreData && !silent) showToast(`已添加「${config.title}」节点`, 'success');
     if (!restoreData) scheduleSave();
     return id;
 }
@@ -1180,6 +1277,7 @@ function selectNode(id, isMulti) {
         state.selectedNodes.add(id);
         const n = state.nodes.get(id); if (n) n.el.classList.add('selected');
     }
+    updateAllConnections();
 }
 
 // ===== Resolution Badge =====
@@ -1408,11 +1506,19 @@ function openFullscreenPreview(src) {
     }, { passive: false });
     const iw = overlay.querySelector('.fullscreen-img-wrapper');
     iw.addEventListener('mousedown', (e) => { if (e.button !== 0) return; e.preventDefault(); isDragging = true; dragStart = { x: e.clientX - fsX, y: e.clientY - fsY }; iw.style.cursor = 'grabbing'; });
-    window.addEventListener('mousemove', function fd(e) { if (!isDragging) return; fsX = e.clientX - dragStart.x; fsY = e.clientY - dragStart.y; updateFsT(); });
-    window.addEventListener('mouseup', function fu() { isDragging = false; iw.style.cursor = 'grab'; });
-    overlay.querySelector('.fullscreen-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === iw) overlay.remove(); });
-    function onEsc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } }
+    function onMove(e) { if (!isDragging) return; fsX = e.clientX - dragStart.x; fsY = e.clientY - dragStart.y; updateFsT(); }
+    function onUp() { isDragging = false; iw.style.cursor = 'grab'; }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    function cleanup() {
+        overlay.remove();
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.removeEventListener('keydown', onEsc);
+    }
+    overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === iw) cleanup(); });
+    function onEsc(e) { if (e.key === 'Escape') cleanup(); }
     document.addEventListener('keydown', onEsc);
     requestAnimationFrame(() => overlay.classList.add('active'));
 }
@@ -1496,12 +1602,18 @@ function updateAllConnections() {
         const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
         const pathStr = `M ${from.x} ${from.y} C ${from.x + cp} ${from.y}, ${to.x - cp} ${to.y}, ${to.x} ${to.y}`;
 
+        const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
+        
         if (path) {
             path.setAttribute('d', pathStr);
+            if (isSelected) path.classList.add('selected');
+            else path.classList.remove('selected');
         } else {
             path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             path.setAttribute('data-conn-id', conn.id);
             path.setAttribute('d', pathStr);
+            path.classList.add('connection-path');
+            if (isSelected) path.classList.add('selected');
             path.setAttribute('stroke', `url(#conn-gradient-${conn.type || 'image'})`);
             path.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
@@ -2183,7 +2295,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
     if (confirm('确定要清除所有节点和连接吗？')) {
         state.connections = [];
         for (const [, n] of state.nodes) n.el.remove();
-        state.nodes.clear(); state.selectedNode = null;
+        state.nodes.clear(); state.selectedNodes.clear();
         updateAllConnections(); showToast('画布已清除', 'info'); scheduleSave();
     }
 });
@@ -2263,7 +2375,7 @@ function pasteNode() {
     clip.nodes.forEach(data => {
         const offsetX = data.x - clip.center.x;
         const offsetY = data.y - clip.center.y;
-        const newId = addNode(data.type, mousePos.x + offsetX, mousePos.y + offsetY, { ...data, id: null });
+        const newId = addNode(data.type, mousePos.x + offsetX, mousePos.y + offsetY, { ...data, id: null }, true);
         if (newId) {
             idMap.set(data.id, newId);
             state.selectedNodes.add(newId);
@@ -2384,17 +2496,33 @@ function initUI() {
         
         for (const item of selected) {
             downloadImage(item.image, `cainflow_${item.id}.png`);
-            // Small delay to prevent browser download blocking
             await new Promise(r => setTimeout(r, 200));
         }
         
         showToast(`已开始下载 ${selected.length} 张图片`, 'success');
         
-        // Exit batch mode after download
         state.historySelectionMode = false;
         state.selectedHistoryIds.clear();
         document.getElementById('history-batch-toolbar').classList.add('hidden');
         renderHistoryList();
+    });
+
+    document.getElementById('btn-batch-delete')?.addEventListener('click', async () => {
+        if (state.selectedHistoryIds.size === 0) {
+            showToast('请先选择要删除的记录', 'warn');
+            return;
+        }
+        
+        if (!confirm(`确定要删除选中的 ${state.selectedHistoryIds.size} 条记录吗？\n此操作无法撤销。`)) return;
+        
+        const idsToDelete = Array.from(state.selectedHistoryIds);
+        await deleteHistoryItems(idsToDelete);
+        
+        state.selectedHistoryIds.clear();
+        state.historySelectionMode = false;
+        document.getElementById('history-batch-toolbar').classList.add('hidden');
+        renderHistoryList();
+        showToast(`已成功删除 ${idsToDelete.length} 条记录`, 'success');
     });
 
     // Factory Reset
@@ -2476,7 +2604,13 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); document.getElementById('import-file').click(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput) { e.preventDefault(); pasteNode(); }
+    // Only intercept Ctrl+V if there's something in our internal clipboard.
+    // Otherwise, let the browser trigger the 'paste' event (for images).
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput && state.clipboard && state.clipboard.nodes.length) { 
+        e.preventDefault(); 
+        pasteNode(); 
+        return; // Consumed by internal paste
+    }
     if (e.key === 'Delete' && state.selectedNodes.size > 0 && !inInput) {
         const firstId = Array.from(state.selectedNodes)[0];
         removeNode(firstId); 
@@ -2674,26 +2808,6 @@ window.addEventListener('drop', (e) => {
     }
 });
 
-document.addEventListener('paste', (e) => {
-    const items = e.clipboardData.items;
-    let images = [];
-    for (const item of items) {
-        if (item.type.startsWith('image/')) {
-            images.push(item.getAsFile());
-        }
-    }
-    if (images.length > 0) {
-        // Paste at mouse position if possible, else center
-        const x = state.mouseCanvas.x || 0;
-        const y = state.mouseCanvas.y || 0;
-        images.forEach((file, index) => {
-            const nid = addNode('ImageImport', x + index * 20, y + index * 20);
-            if (nid) loadImageFile(nid, file);
-        });
-        showToast(`已从剪贴板粘贴 ${images.length} 张图片`, 'success');
-    }
-});
-
 // ===== Initialize =====
 loadState().then(restored => {
     if (restored) showToast('已恢复上次的工作状态', 'success');
@@ -2747,6 +2861,28 @@ function openHistoryPreview(item) {
     else img.onload = fitImage;
 
     updatePreviewTransform();
+
+    // Close on background click
+    modal.onclick = (e) => {
+        if (e.target === modal || e.target === viewport) {
+            modal.classList.add('hidden');
+            document.removeEventListener('keydown', onEsc);
+        }
+    };
+    function onEsc(e) { if (e.key === 'Escape') { modal.classList.add('hidden'); document.removeEventListener('keydown', onEsc); } }
+    document.addEventListener('keydown', onEsc);
+}
+
+// ===== History Operations =====
+async function deleteHistoryItems(ids) {
+    if (!ids || ids.length === 0) return;
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_HISTORY, 'readwrite');
+        const store = tx.objectStore(STORE_HISTORY);
+        ids.forEach(id => store.delete(id));
+        return new Promise((res) => tx.oncomplete = () => res(true));
+    } catch (e) { console.error('Delete history items failed:', e); }
 }
 
 function updatePreviewTransform() {
@@ -2794,31 +2930,25 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-window.addEventListener('paste', (e) => {
-    // Stage 1: Immediate Synchronous Scope Entry
+let lastExternalPasteTime = 0;
+// Consolidated paste listener to prevent double-firing
+document.addEventListener('paste', (e) => {
+    // Phase 1: Throttling & Priority
+    const now = Date.now();
+    if (now - lastExternalPasteTime < 500) return;
+    lastExternalPasteTime = now;
+    
     const active = document.activeElement;
-    const isEditing = ['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable;
-    if (isEditing) return;
+    if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) return;
 
-    // Stage 2: Atomic Data Capture (Crucial for Chromium stability)
     const data = e.clipboardData;
     if (!data) return;
 
-    // Verbose Diagnostic log (visible in F12 console)
+    // Phase 2: Atomic capture
     const items = Array.from(data.items);
-    console.log('--- Clipboard Event Logs ---');
-    console.table(items.map(i => ({ kind: i.kind, type: i.type })));
-
-    const pos = state.mouseCanvas || { 
-        x: (window.innerWidth / 2 - state.canvas.x) / state.canvas.zoom, 
-        y: (window.innerHeight / 2 - state.canvas.y) / state.canvas.zoom 
-    };
-
     let imageFile = null;
     let textContent = data.getData('text/plain');
-    let htmlContent = data.getData('text/html');
 
-    // Synchronous Capture Pipeline
     for (const item of items) {
         if (item.kind === 'file' && item.type.includes('image')) {
             imageFile = item.getAsFile();
@@ -2826,56 +2956,29 @@ window.addEventListener('paste', (e) => {
         }
     }
 
-    if (!imageFile && data.files && data.files.length > 0) {
-        for (const f of data.files) {
-            if (f.type.includes('image')) { imageFile = f; break; }
-        }
-    }
+    const pos = state.mouseCanvas || { 
+        x: (window.innerWidth / 2 - state.canvas.x) / state.canvas.zoom, 
+        y: (window.innerHeight / 2 - state.canvas.y) / state.canvas.zoom 
+    };
 
-    // Stage 3: Immediate Execution
+    // Phase 3: Single-branch execution
     if (imageFile) {
         e.preventDefault();
-        const nodeId = addNode('ImageImport', pos.x, pos.y);
+        e.stopImmediatePropagation(); // Crucial to prevent bubble duplicates
+        const nodeId = addNode('ImageImport', pos.x, pos.y, null, true);
         if (nodeId) { 
             loadImageFile(nodeId, imageFile); 
-            showToast('已原子化导入剪切板图片', 'success'); 
-        }
-    } else if (htmlContent && htmlContent.includes('src="data:image')) {
-        const match = htmlContent.match(/src="([^"]+)"/);
-        if (match && match[1].startsWith('data:image')) {
-            e.preventDefault();
-            const nodeId = addNode('ImageImport', pos.x, pos.y);
-            if (nodeId) {
-                const node = state.nodes.get(nodeId);
-                node.imageData = match[1];
-                const dropZone = document.getElementById(`${nodeId}-drop`);
-                if (dropZone) {
-                    dropZone.classList.add('has-image');
-                    dropZone.innerHTML = `<img src="${match[1]}" alt="解析导入" draggable="false" />`;
-                }
-                showResolutionBadge(nodeId, match[1]);
-                showToast('已紧急提取并解析HTML内嵌图', 'success');
-            }
+            showToast('已完成剪贴板图片快速导入', 'success'); 
         }
     } else if (textContent && textContent.trim().length > 0) {
         e.preventDefault();
-        const nodeId = addNode('TextInput', pos.x, pos.y);
+        e.stopImmediatePropagation();
+        const nodeId = addNode('TextInput', pos.x, pos.y, null, true);
         if (nodeId) {
             const textEl = document.getElementById(`${nodeId}-text`);
-            if (textEl) {
-                textEl.value = textContent;
-                textEl.dispatchEvent(new Event('change'));
-            }
-            showToast('完成剪切板文本原子导入', 'success');
+            if (textEl) { textEl.value = textContent; textEl.dispatchEvent(new Event('change')); }
+            showToast('已完成剪贴板文本快速导入', 'success');
             scheduleSave();
-        }
-    } else {
-        // Diagnostic failure
-        if (data.types.length === 0) {
-            showToast('浏览器拦截了剪切板访问或剪切板为空 (请点击画布后重试)', 'warning');
-        } else {
-            console.warn('Unsupported clipboard types:', Array.from(data.types));
-            showToast(`不支持的粘贴格式: [${Array.from(data.types).join(', ')}]`, 'warning');
         }
     }
 });

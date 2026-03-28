@@ -211,6 +211,24 @@ body {
     animation: pulse-run 1.5s ease-in-out infinite;
 }
 
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    color: white;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.btn-danger:hover {
+    background: linear-gradient(135deg, #f87171, #dc2626);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    transform: translateY(-1px);
+}
+
 .btn-stop {
     background: linear-gradient(135deg, #451a1a, #2a0a0a);
     color: #fca5a5;
@@ -294,10 +312,22 @@ body {
 }
 
 .connection-path {
-    stroke-width: 3;
-    transition: stroke 0.3s, stroke-width 0.3s;
+    stroke-width: 1.5;
+    transition: stroke 0.3s, stroke-width 0.2s, filter 0.2s;
     pointer-events: none;
+    fill: none;
 }
+
+.connection-path.selected {
+    stroke-width: 3.5;
+    stroke-opacity: 1;
+    filter: drop-shadow(0 0 6px var(--accent-purple)); /* Default glow, will be overridden by JS if needed */
+    z-index: 10;
+}
+
+/* Specific glows based on port type if needed */
+.connection-path.selected[stroke*="image"] { filter: drop-shadow(0 0 6px var(--accent-purple)); }
+.connection-path.selected[stroke*="text"] { filter: drop-shadow(0 0 6px var(--accent-cyan)); }
 
 .connection-breathing {
     animation: connection-pulse 2s infinite ease-in-out;
@@ -356,28 +386,41 @@ body {
 .node {
     position: absolute;
     min-width: 120px;
-    background: transparent; /* Visuals moved to .node-glass-bg */
+    background: transparent;
     border: 1px solid transparent; 
     border-radius: var(--radius-node);
     transition: box-shadow var(--transition);
     cursor: default;
     overflow: visible !important;
     min-height: 60px;
+    max-height: 90vh; /* Prevent nodes from being taller than the viewport */
     user-select: none;
     -webkit-user-select: none;
     z-index: 10;
+    display: flex;
+    flex-direction: column;
     
     /* Modern Performance Stack */
-    contain: none; /* Was layout, causing some clipping in accelerated modes */
-    content-visibility: auto; /* Skip rendering when off-screen */
-    contain-intrinsic-size: 220px 300px; /* Placeholder size for off-screen */
-    will-change: transform; /* Hardware acceleration hint */
-    transform: translateZ(0); /* Force GPU layer */
+    contain: none;
+    content-visibility: auto;
+    contain-intrinsic-size: 220px 300px;
+    will-change: transform;
+    transform: translateZ(0);
 }
 
 .node input, .node textarea, .node select, [contenteditable="true"] {
     user-select: auto;
     -webkit-user-select: auto;
+}
+
+.node.selected {
+    outline: calc(4px / var(--canvas-zoom, 1)) solid var(--accent-primary);
+    outline-offset: -2px;
+    z-index: 2000 !important;
+    box-shadow: 
+        0 0 0 calc(2px / var(--canvas-zoom, 1)) rgba(168, 85, 247, 0.3),
+        0 0 30px rgba(168, 85, 247, 0.4),
+        0 0 60px rgba(168, 85, 247, 0.2) !important;
 }
 
 /* Global optimization: during ANY interaction, hide HEAVY overlays for max FPS, but keep node content visible */
@@ -553,11 +596,14 @@ body.is-interacting .node-glass-bg {
 }
 
 .node-title {
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: -0.2px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--text-primary);
 }
 
 .node-time-badge {
@@ -580,51 +626,55 @@ body.is-interacting .node-glass-bg {
 }
 
 .node-delete {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.03);
     color: var(--text-dim);
     cursor: pointer;
-    border-radius: 4px;
-    opacity: 0;
+    border-radius: 6px;
+    opacity: 0.3;
     transition: all var(--transition);
 }
 
 .node:hover .node-delete {
-    opacity: 1;
+    opacity: 0.8;
 }
 
 .node-delete:hover {
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(239, 68, 68, 0.2);
     color: var(--accent-red);
+    opacity: 1 !important;
+    transform: scale(1.1);
 }
 
 .node-bypass-btn {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.03);
     color: var(--text-dim);
     cursor: pointer;
-    border-radius: 4px;
-    opacity: 0;
+    border-radius: 6px;
+    opacity: 0.3;
     transition: all var(--transition);
 }
 
 .node:hover .node-bypass-btn {
-    opacity: 1;
+    opacity: 0.8;
 }
 
 .node-bypass-btn:hover {
-    background: rgba(245, 158, 11, 0.15);
+    background: rgba(245, 158, 11, 0.2);
     color: var(--accent-orange);
+    opacity: 1 !important;
+    transform: scale(1.1);
 }
 
 .node.disabled {
@@ -653,9 +703,22 @@ body.is-interacting .node-glass-bg {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: hidden;
     position: relative;
     z-index: 1;
+    flex: 1;
+    min-height: 0; /* Allow flex child to shrink below its content size */
+    scrollbar-width: thin;
+}
+
+/* Custom scrollbar for node body */
+.node-body::-webkit-scrollbar {
+    width: 4px;
+}
+.node-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
 }
 
 .node-field {
@@ -840,6 +903,13 @@ body.is-interacting .node-glass-bg {
     transition: all var(--transition);
     position: relative;
     overflow: hidden;
+    min-width: 200px;
+    min-height: 120px;
+    max-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
 }
 
 .file-drop-zone:hover {
@@ -854,7 +924,9 @@ body.is-interacting .node-glass-bg {
 }
 
 .file-drop-zone img {
-    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     border-radius: 4px;
     display: block;
     margin: 0 auto;
@@ -903,7 +975,9 @@ body.is-interacting .node-glass-bg {
 .node-preview .node-header-color { background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan)); }
 
 .preview-container {
-    min-height: 80px;
+    width: 100%;
+    min-height: 120px;
+    max-height: 400px;
     background: var(--bg-input);
     border-radius: var(--radius-sm);
     display: flex;
@@ -911,10 +985,14 @@ body.is-interacting .node-glass-bg {
     justify-content: center;
     overflow: hidden;
     cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.05);
+    flex: 1 1 auto;
 }
 
 .preview-container img {
-    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     border-radius: var(--radius-sm);
     transition: transform 0.15s ease;
 }
@@ -964,7 +1042,9 @@ body.is-interacting .node-glass-bg {
 .node-save .node-header-color { background: linear-gradient(90deg, var(--accent-orange), var(--accent-red)); }
 
 .save-preview-container {
-    min-height: 60px;
+    width: 100%;
+    min-height: 100px;
+    max-height: 300px;
     background: var(--bg-input);
     border-radius: var(--radius-sm);
     display: flex;
@@ -972,10 +1052,14 @@ body.is-interacting .node-glass-bg {
     justify-content: center;
     overflow: hidden;
     cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.05);
+    flex: 1 1 auto;
 }
 
 .save-preview-container img {
-    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     border-radius: var(--radius-sm);
 }
 
@@ -1221,34 +1305,6 @@ body.is-interacting,
 body.is-interacting * {
     user-select: none !important;
     cursor: inherit !important;
-}
-
-/* Performance Optimization: hide large images but keep layout space during interactions */
-.is-interacting .file-drop-zone img,
-.is-interacting .preview-container img,
-.is-interacting .save-preview-container img {
-    visibility: hidden !important;
-}
-
-.is-interacting .file-drop-zone,
-.is-interacting .preview-container,
-.is-interacting .save-preview-container {
-    position: relative;
-}
-
-.is-interacting .file-drop-zone::after,
-.is-interacting .preview-container::after,
-.is-interacting .save-preview-container::after {
-    content: '拖拽中...';
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    color: var(--text-dim);
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: var(--radius-sm);
 }
 
 /* ===== Password field ===== */
@@ -1617,11 +1673,17 @@ body.is-interacting * {
 
 .node-chat { min-width: 300px; }
 
+.chat-response-wrapper {
+    position: relative;
+    width: 100%;
+}
+
 .chat-response-area {
     background: var(--bg-input);
     border: 1px solid var(--border-input);
     border-radius: var(--radius-sm);
     padding: 10px;
+    padding-top: 30px; /* Space for the floating copy button */
     min-height: 60px;
     max-height: 300px;
     overflow-y: auto;
@@ -1630,6 +1692,30 @@ body.is-interacting * {
     color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.chat-copy-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 26px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-xs);
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    z-index: 5;
+}
+
+.chat-copy-btn:hover {
+    background: rgba(168, 85, 247, 0.2);
+    border-color: var(--accent-purple);
+    color: var(--text-primary);
 }
 
 .chat-response-placeholder {

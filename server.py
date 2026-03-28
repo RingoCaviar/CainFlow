@@ -33,7 +33,7 @@ if is_port_in_use(PORT):
 class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silence common noise requests to keep the log clean
-        path = args[0] if len(args) > 0 else ""
+        path = str(args[0]) if len(args) > 0 else ""
         noise_patterns = [
             '/favicon.ico', 'layui', 'laydate', 'layer.css', 'code.css', 
             'main.js', 'app.js', 'utils.js', 'api.js', 'workflow.js', 'nodes.js', 'theme/default'
