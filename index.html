@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="index.css?v=4.3">
 </head>
 <body>
     <!-- Top Toolbar -->
@@ -226,21 +226,37 @@
                 <h2>⚙ API 设置</h2>
                 <button id="settings-close" class="modal-close-btn">&times;</button>
             </div>
+            <div class="modal-tabs">
+                <button class="modal-tab-btn active" data-tab="api">API 相关</button>
+                <button class="modal-tab-btn" data-tab="general">常规设置</button>
+            </div>
             <div class="modal-body" id="settings-body">
-                <div class="settings-section">
-                    <div class="settings-toolbar">
-                        <h3>API 供应商 (Providers)</h3>
-                        <button id="btn-add-provider" class="btn btn-accent btn-sm">+ 添加供应商</button>
+                <div id="settings-tab-api" class="settings-tab-pane active">
+                    <div class="settings-section">
+                        <div class="settings-toolbar">
+                            <h3>API 供应商 (Providers)</h3>
+                            <button id="btn-add-provider" class="btn btn-accent btn-sm">+ 添加供应商</button>
+                        </div>
+                        <div id="providers-list" class="api-configs-list"></div>
                     </div>
-                    <div id="providers-list" class="api-configs-list"></div>
+                    <div class="settings-divider"></div>
+                    <div class="settings-section">
+                        <div class="settings-toolbar">
+                            <h3>模型管理 (Models)</h3>
+                            <button id="btn-add-model" class="btn btn-accent btn-sm">+ 添加模型</button>
+                        </div>
+                        <div id="models-list" class="api-configs-list"></div>
+                    </div>
                 </div>
-                <div class="settings-divider"></div>
-                <div class="settings-section">
-                    <div class="settings-toolbar">
-                        <h3>模型管理 (Models)</h3>
-                        <button id="btn-add-model" class="btn btn-accent btn-sm">+ 添加模型</button>
+                <div id="settings-tab-general" class="settings-tab-pane">
+                    <div class="settings-section">
+                        <div class="settings-toolbar">
+                            <h3>常规设置 (General Settings)</h3>
+                        </div>
+                        <div id="general-settings" class="api-configs-list">
+                            <!-- Filled by JS -->
+                        </div>
                     </div>
-                    <div id="models-list" class="api-configs-list"></div>
                 </div>
             </div>
             <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between;">
@@ -301,6 +317,6 @@
     </div>
 
     <div id="selection-box" class="hidden"></div>
-    <script src="index.js?v=4.2"></script>
+    <script src="index.js?v=4.3"></script>
 </body>
 </html>

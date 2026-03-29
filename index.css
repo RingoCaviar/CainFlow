@@ -1398,6 +1398,324 @@ body.is-interacting * {
     transform: scale(1.1);
 }
 
+/* Draw button in fullscreen preview */
+.fullscreen-paint-btn {
+    position: absolute;
+    top: 16px;
+    right: 72px; /* Next to close button */
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    transition: all var(--transition);
+    z-index: 10;
+}
+
+.fullscreen-paint-btn:hover {
+    background: var(--accent-cyan);
+    color: black;
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+}
+
+/* ===== Image Painter ===== */
+.painter-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(10, 10, 20, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 4000;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.painter-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.painter-header {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.painter-header h2 {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.painter-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+}
+
+.painter-toolbar-left, .painter-toolbar-right {
+    width: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 0;
+    gap: 15px;
+    background: rgba(255, 255, 255, 0.02);
+    z-index: 10;
+}
+
+.painter-toolbar-left {
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.painter-toolbar-right {
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.painter-tool-btn {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.painter-tool-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+}
+
+.painter-tool-btn.active {
+    background: var(--accent-cyan);
+    color: black;
+    box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+}
+
+.painter-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #050510;
+}
+
+#painter-canvas {
+    cursor: crosshair;
+    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8);
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.painter-btn {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.painter-btn-save { background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); }
+.painter-btn-save:hover { background: var(--accent-green); color: black; transform: scale(1.1); }
+.painter-btn-cancel { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.2); }
+.painter-btn-cancel:hover { background: var(--accent-red); color: white; transform: scale(1.1); }
+
+/* Color Palette */
+.painter-colors {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    align-items: center;
+}
+
+.painter-color-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    transition: all var(--transition);
+    position: relative;
+}
+
+.painter-color-swatch:hover {
+    transform: scale(1.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.painter-color-swatch.active {
+    border-color: white;
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+}
+
+.painter-color-swatch.active::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px;
+    height: 6px;
+    background: white;
+    border-radius: 50%;
+    mix-blend-mode: difference;
+}
+
+.painter-color-custom-btn {
+    background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+    margin-top: 10px;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.painter-color-panel {
+    position: absolute;
+    left: 65px;
+    bottom: 0px;
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 16px;
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 1000;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    width: 200px;
+}
+
+.painter-color-panel.active {
+    display: flex;
+}
+
+.painter-hue-wrapper {
+    position: relative;
+    width: 160px;
+    height: 160px;
+    margin: 0 auto;
+}
+
+.painter-hue-canvas {
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    display: block;
+    background: transparent;
+}
+
+.painter-hsb-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.hsb-slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.hsb-slider-group label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+}
+
+.hsb-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    outline: none;
+}
+
+.hsb-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: white;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+.painter-color-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.color-preview-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.2);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.color-hex-input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+/* Undo Button */
+.painter-btn-undo {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.painter-btn-undo:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+    transform: scale(1.05);
+}
+
+.painter-btn-undo:disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+    filter: grayscale(1);
+}
+
 .fullscreen-img-wrapper {
     width: 100%;
     height: 100%;
@@ -1502,6 +1820,44 @@ body.is-interacting * {
     padding: 16px 20px;
     overflow-y: auto;
     flex: 1;
+}
+
+/* Tabs */
+.modal-tabs {
+    display: flex;
+    gap: 16px;
+    padding: 0 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.modal-tab-btn {
+    padding: 12px 4px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.modal-tab-btn:hover {
+    color: var(--text-secondary);
+}
+
+.modal-tab-btn.active {
+    color: var(--accent-cyan);
+    border-bottom-color: var(--accent-cyan);
+}
+
+.settings-tab-pane {
+    display: none;
+    animation: fade-in 0.2s ease-out;
+}
+
+.settings-tab-pane.active {
+    display: block;
 }
 
 .settings-toolbar {
