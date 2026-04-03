@@ -385,7 +385,7 @@ try:
  \____| /_/   \_\ |___| |_| \_| |_|     |_____|  \___/    \_/\_/   
 {RESET}"""
         print(banner)
-        print(f" {WHITE}> CainFlow v3.0.0-Stability 已就绪{RESET}")
+        print(f" {WHITE}> CainFlow v2.0.0 已就绪{RESET}")
         print(f" {WHITE}> 正在监听: {CYAN}http://127.0.0.1:{PORT}{RESET}")
         print(f"\n {GRAY}[提示] 如果浏览器未自动启动，请按住 {WHITE}Ctrl{GRAY} 并点击上方链接即可。{RESET}\n")
         

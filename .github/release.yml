@@ -1,0 +1,26 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - octocat
+  categories:
+    - title: "🚀 核心特性与功能更新"
+      labels:
+        - enhancement
+        - feature
+    - title: "🐛 缺陷修复与稳定性提升"
+      labels:
+        - bug
+        - fix
+    - title: "🎨 界面优化与微调"
+      labels:
+        - design
+        - ui
+        - polish
+    - title: "⚙️ 文档与工作流变更"
+      labels:
+        - documentation
+        - internal
+    - title: "📦 其他更新"
+      collapse_after: 5

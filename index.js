@@ -9,7 +9,8 @@ function generateId() {
 }
 
 function showToast(message, type = 'info', duration = 3000) {
-    const container = document.getElementById('toast-container');
+    const container = elements.toastContainer;
+    if (!container) return;
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     const icons = { success: '✓', error: '✗', info: 'ℹ', warning: '⚠' };
@@ -147,13 +148,14 @@ function addLog(type, title, message, details = null) {
         showErrorModal(title, message, log.details);
     } else if (type === 'error' && state.autoRetry) {
         //静默重试模式下，为日志按钮增加提示，告知有新的背景错误
-        const logBtn = document.getElementById('btn-logs');
+        const logBtn = elements.btnLogs;
         if (logBtn) logBtn.classList.add('has-new-error');
     }
 }
 
 function renderLogs() {
-    const list = document.getElementById('log-list');
+    const list = elements.logList;
+    if (!list) return;
     if (state.logs.length === 0) {
         list.innerHTML = '<div class="log-empty">暂无执行记录</div>';
         return;
@@ -201,7 +203,9 @@ const STORE_HANDLES = 'handles';
 const STORE_ASSETS = 'imageAssets';
 const STORE_HISTORY = 'imageHistory';
 
-function openDB() {
+let _dbInstance = null;
+async function openDB() {
+    if (_dbInstance) return _dbInstance;
     return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = (e) => {
@@ -210,7 +214,10 @@ function openDB() {
             if (!db.objectStoreNames.contains(STORE_ASSETS)) db.createObjectStore(STORE_ASSETS);
             if (!db.objectStoreNames.contains(STORE_HISTORY)) db.createObjectStore(STORE_HISTORY, { keyPath: 'id', autoIncrement: true });
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+            _dbInstance = req.result;
+            resolve(_dbInstance);
+        };
         req.onerror = () => reject(req.error);
     });
 }
@@ -430,6 +437,30 @@ async function renderHistoryList() {
     });
 }
 
+// Centralized DOM Element Cache
+const elements = {
+    canvasContainer: document.getElementById('canvas-container'),
+    nodesLayer: document.getElementById('nodes-layer'),
+    connectionsGroup: document.getElementById('connections-group'),
+    tempConnection: document.getElementById('temp-connection'),
+    originAxes: document.getElementById('origin-axes'),
+    contextMenu: document.getElementById('context-menu'),
+    toastContainer: document.getElementById('toast-container'),
+    logList: document.getElementById('log-list'),
+    historyList: document.getElementById('history-list'),
+    workflowList: document.getElementById('workflow-list'),
+    zoomLevel: document.getElementById('zoom-level'),
+    btnLogs: document.getElementById('btn-logs'),
+    errorModal: {
+        root: document.getElementById('modal-error'),
+        title: document.getElementById('error-modal-title'),
+        msg: document.getElementById('error-modal-msg'),
+        detail: document.getElementById('error-modal-detail')
+    }
+};
+
+const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
+
 // ===== App State =====
 const state = {
     nodes: new Map(),
@@ -475,13 +506,6 @@ const state = {
 const dirHandles = new Map();
 
 const STORAGE_KEY = 'nodeflow_ai_state';
-
-const canvasContainer = document.getElementById('canvas-container');
-const nodesLayer = document.getElementById('nodes-layer');
-const connectionsGroup = document.getElementById('connections-group');
-const tempConnection = document.getElementById('temp-connection');
-const originAxes = document.getElementById('origin-axes');
-const contextMenu = document.getElementById('context-menu');
 
 // ===== Canvas System =====
 function updateCanvasTransform() {
