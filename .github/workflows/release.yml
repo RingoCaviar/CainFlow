@@ -1,0 +1,64 @@
+name: Build and Release EXE
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger build when a tag starting with 'v' is pushed (e.g., v1.0)
+  workflow_dispatch: # Allow manual triggering from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if (Test-Path "requirements.txt") { pip install -r requirements.txt }
+
+      - name: Build Launcher EXE
+        run: |
+          # Build only the launcher EXE
+          pyinstaller --onefile --name "CainFlow_Launcher" server.py
+
+      - name: Prepare Distribution Folder
+        shell: pwsh
+        run: |
+          # Create a staging directory
+          New-Item -ItemType Directory -Path "release_staging"
+          
+          # Move the compiled EXE to the staging folder
+          Copy-Item "dist/CainFlow_Launcher.exe" "release_staging/CainFlow.exe"
+          
+          # Copy all other project files excluding build/git/meta noise
+          Get-ChildItem -Exclude "release_staging", "build", "dist", ".git", ".github", ".gitignore", ".gitattributes", "venv", "*.spec" | Copy-Item -Destination "release_staging" -Recurse
+
+      - name: Create Zip Archive
+        shell: pwsh
+        run: |
+          $TAG_NAME = "${{ github.ref_name }}"
+          # Create a zip named Cainflow_vX.Y.Z.zip
+          Compress-Archive -Path "release_staging/*" -DestinationPath "Cainflow_$TAG_NAME.zip"
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: Cainflow_*.zip
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
