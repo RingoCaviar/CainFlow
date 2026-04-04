@@ -2008,9 +2008,9 @@ body.is-interacting * {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    z-index: 5000;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    z-index: 7000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2032,11 +2032,11 @@ body.is-interacting * {
 }
 
 .modal-panel {
-    width: 640px;
-    max-width: 92vw;
-    height: 650px;
+    width: 850px;
+    max-width: 95vw;
+    height: 800px;
     /* Fixed height to prevent jitter during tab switching */
-    max-height: 90vh;
+    max-height: 92vh;
     background: rgba(22, 22, 42, 0.98);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
@@ -2207,6 +2207,45 @@ body.is-interacting * {
     display: flex;
     flex-direction: column;
     gap: 3px;
+    position: relative;
+}
+
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-wrapper input {
+    flex: 1;
+    padding-right: 32px !important;
+}
+
+.eye-toggle-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 0.15s;
+    padding: 0;
+}
+
+.eye-toggle-btn:hover {
+    color: var(--text-primary);
+}
+
+.eye-toggle-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
 .api-config-card .card-field label {
@@ -2613,6 +2652,57 @@ body.is-interacting * {
     /* Smooth but responsive zoom */
     will-change: transform;
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+}
+
+.preview-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(30, 30, 46, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 7010;
+    opacity: 0.6;
+}
+
+.preview-nav-btn svg {
+    width: 28px;
+    height: 28px;
+}
+
+.preview-nav-btn:hover {
+    background: rgba(168, 85, 247, 0.3);
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+    opacity: 1;
+    transform: translateY(-50%) scale(1.1);
+}
+
+.preview-nav-btn:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+.preview-nav-btn.prev {
+    left: 40px;
+}
+
+.preview-nav-btn.next {
+    right: 40px;
+}
+
+.preview-nav-btn.disabled {
+    opacity: 0.1 !important;
+    pointer-events: none;
 }
 
 .preview-controls {

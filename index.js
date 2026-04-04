@@ -3882,7 +3882,15 @@ function renderProviders() {
                 </div>
             </div>
             <div class="card-row">
-                <div class="card-field"><label>API 密钥</label><input type="password" value="${prov.apikey}" placeholder="API Key" data-id="${prov.id}" data-field="apikey" /></div>
+                <div class="card-field">
+                    <label>API 密钥</label>
+                    <div class="password-wrapper">
+                        <input type="password" value="${prov.apikey}" placeholder="API Key" data-id="${prov.id}" data-field="apikey" spellcheck="false" />
+                        <button class="eye-toggle-btn" data-id="${prov.id}" title="显示/隐藏密钥">
+                            <svg class="icon-xs"><use href="#icon-eye"/></svg>
+                        </button>
+                    </div>
+                </div>
                 <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px;">
@@ -3894,6 +3902,17 @@ function renderProviders() {
             </div>
         `;
         providersList.appendChild(el);
+
+        // Bind visibility toggle
+        const toggleBtn = el.querySelector('.eye-toggle-btn');
+        const passInput = el.querySelector('input[data-field="apikey"]');
+        if (toggleBtn && passInput) {
+            toggleBtn.onclick = () => {
+                const isPass = passInput.type === 'password';
+                passInput.type = isPass ? 'text' : 'password';
+                toggleBtn.innerHTML = `<svg class="icon-xs"><use href="#${isPass ? 'icon-eye-off' : 'icon-eye'}"/></svg>`;
+            };
+        }
     });
 
     providersList.querySelectorAll('input, select').forEach(input => {
@@ -4226,34 +4245,28 @@ window.addEventListener('drop', (e) => {
 
 // Initialization calls moved to end of file
 // ===== History Previewer & Interactions =====
-let previewState = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 };
+let previewState = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0, items: [], currentIndex: -1 };
 
-function openHistoryPreview(item) {
+async function openHistoryPreview(item) {
     const modal = document.getElementById('history-preview-modal');
-    const img = document.getElementById('history-preview-img');
-    const promptText = document.getElementById('preview-prompt');
-    const metaText = document.getElementById('preview-meta');
     const viewport = document.getElementById('preview-viewport');
 
-    img.src = item.image;
-    promptText.textContent = item.prompt;
-    metaText.innerHTML = `
-        <span>模型: ${item.model}</span>
-        <span>时间: ${new Date(item.timestamp).toLocaleString()}</span>
-    `;
+    // Fetch full history to enable navigation
+    const history = await getHistory();
+    previewState.items = history;
+    previewState.currentIndex = history.findIndex(h => h.id === item.id);
+
+    updatePreviewContent(item);
     modal.classList.remove('hidden');
 
-    // Wire up actions
-    const btnDownload = document.getElementById('btn-download-preview');
-    const btnCopy = document.getElementById('btn-copy-prompt');
-
-    btnDownload.onclick = () => downloadImage(item.image, `cainflow_${item.id}.png`);
-    btnCopy.onclick = () => copyToClipboard(item.prompt);
-
-    // Reset state first
-    previewState = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 };
+    // Reset interaction state
+    previewState.scale = 1;
+    previewState.x = 0;
+    previewState.y = 0;
+    previewState.isDragging = false;
 
     // Auto fit after image loads
+    const img = document.getElementById('history-preview-img');
     const fitImage = () => {
         const vw = viewport.clientWidth;
         const vh = viewport.clientHeight;
@@ -4277,12 +4290,80 @@ function openHistoryPreview(item) {
     // Close on background click
     modal.onclick = (e) => {
         if (e.target === modal || e.target === viewport) {
-            modal.classList.add('hidden');
-            document.removeEventListener('keydown', onEsc);
+            closeHistoryPreview();
         }
     };
-    function onEsc(e) { if (e.key === 'Escape') { modal.classList.add('hidden'); document.removeEventListener('keydown', onEsc); } }
-    document.addEventListener('keydown', onEsc);
+    
+    document.addEventListener('keydown', onPreviewKeyDown);
+}
+
+function updatePreviewContent(item) {
+    if (!item) return;
+    const img = document.getElementById('history-preview-img');
+    const promptText = document.getElementById('preview-prompt');
+    const metaText = document.getElementById('preview-meta');
+    const btnDownload = document.getElementById('btn-download-preview');
+    const btnCopy = document.getElementById('btn-copy-prompt');
+
+    img.src = item.image;
+    promptText.textContent = item.prompt;
+    metaText.innerHTML = `
+        <span>模型: ${item.model}</span>
+        <span>时间: ${new Date(item.timestamp).toLocaleString()}</span>
+        <span style="margin-left:auto; opacity:0.6; font-family:monospace;">${previewState.currentIndex + 1} / ${previewState.items.length}</span>
+    `;
+
+    btnDownload.onclick = (e) => { e.stopPropagation(); downloadImage(item.image, `cainflow_${item.id}.png`); };
+    btnCopy.onclick = (e) => { e.stopPropagation(); copyToClipboard(item.prompt); };
+
+    // Update navigation button states
+    const btnPrev = document.getElementById('btn-prev-preview');
+    const btnNext = document.getElementById('btn-next-preview');
+    if (btnPrev) btnPrev.classList.toggle('disabled', previewState.currentIndex <= 0);
+    if (btnNext) btnNext.classList.toggle('disabled', previewState.currentIndex >= previewState.items.length - 1);
+}
+
+function navigateHistory(direction) {
+    const newIndex = previewState.currentIndex + direction;
+    if (newIndex >= 0 && newIndex < previewState.items.length) {
+        previewState.currentIndex = newIndex;
+        const item = previewState.items[newIndex];
+
+        // Reset transform for new image
+        previewState.scale = 1;
+        previewState.x = 0;
+        previewState.y = 0;
+
+        updatePreviewContent(item);
+
+        const img = document.getElementById('history-preview-img');
+        const viewport = document.getElementById('preview-viewport');
+        
+        const applyFit = () => {
+            const scale = Math.min((viewport.clientWidth - 60) / (img.naturalWidth || 100), (viewport.clientHeight - 60) / (img.naturalHeight || 100), 1);
+            previewState.scale = scale;
+            updatePreviewTransform();
+        };
+
+        if (img.complete) setTimeout(applyFit, 50);
+        else img.onload = applyFit;
+    }
+}
+
+function onPreviewKeyDown(e) {
+    if (e.key === 'Escape') {
+        closeHistoryPreview();
+    } else if (e.key === 'ArrowLeft') {
+        navigateHistory(-1);
+    } else if (e.key === 'ArrowRight') {
+        navigateHistory(1);
+    }
+}
+
+function closeHistoryPreview() {
+    const modal = document.getElementById('history-preview-modal');
+    if (modal) modal.classList.add('hidden');
+    document.removeEventListener('keydown', onPreviewKeyDown);
 }
 
 // ===== History Operations =====
@@ -4330,8 +4411,16 @@ if (previewViewport) {
     });
 }
 
-document.getElementById('btn-close-preview')?.addEventListener('click', () => {
-    document.getElementById('history-preview-modal').classList.add('hidden');
+document.getElementById('btn-close-preview')?.addEventListener('click', closeHistoryPreview);
+
+document.getElementById('btn-prev-preview')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigateHistory(-1);
+});
+
+document.getElementById('btn-next-preview')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigateHistory(1);
 });
 
 window.addEventListener('keydown', (e) => {

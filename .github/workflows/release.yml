@@ -31,7 +31,7 @@ jobs:
       - name: Build Launcher EXE
         run: |
           # Build only the launcher EXE
-          pyinstaller --onefile --name "CainFlow_Launcher" server.py
+          pyinstaller --onefile --name "CainFlow_Launcher" --icon "cainflow.ico" server.py
 
       - name: Prepare Distribution Folder
         shell: pwsh
