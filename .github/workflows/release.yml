@@ -42,8 +42,8 @@ jobs:
           # Move the compiled EXE to the staging folder
           Copy-Item "dist/CainFlow_Launcher.exe" "release_staging/CainFlow.exe"
           
-          # Copy all other project files excluding build/git/meta noise
-          Get-ChildItem -Exclude "release_staging", "build", "dist", ".git", ".github", ".gitignore", ".gitattributes", "venv", "*.spec" | Copy-Item -Destination "release_staging" -Recurse
+          # Copy all other project files excluding build/git/meta noise, bat, ico, license, and readme
+          Get-ChildItem -Exclude "release_staging", "build", "dist", ".git", ".github", ".gitignore", ".gitattributes", "venv", "*.spec", "*.bat", "*.ico", "LICENSE", "README.md" | Copy-Item -Destination "release_staging" -Recurse
 
       - name: Create Zip Archive
         shell: pwsh
