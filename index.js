@@ -1,3 +1,6 @@
+const APP_VERSION = 'v2.3';
+const GITHUB_REPO = 'RingoCaviar/CainFlow';
+
 /**
  * CainFlow — Node-based AI Image Generation Tool
  * Canvas, nodes, connections, execution engine, localStorage persistence
@@ -25,6 +28,128 @@ function showToast(message, type = 'info', duration = 3000) {
 function debounce(fn, ms) {
     let timer;
     return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
+/**
+ * Check for updates from GitHub
+ * Throttled to once every 6 hours
+ */
+async function checkUpdate(isManual = false) {
+    if (isManual) {
+        showToast('正在检查更新...', 'info');
+        localStorage.setItem('cainflow_update_status', 'checking');
+        renderGeneralSettings();
+    }
+
+    const CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    const now = Date.now();
+    const lastCheck = localStorage.getItem('cainflow_last_update_check');
+
+    // Skip auto-check if too soon, but ALWAYS allow manual check
+    if (!isManual && lastCheck && (now - parseInt(lastCheck)) < CHECK_INTERVAL) {
+        return; 
+    }
+
+    localStorage.setItem('cainflow_last_update_check', now.toString());
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            localStorage.setItem('cainflow_update_status', 'error');
+            if (isManual) {
+                showToast('无法连接到更新服务器 (GitHub API 响应异常)', 'error');
+                renderGeneralSettings();
+            }
+            return;
+        }
+        
+        const data = await response.json();
+        const latestVersion = data.tag_name; 
+        const comparison = compareVersions(latestVersion, APP_VERSION);
+        
+        if (comparison > 0) {
+            localStorage.setItem('cainflow_update_status', 'new_version');
+            localStorage.setItem('cainflow_update_version', latestVersion);
+            showUpdateModal(data);
+        } else {
+            localStorage.setItem('cainflow_update_status', 'latest');
+            if (isManual) showToast(`当前已是最新版本 (${APP_VERSION})`, 'success');
+        }
+        if (isManual) renderGeneralSettings();
+    } catch (e) {
+        console.warn('Update check failed:', e);
+        localStorage.setItem('cainflow_update_status', 'error');
+        if (isManual) {
+            const msg = e.name === 'AbortError' ? '检查更新超时，请稍后重试' : '检查更新失败，请检查网络连接或代理设置';
+            showToast(msg, 'error');
+            renderGeneralSettings();
+        }
+    }
+}
+
+function compareVersions(v1, v2) {
+    const parse = (v) => v.replace(/^v/, '').split('.').map(Number);
+    const a = parse(v1);
+    const b = parse(v2);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        const numA = a[i] || 0;
+        const numB = b[i] || 0;
+        if (numA > numB) return 1;
+        if (numA < numB) return -1;
+    }
+    return 0;
+}
+
+function showUpdateModal(releaseData) {
+    const modal = document.getElementById('modal-update');
+    const tag = document.getElementById('update-tag');
+    const date = document.getElementById('update-date');
+    const changelog = document.getElementById('update-changelog-content');
+    const settingsBtn = document.getElementById('btn-settings');
+
+    if (tag) tag.textContent = releaseData.tag_name;
+    if (date) date.textContent = new Date(releaseData.published_at).toLocaleDateString();
+    
+    // Simple Markdown-ish to HTML conversion for the changelog
+    if (changelog) {
+        let body = releaseData.body || '无更新日志详情';
+        body = body.replace(/### (.*)/g, '<h4>$1</h4>')
+                   .replace(/\n- (.*)/g, '\n<li>$1</li>')
+                   .replace(/<li>(.*)<\/li>/g, '<ul><li>$1</li></ul>')
+                   .replace(/<\/ul>\n<ul>/g, '') // Merge lists
+                   .replace(/\n/g, '<br>');
+        changelog.innerHTML = body;
+    }
+
+    // Add red dot to settings button
+    if (settingsBtn) settingsBtn.classList.add('has-update');
+
+    // Show modal
+    modal.classList.add('active');
+    
+    // Setup listeners for the update modal buttons
+    const btnDownload = document.getElementById('btn-update-download');
+    const btnBackup = document.getElementById('btn-update-backup');
+    
+    if (btnDownload) {
+        btnDownload.onclick = () => {
+            window.open(releaseData.html_url, '_blank');
+        };
+    }
+    
+    if (btnBackup) {
+        btnBackup.onclick = () => {
+            exportWorkflow();
+            showToast('备份已导出，您可以放心更新', 'success');
+        };
+    }
 }
 
 function adjustTextareaHeight(textarea) {
@@ -977,6 +1102,43 @@ const NODE_CONFIGS = {
     }
 };
 
+/**
+ * Automatically adjusts node height to fit its internal content without overlap.
+ * This is called when dynamic elements (like error messages or AI responses) are added.
+ */
+function fitNodeToContent(nodeId) {
+    const node = state.nodes.get(nodeId);
+    if (!node || !node.el) return;
+
+    const el = node.el;
+    const body = el.querySelector('.node-body');
+    if (!body) return;
+
+    // Temporarily allow content to expand naturally to measure the required height
+    const originalHeight = el.style.height;
+    const originalBodyMaxHeight = body.style.maxHeight;
+
+    el.style.height = 'auto'; // Change to auto for measurement
+    body.style.maxHeight = 'none';
+
+    const requiredHeight = el.offsetHeight;
+
+    // Restore original or update if necessary
+    // We only grow the node, we don't shrink it automatically to respect manual sizing
+    const currentPx = parseFloat(originalHeight) || el.offsetHeight;
+
+    if (requiredHeight > currentPx + 2) { // 2px margin for sub-pixel differences
+        el.style.height = requiredHeight + 'px';
+        // Ensure state is updated so it persists
+        node.height = requiredHeight;
+        updateAllConnections();
+        scheduleSave();
+    } else {
+        el.style.height = originalHeight;
+    }
+    body.style.maxHeight = originalBodyMaxHeight;
+}
+
 // ===== Node Creation =====
 function addNode(type, x, y, restoreData, silent = false) {
     const config = NODE_CONFIGS[type];
@@ -1077,6 +1239,7 @@ function addNode(type, x, y, restoreData, silent = false) {
             <div class="node-field node-field-expand"><label>提示词</label>
                 <textarea id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3">${rd.prompt || ''}</textarea></div>
             <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
+            <div class="node-error-msg" id="${id}-error"></div>
         `;
         } else if (type === 'TextChat') {
             html += `
@@ -1203,23 +1366,46 @@ function addNode(type, x, y, restoreData, silent = false) {
     // Restore imageData
     if (type === 'ImageImport' || type === 'ImagePreview' || type === 'ImageSave') {
         (async () => {
-            let data = (restoreData && restoreData.imageData) ? restoreData.imageData : await getImageAsset(id);
+            // Safety: Check if node still exists after async await
+            const hasInitialData = !!(restoreData && restoreData.imageData);
+            let data = hasInitialData ? restoreData.imageData : await getImageAsset(id);
+            
+            if (!state.nodes.has(id)) return;
+            
             if (data) {
                 nodeData.imageData = data;
                 nodeData.data.image = data; // For preview/save
+                
+                // If this is a new node bootstrapped with serialized image data (Paste/Clone),
+                // we must save it to IndexedDB for the new ID to ensure persistence.
+                if (hasInitialData) {
+                    await saveImageAsset(id, data);
+                }
+
                 if (type === 'ImageImport') {
                     const dropZone = el.querySelector(`#${id}-drop`);
-                    dropZone.classList.add('has-image');
-                    dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
+                    if (dropZone) {
+                        dropZone.classList.add('has-image');
+                        dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
+                    }
                     showResolutionBadge(id, data);
                 } else if (type === 'ImagePreview') {
                     const previewContainer = el.querySelector(`#${id}-preview`);
-                    previewContainer.innerHTML = `<img src="${data}" alt="预览" draggable="false" style="pointer-events: none;" />`;
-                    el.querySelector(`#${id}-controls`).style.display = 'flex';
+                    if (previewContainer) {
+                        previewContainer.innerHTML = `<img src="${data}" alt="预览" draggable="false" style="pointer-events: none;" />`;
+                    }
+                    const controls = el.querySelector(`#${id}-controls`);
+                    if (controls) controls.style.display = 'flex';
                     showResolutionBadge(id, data);
                 } else if (type === 'ImageSave') {
                     const savePreview = el.querySelector(`#${id}-save-preview`);
-                    savePreview.innerHTML = `<img src="${data}" alt="待保存" draggable="false" style="pointer-events: none;" />`;
+                    if (savePreview) {
+                        savePreview.innerHTML = `<img src="${data}" alt="待保存" draggable="false" style="pointer-events: none;" />`;
+                    }
+                    const mSaveBtn = el.querySelector(`#${id}-manual-save`);
+                    const vFullBtn = el.querySelector(`#${id}-view-full`);
+                    if (mSaveBtn) mSaveBtn.disabled = false;
+                    if (vFullBtn) vFullBtn.disabled = false;
                     showResolutionBadge(id, data);
                 }
             }
@@ -1377,8 +1563,8 @@ function addNode(type, x, y, restoreData, silent = false) {
             nodeId: id,
             startX: e.clientX, startY: e.clientY,
             startWidth: el.offsetWidth, startHeight: el.offsetHeight,
-            minWidth: 80, 
-            minHeight: 40
+            minWidth: Math.max(intrinsicW, 100), 
+            minHeight: Math.max(intrinsicH, 80)
         };
 
         el.classList.add('is-interacting');
@@ -2653,81 +2839,133 @@ const NodeHandlers = {
     },
     'ImageGenerate': async (node, inputs, signal) => {
         const { id } = node;
-        const configId = document.getElementById(`${id}-apiconfig`).value;
-        const modelCfg = state.models.find(m => m.id === configId);
-        if (!modelCfg) throw new Error('未找到选定的模型配置');
-        const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
-        if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+        const errorEl = document.getElementById(`${id}-error`);
+        if (errorEl) errorEl.style.display = 'none';
 
-        const aspect = document.getElementById(`${id}-aspect`).value;
-        const resolution = document.getElementById(`${id}-resolution`).value;
-        const searchEnabled = document.getElementById(`${id}-search`).checked;
+        try {
+            const configId = document.getElementById(`${id}-apiconfig`).value;
+            const modelCfg = state.models.find(m => m.id === configId);
+            if (!modelCfg) throw new Error('未找到选定的模型配置');
+            const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
+            if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
 
-        // Priority: Input port > Textarea
-        const prompt = inputs.prompt || document.getElementById(`${id}-prompt`).value;
+            const aspect = document.getElementById(`${id}-aspect`).value;
+            const resolution = document.getElementById(`${id}-resolution`).value;
+            const searchEnabled = document.getElementById(`${id}-search`).checked;
 
-        if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
-        if (!prompt) throw new Error('请输入提示词');
+            // Priority: Input port > Textarea
+            const prompt = inputs.prompt || document.getElementById(`${id}-prompt`).value;
 
-        const parts = [{ text: prompt }];
-        for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
-            if (inputs[key]) {
-                const match = inputs[key].match(/^data:(.+?);base64,(.+)$/);
-                if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-            }
-        }
+            if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
+            if (!prompt) throw new Error('请输入提示词');
 
-        const requestBody = { contents: [{ parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } };
-        const imageConfig = {};
-        if (aspect) imageConfig.aspectRatio = aspect;
-        if (resolution) imageConfig.imageSize = resolution;
-        if (Object.keys(imageConfig).length > 0) requestBody.generationConfig.imageConfig = imageConfig;
-        if (searchEnabled) requestBody.tools = [{ googleSearch: {} }];
-
-        const url = apiCfg.autoComplete !== false
-            ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
-            : apiCfg.endpoint;
-        showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
-
-        const headers = { 'Content-Type': 'application/json', 'x-target-url': url };
-        if (state.proxy && state.proxy.enabled) {
-            headers['x-proxy-enabled'] = 'true';
-            headers['x-proxy-host'] = state.proxy.ip;
-            headers['x-proxy-port'] = state.proxy.port;
-        }
-
-        const response = await fetch('/proxy', {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(requestBody),
-            signal: signal
-        });
-        if (!response.ok) {
-            const t = await response.text();
-            throw new Error(`API 错误 (${response.status}): ${t.substring(0, 300)}`);
-        }
-        const result = await response.json();
-        let imageData = null;
-        if (result.candidates?.[0]) {
-            for (const part of result.candidates[0].content.parts) {
-                if (part.inlineData) {
-                    imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                    break;
+            const parts = [{ text: prompt }];
+            for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
+                if (inputs[key]) {
+                    const match = inputs[key].match(/^data:(.+?);base64,(.+)$/);
+                    if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
                 }
             }
-        }
-        if (!imageData) throw new Error('API 未返回图片数据');
-        node.data.image = imageData;
-        showResolutionBadge(id, imageData);
 
-        // Auto record to history
-        await saveHistoryEntry({
-            nodeId: id,
-            image: imageData,
-            prompt: prompt,
-            model: modelCfg.name
-        });
-        if (document.getElementById('history-sidebar').classList.contains('active')) renderHistoryList();
+            const requestBody = { contents: [{ parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } };
+            const imageConfig = {};
+            if (aspect) imageConfig.aspectRatio = aspect;
+            if (resolution) imageConfig.imageSize = resolution;
+            if (Object.keys(imageConfig).length > 0) requestBody.generationConfig.imageConfig = imageConfig;
+            if (searchEnabled) requestBody.tools = [{ googleSearch: {} }];
+
+            const url = apiCfg.autoComplete !== false
+                ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
+                : apiCfg.endpoint;
+            showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
+
+            const headers = { 'Content-Type': 'application/json', 'x-target-url': url };
+            if (state.proxy && state.proxy.enabled) {
+                headers['x-proxy-enabled'] = 'true';
+                headers['x-proxy-host'] = state.proxy.ip;
+                headers['x-proxy-port'] = state.proxy.port;
+            }
+
+            const response = await fetch('/proxy', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(requestBody),
+                signal: signal
+            });
+
+            if (!response.ok) {
+                const t = await response.text();
+                let msg = `API 错误 (${response.status})`;
+                try {
+                    const json = JSON.parse(t);
+                    if (json.error?.message) msg += `: ${json.error.message}`;
+                    else msg += `: ${t.substring(0, 100)}`;
+                } catch (e) {
+                    msg += `: ${t.substring(0, 100)}`;
+                }
+                throw new Error(msg);
+            }
+
+            const result = await response.json();
+            if (!result) throw new Error('API 返回了空的 JSON 响应');
+            
+            let imageData = null;
+            if (result.candidates && Array.isArray(result.candidates) && result.candidates[0]) {
+                const candidate = result.candidates[0];
+                if (candidate.content?.parts) {
+                    for (const part of candidate.content.parts) {
+                        if (part.inlineData) {
+                            imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                            break;
+                        }
+                    }
+                }
+                
+                // Detailed error parsing for Imagen/Gemini when image is missing
+                if (!imageData) {
+                    let reason = 'API 未返回图片数据';
+                    if (result.error?.message) {
+                        reason = `API 错误: ${result.error.message}`;
+                    } else if (candidate.finishReason) {
+                        const fr = candidate.finishReason;
+                        if (fr === 'SAFETY') reason = '⚠️ 内容被安全过滤器拦截 (如有违规提示词或敏感动作)';
+                        else if (fr === 'RECITATION') reason = '⚠️ 生成内容由于版权保护被拦截';
+                        else reason = `生成停止原因: ${fr}`;
+                    } else if (result.promptFeedback?.blockReason || result.promptFeedback?.gemini_block_reason) {
+                        const br = result.promptFeedback.blockReason || result.promptFeedback.gemini_block_reason;
+                        reason = `🚫 请求被屏蔽: ${br}`;
+                        if (br === 'SAFETY') reason = '⚠️ 请求因违反安全政策被系统拦截 (SAFETY)';
+                    } else if (result.gemini_block_reason) {
+                        reason = `🚫 系统屏蔽: ${result.gemini_block_reason}`;
+                    }
+                    throw new Error(reason);
+                }
+            } else if (result.error?.message) {
+                throw new Error(`API 错误: ${result.error.message}`);
+            } else {
+                throw new Error('API 返回了空结果 (无候选内容)');
+            }
+
+            node.data.image = imageData;
+            showResolutionBadge(id, imageData);
+
+            // Auto record to history
+            await saveHistoryEntry({
+                nodeId: id,
+                image: imageData,
+                prompt: prompt,
+                model: modelCfg.name
+            });
+            if (document.getElementById('history-sidebar').classList.contains('active')) renderHistoryList();
+        } catch (err) {
+            if (errorEl) {
+                errorEl.innerHTML = `<strong>生成失败</strong>${err.message}`;
+                errorEl.style.display = 'block';
+                // Automatically expand node to ensure the error message is visible and doesn't overlap
+                fitNodeToContent(id);
+            }
+            throw err;
+        }
     },
     'TextChat': async (node, inputs, signal) => {
         const { id } = node;
@@ -2837,6 +3075,10 @@ const NodeHandlers = {
             node.data.text = responseText;
             node.lastResponse = responseArea.innerHTML;
             node.isSucceeded = true;
+            
+            // Automatically expand node to fit the AI response
+            fitNodeToContent(id);
+            
             updateAllConnections();
         } catch (err) {
             responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
@@ -2951,6 +3193,7 @@ function saveState() {
             providers: state.providers,
             models: state.models,
             notificationsEnabled: state.notificationsEnabled,
+            notificationVolume: state.notificationVolume,
             autoRetry: state.autoRetry,
             imageMaxPixels: state.imageMaxPixels,
             proxy: state.proxy,
@@ -3051,6 +3294,9 @@ async function loadState() {
             state.notificationsEnabled = data.notificationsEnabled;
             const toggle = document.getElementById('toggle-notifications');
             if (toggle) toggle.checked = state.notificationsEnabled;
+        }
+        if (data.notificationVolume !== undefined) {
+            state.notificationVolume = data.notificationVolume;
         }
         if (data.autoRetry !== undefined) {
             state.autoRetry = data.autoRetry;
@@ -3211,7 +3457,9 @@ function serializeOneNode(nodeId) {
     if (!node) return null;
     const id = nodeId;
     const s = { id, type: node.type, x: node.x, y: node.y, width: node.width || null, height: node.height || null };
-    if (node.type === 'ImageImport') s.imageData = node.imageData || null;
+    if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave') {
+        s.imageData = node.data.image || node.imageData || null;
+    }
     if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
         s.apiConfigId = document.getElementById(`${id}-apiconfig`)?.value || 'default';
         s.prompt = document.getElementById(`${id}-prompt`)?.value || '';
@@ -4051,57 +4299,94 @@ function playNotificationSound() {
 function renderGeneralSettings() {
     const list = document.getElementById('general-settings');
     const currentSide = Math.round(Math.sqrt(state.imageMaxPixels || 4194304));
+    
+    // Read update status from persistence
+    const updateStatus = localStorage.getItem('cainflow_update_status') || 'unknown';
+    const lastCheck = localStorage.getItem('cainflow_last_update_check');
+    const latestVer = localStorage.getItem('cainflow_update_version');
+
+    let statusHtml = '';
+    const timeStr = lastCheck ? new Date(parseInt(lastCheck)).toLocaleString() : '从未检查';
+
+    if (updateStatus === 'checking') {
+        statusHtml = `<span class="update-status-loading">正在检查中...</span>`;
+    } else if (updateStatus === 'latest') {
+        statusHtml = `<span class="update-status-latest">✅ 当前已是最新版本</span>`;
+    } else if (updateStatus === 'new_version') {
+        statusHtml = `<span class="update-status-new">🚀 发现新版本: ${latestVer}</span>`;
+    } else if (updateStatus === 'error') {
+        statusHtml = `<span class="update-status-error">❌ 检查失败 (网络原因)</span>`;
+    }
 
     list.innerHTML = `
-        <div class="api-config-card">
-            <div class="card-header">
-                <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">图片处理设置</span>
-            </div>
-            <div class="card-row">
-                <div class="card-field" style="flex:1">
-                    <label>图片导入自适应缩放阈值 (边长等效分辨率)</label>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <input type="number" id="setting-max-side" value="${currentSide}" placeholder="如 2048" style="flex:1" />
-                        <span id="pixels-hint" style="font-size:11px; color:var(--text-dim); min-width:80px;">${(state.imageMaxPixels / 1000000).toFixed(1)} MP</span>
+        <div style="display: flex; gap: 16px; align-items: stretch; margin-bottom: 16px;">
+            <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">图片处理设置</span>
+                </div>
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="card-field">
+                        <label>图片导入自适应缩放阈值 (边长)</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="number" id="setting-max-side" value="${currentSide}" placeholder="如 2048" style="flex:1" />
+                            <span id="pixels-hint" style="font-size:11px; color:var(--text-dim); min-width:60px;">${(state.imageMaxPixels / 1000000).toFixed(1)} MP</span>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：过大图片会自动缩放以提升运行速度。</p>
                     </div>
-                    <p style="font-size:11px; color:var(--text-dim); margin-top:6px; line-height:1.4;">
-                        当导入图片的 [宽 × 高] 超过此值的平方时，会自动等比缩小。
-                        <br/>例如：输入 2048 对应 2048x2048 (4.2MP) 的限制。
-                    </p>
+                </div>
+            </div>
+
+            <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">存储设置</span>
+                </div>
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="card-field">
+                        <label>全局图片保存目录</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span id="global-dir-badge" style="font-size:12px; color:var(--text-primary); padding:6px 10px; border-radius:6px; flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; ${state.globalSaveDirHandle ? 'background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);' : 'background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.2);'}">
+                                ${state.globalSaveDirHandle ? `📁 ${state.globalSaveDirHandle.name}` : '<span style="color:var(--accent-red); font-weight:500;">⚠️ 未设置</span>'}
+                            </span>
+                            <button id="btn-set-global-dir" class="btn btn-secondary btn-xs" style="padding: 4px 8px;">更改</button>
+                            ${state.globalSaveDirHandle ? `<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs" style="color:var(--accent-red); padding: 4px 8px;">清除</button>` : ''}
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：设置全局目录可统一管理生成的图片。</p>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="api-config-card" style="margin-top:16px">
-            <div class="card-header">
-                <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">存储设置</span>
-            </div>
-            <div class="card-row">
-                <div class="card-field" style="flex:1">
-                    <label>全局图片保存目录</label>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span id="global-dir-badge" style="font-size:12px; color:var(--text-primary); background:rgba(255,255,255,0.05); padding:6px 12px; border-radius:6px; flex:1; border:1px solid rgba(255,255,255,0.1);">
-                            ${state.globalSaveDirHandle ? `📁 ${state.globalSaveDirHandle.name}` : '未设置（将使用节点独立设置）'}
-                        </span>
-                        <button id="btn-set-global-dir" class="btn btn-secondary btn-sm">更改目录</button>
-                        ${state.globalSaveDirHandle ? `<button id="btn-clear-global-dir" class="btn btn-ghost btn-sm" style="color:var(--accent-red)">清除</button>` : ''}
+        <div style="display: flex; gap: 16px; align-items: stretch;">
+            <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
+                </div>
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="card-field">
+                        <label>完成音效音量</label>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <input type="range" id="setting-notify-volume" min="0" max="1" step="0.05" value="${state.notificationVolume}" style="flex:1" />
+                            <span id="volume-hint" style="font-size:12px; color:var(--text-dim); min-width:40px;">${Math.round(state.notificationVolume * 100)}%</span>
+                            <button id="btn-test-sound" class="btn btn-ghost" style="padding:4px 8px; font-size:11px;">测试音效</button>
+                        </div>
                     </div>
-                    <p style="font-size:11px; color:var(--text-dim); margin-top:8px;">设置后，所有「图片保存」节点都会优先尝试保存到此目录。</p>
                 </div>
             </div>
-        </div>
 
-        <div class="api-config-card" style="margin-top:16px">
-            <div class="card-header">
-                <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
-            </div>
-            <div class="card-row">
-                <div class="card-field" style="flex:1">
-                    <label>完成音效音量</label>
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <input type="range" id="setting-notify-volume" min="0" max="1" step="0.05" value="${state.notificationVolume}" style="flex:1" />
-                        <span id="volume-hint" style="font-size:12px; color:var(--text-dim); min-width:40px;">${Math.round(state.notificationVolume * 100)}%%</span>
-                        <button id="btn-test-sound" class="btn btn-ghost" style="padding:4px 8px; font-size:11px;">测试音效</button>
+            <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">系统版本与更新</span>
+                </div>
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="card-field">
+                        <label>当前版本与检查结果</label>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span class="version-badge">${APP_VERSION}</span>
+                            <div class="update-status-indicator">${statusHtml}</div>
+                            <div style="flex:1"></div>
+                            <button id="btn-check-update" class="btn btn-secondary btn-sm">检查更新</button>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px;">最后检查: ${timeStr}</p>
                     </div>
                 </div>
             </div>
@@ -4113,6 +4398,7 @@ function renderGeneralSettings() {
     const volInput = document.getElementById('setting-notify-volume');
     const volHint = document.getElementById('volume-hint');
     const testBtn = document.getElementById('btn-test-sound');
+    const btnCheckUpdate = document.getElementById('btn-check-update');
 
     const btnSetGlobal = document.getElementById('btn-set-global-dir');
     const btnClearGlobal = document.getElementById('btn-clear-global-dir');
@@ -4149,6 +4435,9 @@ function renderGeneralSettings() {
 
     testBtn.addEventListener('click', () => {
         playNotificationSound();
+    });
+    btnCheckUpdate?.addEventListener('click', () => {
+        checkUpdate(true);
     });
     input.addEventListener('input', (e) => {
         const side = parseInt(e.target.value) || 0;
@@ -4462,15 +4751,35 @@ document.addEventListener('paste', (e) => {
         y: (window.innerHeight / 2 - state.canvas.y) / state.canvas.zoom
     };
 
-    // Phase 3: Single-branch execution
+    // Phase 3: Single-branch execution (Priority: Image > Internal Nodes > Text)
     if (imageFile) {
         e.preventDefault();
-        e.stopImmediatePropagation(); // Crucial to prevent bubble duplicates
-        const nodeId = addNode('ImageImport', pos.x, pos.y, null, true);
-        if (nodeId) {
-            loadImageFile(nodeId, imageFile);
-            showToast('已完成剪贴板图片快速导入', 'success');
+        e.stopImmediatePropagation();
+        
+        // Priority check: If a single 'ImageImport' node is selected, paste into it directly
+        let targetNodeId = null;
+        if (state.selectedNodes.size === 1) {
+            const selectedId = Array.from(state.selectedNodes)[0];
+            const node = state.nodes.get(selectedId);
+            if (node && node.type === 'ImageImport') {
+                targetNodeId = selectedId;
+            }
         }
+
+        if (targetNodeId) {
+            loadImageFile(targetNodeId, imageFile);
+            showToast('图片已导入选中的节点', 'success');
+        } else {
+            const nodeId = addNode('ImageImport', pos.x, pos.y, null, true);
+            if (nodeId) {
+                loadImageFile(nodeId, imageFile);
+                showToast('已从剪贴板导入图片', 'success');
+            }
+        }
+    } else if (state.clipboard && state.clipboard.nodes.length > 0) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pasteNode();
     } else if (textContent && textContent.trim().length > 0) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -4478,7 +4787,7 @@ document.addEventListener('paste', (e) => {
         if (nodeId) {
             const textEl = document.getElementById(`${nodeId}-text`);
             if (textEl) { textEl.value = textContent; textEl.dispatchEvent(new Event('change')); }
-            showToast('已完成剪贴板文本快速导入', 'success');
+            showToast('已从剪贴板导入文本', 'success');
             scheduleSave();
         }
     }
@@ -4771,6 +5080,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         console.log('CainFlow Initialized successfully.');
+        
+        // Check for updates after a short delay to not block startup
+        setTimeout(checkUpdate, 3000);
     } catch (e) {
         console.error('CainFlow Initialization Failed:', e);
         showToast('初始化失败，请查看控制台日志', 'error');
@@ -4790,11 +5102,9 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); document.getElementById('import-file').click(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !inInput && state.clipboard && state.clipboard.nodes.length) {
-        e.preventDefault();
-        pasteNode();
-        return;
-    }
+    
+    // Ctrl+V for nodes: We now handle this in the 'paste' event listener to avoid blocking system clipboard (images/text)
+    
     if (e.key === 'Delete' && state.selectedNodes.size > 0 && !inInput) {
         Array.from(state.selectedNodes).forEach(id => removeNode(id));
     }

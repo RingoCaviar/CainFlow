@@ -498,6 +498,37 @@
         </div>
     </div>
 
+    <!-- Update Notification Modal -->
+    <div id="modal-update" class="modal-overlay hidden">
+        <div class="modal-panel update-modal-panel">
+            <div class="modal-header">
+                <h2>🚀 发现新版本！</h2>
+                <button id="update-modal-close" class="modal-close-btn" onclick="closeModal('modal-update')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="update-info-header">
+                    <span id="update-tag" class="update-tag-badge">v2.3</span>
+                    <span class="update-date-text">发布日期: <span id="update-date">2026-04-05</span></span>
+                </div>
+                <div class="update-changelog-container">
+                    <div id="update-changelog-content" class="update-changelog-body">
+                        <!-- Changelog Markdown/HTML content here -->
+                    </div>
+                </div>
+                <div class="update-migration-notice">
+                    <div class="notice-icon">⚠️</div>
+                    <div class="notice-text">
+                        <strong>数据安全提醒：</strong> 建议在更新前备份您的工作流。您的数据通常存储在浏览器中，但导出为 JSON 文件更保险。
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 16px 24px; display: flex; gap: 12px; justify-content: flex-end;">
+                <button id="btn-update-backup" class="btn btn-secondary">立即导出备份</button>
+                <button id="btn-update-download" class="btn btn-primary">前往下载最新版</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Workflow Rename Context Menu -->
     <div id="workflow-context-menu" class="context-menu hidden" style="z-index: 4000;">
         <div class="context-menu-item" id="menu-rename-workflow">

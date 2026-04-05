@@ -3294,3 +3294,171 @@ body.is-interacting * {
     font-size: 12px;
     outline: none;
 }
+
+/* ===== Update Notification & Modals ===== */
+.update-modal-panel {
+    max-width: 500px;
+    background: var(--bg-modal);
+    border: 1px solid var(--accent-purple);
+    border-radius: var(--radius-node);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 20px rgba(168, 85, 247, 0.2);
+}
+
+.update-info-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.update-tag-badge {
+    background: var(--accent-purple);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+}
+
+.update-date-text {
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.update-changelog-container {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-sm);
+    padding: 20px;
+    max-height: 250px;
+    overflow-y: auto;
+    margin-bottom: 24px;
+}
+
+.update-changelog-body {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+}
+
+.update-changelog-body h4 {
+    color: var(--text-primary);
+    margin: 18px 0 8px 0;
+    font-size: 15px;
+}
+
+.update-changelog-body ul {
+    padding-left: 20px;
+    margin-bottom: 12px;
+}
+
+.update-migration-notice {
+    display: flex;
+    gap: 14px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    align-items: flex-start;
+}
+
+.notice-icon {
+    font-size: 20px;
+}
+
+.notice-text {
+    font-size: 13px;
+    color: var(--accent-orange);
+    line-height: 1.5;
+}
+
+.notice-text strong {
+    color: #fff;
+}
+
+/* Settings button red dot */
+#btn-settings {
+    position: relative;
+}
+
+#btn-settings.has-update::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-purple);
+    border-radius: 50%;
+    border: 2px solid var(--bg-toolbar);
+    box-shadow: 0 0 10px var(--accent-purple);
+    animation: common-scale-pulse 2s infinite;
+    --pulse-color: rgba(168, 85, 247, 0.7);
+}
+
+.version-badge {
+    background: rgba(168, 85, 247, 0.15);
+    color: var(--accent-purple);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Update Status Indicators in Settings */
+.update-status-indicator {
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+}
+
+.update-status-loading {
+    color: var(--text-dim);
+    font-style: italic;
+    animation: common-blink 1.5s infinite;
+}
+
+.update-status-latest {
+    color: var(--accent-green);
+    font-weight: 500;
+}
+
+.update-status-new {
+    color: var(--accent-purple);
+    font-weight: 600;
+}
+
+.update-status-error {
+    color: var(--accent-red);
+    font-size: 12px;
+}
+
+@keyframes common-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+
+}
+
+/* Node specific error message area */
+.node-error-msg {
+    display: none;
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: var(--radius-sm);
+    color: #f87171;
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.node-error-msg strong {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--accent-red);
+}
+
