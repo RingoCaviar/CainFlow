@@ -790,17 +790,47 @@ window.addEventListener('mousemove', (e) => {
         updateAllConnections();
     }
     if (state.dragging) {
-        // Alt+drag clone: on first move with alt held, clone the node
-        if (state.dragging.altClone && !state.dragging.cloned) {
+        // Ctrl+drag clone: on first move with Ctrl held, clone all selected nodes
+        if (state.dragging.isCloneDrag && !state.dragging.cloned) {
             state.dragging.cloned = true;
-            const origNode = state.nodes.get(state.dragging.origNodeId);
-            if (origNode) {
-                const data = serializeOneNode(state.dragging.origNodeId);
-                data.id = null; // force new ID
-                const newId = addNode(origNode.type, origNode.x, origNode.y, data);
-                // Now drag the NEW node, leave original in place
-                state.dragging.nodeId = newId;
-                selectNode(newId);
+            const newDraggedIds = [];
+            
+            for (const nodeId of state.dragging.nodes) {
+                const origNode = state.nodes.get(nodeId);
+                if (origNode) {
+                    const data = serializeOneNode(nodeId);
+                    data.id = null; // force new ID
+                    const newId = addNode(origNode.type, origNode.x, origNode.y, data, true);
+                    if (newId) newDraggedIds.push(newId);
+                }
+            }
+
+            if (newDraggedIds.length > 0) {
+                // Update startPositions for the NEW nodes
+                const newStartPositions = new Map();
+                newDraggedIds.forEach((newId, index) => {
+                    const origId = state.dragging.nodes[index];
+                    const startPos = state.dragging.startPositions.get(origId);
+                    if (startPos) newStartPositions.set(newId, { x: startPos.x, y: startPos.y });
+                });
+
+                // Now drag the NEW nodes, leave originals in place
+                state.dragging.nodes = newDraggedIds;
+                state.dragging.startPositions = newStartPositions;
+
+                // Switch selection to clones
+                state.selectedNodes.forEach(nid => {
+                    const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected', 'is-interacting');
+                });
+                state.selectedNodes.clear();
+
+                newDraggedIds.forEach(id => {
+                    state.selectedNodes.add(id);
+                    const n = state.nodes.get(id);
+                    if (n) n.el.classList.add('selected', 'is-interacting');
+                });
+
+                updateAllConnections();
             }
         }
         const pos = screenToCanvas(e.clientX, e.clientY);
@@ -1519,7 +1549,7 @@ function addNode(type, x, y, restoreData, silent = false) {
             startPositions: startPositions,
             portOffsets: portOffsets,
             connectionsToUpdate: connectionsToUpdate,
-            altClone: isAlt,
+            isCloneDrag: e.ctrlKey || e.metaKey,
             cloned: false
         };
 
@@ -4408,7 +4438,12 @@ function renderGeneralSettings() {
     } else if (updateStatus === 'latest') {
         statusHtml = `<span class="update-status-latest">✅ 当前已是最新版本</span>`;
     } else if (updateStatus === 'new_version') {
-        statusHtml = `<span class="update-status-new">🚀 发现新版本: ${latestVer}</span>`;
+        statusHtml = `
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span class="update-status-new">🚀 发现新版本: ${latestVer}</span>
+                <button id="btn-goto-download" class="btn btn-secondary btn-sm" style="animation: glow-pulse 2.5s infinite">前往下载</button>
+            </div>
+        `;
     } else if (updateStatus === 'error') {
         statusHtml = `<span class="update-status-error">❌ 检查失败 (网络原因)</span>`;
     }
@@ -4495,11 +4530,15 @@ function renderGeneralSettings() {
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
                     <div class="card-field">
                         <label>当前版本与检查结果</label>
-                        <div style="display:flex; align-items:center; gap:12px;">
-                            <span class="version-badge">${APP_VERSION}</span>
-                            <div class="update-status-indicator">${statusHtml}</div>
-                            <div style="flex:1"></div>
-                            <button id="btn-check-update" class="btn btn-secondary btn-sm">检查更新</button>
+                        <div style="display:flex; flex-direction:column; gap:12px; width:100%;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                                <span class="version-badge">${APP_VERSION}</span>
+                                <div class="update-status-indicator">${statusHtml}</div>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:8px; width:100%;">
+                                <button id="btn-goto-download" class="btn btn-secondary" style="width:100%; ${updateStatus === 'new_version' ? 'animation: glow-pulse 2.5s infinite;' : ''}">前往下载</button>
+                                <button id="btn-check-update" class="btn btn-secondary" style="width:100%;">检查更新</button>
+                            </div>
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); margin-top:8px;">最后检查: ${timeStr}</p>
                     </div>
@@ -4514,9 +4553,14 @@ function renderGeneralSettings() {
     const volHint = document.getElementById('volume-hint');
     const testBtn = document.getElementById('btn-test-sound');
     const btnCheckUpdate = document.getElementById('btn-check-update');
+    const btnGotoDownload = document.getElementById('btn-goto-download');
 
     const btnSetGlobal = document.getElementById('btn-set-global-dir');
     const btnClearGlobal = document.getElementById('btn-clear-global-dir');
+
+    btnGotoDownload?.addEventListener('click', () => {
+        window.open(`https://github.com/${GITHUB_REPO}/releases/latest`, '_blank');
+    });
 
     btnSetGlobal?.addEventListener('click', async () => {
         try {
@@ -5350,15 +5394,14 @@ const helpContent = `
             <div class="help-item"><span class="help-desc">右键画布</span><span class="help-key">添加节点菜单</span></div>
             <div class="help-item"><span class="help-desc">中键/空格+左键</span><span class="help-key">平移画布</span></div>
             <div class="help-item"><span class="help-desc">滚轮</span><span class="help-key">缩放视图</span></div>
-            <div class="help-item"><span class="help-desc">双击连接线</span><span class="help-key">添加路由点</span></div>
+            <div class="help-item"><span class="help-desc">双击连接线</span><span class="help-key">断开连接</span></div>
         </div>
     </div>
     <div class="help-section">
         <h4>🔗 节点协作</h4>
         <div class="help-grid">
-            <div class="help-item"><span class="help-desc">拖拽圆点</span><span class="help-key">创建/断开连接</span></div>
-            <div class="help-item"><span class="help-desc">右键节点</span><span class="help-key">旁路/复制/删除</span></div>
-            <div class="help-item"><span class="help-desc">Ctrl+拖拽</span><span class="help-key">克隆节点</span></div>
+            <div class="help-item"><span class="help-desc">拖拽圆点</span><span class="help-key">创建连接</span></div>
+            <div class="help-item"><span class="help-desc">Ctrl + 拖拽</span><span class="help-key">克隆节点</span></div>
         </div>
     </div>
     <div class="help-tip">

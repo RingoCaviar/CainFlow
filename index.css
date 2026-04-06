@@ -197,6 +197,19 @@ body {
     color: var(--accent-purple);
 }
 
+.logo-version {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: baseline;
+    font-family: 'JetBrains Mono', monospace;
+    opacity: 0.9;
+}
+
 .toolbar-divider {
     width: 1px;
     height: 24px;
@@ -207,9 +220,10 @@ body {
 .btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     padding: 6px 14px;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.08); /* Unified border */
     border-radius: var(--radius-sm);
     font-family: var(--font);
     font-size: 13px;
@@ -218,6 +232,7 @@ body {
     transition: all var(--transition);
     color: var(--text-primary);
     background: rgba(255, 255, 255, 0.06);
+    white-space: nowrap; /* Single line text as requested */
 }
 
 .btn:disabled {
@@ -232,6 +247,33 @@ body {
 
 .btn:active {
     transform: scale(0.97);
+}
+
+/* Button Sizes */
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.btn-xs {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+/* Button Variants */
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
 }
 
 .btn-icon {
@@ -3682,5 +3724,30 @@ input[type=number] {
     opacity: 0;
     transform: translateY(-20px);
     pointer-events: none;
+}
+
+@keyframes glow-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+    50% { box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.6); }
+    100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+}
+
+.update-status-new {
+    color: var(--accent-purple);
+    font-weight: 600;
+}
+
+.update-status-latest {
+    color: var(--accent-green);
+    font-weight: 500;
+}
+
+.update-status-error {
+    color: var(--accent-red);
+}
+
+.update-status-loading {
+    color: var(--text-dim);
+    font-style: italic;
 }
 
