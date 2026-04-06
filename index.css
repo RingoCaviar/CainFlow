@@ -381,7 +381,7 @@ body {
     flex: 1;
     position: relative;
     overflow: hidden;
-    cursor: grab;
+    cursor: default;
     background-color: var(--bg-canvas);
     background-image:
         radial-gradient(circle, var(--bg-grid-dot) 1px, transparent 1px);
@@ -390,7 +390,13 @@ body {
     outline: none;
 }
 
-#canvas-container.grabbing {
+#canvas-container.grabbing,
+#canvas-container.space-pan-active {
+    cursor: grab;
+}
+
+#canvas-container.is-panning,
+#canvas-container.grabbing:active {
     cursor: grabbing;
 }
 
@@ -739,14 +745,18 @@ body.is-interacting .node-glass-bg {
     font-size: 10px;
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.1);
-    padding: 2px 8px;
+    padding: 2px 6px;
     border-radius: 4px;
     opacity: 0.8;
-    display: flex;
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
     border: 1px solid rgba(6, 182, 212, 0.1);
     transition: all var(--transition);
+    min-width: 50px;
+    height: 20px;
+    flex-shrink: 0;
 }
 
 .node.running .node-time-badge {
@@ -2280,6 +2290,18 @@ body.is-interacting * {
     border-color: var(--accent-purple);
 }
 
+/* Hide number input spinners (up/down arrows) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
 .card-actions {
     display: flex;
     justify-content: flex-end;
@@ -2741,6 +2763,13 @@ body.is-interacting * {
     transform: rotate(90deg);
 }
 
+#btn-delete-preview:hover {
+    background: rgba(239, 68, 68, 0.2) !important;
+    border-color: rgba(239, 68, 68, 0.5) !important;
+    color: #ef4444 !important;
+    transform: scale(1.1) !important;
+}
+
 .preview-prompt-container {
     display: flex;
     align-items: flex-start;
@@ -3199,6 +3228,124 @@ body.is-interacting * {
     color: #a855f7;
 }
 
+/* Help Panel (Floating) */
+.help-panel {
+    position: absolute;
+    left: 70px;
+    bottom: 20px;
+    width: 320px;
+    max-height: calc(100vh - 120px);
+    background: rgba(22, 22, 42, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 20px rgba(168, 85, 247, 0.1);
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: help-panel-appear 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes help-panel-appear {
+    from { opacity: 0; transform: translateX(-20px) scale(0.95); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.help-panel.hidden {
+    display: none;
+}
+
+.help-panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.help-panel-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.help-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: color 0.2s;
+}
+
+.help-close-btn:hover {
+    color: var(--text-primary);
+}
+
+.help-panel-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.help-section {
+    margin-bottom: 20px;
+}
+
+.help-section:last-child {
+    margin-bottom: 0;
+}
+
+.help-section h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--accent-purple);
+    margin: 0 0 10px 0;
+    font-weight: 700;
+}
+
+.help-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.help-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12.5px;
+}
+
+.help-key {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent-cyan);
+}
+
+.help-desc {
+    color: var(--text-secondary);
+}
+
+.help-tip {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 15px;
+    font-style: italic;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    padding-top: 10px;
+}
+
 .drawer-left {
     left: -400px;
     right: auto;
@@ -3467,5 +3614,73 @@ body.is-interacting * {
     display: block;
     margin-bottom: 2px;
     color: var(--accent-red);
+}
+
+/* Floating Refresh Notice */
+.floating-notice {
+    position: absolute;
+    top: 16px;
+    left: 76px; /* Space for sidebar (60px) + offset */
+    background: rgba(16, 16, 32, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 50; /* Inside canvas container context */
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: notice-slide-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.3s ease;
+}
+
+@keyframes notice-slide-in {
+    from { opacity: 0; transform: translateY(-10px) translateX(-5px); }
+    to { opacity: 1; transform: translateY(0) translateX(0); }
+}
+
+.floating-notice .notice-icon {
+    font-size: 14px;
+}
+
+.floating-notice .notice-content {
+    font-size: 12.5px;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.floating-notice .notice-content span {
+    color: var(--accent-orange);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    padding: 2px 6px;
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: 4px;
+    margin: 0 4px;
+}
+
+.notice-close {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.notice-close:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.floating-notice.hidden {
+    opacity: 0;
+    transform: translateY(-20px);
+    pointer-events: none;
 }
 

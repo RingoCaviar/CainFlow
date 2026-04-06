@@ -618,7 +618,10 @@ const state = {
     isRunning: false,
     notificationsEnabled: false,
     autoRetry: false,
+    maxRetries: 15,
     clipboard: null,
+    clipboardTimestamp: 0,
+    lastFocusTime: Date.now(),
     mouseCanvas: { x: 0, y: 0 },
     selectedNodes: new Set(),
     historySelectionMode: false,
@@ -644,7 +647,8 @@ const state = {
     proxy: null, // UI level explicit proxy config. If null, we'll try to fetch auto-detect
     historyGridCols: 2,
     cacheSizes: {}, // Maps storeName to MB (number)
-    undoStack: []
+    undoStack: [],
+    isSpacePressed: false
 };
 
 // Directory handles for Save nodes (not serializable)
@@ -691,10 +695,10 @@ canvasContainer.addEventListener('mousedown', (e) => {
     }
 
     // Canvas Logic: Panning vs Selection
-    // Pan: Middle button (1) OR Alt + Left Click (0)
-    const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
-    // Marquee: Left click (0) on background
-    const isMarqueeAction = e.button === 0 && e.target === canvasContainer;
+    // Pan: Middle button (1) OR Alt + Left Click (0) OR Space + Left Click (0)
+    const isPanAction = e.button === 1 || (e.button === 0 && (e.altKey || state.isSpacePressed));
+    // Marquee: Left click (0) on background, ONLY if not panning
+    const isMarqueeAction = e.button === 0 && e.target === canvasContainer && !isPanAction;
 
     if (isPanAction) {
         e.preventDefault();
@@ -2688,10 +2692,11 @@ async function runWorkflow(targetNodeId = null) {
     addLog('info', '并发工作流启动', `开始运行 ${order.length} 个节点...`);
 
     let retryAttempt = 0;
-    const maxRetries = 100;
+    const maxRetries = state.maxRetries || 15;
     const completedNodes = new Set();
     const failedNodes = new Set();
     const runningNodes = new Set();
+    let terminatedByError = false;
 
     try {
         while (true) {
@@ -2776,6 +2781,7 @@ async function runWorkflow(targetNodeId = null) {
 
                                 if (!state.autoRetry) {
                                     showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
+                                    terminatedByError = true;
                                     state.isRunning = false;
                                 }
                             } finally {
@@ -2807,8 +2813,10 @@ async function runWorkflow(targetNodeId = null) {
             if (!state.autoRetry) break;
 
             retryAttempt++;
-            if (retryAttempt >= maxRetries) {
-                showToast('已达到最大重试次数 (100)，停止运行', 'error');
+            if (retryAttempt > maxRetries) {
+                showToast(`已达到最大重试次数 (${maxRetries})，停止运行`, 'error');
+                addLog('error', '并行工作流强制终止', `已超过设定的最大自动重试次数 (${maxRetries} 轮)，执行已停止。请检查网络稳定性或节点配置。`);
+                terminatedByError = true;
                 break;
             }
 
@@ -2841,18 +2849,31 @@ async function runWorkflow(targetNodeId = null) {
         const wasRunning = state.isRunning;
         finalizeWorkflow();
 
-        if (wasRunning) {
+        if (state.notificationsEnabled) {
             const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
-            showToast(`工作流运行完成 ✓ 总耗时 ${totalDuration}s`, 'success', 6000);
             
-            if (state.notificationsEnabled) {
+            if (terminatedByError) {
+                showToast(`工作流运行停止 ✗ 耗时 ${totalDuration}s`, 'error', 6000);
                 if (Notification.permission === 'granted') {
-                    new Notification('CainFlow 运行完毕', { body: `所有节点执行成功，总耗时 ${totalDuration}s`, icon: 'data:image/svg+xml;base64,...' });
+                    new Notification('CainFlow 运行出错', { 
+                        body: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`, 
+                        icon: 'data:image/svg+xml;base64,...' 
+                    });
                 }
                 playNotificationSound();
+            } else if (state.isRunning || wasRunning) {
+                // If it was running and not terminated by error, it means it completed successfully
+                showToast(`工作流运行完成 ✓ 总耗时 ${totalDuration}s`, 'success', 6000);
+                if (Notification.permission === 'granted') {
+                    new Notification('CainFlow 运行完毕', { 
+                        body: `所有节点执行成功，总耗时 ${totalDuration}s`, 
+                        icon: 'data:image/svg+xml;base64,...' 
+                    });
+                }
+                playNotificationSound();
+            } else {
+                showToast('已手动停止运行', 'info');
             }
-        } else {
-            showToast('已停止运行', 'info');
         }
     }
 }
@@ -3214,6 +3235,7 @@ function saveState() {
             notificationsEnabled: state.notificationsEnabled,
             notificationVolume: state.notificationVolume,
             autoRetry: state.autoRetry,
+            maxRetries: state.maxRetries,
             imageMaxPixels: state.imageMaxPixels,
             proxy: state.proxy,
             historyGridCols: state.historyGridCols
@@ -3368,6 +3390,9 @@ async function loadState() {
             state.autoRetry = data.autoRetry;
             const toggle = document.getElementById('toggle-retry');
             if (toggle) toggle.checked = state.autoRetry;
+        }
+        if (data.maxRetries !== undefined) {
+            state.maxRetries = data.maxRetries;
         }
         if (data.imageMaxPixels !== undefined) {
             state.imageMaxPixels = data.imageMaxPixels;
@@ -3575,6 +3600,7 @@ function copySelectedNode() {
         connections: internalConnections,
         center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
     };
+    state.clipboardTimestamp = Date.now();
 
     showToast(`已复制 ${nodes.length} 个节点`, 'success');
 }
@@ -4423,6 +4449,26 @@ function renderGeneralSettings() {
                     </div>
                 </div>
             </div>
+
+            <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">自动化与重试</span>
+                </div>
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="card-field">
+                        <label>最大自动重试次数</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <div class="retry-input-group" style="display:flex; align-items:center; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:6px; overflow:hidden; flex:1;">
+                                <button class="btn-retry-step" data-step="-1" style="background:transparent; border:none; color:var(--text-secondary); width:32px; height:32px; cursor:pointer; font-size:16px; transition:all 0.2s; display:flex; align-items:center; justify-content:center;">-</button>
+                                <input type="number" id="setting-max-retries" value="${state.maxRetries || 15}" min="1" max="100" style="flex:1; background:transparent; border:none; border-left:1px solid rgba(255,255,255,0.05); border-right:1px solid rgba(255,255,255,0.05); text-align:center; padding:0; height:32px; color:var(--accent-purple); font-weight:600; -moz-appearance: textfield;" />
+                                <button class="btn-retry-step" data-step="1" style="background:transparent; border:none; color:var(--text-secondary); width:32px; height:32px; cursor:pointer; font-size:16px; transition:all 0.2s; display:flex; align-items:center; justify-content:center;">+</button>
+                            </div>
+                            <span style="font-size:11px; color:var(--text-dim); min-width:20px;">轮</span>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：初始失败后，最多允许再尝试执行多少轮。</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div style="display: flex; gap: 16px; align-items: stretch;">
@@ -4500,6 +4546,30 @@ function renderGeneralSettings() {
         state.notificationVolume = vol;
         volHint.textContent = Math.round(vol * 100) + '%';
         saveState();
+    });
+
+    document.getElementById('setting-max-retries')?.addEventListener('change', (e) => {
+        const val = parseInt(e.target.value);
+        if (val >= 1 && val <= 100) {
+            state.maxRetries = val;
+            saveState();
+        } else {
+            e.target.value = state.maxRetries;
+        }
+    });
+
+    document.querySelectorAll('.btn-retry-step').forEach(btn => {
+        btn.onclick = () => {
+            const step = parseInt(btn.dataset.step);
+            const input = document.getElementById('setting-max-retries');
+            if (input) {
+                let val = (parseInt(input.value) || 0) + step;
+                val = Math.max(1, Math.min(100, val));
+                input.value = val;
+                state.maxRetries = val;
+                saveState();
+            }
+        };
     });
 
     testBtn.addEventListener('click', () => {
@@ -4662,6 +4732,7 @@ function updatePreviewContent(item) {
     const metaText = document.getElementById('preview-meta');
     const btnDownload = document.getElementById('btn-download-preview');
     const btnCopy = document.getElementById('btn-copy-prompt');
+    const btnDelete = document.getElementById('btn-delete-preview');
 
     img.src = item.image;
     promptText.textContent = item.prompt;
@@ -4673,6 +4744,7 @@ function updatePreviewContent(item) {
 
     btnDownload.onclick = (e) => { e.stopPropagation(); downloadImage(item.image, `cainflow_${item.id}.png`); };
     btnCopy.onclick = (e) => { e.stopPropagation(); copyToClipboard(item.prompt); };
+    if (btnDelete) btnDelete.onclick = (e) => { e.stopPropagation(); deleteCurrentPreviewItem(); };
 
     // Update navigation button states
     const btnPrev = document.getElementById('btn-prev-preview');
@@ -4715,6 +4787,34 @@ function onPreviewKeyDown(e) {
         navigateHistory(-1);
     } else if (e.key === 'ArrowRight') {
         navigateHistory(1);
+    } else if (e.key === 'Delete') {
+        deleteCurrentPreviewItem();
+    }
+}
+
+async function deleteCurrentPreviewItem() {
+    const item = previewState.items[previewState.currentIndex];
+    if (!item) return;
+
+    if (confirm('确定要从历史记录中删除这张图片吗？\n此操作无法撤销。')) {
+        await deleteHistoryEntry(item.id);
+        showToast('已从历史记录中删除', 'info');
+
+        // Update local items array
+        previewState.items.splice(previewState.currentIndex, 1);
+
+        if (previewState.items.length === 0) {
+            closeHistoryPreview();
+        } else {
+            // Fix index if we deleted the last item
+            if (previewState.currentIndex >= previewState.items.length) {
+                previewState.currentIndex = previewState.items.length - 1;
+            }
+            updatePreviewContent(previewState.items[previewState.currentIndex]);
+        }
+
+        // Always refresh the sidebar list
+        renderHistoryList();
     }
 }
 
@@ -4820,8 +4920,17 @@ document.addEventListener('paste', (e) => {
         y: (window.innerHeight / 2 - state.canvas.y) / state.canvas.zoom
     };
 
-    // Phase 3: Single-branch execution (Priority: Image > Internal Nodes > Text)
-    if (imageFile) {
+    // Phase 3: Chronological Priority Execution
+    // Determine if internal clipboard is newer than the last time the window was blurred (likely external copy)
+    const isInternalNewer = state.clipboard && state.clipboardTimestamp > state.lastFocusTime;
+
+    if (isInternalNewer) {
+        // Internal Nodes take precedence if they were copied after the last window focus change
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pasteNode();
+    } else if (imageFile) {
+        // Otherwise, standard system clipboard priority: Image > Nodes (Fallback) > Text
         e.preventDefault();
         e.stopImmediatePropagation();
         
@@ -4846,6 +4955,7 @@ document.addEventListener('paste', (e) => {
             }
         }
     } else if (state.clipboard && state.clipboard.nodes.length > 0) {
+        // Fallback to internal nodes if no image but nodes exist
         e.preventDefault();
         e.stopImmediatePropagation();
         pasteNode();
@@ -5152,6 +5262,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Check for updates after a short delay to not block startup
         setTimeout(checkUpdate, 3000);
+        checkRefreshNotice();
     } catch (e) {
         console.error('CainFlow Initialization Failed:', e);
         showToast('初始化失败，请查看控制台日志', 'error');
@@ -5162,6 +5273,17 @@ document.addEventListener('keydown', (e) => {
     const a = document.activeElement;
     const inInput = a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable);
     const hasTextSelection = window.getSelection().toString().length > 0;
+
+    // Space Key Panning Support
+    if (e.code === 'Space' && !inInput) {
+        if (!state.isSpacePressed) {
+            state.isSpacePressed = true;
+            canvasContainer.classList.add('space-pan-active');
+        }
+        // Prevent page scrolling on space
+        if (e.target === document.body || e.target === canvasContainer) e.preventDefault();
+    }
+
     if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !inInput && state.isMouseOverCanvas) {
         e.preventDefault();
         selectAllNodes();
@@ -5193,4 +5315,122 @@ document.addEventListener('keydown', (e) => {
         state.selectedNodes.clear();
     }
 });
+
+document.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+        state.isSpacePressed = false;
+        canvasContainer.classList.remove('space-pan-active');
+    }
+});
+
+// Window focus tracking for chronological paste priority
+window.addEventListener('focus', () => { state.lastFocusTime = Date.now(); });
+window.addEventListener('blur', () => { 
+    state.lastFocusTime = Date.now(); 
+    state.isSpacePressed = false;
+    canvasContainer.classList.remove('space-pan-active');
+});
+window.addEventListener('load', () => { state.lastFocusTime = Date.now(); });
+
+// ===== Help Panel Integration =====
+const helpContent = `
+    <div class="help-section">
+        <h4>⌨️ 核心快捷键</h4>
+        <div class="help-grid">
+            <div class="help-item"><span class="help-key">Ctrl + Enter</span><span class="help-desc">运行工作流</span></div>
+            <div class="help-item"><span class="help-key">Ctrl + S</span><span class="help-desc">保存工作流</span></div>
+            <div class="help-item"><span class="help-key">Ctrl + Z</span><span class="help-desc">撤销操作</span></div>
+            <div class="help-item"><span class="help-key">Delete</span><span class="help-desc">删除选中节点</span></div>
+            <div class="help-item"><span class="help-key">F</span><span class="help-desc">自适应缩放视图</span></div>
+        </div>
+    </div>
+    <div class="help-section">
+        <h4>🖱️ 鼠标与画布</h4>
+        <div class="help-grid">
+            <div class="help-item"><span class="help-desc">右键画布</span><span class="help-key">添加节点菜单</span></div>
+            <div class="help-item"><span class="help-desc">中键/空格+左键</span><span class="help-key">平移画布</span></div>
+            <div class="help-item"><span class="help-desc">滚轮</span><span class="help-key">缩放视图</span></div>
+            <div class="help-item"><span class="help-desc">双击连接线</span><span class="help-key">添加路由点</span></div>
+        </div>
+    </div>
+    <div class="help-section">
+        <h4>🔗 节点协作</h4>
+        <div class="help-grid">
+            <div class="help-item"><span class="help-desc">拖拽圆点</span><span class="help-key">创建/断开连接</span></div>
+            <div class="help-item"><span class="help-desc">右键节点</span><span class="help-key">旁路/复制/删除</span></div>
+            <div class="help-item"><span class="help-desc">Ctrl+拖拽</span><span class="help-key">克隆节点</span></div>
+        </div>
+    </div>
+    <div class="help-tip">
+        <div>配合“自动重试”功能，可大幅提升生图成功率。</div>
+        <div style="margin-top: 4px; color: var(--accent-orange); opacity: 0.9;">提示：建议使用 <span class="help-key" style="color: var(--accent-orange); border-color: rgba(245, 158, 11, 0.3);">Ctrl + F5</span> 进行强制刷新以获取最新版本。</div>
+    </div>
+`;
+
+function toggleHelpPanel() {
+    const panel = document.getElementById('help-panel');
+    const content = document.getElementById('help-panel-content');
+    const btnHelp = document.getElementById('btn-help');
+    
+    if (panel.classList.contains('hidden')) {
+        content.innerHTML = helpContent;
+        panel.classList.remove('hidden');
+        btnHelp?.classList.add('active');
+        
+        // Auto-close others if needed
+        const historySidebar = document.getElementById('history-sidebar');
+        if (historySidebar && !historySidebar.classList.contains('hidden')) {
+            closeHistorySidebar?.();
+        }
+    } else {
+        closeHelpPanel();
+    }
+}
+
+function closeHelpPanel() {
+    const panel = document.getElementById('help-panel');
+    const btnHelp = document.getElementById('btn-help');
+    panel.classList.add('hidden');
+    btnHelp?.classList.remove('active');
+}
+
+// Bind Help Listeners
+document.getElementById('btn-help')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleHelpPanel();
+});
+
+document.getElementById('btn-close-help')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeHelpPanel();
+});
+
+// Close on canvas click or Escape
+canvasContainer.addEventListener('mousedown', (e) => {
+    if (e.target === canvasContainer || e.target === nodesLayer) {
+        closeHelpPanel();
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeHelpPanel();
+    }
+});
+
+// Refresh Notice Dimissal
+document.querySelector('.notice-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('refresh-notice').classList.add('hidden');
+    localStorage.setItem('cainflow_refresh_notice_dismissed', 'true');
+});
+
+// Check if refresh notice was dismissed
+function checkRefreshNotice() {
+    if (localStorage.getItem('cainflow_refresh_notice_dismissed') === 'true') {
+        const notice = document.getElementById('refresh-notice');
+        if (notice) notice.classList.add('hidden');
+    }
+}
+
 
