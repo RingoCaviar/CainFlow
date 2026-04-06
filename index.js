@@ -1,4 +1,4 @@
-const APP_VERSION = 'v2.4';
+const APP_VERSION = 'v2.5';
 const GITHUB_REPO = 'RingoCaviar/CainFlow';
 
 /**
