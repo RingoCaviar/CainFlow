@@ -30,6 +30,20 @@ function debounce(fn, ms) {
     return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
+function getProxyHeaders(url, method = 'POST') {
+    const headers = { 
+        'Content-Type': 'application/json', 
+        'x-target-url': url,
+        'x-target-method': method
+    };
+    if (state.proxy) {
+        headers['x-proxy-enabled'] = state.proxy.enabled ? 'true' : 'false';
+        headers['x-proxy-host'] = state.proxy.ip || '127.0.0.1';
+        headers['x-proxy-port'] = state.proxy.port || '7890';
+    }
+    return headers;
+}
+
 /**
  * Check for updates from GitHub
  * Throttled to once every 6 hours
@@ -59,11 +73,7 @@ async function checkUpdate(isManual = false) {
         const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
         const fetchOptions = {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-target-url': url,
-                'x-target-method': 'GET'
-            },
+            headers: getProxyHeaders(url, 'GET'),
             signal: controller.signal
         };
 
@@ -633,7 +643,8 @@ const state = {
     notificationAudio: null,
     proxy: null, // UI level explicit proxy config. If null, we'll try to fetch auto-detect
     historyGridCols: 2,
-    cacheSizes: {} // Maps storeName to MB (number)
+    cacheSizes: {}, // Maps storeName to MB (number)
+    undoStack: []
 };
 
 // Directory handles for Save nodes (not serializable)
@@ -1150,6 +1161,7 @@ function fitNodeToContent(nodeId) {
 
 // ===== Node Creation =====
 function addNode(type, x, y, restoreData, silent = false) {
+    if (!silent) pushHistory();
     const config = NODE_CONFIGS[type];
     if (!config) return;
     const id = (restoreData && restoreData.id) ? restoreData.id : generateId();
@@ -1507,6 +1519,7 @@ function addNode(type, x, y, restoreData, silent = false) {
             cloned: false
         };
 
+        pushHistory(); // Capture state before dragging
         document.body.classList.add('is-interacting');
         document.getElementById('connections-group').classList.add('is-interacting');
     });
@@ -1576,6 +1589,7 @@ function addNode(type, x, y, restoreData, silent = false) {
             minHeight: Math.max(intrinsicH, 80)
         };
 
+        pushHistory(); // Capture state before resizing
         el.classList.add('is-interacting');
         document.body.classList.add('is-interacting');
         document.getElementById('connections-group').classList.add('is-interacting');
@@ -1673,6 +1687,7 @@ function addNode(type, x, y, restoreData, silent = false) {
 }
 
 function removeNode(id) {
+    pushHistory();
     const idsToRemove = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
     idsToRemove.forEach(nid => {
         const node = state.nodes.get(nid);
@@ -2425,6 +2440,7 @@ function updateAllConnections() {
 }
 
 function finishConnection(src, tgt) {
+    pushHistory();
     if (src.nodeId === tgt.nodeId) return showToast('不能连接同一节点', 'warning');
     if (src.isOutput && tgt.dir === 'output') return showToast('不能连接两个输出', 'warning');
     if (!src.isOutput && tgt.dir === 'input') return showToast('不能连接两个输入', 'warning');
@@ -2888,16 +2904,11 @@ const NodeHandlers = {
                 : apiCfg.endpoint;
             showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
 
-            const headers = { 'Content-Type': 'application/json', 'x-target-url': url };
-            if (state.proxy && state.proxy.enabled) {
-                headers['x-proxy-enabled'] = 'true';
-                headers['x-proxy-host'] = state.proxy.ip;
-                headers['x-proxy-port'] = state.proxy.port;
-            }
+            const headers = getProxyHeaders(url, 'POST');
 
             const response = await fetch('/proxy', {
                 method: 'POST',
-                headers: { ...headers, 'x-target-method': 'POST' },
+                headers: headers,
                 body: JSON.stringify(requestBody),
                 signal: signal
             });
@@ -3021,16 +3032,11 @@ const NodeHandlers = {
                     ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
                     : apiCfg.endpoint;
                 
-                const headers = { 'Content-Type': 'application/json', 'x-target-url': url };
-                if (state.proxy && state.proxy.enabled) {
-                    headers['x-proxy-enabled'] = 'true';
-                    headers['x-proxy-host'] = state.proxy.ip;
-                    headers['x-proxy-port'] = state.proxy.port;
-                }
+                const headers = getProxyHeaders(url, 'POST');
 
                 const res = await fetch('/proxy', {
                     method: 'POST',
-                    headers: { ...headers, 'x-target-method': 'POST' },
+                    headers: headers,
                     body: JSON.stringify(body),
                     signal
                 });
@@ -3156,7 +3162,7 @@ function scheduleSave() {
     saveTimer = setTimeout(saveState, 300);
 }
 
-function serializeNodes() {
+function serializeNodes(includeImages = false) {
     const nodes = [];
     for (const [id, node] of state.nodes) {
         const s = { 
@@ -3169,7 +3175,11 @@ function serializeNodes() {
             enabled: node.enabled,
             lastDuration: node.lastDuration || null
         };
-        // We skip imageData here because it's now in IndexedDB to avoid localStorage QuotaExceededError
+        
+        if (includeImages && node.imageData) {
+            s.imageData = node.imageData;
+        }
+
         if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
             s.apiConfigId = document.getElementById(`${id}-apiconfig`)?.value || 'default';
             s.prompt = document.getElementById(`${id}-prompt`)?.value || '';
@@ -3215,6 +3225,53 @@ function saveState() {
             showToast('浏览器存储空间不足，部分状态可能未保存', 'error', 5000);
         }
     }
+}
+
+// ===== Undo / Redo System =====
+function pushHistory() {
+    const snapshot = {
+        nodes: serializeNodes(true), // true means include imageData for memory-based history
+        connections: state.connections.map(c => ({ ...c }))
+    };
+    state.undoStack.push(JSON.stringify(snapshot));
+    if (state.undoStack.length > 5) state.undoStack.shift();
+    updateUndoButton();
+}
+
+function updateUndoButton() {
+    const btn = document.getElementById('btn-undo');
+    if (btn) btn.disabled = state.undoStack.length === 0;
+}
+
+async function undo() {
+    if (state.undoStack.length === 0) return;
+    
+    const raw = state.undoStack.pop();
+    const snapshot = JSON.parse(raw);
+    
+    // Clear current canvas
+    state.selectedNodes.clear();
+    state.nodes.forEach(n => n.el.remove());
+    state.nodes.clear();
+    state.connections = [];
+    
+    // Restore nodes
+    if (snapshot.nodes && snapshot.nodes.length) {
+        for (const nd of snapshot.nodes) {
+            addNode(nd.type, nd.x, nd.y, nd, true);
+        }
+    }
+    
+    // Restore connections
+    if (snapshot.connections && snapshot.connections.length) {
+        state.connections = snapshot.connections;
+    }
+    
+    updateAllConnections();
+    updatePortStyles();
+    updateUndoButton();
+    saveState();
+    showToast('已撤回上一步操作', 'info');
 }
 
 function getSafeProviders() {
@@ -3368,6 +3425,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
     saveState();
     showToast('工作流已手动保存', 'success');
 });
+document.getElementById('btn-undo').addEventListener('click', undo);
 document.getElementById('btn-export').addEventListener('click', exportWorkflow);
 document.getElementById('btn-import').addEventListener('click', () => document.getElementById('import-file').click());
 document.getElementById('import-file').addEventListener('change', (e) => {
@@ -5113,6 +5171,10 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); document.getElementById('import-file').click(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        undo();
+    }
     
     // Ctrl+V for nodes: We now handle this in the 'paste' event listener to avoid blocking system clipboard (images/text)
     

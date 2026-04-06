@@ -300,14 +300,21 @@ body {
     --pulse-border: rgba(239, 68, 68, 0.4);
 }
 
-.btn-ghost {
-    background: transparent;
-    color: var(--text-secondary);
+.btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.08);
 }
 
-.btn-ghost:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--accent-red);
+#btn-undo {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#btn-undo:not(:disabled):hover {
+    color: var(--accent-cyan);
+    background: rgba(34, 211, 238, 0.1);
+}
+
+#btn-undo:active:not(:disabled) {
+    transform: scale(0.9) rotate(-30deg);
 }
 
 /* 日志按钮红点提示 */

@@ -252,10 +252,20 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Use provided method
                 req = urllib.request.Request(target_url, data=body, headers=req_headers, method=target_method)
                 
-                # Apply Proxy if enabled
+                # Apply Proxy if enabled (Check x-proxy headers first, then global state)
+                header_proxy_enabled = self.headers.get('x-proxy-enabled')
+                if header_proxy_enabled is not None:
+                    proxy_enabled = header_proxy_enabled.lower() == 'true'
+                    proxy_host = self.headers.get('x-proxy-host', ACTIVE_PROXY.get("ip"))
+                    proxy_port = self.headers.get('x-proxy-port', ACTIVE_PROXY.get("port"))
+                else:
+                    proxy_enabled = ACTIVE_PROXY.get("enabled")
+                    proxy_host = ACTIVE_PROXY.get("ip")
+                    proxy_port = ACTIVE_PROXY.get("port")
+
                 opener = None
-                if ACTIVE_PROXY.get("enabled"):
-                    proxy_url = f"http://{ACTIVE_PROXY['ip']}:{ACTIVE_PROXY['port']}"
+                if proxy_enabled:
+                    proxy_url = f"http://{proxy_host}:{proxy_port}"
                     proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
                     opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=ctx))
                 
