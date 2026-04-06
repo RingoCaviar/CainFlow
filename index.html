@@ -438,10 +438,13 @@
                         <div class="api-configs-list">
                             <div class="api-config-card" style="padding-bottom: 12px;">
                                 <div class="card-row" style="align-items: center; justify-content: space-between;">
-                                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-main);cursor:pointer;">
-                                        <input type="checkbox" id="proxy-enabled" style="accent-color:var(--accent-purple);cursor:pointer;width:16px;height:16px;" />
-                                        启用代理
-                                    </label>
+                                    <div style="display:flex;align-items:center;gap:12px;">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="proxy-enabled" />
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <span style="font-size:13px;color:var(--text-main);font-weight:500;">启用代理</span>
+                                    </div>
                                     <div style="font-size:11px;color:var(--text-dim);">通过本地或远程代理服务器发送所有 API 请求</div>
                                 </div>
                                 <div class="card-row" style="margin-top: 12px; opacity: 0.5; transition: opacity 0.2s;" id="proxy-settings-fields">

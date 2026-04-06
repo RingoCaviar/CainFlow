@@ -56,9 +56,18 @@ async function checkUpdate(isManual = false) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+        const fetchOptions = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-target-url': url,
+                'x-target-method': 'GET'
+            },
             signal: controller.signal
-        });
+        };
+
+        const response = await fetch('/proxy', fetchOptions);
         clearTimeout(timeoutId);
 
         if (!response.ok) {
@@ -2888,7 +2897,7 @@ const NodeHandlers = {
 
             const response = await fetch('/proxy', {
                 method: 'POST',
-                headers: headers,
+                headers: { ...headers, 'x-target-method': 'POST' },
                 body: JSON.stringify(requestBody),
                 signal: signal
             });
@@ -3021,7 +3030,7 @@ const NodeHandlers = {
 
                 const res = await fetch('/proxy', {
                     method: 'POST',
-                    headers: headers,
+                    headers: { ...headers, 'x-target-method': 'POST' },
                     body: JSON.stringify(body),
                     signal
                 });
@@ -3057,7 +3066,7 @@ const NodeHandlers = {
 
                 const res = await fetch('/proxy', {
                     method: 'POST',
-                    headers: headers,
+                    headers: { ...headers, 'x-target-method': 'POST' },
                     body: JSON.stringify({ model: modelCfg.modelId, messages }),
                     signal
                 });
@@ -4056,7 +4065,9 @@ async function initProxyPanel() {
                         body: JSON.stringify({ ip: newIp.value.trim(), port: newPort.value.trim() })
                     });
                     if (postRes.ok) {
-                        showToast('连通性测试成功！可以通过此代理访问 Google。', 'success');
+                        const resData = await postRes.json();
+                        const latency = resData.latency || 0;
+                        showToast(`连通性测试成功！延迟: ${latency}ms (Google)`, 'success');
                     } else {
                         const errText = await postRes.text();
                         showToast('代理连通性测试失败！' + errText, 'error');

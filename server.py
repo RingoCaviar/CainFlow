@@ -2,6 +2,7 @@ import http.server
 import socketserver
 import urllib.request
 import urllib.error
+import time
 import ssl
 import socket
 import select
@@ -31,11 +32,14 @@ def check_proxy_health(ip, port):
     ctx.verify_mode = ssl.CERT_NONE
     opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=ctx))
     try:
+        start_time = time.perf_counter()
         req = urllib.request.Request("https://www.google.com", method="HEAD")
-        opener.open(req, timeout=3.0)
-        return True, "Success"
+        opener.open(req, timeout=5.0)
+        end_time = time.perf_counter()
+        latency = int((end_time - start_time) * 1000)
+        return True, latency
     except urllib.error.HTTPError as e:
-        return True, str(e)
+        return True, "HTTP Error"
     except Exception as e:
         return False, str(e)
 
@@ -189,13 +193,15 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 length = int(self.headers.get('content-length', 0))
                 body = self.rfile.read(length)
                 proxy_cfg = json.loads(body)
-                success, msg = check_proxy_health(proxy_cfg.get("ip", "127.0.0.1"), proxy_cfg.get("port", "7890"))
+                success, result = check_proxy_health(proxy_cfg.get("ip", "127.0.0.1"), proxy_cfg.get("port", "7890"))
                 if success:
                     self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({"success": True}).encode())
+                    latency = result if isinstance(result, int) else 0
+                    self.wfile.write(json.dumps({"success": True, "latency": latency}).encode())
                 else:
-                    self.send_error(500, f"Cannot connect via proxy: {msg}")
+                    self.send_error(500, f"Cannot connect via proxy: {result}")
             except Exception as e:
                 self.send_error(500, str(e))
             return
@@ -216,6 +222,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
         if self.path == '/proxy':
             target_url = self.headers.get('x-target-url')
+            target_method = self.headers.get('x-target-method', 'POST')
             if not target_url:
                 self.send_error(400, "Missing x-target-url header")
                 return
@@ -230,16 +237,20 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             req_headers = {}
             for k, v in self.headers.items():
                 k_lower = k.lower()
-                if k_lower not in ['host', 'x-target-url', 'content-length', 'connection', 'origin', 'referer', 'accept-encoding']:
+                if k_lower not in ['host', 'x-target-url', 'x-target-method', 'content-length', 'connection', 'origin', 'referer', 'accept-encoding']:
                     req_headers[k] = v
+            
+            # Ensure a default User-Agent if not provided
+            if 'user-agent' not in [k.lower() for k in req_headers.keys()]:
+                req_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CainFlow/2.0'
 
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
 
             try:
-                # 移除硬超时限制，支持复杂计算任务
-                req = urllib.request.Request(target_url, data=body, headers=req_headers, method='POST')
+                # Use provided method
+                req = urllib.request.Request(target_url, data=body, headers=req_headers, method=target_method)
                 
                 # Apply Proxy if enabled
                 opener = None
@@ -312,6 +323,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(504, f"API Connection Error: {str(e)}")
             except Exception as e:
                 self.send_error(500, str(e))
+
         
         elif self.path.startswith('/api/workflows/'):
             name = unquote(self.path[len('/api/workflows/'):])
