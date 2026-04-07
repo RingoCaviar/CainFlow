@@ -119,6 +119,7 @@ body {
 #main-layout {
     display: flex;
     flex: 1;
+    min-height: 0; /* Allow shrinking below content height in flex column */
     width: 100%;
     overflow: hidden;
     position: relative;
@@ -133,14 +134,14 @@ body {
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 6px 16px;
-    gap: 12px;
+    justify-content: flex-start;
+    padding: 8px 16px;
+    gap: 8px 12px;
     min-height: 48px;
     height: auto;
     flex-wrap: wrap;
     z-index: 6001;
-    /* Above modal overlays to ensure interactability */
+    /* Stay below drawers (7000) and modals (8000) to ensure content is never obscured */
     position: relative;
     flex-shrink: 0;
 }
@@ -148,9 +149,7 @@ body {
 .toolbar-left,
 .toolbar-center,
 .toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    display: contents;
 }
 
 .toolbar-toggle-group {
@@ -2044,15 +2043,7 @@ body.is-interacting * {
 
     #toolbar {
         padding: 6px 12px;
-        justify-content: center;
-        /* Prevent large gaps on the first row when wrapping */
-        gap: 8px 16px;
-    }
-
-    .toolbar-left,
-    .toolbar-center,
-    .toolbar-right {
-        justify-content: center;
+        gap: 8px 12px;
     }
 }
 
@@ -2069,7 +2060,7 @@ body.is-interacting * {
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
-    z-index: 7000;
+    z-index: 8000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2537,7 +2528,7 @@ input[type=number] {
     background: var(--bg-card);
     border-left: 1px solid var(--border-color);
     box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
-    z-index: 2000;
+    z-index: 7000;
     transition: right var(--transition), width 0.3s ease;
     display: flex;
     flex-direction: column;
@@ -3035,7 +3026,7 @@ input[type=number] {
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
-    z-index: 6000;
+    z-index: 8000;
     display: none;
     align-items: center;
     justify-content: center;
@@ -3237,8 +3228,8 @@ input[type=number] {
     justify-content: flex-start;
     /* Move button back to the top as requested */
     padding-top: 20px;
-    z-index: 2010;
-    /* Higher than drawers (2000) to ensure buttons are never blocked */
+    z-index: 7100;
+    /* Higher than drawers to ensure buttons are never blocked */
     backdrop-filter: blur(20px);
 }
 
@@ -3276,14 +3267,14 @@ input[type=number] {
     left: 70px;
     bottom: 20px;
     width: 320px;
-    max-height: calc(100vh - 120px);
+    max-height: calc(100vh - var(--toolbar-height, 48px) - 40px);
     background: rgba(22, 22, 42, 0.95);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 20px rgba(168, 85, 247, 0.1);
-    z-index: 5000;
+    z-index: 7050;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -3399,7 +3390,7 @@ input[type=number] {
     backdrop-filter: blur(40px);
     box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
     transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 2000;
+    z-index: 7000;
 }
 
 .drawer-left.active {

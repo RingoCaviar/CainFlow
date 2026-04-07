@@ -1,4 +1,4 @@
-const APP_VERSION = 'v2.5';
+const APP_VERSION = 'v2.6.0';
 const GITHUB_REPO = 'RingoCaviar/CainFlow';
 
 /**
@@ -1561,24 +1561,8 @@ function addNode(type, x, y, restoreData, silent = false) {
     el.querySelector('.node-delete').addEventListener('click', (e) => { e.stopPropagation(); removeNode(id); });
     el.querySelector('.node-bypass-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        const targetState = !nodeData.enabled;
         const nodesToUpdate = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
-
-        nodesToUpdate.forEach(nid => {
-            const nData = state.nodes.get(nid);
-            if (nData) {
-                nData.enabled = targetState;
-                nData.el.classList.toggle('disabled', !targetState);
-                if (targetState) {
-                    nData.el.classList.remove('completed', 'error', 'running');
-                    const timeBadge = document.getElementById(`${nid}-time`);
-                    if (timeBadge && timeBadge.textContent === 'Skip') timeBadge.textContent = '';
-                }
-            }
-        });
-
-        showToast(targetState ? `已启用 ${nodesToUpdate.length} 个节点` : `已禁用 ${nodesToUpdate.length} 个节点`, 'info');
-        scheduleSave();
+        toggleNodesEnabled(nodesToUpdate, id);
     });
 
     // Resize handle — both width and height (Direct Real-time Scaling)
@@ -1756,6 +1740,35 @@ function selectNode(id, isMulti) {
         const n = state.nodes.get(id); if (n) n.el.classList.add('selected');
     }
     updateAllConnections();
+}
+
+function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
+    if (!nodeIds || nodeIds.length === 0) return;
+    
+    // Determine target state: if a reference node is provided (like the one clicked), 
+    // use its inverse. Otherwise use the first selected node's inverse.
+    const refId = referenceNodeId || nodeIds[0];
+    const refNode = state.nodes.get(refId);
+    if (!refNode) return;
+    
+    const targetState = !refNode.enabled;
+    
+    nodeIds.forEach(nid => {
+        const nData = state.nodes.get(nid);
+        if (nData) {
+            nData.enabled = targetState;
+            nData.el.classList.toggle('disabled', !targetState);
+            if (targetState) {
+                // If re-enabling, clear execution status artifacts so it can run fresh
+                nData.el.classList.remove('completed', 'error', 'running');
+                const timeBadge = document.getElementById(`${nid}-time`);
+                if (timeBadge && timeBadge.textContent === 'Skip') timeBadge.textContent = '';
+            }
+        }
+    });
+
+    showToast(targetState ? `已启用 ${nodeIds.length} 个节点` : `已禁用 ${nodeIds.length} 个节点`, 'info');
+    scheduleSave();
 }
 
 // ===== Resolution Badge =====
@@ -4481,6 +4494,7 @@ function renderGeneralSettings() {
                             ${state.globalSaveDirHandle ? `<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs" style="color:var(--accent-red); padding: 4px 8px;">清除</button>` : ''}
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：设置全局目录可统一管理生成的图片。</p>
+                        <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">⚠️ 注意：受浏览器安全限制，无法读取完整路径，请自行记住所使用的文件夹位置。</p>
                     </div>
                 </div>
             </div>
@@ -4926,10 +4940,20 @@ document.getElementById('btn-next-preview')?.addEventListener('click', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+    // Phase 1: Context Awareness (Input blocks shortcuts)
+    const active = document.activeElement;
+    const isInput = active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable);
+    
     if (e.key === 'Escape') {
         document.getElementById('history-preview-modal')?.classList.add('hidden');
         document.getElementById('history-sidebar')?.classList.remove('active');
         document.getElementById('log-drawer')?.classList.remove('active');
+    } else if ((e.key === 'd' || e.key === 'D') && !isInput) {
+        // Toggle selected nodes
+        if (state.selectedNodes.size > 0) {
+            e.preventDefault();
+            toggleNodesEnabled(Array.from(state.selectedNodes));
+        }
     }
 });
 
@@ -5374,7 +5398,23 @@ window.addEventListener('blur', () => {
     state.isSpacePressed = false;
     canvasContainer.classList.remove('space-pan-active');
 });
-window.addEventListener('load', () => { state.lastFocusTime = Date.now(); });
+window.addEventListener('load', () => { 
+    state.lastFocusTime = Date.now(); 
+    initToolbarObserver();
+});
+
+function initToolbarObserver() {
+    const toolbar = document.getElementById('toolbar');
+    if (!toolbar) return;
+    
+    const observer = new ResizeObserver(entries => {
+        // Use offsetHeight to capture the full visual height including padding and borders
+        const height = toolbar.offsetHeight;
+        document.documentElement.style.setProperty('--toolbar-height', `${height}px`);
+    });
+    
+    observer.observe(toolbar);
+}
 
 // ===== Help Panel Integration =====
 const helpContent = `
@@ -5386,6 +5426,7 @@ const helpContent = `
             <div class="help-item"><span class="help-key">Ctrl + Z</span><span class="help-desc">撤销操作</span></div>
             <div class="help-item"><span class="help-key">Delete</span><span class="help-desc">删除选中节点</span></div>
             <div class="help-item"><span class="help-key">F</span><span class="help-desc">自适应缩放视图</span></div>
+            <div class="help-item"><span class="help-key">D</span><span class="help-desc">启用/禁用选中节点</span></div>
         </div>
     </div>
     <div class="help-section">
