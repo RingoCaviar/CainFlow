@@ -1,4 +1,4 @@
-const APP_VERSION = 'v2.6.0';
+const APP_VERSION = 'v2.6.1';
 const GITHUB_REPO = 'RingoCaviar/CainFlow';
 
 /**
@@ -34,7 +34,8 @@ function getProxyHeaders(url, method = 'POST') {
     const headers = { 
         'Content-Type': 'application/json', 
         'x-target-url': url,
-        'x-target-method': method
+        'x-target-method': method,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CainFlow/2.6.1'
     };
     if (state.proxy) {
         headers['x-proxy-enabled'] = state.proxy.enabled ? 'true' : 'false';
@@ -735,7 +736,10 @@ const state = {
     historyGridCols: 2,
     cacheSizes: {}, // Maps storeName to MB (number)
     undoStack: [],
-    isSpacePressed: false
+    isSpacePressed: false,
+    isCutting: false,
+    cutPath: [],
+    justCut: false
 };
 
 // Directory handles for Save nodes (not serializable)
@@ -765,11 +769,32 @@ function screenToCanvas(sx, sy) {
     return { x: (sx - rect.left - x) / zoom, y: (sy - rect.top - y) / zoom };
 }
 
+function checkLineIntersection(p1, p2, p3, p4) {
+    const den = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+    if (den === 0) return null;
+    const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / den;
+    const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / den;
+    if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+        return { x: p1.x + ua * (p2.x - p1.x), y: p1.y + ua * (p2.y - p1.y) };
+    }
+    return null;
+}
+
 // Pan & Selection & Focus Management
 canvasContainer.addEventListener('mousedown', (e) => {
-    // Stage 1: Absolute Focus Sovereignty
     // Canvas MUST be focused to receive the 'paste' event reliably
     canvasContainer.focus();
+
+    // Cut Connection: Ctrl + Right Click (2)
+    if (e.ctrlKey && e.button === 2) {
+        state.isCutting = true;
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        state.cutPath = [pos];
+        canvasContainer.style.cursor = `url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PGNpcmNsZSBjeD0iNiIgY3k9IjYiIHI9IjMiPjwvY2lyY2xlPjxjaXJjbGUgY3g9IjYiIGN5PSIxOCIgcj0iMyI+PC9jaXJjbGU+PGxpbmUgeDE9IjIwIiB5MT0iNCIgeDI9IjguMTIiIHkyPSIxNS44OCI+PC9saW5lPjxsaW5lIHgxPSIxNC40NyIgeTE9IjE0LjQ4IiB4Mj0iMjAiIHkyPSIyMCI+PC9saW5lPjxsaW5lIHgxPSI4LjEyIiB5MT0iOC4xMiIgeDI9IjEyIiB5Mj0iMTIiPjwvbGluZT48L3N2Zz4=") 12 12, crosshair`;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+    }
 
     // Focus & Selection Management: Handle background clicking
     if (e.target === canvasContainer || e.target === nodesLayer || e.target.id === 'connections-layer') {
@@ -836,6 +861,47 @@ function scheduleUIUpdate() {
 window.addEventListener('mousemove', (e) => {
     // Track mouse in canvas coords for paste
     state.mouseCanvas = screenToCanvas(e.clientX, e.clientY);
+
+    if (state.isCutting) {
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        const prevPos = state.cutPath[state.cutPath.length - 1];
+        state.cutPath.push(pos);
+        
+        let changed = false;
+        const connectionsToRemove = new Set();
+        
+        for (const conn of state.connections) {
+            const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
+            const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
+            
+            const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
+            const getBezier = (t) => {
+                const it = 1 - t;
+                const x = it * it * it * from.x + 3 * it * it * t * (from.x + cp) + 3 * it * t * t * (to.x - cp) + t * t * t * to.x;
+                const y = it * it * it * from.y + 3 * it * it * t * from.y + 3 * it * t * t * to.y + t * t * t * to.y;
+                return { x, y };
+            };
+            
+            let prevBezierPoint = from;
+            for (let i = 1; i <= 10; i++) {
+                const bezierPoint = getBezier(i / 10);
+                if (checkLineIntersection(prevPos, pos, prevBezierPoint, bezierPoint)) {
+                    connectionsToRemove.add(conn.id);
+                    changed = true;
+                    break;
+                }
+                prevBezierPoint = bezierPoint;
+            }
+        }
+        
+        if (changed) {
+            state.connections = state.connections.filter(c => !connectionsToRemove.has(c.id));
+            updateAllConnections();
+            updatePortStyles();
+            scheduleSave();
+        }
+    }
+
     if (state.canvas.isPanning) {
         state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
         state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
@@ -980,6 +1046,15 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', (e) => {
     document.body.classList.remove('is-interacting');
     document.getElementById('connections-group').classList.remove('is-interacting');
+
+    if (state.isCutting) {
+        state.isCutting = false;
+        state.cutPath = [];
+        canvasContainer.style.cursor = '';
+        state.justCut = true;
+        setTimeout(() => { state.justCut = false; }, 100);
+    }
+
     if (state.canvas.isPanning) {
         const dx = Math.abs(e.clientX - state.canvas.panStart.x);
         const dy = Math.abs(e.clientY - state.canvas.panStart.y);
@@ -1131,6 +1206,7 @@ canvasContainer.addEventListener('wheel', (e) => {
 // ===== Context Menu =====
 canvasContainer.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (state.justCut) return;
     state.contextMenu = { x: e.clientX, y: e.clientY };
 
     const nodeEl = e.target.closest('.node');
@@ -5548,6 +5624,7 @@ const helpContent = `
             <div class="help-item"><span class="help-desc">中键/空格+左键</span><span class="help-key">平移画布</span></div>
             <div class="help-item"><span class="help-desc">滚轮</span><span class="help-key">缩放视图</span></div>
             <div class="help-item"><span class="help-desc">双击连接线</span><span class="help-key">断开连接</span></div>
+            <div class="help-item"><span class="help-desc">Ctrl+右键拖拽</span><span class="help-key">剪断连接线</span></div>
         </div>
     </div>
     <div class="help-section">
