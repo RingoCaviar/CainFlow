@@ -3165,17 +3165,38 @@ input[type=number] {
 }
 
 .error-detail-pre {
-    background: #0f0f1d;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: #0b0b14;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
     border-radius: var(--radius-xs);
     padding: 12px;
     font-size: 11px;
-    color: #94a3b8;
-    max-height: 200px;
+    color: #cbd5e1;
+    max-height: 240px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
-    font-family: 'Consolas', 'Monaco', monospace;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    margin-bottom: 12px;
+}
+
+.error-modal-images {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.error-modal-images img {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #000;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
 }
 
 #selection-box {
@@ -3741,4 +3762,51 @@ input[type=number] {
     color: var(--text-dim);
     font-style: italic;
 }
-
+
+/* Node Error Rich Display */
+.node-error-textarea {
+    width: 100%;
+    min-height: 80px;
+    max-height: 150px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-family: monospace;
+    font-size: 11px;
+    padding: 8px;
+    margin-top: 8px;
+    resize: vertical;
+    outline: none;
+}
+
+.node-error-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 10px;
+    display: block;
+}
+
+.node-error-img-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+}
+
+.node-error-img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.node-error-img:hover {
+    transform: scale(1.02);
+    border-color: var(--accent-cyan);
+}

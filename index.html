@@ -742,8 +742,16 @@
                 <div id="error-modal-msg" class="error-msg-box"></div>
                 <div class="error-detail-label">详细信息：</div>
                 <pre id="error-modal-detail" class="error-detail-pre"></pre>
+                <div id="error-modal-images" class="error-modal-images"></div>
             </div>
-            <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end;">
+            <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end; align-items: center;">
+                <button id="btn-show-full-log" class="btn btn-ghost hidden" style="margin-right:auto; color: var(--accent-cyan); border-color: rgba(34, 211, 238, 0.2);">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    显示完整日志
+                </button>
                 <button id="btn-copy-error" class="btn btn-secondary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right:4px;">

@@ -251,18 +251,23 @@ function dataURLtoBlob(dataUrl) {
 
 function sanitizeDetails(details) {
     if (!details) return null;
-    if (typeof details === 'string') {
-        if (details.startsWith('data:image/') && details.length > 500) return '[图片数据已隐藏以优化性能]';
-        return details.length > 2000 ? details.substring(0, 2000) + '... [已截断]' : details;
+    if (typeof details === 'string' && details.length > 1200) {
+        return details.substring(0, 1200) + '... [数据过长已截断]';
     }
     if (typeof details === 'object') {
         try {
             const copy = JSON.parse(JSON.stringify(details));
+            let isModified = false;
             const traverse = (obj) => {
                 for (const key in obj) {
-                    if (typeof obj[key] === 'string' && obj[key].length > 500) {
-                        if (obj[key].startsWith('data:image/')) obj[key] = '[图片数据已隐藏]';
-                        else obj[key] = obj[key].substring(0, 500) + '... [已截断]';
+                    if (typeof obj[key] === 'string') {
+                        if (obj[key].startsWith('data:image/') && obj[key].length > 500) {
+                             obj[key] = '[图片数据已隐藏]';
+                             isModified = true;
+                        } else if (obj[key].length > 400) {
+                             obj[key] = obj[key].substring(0, 400) + '... [数据过长已截断]';
+                             isModified = true;
+                        }
                     } else if (typeof obj[key] === 'object' && obj[key] !== null) {
                         traverse(obj[key]);
                     }
@@ -276,20 +281,22 @@ function sanitizeDetails(details) {
 }
 
 function addLog(type, title, message, details = null) {
+    const sanitized = sanitizeDetails(details);
     const log = {
         id: 'log_' + Date.now() + Math.random().toString(36).substr(2, 5),
         time: new Date().toLocaleTimeString(),
         type, // 'success' | 'error' | 'info' | 'warning'
         title,
         message,
-        details: sanitizeDetails(details)
+        details: sanitized,
+        rawDetails: (sanitized !== details) ? details : null
     };
     state.logs.unshift(log);
     if (state.logs.length > 50) state.logs.pop();
     renderLogs();
 
     if (type === 'error' && !state.autoRetry) {
-        showErrorModal(title, message, log.details);
+        showErrorModal(title, message, log.details, '执行错误', log);
     } else if (type === 'error' && state.autoRetry) {
         //静默重试模式下，为日志按钮增加提示，告知有新的背景错误
         const logBtn = elements.btnLogs;
@@ -326,13 +333,93 @@ function renderLogs() {
 function showLogDetail(id) {
     const log = state.logs.find(l => l.id === id);
     if (!log) return;
-    showErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情');
+    showErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
 }
 
-function showErrorModal(title, msg, detail, modalTitle = '执行错误') {
+function showErrorModal(title, msg, detail, modalTitle = '执行错误', log = null) {
     document.getElementById('error-modal-title').textContent = modalTitle;
     document.getElementById('error-modal-msg').textContent = msg;
-    document.getElementById('error-modal-detail').textContent = detail || '无详细信息';
+    
+    const detailEl = document.getElementById('error-modal-detail');
+    detailEl.textContent = detail || '无详细信息';
+    
+    const imageContainer = document.getElementById('error-modal-images');
+    if (imageContainer) {
+        imageContainer.innerHTML = '';
+        if (detail) {
+            const foundImages = new Set();
+            
+            // 1. Try to find data URLs directly
+            if (typeof detail === 'string') {
+                const base64Regex = /data:image\/[a-zA-Z]*;base64,[^"'\s<>]+/g;
+                const matches = detail.match(base64Regex);
+                if (matches) matches.forEach(m => foundImages.add(m));
+            }
+
+            // 2. Try to parse as JSON and find image data fields (like Gemini's inlineData)
+            try {
+                const jsonObj = typeof detail === 'string' ? JSON.parse(detail) : detail;
+                function searchForImages(obj) {
+                    if (!obj || typeof obj !== 'object') return;
+                    // Check for Gemini-style inlineData
+                    if (obj.inlineData && obj.inlineData.data && obj.inlineData.mimeType) {
+                        foundImages.add(`data:${obj.inlineData.mimeType};base64,${obj.inlineData.data}`);
+                    }
+                    // Check for OpenAI-style image objects or general data fields
+                    for (const key in obj) {
+                        const val = obj[key];
+                        if (typeof val === 'string') {
+                            if (val.startsWith('data:image/')) foundImages.add(val);
+                            // Detect raw base64 if key suggests it (limited to avoid false positives)
+                            else if ((key === 'data' || key === 'base64' || key === 'b64_json') && val.length > 100) {
+                                if (/^[a-zA-Z0-9+/=]+$/.test(val.substring(0, 100))) {
+                                    // Guess PNG if not specified
+                                    foundImages.add(`data:image/png;base64,${val}`);
+                                }
+                            }
+                        } else if (typeof val === 'object') {
+                            searchForImages(val);
+                        }
+                    }
+                }
+                searchForImages(jsonObj);
+            } catch (e) { /* Not valid JSON, skip */ }
+
+            if (foundImages.size > 0) {
+                foundImages.forEach(src => {
+                    const img = document.createElement('img');
+                    img.src = src;
+                    img.loading = 'lazy';
+                    imageContainer.appendChild(img);
+                });
+            }
+        }
+    }
+
+    // Full Log Support
+    const btnFull = document.getElementById('btn-show-full-log');
+    if (btnFull) {
+        const isTruncated = detail && detail.includes('... [数据过长已截断]');
+        if (log && log.rawDetails && isTruncated) {
+            btnFull.classList.remove('hidden');
+            btnFull.onclick = (e) => {
+                e.preventDefault();
+                // When showing full log, we use the rawDetails which was the original object/string
+                let fullText = log.rawDetails;
+                if (typeof fullText !== 'string') {
+                    try {
+                        fullText = JSON.stringify(fullText, null, 2);
+                    } catch (err) {
+                        fullText = String(fullText);
+                    }
+                }
+                showErrorModal(title, msg, fullText, modalTitle, null);
+            };
+        } else {
+            btnFull.classList.add('hidden');
+        }
+    }
+    
     document.getElementById('modal-error').classList.add('active');
 }
 
@@ -2818,7 +2905,8 @@ async function runWorkflow(targetNodeId = null) {
                                 node.el.classList.add('error');
                                 const errorMsg = err.message || '未知错误';
                                 if (timeBadge) timeBadge.textContent = 'Err';
-                                addLog('error', `节点失败: ${nodeTitle}`, errorMsg, { nodeId: nid, error: err.stack || err });
+                                const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
+                                addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails);
 
                                 failedNodes.add(nid);
 
@@ -2987,7 +3075,9 @@ const NodeHandlers = {
                 } catch (e) {
                     msg += `: ${t.substring(0, 100)}`;
                 }
-                throw new Error(msg);
+                const err = new Error(msg);
+                err.serverResponse = t;
+                throw err;
             }
 
             const result = await response.json();
@@ -3022,12 +3112,18 @@ const NodeHandlers = {
                     } else if (result.gemini_block_reason) {
                         reason = `🚫 系统屏蔽: ${result.gemini_block_reason}`;
                     }
-                    throw new Error(reason);
+                    const err = new Error(reason);
+                    err.serverResponse = JSON.stringify(result, null, 2);
+                    throw err;
                 }
             } else if (result.error?.message) {
-                throw new Error(`API 错误: ${result.error.message}`);
+                const err = new Error(`API 错误: ${result.error.message}`);
+                err.serverResponse = JSON.stringify(result, null, 2);
+                throw err;
             } else {
-                throw new Error('API 返回了空结果 (无候选内容)');
+                const err = new Error('API 返回了空结果 (无候选内容)');
+                err.serverResponse = JSON.stringify(result, null, 2);
+                throw err;
             }
 
             node.data.image = imageData;
@@ -3078,7 +3174,8 @@ const NodeHandlers = {
         responseArea.innerHTML = '<div class="chat-response-placeholder">正在生成回复...</div>';
 
         try {
-            let responseText = '';
+            let jsonResponse = null;
+
             if (apiCfg.type === 'google') {
                 const searchEnabled = document.getElementById(`${id}-search`)?.checked || false;
                 const parts = [{ text: prompt }];
@@ -3104,18 +3201,24 @@ const NodeHandlers = {
                     body: JSON.stringify(body),
                     signal
                 });
-                if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-                const json = await res.json();
+                if (!res.ok) {
+                    const t = await res.text();
+                    const err = new Error(`HTTP ${res.status}: ${t.substring(0, 100)}`);
+                    err.serverResponse = t;
+                    throw err;
+                }
+                jsonResponse = await res.json();
 
-                let resultText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                if (json.candidates?.[0]?.groundingMetadata) {
-                    const metadata = json.candidates[0].groundingMetadata;
+                let resultText = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if (jsonResponse.candidates?.[0]?.groundingMetadata) {
+                    const metadata = jsonResponse.candidates[0].groundingMetadata;
                     if (metadata.searchEntryPoint?.html) {
                         resultText += `\n\n<div class="search-chips">${metadata.searchEntryPoint.html}</div>`;
                     }
                 }
                 responseText = resultText;
             } else {
+                // OpenAI compatible handle
                 const messages = [];
                 if (sysprompt) messages.push({ role: 'system', content: sysprompt });
                 const content = [{ type: 'text', text: prompt }];
@@ -3140,12 +3243,21 @@ const NodeHandlers = {
                     body: JSON.stringify({ model: modelCfg.modelId, messages }),
                     signal
                 });
-                if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-                const json = await res.json();
-                responseText = json.choices?.[0]?.message?.content || '';
+                if (!res.ok) {
+                    const t = await res.text();
+                    const err = new Error(`HTTP ${res.status}: ${t.substring(0, 100)}`);
+                    err.serverResponse = t;
+                    throw err;
+                }
+                jsonResponse = await res.json();
+                responseText = jsonResponse.choices?.[0]?.message?.content || '';
             }
 
-            if (!responseText) throw new Error('API 未返回文本内容');
+            if (!responseText) {
+                const err = new Error('API 未返回文本内容');
+                if (jsonResponse) err.serverResponse = JSON.stringify(jsonResponse, null, 2);
+                throw err;
+            }
             if (window.marked && window.marked.parse) {
                 responseArea.innerHTML = marked.parse(responseText);
             } else {
