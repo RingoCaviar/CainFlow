@@ -2110,6 +2110,21 @@ body.is-interacting * {
     color: var(--text-primary);
 }
 
+.github-link {
+    color: var(--text-dim);
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.github-link:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-1px);
+}
+
 .modal-close-btn {
     width: 32px;
     height: 32px;
