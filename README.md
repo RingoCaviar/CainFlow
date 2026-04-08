@@ -76,3 +76,10 @@
 *🔒 **隐私提示**：所有数据均存储在本地，本工具不泄露您的 API 密钥及隐私。*
 
 **最新版本**: v2.6.1 (2026-04-07)
+
+---
+
+## 📈 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=RingoCaviar/CainFlow&type=Date)](https://star-history.com/#RingoCaviar/CainFlow&Date)
+
