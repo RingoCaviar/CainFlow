@@ -12,6 +12,12 @@ import os
 import json
 import webbrowser
 import ipaddress
+import mimetypes
+
+# Fix for Windows MIME type issue with ES Modules
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('application/javascript', '.mjs')
+
 from urllib.parse import urlparse, unquote
 
 PORT = 8767
@@ -120,11 +126,18 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         path = str(args[0]) if len(args) > 0 else ""
         noise_patterns = [
             '/favicon.ico', 'layui', 'laydate', 'layer.css', 'code.css', 
-            'main.js', 'app.js', 'utils.js', 'api.js', 'workflow.js', 'nodes.js', 'theme/default'
+            'theme/default'
         ]
         if any(pattern in path for pattern in noise_patterns):
             return
         super().log_message(format, *args)
+
+    def guess_type(self, path):
+        if path.endswith('.js'):
+            return 'application/javascript'
+        if path.endswith('.mjs'):
+            return 'application/javascript'
+        return super().guess_type(path)
 
     def do_GET(self):
         if self.path == '/api/workflows':
@@ -167,7 +180,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         noise_patterns = [
             '/favicon.ico', 'layui', 'laydate', 'layer.css', 'code.css', 
-            'main.js', 'app.js', 'utils.js', 'api.js', 'workflow.js', 'nodes.js', 'theme/default'
+            'theme/default'
         ]
         if any(pattern in self.path for pattern in noise_patterns):
             self.send_response(404)
