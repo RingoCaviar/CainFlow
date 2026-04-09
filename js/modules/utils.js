@@ -57,7 +57,7 @@ export function getImageResolution(dataUrl) {
 /**
  * Auto-resize image if total pixels exceed maxTotalPixels
  */
-export function processImageResolution(dataUrl, maxTotalPixels) {
+export function processImageResolution(dataUrl, maxTotalPixels = 4000000) {
     return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
