@@ -23,10 +23,6 @@ import {
     getStoreSizeMB, getLocalStorageMB
 } from './js/modules/db.js';
 
-import { runWorkflow, executeNode, topologicalSort } from './js/engine/executor.js';
-import { NodeHandlers } from './js/engine/handlers.js';
-
-
 // Expose constants to window for global access/compatibility
 window.APP_VERSION = APP_VERSION;
 window.GITHUB_REPO = GITHUB_REPO;
@@ -83,7 +79,7 @@ window.renderHistoryList = renderHistoryList;
 
 // ===== Utility =====
 
-export function getProxyHeaders(url, method = 'POST') {
+function getProxyHeaders(url, method = 'POST') {
     const headers = { 
         'Content-Type': 'application/json', 
         'x-target-url': url,
@@ -228,7 +224,7 @@ function adjustTextareaHeight(textarea) {
 
 // Get resolution display text from data URL
 
-export function addLog(type, title, message, details = null) {
+function addLog(type, title, message, details = null) {
     const sanitized = sanitizeDetails(details);
     const log = {
         id: 'log_' + Date.now() + Math.random().toString(36).substr(2, 5),
@@ -395,7 +391,7 @@ function applyHistoryGridCols(cols) {
     if (label) label.textContent = cols;
 }
 
-export async function renderHistoryList() {
+async function renderHistoryList() {
     const list = document.getElementById('history-list');
     const items = await getHistory();
     if (!items.length) {
@@ -1005,7 +1001,7 @@ document.querySelectorAll('.context-menu-item').forEach(item => {
  * Automatically adjusts node height to fit its internal content without overlap.
  * This is called when dynamic elements (like error messages or AI responses) are added.
  */
-export function fitNodeToContent(nodeId) {
+function fitNodeToContent(nodeId) {
     const node = state.nodes.get(nodeId);
     if (!node || !node.el) return;
 
@@ -1039,7 +1035,7 @@ export function fitNodeToContent(nodeId) {
 }
 
 // ===== Node Creation =====
-export function addNode(type, x, y, restoreData, silent = false) {
+function addNode(type, x, y, restoreData, silent = false) {
     if (!silent) pushHistory();
     const config = NODE_CONFIGS[type];
     if (!config) return;
@@ -1617,7 +1613,7 @@ function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
 }
 
 // ===== Resolution Badge =====
-export async function showResolutionBadge(nodeId, dataUrl) {
+async function showResolutionBadge(nodeId, dataUrl) {
     const badge = document.getElementById(`${nodeId}-res`);
     if (!badge) return;
     const res = await getImageResolution(dataUrl);
@@ -1723,7 +1719,50 @@ function setupImageSave(id, el) {
     });
 }
 
-// autoSaveToDir moved to js/engine/handlers.js
+async function autoSaveToDir(nodeId, dataUrl) {
+    const node = state.nodes.get(nodeId);
+    if (!node) return;
+    const handle = state.globalSaveDirHandle;
+    if (!handle) {
+        showToast('【自动保存提醒】未在通用设置中选取全局保存目录，图片仅保存在节点内。', 'warning', 5000);
+        addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId });
+        return;
+    }
+    try {
+        // Verify permission
+        const perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+            // If not granted, try to request
+            try {
+                const req = await handle.requestPermission({ mode: 'readwrite' });
+                if (req !== 'granted') {
+                    showToast('【自动保存失败】目录访问权限被拒绝', 'error');
+                    addLog('error', '自动保存失败', '权限被拒绝', { nodeId });
+                    return;
+                }
+            } catch (e) {
+                showToast('【自动保存失败】无法请求目录权限，请手动点击选择目录重新激活', 'error', 6000);
+                addLog('error', '自动保存失败', '无法请求权限: ' + e.message, { nodeId });
+                return;
+            }
+        }
+        const prefix = document.getElementById(`${nodeId}-filename`)?.value || 'image';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `${prefix}_${timestamp}.png`;
+        const blob = dataURLtoBlob(dataUrl);
+        const fileHandle = await handle.getFileHandle(filename, { create: true });
+        if (!fileHandle) throw new Error('无法创建文件');
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        showToast(`图片已自动保存: ${filename}`, 'success');
+        addLog('success', '自动保存成功', `已保存至: ${handle.name}/${filename}`);
+    } catch (err) {
+        console.error('Auto-save error:', err);
+        showToast('【自动保存出错】' + err.message, 'error', 5000);
+        addLog('error', '自动保存异常', err.message, { nodeId, error: err.stack || err });
+    }
+}
 function setupImagePreview(id, el) {
     const previewContainer = el.querySelector(`#${id}-preview`);
     el.querySelector(`#${id}-zoom-in`).addEventListener('click', (e) => { e.stopPropagation(); adjustPreviewZoom(id, 1.25); });
@@ -2210,7 +2249,7 @@ function createBezierPath(x1, y1, x2, y2) {
     return `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${x2 - cp} ${y2}, ${x2} ${y2}`;
 }
 
-export function updateAllConnections() {
+function updateAllConnections() {
     const { x, y, zoom } = state.canvas;
     const isDragging = !!state.dragging;
     const isPanning = state.canvas.isPanning;
@@ -2313,7 +2352,7 @@ function drawTempConnection(x1, y1, x2, y2) {
     tempConnection.setAttribute('d', `M ${sx1} ${sy1} C ${sx1 + cp} ${sy1}, ${sx2 - cp} ${sy2}, ${sx2} ${sy2}`);
 }
 
-export function updatePortStyles() {
+function updatePortStyles() {
     document.querySelectorAll('.port-dot').forEach(d => d.classList.remove('connected'));
     for (const conn of state.connections) {
         const fN = state.nodes.get(conn.from.nodeId);
@@ -2323,11 +2362,724 @@ export function updatePortStyles() {
     }
 }
 
-// topologicalSort, runWorkflow, NodeHandlers, and executeNode moved to js/engine/ modules
+// ===== Execution Engine =====
+function topologicalSort(targetNodeId = null) {
+    const visited = new Set(), result = [], visiting = new Set();
+    function visit(nid) {
+        if (visited.has(nid)) return true;
+        if (visiting.has(nid)) return false;
+        visiting.add(nid);
+        for (const c of state.connections.filter(c => c.to.nodeId === nid))
+            if (!visit(c.from.nodeId)) return false;
+        visiting.delete(nid); visited.add(nid); result.push(nid);
+        return true;
+    }
+    
+    if (targetNodeId) {
+        if (!state.nodes.has(targetNodeId)) return null;
+        if (!visit(targetNodeId)) { showToast('循环连接', 'error'); return null; }
+    } else {
+        for (const [nid] of state.nodes) {
+            if (!visit(nid)) { showToast('循环连接', 'error'); return null; }
+        }
+    }
+    return result;
+}
+
+async function runWorkflow(targetNodeId = null) {
+    if (state.nodes.size === 0) {
+        showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
+        return;
+    }
+    if (state.isRunning) return;
+
+    // Pre-flight check: Warn if models are used without API keys configured
+    const missingKeysProviders = new Set();
+    for (const [id, node] of state.nodes) {
+        if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
+            const configSelect = document.getElementById(`${id}-apiconfig`);
+            if (configSelect) {
+                const modelCfg = state.models.find(m => m.id === configSelect.value);
+                if (modelCfg) {
+                    const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
+                    if (apiCfg && !apiCfg.apikey.trim()) {
+                        missingKeysProviders.add(apiCfg.name);
+                    }
+                }
+            }
+        }
+    }
+    
+    if (missingKeysProviders.size > 0) {
+        const names = Array.from(missingKeysProviders).join(', ');
+        const msg = `场景中存在未配置 API 密钥的模型（涉及供应商: ${names}），可能会导致执行报错。\n\n您确定要强制继续运行吗？`;
+        if (!confirm(msg)) {
+            return;
+        }
+    }
+
+    state.isRunning = true;
+    state.abortController = new AbortController();
+
+    // Warm up audio context for background notifications
+    if (state.notificationsEnabled) {
+        if (!state.notificationAudio) {
+            state.notificationAudio = new Audio();
+            // Use a tiny silent base64 WAV to "occupy" the audio context
+            state.notificationAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+            state.notificationAudio.loop = true;
+        }
+        state.notificationAudio.muted = true;
+        state.notificationAudio.play().catch(e => console.warn('Audio warm-up blocked:', e));
+    }
+
+    const runBtn = document.getElementById('btn-run');
+    const stopBtn = document.getElementById('btn-stop');
+    runBtn.classList.add('running'); runBtn.disabled = true;
+    if (stopBtn) { stopBtn.classList.add('running'); stopBtn.disabled = false; }
+
+    // Reset nodes (unless fixed and succeeded)
+    for (const [nid, n] of state.nodes) {
+        const fixedToggle = document.getElementById(`${nid}-fixed`);
+        const isFixed = fixedToggle ? fixedToggle.checked : false;
+        
+        if (isFixed && n.isSucceeded && n.data && Object.keys(n.data).length > 0) {
+            // Keep the node in completed state
+            n.el.classList.add('completed');
+            n.el.classList.remove('error', 'running');
+            continue;
+        }
+
+        n.el.classList.remove('completed', 'error', 'running');
+        n.data = {};
+        n.isSucceeded = false;
+    }
+
+    const order = topologicalSort(targetNodeId);
+    if (!order) {
+        finalizeWorkflow();
+        return;
+    }
+
+    // Pre-flight check: ImageImport nodes in the path MUST have images
+    const emptyImageNodes = [];
+    for (const nid of order) {
+        const node = state.nodes.get(nid);
+        if (node && node.enabled !== false && node.type === 'ImageImport' && !node.imageData) {
+            emptyImageNodes.push(nid);
+        }
+    }
+    
+    if (emptyImageNodes.length > 0) {
+        showToast(`执行中止：当前路径中有 ${emptyImageNodes.length} 个图片导入节点未加载图片`, 'error', 5000);
+        emptyImageNodes.forEach(nid => {
+            const node = state.nodes.get(nid);
+            if (node) {
+                node.el.classList.add('error');
+                addLog('error', '前置检查未通过', `节点「图片导入」(${nid}) 未载入素材图片`);
+            }
+        });
+        finalizeWorkflow();
+        return;
+    }
+
+    // Pre-flight check: TextChat nodes in path must have a prompt (from port or textarea)
+    const emptyPromptNodes = [];
+    for (const nid of order) {
+        const node = state.nodes.get(nid);
+        if (node && node.enabled !== false && node.type === 'TextChat') {
+            const fixedToggle = document.getElementById(`${nid}-fixed`);
+            if (fixedToggle && fixedToggle.checked && node.isSucceeded) continue; // Skip fixed nodes with results
+
+            const hasPortInput = state.connections.some(c => c.to.nodeId === nid && c.to.port === 'prompt');
+            const textareaValue = document.getElementById(`${nid}-prompt`)?.value || '';
+            if (!hasPortInput && !textareaValue.trim()) {
+                emptyPromptNodes.push(nid);
+            }
+        }
+    }
+
+    if (emptyPromptNodes.length > 0) {
+        showToast(`执行中止：当前路径中有 ${emptyPromptNodes.length} 个智能对话节点内容为空`, 'error', 5000);
+        emptyPromptNodes.forEach(nid => {
+            const node = state.nodes.get(nid);
+            if (node) {
+                node.el.classList.add('error');
+                addLog('error', '前置检查未通过', `节点「智能对话」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
+            }
+        });
+        finalizeWorkflow();
+        return;
+    }
+
+    // Pre-verify Global Save Directory permission (Crucial: Must be requested on user gesture)
+    if (state.globalSaveDirHandle) {
+        const hasSaveNode = order.some(nid => state.nodes.get(nid)?.type === 'ImageSave');
+        if (hasSaveNode) {
+            try {
+                const status = await state.globalSaveDirHandle.queryPermission({ mode: 'readwrite' });
+                if (status !== 'granted') {
+                    addLog('info', '目录授权申请', '尝试获取保存目录的写入权限...');
+                    const req = await state.globalSaveDirHandle.requestPermission({ mode: 'readwrite' });
+                    if (req !== 'granted') {
+                        showToast('自动保存未授权：工作流将继续，但图片无法自动落盘', 'warning', 4000);
+                        addLog('warning', '目录授权失败', '用户拒绝了目录访问请求，图片将仅保存在节点内');
+                    } else {
+                        addLog('success', '目录授权成功', '自动保存功能已就绪');
+                    }
+                }
+            } catch (e) {
+                console.warn('Directory permission verify failed:', e);
+            }
+        }
+    }
+
+    function finalizeWorkflow() {
+        state.isRunning = false;
+        runBtn.classList.remove('running'); runBtn.disabled = false;
+        if (stopBtn) { stopBtn.classList.remove('running'); stopBtn.disabled = true; }
+        state.abortController = null;
+    }
+
+    // Auto-inject ImageSave nodes
+    let injected = false;
+    for (const nid of order) {
+        const node = state.nodes.get(nid);
+        if (node && node.type === 'ImageGenerate') {
+            const hasConnection = state.connections.some(c => c.from.nodeId === nid && c.from.port === 'image');
+            if (!hasConnection) {
+                const rect = node.el.getBoundingClientRect();
+                const nodeWidth = rect.width || 240;
+                const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
+                if (saveId) {
+                    state.connections.push({ id: 'conn_' + generateId(), from: { nodeId: nid, port: 'image', type: 'image' }, to: { nodeId: saveId, port: 'image', type: 'image' }, type: 'image' });
+                    injected = true;
+                    addLog('info', '自动注入节点', `为「${NODE_CONFIGS[node.type].title}」自动添加了图片保存节点`);
+                }
+            }
+        }
+    }
+    if (injected) {
+        updateAllConnections(); updatePortStyles();
+        const newOrder = topologicalSort(targetNodeId);
+        if (newOrder) order.splice(0, order.length, ...newOrder);
+    }
+
+    const totalWorkflowStartTime = Date.now();
+    addLog('info', '并发工作流启动', `开始运行 ${order.length} 个节点...`);
+
+    let retryAttempt = 0;
+    const maxRetries = state.maxRetries || 15;
+    const completedNodes = new Set();
+    const failedNodes = new Set();
+    const runningNodes = new Set();
+    let terminatedByError = false;
+
+    try {
+        while (true) {
+            let hasNewFailuresInRound = false;
+
+            // Parallel execution loop for this round
+            while (true) {
+                if (!state.isRunning) break;
+
+                // Find nodes that are ready (all dependencies completed successfully)
+                const readyNodes = order.filter(nid => {
+                    if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
+                    const node = state.nodes.get(nid);
+                    if (!node || node.enabled === false) { completedNodes.add(nid); return false; }
+
+                    const deps = state.connections.filter(c => c.to.nodeId === nid).map(c => c.from.nodeId);
+                    return deps.every(dnid => completedNodes.has(dnid));
+                });
+
+                if (readyNodes.length === 0 && runningNodes.size === 0) break;
+
+                if (readyNodes.length > 0) {
+                    readyNodes.forEach(nid => {
+                        if (runningNodes.has(nid) || completedNodes.has(nid)) return;
+                        runningNodes.add(nid);
+                        const node = state.nodes.get(nid);
+                        const nodeTitle = NODE_CONFIGS[node.type].title;
+
+                        (async () => {
+                            node.el.classList.add('running');
+                            node.el.classList.remove('completed', 'error');
+                            const timeBadge = document.getElementById(`${nid}-time`);
+                            const timeContainer = document.getElementById(`${nid}-time-container`);
+                            const startTime = Date.now();
+                            let timerId = null;
+                            if (timeBadge) {
+                                if (timeContainer) timeContainer.style.display = 'flex';
+                                timerId = setInterval(() => {
+                                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                                    timeBadge.textContent = `${elapsed}s`;
+                                    if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
+                                    else timeBadge.style.color = '';
+                                }, 100);
+                            }
+
+                            try {
+                                const inputs = {};
+                                for (const c of state.connections.filter(c => c.to.nodeId === nid)) {
+                                    const fn = state.nodes.get(c.from.nodeId);
+                                    if (fn && fn.data[c.from.port] !== undefined) inputs[c.to.port] = fn.data[c.from.port];
+                                }
+
+                                await executeNode(node, inputs, state.abortController?.signal);
+
+                                if (timerId) clearInterval(timerId);
+                                const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+                                node.isSucceeded = true;
+                                node.lastDuration = durationSec;
+                                node.el.classList.remove('running');
+                                node.el.classList.add('completed');
+                                if (timeBadge) {
+                                    timeBadge.textContent = `${durationSec}s`;
+                                    timeBadge.style.color = ''; // Reset possible red warn
+                                }
+                                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
+                                scheduleSave(); // Persist duration
+                                completedNodes.add(nid);
+                            } catch (err) {
+                                if (err.name === 'AbortError') {
+                                    node.el.classList.remove('running');
+                                    addLog('warning', `节点已中止: ${nodeTitle}`, '用户终止了工作流');
+                                    return;
+                                }
+                                hasNewFailuresInRound = true;
+                                node.el.classList.remove('running');
+                                node.el.classList.add('error');
+                                const errorMsg = err.message || '未知错误';
+                                if (timeBadge) timeBadge.textContent = 'Err';
+                                const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
+                                addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails);
+
+                                failedNodes.add(nid);
+
+                                if (!state.autoRetry) {
+                                    showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
+                                    terminatedByError = true;
+                                    state.isRunning = false;
+                                }
+                            } finally {
+                                if (timerId) clearInterval(timerId);
+                                runningNodes.delete(nid);
+                            }
+                        })();
+                    });
+                }
+
+                // Wait a small amount for state changes to propagate and UI to breathe
+                await new Promise(r => setTimeout(r, 100));
+                if (!state.isRunning) break; // User stopped or fatal error
+            }
+
+            if (!state.isRunning) break;
+
+            // Check round results
+            const actualFailures = order.filter(id => {
+                const n = state.nodes.get(id);
+                return n && n.enabled !== false && !n.isSucceeded;
+            });
+
+            if (actualFailures.length === 0) {
+                if (retryAttempt > 0) addLog('success', '工作流并行重试完成', `经过 ${retryAttempt} 次重试后，所有节点已成功执行。`);
+                break;
+            }
+
+            if (!state.autoRetry) break;
+
+            retryAttempt++;
+            if (retryAttempt > maxRetries) {
+                showToast(`已达到最大重试次数 (${maxRetries})，停止运行`, 'error');
+                addLog('error', '并行工作流强制终止', `已超过设定的最大自动重试次数 (${maxRetries} 轮)，执行已停止。请检查网络稳定性或节点配置。`);
+                terminatedByError = true;
+                break;
+            }
+
+            addLog('warning', `自动重试开始 (第 ${retryAttempt} 轮)`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
+            showToast(`正在启动第 ${retryAttempt} 轮自动重试 (${actualFailures.length} 个节点)...`, 'warning', 4000);
+            failedNodes.clear(); // Clear failures to allow retry in next round
+            await new Promise(r => setTimeout(r, 1500));
+            if (!state.isRunning) break;
+        }
+    } finally {
+        if (!state.isRunning) {
+            addLog('info', '工作流停止', '用户手动终止了运行流程');
+            // Cleanup UI for any running nodes
+            for (const nid of runningNodes) {
+                const node = state.nodes.get(nid);
+                if (node) node.el.classList.remove('running');
+            }
+        }
+
+        // Wrap up
+        for (const [id, n] of state.nodes) {
+            if (n.type === 'ImageSave' && n.data.image) {
+                const btnSave = n.el.querySelector(`#${id}-manual-save`);
+                const btnView = n.el.querySelector(`#${id}-view-full`);
+                if (btnSave) btnSave.disabled = false;
+                if (btnView) btnView.disabled = false;
+            }
+        }
+
+        const wasRunning = state.isRunning;
+        finalizeWorkflow();
+
+        if (state.notificationsEnabled) {
+            const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
+            
+            if (terminatedByError) {
+                showToast(`工作流运行停止 ✗ 耗时 ${totalDuration}s`, 'error', 6000);
+                if (Notification.permission === 'granted') {
+                    new Notification('CainFlow 运行出错', { 
+                        body: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`, 
+                        icon: 'data:image/svg+xml;base64,...' 
+                    });
+                }
+                playNotificationSound();
+            } else if (state.isRunning || wasRunning) {
+                // If it was running and not terminated by error, it means it completed successfully
+                showToast(`工作流运行完成 ✓ 总耗时 ${totalDuration}s`, 'success', 6000);
+                if (Notification.permission === 'granted') {
+                    new Notification('CainFlow 运行完毕', { 
+                        body: `所有节点执行成功，总耗时 ${totalDuration}s`, 
+                        icon: 'data:image/svg+xml;base64,...' 
+                    });
+                }
+                playNotificationSound();
+            } else {
+                showToast('已手动停止运行', 'info');
+            }
+        }
+    }
+}
+
+const NodeHandlers = {
+    'ImageImport': async (node, inputs, signal) => {
+        if (!node.imageData) throw new Error('未导入图片');
+        node.data.image = node.imageData;
+    },
+    'ImageGenerate': async (node, inputs, signal) => {
+        const { id } = node;
+        const errorEl = document.getElementById(`${id}-error`);
+        if (errorEl) errorEl.style.display = 'none';
+
+        try {
+            const configId = document.getElementById(`${id}-apiconfig`).value;
+            const modelCfg = state.models.find(m => m.id === configId);
+            if (!modelCfg) throw new Error('未找到选定的模型配置');
+            const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
+            if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+
+            const aspect = document.getElementById(`${id}-aspect`).value;
+            const resolution = document.getElementById(`${id}-resolution`).value;
+            const searchEnabled = document.getElementById(`${id}-search`).checked;
+
+            // Priority: Input port > Textarea
+            const prompt = inputs.prompt || document.getElementById(`${id}-prompt`).value;
+
+            if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
+            if (!prompt) throw new Error('请输入提示词');
+
+            const parts = [{ text: prompt }];
+            for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
+                if (inputs[key]) {
+                    const match = inputs[key].match(/^data:(.+?);base64,(.+)$/);
+                    if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+                }
+            }
+
+            const requestBody = { contents: [{ parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } };
+            const imageConfig = {};
+            if (aspect) imageConfig.aspectRatio = aspect;
+            if (resolution) imageConfig.imageSize = resolution;
+            if (Object.keys(imageConfig).length > 0) requestBody.generationConfig.imageConfig = imageConfig;
+            if (searchEnabled) requestBody.tools = [{ googleSearch: {} }];
+
+            const url = apiCfg.autoComplete !== false
+                ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
+                : apiCfg.endpoint;
+            showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
+
+            const headers = getProxyHeaders(url, 'POST');
+
+            const response = await fetch('/proxy', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(requestBody),
+                signal: signal
+            });
+
+            if (!response.ok) {
+                const t = await response.text();
+                let msg = `API 错误 (${response.status})`;
+                try {
+                    const json = JSON.parse(t);
+                    if (json.error?.message) msg += `: ${json.error.message}`;
+                    else msg += `: ${t.substring(0, 100)}`;
+                } catch (e) {
+                    msg += `: ${t.substring(0, 100)}`;
+                }
+                const err = new Error(msg);
+                err.serverResponse = t;
+                throw err;
+            }
+
+            const result = await response.json();
+            if (!result) throw new Error('API 返回了空的 JSON 响应');
+            
+            let imageData = null;
+            if (result.candidates && Array.isArray(result.candidates) && result.candidates[0]) {
+                const candidate = result.candidates[0];
+                if (candidate.content?.parts) {
+                    for (const part of candidate.content.parts) {
+                        if (part.inlineData) {
+                            imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                            break;
+                        }
+                    }
+                }
+                
+                // Detailed error parsing for Imagen/Gemini when image is missing
+                if (!imageData) {
+                    let reason = 'API 未返回图片数据';
+                    if (result.error?.message) {
+                        reason = `API 错误: ${result.error.message}`;
+                    } else if (candidate.finishReason) {
+                        const fr = candidate.finishReason;
+                        if (fr === 'SAFETY') reason = '⚠️ 内容被安全过滤器拦截 (如有违规提示词或敏感动作)';
+                        else if (fr === 'RECITATION') reason = '⚠️ 生成内容由于版权保护被拦截';
+                        else reason = `生成停止原因: ${fr}`;
+                    } else if (result.promptFeedback?.blockReason || result.promptFeedback?.gemini_block_reason) {
+                        const br = result.promptFeedback.blockReason || result.promptFeedback.gemini_block_reason;
+                        reason = `🚫 请求被屏蔽: ${br}`;
+                        if (br === 'SAFETY') reason = '⚠️ 请求因违反安全政策被系统拦截 (SAFETY)';
+                    } else if (result.gemini_block_reason) {
+                        reason = `🚫 系统屏蔽: ${result.gemini_block_reason}`;
+                    }
+                    const err = new Error(reason);
+                    err.serverResponse = JSON.stringify(result, null, 2);
+                    throw err;
+                }
+            } else if (result.error?.message) {
+                const err = new Error(`API 错误: ${result.error.message}`);
+                err.serverResponse = JSON.stringify(result, null, 2);
+                throw err;
+            } else {
+                const err = new Error('API 返回了空结果 (无候选内容)');
+                err.serverResponse = JSON.stringify(result, null, 2);
+                throw err;
+            }
+
+            node.data.image = imageData;
+            showResolutionBadge(id, imageData);
+
+            // Auto record to history
+            await saveHistoryEntry({
+                nodeId: id,
+                image: imageData,
+                prompt: prompt,
+                model: modelCfg.name
+            });
+            if (document.getElementById('history-sidebar').classList.contains('active')) renderHistoryList();
+        } catch (err) {
+            if (errorEl) {
+                errorEl.innerHTML = `<strong>生成失败</strong>${err.message}`;
+                errorEl.style.display = 'block';
+                // Automatically expand node to ensure the error message is visible and doesn't overlap
+                fitNodeToContent(id);
+            }
+            throw err;
+        }
+    },
+    'TextChat': async (node, inputs, signal) => {
+        const { id } = node;
+        const configId = document.getElementById(`${id}-apiconfig`).value;
+        const modelCfg = state.models.find(m => m.id === configId);
+        if (!modelCfg) throw new Error('未找到选定的模型配置');
+        const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
+        if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+
+        const sysprompt = document.getElementById(`${id}-sysprompt`).value;
+        const prompt = inputs.prompt || document.getElementById(`${id}-prompt`).value;
+        
+        const fixedToggle = document.getElementById(`${id}-fixed`);
+        const isFixed = fixedToggle ? fixedToggle.checked : false;
+        
+        if (isFixed && node.isSucceeded && node.data && node.data.text) {
+            return;
+        }
+
+        const responseArea = document.getElementById(`${id}-response`);
+
+        if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
+        if (!prompt) throw new Error('请输入提问内容');
+
+        showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
+        responseArea.innerHTML = '<div class="chat-response-placeholder">正在生成回复...</div>';
+
+        try {
+            let jsonResponse = null;
+
+            if (apiCfg.type === 'google') {
+                const searchEnabled = document.getElementById(`${id}-search`)?.checked || false;
+                const parts = [{ text: prompt }];
+                for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
+                    if (inputs[key]) {
+                        const match = inputs[key].match(/^data:(.+?);base64,(.+)$/);
+                        if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+                    }
+                }
+                const body = { contents: [{ parts }] };
+                if (sysprompt) body.systemInstruction = { parts: [{ text: sysprompt }] };
+                if (searchEnabled) body.tools = [{ googleSearch: {} }];
+
+                const url = apiCfg.autoComplete !== false
+                    ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
+                    : apiCfg.endpoint;
+                
+                const headers = getProxyHeaders(url, 'POST');
+
+                const res = await fetch('/proxy', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(body),
+                    signal
+                });
+                if (!res.ok) {
+                    const t = await res.text();
+                    const err = new Error(`HTTP ${res.status}: ${t.substring(0, 100)}`);
+                    err.serverResponse = t;
+                    throw err;
+                }
+                jsonResponse = await res.json();
+
+                let resultText = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if (jsonResponse.candidates?.[0]?.groundingMetadata) {
+                    const metadata = jsonResponse.candidates[0].groundingMetadata;
+                    if (metadata.searchEntryPoint?.html) {
+                        resultText += `\n\n<div class="search-chips">${metadata.searchEntryPoint.html}</div>`;
+                    }
+                }
+                responseText = resultText;
+            } else {
+                // OpenAI compatible handle
+                const messages = [];
+                if (sysprompt) messages.push({ role: 'system', content: sysprompt });
+                const content = [{ type: 'text', text: prompt }];
+                for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
+                    if (inputs[key]) content.push({ type: 'image_url', image_url: { url: inputs[key] } });
+                }
+                messages.push({ role: 'user', content });
+
+                let url = apiCfg.endpoint.replace(/\/+$/, '');
+                if (apiCfg.autoComplete !== false && !url.endsWith('/chat/completions')) url += '/chat/completions';
+                
+                const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiCfg.apikey}`, 'x-target-url': url };
+                if (state.proxy && state.proxy.enabled) {
+                    headers['x-proxy-enabled'] = 'true';
+                    headers['x-proxy-host'] = state.proxy.ip;
+                    headers['x-proxy-port'] = state.proxy.port;
+                }
+
+                const res = await fetch('/proxy', {
+                    method: 'POST',
+                    headers: { ...headers, 'x-target-method': 'POST' },
+                    body: JSON.stringify({ model: modelCfg.modelId, messages }),
+                    signal
+                });
+                if (!res.ok) {
+                    const t = await res.text();
+                    const err = new Error(`HTTP ${res.status}: ${t.substring(0, 100)}`);
+                    err.serverResponse = t;
+                    throw err;
+                }
+                jsonResponse = await res.json();
+                responseText = jsonResponse.choices?.[0]?.message?.content || '';
+            }
+
+            if (!responseText) {
+                const err = new Error('API 未返回文本内容');
+                if (jsonResponse) err.serverResponse = JSON.stringify(jsonResponse, null, 2);
+                throw err;
+            }
+            if (window.marked && window.marked.parse) {
+                responseArea.innerHTML = marked.parse(responseText);
+            } else {
+                responseArea.innerText = responseText;
+            }
+            node.data.text = responseText;
+            node.lastResponse = responseArea.innerHTML;
+            node.isSucceeded = true;
+            
+            // Automatically expand node to fit the AI response
+            fitNodeToContent(id);
+            
+            updateAllConnections();
+        } catch (err) {
+            responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
+            throw err;
+        }
+    },
+    'ImagePreview': async (node, inputs, signal) => {
+        const { id } = node;
+        const imgData = inputs.image;
+        const previewContainer = document.getElementById(`${id}-preview`);
+        const controls = document.getElementById(`${id}-controls`);
+        if (imgData) {
+            node.previewZoom = 1;
+            previewContainer.innerHTML = `<img src="${imgData}" alt="预览" style="cursor:pointer" draggable="false" />`;
+            controls.style.display = 'flex';
+            node.data.image = imgData;
+            saveImageAsset(id, imgData);
+            showResolutionBadge(id, imgData);
+        } else {
+            previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
+            controls.style.display = 'none';
+        }
+    },
+    'ImageSave': async (node, inputs, signal) => {
+        const { id } = node;
+        const imgData = inputs.image;
+        const savePreview = document.getElementById(`${id}-save-preview`);
+        if (imgData) {
+            node.data.image = imgData;
+            savePreview.innerHTML = `<img src="${imgData}" alt="待保存" draggable="false" />`;
+            saveImageAsset(id, imgData);
+            showResolutionBadge(id, imgData);
+            await autoSaveToDir(id, imgData);
+        } else {
+            savePreview.innerHTML = '<div class="save-preview-placeholder">无输入图片</div>';
+        }
+    },
+    'TextInput': async (node, inputs, signal) => {
+        node.data.text = document.getElementById(`${node.id}-text`).value;
+    },
+    'TextDisplay': async (node, inputs, signal) => {
+        const text = inputs.text || '';
+        const display = document.getElementById(`${node.id}-display`);
+        if (display) {
+            display.textContent = text || '目前无输入文本';
+            node.data.text = text;
+            updateAllConnections();
+        }
+    }
+};
+
+async function executeNode(node, inputs, signal) {
+    const handler = NodeHandlers[node.type];
+    if (handler) {
+        await handler(node, inputs, signal);
+    } else {
+        console.warn(`No handler defined for node type: ${node.type}`);
+    }
+}
 
 // ===== Persistence =====
 let saveTimer = null;
-export function scheduleSave() {
+function scheduleSave() {
     if (state.dragging || state.resizing) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveState, 300);
@@ -2400,7 +3152,7 @@ function saveState() {
 }
 
 // ===== Undo / Redo System =====
-export function pushHistory() {
+function pushHistory() {
     const snapshot = {
         nodes: serializeNodes(true), // true means include imageData for memory-based history
         connections: state.connections.map(c => ({ ...c }))
