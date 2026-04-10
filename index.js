@@ -6,10 +6,14 @@ import {
 
 import { 
     generateId, showToast, debounce, compareVersions, 
-    getImageResolution, processImageResolution, dataURLtoBlob, 
     sanitizeDetails, checkLineIntersection, copyToClipboard, 
-    createThumbnail, hsbToHex 
+    hsbToHex 
 } from './js/modules/utils.js';
+
+import {
+    getImageResolution, processImageResolution, dataURLtoBlob,
+    createThumbnail, downloadImage
+} from './js/modules/imageUtils.js';
 
 import { state } from './js/modules/state.js';
 import {
@@ -38,6 +42,7 @@ window.checkLineIntersection = checkLineIntersection;
 window.copyToClipboard = copyToClipboard;
 window.createThumbnail = createThumbnail;
 window.hsbToHex = hsbToHex;
+window.downloadImage = downloadImage;
 
 // Expose state and db to window
 window.state = state;
@@ -3867,14 +3872,6 @@ async function updateCacheUsage(force = false) {
 
 
 // ===== Utilities =====
-function downloadImage(dataUrl, filename) {
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = filename || 'cainflow_export.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
 
 
 // Initialization calls moved to end of file

@@ -7,7 +7,7 @@ import {
     DB_NAME, DB_VERSION, STORE_HANDLES, STORE_ASSETS, STORE_HISTORY 
 } from './constants.js';
 
-import { createThumbnail } from './utils.js';
+import { createThumbnail } from './imageUtils.js';
 import { state } from './state.js';
 
 let _dbInstance = null;
