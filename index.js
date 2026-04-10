@@ -11,6 +11,14 @@ import {
     createThumbnail, hsbToHex 
 } from './js/modules/utils.js';
 
+import { state } from './js/modules/state.js';
+import {
+    openDB, saveHandle, getHandle, 
+    saveImageAsset, getImageAsset, deleteImageAsset, clearAssets,
+    saveHistoryEntry, getHistory, clearHistory, deleteHistoryEntry,
+    getStoreSizeMB, getLocalStorageMB
+} from './js/modules/db.js';
+
 // Expose constants to window for global access/compatibility
 window.APP_VERSION = APP_VERSION;
 window.GITHUB_REPO = GITHUB_REPO;
@@ -30,6 +38,34 @@ window.checkLineIntersection = checkLineIntersection;
 window.copyToClipboard = copyToClipboard;
 window.createThumbnail = createThumbnail;
 window.hsbToHex = hsbToHex;
+
+// Expose state and db to window
+window.state = state;
+window.openDB = openDB;
+window.saveHandle = saveHandle;
+window.getHandle = getHandle;
+window.saveImageAsset = saveImageAsset;
+window.getImageAsset = getImageAsset;
+window.deleteImageAsset = deleteImageAsset;
+window.clearAssets = clearAssets;
+window.saveHistoryEntry = saveHistoryEntry;
+window.getHistory = getHistory;
+window.clearHistory = clearHistory;
+window.deleteHistoryEntry = deleteHistoryEntry;
+window.getStoreSizeMB = getStoreSizeMB;
+window.getLocalStorageMB = getLocalStorageMB;
+
+// Expose UI functions to window for HTML event handlers
+window.checkUpdate = checkUpdate;
+window.showUpdateModal = showUpdateModal;
+window.adjustTextareaHeight = adjustTextareaHeight;
+window.addLog = addLog;
+window.renderLogs = renderLogs;
+window.showLogDetail = showLogDetail;
+window.showErrorModal = showErrorModal;
+window.closeModal = closeModal;
+window.applyHistoryGridCols = applyHistoryGridCols;
+window.renderHistoryList = renderHistoryList;
 
 /**
  * CainFlow — Node-based AI Image Generation Tool
@@ -240,6 +276,15 @@ function showLogDetail(id) {
 }
 
 function showErrorModal(title, msg, detail, modalTitle = '执行错误', log = null) {
+    const modal = document.getElementById('modal-error');
+    const content = modal.querySelector('.modal-content');
+    
+    // Reset and apply type-specific class for styling
+    content.className = 'modal-content';
+    const type = log ? log.type : 'error';
+    content.classList.add(type);
+    if (type === 'error') content.classList.add('modal-error-content');
+
     document.getElementById('error-modal-title').textContent = modalTitle;
     document.getElementById('error-modal-msg').textContent = msg;
     
@@ -316,142 +361,20 @@ function showErrorModal(title, msg, detail, modalTitle = '执行错误', log = n
                         fullText = String(fullText);
                     }
                 }
-                showErrorModal(title, msg, fullText, modalTitle, null);
+                showErrorModal(title, msg, fullText, modalTitle, log); // Pass original log to keep type
             };
         } else {
             btnFull.classList.add('hidden');
         }
     }
     
-    document.getElementById('modal-error').classList.add('active');
+    modal.classList.add('active');
 }
 
 function closeModal(id) {
     document.getElementById(id).classList.remove('active');
 }
 
-// ===== IndexedDB for Handle Persistence =====
-let _dbInstance = null;
-async function openDB() {
-    if (_dbInstance) return _dbInstance;
-    return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = (e) => {
-            const db = req.result;
-            if (!db.objectStoreNames.contains(STORE_HANDLES)) db.createObjectStore(STORE_HANDLES);
-            if (!db.objectStoreNames.contains(STORE_ASSETS)) db.createObjectStore(STORE_ASSETS);
-            if (!db.objectStoreNames.contains(STORE_HISTORY)) db.createObjectStore(STORE_HISTORY, { keyPath: 'id', autoIncrement: true });
-        };
-        req.onsuccess = () => {
-            _dbInstance = req.result;
-            resolve(_dbInstance);
-        };
-        req.onerror = () => reject(req.error);
-    });
-}
-
-async function saveHandle(key, handle) {
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_HANDLES, 'readwrite');
-        tx.objectStore(STORE_HANDLES).put(handle, key);
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { console.warn('IDB save handle failed:', e); }
-}
-
-async function getHandle(key) {
-    try {
-        const db = await openDB();
-        return new Promise((resolve) => {
-            const req = db.transaction(STORE_HANDLES).objectStore(STORE_HANDLES).get(key);
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => resolve(null);
-        });
-    } catch (e) { return null; }
-}
-
-async function saveImageAsset(nodeId, dataUrl) {
-    if (!dataUrl || dataUrl.length < 100) return;
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_ASSETS, 'readwrite');
-        tx.objectStore(STORE_ASSETS).put(dataUrl, nodeId);
-        // Invalidate cache since we don't know if we overwrote or added
-        state.cacheSizes[STORE_ASSETS] = null;
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { console.warn('IDB save asset failed:', e); }
-}
-
-async function getImageAsset(nodeId) {
-    try {
-        const db = await openDB();
-        return new Promise((resolve) => {
-            const req = db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(nodeId);
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => resolve(null);
-        });
-    } catch (e) { return null; }
-}
-
-async function deleteImageAsset(nodeId) {
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_ASSETS, 'readwrite');
-        tx.objectStore(STORE_ASSETS).delete(nodeId);
-        state.cacheSizes[STORE_ASSETS] = null; 
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { return false; }
-}
-
-
-async function saveHistoryEntry(data) {
-    try {
-        const thumb = await createThumbnail(data.image, 256);
-        const entry = { ...data, thumb, timestamp: Date.now() };
-        const db = await openDB();
-        const tx = db.transaction(STORE_HISTORY, 'readwrite');
-        tx.objectStore(STORE_HISTORY).add(entry);
-        
-        // Incremental update if cache exists
-        if (state.cacheSizes[STORE_HISTORY] !== null && state.cacheSizes[STORE_HISTORY] !== undefined) {
-            const sizeBytes = JSON.stringify(entry).length;
-            state.cacheSizes[STORE_HISTORY] += (sizeBytes / (1024 * 1024));
-        }
-        
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { console.warn('IDB save history failed:', e); }
-}
-
-async function getHistory() {
-    try {
-        const db = await openDB();
-        return new Promise((resolve) => {
-            const req = db.transaction(STORE_HISTORY).objectStore(STORE_HISTORY).getAll();
-            req.onsuccess = () => resolve(req.result.sort((a, b) => b.timestamp - a.timestamp));
-            req.onerror = () => resolve([]);
-        });
-    } catch (e) { return []; }
-}
-
-async function clearHistory() {
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_HISTORY, 'readwrite');
-        tx.objectStore(STORE_HISTORY).clear();
-        state.cacheSizes[STORE_HISTORY] = 0;
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { console.warn('IDB clear history failed:', e); }
-}
-
-async function deleteHistoryEntry(id) {
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_HISTORY, 'readwrite');
-        tx.objectStore(STORE_HISTORY).delete(id);
-        state.cacheSizes[STORE_HISTORY] = null; // Invalidate
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { console.warn('IDB delete history failed:', e); }
-}
 
 function applyHistoryGridCols(cols) {
     if (cols < 2) cols = 2;
@@ -564,47 +487,6 @@ const elements = {
 const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
 
 // ===== App State =====
-const state = {
-    nodes: new Map(),
-    connections: [],
-    canvas: { x: 0, y: 0, zoom: 1, isPanning: false, panStart: { x: 0, y: 0 }, canvasStart: { x: 0, y: 0 } },
-    dragging: null,
-    connecting: null,
-    resizing: null,
-    marquee: null,
-    contextMenu: { x: 0, y: 0 },
-    isRunning: false,
-    notificationsEnabled: false,
-    autoRetry: false,
-    maxRetries: 15,
-    clipboard: null,
-    clipboardTimestamp: 0,
-    lastFocusTime: Date.now(),
-    mouseCanvas: { x: 0, y: 0 },
-    selectedNodes: new Set(),
-    historySelectionMode: false,
-    selectedHistoryIds: new Set(),
-    providers: [...DEFAULT_PROVIDERS],
-    models: [...DEFAULT_MODELS],
-    logs: [],
-    globalSaveDirHandle: null,
-    justDragged: false,
-    isInteracting: false,
-    zoomTimer: null,
-    abortController: null,
-    imageMaxPixels: 2048 * 2048, // Default to 4MP
-    isMouseOverCanvas: false,
-    notificationVolume: 1.0,
-    notificationAudio: null,
-    proxy: null, // UI level explicit proxy config. If null, we'll try to fetch auto-detect
-    historyGridCols: 2,
-    cacheSizes: {}, // Maps storeName to MB (number)
-    undoStack: [],
-    isSpacePressed: false,
-    isCutting: false,
-    cutPath: [],
-    justCut: false
-};
 
 // Directory handles for Save nodes (not serializable)
 const dirHandles = new Map();
@@ -3924,10 +3806,7 @@ function initCache() {
         if (!confirm('确定要清理所有历史记录吗？\n\n这将永久删除浏览器本地存储的历史生成图库，无法撤销！')) return;
         
         try {
-            const db = await openDB();
-            const tx = db.transaction(STORE_HISTORY, 'readwrite');
-            await tx.objectStore(STORE_HISTORY).clear();
-            
+            await clearHistory();
             showToast('历史生成记录已清空', 'success');
             updateCacheUsage();
             if (document.getElementById('history-sidebar')?.classList.contains('active')) {
@@ -3942,10 +3821,7 @@ function initCache() {
         if (!confirm('确定要清理所有节点资产吗？\n\n这会删除画布上目前正在显示的所有图片缓存。清理后刷新页面，图片将变成占位符！')) return;
         
         try {
-            const db = await openDB();
-            const tx = db.transaction(STORE_ASSETS, 'readwrite');
-            await tx.objectStore(STORE_ASSETS).clear();
-            
+            await clearAssets();
             showToast('当前画布资产已清理', 'success');
             updateCacheUsage();
         } catch (e) {
@@ -3989,42 +3865,6 @@ async function updateCacheUsage(force = false) {
     }
 }
 
-async function getStoreSizeMB(storeName) {
-    try {
-        const db = await openDB();
-        return new Promise((resolve) => {
-            let bytes = 0;
-            const tx = db.transaction(storeName, 'readonly');
-            const store = tx.objectStore(storeName);
-            const req = store.openCursor();
-            req.onsuccess = (e) => {
-                const cursor = e.target.result;
-                if (cursor) {
-                    const val = cursor.value;
-                    // Rough estimate of serializable size
-                    if (typeof val === 'string') bytes += val.length;
-                    else bytes += JSON.stringify(val).length;
-                    cursor.continue();
-                } else {
-                    resolve((bytes / (1024 * 1024)).toFixed(2));
-                }
-            };
-            req.onerror = () => resolve("0.00");
-        });
-    } catch (e) { return "0.00"; }
-}
-
-function getLocalStorageMB() {
-    let bytes = 0;
-    try {
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            const val = localStorage.getItem(key);
-            bytes += (key.length + val.length) * 2; // UTF-16
-        }
-    } catch (e) {}
-    return (bytes / (1024 * 1024)).toFixed(2);
-}
 
 // ===== Utilities =====
 function downloadImage(dataUrl, filename) {
@@ -5363,6 +5203,10 @@ window.addEventListener('blur', () => {
     canvasContainer.classList.remove('space-pan-active');
 });
 window.addEventListener('load', () => { 
+    // Modal background click to close
+    document.getElementById('modal-error').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeModal('modal-error');
+    });
     state.lastFocusTime = Date.now(); 
     initToolbarObserver();
 });

@@ -3155,8 +3155,21 @@ input[type=number] {
 }
 
 /* Error Modal Specifics */
+.modal-content.error,
 .modal-error-content {
     border-top: 4px solid var(--accent-red);
+}
+
+.modal-content.success {
+    border-top: 4px solid var(--accent-cyan);
+}
+
+.modal-content.warning {
+    border-top: 4px solid var(--accent-orange);
+}
+
+.modal-content.info {
+    border-top: 4px solid var(--accent-blue);
 }
 
 .error-msg-box {
@@ -3169,6 +3182,24 @@ input[type=number] {
     font-weight: 500;
     margin-bottom: 16px;
     line-height: 1.5;
+}
+
+.modal-content.success .error-msg-box {
+    background: rgba(34, 211, 238, 0.08);
+    border-color: rgba(34, 211, 238, 0.2);
+    color: var(--accent-cyan);
+}
+
+.modal-content.warning .error-msg-box {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.2);
+    color: var(--accent-orange);
+}
+
+.modal-content.info .error-msg-box {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: var(--accent-blue);
 }
 
 .error-detail-label {
