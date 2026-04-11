@@ -68,7 +68,10 @@ export function saveState() {
             providers: state.providers,
             models: state.models,
             notificationsEnabled: state.notificationsEnabled,
-            autoRetry: state.autoRetry
+            autoRetry: state.autoRetry,
+            maxRetries: state.maxRetries,
+            imageMaxPixels: state.imageMaxPixels,
+            notificationVolume: state.notificationVolume
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
@@ -155,6 +158,9 @@ export async function loadState() {
             const t = document.getElementById('toggle-retry');
             if (t) t.checked = state.autoRetry;
         }
+        if (data.maxRetries !== undefined) state.maxRetries = data.maxRetries;
+        if (data.imageMaxPixels !== undefined) state.imageMaxPixels = data.imageMaxPixels;
+        if (data.notificationVolume !== undefined) state.notificationVolume = data.notificationVolume;
         if (data.proxy) state.proxy = data.proxy;
         if (data.canvas) { 
             state.canvas.x = data.canvas.x || 0; 
