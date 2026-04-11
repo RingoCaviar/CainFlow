@@ -66,7 +66,9 @@ export function saveState() {
             nodes: serializeNodes(),
             connections: state.connections.map(c => ({ id: c.id, from: c.from, to: c.to, type: c.type })),
             providers: state.providers,
-            models: state.models
+            models: state.models,
+            notificationsEnabled: state.notificationsEnabled,
+            autoRetry: state.autoRetry
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {

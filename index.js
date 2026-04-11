@@ -29,7 +29,7 @@ import {
     showLogDetail, checkUpdate, showUpdateModal,
     getPortPosition, updateAllConnections, updatePortStyles, adjustTextareaHeight, finishConnection,
     fitNodeToContent, showResolutionBadge, selectNode, removeNode, toggleNodesEnabled,
-    updateCanvasTransform, openFullscreenPreview, openImagePainter
+    updateCanvasTransform, openFullscreenPreview, openImagePainter, playNotificationSound, sendSystemNotification
 } from './js/modules/ui_bridge.js';
 
 import {
@@ -94,6 +94,8 @@ window.showErrorModal = showErrorModal;
 window.closeModal = closeModal;
 window.applyHistoryGridCols = applyHistoryGridCols;
 window.renderHistoryList = renderHistoryList;
+window.playNotificationSound = playNotificationSound;
+window.sendSystemNotification = sendSystemNotification;
 window.pushHistory = pushHistory;
 window.serializeNodes = serializeNodes;
 window.scheduleSave = scheduleSave;
@@ -2472,31 +2474,6 @@ function renderModels() {
     });
 }
 
-function playNotificationSound() {
-    if (!state.notificationsEnabled) return;
-
-    const soundPath = 'sounds/Sweet_Resolution_notice.mp3';
-    const volume = state.notificationVolume !== undefined ? state.notificationVolume : 1.0;
-
-    if (state.notificationAudio) {
-        // Reuse pre-activated audio object to bypass background restrictions
-        state.notificationAudio.pause();
-        state.notificationAudio.muted = false;
-        state.notificationAudio.loop = false;
-        state.notificationAudio.src = soundPath;
-        state.notificationAudio.volume = volume;
-        state.notificationAudio.play().catch(err => {
-            console.warn('Background audio recovery failed, trying fallback:', err);
-            new Audio(soundPath).play().catch(e => console.error('All play attempts failed:', e));
-        });
-    } else {
-        // Fallback for immediate play if no warm-up exists
-        const audio = new Audio(soundPath);
-        audio.volume = volume;
-        audio.play().catch(err => console.warn('Direct play failed:', err));
-    }
-}
-
 function renderGeneralSettings() {
     const list = document.getElementById('general-settings');
     const currentSide = Math.round(Math.sqrt(state.imageMaxPixels || 4194304));
@@ -2694,7 +2671,7 @@ function renderGeneralSettings() {
     });
 
     testBtn.addEventListener('click', () => {
-        playNotificationSound();
+        playNotificationSound(true);
     });
     btnCheckUpdate?.addEventListener('click', () => {
         checkUpdate(true);
@@ -3565,6 +3542,22 @@ function checkRefreshNotice() {
         const notice = document.getElementById('refresh-notice');
         if (notice) notice.classList.add('hidden');
     }
+}
+
+// ===== Application Bootstrap =====
+try {
+    // 1. Initialize UI and attach listeners
+    initUI();
+    
+    // 2. Synchronize server-side proxy configuration
+    if (typeof syncProxyToServer === 'function') syncProxyToServer();
+    
+    // 3. Handle refresh notice
+    checkRefreshNotice();
+    
+    console.log('[Bootstrap] CainFlow initialized successfully.');
+} catch (err) {
+    console.error('[Bootstrap] Initialization failed:', err);
 }
 
 

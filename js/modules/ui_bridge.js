@@ -521,6 +521,61 @@ export function showLogDetail(id) {
     showErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
 }
 
+/**
+ * Notification Service
+ */
+
+let fallbackAudio = null;
+
+export function playNotificationSound(force = false) {
+    if (!force && !state.notificationsEnabled) return;
+
+    const soundPath = 'sounds/Sweet_Resolution_notice.mp3';
+    const volume = state.notificationVolume !== undefined ? state.notificationVolume : 1.0;
+
+    // Prioritize the pre-warmed state.notificationAudio if available, otherwise use a single singleton fallback
+    const audio = state.notificationAudio || fallbackAudio || (fallbackAudio = new Audio());
+
+    try {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+        audio.loop = false;
+        
+        // Ensure the correct source is set only if it changed to prevent unnecessary reloads
+        if (audio.src !== window.location.origin + '/' + soundPath && !audio.src.endsWith(soundPath)) {
+            audio.src = soundPath;
+        }
+        
+        audio.volume = volume;
+        audio.play().catch(err => {
+            console.warn('Audio playback failed (usually browser restrictions):', err);
+            // Last resort: if we weren't already using fallbackAudio, try it now
+            if (audio !== fallbackAudio) {
+                if (!fallbackAudio) fallbackAudio = new Audio(soundPath);
+                fallbackAudio.volume = volume;
+                fallbackAudio.play().catch(() => {});
+            }
+        });
+    } catch (e) {
+        console.error('Core audio exception:', e);
+    }
+}
+
+export function sendSystemNotification(title, message) {
+    if (!state.notificationsEnabled) return;
+    if (Notification.permission === 'granted') {
+        try {
+            new Notification(title, {
+                body: message,
+                icon: 'cainflow.ico'
+            });
+        } catch (e) {
+            console.warn('System notification failed:', e);
+        }
+    }
+}
+
 export async function checkUpdate(isManual = false) {
     if (isManual) {
         showToast('正在检查更新...', 'info');

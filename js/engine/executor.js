@@ -7,7 +7,9 @@ import {
     addLog, 
     updateAllConnections, 
     updatePortStyles, 
-    addNode
+    addNode,
+    playNotificationSound,
+    sendSystemNotification
 } from '../modules/ui_bridge.js';
 
 import {
@@ -419,9 +421,12 @@ export async function runWorkflow(targetNodeId = null) {
             const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
             if (terminatedByError) {
                 showToast(`工作流运行停止 ✗ 耗时 ${totalDuration}s`, 'error', 6000);
-                // Notification and sound logic removed for brevity or kept if reachable
+                playNotificationSound();
+                sendSystemNotification('CainFlow 运行停止', `由于错误，工作流执行已中断。耗时 ${totalDuration}s`);
             } else if (wasRunning) {
                 showToast(`工作流运行完成 ✓ 总耗时 ${totalDuration}s`, 'success', 6000);
+                playNotificationSound();
+                sendSystemNotification('CainFlow 运行完成', `所有节点已成功执行。总耗时 ${totalDuration}s`);
             }
         }
     }
