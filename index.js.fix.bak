@@ -1642,41 +1642,24 @@ function initUI() {
     console.log('[initUI] Starting index.js (v3.1) initialization...');
 
     // ===== Toolbar =====
-    try {
-        const btnRun = document.getElementById('btn-run');
-        if (btnRun) {
-            btnRun.onclick = () => runWorkflow();
+    document.getElementById('btn-run')?.addEventListener('click', () => runWorkflow());
+    document.getElementById('btn-stop')?.addEventListener('click', () => {
+        if (state.isRunning) {
+            state.isRunning = false;
+            state.abortController?.abort();
         }
+    });
 
-        const btnStop = document.getElementById('btn-stop');
-        if (btnStop) {
-            btnStop.onclick = () => {
-                if (state.isRunning) {
-                    state.isRunning = false;
-                    state.abortController?.abort();
-                }
-            };
+    document.getElementById('btn-clear')?.addEventListener('click', () => {
+        console.log('[Toolbar] Clear button clicked');
+        if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
+        if (confirm('确定要清除所有节点和连接吗？')) {
+            state.connections = [];
+            for (const [, n] of state.nodes) n.el.remove();
+            state.nodes.clear(); state.selectedNodes.clear();
+            updateAllConnections(); showToast('画布已清除', 'info'); scheduleSave();
         }
-
-        const btnClear = document.getElementById('btn-clear');
-        if (btnClear) {
-            btnClear.onclick = () => {
-                console.log('[Toolbar] Clear button clicked');
-                if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
-                if (confirm('确定要清除所有节点和连接吗？')) {
-                    state.connections = [];
-                    for (const [, n] of state.nodes) n.el.remove();
-                    state.nodes.clear();
-                    state.selectedNodes.clear();
-                    updateAllConnections();
-                    showToast('画布已清除', 'info');
-                    scheduleSave();
-                }
-            };
-        }
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Toolbar:', e);
-    }
+    });
 
     document.getElementById('toggle-retry')?.addEventListener('change', (e) => {
         state.autoRetry = e.target.checked;
@@ -1696,71 +1679,57 @@ function initUI() {
         if (e.target.files[0]) importWorkflow(e.target.files[0]);
     });
 
-    // ===== Canvas Navigation =====
-    try {
-        const btnZoomIn = document.getElementById('btn-zoom-in');
-        if (btnZoomIn) {
-            btnZoomIn.onclick = () => {
-                document.body.classList.add('is-interacting');
-                const nz = Math.min(5, state.canvas.zoom * 1.2), cx = canvasContainer.clientWidth / 2, cy = canvasContainer.clientHeight / 2;
-                state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
-                state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
-                state.canvas.zoom = nz; updateCanvasTransform();
-                setTimeout(() => document.body.classList.remove('is-interacting'), 300);
-            };
-        }
+    document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
+        document.body.classList.add('is-interacting');
+        const nz = Math.min(5, state.canvas.zoom * 1.2), cx = canvasContainer.clientWidth / 2, cy = canvasContainer.clientHeight / 2;
+        state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
+        state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
+        state.canvas.zoom = nz; updateCanvasTransform();
+        setTimeout(() => document.body.classList.remove('is-interacting'), 300);
+    });
 
-        const btnZoomOut = document.getElementById('btn-zoom-out');
-        if (btnZoomOut) {
-            btnZoomOut.onclick = () => {
-                document.body.classList.add('is-interacting');
-                const nz = Math.max(0.1, state.canvas.zoom * 0.8), cx = canvasContainer.clientWidth / 2, cy = canvasContainer.clientHeight / 2;
-                state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
-                state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
-                state.canvas.zoom = nz; updateCanvasTransform();
-                setTimeout(() => document.body.classList.remove('is-interacting'), 300);
-            };
-        }
+    document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
+        document.body.classList.add('is-interacting');
+        const nz = Math.max(0.1, state.canvas.zoom * 0.8), cx = canvasContainer.clientWidth / 2, cy = canvasContainer.clientHeight / 2;
+        state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
+        state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
+        state.canvas.zoom = nz; updateCanvasTransform();
+        setTimeout(() => document.body.classList.remove('is-interacting'), 300);
+    });
 
-        const btnZoomReset = document.getElementById('btn-zoom-reset');
-        if (btnZoomReset) {
-            btnZoomReset.onclick = () => {
-                document.body.classList.add('is-interacting');
-                state.canvas.x = canvasContainer.clientWidth / 2;
-                state.canvas.y = canvasContainer.clientHeight / 2;
-                state.canvas.zoom = 1;
-                updateCanvasTransform();
-                setTimeout(() => document.body.classList.remove('is-interacting'), 300);
-            };
-        }
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Zooming:', e);
+    document.getElementById('btn-zoom-reset')?.addEventListener('click', () => {
+        document.body.classList.add('is-interacting');
+        state.canvas.x = canvasContainer.clientWidth / 2;
+        state.canvas.y = canvasContainer.clientHeight / 2;
+        state.canvas.zoom = 1;
+        updateCanvasTransform();
+        setTimeout(() => document.body.classList.remove('is-interacting'), 300);
+    });
+
+    const btnHistory = document.getElementById('btn-history');
+    const sidebar = document.getElementById('history-sidebar');
+    const logDrawer = document.getElementById('log-drawer');
+
+    if (btnHistory && sidebar) {
+        console.log('[initUI] Attaching history button listener');
+        btnHistory.addEventListener('click', (e) => {
+            console.log('[initUI] History button clicked');
+            PanelManager.toggle('history', () => {
+                renderHistoryList().catch(err => console.error('Failed to render history:', err));
+            });
+        });
+    } else {
+        console.warn('History UI elements missing:', { btnHistory: !!btnHistory, sidebar: !!sidebar });
     }
 
-    // ===== Panels (History & Logs) =====
-    try {
-        const btnHistory = document.getElementById('btn-history');
-        const sidebar = document.getElementById('history-sidebar');
-        if (btnHistory && sidebar) {
-            btnHistory.onclick = (e) => {
-                PanelManager.toggle('history', () => {
-                    renderHistoryList().catch(err => console.error('Failed to render history:', err));
-                });
-            };
-        }
-
-        const btnLogs = document.getElementById('btn-logs');
-        const logDrawer = document.getElementById('log-drawer');
-        if (btnLogs && logDrawer) {
-            btnLogs.onclick = () => {
-                PanelManager.toggle('logs', () => {
-                    btnLogs.classList.remove('has-new-error');
-                    renderLogs(); // Refresh logs on open
-                });
-            };
-        }
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Core Panels:', e);
+    const btnLogs = document.getElementById('btn-logs');
+    if (btnLogs && logDrawer) {
+        btnLogs.addEventListener('click', () => {
+            PanelManager.toggle('logs', () => {
+                btnLogs.classList.remove('has-new-error');
+                renderLogs(); // Refresh logs on open
+            });
+        });
     }
 
     document.getElementById('btn-close-history')?.addEventListener('click', () => {
@@ -1927,186 +1896,56 @@ function initUI() {
     });
 
     // Initialize Workflow Management
-    try {
-        if (typeof initWorkflow === 'function') initWorkflow();
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Workflow Management:', e);
-    }
-
+    if (typeof initWorkflow === 'function') initWorkflow();
     // Initialize Cache Management
-    try {
-        if (typeof initCache === 'function') initCache();
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Cache Management:', e);
-    }
-
-    // ===== Settings Modal =====
-    try {
-        const btnSettings = document.getElementById('btn-settings');
-        if (btnSettings) {
-            btnSettings.onclick = () => {
-                // Reset to first tab
-                document.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'api'));
-                document.querySelectorAll('.settings-tab-pane').forEach(p => p.classList.toggle('active', p.id === 'settings-tab-api'));
-
-                if (typeof renderProviders === 'function') renderProviders();
-                if (typeof renderModels === 'function') renderModels();
-                if (typeof renderGeneralSettings === 'function') renderGeneralSettings();
-                if (typeof initProxyPanel === 'function') initProxyPanel();
-                
-                const modal = document.getElementById('settings-modal');
-                modal?.classList.remove('hidden');
-            };
-        }
-
-        const settingsClose = document.getElementById('settings-close');
-        if (settingsClose) {
-            settingsClose.onclick = () => document.getElementById('settings-modal')?.classList.add('hidden');
-        }
-
-        const settingsModal = document.getElementById('settings-modal');
-        if (settingsModal) {
-            settingsModal.onclick = (e) => {
-                if (e.target === settingsModal) settingsModal.classList.add('hidden');
-            };
-        }
-
-        document.querySelectorAll('.modal-tab-btn').forEach(btn => {
-            btn.onclick = () => {
-                const targetTab = btn.dataset.tab;
-                document.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                document.querySelectorAll('.settings-tab-pane').forEach(p => {
-                    p.classList.toggle('active', p.id === `settings-tab-${targetTab}`);
-                });
-            };
-        });
-
-        const btnAddProvider = document.getElementById('btn-add-provider');
-        if (btnAddProvider) {
-            btnAddProvider.onclick = () => {
-                state.providers.push({
-                    id: 'prov_' + Math.random().toString(36).substr(2, 9),
-                    name: '新供应商',
-                    type: 'google',
-                    apikey: '',
-                    endpoint: 'https://generativelanguage.googleapis.com',
-                    autoComplete: true
-                });
-                if (typeof renderProviders === 'function') renderProviders();
-                if (typeof renderModels === 'function') renderModels();
-                saveState();
-            };
-        }
-
-        const btnAddModel = document.getElementById('btn-add-model');
-        if (btnAddModel) {
-            btnAddModel.onclick = () => {
-                state.models.push({
-                    id: 'mod_' + Math.random().toString(36).substr(2, 9),
-                    name: '新模型配置',
-                    modelId: '',
-                    providerId: state.providers.length > 0 ? state.providers[0].id : ''
-                });
-                if (typeof renderModels === 'function') renderModels();
-                if (typeof updateAllNodeModelDropdowns === 'function') updateAllNodeModelDropdowns();
-                saveState();
-                setTimeout(() => { 
-                    const body = document.getElementById('settings-body');
-                    if (body) body.scrollTop = 9999; 
-                }, 50);
-            };
-        }
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Settings:', e);
-    }
-
-    // ===== Help Panel =====
-    try {
-        const btnHelp = document.getElementById('btn-help');
-        if (btnHelp) {
-            btnHelp.onclick = (e) => {
-                e.stopPropagation();
-                if (typeof toggleHelpPanel === 'function') toggleHelpPanel();
-            };
-        }
-
-        const btnCloseHelp = document.getElementById('btn-close-help');
-        if (btnCloseHelp) {
-            btnCloseHelp.onclick = (e) => {
-                e.stopPropagation();
-                if (typeof closeHelpPanel === 'function') closeHelpPanel();
-            };
-        }
-    } catch (e) {
-        console.error('[initUI] Failed to initialize Help Panel:', e);
-    }
+    if (typeof initCache === 'function') initCache();
 }
 
 function initCache() {
     const btnToggle = document.getElementById('btn-toggle-cache');
     const cacheSidebar = document.getElementById('cache-sidebar');
     const btnClose = document.getElementById('btn-close-cache');
-    const btnClearHistory = document.getElementById('btn-clear-cache');
-    const btnClearAssets = document.getElementById('btn-clear-assets');
+    const btnClear = document.getElementById('btn-clear-cache');
 
-    console.log('[initCache] Initializing cache panel listeners...', { 
-        btnToggle: !!btnToggle, 
-        cacheSidebar: !!cacheSidebar, 
-        btnClearHistory: !!btnClearHistory,
-        btnClearAssets: !!btnClearAssets
-    });
+    if (!btnToggle || !cacheSidebar) return;
 
-    if (!btnToggle || !cacheSidebar) {
-        console.error('[initCache] Critical cache UI elements missing');
-        return;
-    }
-
-    btnToggle.onclick = () => {
+    btnToggle.addEventListener('click', () => {
         PanelManager.toggle('cache', () => {
             updateCacheUsage();
         });
-    };
+    });
 
-    if (btnClose) {
-        btnClose.onclick = () => {
-            cacheSidebar.classList.remove('active');
-            btnToggle.classList.remove('active');
-        };
-    }
+    btnClose?.addEventListener('click', () => {
+        cacheSidebar.classList.remove('active');
+        btnToggle.classList.remove('active');
+    });
 
-    if (btnClearHistory) {
-        btnClearHistory.onclick = async () => {
-            console.log('[Cache] Clear History clicked');
-            if (confirm('确定要清理所有历史记录吗？\n\n这将永久删除浏览器本地存储的历史生成图库，无法撤销！')) {
-                try {
-                    await clearHistory();
-                    showToast('历史生成记录已清空', 'success');
-                    updateCacheUsage();
-                    if (document.getElementById('history-sidebar')?.classList.contains('active')) {
-                        renderHistoryList();
-                    }
-                } catch (e) {
-                    showToast('历史清理失败: ' + e.message, 'error');
-                }
+    btnClear?.addEventListener('click', async () => {
+        if (!confirm('确定要清理所有历史记录吗？\n\n这将永久删除浏览器本地存储的历史生成图库，无法撤销！')) return;
+        
+        try {
+            await clearHistory();
+            showToast('历史生成记录已清空', 'success');
+            updateCacheUsage();
+            if (document.getElementById('history-sidebar')?.classList.contains('active')) {
+                renderHistoryList();
             }
-        };
-    }
+        } catch (e) {
+            showToast('历史清理失败: ' + e.message, 'error');
+        }
+    });
 
-    if (btnClearAssets) {
-        btnClearAssets.onclick = async () => {
-            console.log('[Cache] Clear Assets clicked');
-            if (confirm('确定要清理所有节点资产吗？\n\n这会删除画布上目前正在显示的所有图片缓存。清理后刷新页面，图片将变成占位符！')) {
-                try {
-                    await clearAssets();
-                    showToast('当前画布资产已清理', 'success');
-                    updateCacheUsage();
-                } catch (e) {
-                    showToast('资产清理失败: ' + e.message, 'error');
-                }
-            }
-        };
-    }
+    document.getElementById('btn-clear-assets')?.addEventListener('click', async () => {
+        if (!confirm('确定要清理所有节点资产吗？\n\n这会删除画布上目前正在显示的所有图片缓存。清理后刷新页面，图片将变成占位符！')) return;
+        
+        try {
+            await clearAssets();
+            showToast('当前画布资产已清理', 'success');
+            updateCacheUsage();
+        } catch (e) {
+            showToast('资产清理失败: ' + e.message, 'error');
+        }
+    });
 }
 
 async function updateCacheUsage(force = false) {
@@ -2157,7 +1996,35 @@ const settingsModal = document.getElementById('settings-modal');
 const providersList = document.getElementById('providers-list');
 const modelsList = document.getElementById('models-list');
 
-// Initialization handled in initUI()
+document.getElementById('btn-settings').addEventListener('click', () => {
+    // Reset to first tab
+    document.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'api'));
+    document.querySelectorAll('.settings-tab-pane').forEach(p => p.classList.toggle('active', p.id === 'settings-tab-api'));
+
+    renderProviders();
+    renderModels();
+    renderGeneralSettings();
+    initProxyPanel();
+    settingsModal.classList.remove('hidden');
+});
+document.getElementById('settings-close').addEventListener('click', () => settingsModal.classList.add('hidden'));
+settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); });
+
+// Tab switching
+document.querySelectorAll('.modal-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const targetTab = btn.dataset.tab;
+
+        // Update buttons
+        document.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Update panes
+        document.querySelectorAll('.settings-tab-pane').forEach(p => {
+            p.classList.toggle('active', p.id === `settings-tab-${targetTab}`);
+        });
+    });
+});
 
 async function initProxyPanel() {
     const enabledCheck = document.getElementById('proxy-enabled');
@@ -2704,7 +2571,32 @@ function updateImageSaveWarnings() {
     }
 }
 
-// Initialization handled in initUI()
+document.getElementById('btn-add-provider').addEventListener('click', () => {
+    state.providers.push({
+        id: 'prov_' + Math.random().toString(36).substr(2, 9),
+        name: '新供应商',
+        type: 'google',
+        apikey: '',
+        endpoint: 'https://generativelanguage.googleapis.com',
+        autoComplete: true
+    });
+    renderProviders();
+    renderModels();
+    saveState();
+});
+
+document.getElementById('btn-add-model').addEventListener('click', () => {
+    state.models.push({
+        id: 'mod_' + Math.random().toString(36).substr(2, 9),
+        name: '新模型配置',
+        modelId: '',
+        providerId: state.providers.length > 0 ? state.providers[0].id : ''
+    });
+    renderModels();
+    updateAllNodeModelDropdowns();
+    saveState();
+    setTimeout(() => { document.getElementById('settings-body').scrollTop = 9999; }, 50);
+});
 
 function updateAllNodeModelDropdowns() {
     for (const [id, node] of state.nodes) {
@@ -3508,7 +3400,15 @@ function closeHelpPanel() {
 }
 
 // Bind Help Listeners
-// Initialization handled in initUI()
+document.getElementById('btn-help')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleHelpPanel();
+});
+
+document.getElementById('btn-close-help')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeHelpPanel();
+});
 
 // Close on canvas click or Escape
 canvasContainer.addEventListener('mousedown', (e) => {

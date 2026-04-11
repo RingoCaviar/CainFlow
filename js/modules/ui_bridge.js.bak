@@ -276,31 +276,6 @@ export function updateAllConnections() {
     }
 }
 
-export function finishConnection(src, tgt) {
-    pushHistory();
-    if (src.nodeId === tgt.nodeId) return showToast('不能连接同一节点', 'warning');
-    if (src.isOutput && tgt.dir === 'output') return showToast('不能连接两个输出', 'warning');
-    if (!src.isOutput && tgt.dir === 'input') return showToast('不能连接两个输入', 'warning');
-    if (src.dataType !== (tgt.type || tgt.dataType)) return showToast('类型不匹配', 'warning');
-
-    const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
-    const fromPort = src.isOutput ? src.portName : tgt.port;
-    const toId = src.isOutput ? tgt.nodeId : src.nodeId;
-    const toPort = src.isOutput ? tgt.port : src.portName;
-
-    if (state.connections.find(c => c.from.nodeId === fromId && c.from.port === fromPort && c.to.nodeId === toId && c.to.port === toPort))
-        return showToast('连接已存在', 'warning');
-
-    state.connections = state.connections.filter(c => !(c.to.nodeId === toId && c.to.port === toPort));
-    state.connections.push({
-        id: 'c_' + Math.random().toString(36).substr(2, 9),
-        from: { nodeId: fromId, port: fromPort }, to: { nodeId: toId, port: toPort }, type: src.dataType
-    });
-    updateAllConnections(); updatePortStyles();
-    showToast('连接已创建', 'success'); scheduleSave();
-    return true;
-}
-
 export function updatePortStyles() {
     document.querySelectorAll('.port-dot').forEach(d => d.classList.remove('connected'));
     for (const conn of state.connections) {

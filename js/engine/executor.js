@@ -3,7 +3,6 @@ import { NODE_CONFIGS } from '../modules/constants.js';
 import { showToast, generateId } from '../modules/utils.js';
 import { NodeHandlers } from './handlers.js';
 
-// These will be exported from index.js for now
 import { 
     addLog, 
     updateAllConnections, 
@@ -11,7 +10,7 @@ import {
     scheduleSave, 
     pushHistory,
     addNode
-} from '../../index.js';
+} from '../modules/ui_bridge.js';
 
 /**
  * Topologically sorts nodes starting from an optional target node.

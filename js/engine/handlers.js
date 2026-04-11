@@ -10,7 +10,7 @@ import {
     getProxyHeaders, 
     updateAllConnections, 
     renderHistoryList 
-} from '../../index.js';
+} from '../modules/ui_bridge.js';
 
 /**
  * Handles automatic saving of images to a local directory handle.

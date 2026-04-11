@@ -23,6 +23,25 @@ import {
     getStoreSizeMB, getLocalStorageMB
 } from './js/modules/db.js';
 
+import { 
+    elements, PanelManager, getProxyHeaders, addLog, renderLogs, showErrorModal, closeModal, 
+    renderHistoryList, applyHistoryGridCols, deleteHistoryItems,
+    showLogDetail, checkUpdate, showUpdateModal,
+    getPortPosition, updateAllConnections, updatePortStyles, adjustTextareaHeight, finishConnection,
+    fitNodeToContent, showResolutionBadge, selectNode, removeNode, toggleNodesEnabled,
+    pushHistory, serializeNodes, scheduleSave, saveState, updateCanvasTransform,
+    openFullscreenPreview, openImagePainter, 
+    serializeOneNode, copySelectedNodes, pasteNodes, zoomToFit,
+    undo, exportWorkflow, importWorkflow, loadState, selectAllNodes
+} from './js/modules/ui_bridge.js';
+
+import { runWorkflow, executeNode, topologicalSort } from './js/engine/executor.js';
+import { NodeHandlers } from './js/engine/handlers.js';
+
+// Elements are imported from ui_bridge.js
+const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
+
+
 // Expose constants to window for global access/compatibility
 window.APP_VERSION = APP_VERSION;
 window.GITHUB_REPO = GITHUB_REPO;
@@ -59,6 +78,7 @@ window.clearHistory = clearHistory;
 window.deleteHistoryEntry = deleteHistoryEntry;
 window.getStoreSizeMB = getStoreSizeMB;
 window.getLocalStorageMB = getLocalStorageMB;
+window.PanelManager = PanelManager;
 
 // Expose UI functions to window for HTML event handlers
 window.checkUpdate = checkUpdate;
@@ -79,417 +99,15 @@ window.renderHistoryList = renderHistoryList;
 
 // ===== Utility =====
 
-function getProxyHeaders(url, method = 'POST') {
-    const headers = { 
-        'Content-Type': 'application/json', 
-        'x-target-url': url,
-        'x-target-method': method,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CainFlow/2.6.1'
-    };
-    if (state.proxy) {
-        headers['x-proxy-enabled'] = state.proxy.enabled ? 'true' : 'false';
-        headers['x-proxy-host'] = state.proxy.ip || '127.0.0.1';
-        headers['x-proxy-port'] = state.proxy.port || '7890';
-    }
-    return headers;
-}
-
-/**
- * Check for updates from GitHub
- * Throttled to once every 6 hours
- */
-async function checkUpdate(isManual = false) {
-    if (isManual) {
-        showToast('正在检查更新...', 'info');
-        localStorage.setItem('cainflow_update_status', 'checking');
-        renderGeneralSettings();
-    }
-
-    const CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
-    const now = Date.now();
-    const lastCheck = localStorage.getItem('cainflow_last_update_check');
-
-    // Skip auto-check if too soon, but ALWAYS allow manual check
-    if (!isManual && lastCheck && (now - parseInt(lastCheck)) < CHECK_INTERVAL) {
-        return; 
-    }
-
-    localStorage.setItem('cainflow_last_update_check', now.toString());
-
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-        const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-        const fetchOptions = {
-            method: 'POST',
-            headers: getProxyHeaders(url, 'GET'),
-            signal: controller.signal
-        };
-
-        const response = await fetch('/proxy', fetchOptions);
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            localStorage.setItem('cainflow_update_status', 'error');
-            if (isManual) {
-                showToast('无法连接到更新服务器 (GitHub API 响应异常)', 'error');
-                renderGeneralSettings();
-            }
-            return;
-        }
-        
-        const data = await response.json();
-        const latestVersion = data.tag_name; 
-        const comparison = compareVersions(latestVersion, APP_VERSION);
-        
-        if (comparison > 0) {
-            localStorage.setItem('cainflow_update_status', 'new_version');
-            localStorage.setItem('cainflow_update_version', latestVersion);
-            showUpdateModal(data);
-        } else {
-            localStorage.setItem('cainflow_update_status', 'latest');
-            if (isManual) showToast(`当前已是最新版本 (${APP_VERSION})`, 'success');
-        }
-        if (isManual) renderGeneralSettings();
-    } catch (e) {
-        console.warn('Update check failed:', e);
-        localStorage.setItem('cainflow_update_status', 'error');
-        if (isManual) {
-            const msg = e.name === 'AbortError' ? '检查更新超时，请稍后重试' : '检查更新失败，请检查网络连接或代理设置';
-            showToast(msg, 'error');
-            renderGeneralSettings();
-        }
-    }
-}
+const addNode = addNodeInternal;
+export { getProxyHeaders, addLog, renderHistoryList, pushHistory, updateAllConnections, addNode };
 
 
-function showUpdateModal(releaseData) {
-    const modal = document.getElementById('modal-update');
-    const tag = document.getElementById('update-tag');
-    const date = document.getElementById('update-date');
-    const changelog = document.getElementById('update-changelog-content');
-    const settingsBtn = document.getElementById('btn-settings');
+// UI Logic moved to ui_bridge.js
 
-    if (tag) tag.textContent = releaseData.tag_name;
-    if (date) date.textContent = new Date(releaseData.published_at).toLocaleDateString();
-    
-    // Simple Markdown-ish to HTML conversion for the changelog
-    if (changelog) {
-        let body = releaseData.body || '无更新日志详情';
-        body = body.replace(/### (.*)/g, '<h4>$1</h4>')
-                   .replace(/\n- (.*)/g, '\n<li>$1</li>')
-                   .replace(/<li>(.*)<\/li>/g, '<ul><li>$1</li></ul>')
-                   .replace(/<\/ul>\n<ul>/g, '') // Merge lists
-                   .replace(/\n/g, '<br>');
-        changelog.innerHTML = body;
-    }
+// History logic moved to ui_bridge.js
 
-    // Add red dot to settings button
-    if (settingsBtn) settingsBtn.classList.add('has-update');
-
-    // Show modal
-    modal.classList.add('active');
-    
-    // Setup listeners for the update modal buttons
-    const btnDownload = document.getElementById('btn-update-download');
-    const btnBackup = document.getElementById('btn-update-backup');
-    
-    if (btnDownload) {
-        btnDownload.onclick = () => {
-            window.open(releaseData.html_url, '_blank');
-        };
-    }
-    
-    if (btnBackup) {
-        btnBackup.onclick = () => {
-            exportWorkflow();
-            showToast('备份已导出，您可以放心更新', 'success');
-        };
-    }
-}
-
-function adjustTextareaHeight(textarea) {
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    const height = textarea.scrollHeight;
-    textarea.style.height = (height + 2) + 'px';
-
-    // If the textarea is inside a node, we might need to sync connections
-    // because the node might have grown.
-    if (typeof updateAllConnections === 'function') {
-        updateAllConnections();
-    }
-}
-
-// Get resolution display text from data URL
-
-function addLog(type, title, message, details = null) {
-    const sanitized = sanitizeDetails(details);
-    const log = {
-        id: 'log_' + Date.now() + Math.random().toString(36).substr(2, 5),
-        time: new Date().toLocaleTimeString(),
-        type, // 'success' | 'error' | 'info' | 'warning'
-        title,
-        message,
-        details: sanitized,
-        rawDetails: (sanitized !== details) ? details : null
-    };
-    state.logs.unshift(log);
-    if (state.logs.length > 50) state.logs.pop();
-    renderLogs();
-
-    if (type === 'error' && !state.autoRetry) {
-        showErrorModal(title, message, log.details, '执行错误', log);
-    } else if (type === 'error' && state.autoRetry) {
-        //静默重试模式下，为日志按钮增加提示，告知有新的背景错误
-        const logBtn = elements.btnLogs;
-        if (logBtn) logBtn.classList.add('has-new-error');
-    }
-}
-
-function renderLogs() {
-    const list = elements.logList;
-    if (!list) return;
-    if (state.logs.length === 0) {
-        list.innerHTML = '<div class="log-empty">暂无执行记录</div>';
-        return;
-    }
-
-    const typeLabels = {
-        success: '成功',
-        error: '错误',
-        warning: '警告',
-        info: '信息'
-    };
-
-    list.innerHTML = state.logs.map(log => `
-        <div class="log-item ${log.type}" onclick="showLogDetail('${log.id}')" title="点击查看详情">
-            <div class="log-item-main">
-                <span class="log-type-tag">${typeLabels[log.type] || '日志'}</span>
-                <span class="log-summary-text">${log.title}</span>
-            </div>
-            <span class="log-time-hint">${log.time}</span>
-        </div>
-    `).join('');
-}
-
-function showLogDetail(id) {
-    const log = state.logs.find(l => l.id === id);
-    if (!log) return;
-    showErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
-}
-
-function showErrorModal(title, msg, detail, modalTitle = '执行错误', log = null) {
-    const modal = document.getElementById('modal-error');
-    const content = modal.querySelector('.modal-content');
-    
-    // Reset and apply type-specific class for styling
-    content.className = 'modal-content';
-    const type = log ? log.type : 'error';
-    content.classList.add(type);
-    if (type === 'error') content.classList.add('modal-error-content');
-
-    document.getElementById('error-modal-title').textContent = modalTitle;
-    document.getElementById('error-modal-msg').textContent = msg;
-    
-    const detailEl = document.getElementById('error-modal-detail');
-    detailEl.textContent = detail || '无详细信息';
-    
-    const imageContainer = document.getElementById('error-modal-images');
-    if (imageContainer) {
-        imageContainer.innerHTML = '';
-        if (detail) {
-            const foundImages = new Set();
-            
-            // 1. Try to find data URLs directly
-            if (typeof detail === 'string') {
-                const base64Regex = /data:image\/[a-zA-Z]*;base64,[^"'\s<>]+/g;
-                const matches = detail.match(base64Regex);
-                if (matches) matches.forEach(m => foundImages.add(m));
-            }
-
-            // 2. Try to parse as JSON and find image data fields (like Gemini's inlineData)
-            try {
-                const jsonObj = typeof detail === 'string' ? JSON.parse(detail) : detail;
-                function searchForImages(obj) {
-                    if (!obj || typeof obj !== 'object') return;
-                    // Check for Gemini-style inlineData
-                    if (obj.inlineData && obj.inlineData.data && obj.inlineData.mimeType) {
-                        foundImages.add(`data:${obj.inlineData.mimeType};base64,${obj.inlineData.data}`);
-                    }
-                    // Check for OpenAI-style image objects or general data fields
-                    for (const key in obj) {
-                        const val = obj[key];
-                        if (typeof val === 'string') {
-                            if (val.startsWith('data:image/')) foundImages.add(val);
-                            // Detect raw base64 if key suggests it (limited to avoid false positives)
-                            else if ((key === 'data' || key === 'base64' || key === 'b64_json') && val.length > 100) {
-                                if (/^[a-zA-Z0-9+/=]+$/.test(val.substring(0, 100))) {
-                                    // Guess PNG if not specified
-                                    foundImages.add(`data:image/png;base64,${val}`);
-                                }
-                            }
-                        } else if (typeof val === 'object') {
-                            searchForImages(val);
-                        }
-                    }
-                }
-                searchForImages(jsonObj);
-            } catch (e) { /* Not valid JSON, skip */ }
-
-            if (foundImages.size > 0) {
-                foundImages.forEach(src => {
-                    const img = document.createElement('img');
-                    img.src = src;
-                    img.loading = 'lazy';
-                    imageContainer.appendChild(img);
-                });
-            }
-        }
-    }
-
-    // Full Log Support
-    const btnFull = document.getElementById('btn-show-full-log');
-    if (btnFull) {
-        const isTruncated = detail && detail.includes('... [数据过长已截断]');
-        if (log && log.rawDetails && isTruncated) {
-            btnFull.classList.remove('hidden');
-            btnFull.onclick = (e) => {
-                e.preventDefault();
-                // When showing full log, we use the rawDetails which was the original object/string
-                let fullText = log.rawDetails;
-                if (typeof fullText !== 'string') {
-                    try {
-                        fullText = JSON.stringify(fullText, null, 2);
-                    } catch (err) {
-                        fullText = String(fullText);
-                    }
-                }
-                showErrorModal(title, msg, fullText, modalTitle, log); // Pass original log to keep type
-            };
-        } else {
-            btnFull.classList.add('hidden');
-        }
-    }
-    
-    modal.classList.add('active');
-}
-
-function closeModal(id) {
-    document.getElementById(id).classList.remove('active');
-}
-
-
-function applyHistoryGridCols(cols) {
-    if (cols < 2) cols = 2;
-    if (cols > 5) cols = 5;
-    state.historyGridCols = cols;
-    const sidebar = document.getElementById('history-sidebar');
-    const label = document.getElementById('history-grid-cols-label');
-    if (sidebar) sidebar.style.setProperty('--history-grid-cols', cols);
-    if (label) label.textContent = cols;
-}
-
-async function renderHistoryList() {
-    const list = document.getElementById('history-list');
-    const items = await getHistory();
-    if (!items.length) {
-        list.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding: 40px 0; font-size:13px;">暂无历史记录</div>';
-        return;
-    }
-
-    // Performance Optimization: Limit rendering to first 100 items to avoid DOM lag
-    const displayItems = items.slice(0, 100);
-    const hasMore = items.length > 100;
-
-    let html = displayItems.map(item => {
-        const isSelected = state.selectedHistoryIds.has(item.id);
-        const modeClass = state.historySelectionMode ? 'multi-select-mode' : '';
-        const selectedClass = isSelected ? 'selected' : '';
-
-        // Background Migration: Generate thumb if missing
-        if (!item.thumb && item.image) {
-            setTimeout(async () => {
-                const thumb = await createThumbnail(item.image);
-                const db = await openDB();
-                const tx = db.transaction(STORE_HISTORY, 'readwrite');
-                const store = tx.objectStore(STORE_HISTORY);
-                const fullItem = { ...item, thumb };
-                store.put(fullItem); // update with thumbnail
-            }, 0);
-        }
-
-        return `
-            <div class="history-card ${modeClass} ${selectedClass}" data-id="${item.id}">
-                <img src="${item.thumb || item.image}" loading="lazy" decoding="async" />
-                <div class="selection-checkbox"></div>
-                <button class="delete-btn" data-id="${item.id}" title="删除记录">×</button>
-            </div>
-        `;
-    }).join('');
-
-    if (hasMore) {
-        html += `<div style="grid-column: 1/-1; color:var(--text-dim); text-align:center; padding: 20px; font-size:12px;">已显示最近 100 条记录 (共 ${items.length} 条)</div>`;
-    }
-
-    list.innerHTML = html;
-
-    const countEl = document.getElementById('selected-count');
-    if (countEl) countEl.textContent = state.selectedHistoryIds.size;
-
-    // Selection Count Update
-    document.getElementById('selected-count').textContent = state.selectedHistoryIds.size;
-
-    list.querySelectorAll('.history-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            if (e.target.classList.contains('delete-btn')) return;
-            const itemId = Number(card.dataset.id);
-            const item = items.find(i => i.id == itemId);
-
-            if (state.historySelectionMode) {
-                if (state.selectedHistoryIds.has(itemId)) state.selectedHistoryIds.delete(itemId);
-                else state.selectedHistoryIds.add(itemId);
-                renderHistoryList();
-            } else {
-                if (item) openHistoryPreview(item);
-            }
-        });
-    });
-    list.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('确定要删除这条历史记录吗？')) {
-                await deleteHistoryEntry(Number(btn.dataset.id));
-                renderHistoryList();
-            }
-        });
-    });
-}
-
-// Centralized DOM Element Cache
-const elements = {
-    canvasContainer: document.getElementById('canvas-container'),
-    nodesLayer: document.getElementById('nodes-layer'),
-    connectionsGroup: document.getElementById('connections-group'),
-    tempConnection: document.getElementById('temp-connection'),
-    originAxes: document.getElementById('origin-axes'),
-    contextMenu: document.getElementById('context-menu'),
-    toastContainer: document.getElementById('toast-container'),
-    logList: document.getElementById('log-list'),
-    historyList: document.getElementById('history-list'),
-    workflowList: document.getElementById('workflow-list'),
-    zoomLevel: document.getElementById('zoom-level'),
-    btnLogs: document.getElementById('btn-logs'),
-    errorModal: {
-        root: document.getElementById('modal-error'),
-        title: document.getElementById('error-modal-title'),
-        msg: document.getElementById('error-modal-msg'),
-        detail: document.getElementById('error-modal-detail')
-    }
-};
-
-const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
+// Elements are centralized in ui_bridge.js
 
 // ===== App State =====
 
@@ -497,27 +115,15 @@ const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxe
 const dirHandles = new Map();
 
 // ===== Canvas System =====
-function updateCanvasTransform() {
-    const { x, y, zoom } = state.canvas;
-    // Use translate3d to force a more robust rendering context during scale changes
-    nodesLayer.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`;
-    nodesLayer.style.transformOrigin = '0 0';
-    // Sync zoom level to CSS for resolution-independent borders
-    nodesLayer.style.setProperty('--canvas-zoom', zoom);
+// Canvas logic moved to ui_bridge.js
 
-    const gridSize = 20 * zoom;
-    canvasContainer.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-    canvasContainer.style.backgroundPosition = `${x}px ${y}px`;
-    document.getElementById('zoom-level').textContent = `${Math.round(zoom * 100)}%`;
-    updateAllConnections();
-}
 
 function screenToCanvas(sx, sy) {
     const rect = canvasContainer.getBoundingClientRect();
     const { x, y, zoom } = state.canvas;
     return { x: (sx - rect.left - x) / zoom, y: (sy - rect.top - y) / zoom };
 }
-
+window.screenToCanvas = screenToCanvas;
 
 // Pan & Selection & Focus Management
 canvasContainer.addEventListener('mousedown', (e) => {
@@ -883,13 +489,7 @@ window.addEventListener('mouseup', (e) => {
 canvasContainer.addEventListener('mouseenter', () => { state.isMouseOverCanvas = true; });
 canvasContainer.addEventListener('mouseleave', () => { state.isMouseOverCanvas = false; });
 
-function selectAllNodes() {
-    state.nodes.forEach((node, id) => {
-        state.selectedNodes.add(id);
-        node.el.classList.add('selected');
-    });
-    updateAllConnections();
-}
+// Utility functions moved to ui_bridge.js
 
 canvasContainer.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -997,45 +597,12 @@ document.querySelectorAll('.context-menu-item').forEach(item => {
     });
 });
 
-/**
- * Automatically adjusts node height to fit its internal content without overlap.
- * This is called when dynamic elements (like error messages or AI responses) are added.
- */
-function fitNodeToContent(nodeId) {
-    const node = state.nodes.get(nodeId);
-    if (!node || !node.el) return;
-
-    const el = node.el;
-    const body = el.querySelector('.node-body');
-    if (!body) return;
-
-    // Temporarily allow content to expand naturally to measure the required height
-    const originalHeight = el.style.height;
-    const originalBodyMaxHeight = body.style.maxHeight;
-
-    el.style.height = 'auto'; // Change to auto for measurement
-    body.style.maxHeight = 'none';
-
-    const requiredHeight = el.offsetHeight;
-
-    // Restore original or update if necessary
-    // We only grow the node, we don't shrink it automatically to respect manual sizing
-    const currentPx = parseFloat(originalHeight) || el.offsetHeight;
-
-    if (requiredHeight > currentPx + 2) { // 2px margin for sub-pixel differences
-        el.style.height = requiredHeight + 'px';
-        // Ensure state is updated so it persists
-        node.height = requiredHeight;
-        updateAllConnections();
-        scheduleSave();
-    } else {
-        el.style.height = originalHeight;
-    }
-    body.style.maxHeight = originalBodyMaxHeight;
-}
+// Bridge exposing internal functions to window for ui_bridge.js
+window.addNodeInternal = addNodeInternal;
+window.openHistoryPreviewInternal = openHistoryPreview;
 
 // ===== Node Creation =====
-function addNode(type, x, y, restoreData, silent = false) {
+export function addNodeInternal(type, x, y, restoreData, silent = false) {
     if (!silent) pushHistory();
     const config = NODE_CONFIGS[type];
     if (!config) return;
@@ -1324,7 +891,7 @@ function addNode(type, x, y, restoreData, silent = false) {
         // Exception: even if it's in a potential container, if it's the drop-zone or preview-container itself, we STILL drag
         // This ensures clicking the "empty" space of these zones triggers a drag
         const dragAreaSelector = '.file-drop-zone, .preview-container, .save-preview-container, .node-header, .node-glass-bg';
-        const isForceDrag = target.matches(dragAreaSelector) || (target.parentElement && target.parentElement.matches(dragAreaSelector));
+        const isForceDrag = target.closest(dragAreaSelector);
 
         if (isInteractive && !isForceDrag) return;
 
@@ -1545,86 +1112,7 @@ function addNode(type, x, y, restoreData, silent = false) {
     return id;
 }
 
-function removeNode(id) {
-    pushHistory();
-    const idsToRemove = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
-    idsToRemove.forEach(nid => {
-        const node = state.nodes.get(nid);
-        if (!node) return;
-        state.connections = state.connections.filter(c => c.from.nodeId !== nid && c.to.nodeId !== nid);
-        node.el.remove(); state.nodes.delete(nid);
-        state.selectedNodes.delete(nid);
-        // Clean up orphaned assets from IndexedDB
-        deleteImageAsset(nid);
-    });
-    updateAllConnections(); updatePortStyles();
-    showToast(idsToRemove.length > 1 ? `已删除 ${idsToRemove.length} 个节点` : '节点已删除', 'info');
-    scheduleSave();
-    if (document.getElementById('cache-sidebar')?.classList.contains('active')) {
-        updateCacheUsage();
-    }
-}
-
-function selectNode(id, isMulti) {
-    if (!isMulti) {
-        state.selectedNodes.forEach(nid => {
-            const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected');
-        });
-        state.selectedNodes.clear();
-    }
-
-    if (state.selectedNodes.has(id)) {
-        state.selectedNodes.delete(id);
-        const n = state.nodes.get(id); if (n) n.el.classList.remove('selected');
-    } else {
-        state.selectedNodes.add(id);
-        const n = state.nodes.get(id); if (n) n.el.classList.add('selected');
-    }
-    updateAllConnections();
-}
-
-function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
-    if (!nodeIds || nodeIds.length === 0) return;
-    
-    // Determine target state: if a reference node is provided (like the one clicked), 
-    // use its inverse. Otherwise use the first selected node's inverse.
-    const refId = referenceNodeId || nodeIds[0];
-    const refNode = state.nodes.get(refId);
-    if (!refNode) return;
-    
-    const targetState = !refNode.enabled;
-    
-    nodeIds.forEach(nid => {
-        const nData = state.nodes.get(nid);
-        if (nData) {
-            nData.enabled = targetState;
-            nData.el.classList.toggle('disabled', !targetState);
-            if (targetState) {
-                // If re-enabling, clear execution status artifacts so it can run fresh
-                nData.el.classList.remove('completed', 'error', 'running');
-                const timeBadge = document.getElementById(`${nid}-time`);
-                if (timeBadge && timeBadge.textContent === 'Skip') timeBadge.textContent = '';
-            }
-        }
-    });
-
-    showToast(targetState ? `已启用 ${nodeIds.length} 个节点` : `已禁用 ${nodeIds.length} 个节点`, 'info');
-    scheduleSave();
-}
-
-// ===== Resolution Badge =====
-async function showResolutionBadge(nodeId, dataUrl) {
-    const badge = document.getElementById(`${nodeId}-res`);
-    if (!badge) return;
-    const res = await getImageResolution(dataUrl);
-    if (res) {
-        badge.textContent = `📐 ${res}`;
-        badge.style.display = 'block';
-
-        // Stabilize node width after image resolution is known
-        // Removed: We now use fixed default widths and trust user manual resizing
-    }
-}
+// Node interaction functions moved to ui_bridge.js
 
 // ===== Image Import =====
 function setupImageImport(id, el) {
@@ -1719,50 +1207,7 @@ function setupImageSave(id, el) {
     });
 }
 
-async function autoSaveToDir(nodeId, dataUrl) {
-    const node = state.nodes.get(nodeId);
-    if (!node) return;
-    const handle = state.globalSaveDirHandle;
-    if (!handle) {
-        showToast('【自动保存提醒】未在通用设置中选取全局保存目录，图片仅保存在节点内。', 'warning', 5000);
-        addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId });
-        return;
-    }
-    try {
-        // Verify permission
-        const perm = await handle.queryPermission({ mode: 'readwrite' });
-        if (perm !== 'granted') {
-            // If not granted, try to request
-            try {
-                const req = await handle.requestPermission({ mode: 'readwrite' });
-                if (req !== 'granted') {
-                    showToast('【自动保存失败】目录访问权限被拒绝', 'error');
-                    addLog('error', '自动保存失败', '权限被拒绝', { nodeId });
-                    return;
-                }
-            } catch (e) {
-                showToast('【自动保存失败】无法请求目录权限，请手动点击选择目录重新激活', 'error', 6000);
-                addLog('error', '自动保存失败', '无法请求权限: ' + e.message, { nodeId });
-                return;
-            }
-        }
-        const prefix = document.getElementById(`${nodeId}-filename`)?.value || 'image';
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `${prefix}_${timestamp}.png`;
-        const blob = dataURLtoBlob(dataUrl);
-        const fileHandle = await handle.getFileHandle(filename, { create: true });
-        if (!fileHandle) throw new Error('无法创建文件');
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        showToast(`图片已自动保存: ${filename}`, 'success');
-        addLog('success', '自动保存成功', `已保存至: ${handle.name}/${filename}`);
-    } catch (err) {
-        console.error('Auto-save error:', err);
-        showToast('【自动保存出错】' + err.message, 'error', 5000);
-        addLog('error', '自动保存异常', err.message, { nodeId, error: err.stack || err });
-    }
-}
+// autoSaveToDir moved to js/engine/handlers.js
 function setupImagePreview(id, el) {
     const previewContainer = el.querySelector(`#${id}-preview`);
     el.querySelector(`#${id}-zoom-in`).addEventListener('click', (e) => { e.stopPropagation(); adjustPreviewZoom(id, 1.25); });
@@ -1785,72 +1230,13 @@ function setupImagePreview(id, el) {
         if (img) openFullscreenPreview(img.src, id);
     });
 }
+// Preview logic moved to ui_bridge.js
 
-function adjustPreviewZoom(nodeId, factor) {
-    const node = state.nodes.get(nodeId);
-    if (!node) return;
-    const img = node.el.querySelector(`#${nodeId}-preview img`);
-    if (!img) return;
-    node.previewZoom = Math.max(0.2, Math.min(10, (node.previewZoom || 1) * factor));
-    img.style.transform = `scale(${node.previewZoom})`;
-    img.style.transformOrigin = 'center center';
-}
-
-// ===== Fullscreen Preview =====
-function openFullscreenPreview(src, nodeId = null) {
-    const overlay = document.createElement('div');
-    overlay.className = 'fullscreen-overlay';
-    overlay.innerHTML = `
-        <div class="fullscreen-close" title="关闭 (Esc)">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </div>
-        ${nodeId ? `
-        <div class="fullscreen-paint-btn" title="绘制/编辑">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-        </div>` : ''}
-        <div class="fullscreen-img-wrapper">
-            <img src="${src}" alt="全屏预览" draggable="false" />
-        </div>`;
-    document.body.appendChild(overlay);
-    const img = overlay.querySelector('img');
-    let fsZoom = 1, fsX = 0, fsY = 0, isDragging = false, dragStart = { x: 0, y: 0 };
-    function updateFsT() { img.style.transform = `translate(${fsX}px, ${fsY}px) scale(${fsZoom})`; }
-    overlay.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const nz = Math.max(0.1, Math.min(20, fsZoom * (e.deltaY > 0 ? 0.9 : 1.1)));
-        const rect = overlay.getBoundingClientRect();
-        const cx = e.clientX - rect.left - rect.width / 2, cy = e.clientY - rect.top - rect.height / 2;
-        fsX = cx - (cx - fsX) * (nz / fsZoom); fsY = cy - (cy - fsY) * (nz / fsZoom);
-        fsZoom = nz; updateFsT();
-    }, { passive: false });
-    const iw = overlay.querySelector('.fullscreen-img-wrapper');
-    iw.addEventListener('mousedown', (e) => { if (e.button !== 0) return; e.preventDefault(); isDragging = true; dragStart = { x: e.clientX - fsX, y: e.clientY - fsY }; iw.style.cursor = 'grabbing'; });
-    function onMove(e) { if (!isDragging) return; fsX = e.clientX - dragStart.x; fsY = e.clientY - dragStart.y; updateFsT(); }
-    function onUp() { isDragging = false; iw.style.cursor = 'grab'; }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    function cleanup() {
-        overlay.remove();
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-        document.removeEventListener('keydown', onEsc);
-    }
-    overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
-    if (nodeId) {
-        overlay.querySelector('.fullscreen-paint-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            cleanup();
-            openImagePainter(src, nodeId);
-        });
-    }
-    overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === iw) cleanup(); });
-    function onEsc(e) { if (e.key === 'Escape') cleanup(); }
-    document.addEventListener('keydown', onEsc);
-    requestAnimationFrame(() => overlay.classList.add('active'));
-}
+// Bridge exposing internal functions to window for ui_bridge.js
+window.openImagePainterInternal = openImagePainterInternal;
 
 // ===== Image Painter (Drawing Editor) =====
-function openImagePainter(src, nodeId) {
+function openImagePainterInternal(src, nodeId) {
     const overlay = document.createElement('div');
     overlay.className = 'painter-overlay';
     overlay.innerHTML = `
@@ -2222,128 +1608,14 @@ function openImagePainter(src, nodeId) {
 }
 
 // ===== Connection Rendering =====
-function getPortPosition(nodeId, portName, direction) {
-    const node = state.nodes.get(nodeId);
-    if (!node) return { x: 0, y: 0 };
-
-    // Performance optimization: during drag, use cached relative offsets to dodge getBoundingClientRect reflows
-    if (state.dragging && state.dragging.portOffsets) {
-        const offset = state.dragging.portOffsets.get(`${nodeId}-${portName}-${direction}`);
-        if (offset) return { x: node.x + offset.dx, y: node.y + offset.dy };
-    }
-
-    const portEl = node.el.querySelector(`.node-port[data-node-id="${nodeId}"][data-port="${portName}"][data-direction="${direction}"]`);
-    if (!portEl) return { x: node.x, y: node.y };
-    const dot = portEl.querySelector('.port-dot');
-    const dotRect = dot.getBoundingClientRect();
-    const containerRect = canvasContainer.getBoundingClientRect();
-    const { x: cx, y: cy, zoom } = state.canvas;
-    return {
-        x: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
-        y: (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom
-    };
-}
+// Connection logic moved to ui_bridge.js
 
 function createBezierPath(x1, y1, x2, y2) {
     const cp = Math.max(50, Math.abs(x2 - x1) * 0.4);
     return `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${x2 - cp} ${y2}, ${x2} ${y2}`;
 }
 
-function updateAllConnections() {
-    const { x, y, zoom } = state.canvas;
-    const isDragging = !!state.dragging;
-    const isPanning = state.canvas.isPanning;
-
-    connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-    if (originAxes) {
-        originAxes.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-    }
-
-    if (isDragging || isPanning) {
-        connectionsGroup.classList.add('is-dragging');
-    } else {
-        connectionsGroup.classList.remove('is-dragging', 'is-panning');
-    }
-
-    // Cleanup phase: remove dead connection paths
-    const currentConnIds = new Set(state.connections.map(c => c.id));
-    connectionsGroup.querySelectorAll('path[data-conn-id]').forEach(p => {
-        if (!currentConnIds.has(p.getAttribute('data-conn-id'))) p.remove();
-    });
-
-    // Performance optimization: Calculate viewport bounds once
-    const containerRect = canvasContainer.getBoundingClientRect();
-    const vx1 = -x / zoom, vy1 = -y / zoom;
-    const vx2 = (containerRect.width - x) / zoom, vy2 = (containerRect.height - y) / zoom;
-    const padding = 100;
-
-    for (const conn of state.connections) {
-        let path = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
-
-        // Fast culling check: if both nodes are far outside viewport, skip
-        const fn = state.nodes.get(conn.from.nodeId);
-        const tn = state.nodes.get(conn.to.nodeId);
-        if (fn && tn) {
-            const isFIn = fn.x > vx1 - padding && fn.x < vx2 + padding && fn.y > vy1 - padding && fn.y < vy2 + padding;
-            const isTIn = tn.x > vx1 - padding && tn.x < vx2 + padding && tn.y > vy1 - padding && tn.y < vy2 + padding;
-            if (!isFIn && !isTIn && path) {
-                path.setAttribute('d', ''); // Hide it
-                continue;
-            }
-        }
-
-        const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
-        const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
-
-        const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
-        const pathStr = `M ${from.x} ${from.y} C ${from.x + cp} ${from.y}, ${to.x - cp} ${to.y}, ${to.x} ${to.y}`;
-
-        const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
-
-        if (!path) {
-            path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('data-conn-id', conn.id);
-            path.classList.add('connection-path');
-            path.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                state.connections = state.connections.filter(c => c.id !== conn.id);
-                updateAllConnections(); updatePortStyles();
-                showToast('连接已删除', 'info'); scheduleSave();
-            });
-            connectionsGroup.appendChild(path);
-        }
-
-        path.setAttribute('d', pathStr);
-        if (isSelected) path.classList.add('selected');
-        else path.classList.remove('selected');
-        path.removeAttribute('stroke');
-    }
-}
-
-function finishConnection(src, tgt) {
-    pushHistory();
-    if (src.nodeId === tgt.nodeId) return showToast('不能连接同一节点', 'warning');
-    if (src.isOutput && tgt.dir === 'output') return showToast('不能连接两个输出', 'warning');
-    if (!src.isOutput && tgt.dir === 'input') return showToast('不能连接两个输入', 'warning');
-    if (src.dataType !== (tgt.type || tgt.dataType)) return showToast('类型不匹配', 'warning');
-
-    const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
-    const fromPort = src.isOutput ? src.portName : tgt.port;
-    const toId = src.isOutput ? tgt.nodeId : src.nodeId;
-    const toPort = src.isOutput ? tgt.port : src.portName;
-
-    if (state.connections.find(c => c.from.nodeId === fromId && c.from.port === fromPort && c.to.nodeId === toId && c.to.port === toPort))
-        return showToast('连接已存在', 'warning');
-
-    state.connections = state.connections.filter(c => !(c.to.nodeId === toId && c.to.port === toPort));
-    state.connections.push({
-        id: 'c_' + Math.random().toString(36).substr(2, 9),
-        from: { nodeId: fromId, port: fromPort }, to: { nodeId: toId, port: toPort }, type: src.dataType
-    });
-    updateAllConnections(); updatePortStyles();
-    showToast('连接已创建', 'success'); scheduleSave();
-    return true;
-}
+// Connection logic moved to ui_bridge.js
 
 function drawTempConnection(x1, y1, x2, y2) {
     const { x, y, zoom } = state.canvas;
@@ -2352,989 +1624,9 @@ function drawTempConnection(x1, y1, x2, y2) {
     tempConnection.setAttribute('d', `M ${sx1} ${sy1} C ${sx1 + cp} ${sy1}, ${sx2 - cp} ${sy2}, ${sx2} ${sy2}`);
 }
 
-function updatePortStyles() {
-    document.querySelectorAll('.port-dot').forEach(d => d.classList.remove('connected'));
-    for (const conn of state.connections) {
-        const fN = state.nodes.get(conn.from.nodeId);
-        const tN = state.nodes.get(conn.to.nodeId);
-        if (fN) { const p = fN.el.querySelector(`.node-port[data-port="${conn.from.port}"][data-direction="output"] .port-dot`); if (p) p.classList.add('connected'); }
-        if (tN) { const p = tN.el.querySelector(`.node-port[data-port="${conn.to.port}"][data-direction="input"] .port-dot`); if (p) p.classList.add('connected'); }
-    }
-}
+// Persistence logic moved to ui_bridge.js
 
-// ===== Execution Engine =====
-function topologicalSort(targetNodeId = null) {
-    const visited = new Set(), result = [], visiting = new Set();
-    function visit(nid) {
-        if (visited.has(nid)) return true;
-        if (visiting.has(nid)) return false;
-        visiting.add(nid);
-        for (const c of state.connections.filter(c => c.to.nodeId === nid))
-            if (!visit(c.from.nodeId)) return false;
-        visiting.delete(nid); visited.add(nid); result.push(nid);
-        return true;
-    }
-    
-    if (targetNodeId) {
-        if (!state.nodes.has(targetNodeId)) return null;
-        if (!visit(targetNodeId)) { showToast('循环连接', 'error'); return null; }
-    } else {
-        for (const [nid] of state.nodes) {
-            if (!visit(nid)) { showToast('循环连接', 'error'); return null; }
-        }
-    }
-    return result;
-}
-
-async function runWorkflow(targetNodeId = null) {
-    if (state.nodes.size === 0) {
-        showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
-        return;
-    }
-    if (state.isRunning) return;
-
-    // Pre-flight check: Warn if models are used without API keys configured
-    const missingKeysProviders = new Set();
-    for (const [id, node] of state.nodes) {
-        if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
-            const configSelect = document.getElementById(`${id}-apiconfig`);
-            if (configSelect) {
-                const modelCfg = state.models.find(m => m.id === configSelect.value);
-                if (modelCfg) {
-                    const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
-                    if (apiCfg && !apiCfg.apikey.trim()) {
-                        missingKeysProviders.add(apiCfg.name);
-                    }
-                }
-            }
-        }
-    }
-    
-    if (missingKeysProviders.size > 0) {
-        const names = Array.from(missingKeysProviders).join(', ');
-        const msg = `场景中存在未配置 API 密钥的模型（涉及供应商: ${names}），可能会导致执行报错。\n\n您确定要强制继续运行吗？`;
-        if (!confirm(msg)) {
-            return;
-        }
-    }
-
-    state.isRunning = true;
-    state.abortController = new AbortController();
-
-    // Warm up audio context for background notifications
-    if (state.notificationsEnabled) {
-        if (!state.notificationAudio) {
-            state.notificationAudio = new Audio();
-            // Use a tiny silent base64 WAV to "occupy" the audio context
-            state.notificationAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-            state.notificationAudio.loop = true;
-        }
-        state.notificationAudio.muted = true;
-        state.notificationAudio.play().catch(e => console.warn('Audio warm-up blocked:', e));
-    }
-
-    const runBtn = document.getElementById('btn-run');
-    const stopBtn = document.getElementById('btn-stop');
-    runBtn.classList.add('running'); runBtn.disabled = true;
-    if (stopBtn) { stopBtn.classList.add('running'); stopBtn.disabled = false; }
-
-    // Reset nodes (unless fixed and succeeded)
-    for (const [nid, n] of state.nodes) {
-        const fixedToggle = document.getElementById(`${nid}-fixed`);
-        const isFixed = fixedToggle ? fixedToggle.checked : false;
-        
-        if (isFixed && n.isSucceeded && n.data && Object.keys(n.data).length > 0) {
-            // Keep the node in completed state
-            n.el.classList.add('completed');
-            n.el.classList.remove('error', 'running');
-            continue;
-        }
-
-        n.el.classList.remove('completed', 'error', 'running');
-        n.data = {};
-        n.isSucceeded = false;
-    }
-
-    const order = topologicalSort(targetNodeId);
-    if (!order) {
-        finalizeWorkflow();
-        return;
-    }
-
-    // Pre-flight check: ImageImport nodes in the path MUST have images
-    const emptyImageNodes = [];
-    for (const nid of order) {
-        const node = state.nodes.get(nid);
-        if (node && node.enabled !== false && node.type === 'ImageImport' && !node.imageData) {
-            emptyImageNodes.push(nid);
-        }
-    }
-    
-    if (emptyImageNodes.length > 0) {
-        showToast(`执行中止：当前路径中有 ${emptyImageNodes.length} 个图片导入节点未加载图片`, 'error', 5000);
-        emptyImageNodes.forEach(nid => {
-            const node = state.nodes.get(nid);
-            if (node) {
-                node.el.classList.add('error');
-                addLog('error', '前置检查未通过', `节点「图片导入」(${nid}) 未载入素材图片`);
-            }
-        });
-        finalizeWorkflow();
-        return;
-    }
-
-    // Pre-flight check: TextChat nodes in path must have a prompt (from port or textarea)
-    const emptyPromptNodes = [];
-    for (const nid of order) {
-        const node = state.nodes.get(nid);
-        if (node && node.enabled !== false && node.type === 'TextChat') {
-            const fixedToggle = document.getElementById(`${nid}-fixed`);
-            if (fixedToggle && fixedToggle.checked && node.isSucceeded) continue; // Skip fixed nodes with results
-
-            const hasPortInput = state.connections.some(c => c.to.nodeId === nid && c.to.port === 'prompt');
-            const textareaValue = document.getElementById(`${nid}-prompt`)?.value || '';
-            if (!hasPortInput && !textareaValue.trim()) {
-                emptyPromptNodes.push(nid);
-            }
-        }
-    }
-
-    if (emptyPromptNodes.length > 0) {
-        showToast(`执行中止：当前路径中有 ${emptyPromptNodes.length} 个智能对话节点内容为空`, 'error', 5000);
-        emptyPromptNodes.forEach(nid => {
-            const node = state.nodes.get(nid);
-            if (node) {
-                node.el.classList.add('error');
-                addLog('error', '前置检查未通过', `节点「智能对话」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
-            }
-        });
-        finalizeWorkflow();
-        return;
-    }
-
-    // Pre-verify Global Save Directory permission (Crucial: Must be requested on user gesture)
-    if (state.globalSaveDirHandle) {
-        const hasSaveNode = order.some(nid => state.nodes.get(nid)?.type === 'ImageSave');
-        if (hasSaveNode) {
-            try {
-                const status = await state.globalSaveDirHandle.queryPermission({ mode: 'readwrite' });
-                if (status !== 'granted') {
-                    addLog('info', '目录授权申请', '尝试获取保存目录的写入权限...');
-                    const req = await state.globalSaveDirHandle.requestPermission({ mode: 'readwrite' });
-                    if (req !== 'granted') {
-                        showToast('自动保存未授权：工作流将继续，但图片无法自动落盘', 'warning', 4000);
-                        addLog('warning', '目录授权失败', '用户拒绝了目录访问请求，图片将仅保存在节点内');
-                    } else {
-                        addLog('success', '目录授权成功', '自动保存功能已就绪');
-                    }
-                }
-            } catch (e) {
-                console.warn('Directory permission verify failed:', e);
-            }
-        }
-    }
-
-    function finalizeWorkflow() {
-        state.isRunning = false;
-        runBtn.classList.remove('running'); runBtn.disabled = false;
-        if (stopBtn) { stopBtn.classList.remove('running'); stopBtn.disabled = true; }
-        state.abortController = null;
-    }
-
-    // Auto-inject ImageSave nodes
-    let injected = false;
-    for (const nid of order) {
-        const node = state.nodes.get(nid);
-        if (node && node.type === 'ImageGenerate') {
-            const hasConnection = state.connections.some(c => c.from.nodeId === nid && c.from.port === 'image');
-            if (!hasConnection) {
-                const rect = node.el.getBoundingClientRect();
-                const nodeWidth = rect.width || 240;
-                const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
-                if (saveId) {
-                    state.connections.push({ id: 'conn_' + generateId(), from: { nodeId: nid, port: 'image', type: 'image' }, to: { nodeId: saveId, port: 'image', type: 'image' }, type: 'image' });
-                    injected = true;
-                    addLog('info', '自动注入节点', `为「${NODE_CONFIGS[node.type].title}」自动添加了图片保存节点`);
-                }
-            }
-        }
-    }
-    if (injected) {
-        updateAllConnections(); updatePortStyles();
-        const newOrder = topologicalSort(targetNodeId);
-        if (newOrder) order.splice(0, order.length, ...newOrder);
-    }
-
-    const totalWorkflowStartTime = Date.now();
-    addLog('info', '并发工作流启动', `开始运行 ${order.length} 个节点...`);
-
-    let retryAttempt = 0;
-    const maxRetries = state.maxRetries || 15;
-    const completedNodes = new Set();
-    const failedNodes = new Set();
-    const runningNodes = new Set();
-    let terminatedByError = false;
-
-    try {
-        while (true) {
-            let hasNewFailuresInRound = false;
-
-            // Parallel execution loop for this round
-            while (true) {
-                if (!state.isRunning) break;
-
-                // Find nodes that are ready (all dependencies completed successfully)
-                const readyNodes = order.filter(nid => {
-                    if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
-                    const node = state.nodes.get(nid);
-                    if (!node || node.enabled === false) { completedNodes.add(nid); return false; }
-
-                    const deps = state.connections.filter(c => c.to.nodeId === nid).map(c => c.from.nodeId);
-                    return deps.every(dnid => completedNodes.has(dnid));
-                });
-
-                if (readyNodes.length === 0 && runningNodes.size === 0) break;
-
-                if (readyNodes.length > 0) {
-                    readyNodes.forEach(nid => {
-                        if (runningNodes.has(nid) || completedNodes.has(nid)) return;
-                        runningNodes.add(nid);
-                        const node = state.nodes.get(nid);
-                        const nodeTitle = NODE_CONFIGS[node.type].title;
-
-                        (async () => {
-                            node.el.classList.add('running');
-                            node.el.classList.remove('completed', 'error');
-                            const timeBadge = document.getElementById(`${nid}-time`);
-                            const timeContainer = document.getElementById(`${nid}-time-container`);
-                            const startTime = Date.now();
-                            let timerId = null;
-                            if (timeBadge) {
-                                if (timeContainer) timeContainer.style.display = 'flex';
-                                timerId = setInterval(() => {
-                                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                                    timeBadge.textContent = `${elapsed}s`;
-                                    if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
-                                    else timeBadge.style.color = '';
-                                }, 100);
-                            }
-
-                            try {
-                                const inputs = {};
-                                for (const c of state.connections.filter(c => c.to.nodeId === nid)) {
-                                    const fn = state.nodes.get(c.from.nodeId);
-                                    if (fn && fn.data[c.from.port] !== undefined) inputs[c.to.port] = fn.data[c.from.port];
-                                }
-
-                                await executeNode(node, inputs, state.abortController?.signal);
-
-                                if (timerId) clearInterval(timerId);
-                                const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
-                                node.isSucceeded = true;
-                                node.lastDuration = durationSec;
-                                node.el.classList.remove('running');
-                                node.el.classList.add('completed');
-                                if (timeBadge) {
-                                    timeBadge.textContent = `${durationSec}s`;
-                                    timeBadge.style.color = ''; // Reset possible red warn
-                                }
-                                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
-                                scheduleSave(); // Persist duration
-                                completedNodes.add(nid);
-                            } catch (err) {
-                                if (err.name === 'AbortError') {
-                                    node.el.classList.remove('running');
-                                    addLog('warning', `节点已中止: ${nodeTitle}`, '用户终止了工作流');
-                                    return;
-                                }
-                                hasNewFailuresInRound = true;
-                                node.el.classList.remove('running');
-                                node.el.classList.add('error');
-                                const errorMsg = err.message || '未知错误';
-                                if (timeBadge) timeBadge.textContent = 'Err';
-                                const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
-                                addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails);
-
-                                failedNodes.add(nid);
-
-                                if (!state.autoRetry) {
-                                    showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
-                                    terminatedByError = true;
-                                    state.isRunning = false;
-                                }
-                            } finally {
-                                if (timerId) clearInterval(timerId);
-                                runningNodes.delete(nid);
-                            }
-                        })();
-                    });
-                }
-
-                // Wait a small amount for state changes to propagate and UI to breathe
-                await new Promise(r => setTimeout(r, 100));
-                if (!state.isRunning) break; // User stopped or fatal error
-            }
-
-            if (!state.isRunning) break;
-
-            // Check round results
-            const actualFailures = order.filter(id => {
-                const n = state.nodes.get(id);
-                return n && n.enabled !== false && !n.isSucceeded;
-            });
-
-            if (actualFailures.length === 0) {
-                if (retryAttempt > 0) addLog('success', '工作流并行重试完成', `经过 ${retryAttempt} 次重试后，所有节点已成功执行。`);
-                break;
-            }
-
-            if (!state.autoRetry) break;
-
-            retryAttempt++;
-            if (retryAttempt > maxRetries) {
-                showToast(`已达到最大重试次数 (${maxRetries})，停止运行`, 'error');
-                addLog('error', '并行工作流强制终止', `已超过设定的最大自动重试次数 (${maxRetries} 轮)，执行已停止。请检查网络稳定性或节点配置。`);
-                terminatedByError = true;
-                break;
-            }
-
-            addLog('warning', `自动重试开始 (第 ${retryAttempt} 轮)`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
-            showToast(`正在启动第 ${retryAttempt} 轮自动重试 (${actualFailures.length} 个节点)...`, 'warning', 4000);
-            failedNodes.clear(); // Clear failures to allow retry in next round
-            await new Promise(r => setTimeout(r, 1500));
-            if (!state.isRunning) break;
-        }
-    } finally {
-        if (!state.isRunning) {
-            addLog('info', '工作流停止', '用户手动终止了运行流程');
-            // Cleanup UI for any running nodes
-            for (const nid of runningNodes) {
-                const node = state.nodes.get(nid);
-                if (node) node.el.classList.remove('running');
-            }
-        }
-
-        // Wrap up
-        for (const [id, n] of state.nodes) {
-            if (n.type === 'ImageSave' && n.data.image) {
-                const btnSave = n.el.querySelector(`#${id}-manual-save`);
-                const btnView = n.el.querySelector(`#${id}-view-full`);
-                if (btnSave) btnSave.disabled = false;
-                if (btnView) btnView.disabled = false;
-            }
-        }
-
-        const wasRunning = state.isRunning;
-        finalizeWorkflow();
-
-        if (state.notificationsEnabled) {
-            const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
-            
-            if (terminatedByError) {
-                showToast(`工作流运行停止 ✗ 耗时 ${totalDuration}s`, 'error', 6000);
-                if (Notification.permission === 'granted') {
-                    new Notification('CainFlow 运行出错', { 
-                        body: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`, 
-                        icon: 'data:image/svg+xml;base64,...' 
-                    });
-                }
-                playNotificationSound();
-            } else if (state.isRunning || wasRunning) {
-                // If it was running and not terminated by error, it means it completed successfully
-                showToast(`工作流运行完成 ✓ 总耗时 ${totalDuration}s`, 'success', 6000);
-                if (Notification.permission === 'granted') {
-                    new Notification('CainFlow 运行完毕', { 
-                        body: `所有节点执行成功，总耗时 ${totalDuration}s`, 
-                        icon: 'data:image/svg+xml;base64,...' 
-                    });
-                }
-                playNotificationSound();
-            } else {
-                showToast('已手动停止运行', 'info');
-            }
-        }
-    }
-}
-
-const NodeHandlers = {
-    'ImageImport': async (node, inputs, signal) => {
-        if (!node.imageData) throw new Error('未导入图片');
-        node.data.image = node.imageData;
-    },
-    'ImageGenerate': async (node, inputs, signal) => {
-        const { id } = node;
-        const errorEl = document.getElementById(`${id}-error`);
-        if (errorEl) errorEl.style.display = 'none';
-
-        try {
-            const configId = document.getElementById(`${id}-apiconfig`).value;
-            const modelCfg = state.models.find(m => m.id === configId);
-            if (!modelCfg) throw new Error('未找到选定的模型配置');
-            const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
-            if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
-
-            const aspect = document.getElementById(`${id}-aspect`).value;
-            const resolution = document.getElementById(`${id}-resolution`).value;
-            const searchEnabled = document.getElementById(`${id}-search`).checked;
-
-            // Priority: Input port > Textarea
-            const prompt = inputs.prompt || document.getElementById(`${id}-prompt`).value;
-
-            if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
-            if (!prompt) throw new Error('请输入提示词');
-
-            const parts = [{ text: prompt }];
-            for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
-                if (inputs[key]) {
-                    const match = inputs[key].match(/^data:(.+?);base64,(.+)$/);
-                    if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-                }
-            }
-
-            const requestBody = { contents: [{ parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } };
-            const imageConfig = {};
-            if (aspect) imageConfig.aspectRatio = aspect;
-            if (resolution) imageConfig.imageSize = resolution;
-            if (Object.keys(imageConfig).length > 0) requestBody.generationConfig.imageConfig = imageConfig;
-            if (searchEnabled) requestBody.tools = [{ googleSearch: {} }];
-
-            const url = apiCfg.autoComplete !== false
-                ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
-                : apiCfg.endpoint;
-            showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
-
-            const headers = getProxyHeaders(url, 'POST');
-
-            const response = await fetch('/proxy', {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(requestBody),
-                signal: signal
-            });
-
-            if (!response.ok) {
-                const t = await response.text();
-                let msg = `API 错误 (${response.status})`;
-                try {
-                    const json = JSON.parse(t);
-                    if (json.error?.message) msg += `: ${json.error.message}`;
-                    else msg += `: ${t.substring(0, 100)}`;
-                } catch (e) {
-                    msg += `: ${t.substring(0, 100)}`;
-                }
-                const err = new Error(msg);
-                err.serverResponse = t;
-                throw err;
-            }
-
-            const result = await response.json();
-            if (!result) throw new Error('API 返回了空的 JSON 响应');
-            
-            let imageData = null;
-            if (result.candidates && Array.isArray(result.candidates) && result.candidates[0]) {
-                const candidate = result.candidates[0];
-                if (candidate.content?.parts) {
-                    for (const part of candidate.content.parts) {
-                        if (part.inlineData) {
-                            imageData = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                            break;
-                        }
-                    }
-                }
-                
-                // Detailed error parsing for Imagen/Gemini when image is missing
-                if (!imageData) {
-                    let reason = 'API 未返回图片数据';
-                    if (result.error?.message) {
-                        reason = `API 错误: ${result.error.message}`;
-                    } else if (candidate.finishReason) {
-                        const fr = candidate.finishReason;
-                        if (fr === 'SAFETY') reason = '⚠️ 内容被安全过滤器拦截 (如有违规提示词或敏感动作)';
-                        else if (fr === 'RECITATION') reason = '⚠️ 生成内容由于版权保护被拦截';
-                        else reason = `生成停止原因: ${fr}`;
-                    } else if (result.promptFeedback?.blockReason || result.promptFeedback?.gemini_block_reason) {
-                        const br = result.promptFeedback.blockReason || result.promptFeedback.gemini_block_reason;
-                        reason = `🚫 请求被屏蔽: ${br}`;
-                        if (br === 'SAFETY') reason = '⚠️ 请求因违反安全政策被系统拦截 (SAFETY)';
-                    } else if (result.gemini_block_reason) {
-                        reason = `🚫 系统屏蔽: ${result.gemini_block_reason}`;
-                    }
-                    const err = new Error(reason);
-                    err.serverResponse = JSON.stringify(result, null, 2);
-                    throw err;
-                }
-            } else if (result.error?.message) {
-                const err = new Error(`API 错误: ${result.error.message}`);
-                err.serverResponse = JSON.stringify(result, null, 2);
-                throw err;
-            } else {
-                const err = new Error('API 返回了空结果 (无候选内容)');
-                err.serverResponse = JSON.stringify(result, null, 2);
-                throw err;
-            }
-
-            node.data.image = imageData;
-            showResolutionBadge(id, imageData);
-
-            // Auto record to history
-            await saveHistoryEntry({
-                nodeId: id,
-                image: imageData,
-                prompt: prompt,
-                model: modelCfg.name
-            });
-            if (document.getElementById('history-sidebar').classList.contains('active')) renderHistoryList();
-        } catch (err) {
-            if (errorEl) {
-                errorEl.innerHTML = `<strong>生成失败</strong>${err.message}`;
-                errorEl.style.display = 'block';
-                // Automatically expand node to ensure the error message is visible and doesn't overlap
-                fitNodeToContent(id);
-            }
-            throw err;
-        }
-    },
-    'TextChat': async (node, inputs, signal) => {
-        const { id } = node;
-        const configId = document.getElementById(`${id}-apiconfig`).value;
-        const modelCfg = state.models.find(m => m.id === configId);
-        if (!modelCfg) throw new Error('未找到选定的模型配置');
-        const apiCfg = state.providers.find(p => p.id === modelCfg.providerId);
-        if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
-
-        const sysprompt = document.getElementById(`${id}-sysprompt`).value;
-        const prompt = inputs.prompt || document.getElementById(`${id}-prompt`).value;
-        
-        const fixedToggle = document.getElementById(`${id}-fixed`);
-        const isFixed = fixedToggle ? fixedToggle.checked : false;
-        
-        if (isFixed && node.isSucceeded && node.data && node.data.text) {
-            return;
-        }
-
-        const responseArea = document.getElementById(`${id}-response`);
-
-        if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
-        if (!prompt) throw new Error('请输入提问内容');
-
-        showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
-        responseArea.innerHTML = '<div class="chat-response-placeholder">正在生成回复...</div>';
-
-        try {
-            let jsonResponse = null;
-
-            if (apiCfg.type === 'google') {
-                const searchEnabled = document.getElementById(`${id}-search`)?.checked || false;
-                const parts = [{ text: prompt }];
-                for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
-                    if (inputs[key]) {
-                        const match = inputs[key].match(/^data:(.+?);base64,(.+)$/);
-                        if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-                    }
-                }
-                const body = { contents: [{ parts }] };
-                if (sysprompt) body.systemInstruction = { parts: [{ text: sysprompt }] };
-                if (searchEnabled) body.tools = [{ googleSearch: {} }];
-
-                const url = apiCfg.autoComplete !== false
-                    ? `${apiCfg.endpoint.replace(/\/+$/, '')}/v1beta/models/${modelCfg.modelId}:generateContent?key=${apiCfg.apikey}`
-                    : apiCfg.endpoint;
-                
-                const headers = getProxyHeaders(url, 'POST');
-
-                const res = await fetch('/proxy', {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(body),
-                    signal
-                });
-                if (!res.ok) {
-                    const t = await res.text();
-                    const err = new Error(`HTTP ${res.status}: ${t.substring(0, 100)}`);
-                    err.serverResponse = t;
-                    throw err;
-                }
-                jsonResponse = await res.json();
-
-                let resultText = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                if (jsonResponse.candidates?.[0]?.groundingMetadata) {
-                    const metadata = jsonResponse.candidates[0].groundingMetadata;
-                    if (metadata.searchEntryPoint?.html) {
-                        resultText += `\n\n<div class="search-chips">${metadata.searchEntryPoint.html}</div>`;
-                    }
-                }
-                responseText = resultText;
-            } else {
-                // OpenAI compatible handle
-                const messages = [];
-                if (sysprompt) messages.push({ role: 'system', content: sysprompt });
-                const content = [{ type: 'text', text: prompt }];
-                for (const key of ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']) {
-                    if (inputs[key]) content.push({ type: 'image_url', image_url: { url: inputs[key] } });
-                }
-                messages.push({ role: 'user', content });
-
-                let url = apiCfg.endpoint.replace(/\/+$/, '');
-                if (apiCfg.autoComplete !== false && !url.endsWith('/chat/completions')) url += '/chat/completions';
-                
-                const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiCfg.apikey}`, 'x-target-url': url };
-                if (state.proxy && state.proxy.enabled) {
-                    headers['x-proxy-enabled'] = 'true';
-                    headers['x-proxy-host'] = state.proxy.ip;
-                    headers['x-proxy-port'] = state.proxy.port;
-                }
-
-                const res = await fetch('/proxy', {
-                    method: 'POST',
-                    headers: { ...headers, 'x-target-method': 'POST' },
-                    body: JSON.stringify({ model: modelCfg.modelId, messages }),
-                    signal
-                });
-                if (!res.ok) {
-                    const t = await res.text();
-                    const err = new Error(`HTTP ${res.status}: ${t.substring(0, 100)}`);
-                    err.serverResponse = t;
-                    throw err;
-                }
-                jsonResponse = await res.json();
-                responseText = jsonResponse.choices?.[0]?.message?.content || '';
-            }
-
-            if (!responseText) {
-                const err = new Error('API 未返回文本内容');
-                if (jsonResponse) err.serverResponse = JSON.stringify(jsonResponse, null, 2);
-                throw err;
-            }
-            if (window.marked && window.marked.parse) {
-                responseArea.innerHTML = marked.parse(responseText);
-            } else {
-                responseArea.innerText = responseText;
-            }
-            node.data.text = responseText;
-            node.lastResponse = responseArea.innerHTML;
-            node.isSucceeded = true;
-            
-            // Automatically expand node to fit the AI response
-            fitNodeToContent(id);
-            
-            updateAllConnections();
-        } catch (err) {
-            responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
-            throw err;
-        }
-    },
-    'ImagePreview': async (node, inputs, signal) => {
-        const { id } = node;
-        const imgData = inputs.image;
-        const previewContainer = document.getElementById(`${id}-preview`);
-        const controls = document.getElementById(`${id}-controls`);
-        if (imgData) {
-            node.previewZoom = 1;
-            previewContainer.innerHTML = `<img src="${imgData}" alt="预览" style="cursor:pointer" draggable="false" />`;
-            controls.style.display = 'flex';
-            node.data.image = imgData;
-            saveImageAsset(id, imgData);
-            showResolutionBadge(id, imgData);
-        } else {
-            previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
-            controls.style.display = 'none';
-        }
-    },
-    'ImageSave': async (node, inputs, signal) => {
-        const { id } = node;
-        const imgData = inputs.image;
-        const savePreview = document.getElementById(`${id}-save-preview`);
-        if (imgData) {
-            node.data.image = imgData;
-            savePreview.innerHTML = `<img src="${imgData}" alt="待保存" draggable="false" />`;
-            saveImageAsset(id, imgData);
-            showResolutionBadge(id, imgData);
-            await autoSaveToDir(id, imgData);
-        } else {
-            savePreview.innerHTML = '<div class="save-preview-placeholder">无输入图片</div>';
-        }
-    },
-    'TextInput': async (node, inputs, signal) => {
-        node.data.text = document.getElementById(`${node.id}-text`).value;
-    },
-    'TextDisplay': async (node, inputs, signal) => {
-        const text = inputs.text || '';
-        const display = document.getElementById(`${node.id}-display`);
-        if (display) {
-            display.textContent = text || '目前无输入文本';
-            node.data.text = text;
-            updateAllConnections();
-        }
-    }
-};
-
-async function executeNode(node, inputs, signal) {
-    const handler = NodeHandlers[node.type];
-    if (handler) {
-        await handler(node, inputs, signal);
-    } else {
-        console.warn(`No handler defined for node type: ${node.type}`);
-    }
-}
-
-// ===== Persistence =====
-let saveTimer = null;
-function scheduleSave() {
-    if (state.dragging || state.resizing) return;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveState, 300);
-}
-
-function serializeNodes(includeImages = false) {
-    const nodes = [];
-    for (const [id, node] of state.nodes) {
-        const s = { 
-            id, 
-            type: node.type, 
-            x: node.x, 
-            y: node.y, 
-            width: node.width || null, 
-            height: node.height || null, 
-            enabled: node.enabled,
-            lastDuration: node.lastDuration || null
-        };
-        
-        if (includeImages && node.imageData) {
-            s.imageData = node.imageData;
-        }
-
-        if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
-            s.apiConfigId = document.getElementById(`${id}-apiconfig`)?.value || 'default';
-            s.prompt = document.getElementById(`${id}-prompt`)?.value || '';
-            if (node.type === 'ImageGenerate') {
-                s.aspect = document.getElementById(`${id}-aspect`)?.value || '';
-                s.resolution = document.getElementById(`${id}-resolution`)?.value || '';
-                s.search = document.getElementById(`${id}-search`)?.checked || false;
-            } else if (node.type === 'TextChat') {
-                s.sysprompt = document.getElementById(`${id}-sysprompt`)?.value || '';
-                s.search = document.getElementById(`${id}-search`)?.checked || false;
-                s.fixed = document.getElementById(`${id}-fixed`)?.checked || false;
-                s.lastResponse = node.lastResponse || '';
-                s.lastText = node.data?.text || '';
-                s.isSucceeded = node.isSucceeded || false;
-            }
-        }
-        if (node.type === 'ImageSave') s.filename = document.getElementById(`${id}-filename`)?.value || 'generated_image';
-        if (node.type === 'TextInput') s.text = document.getElementById(`${id}-text`)?.value || '';
-        nodes.push(s);
-    }
-    return nodes;
-}
-
-function saveState() {
-    try {
-        const data = {
-            canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
-            nodes: serializeNodes(),
-            connections: state.connections.map(c => ({ id: c.id, from: c.from, to: c.to, type: c.type })),
-            providers: state.providers,
-            models: state.models,
-            notificationsEnabled: state.notificationsEnabled,
-            notificationVolume: state.notificationVolume,
-            autoRetry: state.autoRetry,
-            maxRetries: state.maxRetries,
-            imageMaxPixels: state.imageMaxPixels,
-            proxy: state.proxy,
-            historyGridCols: state.historyGridCols
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-        console.warn('Save failed:', e);
-        if (e.name === 'QuotaExceededError') {
-            showToast('浏览器存储空间不足，部分状态可能未保存', 'error', 5000);
-        }
-    }
-}
-
-// ===== Undo / Redo System =====
-function pushHistory() {
-    const snapshot = {
-        nodes: serializeNodes(true), // true means include imageData for memory-based history
-        connections: state.connections.map(c => ({ ...c }))
-    };
-    state.undoStack.push(JSON.stringify(snapshot));
-    if (state.undoStack.length > 5) state.undoStack.shift();
-    updateUndoButton();
-}
-
-function updateUndoButton() {
-    const btn = document.getElementById('btn-undo');
-    if (btn) btn.disabled = state.undoStack.length === 0;
-}
-
-async function undo() {
-    if (state.undoStack.length === 0) return;
-    
-    const raw = state.undoStack.pop();
-    const snapshot = JSON.parse(raw);
-    
-    // Clear current canvas
-    state.selectedNodes.clear();
-    state.nodes.forEach(n => n.el.remove());
-    state.nodes.clear();
-    state.connections = [];
-    
-    // Restore nodes
-    if (snapshot.nodes && snapshot.nodes.length) {
-        for (const nd of snapshot.nodes) {
-            addNode(nd.type, nd.x, nd.y, nd, true);
-        }
-    }
-    
-    // Restore connections
-    if (snapshot.connections && snapshot.connections.length) {
-        state.connections = snapshot.connections;
-    }
-    
-    updateAllConnections();
-    updatePortStyles();
-    updateUndoButton();
-    saveState();
-    showToast('已撤回上一步操作', 'info');
-}
-
-function getSafeProviders() {
-    // Return a copy of providers with apikeys removed for security
-    return state.providers.map(p => {
-        const { apikey, ...rest } = p;
-        return { ...rest, apikey: '' };
-    });
-}
-
-function exportWorkflow() {
-    try {
-        const data = {
-            canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
-            nodes: serializeNodes(),
-            connections: state.connections.map(c => ({ id: c.id, from: c.from, to: c.to, type: c.type })),
-            providers: getSafeProviders(),
-            models: state.models,
-            version: '1.2'
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        const time = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        a.download = `CainFlow_Project_${time}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast('项目已导出 (已自动移除 API 密钥以保护安全)', 'success');
-    } catch (e) {
-        showToast('导出失败: ' + e.message, 'error');
-    }
-}
-
-function importWorkflow(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        try {
-            const data = JSON.parse(e.target.result);
-            if (!data.nodes || !Array.isArray(data.nodes)) throw new Error('无效的 CainFlow 项目文件格式');
-
-            if (confirm('导入将覆盖当前所有画布节点、API及模型设置、连线，确定继续吗？')) {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-                showToast('导入成功，正在重新加载...', 'success');
-                setTimeout(() => location.reload(), 800);
-            }
-        } catch (err) {
-            showToast('导入失败: ' + err.message, 'error');
-        }
-    };
-    reader.readAsText(file);
-}
-
-async function loadState() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return false;
-        const data = JSON.parse(raw);
-        if (data.apiConfigs && Array.isArray(data.apiConfigs)) {
-            // Migration
-            const newProviders = [];
-            const newModels = [];
-            data.apiConfigs.forEach(cfg => {
-                const provId = 'prov_' + Math.random().toString(36).substr(2, 9);
-                newProviders.push({
-                    id: provId,
-                    name: cfg.name + ' (授权配置)',
-                    type: cfg.type,
-                    apikey: cfg.apikey || '',
-                    endpoint: cfg.endpoint || ''
-                });
-                newModels.push({
-                    id: cfg.id, // Preserve ID for node compatibility
-                    name: cfg.name,
-                    modelId: cfg.model || '',
-                    providerId: provId
-                });
-            });
-            state.providers = newProviders;
-            state.models = newModels;
-        } else {
-            if (data.providers) state.providers = data.providers;
-            if (data.models) state.models = data.models;
-        }
-        if (data.notificationsEnabled !== undefined) {
-            state.notificationsEnabled = data.notificationsEnabled;
-            const toggle = document.getElementById('toggle-notifications');
-            if (toggle) toggle.checked = state.notificationsEnabled;
-        }
-        if (data.notificationVolume !== undefined) {
-            state.notificationVolume = data.notificationVolume;
-        }
-        if (data.autoRetry !== undefined) {
-            state.autoRetry = data.autoRetry;
-            const toggle = document.getElementById('toggle-retry');
-            if (toggle) toggle.checked = state.autoRetry;
-        }
-        if (data.maxRetries !== undefined) {
-            state.maxRetries = data.maxRetries;
-        }
-        if (data.imageMaxPixels !== undefined) {
-            state.imageMaxPixels = data.imageMaxPixels;
-        }
-        if (data.proxy !== undefined) {
-            state.proxy = data.proxy;
-        }
-        if (data.historyGridCols !== undefined) {
-            applyHistoryGridCols(data.historyGridCols);
-        }
-        if (data.canvas) { state.canvas.x = data.canvas.x || 0; state.canvas.y = data.canvas.y || 0; state.canvas.zoom = data.canvas.zoom || 1; }
-        
-        // Restore global save directory
-        const globalHandle = await getHandle('GLOBAL_SAVE_DIR');
-        if (globalHandle) {
-            state.globalSaveDirHandle = globalHandle;
-            addLog('info', '全局保存目录已恢复', `已恢复目录: ${globalHandle.name}`);
-        }
-
-        if (data.nodes?.length) {
-            for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd);
-            await restoreHandles();
-        }
-        if (data.connections?.length) {
-            for (const conn of data.connections) {
-                if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
-                    if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
-                    state.connections.push(conn);
-                }
-            }
-            updateAllConnections(); updatePortStyles();
-        }
-        updateCanvasTransform();
-        return data.nodes?.length > 0;
-    } catch (e) { console.warn('Load failed:', e); return false; }
-}
-
-async function restoreHandles() {
-    // We only restore global handle now, which is handled in loadState
-}
+// Persistence and Undo logic moved to ui_bridge.js
 
 // ===== Toolbar =====
 document.getElementById('btn-run').addEventListener('click', () => runWorkflow());
@@ -3342,6 +1634,15 @@ document.getElementById('btn-stop').addEventListener('click', () => {
     if (state.isRunning) {
         state.isRunning = false;
         state.abortController?.abort();
+    }
+});
+document.getElementById('btn-clear').addEventListener('click', () => {
+    if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
+    if (confirm('确定要清除所有节点和连接吗？')) {
+        state.connections = [];
+        for (const [, n] of state.nodes) n.el.remove();
+        state.nodes.clear(); state.selectedNodes.clear();
+        updateAllConnections(); showToast('画布已清除', 'info'); scheduleSave();
     }
 });
 document.getElementById('toggle-retry')?.addEventListener('change', (e) => {
@@ -3384,223 +1685,26 @@ document.getElementById('btn-zoom-reset').addEventListener('click', () => {
     setTimeout(() => document.body.classList.remove('is-interacting'), 300);
 });
 
-function zoomToFit(targetNodes = null) {
-    let nodesToFit = targetNodes;
-    if (!nodesToFit) {
-        nodesToFit = state.selectedNodes.size > 0
-            ? Array.from(state.selectedNodes).map(id => state.nodes.get(id)).filter(Boolean)
-            : Array.from(state.nodes.values());
-    }
+// Node management logic moved to ui_bridge.js
 
-    if (nodesToFit.length === 0) {
-        // Fallback to origin reset if no nodes exist
-        state.canvas.x = canvasContainer.clientWidth / 2;
-        state.canvas.y = canvasContainer.clientHeight / 2;
-        state.canvas.zoom = 1;
-        updateCanvasTransform();
-        return;
-    }
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodesToFit.forEach(node => {
-        // Use offset dimensions or fallback to 300x200 if not rendered
-        const w = node.el.offsetWidth || 300;
-        const h = node.el.offsetHeight || 200;
-        minX = Math.min(minX, node.x);
-        minY = Math.min(minY, node.y);
-        maxX = Math.max(maxX, node.x + w);
-        maxY = Math.max(maxY, node.y + h);
-    });
-
-    const padding = 60;
-    const worldW = (maxX - minX) + padding * 2;
-    const worldH = (maxY - minY) + padding * 2;
-
-    const viewW = canvasContainer.clientWidth;
-    const viewH = canvasContainer.clientHeight;
-
-    // Calculate best fit zoom, clamped between 0.1 and 2.0
-    const zoom = Math.min(viewW / worldW, viewH / worldH, 1.2);
-    const finalZoom = Math.max(0.1, zoom);
-
-    state.canvas.zoom = finalZoom;
-    state.canvas.x = viewW / 2 - (minX + maxX) / 2 * finalZoom;
-    state.canvas.y = viewH / 2 - (minY + maxY) / 2 * finalZoom;
-
-    updateCanvasTransform();
-}
-
-document.getElementById('btn-focus-selection').addEventListener('click', () => {
-    document.body.classList.add('is-interacting');
-    zoomToFit();
-    setTimeout(() => document.body.classList.remove('is-interacting'), 300);
-});
-document.getElementById('btn-clear').addEventListener('click', () => {
-    if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
-    if (confirm('确定要清除所有节点和连接吗？')) {
-        state.connections = [];
-        for (const [, n] of state.nodes) n.el.remove();
-        state.nodes.clear(); state.selectedNodes.clear();
-        updateAllConnections(); showToast('画布已清除', 'info'); scheduleSave();
-    }
-});
-
-// ===== Node Copy / Clone =====
-function serializeOneNode(nodeId) {
-    const node = state.nodes.get(nodeId);
-    if (!node) return null;
-    const id = nodeId;
-    const s = { id, type: node.type, x: node.x, y: node.y, width: node.width || null, height: node.height || null };
-    if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave') {
-        s.imageData = node.data.image || node.imageData || null;
-    }
-    if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
-        s.apiConfigId = document.getElementById(`${id}-apiconfig`)?.value || 'default';
-        s.prompt = document.getElementById(`${id}-prompt`)?.value || '';
-        if (node.type === 'ImageGenerate') {
-            s.aspect = document.getElementById(`${id}-aspect`)?.value || '';
-            s.resolution = document.getElementById(`${id}-resolution`)?.value || '';
-            s.search = document.getElementById(`${id}-search`)?.checked || false;
-        } else if (node.type === 'TextChat') {
-            s.sysprompt = document.getElementById(`${id}-sysprompt`)?.value || '';
-            s.search = document.getElementById(`${id}-search`)?.checked || false;
-        }
-    }
-    if (node.type === 'ImageSave') s.filename = document.getElementById(`${id}-filename`)?.value || 'generated_image';
-    if (node.type === 'TextInput') s.text = document.getElementById(`${id}-text`)?.value || '';
-    return s;
-}
-
-function cloneNodeAt(nodeId, x, y) {
-    const data = serializeOneNode(nodeId);
-    if (!data) return null;
-    data.id = null; // Force new ID
-    return addNode(data.type, x, y, data);
-}
-
-function copySelectedNode() {
-    const selectedIds = Array.from(state.selectedNodes);
-    if (selectedIds.length === 0) return showToast('未选中节点', 'warning');
-
-    // Group Serialization: capture all nodes and connections between them
-    const nodes = selectedIds.map(id => serializeOneNode(id)).filter(n => !!n);
-    if (nodes.length === 0) return;
-
-    // Calculate bounding box for mouse-relative placement
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(n => {
-        minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
-        maxX = Math.max(maxX, n.x + (n.width || 240)); maxY = Math.max(maxY, n.y + (n.height || 100));
-    });
-
-    const internalConnections = state.connections.filter(c =>
-        selectedIds.includes(c.from.nodeId) && selectedIds.includes(c.to.nodeId)
-    );
-
-    state.clipboard = {
-        nodes,
-        connections: internalConnections,
-        center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
-    };
-    state.clipboardTimestamp = Date.now();
-
-    showToast(`已复制 ${nodes.length} 个节点`, 'success');
-}
-
-function pasteNode() {
-    if (!state.clipboard || !state.clipboard.nodes.length) return showToast('剪贴板为空', 'warning');
-
-    const mousePos = state.mouseCanvas;
-    const clip = state.clipboard;
-    const idMap = new Map(); // oldId -> newId
-
-    // Clear current selection to focus on pasted ones
-    state.selectedNodes.forEach(nid => {
-        const n = state.nodes.get(nid); if (n) n.el.classList.remove('selected');
-    });
-    state.selectedNodes.clear();
-
-    // Step 1: Instantiate nodes at relative positions
-    clip.nodes.forEach(data => {
-        const offsetX = data.x - clip.center.x;
-        const offsetY = data.y - clip.center.y;
-        const newId = addNode(data.type, mousePos.x + offsetX, mousePos.y + offsetY, { ...data, id: null }, true);
-        if (newId) {
-            idMap.set(data.id, newId);
-            state.selectedNodes.add(newId);
-            state.nodes.get(newId).el.classList.add('selected');
-        }
-    });
-
-    // Step 2: Restore internal connections
-    clip.connections.forEach(c => {
-        const newFromId = idMap.get(c.from.nodeId);
-        const newToId = idMap.get(c.to.nodeId);
-        if (newFromId && newToId) {
-            state.connections.push({
-                id: 'c_' + Math.random().toString(36).substr(2, 9),
-                from: { nodeId: newFromId, port: c.from.port },
-                to: { nodeId: newToId, port: c.to.port },
-                type: c.type
-            });
-        }
-    });
-
-    updateAllConnections();
-    updatePortStyles();
-    scheduleSave();
-    showToast(`已粘贴 ${idMap.size} 个节点`, 'success');
-}
-
-// ===== Shortcuts =====
-// ===== Log Drawer =====
-
-// ===== Panel Management (Mutual Exclusivity) =====
-const PanelManager = {
-    panels: {
-        history: { id: 'history-sidebar', btn: 'btn-history' },
-        workflow: { id: 'workflow-sidebar', btn: 'btn-toggle-workflow' },
-        cache: { id: 'cache-sidebar', btn: 'btn-toggle-cache' },
-        logs: { id: 'log-drawer', btn: 'btn-logs' }
-    },
-    toggle(panelKey, onOpen = null) {
-        const target = this.panels[panelKey];
-        if (!target) return;
-        const el = document.getElementById(target.id);
-        const isOpen = el?.classList.contains('active');
-        
-        // Close all others
-        Object.keys(this.panels).forEach(key => {
-            if (key !== panelKey) this.close(key);
-        });
-        
-        const btn = document.getElementById(target.btn);
-        if (isOpen) {
-            this.close(panelKey);
-        } else {
-            el?.classList.add('active');
-            btn?.classList.add('active');
-            if (onOpen) onOpen();
-        }
-    },
-    close(panelKey) {
-        const target = this.panels[panelKey];
-        if (!target) return;
-        document.getElementById(target.id)?.classList.remove('active');
-        document.getElementById(target.btn)?.classList.remove('active');
-    },
-    closeAll() {
-        Object.keys(this.panels).forEach(key => this.close(key));
-    }
-};
+let isUIInitialized = false;
 
 function initUI() {
+    if (isUIInitialized) {
+        console.warn('[initUI] Blocked duplicate initialization call.');
+        return;
+    }
+    isUIInitialized = true;
+    
+    console.log('[initUI] Starting index.js (v3.1) initialization...');
     const btnHistory = document.getElementById('btn-history');
     const sidebar = document.getElementById('history-sidebar');
     const logDrawer = document.getElementById('log-drawer');
 
     if (btnHistory && sidebar) {
-        btnHistory.addEventListener('click', () => {
+        console.log('[initUI] Attaching history button listener');
+        btnHistory.addEventListener('click', (e) => {
+            console.log('[initUI] History button clicked');
             PanelManager.toggle('history', () => {
                 renderHistoryList().catch(err => console.error('Failed to render history:', err));
             });
@@ -4683,17 +2787,6 @@ function closeHistoryPreview() {
     document.removeEventListener('keydown', onPreviewKeyDown);
 }
 
-// ===== History Operations =====
-async function deleteHistoryItems(ids) {
-    if (!ids || ids.length === 0) return;
-    try {
-        const db = await openDB();
-        const tx = db.transaction(STORE_HISTORY, 'readwrite');
-        const store = tx.objectStore(STORE_HISTORY);
-        ids.forEach(id => store.delete(id));
-        return new Promise((res) => tx.oncomplete = () => res(true));
-    } catch (e) { console.error('Delete history items failed:', e); }
-}
 
 function updatePreviewTransform() {
     const img = document.getElementById('history-preview-img');
@@ -5108,7 +3201,7 @@ function initWorkflow() {
 }
 
 // ===== Initial Execution =====
-document.addEventListener('DOMContentLoaded', async () => {
+async function startApp() {
     console.log('CainFlow Initializing...');
     try {
         initUI();
@@ -5136,7 +3229,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('CainFlow Initialization Failed:', e);
         showToast('初始化失败，请查看控制台日志', 'error');
     }
-});
+}
+
+// Robust initialization for ES Modules
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startApp);
+} else {
+    startApp();
+}
 
 document.addEventListener('keydown', (e) => {
     const a = document.activeElement;
@@ -5199,14 +3299,20 @@ window.addEventListener('blur', () => {
     state.isSpacePressed = false;
     canvasContainer.classList.remove('space-pan-active');
 });
-window.addEventListener('load', () => { 
+function onWindowLoad() {
     // Modal background click to close
     document.getElementById('modal-error').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeModal('modal-error');
     });
     state.lastFocusTime = Date.now(); 
     initToolbarObserver();
-});
+}
+
+if (document.readyState === 'complete') {
+    onWindowLoad();
+} else {
+    window.addEventListener('load', onWindowLoad);
+}
 
 function initToolbarObserver() {
     const toolbar = document.getElementById('toolbar');
@@ -5269,8 +3375,8 @@ function toggleHelpPanel() {
         
         // Auto-close others if needed
         const historySidebar = document.getElementById('history-sidebar');
-        if (historySidebar && !historySidebar.classList.contains('hidden')) {
-            closeHistorySidebar?.();
+        if (historySidebar && historySidebar.classList.contains('active')) {
+            PanelManager.close('history');
         }
     } else {
         closeHelpPanel();

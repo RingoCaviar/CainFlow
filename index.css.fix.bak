@@ -140,8 +140,8 @@ body {
     min-height: 48px;
     height: auto;
     flex-wrap: wrap;
-    z-index: 7500;
-    /* Stay above drawers (7000) but below modals (8000) */
+    z-index: 6001;
+    /* Stay below drawers (7000) and modals (8000) to ensure content is never obscured */
     position: relative;
     flex-shrink: 0;
 }
