@@ -7,10 +7,13 @@ import {
     addLog, 
     updateAllConnections, 
     updatePortStyles, 
-    scheduleSave, 
-    pushHistory,
     addNode
 } from '../modules/ui_bridge.js';
+
+import {
+    scheduleSave,
+    pushHistory
+} from '../modules/workflowManager.js';
 
 /**
  * Topologically sorts nodes starting from an optional target node.

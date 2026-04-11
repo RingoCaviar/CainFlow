@@ -3339,19 +3339,6 @@ async function startApp() {
     try {
         initUI();
         const restored = await loadState();
-
-        // Restore Global Save Directory Handle from IndexedDB
-        try {
-            const savedHandle = await getHandle('GLOBAL_SAVE_DIR');
-            if (savedHandle) {
-                state.globalSaveDirHandle = savedHandle;
-                updateImageSaveWarnings();
-                console.log(`[startApp] Restored global save directory: ${savedHandle.name}`);
-            }
-        } catch (dirErr) {
-            console.warn('[startApp] Failed to restore global save directory:', dirErr);
-        }
-
         if (restored) {
             showToast('已从本地存储恢复工作状态', 'success');
             // Restore proxy config to background server immediately
