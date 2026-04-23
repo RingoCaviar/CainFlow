@@ -1,0 +1,4 @@
+{
+  "hosts": [],
+  "description": "将您的API供应商域名添加到此列表中，以允许节点访问其服务器。示例: api.example.com, openai.com"
+}

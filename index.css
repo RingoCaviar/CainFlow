@@ -1,0 +1,7 @@
+@import './css/base/variables.css';
+@import './css/layout/layout.css';
+@import './css/components/nodes.css';
+@import './css/features/panels.css';
+@import './css/legacy.css';
+@import './css/themes.css';
+/* CainFlow 的样式总入口，聚合基础层、布局层、组件层和遗留样式。 */

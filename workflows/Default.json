@@ -1,0 +1,135 @@
+{
+  "canvas": {
+    "x": 342,
+    "y": 135,
+    "zoom": 1
+  },
+  "nodes": [
+    {
+      "id": "n_prompt",
+      "type": "TextInput",
+      "x": 104,
+      "y": 73,
+      "width": 258,
+      "height": 272,
+      "enabled": true,
+      "text": "A futuristic city at sunset, cinematic lighting, 8k resolution"
+    },
+    {
+      "id": "n_gen",
+      "type": "ImageGenerate",
+      "x": 442,
+      "y": 72,
+      "width": 352,
+      "height": 631,
+      "enabled": true,
+      "apiConfigId": "model_banana_v2",
+      "prompt": "",
+      "aspect": "",
+      "resolution": "",
+      "search": false
+    },
+    {
+      "id": "n_prev",
+      "type": "ImagePreview",
+      "x": 861,
+      "y": 73,
+      "width": 300,
+      "height": 350,
+      "enabled": true
+    }
+  ],
+  "connections": [
+    {
+      "id": "c_p_g",
+      "from": {
+        "nodeId": "n_prompt",
+        "port": "text"
+      },
+      "to": {
+        "nodeId": "n_gen",
+        "port": "prompt"
+      },
+      "type": "text"
+    },
+    {
+      "id": "c_g_p",
+      "from": {
+        "nodeId": "n_gen",
+        "port": "image"
+      },
+      "to": {
+        "nodeId": "n_prev",
+        "port": "image"
+      },
+      "type": "image"
+    }
+  ],
+  "providers": [
+    {
+      "id": "prov_gxp",
+      "name": "GXP",
+      "type": "google",
+      "endpoint": "https://www.6789api.top/",
+      "apikey": ""
+    },
+    {
+      "id": "prov_gxp_openai",
+      "name": "GXP_OpenAI",
+      "type": "openai",
+      "endpoint": "https://www.6789api.top/",
+      "apikey": ""
+    }
+  ],
+  "models": [
+    {
+      "id": "model_banana_v2",
+      "name": "生图-Banana Pro 2",
+      "modelId": "gemini-3.1-flash-image-preview",
+      "providerId": "prov_gxp",
+      "taskType": "image",
+      "protocol": "google"
+    },
+    {
+      "id": "model_banana_v1",
+      "name": "生图-Banana Pro",
+      "modelId": "gemini-3-pro-image-preview",
+      "providerId": "prov_gxp",
+      "taskType": "image",
+      "protocol": "google"
+    },
+    {
+      "id": "model_chat_3_flash",
+      "name": "对话-gemini-3-flash-preview",
+      "modelId": "gemini-3-flash-preview",
+      "providerId": "prov_gxp",
+      "taskType": "chat",
+      "protocol": "google"
+    },
+    {
+      "id": "model_chat_31_pro",
+      "name": "对话-gemini-3.1-pro-preview",
+      "modelId": "gemini-3.1-pro-preview",
+      "providerId": "prov_gxp",
+      "taskType": "chat",
+      "protocol": "google"
+    },
+    {
+      "id": "model_chat_3_pro",
+      "name": "对话-gemini-3-pro-preview",
+      "modelId": "gemini-3-pro-preview",
+      "providerId": "prov_gxp",
+      "taskType": "chat",
+      "protocol": "google"
+    },
+    {
+      "id": "model_gpt_image_2",
+      "name": "GPT-Image-2",
+      "modelId": "gpt-image-2",
+      "providerId": "prov_gxp_openai",
+      "taskType": "image",
+      "protocol": "openai"
+    }
+  ],
+  "version": "1.1"
+}

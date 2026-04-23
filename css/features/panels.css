@@ -1,0 +1,24 @@
+/* Feature entry point for drawers, modals, history and workflow panels. */
+/* 承载功能面板相关样式入口，统一历史、日志和设置等侧栏外观。 */
+
+/* 历史面板标题区图片总数徽章 */
+.history-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    color: rgba(255, 255, 255, 0.75);
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(99, 102, 241, 0.25));
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    margin-left: 6px;
+    white-space: nowrap;
+    line-height: 1.4;
+    /* 无内容时不撑开空间 */
+    transition: opacity 0.2s ease;
+}
+.history-count-badge:empty {
+    display: none;
+}
