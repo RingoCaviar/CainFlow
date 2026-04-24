@@ -4,6 +4,7 @@
     --border-color: rgba(255, 255, 255, 0.08);
     --text-main: var(--text-primary);
     --accent-light: #7dd3fc;
+    --connection-flow-color: rgba(168, 85, 247, 0.95);
     --overlay-backdrop: rgba(0, 0, 0, 0.7);
     --surface-soft: rgba(255, 255, 255, 0.03);
     --surface-muted: rgba(255, 255, 255, 0.05);
@@ -61,6 +62,7 @@
     --bg-log-item-hover: rgba(15, 23, 42, 0.08);
     --shadow-drawer: -8px 0 32px rgba(15, 23, 42, 0.16);
     --conn-color: 109, 40, 217;
+    --connection-flow-color: rgba(109, 40, 217, 0.9);
     --bg-card: rgba(249, 251, 255, 0.98);
     --border-color: rgba(148, 163, 184, 0.3);
     --text-main: #172033;

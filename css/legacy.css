@@ -489,6 +489,24 @@ body {
     z-index: 10;
 }
 
+.connection-flow-decoration {
+    display: none;
+    pointer-events: none;
+}
+
+.connection-flow-decoration.active {
+    display: block;
+}
+
+.connection-flow-arrow {
+    fill: none;
+    stroke: var(--connection-flow-color, rgba(168, 85, 247, 0.95));
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.28));
+}
+
 .connection-breathing {
     animation: connection-pulse 2s infinite ease-in-out;
 }

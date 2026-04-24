@@ -89,6 +89,8 @@ export function createNodeSerializer({ state, documentRef, getSafeProviders }) {
             maxRetries: state.maxRetries,
             imageAutoResizeEnabled: state.imageAutoResizeEnabled,
             imageMaxPixels: state.imageMaxPixels,
+            connectionLineType: state.connectionLineType,
+            connectionFlowAnimationEnabled: state.connectionFlowAnimationEnabled,
             proxy: state.proxy,
             requestTimeoutEnabled: state.requestTimeoutEnabled,
             requestTimeoutSeconds: state.requestTimeoutSeconds,

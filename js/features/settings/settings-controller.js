@@ -27,6 +27,7 @@ export function createSettingsControllerApi({
     saveState,
     addLog,
     checkUpdate,
+    updateAllConnections = () => {},
     fitNodeToContent = () => {},
     documentRef = document,
     windowRef = window,
@@ -501,6 +502,8 @@ export function createSettingsControllerApi({
         const list = documentRef.getElementById('general-settings');
         const currentSide = Math.round(Math.sqrt(state.imageMaxPixels || 4194304));
         const autoResizeEnabled = state.imageAutoResizeEnabled !== false;
+        const connectionLineType = state.connectionLineType || 'bezier';
+        const connectionFlowAnimationEnabled = state.connectionFlowAnimationEnabled !== false;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
         const latestVer = localStorageRef.getItem('cainflow_update_version');
@@ -605,6 +608,31 @@ export function createSettingsControllerApi({
         <div style="display: flex; gap: 16px; align-items: stretch;">
             <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布连线</span>
+                </div>
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                    <div class="card-field">
+                        <label>连线类型</label>
+                        <select id="setting-connection-line-type" style="width:100%;">
+                            <option value="bezier" ${connectionLineType === 'bezier' ? 'selected' : ''}>贝塞尔曲线</option>
+                            <option value="orthogonal" ${connectionLineType === 'orthogonal' ? 'selected' : ''}>直角连线（圆角）</option>
+                        </select>
+                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height:1.4;">切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。</p>
+                    </div>
+                    <div class="card-field" style="margin-top:14px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                            <label style="margin:0;">流动箭头动画</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-connection-flow-animation-enabled" ${connectionFlowAnimationEnabled ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。关闭后，选中节点相关连线上的流动小箭头会被隐藏。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="api-config-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
@@ -653,6 +681,8 @@ export function createSettingsControllerApi({
         const btnGotoDownload = documentRef.getElementById('btn-goto-download');
         const timeoutEnabledInput = documentRef.getElementById('setting-timeout-enabled');
         const timeoutSecondsInput = documentRef.getElementById('setting-timeout-seconds');
+        const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
+        const connectionFlowAnimationInput = documentRef.getElementById('setting-connection-flow-animation-enabled');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
 
@@ -729,6 +759,18 @@ export function createSettingsControllerApi({
             } else {
                 e.target.value = state.requestTimeoutSeconds;
             }
+        });
+
+        connectionLineTypeInput?.addEventListener('change', (e) => {
+            state.connectionLineType = e.target.value === 'orthogonal' ? 'orthogonal' : 'bezier';
+            updateAllConnections();
+            saveState();
+        });
+
+        connectionFlowAnimationInput?.addEventListener('change', (e) => {
+            state.connectionFlowAnimationEnabled = e.target.checked;
+            updateAllConnections();
+            saveState();
         });
 
         testBtn?.addEventListener('click', () => {

@@ -43,6 +43,8 @@ export function createInitialState() {
         proxy: null,
         requestTimeoutEnabled: true,
         requestTimeoutSeconds: 600,
+        connectionLineType: 'bezier',
+        connectionFlowAnimationEnabled: true,
         historyGridCols: 2,
         cacheSizes: {},
         undoStack: [],

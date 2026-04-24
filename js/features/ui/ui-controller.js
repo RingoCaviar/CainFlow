@@ -19,6 +19,7 @@ export function createUiControllerApi({
     settingsControllerApi,
     applyHistoryGridCols,
     applyTheme = () => {},
+    updateAllConnections = () => {},
     saveState,
     showToast,
     copyToClipboard,
@@ -47,6 +48,8 @@ export function createUiControllerApi({
                 maxRetries: state.maxRetries,
                 imageAutoResizeEnabled: state.imageAutoResizeEnabled,
                 imageMaxPixels: state.imageMaxPixels,
+                connectionLineType: state.connectionLineType,
+                connectionFlowAnimationEnabled: state.connectionFlowAnimationEnabled,
                 proxy: state.proxy ? { ...state.proxy } : null,
                 requestTimeoutEnabled: state.requestTimeoutEnabled,
                 requestTimeoutSeconds: state.requestTimeoutSeconds,
@@ -149,6 +152,16 @@ export function createUiControllerApi({
             if (!Number.isNaN(imageMaxPixels) && imageMaxPixels > 0) {
                 state.imageMaxPixels = imageMaxPixels;
             }
+        }
+
+        if (settings.connectionLineType !== undefined) {
+            state.connectionLineType = settings.connectionLineType === 'orthogonal' ? 'orthogonal' : 'bezier';
+            updateAllConnections();
+        }
+
+        if (settings.connectionFlowAnimationEnabled !== undefined) {
+            state.connectionFlowAnimationEnabled = settings.connectionFlowAnimationEnabled !== false;
+            updateAllConnections();
         }
 
         if (Object.prototype.hasOwnProperty.call(settings, 'proxy')) {

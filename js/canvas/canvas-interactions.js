@@ -16,6 +16,7 @@ export function createCanvasInteractionsApi({
     serializeOneNode,
     addNode,
     checkLineIntersection,
+    getConnectionSamplePoints,
     onConnectionsChanged = () => {},
     documentRef = document,
     windowRef = window,
@@ -113,23 +114,20 @@ export function createCanvasInteractionsApi({
                     const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
                     const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
 
-                    const cp = Math.max(50, Math.abs(to.x - from.x) * 0.4);
-                    const getBezier = (t) => {
-                        const it = 1 - t;
-                        const x = it * it * it * from.x + 3 * it * it * t * (from.x + cp) + 3 * it * t * t * (to.x - cp) + t * t * t * to.x;
-                        const y = it * it * it * from.y + 3 * it * it * t * from.y + 3 * it * t * t * to.y + t * t * t * to.y;
-                        return { x, y };
-                    };
+                    const samplePoints = getConnectionSamplePoints(
+                        from.x,
+                        from.y,
+                        to.x,
+                        to.y,
+                        { type: state.connectionLineType || 'bezier' }
+                    );
 
-                    let prevBezierPoint = from;
-                    for (let i = 1; i <= 10; i++) {
-                        const bezierPoint = getBezier(i / 10);
-                        if (checkLineIntersection(prevPos, pos, prevBezierPoint, bezierPoint)) {
+                    for (let i = 1; i < samplePoints.length; i++) {
+                        if (checkLineIntersection(prevPos, pos, samplePoints[i - 1], samplePoints[i])) {
                             connectionsToRemove.add(conn.id);
                             changed = true;
                             break;
                         }
-                        prevBezierPoint = bezierPoint;
                     }
                 }
 

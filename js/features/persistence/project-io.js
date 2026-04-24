@@ -85,6 +85,8 @@ export function createProjectIoApi({
                     maxRetries: currentState.maxRetries !== undefined ? currentState.maxRetries : state.maxRetries,
                     imageAutoResizeEnabled: currentState.imageAutoResizeEnabled !== undefined ? currentState.imageAutoResizeEnabled : state.imageAutoResizeEnabled,
                     imageMaxPixels: currentState.imageMaxPixels !== undefined ? currentState.imageMaxPixels : state.imageMaxPixels,
+                    connectionLineType: currentState.connectionLineType !== undefined ? currentState.connectionLineType : state.connectionLineType,
+                    connectionFlowAnimationEnabled: currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.connectionFlowAnimationEnabled,
                     proxy: currentState.proxy !== undefined ? currentState.proxy : state.proxy,
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
@@ -175,6 +177,12 @@ export function createProjectIoApi({
             }
             if (data.imageMaxPixels !== undefined) {
                 state.imageMaxPixels = data.imageMaxPixels;
+            }
+            if (data.connectionLineType !== undefined) {
+                state.connectionLineType = data.connectionLineType === 'orthogonal' ? 'orthogonal' : 'bezier';
+            }
+            if (data.connectionFlowAnimationEnabled !== undefined) {
+                state.connectionFlowAnimationEnabled = data.connectionFlowAnimationEnabled !== false;
             }
             if (data.proxy !== undefined) {
                 state.proxy = data.proxy;

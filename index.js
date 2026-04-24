@@ -23,7 +23,11 @@ import {
     sanitizeRequestUrl as sanitizeRequestUrlService
 } from './js/services/api-client.js';
 import { createIndexedDbApi } from './js/services/storage-idb.js';
-import { createBezierPath as createBezierPathService, checkLineIntersection as checkLineIntersectionService } from './js/canvas/geometry.js';
+import {
+    createBezierPath as createBezierPathService,
+    checkLineIntersection as checkLineIntersectionService,
+    getConnectionSamplePoints as getConnectionSamplePointsService
+} from './js/canvas/geometry.js';
 import { createConnectionsApi } from './js/canvas/connections.js';
 import { createSelectionApi } from './js/canvas/selection.js';
 import { createViewportApi } from './js/canvas/viewport.js';
@@ -487,6 +491,7 @@ function getUiControllerApi() {
             settingsControllerApi,
             applyHistoryGridCols,
             applyTheme: (mode) => getThemeControllerApi().applyTheme(mode),
+            updateAllConnections,
             saveState,
             showToast,
             copyToClipboard,
@@ -547,7 +552,8 @@ function getCanvasInteractionsApi() {
             scheduleSave,
             serializeOneNode,
             addNode,
-            checkLineIntersection: checkLineIntersectionService
+            checkLineIntersection: checkLineIntersectionService,
+            getConnectionSamplePoints: getConnectionSamplePointsService
         });
     }
     return canvasInteractionsApi;
@@ -803,6 +809,7 @@ settingsControllerApi = createSettingsControllerApi({
     saveState,
     addLog,
     checkUpdate: (isManual) => updateManager.checkUpdate(isManual),
+    updateAllConnections,
     fitNodeToContent
 });
 historyPreviewApi = createHistoryPreviewApi({

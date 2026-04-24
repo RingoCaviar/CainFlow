@@ -16,6 +16,141 @@ export function createConnectionsApi({
     documentRef = document
 }) {
     const pathById = new Map();
+    const flowDecorationById = new Map();
+    let flowAnimationFrame = null;
+    const view = documentRef.defaultView || window;
+
+    function createFlowArrowElement() {
+        const arrow = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
+        arrow.classList.add('connection-flow-arrow');
+        arrow.setAttribute('d', 'M -7 -4 L 0 0 L -7 4');
+        return arrow;
+    }
+
+    function ensureFlowDecoration(connId) {
+        let decoration = flowDecorationById.get(connId);
+        if (decoration) return decoration;
+
+        const group = documentRef.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.classList.add('connection-flow-decoration');
+        group.setAttribute('data-conn-flow-id', connId);
+
+        const arrows = [];
+        for (let i = 0; i < 7; i++) {
+            const arrow = createFlowArrowElement();
+            group.appendChild(arrow);
+            arrows.push(arrow);
+        }
+
+        connectionsGroup.appendChild(group);
+        decoration = { group, arrows, active: false };
+        flowDecorationById.set(connId, decoration);
+        return decoration;
+    }
+
+    function removeFlowDecoration(connId) {
+        const decoration = flowDecorationById.get(connId);
+        if (!decoration) return;
+        decoration.group.remove();
+        flowDecorationById.delete(connId);
+    }
+
+    function updateFlowDecoration(path, connId, isActive) {
+        const decoration = ensureFlowDecoration(connId);
+        decoration.active = state.connectionFlowAnimationEnabled !== false && isActive && !!path.getAttribute('d');
+        decoration.group.classList.toggle('active', decoration.active);
+        if (path.nextSibling !== decoration.group) {
+            path.parentNode?.insertBefore(decoration.group, path.nextSibling);
+        }
+    }
+
+    function stopFlowAnimation() {
+        if (!flowAnimationFrame) return;
+        view.cancelAnimationFrame(flowAnimationFrame);
+        flowAnimationFrame = null;
+    }
+
+    function animateFlowDecorations(now) {
+        let hasActiveDecoration = false;
+
+        flowDecorationById.forEach((decoration, connId) => {
+            if (!decoration.active) return;
+
+            const path = pathById.get(connId);
+            const pathData = path?.getAttribute('d');
+            if (!path || !pathData) {
+                decoration.active = false;
+                decoration.group.classList.remove('active');
+                return;
+            }
+
+            let totalLength = 0;
+            try {
+                totalLength = path.getTotalLength();
+            } catch {
+                decoration.active = false;
+                decoration.group.classList.remove('active');
+                return;
+            }
+
+            if (!Number.isFinite(totalLength) || totalLength < 80) {
+                decoration.group.classList.remove('active');
+                return;
+            }
+
+            hasActiveDecoration = true;
+            decoration.group.classList.add('active');
+
+            const arrowCount = decoration.arrows.length;
+            const edgePadding = Math.min(28, totalLength * 0.18);
+            const usableLength = Math.max(totalLength - edgePadding * 2, 1);
+            const spacing = Math.max(26, usableLength / Math.max(arrowCount - 1, 1));
+            const speed = 0.045;
+            const phase = (now * speed) % spacing;
+
+            decoration.arrows.forEach((arrow, index) => {
+                const rawLength = edgePadding + phase + index * spacing;
+                const loopedLength = edgePadding + ((rawLength - edgePadding) % usableLength + usableLength) % usableLength;
+                const currentPoint = path.getPointAtLength(loopedLength);
+                const tangentPoint = path.getPointAtLength(Math.min(loopedLength + 1.5, totalLength));
+                const angle = Math.atan2(tangentPoint.y - currentPoint.y, tangentPoint.x - currentPoint.x) * 180 / Math.PI;
+                const progress = (loopedLength - edgePadding) / usableLength;
+                const opacity = 0.38 + Math.sin(progress * Math.PI) * 0.48;
+
+                arrow.setAttribute(
+                    'transform',
+                    `translate(${currentPoint.x} ${currentPoint.y}) rotate(${angle})`
+                );
+                arrow.style.opacity = opacity.toFixed(3);
+            });
+        });
+
+        if (!hasActiveDecoration) {
+            flowAnimationFrame = null;
+            return;
+        }
+
+        flowAnimationFrame = view.requestAnimationFrame(animateFlowDecorations);
+    }
+
+    function ensureFlowAnimation() {
+        if (state.connectionFlowAnimationEnabled === false) {
+            flowDecorationById.forEach((decoration) => {
+                decoration.active = false;
+                decoration.group.classList.remove('active');
+            });
+            stopFlowAnimation();
+            return;
+        }
+        const hasActiveDecoration = Array.from(flowDecorationById.values()).some((decoration) => decoration.active);
+        if (!hasActiveDecoration) {
+            stopFlowAnimation();
+            return;
+        }
+        if (!flowAnimationFrame) {
+            flowAnimationFrame = view.requestAnimationFrame(animateFlowDecorations);
+        }
+    }
 
     function getPortPosition(nodeId, portName, direction, containerRectOverride = null) {
         const node = getNodeById(nodeId);
@@ -36,6 +171,33 @@ export function createConnectionsApi({
             x: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
             y: (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom
         };
+    }
+
+    function getNodeBounds(node) {
+        const width = Number(node.width) > 0
+            ? Number(node.width)
+            : (node.el?.offsetWidth || 0);
+        const height = Number(node.height) > 0
+            ? Number(node.height)
+            : (node.el?.offsetHeight || 0);
+
+        return {
+            left: node.x,
+            top: node.y,
+            right: node.x + width,
+            bottom: node.y + height
+        };
+    }
+
+    function isNodeVisibleInViewport(node, viewport, padding = 100) {
+        if (!node) return false;
+        const bounds = getNodeBounds(node);
+        return !(
+            bounds.right < viewport.left - padding ||
+            bounds.left > viewport.right + padding ||
+            bounds.bottom < viewport.top - padding ||
+            bounds.top > viewport.bottom + padding
+        );
     }
 
     function updateAllConnections() {
@@ -59,14 +221,17 @@ export function createConnectionsApi({
             if (!currentConnIds.has(connId)) {
                 path.remove();
                 pathById.delete(connId);
+                removeFlowDecoration(connId);
             }
         });
 
         const containerRect = canvasContainer.getBoundingClientRect();
-        const vx1 = -x / zoom;
-        const vy1 = -y / zoom;
-        const vx2 = (containerRect.width - x) / zoom;
-        const vy2 = (containerRect.height - y) / zoom;
+        const viewport = {
+            left: -x / zoom,
+            top: -y / zoom,
+            right: (containerRect.width - x) / zoom,
+            bottom: (containerRect.height - y) / zoom
+        };
         const padding = 100;
 
         for (const conn of state.connections) {
@@ -75,17 +240,20 @@ export function createConnectionsApi({
             const fromNode = getNodeById(conn.from.nodeId);
             const toNode = getNodeById(conn.to.nodeId);
             if (fromNode && toNode) {
-                const isFromVisible = fromNode.x > vx1 - padding && fromNode.x < vx2 + padding && fromNode.y > vy1 - padding && fromNode.y < vy2 + padding;
-                const isToVisible = toNode.x > vx1 - padding && toNode.x < vx2 + padding && toNode.y > vy1 - padding && toNode.y < vy2 + padding;
+                const isFromVisible = isNodeVisibleInViewport(fromNode, viewport, padding);
+                const isToVisible = isNodeVisibleInViewport(toNode, viewport, padding);
                 if (!isFromVisible && !isToVisible && path) {
                     path.setAttribute('d', '');
+                    updateFlowDecoration(path, conn.id, false);
                     continue;
                 }
             }
 
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-            const pathStr = createBezierPath(from.x, from.y, to.x, to.y);
+            const pathStr = createBezierPath(from.x, from.y, to.x, to.y, {
+                type: state.connectionLineType || 'bezier'
+            });
             const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
 
             if (!path) {
@@ -97,6 +265,7 @@ export function createConnectionsApi({
                     state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
                     pathById.get(conn.id)?.remove();
                     pathById.delete(conn.id);
+                    removeFlowDecoration(conn.id);
                     updateAllConnections();
                     updatePortStyles();
                     showToast('连接已删除', 'info');
@@ -110,7 +279,10 @@ export function createConnectionsApi({
             path.setAttribute('d', pathStr);
             path.classList.toggle('selected', isSelected);
             path.removeAttribute('stroke');
+            updateFlowDecoration(path, conn.id, isSelected);
         }
+
+        ensureFlowAnimation();
     }
 
     function updateDraggingConnections(draggingState) {
@@ -131,8 +303,12 @@ export function createConnectionsApi({
             if (!pathEl?.isConnected) continue;
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-            pathEl.setAttribute('d', createBezierPath(from.x, from.y, to.x, to.y));
+            pathEl.setAttribute('d', createBezierPath(from.x, from.y, to.x, to.y, {
+                type: state.connectionLineType || 'bezier'
+            }));
         }
+
+        ensureFlowAnimation();
     }
 
     function finishConnection(src, tgt) {
@@ -172,8 +348,9 @@ export function createConnectionsApi({
         const sy1 = y1 * zoom + y;
         const sx2 = x2 * zoom + x;
         const sy2 = y2 * zoom + y;
-        const cp = Math.max(50, Math.abs(sx2 - sx1) * 0.4);
-        tempConnection.setAttribute('d', `M ${sx1} ${sy1} C ${sx1 + cp} ${sy1}, ${sx2 - cp} ${sy2}, ${sx2} ${sy2}`);
+        tempConnection.setAttribute('d', createBezierPath(sx1, sy1, sx2, sy2, {
+            type: state.connectionLineType || 'bezier'
+        }));
     }
 
     function updatePortStyles() {
