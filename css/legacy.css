@@ -3764,6 +3764,7 @@ input[type=number] {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
+    gap: 8px;
     /* Move button back to the top as requested */
     padding-top: 20px;
     z-index: 7100;
@@ -3773,7 +3774,7 @@ input[type=number] {
 
 .side-bar-btn {
     width: 44px;
-    height: 48px;
+    height: 60px;
     background: transparent;
     border: none;
     border-radius: 10px;
@@ -3784,14 +3785,34 @@ input[type=number] {
     justify-content: center;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-bottom: 8px;
-    gap: 4px;
-    padding: 6px 0;
+    gap: 3px;
+    padding: 4px 0;
+}
+
+.side-bar-divider {
+    width: 36px;
+    margin: 2px 0;
+    flex: 0 0 auto;
 }
 
 .side-bar-btn:hover {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-main);
+}
+
+.side-bar-btn span {
+    font-size: 11px;
+    line-height: 1.15;
+    text-align: center;
+}
+
+.side-bar-btn > svg {
+    flex: 0 0 auto;
+}
+
+#btn-auto-arrange > svg {
+    width: 20px;
+    height: 20px;
 }
 
 .side-bar-btn.active {

@@ -15,6 +15,7 @@ export function createToolbarControllerApi({
     showToast,
     scheduleSave,
     updateAllConnections,
+    autoArrangeNodes = null,
     zoomToFitTarget = null
 }) {
     function withZoomInteraction(callback) {
@@ -138,6 +139,12 @@ export function createToolbarControllerApi({
                 if (zoomToFitTarget) zoomToFitTarget();
                 else zoomToFit();
             });
+        });
+
+        documentRef.getElementById('btn-auto-arrange')?.addEventListener('click', () => {
+            if (typeof autoArrangeNodes === 'function') {
+                autoArrangeNodes();
+            }
         });
 
         documentRef.getElementById('btn-clear')?.addEventListener('click', () => {

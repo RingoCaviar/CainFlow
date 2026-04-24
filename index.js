@@ -32,6 +32,7 @@ import { createConnectionsApi } from './js/canvas/connections.js';
 import { createSelectionApi } from './js/canvas/selection.js';
 import { createViewportApi } from './js/canvas/viewport.js';
 import { createCanvasInteractionsApi } from './js/canvas/canvas-interactions.js';
+import { createNodeAutoLayoutApi } from './js/canvas/node-auto-layout.js';
 import { NODE_CONFIGS } from './js/nodes/registry.js';
 import { createNodeSerializer } from './js/nodes/node-serializer.js';
 import { createNodeMarkup } from './js/nodes/node-view-factory.js';
@@ -216,6 +217,7 @@ let clipboardControllerApi = null;
 let globalInteractionsApi = null;
 let toolbarControllerApi = null;
 let canvasInteractionsApi = null;
+let nodeAutoLayoutApi = null;
 let nodeLifecycleApi = null;
 let contextMenuControllerApi = null;
 let runtimeControllerApi = null;
@@ -390,6 +392,10 @@ function selectNode(id, isMulti) {
 
 function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
     return getNodeLifecycleApi().toggleNodesEnabled(nodeIds, referenceNodeId);
+}
+
+function autoArrangeNodes() {
+    return getNodeAutoLayoutApi().autoArrangeNodes();
 }
 
 // ===== 图片绘制编辑器 =====
@@ -573,10 +579,24 @@ function getToolbarControllerApi() {
             showToast,
             scheduleSave,
             updateAllConnections,
+            autoArrangeNodes,
             zoomToFitTarget: () => zoomToFit()
         });
     }
     return toolbarControllerApi;
+}
+
+function getNodeAutoLayoutApi() {
+    if (!nodeAutoLayoutApi) {
+        nodeAutoLayoutApi = createNodeAutoLayoutApi({
+            state,
+            pushHistory,
+            updateAllConnections,
+            scheduleSave,
+            showToast
+        });
+    }
+    return nodeAutoLayoutApi;
 }
 
 function getContextMenuControllerApi() {
