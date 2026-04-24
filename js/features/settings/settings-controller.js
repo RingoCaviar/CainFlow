@@ -57,6 +57,15 @@ export function createSettingsControllerApi({
         });
     }
 
+    function isCardHeaderControlClick(event) {
+        return !!event.target.closest('input, select, textarea, button, label, a');
+    }
+
+    function toggleConfigCard(collapseState, id, render) {
+        collapseState.set(id, !(collapseState.get(id) !== false));
+        render();
+    }
+
     async function initProxyPanel() {
         const enabledCheck = documentRef.getElementById('proxy-enabled');
         const ipInput = documentRef.getElementById('proxy-ip');
@@ -328,8 +337,16 @@ export function createSettingsControllerApi({
         providersList.querySelectorAll('.card-btn-collapse').forEach((btn) => {
             btn.addEventListener('click', (e) => {
                 const { id } = e.currentTarget.dataset;
-                providerCollapseState.set(id, !(providerCollapseState.get(id) !== false));
-                renderProviders();
+                toggleConfigCard(providerCollapseState, id, renderProviders);
+            });
+        });
+
+        providersList.querySelectorAll('.api-config-card .card-header').forEach((header) => {
+            header.addEventListener('click', (e) => {
+                if (isCardHeaderControlClick(e)) return;
+                const id = header.querySelector('.card-btn-collapse')?.dataset.id;
+                if (!id) return;
+                toggleConfigCard(providerCollapseState, id, renderProviders);
             });
         });
     }
@@ -432,8 +449,16 @@ export function createSettingsControllerApi({
         modelsList.querySelectorAll('.card-btn-collapse').forEach((btn) => {
             btn.addEventListener('click', (e) => {
                 const { id } = e.currentTarget.dataset;
-                modelCollapseState.set(id, !(modelCollapseState.get(id) !== false));
-                renderModels();
+                toggleConfigCard(modelCollapseState, id, renderModels);
+            });
+        });
+
+        modelsList.querySelectorAll('.api-config-card .card-header').forEach((header) => {
+            header.addEventListener('click', (e) => {
+                if (isCardHeaderControlClick(e)) return;
+                const id = header.querySelector('.card-btn-collapse')?.dataset.id;
+                if (!id) return;
+                toggleConfigCard(modelCollapseState, id, renderModels);
             });
         });
     }

@@ -733,7 +733,6 @@ html[data-app-theme="light"] #settings-modal .endpoint-preview {
 
 html[data-app-theme="light"] #settings-modal .password-wrapper input,
 html[data-app-theme="light"] #settings-modal .api-config-card .card-field input,
-html[data-app-theme="light"] #settings-modal .api-config-card .card-field select,
 html[data-app-theme="light"] #settings-modal #proxy-ip,
 html[data-app-theme="light"] #settings-modal #proxy-port,
 html[data-app-theme="light"] #settings-modal #setting-max-side,
@@ -743,6 +742,18 @@ html[data-app-theme="light"] #settings-modal #setting-timeout-seconds {
     border-color: rgba(148, 163, 184, 0.28) !important;
     color: #223047 !important;
     box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field select {
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    border-color: rgba(148, 163, 184, 0.32) !important;
+    color: #223047 !important;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field select option {
+    background: #ffffff !important;
+    color: #223047 !important;
 }
 
 html[data-app-theme="light"] #settings-modal .api-config-card .card-field input:focus,

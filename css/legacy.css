@@ -934,6 +934,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 }
 
 .node-field-expand {
@@ -955,6 +956,10 @@ body {
 .node-field-expand textarea {
     flex: 0 0 auto;
     width: 100%;
+}
+
+.node.is-interacting .node-field-expand textarea {
+    resize: none;
 }
 
 .node-field-expand .chat-response-area,
@@ -1032,6 +1037,9 @@ body {
     background-repeat: no-repeat;
     background-position: right 8px center;
     padding-right: 28px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .node-field select option {
@@ -1267,6 +1275,18 @@ body {
 .node-generate {
     min-width: 80px;
     /* Size managed by JS/Config */
+}
+
+.node-generate .node-field-expand {
+    display: flex;
+    flex-direction: column;
+}
+
+.node-generate .node-field-expand textarea {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    resize: none;
 }
 
 /* Node-specific: Image Preview */
@@ -2579,6 +2599,7 @@ body.is-interacting #canvas-container * {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    cursor: pointer;
 }
 
 .api-config-card .card-header .card-header-actions {
@@ -2592,6 +2613,7 @@ body.is-interacting #canvas-container * {
     font-size: 13px;
     font-weight: 600;
     color: var(--accent-cyan);
+    cursor: text;
 }
 
 .api-config-card .card-header .card-type {
@@ -2685,6 +2707,16 @@ body.is-interacting #canvas-container * {
 .api-config-card .card-field input:focus,
 .api-config-card .card-field select:focus {
     border-color: var(--accent-purple);
+}
+
+.api-config-card .card-field select {
+    background-color: #111827;
+    color: #f8fafc;
+}
+
+.api-config-card .card-field select option {
+    background: #111827;
+    color: #f8fafc;
 }
 
 /* Hide number input spinners (up/down arrows) */

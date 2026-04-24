@@ -37,9 +37,11 @@ export function createNodeDomBindingsApi({
 
         let frameId = null;
         const scheduleFit = () => {
+            if (state.resizing?.nodeId === nodeId) return;
             if (frameId !== null) return;
             frameId = requestAnimationFrame(() => {
                 frameId = null;
+                if (state.resizing?.nodeId === nodeId) return;
                 fitNodeToContent(nodeId, { allowShrink: true });
             });
         };
@@ -61,6 +63,138 @@ export function createNodeDomBindingsApi({
         });
 
         setTimeout(scheduleFit, 0);
+    }
+
+    function getPx(style, name) {
+        const value = parseFloat(style.getPropertyValue(name));
+        return Number.isFinite(value) ? value : 0;
+    }
+
+    function measureTextWidth(text, font) {
+        if (!measureTextWidth.canvas) {
+            measureTextWidth.canvas = documentRef.createElement('canvas');
+        }
+        const context = measureTextWidth.canvas.getContext('2d');
+        if (!context) return String(text || '').length * 8;
+        context.font = font;
+        return context.measureText(String(text || '')).width;
+    }
+
+    function getControlContentWidth(control) {
+        const style = getComputedStyle(control);
+        const font = style.font || `${style.fontSize} ${style.fontFamily}`;
+        const horizontalPadding = getPx(style, 'padding-left') + getPx(style, 'padding-right');
+        const horizontalBorder = getPx(style, 'border-left-width') + getPx(style, 'border-right-width');
+        const extraSelectSpace = control.tagName === 'SELECT' ? 14 : 0;
+
+        if (control.tagName === 'SELECT') {
+            const isModelSelect = control.id.endsWith('-apiconfig');
+            const selectedOption = control.selectedOptions?.[0];
+            const optionTextWidth = isModelSelect
+                ? measureTextWidth(selectedOption?.textContent || control.value || '', font)
+                : Array.from(control.options || []).reduce((max, option) => {
+                    return Math.max(max, measureTextWidth(option.textContent || option.value || '', font));
+                }, 0);
+            const maxWidth = isModelSelect ? 236 : Infinity;
+            return Math.ceil(Math.min(optionTextWidth + horizontalPadding + horizontalBorder + extraSelectSpace, maxWidth));
+        }
+
+        const text = control.value || control.placeholder || '';
+        return Math.ceil(Math.max(control.scrollWidth, measureTextWidth(text, font) + horizontalPadding + horizontalBorder));
+    }
+
+    function getNodeMinimumSize(el, headerFallbackWidth) {
+        const header = el.querySelector('.node-header');
+        const body = el.querySelector('.node-body');
+        const bodyStyle = body ? getComputedStyle(body) : null;
+        const bodyPaddingX = bodyStyle ? getPx(bodyStyle, 'padding-left') + getPx(bodyStyle, 'padding-right') : 0;
+        const bodyPaddingY = bodyStyle ? getPx(bodyStyle, 'padding-top') + getPx(bodyStyle, 'padding-bottom') : 0;
+        const bodyGap = bodyStyle ? getPx(bodyStyle, 'row-gap') || getPx(bodyStyle, 'gap') : 0;
+        const headerWidth = header ? Math.ceil(header.getBoundingClientRect().width) : headerFallbackWidth;
+        const headerHeight = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+        let minContentWidth = 0;
+        let minBodyHeight = bodyPaddingY;
+        let visibleBodyChildren = 0;
+
+        el.querySelectorAll('.node-port .port-label').forEach((label) => {
+            const port = label.closest('.node-port');
+            const dot = port?.querySelector('.port-dot');
+            const portStyle = port ? getComputedStyle(port) : null;
+            const gap = portStyle ? getPx(portStyle, 'column-gap') || getPx(portStyle, 'gap') : 6;
+            minContentWidth = Math.max(
+                minContentWidth,
+                Math.ceil(label.scrollWidth + (dot?.offsetWidth || 14) + gap)
+            );
+        });
+
+        el.querySelectorAll('.node-field').forEach((field) => {
+            const fieldStyle = getComputedStyle(field);
+            const fieldGap = getPx(fieldStyle, 'row-gap') || getPx(fieldStyle, 'gap');
+            let fieldMinWidth = 0;
+            let fieldMinHeight = 0;
+
+            field.querySelectorAll(':scope > label').forEach((label) => {
+                fieldMinWidth = Math.max(fieldMinWidth, label.scrollWidth);
+                fieldMinHeight += label.offsetHeight;
+            });
+
+            field.querySelectorAll('input, select, textarea, .toggle-switch, .chat-response-wrapper, .text-display-box').forEach((control) => {
+                if (control.closest('.node-field') !== field) return;
+                if (control.matches('input, select, textarea')) {
+                    fieldMinWidth = Math.max(fieldMinWidth, getControlContentWidth(control));
+                } else {
+                    fieldMinWidth = Math.max(fieldMinWidth, control.scrollWidth || control.offsetWidth);
+                }
+
+                const controlStyle = getComputedStyle(control);
+                const minHeight = getPx(controlStyle, 'min-height');
+                fieldMinHeight += field.classList.contains('node-field-expand')
+                    ? minHeight
+                    : Math.max(minHeight, control.offsetHeight || 0);
+            });
+
+            if (field.classList.contains('node-field-row')) {
+                const label = field.querySelector(':scope > label');
+                const switchEl = field.querySelector('.toggle-switch');
+                const gap = getPx(fieldStyle, 'column-gap') || getPx(fieldStyle, 'gap') || 12;
+                fieldMinWidth = Math.max(fieldMinWidth, (label?.scrollWidth || 0) + (switchEl?.offsetWidth || 0) + gap);
+                fieldMinHeight = Math.max(label?.offsetHeight || 0, switchEl?.offsetHeight || 0);
+            }
+
+            if (fieldMinWidth > 0) minContentWidth = Math.max(minContentWidth, Math.ceil(fieldMinWidth));
+        });
+
+        if (body) {
+            Array.from(body.children).forEach((child) => {
+                if (child.offsetParent === null) return;
+                visibleBodyChildren += 1;
+
+                if (child.classList.contains('node-field')) {
+                    const childStyle = getComputedStyle(child);
+                    const label = child.querySelector(':scope > label');
+                    const control = child.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .chat-response-wrapper, :scope > .text-display-box');
+                    const fieldGap = getPx(childStyle, 'row-gap') || getPx(childStyle, 'gap');
+                    const controlStyle = control ? getComputedStyle(control) : null;
+                    const controlMinHeight = controlStyle ? getPx(controlStyle, 'min-height') : 0;
+                    const controlHeight = control
+                        ? child.classList.contains('node-field-expand')
+                            ? controlMinHeight
+                            : Math.max(controlMinHeight, control.offsetHeight || 0)
+                        : 0;
+                    minBodyHeight += (label?.offsetHeight || 0) + (label && control ? fieldGap : 0) + controlHeight;
+                    return;
+                }
+
+                minBodyHeight += child.scrollHeight || child.offsetHeight || 0;
+            });
+
+            minBodyHeight += Math.max(0, visibleBodyChildren - 1) * bodyGap;
+        }
+
+        return {
+            minWidth: Math.max(180, Math.ceil(headerWidth), Math.ceil(minContentWidth + bodyPaddingX)),
+            minHeight: Math.max(120, Math.ceil(headerHeight + minBodyHeight))
+        };
     }
 
     function bindNodeInteractions({ id, type, el }) {
@@ -160,8 +294,9 @@ export function createNodeDomBindingsApi({
             e.preventDefault();
             const header = el.querySelector('.node-header');
             const headerMinWidth = header ? Math.ceil(header.getBoundingClientRect().width) : 180;
-            const minWidth = Math.max(180, Math.min(headerMinWidth, 240));
-            const minHeight = Math.max(120, Math.min(el.offsetHeight, 160));
+            const contentMinimum = getNodeMinimumSize(el, headerMinWidth);
+            const minWidth = contentMinimum.minWidth;
+            const minHeight = contentMinimum.minHeight;
             const node = state.nodes.get(id);
 
             state.resizing = {
