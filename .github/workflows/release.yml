@@ -57,8 +57,11 @@ jobs:
           
           # Move the compiled EXE to the staging folder
           Copy-Item "dist/CainFlow_Launcher.exe" "release_staging/CainFlow.exe"
+
+          # Ship the runtime config where the frozen app actually reads it
+          Copy-Item "allowed_hosts.json" "release_staging/allowed_hosts.json"
           
-          # Only copy the workflows folder to the distribution
+          # Copy external runtime data directories to the distribution
           if (Test-Path "workflows") {
             Copy-Item "workflows" -Destination "release_staging" -Recurse
           } else {

@@ -39,7 +39,7 @@ def print_banner():
  \____| /_/   \_\ |___| |_| \_| |_|     |_____|  \___/    \_/\_/   
 {reset}"""
     print(banner)
-    print(f' {white}> CainFlow v2.7.2 已就绪{reset}')
+    print(f' {white}> CainFlow v2.7.3 已就绪{reset}')
     print(f' {white}> 正在监听: {cyan}http://127.0.0.1:{config.PORT}{reset}')
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
@@ -59,5 +59,6 @@ def run():
     except Exception as exc:
         print(f'\n[ERROR] 无法启动服务器: {exc}')
         sys.exit(1)
+
 
 """负责启动 CainFlow 本地 HTTP 服务并初始化运行环境。"""
