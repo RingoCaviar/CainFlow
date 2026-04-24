@@ -1,0 +1,4 @@
+interface:
+  display_name: "CainFlow 项目导航"
+  short_description: "CainFlow 项目整体架构速查与代码落点定位导航"
+  default_prompt: "Use $cainflow-project to locate the right CainFlow files before editing code."
