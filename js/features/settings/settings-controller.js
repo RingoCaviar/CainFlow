@@ -639,7 +639,7 @@ export function createSettingsControllerApi({
                     <div class="card-field">
                         <label>完成音效音量</label>
                         <div style="display:flex; align-items:center; gap:12px;">
-                            <input type="range" id="setting-notify-volume" min="0" max="1" step="0.05" value="${state.notificationVolume}" style="flex:1" />
+                            <input type="range" id="setting-notify-volume" class="notification-volume-slider" min="0" max="1" step="0.05" value="${state.notificationVolume}" style="flex:1" />
                             <span id="volume-hint" style="font-size:12px; color:var(--text-dim); min-width:40px;">${Math.round(state.notificationVolume * 100)}%</span>
                             <button id="btn-test-sound" class="btn btn-ghost" style="padding:4px 8px; font-size:11px;">测试音效</button>
                         </div>
@@ -685,6 +685,15 @@ export function createSettingsControllerApi({
         const connectionFlowAnimationInput = documentRef.getElementById('setting-connection-flow-animation-enabled');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
+        const updateVolumeSliderProgress = () => {
+            if (!volInput) return;
+            const min = parseFloat(volInput.min || '0');
+            const max = parseFloat(volInput.max || '1');
+            const value = parseFloat(volInput.value || '0');
+            const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+            volInput.style.setProperty('--notify-volume-progress', `${Math.max(0, Math.min(100, percent))}%`);
+        };
+        updateVolumeSliderProgress();
 
         btnGotoDownload?.addEventListener('click', () => {
             windowRef.open(`https://github.com/${githubRepo}/releases/latest`, '_blank');
@@ -717,6 +726,7 @@ export function createSettingsControllerApi({
             const vol = parseFloat(e.target.value);
             state.notificationVolume = vol;
             volHint.textContent = Math.round(vol * 100) + '%';
+            updateVolumeSliderProgress();
             saveState();
         });
 

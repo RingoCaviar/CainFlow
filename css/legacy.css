@@ -2737,6 +2737,66 @@ body.is-interacting #canvas-container * {
     color: #f8fafc;
 }
 
+.api-config-card .card-field input.notification-volume-slider {
+    --notify-volume-progress: 100%;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.api-config-card .card-field input.notification-volume-slider::-webkit-slider-runnable-track {
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: linear-gradient(
+        90deg,
+        var(--accent-purple) 0%,
+        var(--accent-purple) var(--notify-volume-progress),
+        rgba(255, 255, 255, 0.12) var(--notify-volume-progress),
+        rgba(255, 255, 255, 0.12) 100%
+    );
+}
+
+.api-config-card .card-field input.notification-volume-slider::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -5px;
+    border: 2px solid var(--accent-purple);
+    border-radius: 50%;
+    background: var(--bg-panel);
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.api-config-card .card-field input.notification-volume-slider::-moz-range-track {
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.api-config-card .card-field input.notification-volume-slider::-moz-range-progress {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--accent-purple);
+}
+
+.api-config-card .card-field input.notification-volume-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--accent-purple);
+    border-radius: 50%;
+    background: var(--bg-panel);
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+}
+
 /* Hide number input spinners (up/down arrows) */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {

@@ -769,6 +769,43 @@ html[data-app-theme="light"] #settings-modal #setting-timeout-seconds:focus {
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider {
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider::-webkit-slider-runnable-track {
+    background: linear-gradient(
+        90deg,
+        #2563eb 0%,
+        #2563eb var(--notify-volume-progress),
+        rgba(219, 234, 254, 0.8) var(--notify-volume-progress),
+        rgba(219, 234, 254, 0.8) 100%
+    );
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider::-webkit-slider-thumb {
+    border-color: #2563eb;
+    background: #ffffff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider::-moz-range-track {
+    background: rgba(219, 234, 254, 0.8);
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider::-moz-range-progress {
+    background: #2563eb;
+}
+
+html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider::-moz-range-thumb {
+    border-color: #2563eb;
+    background: #ffffff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
+}
+
 html[data-app-theme="light"] #settings-modal .eye-toggle-btn:hover {
     background: rgba(59, 130, 246, 0.08);
     color: #2563eb;
