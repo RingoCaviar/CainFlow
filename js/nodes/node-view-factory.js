@@ -2,6 +2,7 @@
  * 根据节点类型与恢复数据生成节点的 HTML 结构。
  */
 import {
+    getEffectiveProtocol,
     getImageResolutionOptionsForModel,
     getModelOptionLabel,
     getModelsForTask,
@@ -138,6 +139,9 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'image');
     const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'image');
     const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, rd.resolution);
+    const selectedProvider = providers?.find?.((provider) => provider.id === selectedModel?.providerId) || null;
+    const isOpenAiModel = !!selectedModel && getEffectiveProtocol(selectedModel, selectedProvider) === 'openai';
+    const showResolutionParamNote = isOpenAiModel;
     const showCustomResolution = rd.resolution === 'custom';
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
     const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
@@ -145,7 +149,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
-        <div class="node-field"><label>宽高比</label>
+        <div class="node-field ${isOpenAiModel ? 'hidden' : ''}" id="${id}-aspect-field"><label>宽高比</label>
             <select id="${id}-aspect">
                 <option value="" ${!rd.aspect ? 'selected' : ''}>自动</option>
                 <option value="1:1" ${rd.aspect === '1:1' ? 'selected' : ''}>1:1</option>
@@ -168,6 +172,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             <select id="${id}-resolution">
                 ${resolutionOptions}
             </select>
+            <div class="image-resolution-param-note ${showResolutionParamNote ? '' : 'hidden'}" id="${id}-resolution-param-note">很多中转 API 并不支持 Size 参数，所以你设置分辨率是无效的</div>
         </div>
         <div class="node-field ${showCustomResolution ? '' : 'hidden'}" id="${id}-custom-resolution-field">
             <label>自定义分辨率</label>
@@ -176,6 +181,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <span style="color:var(--text-dim);font-size:12px;">x</span>
                 <input type="number" id="${id}-custom-resolution-height" value="${customHeight}" placeholder="高度" min="1" max="99999" />
             </div>
+            <div class="custom-resolution-hint" id="${id}-custom-resolution-hint" aria-live="polite"></div>
         </div>
         <div class="node-field node-field-row"><label>启用搜索</label>
             <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>

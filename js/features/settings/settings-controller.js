@@ -11,7 +11,8 @@ import {
     normalizeModelProtocol,
     normalizeModelTaskType,
     normalizeProviderType,
-    resolveProviderUrl
+    resolveProviderUrl,
+    validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
 
 export function createSettingsControllerApi({
@@ -828,13 +829,31 @@ export function createSettingsControllerApi({
         if (!modelSelect || !resolutionSelect) return;
 
         const model = state.models.find((candidate) => candidate.id === modelSelect.value);
+        const provider = state.providers.find((candidate) => candidate.id === model?.providerId);
         const normalizedValue = normalizeImageResolutionForModel(resolutionSelect.value, model, state.providers);
         resolutionSelect.innerHTML = getImageResolutionOptionsForModel(model, state.providers)
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = normalizedValue;
+        const isOpenAiModel = getEffectiveProtocol(model, provider) === 'openai';
+        const aspectField = documentRef.getElementById(`${id}-aspect-field`);
+        if (aspectField) aspectField.classList.toggle('hidden', isOpenAiModel);
+        const note = documentRef.getElementById(`${id}-resolution-param-note`);
+        if (note) note.classList.toggle('hidden', !isOpenAiModel);
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (customField) customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
+        const widthInput = documentRef.getElementById(`${id}-custom-resolution-width`);
+        const heightInput = documentRef.getElementById(`${id}-custom-resolution-height`);
+        const hint = documentRef.getElementById(`${id}-custom-resolution-hint`);
+        if (widthInput && heightInput && hint) {
+            const validation = resolutionSelect.value === 'custom'
+                ? validateOpenAiImageSize(widthInput.value, heightInput.value)
+                : { valid: true, errors: [] };
+            hint.textContent = validation.valid ? '' : validation.errors.join(' ');
+            hint.style.display = validation.valid ? 'none' : 'block';
+            widthInput.classList.toggle('invalid', !validation.valid);
+            heightInput.classList.toggle('invalid', !validation.valid);
+        }
     }
 
     function updateAllNodeModelDropdowns() {

@@ -8,7 +8,8 @@ import {
     buildOpenAiImageRequest,
     extractImageResult,
     getEffectiveProtocol,
-    resolveProviderUrl
+    resolveProviderUrl,
+    validateOpenAiImageSize
 } from './provider-request-utils.js';
 
 export function createExecutionCoreApi({
@@ -576,6 +577,10 @@ export function createExecutionCoreApi({
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
                 const isGoogle = protocol === 'google';
+                if (!isGoogle && selectedResolution === 'custom') {
+                    const validation = validateOpenAiImageSize(customWidth, customHeight);
+                    if (!validation.valid) throw new Error(`自定义分辨率不符合 OpenAI 规范：${validation.errors.join(' ')}`);
+                }
                 const requestBody = isGoogle
                     ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                     : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });

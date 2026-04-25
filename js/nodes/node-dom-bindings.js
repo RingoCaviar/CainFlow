@@ -2,8 +2,10 @@
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
  */
 import {
+    getEffectiveProtocol,
     getImageResolutionOptionsForModel,
-    normalizeImageResolutionForModel
+    normalizeImageResolutionForModel,
+    validateOpenAiImageSize
 } from '../features/execution/provider-request-utils.js';
 
 export function createNodeDomBindingsApi({
@@ -76,6 +78,7 @@ export function createNodeDomBindingsApi({
         if (!modelSelect || !resolutionSelect) return;
 
         const model = state.models.find((candidate) => candidate.id === modelSelect.value);
+        const provider = state.providers.find((candidate) => candidate.id === model?.providerId);
         const previousValue = resolutionSelect.value;
         const normalizedValue = normalizeImageResolutionForModel(previousValue, model, state.providers);
         const options = getImageResolutionOptionsForModel(model, state.providers);
@@ -83,7 +86,22 @@ export function createNodeDomBindingsApi({
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = normalizedValue;
+        const isOpenAiModel = getEffectiveProtocol(model, provider) === 'openai';
+        updateImageGenerateAspectVisibility(id, isOpenAiModel);
+        updateImageGenerateResolutionParamNote(id, isOpenAiModel);
         updateImageGenerateCustomResolutionVisibility(id);
+    }
+
+    function updateImageGenerateAspectVisibility(id, isOpenAiModel) {
+        const aspectField = documentRef.getElementById(`${id}-aspect-field`);
+        if (!aspectField) return;
+        aspectField.classList.toggle('hidden', isOpenAiModel);
+    }
+
+    function updateImageGenerateResolutionParamNote(id, isOpenAiModel) {
+        const note = documentRef.getElementById(`${id}-resolution-param-note`);
+        if (!note) return;
+        note.classList.toggle('hidden', !isOpenAiModel);
     }
 
     function updateImageGenerateCustomResolutionVisibility(id) {
@@ -91,6 +109,31 @@ export function createNodeDomBindingsApi({
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (!resolutionSelect || !customField) return;
         customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
+        updateImageGenerateCustomResolutionValidation(id);
+    }
+
+    function updateImageGenerateCustomResolutionValidation(id) {
+        const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
+        const widthInput = documentRef.getElementById(`${id}-custom-resolution-width`);
+        const heightInput = documentRef.getElementById(`${id}-custom-resolution-height`);
+        const hint = documentRef.getElementById(`${id}-custom-resolution-hint`);
+        if (!resolutionSelect || !widthInput || !heightInput || !hint) return true;
+
+        if (resolutionSelect.value !== 'custom') {
+            hint.textContent = '';
+            hint.style.display = 'none';
+            widthInput.classList.remove('invalid');
+            heightInput.classList.remove('invalid');
+            return true;
+        }
+
+        const result = validateOpenAiImageSize(widthInput.value, heightInput.value);
+        const isValid = result.valid;
+        hint.textContent = isValid ? '' : result.errors.join(' ');
+        hint.style.display = isValid ? 'none' : 'block';
+        widthInput.classList.toggle('invalid', !isValid);
+        heightInput.classList.toggle('invalid', !isValid);
+        return isValid;
     }
 
     function getPx(style, name) {
@@ -421,6 +464,15 @@ export function createNodeDomBindingsApi({
                 updateImageGenerateCustomResolutionVisibility(id);
                 fitNodeToContent(id, { allowShrink: true });
             });
+            const customWidthInput = el.querySelector(`#${id}-custom-resolution-width`);
+            const customHeightInput = el.querySelector(`#${id}-custom-resolution-height`);
+            const syncCustomResolutionValidation = () => {
+                updateImageGenerateCustomResolutionValidation(id);
+                fitNodeToContent(id, { allowShrink: true });
+            };
+            customWidthInput?.addEventListener('input', syncCustomResolutionValidation);
+            customHeightInput?.addEventListener('input', syncCustomResolutionValidation);
+            updateImageGenerateCustomResolutionValidation(id);
         }
         else if (type === 'ImageResize') setupImageResize(id, el);
         else if (type === 'ImageSave') setupImageSave(id, el);

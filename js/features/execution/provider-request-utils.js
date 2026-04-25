@@ -120,6 +120,39 @@ export function normalizeImageResolutionForModel(resolution, model = {}, provide
     return options[0]?.value || '';
 }
 
+export function validateOpenAiImageSize(widthValue, heightValue) {
+    const width = Number(widthValue);
+    const height = Number(heightValue);
+    const errors = [];
+
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        return {
+            valid: false,
+            errors: ['请输入有效的宽度和高度。'],
+            width,
+            height
+        };
+    }
+
+    const longSide = Math.max(width, height);
+    const shortSide = Math.min(width, height);
+    const totalPixels = width * height;
+
+    if (longSide > 3840) errors.push('最大边长必须小于或等于 3840px。');
+    if (width % 16 !== 0 || height % 16 !== 0) errors.push('宽度和高度都必须是 16px 的倍数。');
+    if (longSide / shortSide > 3) errors.push('长边与短边之比不得超过 3:1。');
+    if (totalPixels < 655360 || totalPixels > 8294400) {
+        errors.push('总像素数必须至少为 655,360，且不得超过 8,294,400。');
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+        width,
+        height
+    };
+}
+
 export function normalizeModelConfig(model = {}, index = 0, providers = null) {
     const provider = getProviderFromLookup(model?.providerId, providers);
     return {
