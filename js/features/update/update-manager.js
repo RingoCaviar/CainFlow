@@ -16,7 +16,14 @@ export function createUpdateManager({
     clearTimeoutImpl = clearTimeout
 }) {
     function compareVersions(v1, v2) {
-        const parse = (v) => v.replace(/^v/, '').split('.').map(Number);
+        const parse = (value) => {
+            const match = String(value || '').trim().match(/\d+(?:\.\d+)*/);
+            if (!match) return [0];
+            return match[0].split('.').map((part) => {
+                const num = Number.parseInt(part, 10);
+                return Number.isFinite(num) ? num : 0;
+            });
+        };
         const a = parse(v1);
         const b = parse(v2);
         for (let i = 0; i < Math.max(a.length, b.length); i++) {
@@ -49,6 +56,7 @@ export function createUpdateManager({
         }
 
         if (settingsBtn) settingsBtn.classList.add('has-update');
+        modal?.classList.remove('hidden');
         modal?.classList.add('active');
 
         const btnDownload = documentRef.getElementById('btn-update-download');
@@ -68,7 +76,36 @@ export function createUpdateManager({
         }
     }
 
-    async function checkUpdate(isManual = false) {
+    function showUpdateCanvasNotice(releaseData) {
+        const notice = documentRef.getElementById('update-canvas-notice');
+        const latestVersion = documentRef.getElementById('update-canvas-version');
+        const currentVersion = documentRef.getElementById('update-canvas-current-version');
+        const detailsBtn = documentRef.getElementById('btn-update-canvas-details');
+        const downloadBtn = documentRef.getElementById('btn-update-canvas-download');
+        const settingsBtn = documentRef.getElementById('btn-settings');
+
+        if (settingsBtn) settingsBtn.classList.add('has-update');
+        if (!notice) return;
+
+        if (latestVersion) latestVersion.textContent = releaseData.tag_name || '';
+        if (currentVersion) currentVersion.textContent = appVersion;
+        if (detailsBtn) detailsBtn.onclick = () => showUpdateModal(releaseData);
+        if (downloadBtn) {
+            downloadBtn.onclick = () => {
+                windowRef.open(releaseData.html_url || `https://github.com/${githubRepo}/releases/latest`, '_blank');
+            };
+        }
+
+        notice.classList.remove('hidden');
+    }
+
+    function hideUpdateCanvasNotice() {
+        documentRef.getElementById('update-canvas-notice')?.classList.add('hidden');
+        documentRef.getElementById('btn-settings')?.classList.remove('has-update');
+    }
+
+    async function checkUpdate(isManual = false, options = {}) {
+        const { force = false, showModal = isManual, showCanvasNotification = true } = options;
         if (isManual) {
             showToast('正在检查更新...', 'info');
             localStorageRef.setItem('cainflow_update_status', 'checking');
@@ -79,7 +116,7 @@ export function createUpdateManager({
         const now = Date.now();
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
 
-        if (!isManual && lastCheck && (now - parseInt(lastCheck, 10)) < checkInterval) {
+        if (!force && !isManual && lastCheck && (now - parseInt(lastCheck, 10)) < checkInterval) {
             return;
         }
 
@@ -108,14 +145,16 @@ export function createUpdateManager({
 
             const data = await response.json();
             const latestVersion = data.tag_name;
+            localStorageRef.setItem('cainflow_update_version', latestVersion || '');
             const comparison = compareVersions(latestVersion, appVersion);
 
             if (comparison > 0) {
                 localStorageRef.setItem('cainflow_update_status', 'new_version');
-                localStorageRef.setItem('cainflow_update_version', latestVersion);
-                showUpdateModal(data);
+                if (showCanvasNotification) showUpdateCanvasNotice(data);
+                if (showModal) showUpdateModal(data);
             } else {
                 localStorageRef.setItem('cainflow_update_status', 'latest');
+                hideUpdateCanvasNotice();
                 if (isManual) showToast(`当前已是最新版本 (${appVersion})`, 'success');
             }
 

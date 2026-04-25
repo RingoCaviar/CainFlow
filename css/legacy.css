@@ -4272,6 +4272,32 @@ input[type=number] {
     font-size: 12px;
 }
 
+.update-version-summary {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px 10px;
+    align-items: center;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.update-version-summary span {
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.update-version-summary strong {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 @keyframes common-blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
@@ -4341,6 +4367,84 @@ input[type=number] {
     background: rgba(245, 158, 11, 0.1);
     border-radius: 4px;
     margin: 0 4px;
+}
+
+.update-canvas-notice {
+    top: 62px;
+    max-width: min(420px, calc(100% - 96px));
+    align-items: center;
+    border-color: rgba(168, 85, 247, 0.28);
+    background: rgba(23, 20, 36, 0.9);
+}
+
+.update-canvas-notice .notice-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(168, 85, 247, 0.18);
+    color: var(--accent-purple);
+    font-size: 15px;
+    font-weight: 800;
+    flex: 0 0 auto;
+}
+
+.update-canvas-notice-content {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.update-canvas-notice-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.update-canvas-notice-title span,
+.update-canvas-notice-meta span {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.update-canvas-notice-meta {
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.update-canvas-notice-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 4px;
+    flex: 0 0 auto;
+}
+
+.update-canvas-notice-actions button {
+    border: 1px solid rgba(168, 85, 247, 0.26);
+    border-radius: 6px;
+    background: rgba(168, 85, 247, 0.12);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    height: 26px;
+    padding: 0 9px;
+}
+
+.update-canvas-notice-actions button:hover {
+    background: rgba(168, 85, 247, 0.2);
+    border-color: rgba(168, 85, 247, 0.42);
 }
 
 .notice-close {

@@ -704,7 +704,7 @@ function getStartupControllerApi() {
             loadDefaultWorkflow: () => workflowManagerApi.loadWorkflowFromFile('Default'),
             applyDefaultWorkflow: (defaultData) => workflowManagerApi.applyWorkflowData(defaultData),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
-            checkUpdate: () => updateManager.checkUpdate(),
+            checkUpdate: () => updateManager.checkUpdate(false, { force: true, showModal: false, showCanvasNotification: true }),
             checkRefreshNotice: () => updateManager.checkRefreshNotice()
         });
     }

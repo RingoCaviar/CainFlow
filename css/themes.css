@@ -880,6 +880,11 @@ html[data-app-theme="light"] #settings-modal .update-status-error {
     color: #dc2626;
 }
 
+html[data-app-theme="light"] #settings-modal .update-version-summary {
+    background: rgba(255, 255, 255, 0.72);
+    border-color: var(--border-color);
+}
+
 html[data-app-theme="light"] #settings-modal .footer-left span {
     color: #7a889d !important;
     opacity: 1 !important;
@@ -1062,6 +1067,22 @@ html[data-app-theme="light"] .update-migration-notice {
 
 html[data-app-theme="light"] .notice-text strong {
     color: var(--text-primary);
+}
+
+html[data-app-theme="light"] .update-canvas-notice {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(124, 58, 237, 0.22);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+html[data-app-theme="light"] .update-canvas-notice-actions button {
+    background: rgba(124, 58, 237, 0.08);
+    border-color: rgba(124, 58, 237, 0.2);
+}
+
+html[data-app-theme="light"] .update-canvas-notice-actions button:hover {
+    background: rgba(124, 58, 237, 0.14);
+    border-color: rgba(124, 58, 237, 0.32);
 }
 
 html[data-app-theme="light"] .error-modal-images img {

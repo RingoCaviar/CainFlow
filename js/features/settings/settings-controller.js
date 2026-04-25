@@ -509,7 +509,8 @@ export function createSettingsControllerApi({
         const connectionFlowAnimationEnabled = state.connectionFlowAnimationEnabled !== false;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
-        const latestVer = localStorageRef.getItem('cainflow_update_version');
+        const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
+        const serverVersionText = latestVer || (updateStatus === 'checking' ? '检查中...' : '尚未获取');
 
         let statusHtml = '';
         const timeStr = lastCheck ? new Date(parseInt(lastCheck, 10)).toLocaleString() : '从未检查';
@@ -661,6 +662,12 @@ export function createSettingsControllerApi({
                             <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
                                 <span class="version-badge">${appVersion}</span>
                                 <div class="update-status-indicator">${statusHtml}</div>
+                            </div>
+                            <div class="update-version-summary">
+                                <span>本地版本</span>
+                                <strong>${appVersion}</strong>
+                                <span>服务端版本</span>
+                                <strong>${serverVersionText}</strong>
                             </div>
                             <div style="display:flex; flex-direction:column; gap:8px; width:100%;">
                                 <button id="btn-goto-download" class="btn btn-secondary" style="width:100%; ${updateStatus === 'new_version' ? 'animation: glow-pulse 2.5s infinite;' : ''}">前往下载</button>

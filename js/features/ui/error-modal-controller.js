@@ -5,7 +5,12 @@ export function createErrorModalControllerApi({
     documentRef = document
 }) {
     function closeModal(id) {
-        documentRef.getElementById(id)?.classList.remove('active');
+        const modal = documentRef.getElementById(id);
+        if (!modal) return;
+        modal.classList.remove('active');
+        if (modal.classList.contains('modal-overlay')) {
+            modal.classList.add('hidden');
+        }
     }
 
     function showErrorModal(title, msg, detail, modalTitle = '执行错误', log = null) {

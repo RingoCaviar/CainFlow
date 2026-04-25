@@ -37,7 +37,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="index.css?v=2.7.1">
+    <link rel="stylesheet" href="index.css?v=2.7.4">
 </head>
 
 <body>
@@ -147,7 +147,7 @@
                         <path
                             d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
                     </svg>
-                    <span>CainFlow <small class="logo-version">v2.7.3</small></span>
+                    <span>CainFlow <small class="logo-version">v2.7.4</small></span>
                 </div>
             </div>
             <div class="toolbar-center">
@@ -344,6 +344,17 @@
                     <div class="notice-icon">💡</div>
                     <div class="notice-content">本APP更新频繁，建议使用 <span>Ctrl + F5</span> 强制刷新以加载最新版</div>
                     <button class="notice-close">&times;</button>
+                </div>
+                <div id="update-canvas-notice" class="floating-notice update-canvas-notice hidden" role="alert">
+                    <div class="notice-icon">↑</div>
+                    <div class="update-canvas-notice-content">
+                        <div class="update-canvas-notice-title">发现新版本 <span id="update-canvas-version"></span></div>
+                        <div class="update-canvas-notice-meta">当前版本 <span id="update-canvas-current-version"></span></div>
+                    </div>
+                    <div class="update-canvas-notice-actions">
+                        <button id="btn-update-canvas-details" type="button">详情</button>
+                        <button id="btn-update-canvas-download" type="button">下载</button>
+                    </div>
                 </div>
                 <!-- SVG layer for connections -->
                 <svg id="connections-svg">
@@ -870,8 +881,8 @@
             </div>
             <div class="modal-body">
                 <div class="update-info-header">
-                    <span id="update-tag" class="update-tag-badge">v2.7.3</span>
-                    <span class="update-date-text">发布日期: <span id="update-date">2026-04-05</span></span>
+                    <span id="update-tag" class="update-tag-badge">v2.7.4</span>
+                    <span class="update-date-text">发布日期: <span id="update-date">2026-04-25</span></span>
                 </div>
                 <div class="update-changelog-container">
                     <div id="update-changelog-content" class="update-changelog-body">
@@ -911,7 +922,7 @@
     </div>
 
     <div id="selection-box" class="hidden"></div>
-    <script type="module" src="js/main.js?v=2.7.1"></script>
+    <script type="module" src="js/main.js?v=2.7.4"></script>
 </body>
 
 </html>
