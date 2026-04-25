@@ -727,6 +727,7 @@ function getExecutionCoreApi() {
             showResolutionBadge,
             saveImageAsset,
             deleteImageAsset,
+            dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
             autoSaveToDir,

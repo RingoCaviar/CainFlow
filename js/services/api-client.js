@@ -51,7 +51,12 @@ function inferProviderType(url = '', context = {}) {
     if (context?.providerType === 'google' || context?.providerType === 'openai') return context.providerType;
     const normalizedUrl = String(url || '').toLowerCase();
     if (normalizedUrl.includes('generativelanguage.googleapis.com') || normalizedUrl.includes('/v1beta/models/')) return 'google';
-    if (normalizedUrl.includes('/chat/completions') || normalizedUrl.includes('/images/generations') || normalizedUrl.includes('/responses')) return 'openai';
+    if (
+        normalizedUrl.includes('/chat/completions') ||
+        normalizedUrl.includes('/images/generations') ||
+        normalizedUrl.includes('/images/edits') ||
+        normalizedUrl.includes('/responses')
+    ) return 'openai';
     return 'unknown';
 }
 
@@ -93,7 +98,7 @@ function buildUpstreamDisconnectSuggestions(providerType, modelId = '') {
     ];
 
     if (providerType === 'openai' && (modelId.includes('image') || modelId.startsWith('gpt-image'))) {
-        suggestions.splice(1, 0, '确认当前供应商是否真的支持该图片模型的 /images/generations 接口。');
+        suggestions.splice(1, 0, '确认当前供应商是否真的支持该图片模型的 /images/generations 或 /images/edits 接口。');
     }
 
     return suggestions;
@@ -107,7 +112,7 @@ function buildNoImageResponseSuggestions(providerType, modelId = '') {
     ];
 
     if (providerType === 'openai' && (modelId.includes('image') || modelId.startsWith('gpt-image'))) {
-        suggestions.splice(1, 0, '重点检查该供应商是否明确支持当前模型的 /images/generations 接口。');
+        suggestions.splice(1, 0, '重点检查该供应商是否明确支持当前模型的 /images/generations 或 /images/edits 接口。');
     }
 
     return suggestions;

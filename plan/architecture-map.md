@@ -14,7 +14,7 @@
 | 历史记录 | `js/features/history/history-panel.js` | 历史面板 UI 与相关交互 |
 | 日志 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
 | 设置 | `js/features/settings/settings-controller.js`, `js/features/settings/settings-modal.js` | 设置数据加载、API配置与弹窗行为 |
-| 执行 | `js/features/execution/execution-core.js` | 工作流拓扑排序、各类型节点底层通信与执行逻辑 |
+| 执行 | `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` | 工作流拓扑排序、各类型节点底层通信与执行逻辑；供应商协议、OpenAI/Gemini 生图请求路径与分辨率预设 |
 | 工作流 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排 |
 | 媒体控制 | `js/features/media/media-controller.js` | 图片导入、预览、保存、缩放与下游节点同步逻辑 |
 | 图片编辑 | `js/features/media/image-painter.js` | 内置图片编辑器 UI、绘制逻辑与结果回写 |
@@ -62,7 +62,9 @@
 | 需求 | 优先检查这些文件 |
 | --- | --- |
 | 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
-| 修复工作流执行反馈或逻辑 | `js/features/execution/execution-core.js`, `index.js`, `backend/services/proxy_service.py` |
+| 修复工作流执行反馈或逻辑 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js`, `backend/services/proxy_service.py` |
+| 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
+| 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修复设置面板或配置交互 | `js/features/settings/settings-controller.js`, `js/features/settings/settings-modal.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/services/storage-idb.js`, `index.js` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `index.js` |
@@ -92,6 +94,9 @@ rg "handle_get|handle_post|handle_delete|def " backend -g "*.py"
 - `index.js` 是集成层，不是新的逻辑堆放场。
 - `js/main.js` 保持极简。
 - 行为是 feature 级别的，就新增到 `js/features/<feature>/`。
+- 供应商协议、模型能力、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
+- OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
+- OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - 后端按 route 与 service 分责，不要混写。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。
 - 保留当前启动流程中已经对外暴露的兼容钩子。

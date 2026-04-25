@@ -1,7 +1,12 @@
 ﻿/**
  * 根据节点类型与恢复数据生成节点的 HTML 结构。
  */
-import { getModelOptionLabel, getModelsForTask } from '../features/execution/provider-request-utils.js';
+import {
+    getImageResolutionOptionsForModel,
+    getModelOptionLabel,
+    getModelsForTask,
+    normalizeImageResolutionForModel
+} from '../features/execution/provider-request-utils.js';
 
 function renderPorts(id, ports, direction) {
     if (!ports.length) return '';
@@ -61,6 +66,21 @@ function renderApiConfigOptions(models, providers, selectedId, taskType) {
     }).join('');
 }
 
+function getSelectedModelForTask(models, selectedId, taskType) {
+    const filteredModels = getModelsForTask(models, taskType);
+    return filteredModels.find((model) => model.id === selectedId) || filteredModels[0] || null;
+}
+
+function renderImageResolutionOptions(model, providers, selectedResolution) {
+    const normalizedResolution = normalizeImageResolutionForModel(selectedResolution, model, providers);
+    return getImageResolutionOptionsForModel(model, providers)
+        .map((option) => {
+            const selected = option.value === normalizedResolution ? 'selected' : '';
+            return `<option value="${option.value}" ${selected}>${option.label}</option>`;
+        })
+        .join('');
+}
+
 function renderImageImportBody(id, restoreData) {
     const rd = restoreData || {};
     const importMode = rd.importMode === 'url' ? 'url' : 'upload';
@@ -116,6 +136,12 @@ function renderImageImportBody(id, restoreData) {
 function renderImageGenerateBody(id, restoreData, models, providers) {
     const rd = restoreData || {};
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'image');
+    const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'image');
+    const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, rd.resolution);
+    const showCustomResolution = rd.resolution === 'custom';
+    const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
+    const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
+    const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
@@ -140,10 +166,16 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         </div>
         <div class="node-field"><label>分辨率</label>
             <select id="${id}-resolution">
-                <option value="" ${!rd.resolution ? 'selected' : ''}>默认 (1K)</option>
-                <option value="2K" ${rd.resolution === '2K' ? 'selected' : ''}>2K</option>
-                <option value="4K" ${rd.resolution === '4K' ? 'selected' : ''}>4K</option>
+                ${resolutionOptions}
             </select>
+        </div>
+        <div class="node-field ${showCustomResolution ? '' : 'hidden'}" id="${id}-custom-resolution-field">
+            <label>自定义分辨率</label>
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;">
+                <input type="number" id="${id}-custom-resolution-width" value="${customWidth}" placeholder="宽度" min="1" max="99999" />
+                <span style="color:var(--text-dim);font-size:12px;">x</span>
+                <input type="number" id="${id}-custom-resolution-height" value="${customHeight}" placeholder="高度" min="1" max="99999" />
+            </div>
         </div>
         <div class="node-field node-field-row"><label>启用搜索</label>
             <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>

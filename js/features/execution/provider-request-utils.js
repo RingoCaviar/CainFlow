@@ -4,6 +4,19 @@
 const IMAGE_INPUT_KEYS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5'];
 const VALID_PROTOCOLS = new Set(['google', 'openai']);
 
+export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
+    { value: '', label: '默认 (1K)' },
+    { value: '2K', label: '2K' },
+    { value: '4K', label: '4K' }
+];
+
+export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
+    { value: '', label: '自动' },
+    { value: '1024x1024', label: '1024×1024' },
+    { value: '2048x2048', label: '2048×2048' },
+    { value: 'custom', label: '自定义' }
+];
+
 function getProtocolValue(protocol) {
     return VALID_PROTOCOLS.has(protocol) ? protocol : '';
 }
@@ -69,6 +82,7 @@ export function inferProtocolFromEndpoint(endpoint) {
     if (
         normalized.includes('/chat/completions') ||
         normalized.includes('/images/generations') ||
+        normalized.includes('/images/edits') ||
         normalized.includes('/responses')
     ) {
         return 'openai';
@@ -90,6 +104,20 @@ export function normalizeModelProtocol(protocol, model = {}, provider = null) {
 
 export function getEffectiveProtocol(modelCfg = {}, apiCfg = null) {
     return normalizeModelProtocol(modelCfg?.protocol, modelCfg, apiCfg);
+}
+
+export function getImageResolutionOptionsForModel(model = {}, providers = null) {
+    const provider = getProviderFromLookup(model?.providerId, providers);
+    return getEffectiveProtocol(model, provider) === 'openai'
+        ? OPENAI_IMAGE_RESOLUTION_OPTIONS
+        : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
+}
+
+export function normalizeImageResolutionForModel(resolution, model = {}, providers = null) {
+    const options = getImageResolutionOptionsForModel(model, providers);
+    const value = String(resolution || '').trim();
+    if (options.some((option) => option.value === value)) return value;
+    return options[0]?.value || '';
 }
 
 export function normalizeModelConfig(model = {}, index = 0, providers = null) {
@@ -117,7 +145,7 @@ function normalizeGoogleAutoCompleteBase(base) {
 }
 
 function normalizeOpenAiAutoCompleteBase(base) {
-    const cleaned = String(base || '').replace(/\/(?:chat\/completions|images\/generations|responses)\/?$/i, '');
+    const cleaned = String(base || '').replace(/\/(?:chat\/completions|images\/(?:generations|edits)|responses)\/?$/i, '');
     if (!cleaned) return '';
     if (/\/v\d+$/i.test(cleaned)) return cleaned;
     return `${cleaned}/v1`;
@@ -137,7 +165,11 @@ function appendOpenAiPath(base, path) {
     return `${base}${path}`;
 }
 
-export function resolveProviderUrl(apiCfg, modelCfg, taskType) {
+function hasOpenAiReferenceImages(inputs = {}) {
+    return IMAGE_INPUT_KEYS.some((key) => typeof inputs[key] === 'string' && inputs[key].trim());
+}
+
+export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     if (apiCfg?.autoComplete === false) return apiCfg?.endpoint || '';
 
     const protocol = getEffectiveProtocol(modelCfg, apiCfg);
@@ -146,9 +178,12 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType) {
         return `${base}/v1beta/models/${encodeURIComponent(modelCfg.modelId)}:generateContent?key=${apiCfg.apikey}`;
     }
 
-    return taskType === 'image'
-        ? appendOpenAiPath(base, '/images/generations')
-        : appendOpenAiPath(base, '/chat/completions');
+    if (taskType === 'image') {
+        const imagePath = hasOpenAiReferenceImages(options.inputs) ? '/images/edits' : '/images/generations';
+        return appendOpenAiPath(base, imagePath);
+    }
+
+    return appendOpenAiPath(base, '/chat/completions');
 }
 
 export function getInputInlineParts(inputs = {}) {
@@ -206,6 +241,7 @@ export function buildOpenAiChatRequest({ modelCfg, prompt, inputs = {}, syspromp
 
 function normalizeOpenAiImageSize(resolution) {
     const value = String(resolution || '').trim().toLowerCase();
+    if (value === 'auto') return 'auto';
     return /^\d{2,5}x\d{2,5}$/.test(value) ? value : '';
 }
 

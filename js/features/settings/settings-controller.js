@@ -3,9 +3,11 @@
  */
 import {
     getEffectiveProtocol,
+    getImageResolutionOptionsForModel,
     getModelOptionLabel,
     getModelsForTask,
     normalizeAutoCompleteBase,
+    normalizeImageResolutionForModel,
     normalizeModelProtocol,
     normalizeModelTaskType,
     normalizeProviderType,
@@ -227,7 +229,7 @@ export function createSettingsControllerApi({
         if (protocol === 'google') {
             return 'Google / Gemini 格式会走 generateContent，请求体按 Gemini 协议构造。';
         }
-        return 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations。';
+        return 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations；生图节点有参考图输入时自动改走 /images/edits。';
     }
 
     function renderProviders() {
@@ -820,6 +822,21 @@ export function createSettingsControllerApi({
         }
     }
 
+    function syncImageGenerateResolutionOptions(id) {
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
+        if (!modelSelect || !resolutionSelect) return;
+
+        const model = state.models.find((candidate) => candidate.id === modelSelect.value);
+        const normalizedValue = normalizeImageResolutionForModel(resolutionSelect.value, model, state.providers);
+        resolutionSelect.innerHTML = getImageResolutionOptionsForModel(model, state.providers)
+            .map((option) => `<option value="${option.value}">${option.label}</option>`)
+            .join('');
+        resolutionSelect.value = normalizedValue;
+        const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
+        if (customField) customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
+    }
+
     function updateAllNodeModelDropdowns() {
         for (const [id, node] of state.nodes) {
             if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
@@ -836,6 +853,7 @@ export function createSettingsControllerApi({
                     select.innerHTML = models.map((model) => `<option value="${model.id}">${getModelOptionLabel(model, state.providers)}</option>`).join('');
                     if (models.find((model) => model.id === currentVal)) select.value = currentVal;
                     else select.value = models[0].id;
+                    if (node.type === 'ImageGenerate') syncImageGenerateResolutionOptions(id);
                 }
             }
         }

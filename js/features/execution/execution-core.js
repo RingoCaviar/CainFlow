@@ -28,6 +28,7 @@ export function createExecutionCoreApi({
     showResolutionBadge,
     saveImageAsset,
     deleteImageAsset,
+    dataURLtoBlob,
     blobToDataUrl,
     resizeImageData,
     autoSaveToDir,
@@ -452,6 +453,56 @@ export function createExecutionCoreApi({
         return Object.values(inputs).some((value) => isRemoteImageUrl(value));
     }
 
+    function getReferenceImageInputs(inputs = {}) {
+        return ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']
+            .map((key) => ({ key, value: inputs[key] }))
+            .filter((entry) => typeof entry.value === 'string' && entry.value.trim());
+    }
+
+    function getImageFileExtension(mimeType = '') {
+        const mime = String(mimeType || '').toLowerCase();
+        if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+        if (mime.includes('webp')) return 'webp';
+        if (mime.includes('gif')) return 'gif';
+        return 'png';
+    }
+
+    async function getReferenceImageBlob(value, signal) {
+        if (isInlineImageData(value)) return dataURLtoBlob(value);
+        if (isRemoteImageUrl(value)) return downloadGeneratedImage(value, signal);
+        throw new Error('OpenAI 兼容图片编辑只支持 data URL 或 HTTP(S) 参考图');
+    }
+
+    async function buildOpenAiImageEditFormData(requestBody, inputs, signal) {
+        const formData = new FormData();
+        const referenceImages = getReferenceImageInputs(inputs);
+
+        formData.append('model', requestBody.model);
+        formData.append('prompt', requestBody.prompt);
+        if (requestBody.n !== undefined) formData.append('n', String(requestBody.n));
+        if (requestBody.size) formData.append('size', requestBody.size);
+
+        for (let index = 0; index < referenceImages.length; index += 1) {
+            const blob = await getReferenceImageBlob(referenceImages[index].value, signal);
+            const extension = getImageFileExtension(blob?.type);
+            formData.append('image', blob, `reference_${index + 1}.${extension}`);
+        }
+
+        return formData;
+    }
+
+    function getOpenAiImageRequestLogBody(requestBody, inputs) {
+        const referenceImages = getReferenceImageInputs(inputs);
+        if (referenceImages.length === 0) return requestBody;
+        return {
+            model: requestBody.model,
+            prompt: requestBody.prompt,
+            n: requestBody.n,
+            ...(requestBody.size ? { size: requestBody.size } : {}),
+            image: `[${referenceImages.length} reference image file(s)]`
+        };
+    }
+
     const nodeHandlers = {
         ImageImport: async (node) => {
             if (!node.imageData) throw new Error('未导入图片');
@@ -512,7 +563,11 @@ export function createExecutionCoreApi({
                 if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
 
                 const aspect = documentRef.getElementById(`${id}-aspect`).value;
-                const resolution = documentRef.getElementById(`${id}-resolution`).value;
+                const selectedResolution = documentRef.getElementById(`${id}-resolution`).value;
+                const customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';
+                const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
+                const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
+                const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
                 const prompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
 
@@ -524,15 +579,23 @@ export function createExecutionCoreApi({
                 const requestBody = isGoogle
                     ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                     : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
-                const url = resolveProviderUrl(apiCfg, modelCfg, 'image');
+                const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
                 showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
 
+                const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
+                const requestPayload = isOpenAiImageEdit
+                    ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
+                    : JSON.stringify(requestBody);
+                const loggedRequestBody = isOpenAiImageEdit
+                    ? getOpenAiImageRequestLogBody(requestBody, inputs)
+                    : requestBody;
                 const headers = isGoogle
                     ? getProxyHeaders(url, 'POST')
                     : getProxyHeaders(url, 'POST', {
-                        Authorization: `Bearer ${apiCfg.apikey}`
+                        Authorization: `Bearer ${apiCfg.apikey}`,
+                        'Content-Type': isOpenAiImageEdit ? null : 'application/json'
                     });
-                logRequestToPanel(`请求发送: ${modelCfg.name}`, url, requestBody, {
+                logRequestToPanel(`请求发送: ${modelCfg.name}`, url, loggedRequestBody, {
                     nodeId: id,
                     nodeType: 'TextToImage',
                     providerType: protocol
@@ -541,7 +604,7 @@ export function createExecutionCoreApi({
                 const response = await fetchRef('/proxy', {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify(requestBody),
+                    body: requestPayload,
                     signal
                 });
 

@@ -47,6 +47,11 @@ export function createNodeSerializer({ state, documentRef, getSafeProviders }) {
                 if (node.type === 'ImageGenerate') {
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
                     serialized.resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
+                    serialized.customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';
+                    serialized.customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
+                    serialized.customResolution = serialized.customWidth && serialized.customHeight
+                        ? `${serialized.customWidth}x${serialized.customHeight}`
+                        : '';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                 } else {
                     serialized.sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';

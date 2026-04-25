@@ -1,6 +1,11 @@
 /**
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
  */
+import {
+    getImageResolutionOptionsForModel,
+    normalizeImageResolutionForModel
+} from '../features/execution/provider-request-utils.js';
+
 export function createNodeDomBindingsApi({
     state,
     canvasContainer,
@@ -63,6 +68,29 @@ export function createNodeDomBindingsApi({
         });
 
         setTimeout(scheduleFit, 0);
+    }
+
+    function syncImageGenerateResolutionOptions(id) {
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
+        if (!modelSelect || !resolutionSelect) return;
+
+        const model = state.models.find((candidate) => candidate.id === modelSelect.value);
+        const previousValue = resolutionSelect.value;
+        const normalizedValue = normalizeImageResolutionForModel(previousValue, model, state.providers);
+        const options = getImageResolutionOptionsForModel(model, state.providers);
+        resolutionSelect.innerHTML = options
+            .map((option) => `<option value="${option.value}">${option.label}</option>`)
+            .join('');
+        resolutionSelect.value = normalizedValue;
+        updateImageGenerateCustomResolutionVisibility(id);
+    }
+
+    function updateImageGenerateCustomResolutionVisibility(id) {
+        const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
+        const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
+        if (!resolutionSelect || !customField) return;
+        customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
     }
 
     function getPx(style, name) {
@@ -381,6 +409,19 @@ export function createNodeDomBindingsApi({
         });
 
         if (type === 'ImageImport') setupImageImport(id, el);
+        else if (type === 'ImageGenerate') {
+            syncImageGenerateResolutionOptions(id);
+            const modelSelect = el.querySelector(`#${id}-apiconfig`);
+            modelSelect?.addEventListener('change', () => {
+                syncImageGenerateResolutionOptions(id);
+                fitNodeToContent(id, { allowShrink: true });
+            });
+            const resolutionSelect = el.querySelector(`#${id}-resolution`);
+            resolutionSelect?.addEventListener('change', () => {
+                updateImageGenerateCustomResolutionVisibility(id);
+                fitNodeToContent(id, { allowShrink: true });
+            });
+        }
         else if (type === 'ImageResize') setupImageResize(id, el);
         else if (type === 'ImageSave') setupImageSave(id, el);
         else if (type === 'ImagePreview') setupImagePreview(id, el);
