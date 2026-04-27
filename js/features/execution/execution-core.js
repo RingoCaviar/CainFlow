@@ -555,6 +555,7 @@ export function createExecutionCoreApi({
                 errorEl.style.display = 'none';
                 requestNodeFit(id);
             }
+            let targetGenerationCount = 1;
 
             try {
                 const configId = documentRef.getElementById(`${id}-apiconfig`).value;
@@ -581,85 +582,109 @@ export function createExecutionCoreApi({
                     const validation = validateOpenAiImageSize(customWidth, customHeight);
                     if (!validation.valid) throw new Error(`自定义分辨率不符合 OpenAI 规范：${validation.errors.join(' ')}`);
                 }
-                const requestBody = isGoogle
-                    ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                    : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
                 const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
-                showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
-
                 const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
-                const requestPayload = isOpenAiImageEdit
-                    ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
-                    : JSON.stringify(requestBody);
-                const loggedRequestBody = isOpenAiImageEdit
-                    ? getOpenAiImageRequestLogBody(requestBody, inputs)
-                    : requestBody;
                 const headers = isGoogle
                     ? getProxyHeaders(url, 'POST')
                     : getProxyHeaders(url, 'POST', {
                         Authorization: `Bearer ${apiCfg.apikey}`,
                         'Content-Type': isOpenAiImageEdit ? null : 'application/json'
                     });
-                logRequestToPanel(`请求发送: ${modelCfg.name}`, url, loggedRequestBody, {
-                    nodeId: id,
-                    nodeType: 'TextToImage',
-                    providerType: protocol
-                });
+                const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+                targetGenerationCount = generationCount;
+                node.generationCompletedCount = Math.min(
+                    generationCount,
+                    Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0)
+                );
 
-                const response = await fetchRef('/proxy', {
-                    method: 'POST',
-                    headers,
-                    body: requestPayload,
-                    signal
-                });
+                while (node.generationCompletedCount < generationCount) {
+                    const nextGenerationIndex = node.generationCompletedCount + 1;
+                    const requestBody = isGoogle
+                        ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
+                    showToast(
+                        generationCount > 1
+                            ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
+                            : `正在调用 ${modelCfg.name}...`,
+                        'info',
+                        5000
+                    );
 
-                if (!response.ok) {
-                    const t = await response.text();
-                    const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                    const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
-                    err.serverResponse = {
+                    const requestPayload = isOpenAiImageEdit
+                        ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
+                        : JSON.stringify(requestBody);
+                    const loggedRequestBody = isOpenAiImageEdit
+                        ? getOpenAiImageRequestLogBody(requestBody, inputs)
+                        : requestBody;
+                    logRequestToPanel(
+                        generationCount > 1
+                            ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                            : `请求发送: ${modelCfg.name}`,
                         url,
-                        requestBody,
-                        status: response.status,
-                        body: t
-                    };
-                    applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                    throw err;
+                        loggedRequestBody,
+                        {
+                            nodeId: id,
+                            nodeType: 'TextToImage',
+                            providerType: protocol
+                        }
+                    );
+
+                    const response = await fetchRef('/proxy', {
+                        method: 'POST',
+                        headers,
+                        body: requestPayload,
+                        signal
+                    });
+
+                    if (!response.ok) {
+                        const t = await response.text();
+                        const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                        const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                        err.serverResponse = {
+                            url,
+                            requestBody,
+                            status: response.status,
+                            body: t
+                        };
+                        applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                        throw err;
+                    }
+
+                    const result = await parseJsonResponseOrThrow(response, {
+                        apiCfg,
+                        modelCfg,
+                        url,
+                        requestBody
+                    });
+                    if (!result) throw new Error('API 返回了空的 JSON 响应');
+
+                    let imageData = '';
+                    const imageResult = extractImageResult(apiCfg, result, modelCfg);
+                    if (imageResult?.dataUrl) {
+                        imageData = imageResult.dataUrl;
+                    } else if (imageResult?.url) {
+                        const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
+                        imageData = await blobToDataUrl(imgBlob);
+                    }
+
+                    if (!imageData) {
+                        const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
+                        err.serverResponse = JSON.stringify(result, null, 2);
+                        throw err;
+                    }
+
+                    node.data.image = imageData;
+                    node.generationCompletedCount = nextGenerationIndex;
+                    await refreshDependentImageResizePreviews(id);
+
+                    await saveHistoryEntry({
+                        nodeId: id,
+                        image: imageData,
+                        prompt,
+                        model: modelCfg.name
+                    });
+                    if (getImageHistorySidebarActive()) renderHistoryList();
                 }
-
-                const result = await parseJsonResponseOrThrow(response, {
-                    apiCfg,
-                    modelCfg,
-                    url,
-                    requestBody
-                });
-                if (!result) throw new Error('API 返回了空的 JSON 响应');
-
-                let imageData = '';
-                const imageResult = extractImageResult(apiCfg, result, modelCfg);
-                if (imageResult?.dataUrl) {
-                    imageData = imageResult.dataUrl;
-                } else if (imageResult?.url) {
-                    const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
-                    imageData = await blobToDataUrl(imgBlob);
-                }
-
-                if (!imageData) {
-                    const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
-                    err.serverResponse = JSON.stringify(result, null, 2);
-                    throw err;
-                }
-
-                node.data.image = imageData;
-                await refreshDependentImageResizePreviews(id);
-
-                await saveHistoryEntry({
-                    nodeId: id,
-                    image: imageData,
-                    prompt,
-                    model: modelCfg.name
-                });
-                if (getImageHistorySidebarActive()) renderHistoryList();
             } catch (err) {
                 if (isAbortLikeError(err, signal)) {
                     if (errorEl) {
@@ -669,7 +694,11 @@ export function createExecutionCoreApi({
                     throw err;
                 }
                 if (errorEl) {
-                    errorEl.innerHTML = `<strong>生成失败</strong>${err.message}`;
+                    const completedCount = Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0);
+                    const progressText = targetGenerationCount > 1
+                        ? `<div>已成功 ${completedCount}/${targetGenerationCount} 次，本次失败不计入次数。</div>`
+                        : '';
+                    errorEl.innerHTML = `<strong>生成失败</strong>${progressText}${err.message}`;
                     errorEl.style.display = 'block';
                     requestNodeFit(id);
                 }

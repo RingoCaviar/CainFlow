@@ -136,6 +136,16 @@ export function createNodeDomBindingsApi({
         return isValid;
     }
 
+    function normalizeImageGenerateCountValue(value) {
+        return Math.max(1, parseInt(value || '1', 10) || 1);
+    }
+
+    function syncImageGenerateCount(id) {
+        const input = documentRef.getElementById(`${id}-generation-count`);
+        if (!input) return;
+        input.value = String(normalizeImageGenerateCountValue(input.value));
+    }
+
     function getPx(style, name) {
         const value = parseFloat(style.getPropertyValue(name));
         return Number.isFinite(value) ? value : 0;
@@ -209,7 +219,7 @@ export function createNodeDomBindingsApi({
                 fieldMinHeight += label.offsetHeight;
             });
 
-            field.querySelectorAll('input, select, textarea, .toggle-switch, .chat-response-wrapper, .text-display-box').forEach((control) => {
+            field.querySelectorAll('input, select, textarea, .toggle-switch, .generation-count-control, .chat-response-wrapper, .text-display-box').forEach((control) => {
                 if (control.closest('.node-field') !== field) return;
                 if (control.matches('input, select, textarea')) {
                     fieldMinWidth = Math.max(fieldMinWidth, getControlContentWidth(control));
@@ -243,7 +253,7 @@ export function createNodeDomBindingsApi({
                 if (child.classList.contains('node-field')) {
                     const childStyle = getComputedStyle(child);
                     const label = child.querySelector(':scope > label');
-                    const control = child.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .chat-response-wrapper, :scope > .text-display-box');
+                    const control = child.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .generation-count-control, :scope > .chat-response-wrapper, :scope > .text-display-box');
                     const fieldGap = getPx(childStyle, 'row-gap') || getPx(childStyle, 'gap');
                     const controlStyle = control ? getComputedStyle(control) : null;
                     const controlMinHeight = controlStyle ? getPx(controlStyle, 'min-height') : 0;
@@ -473,6 +483,27 @@ export function createNodeDomBindingsApi({
             customWidthInput?.addEventListener('input', syncCustomResolutionValidation);
             customHeightInput?.addEventListener('input', syncCustomResolutionValidation);
             updateImageGenerateCustomResolutionValidation(id);
+
+            const generationCountInput = el.querySelector(`#${id}-generation-count`);
+            const syncGenerationCount = () => syncImageGenerateCount(id);
+            generationCountInput?.addEventListener('input', () => {
+                if (generationCountInput.value !== '' && normalizeImageGenerateCountValue(generationCountInput.value) !== Number(generationCountInput.value)) {
+                    syncImageGenerateCount(id);
+                }
+            });
+            generationCountInput?.addEventListener('change', syncGenerationCount);
+            generationCountInput?.addEventListener('blur', syncGenerationCount);
+            el.querySelectorAll('.generation-count-btn').forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (!generationCountInput) return;
+                    const delta = parseInt(button.dataset.delta || '0', 10) || 0;
+                    const nextValue = normalizeImageGenerateCountValue(generationCountInput.value) + delta;
+                    generationCountInput.value = String(Math.max(1, nextValue));
+                    generationCountInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            });
+            syncImageGenerateCount(id);
         }
         else if (type === 'ImageResize') setupImageResize(id, el);
         else if (type === 'ImageSave') setupImageSave(id, el);

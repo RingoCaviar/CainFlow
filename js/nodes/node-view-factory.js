@@ -146,9 +146,18 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
     const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
     const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
+    const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
+        <div class="node-field">
+            <label>生成次数</label>
+            <div class="generation-count-control">
+                <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
+                <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
+                <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
+            </div>
+        </div>
         <div class="node-field ${isOpenAiModel ? 'hidden' : ''}" id="${id}-aspect-field"><label>宽高比</label>
             <select id="${id}-aspect">
                 <option value="" ${!rd.aspect ? 'selected' : ''}>自动</option>

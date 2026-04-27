@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.7.3
+> 当前版本：v2.7.4
 
 ## 前端结构
 
@@ -41,9 +41,9 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | **执行引擎** | | |
-| 执行核心 | `js/features/execution/execution-core.js` | 节点图遍历、执行调度、结果分发 |
+| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、结果分发、ImageGenerate 多次生成成功计数 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
-| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排 |
+| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置 |
 | **帮助** | | |
 | 帮助面板 | `js/features/help/help-panel.js` | 帮助文档面板 UI 与交互 |
 | **历史记录** | | |
@@ -62,7 +62,7 @@
 | 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、持久化、代理检测、版本更新、画布连线设置 |
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
-| 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作 |
+| 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
 | 右键菜单 | `js/features/ui/context-menu-controller.js` | 右键菜单渲染与事件分发 |
 | 错误弹窗 | `js/features/ui/error-modal-controller.js` | 错误详情弹窗 UI |
 | 全局交互 | `js/features/ui/global-interactions.js` | 键盘快捷键、全局点击等顶层事件 |
@@ -83,11 +83,11 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
-| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听 |
+| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化 |
 | 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新 |
-| 序列化 | `js/nodes/node-serializer.js` | 工作流导入导出结构与节点序列化 |
-| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成 |
-| 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义 |
+| 序列化 | `js/nodes/node-serializer.js` | 工作流导入导出结构与节点序列化，含 ImageGenerate `generationCount` |
+| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 ImageGenerate 分辨率与生成次数控件 |
+| 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义、端口与默认尺寸 |
 | 图片导入节点 | `js/nodes/types/image-import.js` | ImageImport 节点定义 |
 | 图片预览节点 | `js/nodes/types/image-preview.js` | ImagePreview 节点定义 |
 | 图片缩放节点 | `js/nodes/types/image-resize.js` | ImageResize 节点定义 |
@@ -140,6 +140,7 @@
 | 修复代理请求拼装或 API 调用 | `js/services/api-client.js`, `backend/handler.py`, `backend/services/proxy_service.py` |
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
+| 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/services/storage-idb.js` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `backend/services/log_service.py` |
@@ -197,6 +198,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 供应商协议、模型能力、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
+- ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
 - 媒体处理放 `js/features/media/`，不要堆回节点类型文件。
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - 后端按 route 与 service 分责，不要混写。

@@ -63,6 +63,9 @@ export function createWorkflowRunnerApi({
             node.el.classList.remove('completed', 'error', 'running');
             node.data = {};
             node.isSucceeded = false;
+            if (node.type === 'ImageGenerate') {
+                node.generationCompletedCount = 0;
+            }
         }
     }
 

@@ -1042,6 +1042,36 @@ body {
     box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
 }
 
+.generation-count-control {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) 32px;
+    align-items: center;
+    gap: 6px;
+}
+
+.generation-count-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.generation-count-btn:hover {
+    border-color: var(--accent-purple);
+    background: rgba(168, 85, 247, 0.12);
+    color: var(--accent-purple);
+}
+
+.generation-count-input {
+    text-align: center;
+}
+
 .custom-resolution-hint {
     display: none;
     margin-top: 6px;

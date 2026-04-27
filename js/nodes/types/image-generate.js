@@ -16,7 +16,7 @@ export const imageGenerateNode = {
     ],
     outputs: [{ name: 'image', type: 'image', label: '图片输出' }],
     defaultWidth: 320,
-    defaultHeight: 560
+    defaultHeight: 600
 };
 /**
  * 定义图片生成节点的元数据、端口和默认尺寸。
