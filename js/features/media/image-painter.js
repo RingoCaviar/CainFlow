@@ -47,6 +47,11 @@ export function createImagePainterApi({
                 <div class="painter-tool-btn" data-tool="circle" title="绘制圆形 (C)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
                 </div>
+                <div class="painter-size-control" title="画笔大小">
+                    <div class="painter-size-preview" id="painter-size-preview"></div>
+                    <input type="range" id="painter-size-slider" class="painter-size-slider" min="1" max="32" value="4" aria-label="画笔大小">
+                    <div class="painter-size-value" id="painter-size-value">4</div>
+                </div>
                 <div class="painter-colors">
                     <div class="painter-color-swatch active" data-color="#22d3ee" style="background: #22d3ee;"></div>
                     <div class="painter-color-swatch" data-color="#ef4444" style="background: #ef4444;"></div>
@@ -97,11 +102,24 @@ export function createImagePainterApi({
         let offsetY = 0;
         let currentTool = 'pen';
         let currentColor = '#22d3ee';
+        let currentStrokeWidth = 4;
         let isDrawing = false;
         let isPanning = false;
         let startPan = { x: 0, y: 0 };
         let shapes = [];
         let currentShape = null;
+        const sizeSlider = overlay.querySelector('#painter-size-slider');
+        const sizeValue = overlay.querySelector('#painter-size-value');
+        const sizePreview = overlay.querySelector('#painter-size-preview');
+
+        function updateStrokeSize(value) {
+            currentStrokeWidth = Math.max(1, Math.min(32, parseInt(value, 10) || 4));
+            sizeSlider.value = String(currentStrokeWidth);
+            sizeValue.textContent = String(currentStrokeWidth);
+            const previewSize = Math.max(4, Math.min(24, currentStrokeWidth));
+            sizePreview.style.width = `${previewSize}px`;
+            sizePreview.style.height = `${previewSize}px`;
+        }
 
         function resetView() {
             const rect = container.getBoundingClientRect();
@@ -151,7 +169,7 @@ export function createImagePainterApi({
         function drawShape(shape) {
             ctx.beginPath();
             ctx.strokeStyle = shape.color || currentColor;
-            ctx.lineWidth = (shape.strokeWidth || 4) / scale;
+            ctx.lineWidth = shape.strokeWidth || 4;
 
             if (shape.type === 'pen') {
                 if (shape.points.length < 2) return;
@@ -163,7 +181,7 @@ export function createImagePainterApi({
                 ctx.lineTo(shape.end.x, shape.end.y);
                 ctx.stroke();
             } else if (shape.type === 'arrow') {
-                const h = 20 / scale;
+                const h = 20;
                 const a = Math.atan2(shape.end.y - shape.start.y, shape.end.x - shape.start.x);
                 ctx.moveTo(shape.start.x, shape.start.y);
                 ctx.lineTo(shape.end.x, shape.end.y);
@@ -311,8 +329,8 @@ export function createImagePainterApi({
                 isDrawing = true;
                 const p = getPos(e);
                 currentShape = currentTool === 'pen'
-                    ? { type: 'pen', points: [p], color: currentColor, strokeWidth: 4 }
-                    : { type: currentTool, start: p, end: p, color: currentColor, strokeWidth: 4 };
+                    ? { type: 'pen', points: [p], color: currentColor, strokeWidth: currentStrokeWidth }
+                    : { type: currentTool, start: p, end: p, color: currentColor, strokeWidth: currentStrokeWidth };
             }
         };
 
@@ -366,6 +384,11 @@ export function createImagePainterApi({
             });
         });
 
+        sizeSlider.addEventListener('input', (e) => {
+            updateStrokeSize(e.target.value);
+        });
+        updateStrokeSize(currentStrokeWidth);
+
         function undo() {
             if (shapes.length > 0) {
                 shapes.pop();
@@ -386,15 +409,7 @@ export function createImagePainterApi({
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
-            const tempScale = scale;
-            scale = 1;
-            shapes.forEach((shape) => {
-                const originalStrokeWidth = shape.strokeWidth;
-                shape.strokeWidth = 4;
-                drawShape(shape);
-                shape.strokeWidth = originalStrokeWidth;
-            });
-            scale = tempScale;
+            shapes.forEach((shape) => drawShape(shape));
 
             const data = canvas.toDataURL('image/png');
             const node = state.nodes.get(nodeId);
