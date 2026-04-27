@@ -56,6 +56,7 @@ import { createContextMenuControllerApi } from './js/features/ui/context-menu-co
 import { createErrorModalControllerApi } from './js/features/ui/error-modal-controller.js';
 import { createRuntimeControllerApi } from './js/features/ui/runtime-controller.js';
 import { createThemeControllerApi } from './js/features/ui/theme-controller.js';
+import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } from './js/features/ui/animation-controller.js';
 import { createToolbarControllerApi } from './js/features/ui/toolbar-controller.js';
 import { createToastControllerApi } from './js/features/ui/toast-controller.js';
 import { createLogPanelApi } from './js/features/logs/log-panel.js';
@@ -174,6 +175,10 @@ function applyHistoryGridCols(cols) {
     getHistoryPanelApi().applyHistoryGridCols(cols);
 }
 
+function applyGlobalAnimationSetting() {
+    return applyGlobalAnimationSettingService({ state, documentRef: document });
+}
+
 async function renderHistoryList() {
     await getHistoryPanelApi().renderHistoryList();
 }
@@ -186,6 +191,7 @@ const panelManager = createPanelManager(document);
 
 // ===== 应用状态 =====
 const state = createInitialState();
+applyGlobalAnimationSettingService({ state, documentRef: document });
 
 // Save 节点使用的目录句柄（不可序列化）
 const dirHandles = new Map();
@@ -311,6 +317,7 @@ const {
     showResolutionBadge,
     setupImageImport,
     loadImageFile,
+    loadImageData,
     setupImageResize,
     getResizeSourceImage,
     refreshImageResizePreview,
@@ -476,7 +483,8 @@ function getProjectIoApi() {
             onConnectionsChanged: () => refreshAllImageResizePreviews(),
             viewportApi,
             showToast,
-            applyTheme: (mode) => getThemeControllerApi().applyTheme(mode)
+            applyTheme: (mode) => getThemeControllerApi().applyTheme(mode),
+            applyGlobalAnimationSetting
         });
     }
     return projectIoApi;
@@ -500,6 +508,7 @@ function getUiControllerApi() {
             settingsControllerApi,
             applyHistoryGridCols,
             applyTheme: (mode) => getThemeControllerApi().applyTheme(mode),
+            applyGlobalAnimationSetting,
             updateAllConnections,
             saveState,
             showToast,
@@ -534,6 +543,7 @@ function getGlobalInteractionsApi() {
             canvasContainer,
             viewportApi,
             loadImageFile,
+            loadImageData,
             addNode,
             pasteNode,
             toggleNodesEnabled,
@@ -835,6 +845,7 @@ settingsControllerApi = createSettingsControllerApi({
     addLog,
     checkUpdate: (isManual) => updateManager.checkUpdate(isManual),
     updateAllConnections,
+    applyGlobalAnimationSetting,
     fitNodeToContent
 });
 historyPreviewApi = createHistoryPreviewApi({

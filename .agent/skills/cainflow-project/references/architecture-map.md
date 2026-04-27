@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.7.4
+> 当前版本：v2.7.5.2
 
 ## 前端结构
 
@@ -31,7 +31,7 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 画布交互总线 | `js/canvas/canvas-interactions.js` | 鼠标事件总线、拖拽与交互调度 |
-| 连线绘制 | `js/canvas/connections.js` | 节点连线绘制、连线可见性裁剪、选中态流动箭头动画 |
+| 连线绘制 | `js/canvas/connections.js` | 节点连线绘制、连线可见性裁剪、选中态流动箭头动画；流动箭头受全局动画开关控制 |
 | 几何计算 | `js/canvas/geometry.js` | 贝塞尔曲线、直角圆角连线、剪线采样、坐标相关几何工具 |
 | 框选 | `js/canvas/selection.js` | 矩形框选逻辑与选中状态 |
 | 视口 | `js/canvas/viewport.js` | 缩放、平移、视口坐标变换 |
@@ -47,13 +47,13 @@
 | **帮助** | | |
 | 帮助面板 | `js/features/help/help-panel.js` | 帮助文档面板 UI 与交互 |
 | **历史记录** | | |
-| 历史面板 | `js/features/history/history-panel.js` | 历史面板 UI 与列表交互 |
+| 历史面板 | `js/features/history/history-panel.js` | 历史面板 UI 与列表交互；历史图片拖拽应携带 `item.image` 原图而不是缩略图 |
 | 历史预览 | `js/features/history/history-preview.js` | 历史记录条目预览渲染 |
 | **日志** | | |
 | 日志面板 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
 | **媒体** | | |
 | 图片绘制 | `js/features/media/image-painter.js` | Canvas 图片绘制与合成 |
-| 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片预览/保存/缩放/对比节点的运行态同步与交互 |
+| 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片预览/保存/缩放/对比节点的运行态同步与交互；提供文件导入与 data URL 直接写入入口 |
 | 媒体工具 | `js/features/media/media-utils.js` | 图片格式转换、Blob 处理等工具函数 |
 | **持久化** | | |
 | 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出 |
@@ -65,10 +65,11 @@
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
 | 右键菜单 | `js/features/ui/context-menu-controller.js` | 右键菜单渲染与事件分发 |
 | 错误弹窗 | `js/features/ui/error-modal-controller.js` | 错误详情弹窗 UI |
-| 全局交互 | `js/features/ui/global-interactions.js` | 键盘快捷键、全局点击等顶层事件 |
+| 全局交互 | `js/features/ui/global-interactions.js` | 键盘快捷键、全局点击、粘贴、全局图片拖拽/drop 等顶层事件 |
 | 面板管理 | `js/features/ui/panel-manager.js` | 侧边栏面板展开收起管理 |
 | 运行状态 | `js/features/ui/runtime-controller.js` | 运行按钮状态、执行进度反馈 |
 | 主题切换 | `js/features/ui/theme-controller.js` | 明暗主题切换与持久化 |
+| 全局动画 | `js/features/ui/animation-controller.js` | 将 `globalAnimationEnabled` 应用到根节点 CSS 类，并同步旧的连线动画兼容字段 |
 | Toast 通知 | `js/features/ui/toast-controller.js` | Toast 消息弹出与自动消失 |
 | 工具栏 | `js/features/ui/toolbar-controller.js` | 顶部工具栏按钮绑定与状态同步 |
 | UI 总控 | `js/features/ui/ui-controller.js` | UI 层模块统一初始化与依赖注入 |
@@ -144,6 +145,7 @@
 | 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/services/storage-idb.js` |
+| 修复历史记录图片拖拽到画布/节点 | `js/features/history/history-panel.js`, `js/features/ui/global-interactions.js`, `js/features/media/media-controller.js`, `js/core/state.js` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `backend/services/log_service.py` |
 | 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/components/nodes.css` |
 | 新增或修改图片对比/预览/缩放/保存类节点 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `css/components/nodes.css` |
@@ -151,7 +153,8 @@
 | 修复画布拖拽、框选、缩放、几何绘制 | `js/canvas/canvas-interactions.js`, `js/canvas/selection.js`, `js/canvas/viewport.js`, `js/canvas/geometry.js` |
 | 修复连线绘制 | `js/canvas/connections.js` |
 | 修改共享常量或默认值 | `js/core/constants.js`, `js/core/state.js` |
-| 修改连线类型、流动箭头动画开关 | `js/features/settings/settings-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `js/canvas/geometry.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js` |
+| 修改连线类型 | `js/features/settings/settings-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `js/canvas/geometry.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js` |
+| 修改全局动画开关或禁用动画性能模式 | `js/features/settings/settings-controller.js`, `js/features/ui/animation-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `css/legacy.css`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js`, `index.html` |
 | 修改 DOM 获取或顶层元素引用 | `js/core/elements.js`, `index.html` |
 | 添加通用工具函数 | `js/core/common-utils.js` |
 | 媒体/图片处理 | `js/features/media/image-painter.js`, `js/features/media/media-controller.js`, `js/features/media/media-utils.js` |
@@ -164,6 +167,7 @@
 | 剪贴板操作 | `js/features/ui/clipboard-controller.js` |
 | 右键菜单 | `js/features/ui/context-menu-controller.js` |
 | 版本更新检查 | `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js` |
+| 升级应用版本号 | `package.json`, `js/core/constants.js`, `index.html`, `css/base/variables.css`, `backend/main.py`, `backend/services/proxy_service.py`, `README.md` |
 | 应用启动流程 | `js/features/app/startup-controller.js`, `js/main.js`, `index.js` |
 | 修复静态资源加载或路由兜底问题 | `index.html`, `backend/handler.py`, `backend/state.py` |
 | 修改服务启动或本地运行行为 | `server.py`, `backend/main.py`, `backend/config.py` |
@@ -204,7 +208,10 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
 - 媒体处理放 `js/features/media/`，不要堆回节点类型文件。
 - 图片类节点的定义、模板、DOM 绑定、媒体同步和执行输出要分层处理：`js/nodes/types/*.js` 只放元数据和端口；`js/nodes/node-view-factory.js` 只生成结构；`js/nodes/node-dom-bindings.js` 只接入节点事件；`js/features/media/media-controller.js` 负责图片显示状态、交互与依赖刷新；`js/features/execution/execution-core.js` 负责运行时输入校验、输出写入和向下游分发。
+- 历史记录面板显示可以使用 `item.thumb` 缩略图，但拖拽导入必须使用 `item.image` 原图。拖拽源在 `js/features/history/history-panel.js`，画布 drop 与现有 ImageImport 节点更新在 `js/features/ui/global-interactions.js`，直接写入 data URL 的能力放 `js/features/media/media-controller.js`。
+- 全局动画开关以 `globalAnimationEnabled` 为准，旧的 `connectionFlowAnimationEnabled` 只做兼容读写。应用根节点类名与兼容字段同步放 `js/features/ui/animation-controller.js`；具体动画执行点仍在各自模块中读取全局状态或依赖 CSS 禁用规则。
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - 后端按 route 与 service 分责，不要混写。
+- 版本号升级必须同时覆盖前端常量、页面展示、静态资源缓存参数、CSS 版本变量、后端启动提示、代理 User-Agent、包元数据和 README，避免界面、请求标识与发布文档不一致。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。
 - 保留当前启动流程中已经对外暴露的兼容钩子。

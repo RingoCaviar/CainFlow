@@ -713,6 +713,19 @@ export function createMediaControllerApi({
         reader.readAsDataURL(file);
     }
 
+    async function loadImageData(nodeId, imageData) {
+        const node = getNodeById(nodeId);
+        if (!node || node.type !== 'ImageImport' || !isInlineImageData(imageData)) return;
+
+        node.importMode = 'upload';
+        node.imageUrl = '';
+        node.imageData = imageData;
+        node.data.image = imageData;
+        await saveImageAsset(nodeId, imageData);
+        await syncImageImportSourceState(nodeId, { refreshDependents: true });
+        scheduleSave();
+    }
+
     async function loadImageUrl(nodeId, rawUrl, options = {}) {
         const node = getNodeById(nodeId);
         if (!node) return;
@@ -1105,6 +1118,7 @@ export function createMediaControllerApi({
         showResolutionBadge,
         setupImageImport,
         loadImageFile,
+        loadImageData,
         setupImageResize,
         getResizeSourceImage,
         refreshImageResizePreview,

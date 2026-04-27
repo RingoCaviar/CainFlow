@@ -1,5 +1,5 @@
 /**
- * 处理跨组件的全局交互事件，例如拖拽导图、全局粘贴与 Escape 快捷操作。
+ * Handles global interactions such as image drag/drop, paste, and Escape.
  */
 export function createGlobalInteractionsApi({
     state,
@@ -7,6 +7,7 @@ export function createGlobalInteractionsApi({
     canvasContainer,
     viewportApi,
     loadImageFile,
+    loadImageData,
     addNode,
     pasteNode,
     toggleNodesEnabled,
@@ -16,6 +17,30 @@ export function createGlobalInteractionsApi({
     windowRef = window
 }) {
     let lastExternalPasteTime = 0;
+
+    function getImageDropTargetNodeId(event) {
+        const targetNodeEl = event.target.closest('.node');
+        if (!targetNodeEl) return null;
+
+        const node = state.nodes.get(targetNodeEl.id);
+        return node?.type === 'ImageImport' ? targetNodeEl.id : null;
+    }
+
+    function importImageDataAtDrop(event, imageData, message) {
+        const targetNodeId = getImageDropTargetNodeId(event);
+        if (targetNodeId) {
+            loadImageData(targetNodeId, imageData);
+            showToast(message.update, 'success');
+            return;
+        }
+
+        const pos = viewportApi.screenToCanvas(event.clientX, event.clientY);
+        const nodeId = addNode('ImageImport', pos.x, pos.y);
+        if (nodeId) {
+            loadImageData(nodeId, imageData);
+            showToast(message.create, 'success');
+        }
+    }
 
     function initGlobalInteractions() {
         canvasContainer.addEventListener('auxclick', (e) => {
@@ -29,17 +54,24 @@ export function createGlobalInteractionsApi({
 
         windowRef.addEventListener('drop', (e) => {
             e.preventDefault();
+
+            const historyDrag = state.draggedHistoryImage;
+            if (historyDrag?.image) {
+                importImageDataAtDrop(e, historyDrag.image, {
+                    update: '已使用历史原图更新现有图片节点',
+                    create: '已从历史记录导入原始分辨率图片'
+                });
+                state.draggedHistoryImage = null;
+                return;
+            }
+
             const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'));
             if (files.length > 0) {
-                const targetNodeEl = e.target.closest('.node');
-                if (targetNodeEl && files.length === 1) {
-                    const nodeId = targetNodeEl.id;
-                    const node = state.nodes.get(nodeId);
-                    if (node && node.type === 'ImageImport') {
-                        loadImageFile(nodeId, files[0]);
-                        showToast('已更新现有的图片节点', 'success');
-                        return;
-                    }
+                const targetNodeId = getImageDropTargetNodeId(e);
+                if (targetNodeId && files.length === 1) {
+                    loadImageFile(targetNodeId, files[0]);
+                    showToast('已更新现有的图片节点', 'success');
+                    return;
                 }
 
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);

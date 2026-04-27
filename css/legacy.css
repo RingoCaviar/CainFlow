@@ -40,6 +40,22 @@
     --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+html.animations-disabled,
+html.animations-disabled * {
+    scroll-behavior: auto !important;
+}
+
+html.animations-disabled *,
+html.animations-disabled *::before,
+html.animations-disabled *::after {
+    animation: none !important;
+    transition: none !important;
+}
+
+html.animations-disabled .connection-flow-decoration {
+    display: none !important;
+}
+
 /* Custom Scrollbar for a premium look */
 ::-webkit-scrollbar {
     width: 6px;

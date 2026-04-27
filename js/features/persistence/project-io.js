@@ -19,7 +19,8 @@ export function createProjectIoApi({
     onConnectionsChanged = () => {},
     viewportApi,
     showToast,
-    applyTheme = () => {}
+    applyTheme = () => {},
+    applyGlobalAnimationSetting = () => {}
 }) {
     function exportWorkflow() {
         try {
@@ -86,7 +87,12 @@ export function createProjectIoApi({
                     imageAutoResizeEnabled: currentState.imageAutoResizeEnabled !== undefined ? currentState.imageAutoResizeEnabled : state.imageAutoResizeEnabled,
                     imageMaxPixels: currentState.imageMaxPixels !== undefined ? currentState.imageMaxPixels : state.imageMaxPixels,
                     connectionLineType: currentState.connectionLineType !== undefined ? currentState.connectionLineType : state.connectionLineType,
-                    connectionFlowAnimationEnabled: currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.connectionFlowAnimationEnabled,
+                    globalAnimationEnabled: currentState.globalAnimationEnabled !== undefined
+                        ? currentState.globalAnimationEnabled
+                        : (currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.globalAnimationEnabled),
+                    connectionFlowAnimationEnabled: currentState.globalAnimationEnabled !== undefined
+                        ? currentState.globalAnimationEnabled
+                        : (currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.globalAnimationEnabled),
                     proxy: currentState.proxy !== undefined ? currentState.proxy : state.proxy,
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
@@ -181,8 +187,12 @@ export function createProjectIoApi({
             if (data.connectionLineType !== undefined) {
                 state.connectionLineType = data.connectionLineType === 'orthogonal' ? 'orthogonal' : 'bezier';
             }
-            if (data.connectionFlowAnimationEnabled !== undefined) {
-                state.connectionFlowAnimationEnabled = data.connectionFlowAnimationEnabled !== false;
+            if (data.globalAnimationEnabled !== undefined || data.connectionFlowAnimationEnabled !== undefined) {
+                state.globalAnimationEnabled = data.globalAnimationEnabled !== undefined
+                    ? data.globalAnimationEnabled !== false
+                    : data.connectionFlowAnimationEnabled !== false;
+                state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
+                applyGlobalAnimationSetting();
             }
             if (data.proxy !== undefined) {
                 state.proxy = data.proxy;

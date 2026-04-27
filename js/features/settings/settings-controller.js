@@ -31,6 +31,7 @@ export function createSettingsControllerApi({
     addLog,
     checkUpdate,
     updateAllConnections = () => {},
+    applyGlobalAnimationSetting = () => {},
     fitNodeToContent = () => {},
     documentRef = document,
     windowRef = window,
@@ -506,7 +507,7 @@ export function createSettingsControllerApi({
         const currentSide = Math.round(Math.sqrt(state.imageMaxPixels || 4194304));
         const autoResizeEnabled = state.imageAutoResizeEnabled !== false;
         const connectionLineType = state.connectionLineType || 'bezier';
-        const connectionFlowAnimationEnabled = state.connectionFlowAnimationEnabled !== false;
+        const globalAnimationEnabled = state.globalAnimationEnabled !== false;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
         const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
@@ -625,13 +626,13 @@ export function createSettingsControllerApi({
                     </div>
                     <div class="card-field" style="margin-top:14px;">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">流动箭头动画</label>
+                            <label style="margin:0;">全局动画开关</label>
                             <label class="toggle-switch">
-                                <input type="checkbox" id="setting-connection-flow-animation-enabled" ${connectionFlowAnimationEnabled ? 'checked' : ''}>
+                                <input type="checkbox" id="setting-global-animation-enabled" ${globalAnimationEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。关闭后，选中节点相关连线上的流动小箭头会被隐藏。</p>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。关闭后会禁用全局动画效果，包括连线流动箭头、弹窗渐入渐出、按钮过渡和提示动画，以释放最大性能。</p>
                     </div>
                 </div>
             </div>
@@ -692,7 +693,7 @@ export function createSettingsControllerApi({
         const timeoutEnabledInput = documentRef.getElementById('setting-timeout-enabled');
         const timeoutSecondsInput = documentRef.getElementById('setting-timeout-seconds');
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
-        const connectionFlowAnimationInput = documentRef.getElementById('setting-connection-flow-animation-enabled');
+        const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
         const updateVolumeSliderProgress = () => {
@@ -787,8 +788,10 @@ export function createSettingsControllerApi({
             saveState();
         });
 
-        connectionFlowAnimationInput?.addEventListener('change', (e) => {
-            state.connectionFlowAnimationEnabled = e.target.checked;
+        globalAnimationInput?.addEventListener('change', (e) => {
+            state.globalAnimationEnabled = e.target.checked;
+            state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
+            applyGlobalAnimationSetting();
             updateAllConnections();
             saveState();
         });

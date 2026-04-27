@@ -20,6 +20,10 @@ export function createConnectionsApi({
     let flowAnimationFrame = null;
     const view = documentRef.defaultView || window;
 
+    function isGlobalAnimationEnabled() {
+        return state.globalAnimationEnabled !== false;
+    }
+
     function createFlowArrowElement() {
         const arrow = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
         arrow.classList.add('connection-flow-arrow');
@@ -57,7 +61,7 @@ export function createConnectionsApi({
 
     function updateFlowDecoration(path, connId, isActive) {
         const decoration = ensureFlowDecoration(connId);
-        decoration.active = state.connectionFlowAnimationEnabled !== false && isActive && !!path.getAttribute('d');
+        decoration.active = isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
         decoration.group.classList.toggle('active', decoration.active);
         if (path.nextSibling !== decoration.group) {
             path.parentNode?.insertBefore(decoration.group, path.nextSibling);
@@ -134,7 +138,7 @@ export function createConnectionsApi({
     }
 
     function ensureFlowAnimation() {
-        if (state.connectionFlowAnimationEnabled === false) {
+        if (!isGlobalAnimationEnabled()) {
             flowDecorationById.forEach((decoration) => {
                 decoration.active = false;
                 decoration.group.classList.remove('active');

@@ -70,6 +70,24 @@ export function createHistoryPanelApi({
         if (countEl) countEl.textContent = state.selectedHistoryIds.size;
 
         list.querySelectorAll('.history-card').forEach((card) => {
+            card.draggable = true;
+            card.addEventListener('dragstart', (event) => {
+                const itemId = Number(card.dataset.id);
+                const item = items.find((entry) => entry.id === itemId);
+                if (!item?.image) return;
+
+                state.draggedHistoryImage = {
+                    id: item.id,
+                    image: item.image
+                };
+                event.dataTransfer.effectAllowed = 'copy';
+                event.dataTransfer.setData('application/x-cainflow-history-image', String(item.id));
+            });
+            card.addEventListener('dragend', () => {
+                setTimeout(() => {
+                    state.draggedHistoryImage = null;
+                }, 0);
+            });
             card.addEventListener('click', () => {
                 const itemId = Number(card.dataset.id);
                 const item = items.find((entry) => entry.id === itemId);

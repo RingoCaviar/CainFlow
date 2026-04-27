@@ -19,6 +19,7 @@ export function createUiControllerApi({
     settingsControllerApi,
     applyHistoryGridCols,
     applyTheme = () => {},
+    applyGlobalAnimationSetting = () => {},
     updateAllConnections = () => {},
     saveState,
     showToast,
@@ -49,7 +50,8 @@ export function createUiControllerApi({
                 imageAutoResizeEnabled: state.imageAutoResizeEnabled,
                 imageMaxPixels: state.imageMaxPixels,
                 connectionLineType: state.connectionLineType,
-                connectionFlowAnimationEnabled: state.connectionFlowAnimationEnabled,
+                globalAnimationEnabled: state.globalAnimationEnabled,
+                connectionFlowAnimationEnabled: state.globalAnimationEnabled,
                 proxy: state.proxy ? { ...state.proxy } : null,
                 requestTimeoutEnabled: state.requestTimeoutEnabled,
                 requestTimeoutSeconds: state.requestTimeoutSeconds,
@@ -159,8 +161,12 @@ export function createUiControllerApi({
             updateAllConnections();
         }
 
-        if (settings.connectionFlowAnimationEnabled !== undefined) {
-            state.connectionFlowAnimationEnabled = settings.connectionFlowAnimationEnabled !== false;
+        if (settings.globalAnimationEnabled !== undefined || settings.connectionFlowAnimationEnabled !== undefined) {
+            state.globalAnimationEnabled = settings.globalAnimationEnabled !== undefined
+                ? settings.globalAnimationEnabled !== false
+                : settings.connectionFlowAnimationEnabled !== false;
+            state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
+            applyGlobalAnimationSetting();
             updateAllConnections();
         }
 
