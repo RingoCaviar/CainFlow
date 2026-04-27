@@ -69,13 +69,28 @@ export function createWorkflowRunnerApi({
         }
     }
 
-    function hasCachedPromptValue(plan, nodeId) {
+    function isPromptProducedDuringPlan(plan, nodeId, connection) {
+        const fromNode = state.nodes.get(connection.from.nodeId);
+        if (!fromNode || fromNode.enabled === false) return false;
+        if (!plan.scopeNodeSet.has(connection.from.nodeId)) return false;
+
+        const order = plan.executionOrder || [];
+        const fromIndex = order.indexOf(connection.from.nodeId);
+        const toIndex = order.indexOf(nodeId);
+        if (fromIndex === -1 || toIndex === -1 || fromIndex >= toIndex) return false;
+
+        const outputs = nodeConfigs[fromNode.type]?.outputs || [];
+        return outputs.some((output) => output.name === connection.from.port && output.type === 'text');
+    }
+
+    function hasPromptInputValue(plan, nodeId) {
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
             if (connection.to.port !== 'prompt') continue;
             const fromNode = state.nodes.get(connection.from.nodeId);
             const promptValue = getCachedOutputValue(fromNode, connection.from.port);
             if (typeof promptValue === 'string' && promptValue.trim()) return true;
             if (promptValue !== undefined && promptValue !== null && promptValue !== '') return true;
+            if (isPromptProducedDuringPlan(plan, nodeId, connection)) return true;
         }
         return false;
     }
@@ -204,7 +219,7 @@ export function createWorkflowRunnerApi({
                 if (fixedToggle && fixedToggle.checked && node.isSucceeded) continue;
 
                 const textareaValue = documentRef.getElementById(`${nid}-prompt`)?.value || '';
-                const hasPromptInput = hasCachedPromptValue(plan, nid);
+                const hasPromptInput = hasPromptInputValue(plan, nid);
                 if (!hasPromptInput && !textareaValue.trim()) {
                     emptyPromptNodes.push(nid);
                 }
