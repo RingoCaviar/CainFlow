@@ -11,7 +11,10 @@ export function createToastControllerApi({
         const toast = documentRef.createElement('div');
         toast.className = `toast ${type}`;
         const icons = { success: '[OK]', error: '[ERR]', info: '[i]', warning: '[!]' };
-        toast.innerHTML = `<span>${icons[type] || ''}</span> ${message}`;
+        const icon = documentRef.createElement('span');
+        icon.textContent = icons[type] || '';
+        toast.appendChild(icon);
+        toast.appendChild(documentRef.createTextNode(String(message || '')));
         container.appendChild(toast);
         setTimeoutRef(() => {
             toast.style.animation = 'toast-out 0.3s ease-out forwards';

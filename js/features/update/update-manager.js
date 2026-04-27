@@ -104,13 +104,35 @@ export function createUpdateManager({
         documentRef.getElementById('btn-settings')?.classList.remove('has-update');
     }
 
-    async function checkUpdate(isManual = false, options = {}) {
-        const { force = false, showModal = isManual, showCanvasNotification = true } = options;
-        if (isManual) {
-            showToast('正在检查更新...', 'info');
-            localStorageRef.setItem('cainflow_update_status', 'checking');
-            renderGeneralSettings();
+    function setUpdateError(message) {
+        localStorageRef.setItem('cainflow_update_status', 'error');
+        localStorageRef.setItem('cainflow_update_error', message || '检查更新失败');
+    }
+
+    function clearUpdateError() {
+        localStorageRef.removeItem('cainflow_update_error');
+    }
+
+    function getUpdateFailureMessage(error, response = null) {
+        if (error?.name === 'AbortError') {
+            return '检查更新超时，请稍后重试';
         }
+        if (response) {
+            return `检查更新失败：GitHub API 返回 ${response.status} ${response.statusText || '响应异常'}`;
+        }
+        if (error?.message) {
+            return `检查更新失败：${error.message}`;
+        }
+        return '检查更新失败，请检查网络连接或代理设置';
+    }
+
+    async function checkUpdate(isManual = false, options = {}) {
+        const {
+            force = false,
+            showModal = isManual,
+            showCanvasNotification = true,
+            showProgressToast = true
+        } = options;
 
         const checkInterval = 6 * 60 * 60 * 1000;
         const now = Date.now();
@@ -120,11 +142,19 @@ export function createUpdateManager({
             return;
         }
 
+        if (showProgressToast) {
+            showToast(isManual ? '正在检查更新...' : '系统正在自动检查更新...', 'info', isManual ? 3000 : 4500);
+        }
+        localStorageRef.setItem('cainflow_update_status', 'checking');
+        clearUpdateError();
+        renderGeneralSettings();
+
         localStorageRef.setItem('cainflow_last_update_check', now.toString());
 
+        let timeoutId = null;
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeoutImpl(() => controller.abort(), 10000);
+            timeoutId = setTimeoutImpl(() => controller.abort(), 10000);
 
             const url = `https://api.github.com/repos/${githubRepo}/releases/latest`;
             const response = await fetchImpl('/proxy', {
@@ -133,13 +163,13 @@ export function createUpdateManager({
                 signal: controller.signal
             });
             clearTimeoutImpl(timeoutId);
+            timeoutId = null;
 
             if (!response.ok) {
-                localStorageRef.setItem('cainflow_update_status', 'error');
-                if (isManual) {
-                    showToast('无法连接到更新服务器 (GitHub API 响应异常)', 'error');
-                    renderGeneralSettings();
-                }
+                const msg = getUpdateFailureMessage(null, response);
+                setUpdateError(msg);
+                showToast(msg, 'error', 6000);
+                renderGeneralSettings();
                 return;
             }
 
@@ -150,25 +180,25 @@ export function createUpdateManager({
 
             if (comparison > 0) {
                 localStorageRef.setItem('cainflow_update_status', 'new_version');
+                clearUpdateError();
                 if (showCanvasNotification) showUpdateCanvasNotice(data);
                 if (showModal) showUpdateModal(data);
+                showToast(`发现新版本 ${latestVersion || ''}`, 'success', 6000);
             } else {
                 localStorageRef.setItem('cainflow_update_status', 'latest');
+                clearUpdateError();
                 hideUpdateCanvasNotice();
-                if (isManual) showToast(`当前已是最新版本 (${appVersion})`, 'success');
+                showToast(`当前已是最新版本 (${appVersion})`, 'success', isManual ? 3000 : 4500);
             }
 
-            if (isManual) renderGeneralSettings();
+            renderGeneralSettings();
         } catch (e) {
+            if (timeoutId !== null) clearTimeoutImpl(timeoutId);
             console.warn('Update check failed:', e);
-            localStorageRef.setItem('cainflow_update_status', 'error');
-            if (isManual) {
-                const msg = e.name === 'AbortError'
-                    ? '检查更新超时，请稍后重试'
-                    : '检查更新失败，请检查网络连接或代理设置';
-                showToast(msg, 'error');
-                renderGeneralSettings();
-            }
+            const msg = getUpdateFailureMessage(e);
+            setUpdateError(msg);
+            showToast(msg, 'error', 6000);
+            renderGeneralSettings();
         }
     }
 

@@ -511,7 +511,14 @@ export function createSettingsControllerApi({
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
         const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
+        const updateError = localStorageRef.getItem('cainflow_update_error') || '检查失败，请检查网络连接或代理设置';
         const serverVersionText = latestVer || (updateStatus === 'checking' ? '检查中...' : '尚未获取');
+        const escapeHtml = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
 
         let statusHtml = '';
         const timeStr = lastCheck ? new Date(parseInt(lastCheck, 10)).toLocaleString() : '从未检查';
@@ -525,7 +532,7 @@ export function createSettingsControllerApi({
                     <button id="btn-goto-download" class="btn btn-secondary btn-sm" style="animation: glow-pulse 2.5s infinite">前往下载</button>
                 </div>
             `;
-        } else if (updateStatus === 'error') statusHtml = `<span class="update-status-error">✗ 检查失败 (网络原因)</span>`;
+        } else if (updateStatus === 'error') statusHtml = `<span class="update-status-error" title="${escapeHtml(updateError)}">✗ ${escapeHtml(updateError)}</span>`;
 
         list.innerHTML = `
         <div style="display: flex; gap: 16px; align-items: stretch; margin-bottom: 16px;">
