@@ -39,7 +39,7 @@ def print_banner():
  \____| /_/   \_\ |___| |_| \_| |_|     |_____|  \___/    \_/\_/   
 {reset}"""
     print(banner)
-    print(f' {white}> CainFlow v2.7.4 已就绪{reset}')
+    print(f' {white}> CainFlow v2.7.5 已就绪{reset}')
     print(f' {white}> 正在监听: {cyan}http://127.0.0.1:{config.PORT}{reset}')
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
