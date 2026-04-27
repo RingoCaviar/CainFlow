@@ -4204,19 +4204,38 @@ input[type=number] {
 
 .update-changelog-body {
     font-size: 14px;
-    line-height: 1.7;
+    line-height: 1.5;
     color: var(--text-secondary);
+}
+
+.update-changelog-body br {
+    line-height: 1.25;
+}
+
+.update-changelog-body h4 + br,
+.update-changelog-body h4 + br + br,
+.update-changelog-body ul + br,
+.update-changelog-body ul + br + br {
+    display: none;
 }
 
 .update-changelog-body h4 {
     color: var(--text-primary);
-    margin: 18px 0 8px 0;
+    margin: 12px 0 6px 0;
     font-size: 15px;
+}
+
+.update-changelog-body h4:first-child {
+    margin-top: 0;
 }
 
 .update-changelog-body ul {
     padding-left: 20px;
-    margin-bottom: 12px;
+    margin: 4px 0 8px;
+}
+
+.update-changelog-body li {
+    margin: 2px 0;
 }
 
 .update-migration-notice {
