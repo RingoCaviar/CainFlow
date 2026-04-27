@@ -41,7 +41,7 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | **执行引擎** | | |
-| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、结果分发、ImageGenerate 多次生成成功计数 |
+| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
 | 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置 |
 | **帮助** | | |
@@ -53,7 +53,7 @@
 | 日志面板 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
 | **媒体** | | |
 | 图片绘制 | `js/features/media/image-painter.js` | Canvas 图片绘制与合成 |
-| 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理 |
+| 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片预览/保存/缩放/对比节点的运行态同步与交互 |
 | 媒体工具 | `js/features/media/media-utils.js` | 图片格式转换、Blob 处理等工具函数 |
 | **持久化** | | |
 | 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出 |
@@ -89,6 +89,7 @@
 | 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 ImageGenerate 分辨率与生成次数控件 |
 | 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义、端口与默认尺寸 |
 | 图片导入节点 | `js/nodes/types/image-import.js` | ImageImport 节点定义 |
+| 图片对比节点 | `js/nodes/types/image-compare.js` | ImageCompare 节点定义，包含 A/B 图片输入与 B 图片输出 |
 | 图片预览节点 | `js/nodes/types/image-preview.js` | ImagePreview 节点定义 |
 | 图片缩放节点 | `js/nodes/types/image-resize.js` | ImageResize 节点定义 |
 | 图片保存节点 | `js/nodes/types/image-save.js` | ImageSave 节点定义 |
@@ -144,7 +145,8 @@
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/services/storage-idb.js` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `backend/services/log_service.py` |
-| 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-serializer.js`, `js/nodes/node-view-factory.js`, `css/components/nodes.css` |
+| 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/components/nodes.css` |
+| 新增或修改图片对比/预览/缩放/保存类节点 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `css/components/nodes.css` |
 | 修复节点 DOM 绑定或事件 | `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js` |
 | 修复画布拖拽、框选、缩放、几何绘制 | `js/canvas/canvas-interactions.js`, `js/canvas/selection.js`, `js/canvas/viewport.js`, `js/canvas/geometry.js` |
 | 修复连线绘制 | `js/canvas/connections.js` |
@@ -153,6 +155,7 @@
 | 修改 DOM 获取或顶层元素引用 | `js/core/elements.js`, `index.html` |
 | 添加通用工具函数 | `js/core/common-utils.js` |
 | 媒体/图片处理 | `js/features/media/image-painter.js`, `js/features/media/media-controller.js`, `js/features/media/media-utils.js` |
+| 图片节点的运行态预览、对比、下游级联刷新 | `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `js/nodes/node-dom-bindings.js` |
 | 项目文件导入导出 | `js/features/persistence/project-io.js` |
 | 自动保存 / 会话恢复 | `js/features/persistence/session-manager.js` |
 | 主题切换 | `js/features/ui/theme-controller.js`, `css/themes.css` |
@@ -200,6 +203,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
 - 媒体处理放 `js/features/media/`，不要堆回节点类型文件。
+- 图片类节点的定义、模板、DOM 绑定、媒体同步和执行输出要分层处理：`js/nodes/types/*.js` 只放元数据和端口；`js/nodes/node-view-factory.js` 只生成结构；`js/nodes/node-dom-bindings.js` 只接入节点事件；`js/features/media/media-controller.js` 负责图片显示状态、交互与依赖刷新；`js/features/execution/execution-core.js` 负责运行时输入校验、输出写入和向下游分发。
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - 后端按 route 与 service 分责，不要混写。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。

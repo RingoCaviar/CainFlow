@@ -35,6 +35,7 @@ export function createExecutionCoreApi({
     autoSaveToDir,
     restoreImageResizePreview,
     refreshDependentImageResizePreviews,
+    syncImageCompareNode,
     fitNodeToContent,
     getAbortMessage,
     updateAllConnections,
@@ -434,7 +435,7 @@ export function createExecutionCoreApi({
                 return node.imageData || node.resizePreviewData || undefined;
             }
 
-            if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+            if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
                 return node.imageData || undefined;
             }
         }
@@ -871,6 +872,12 @@ export function createExecutionCoreApi({
                 await refreshDependentImageResizePreviews(id);
             }
             requestNodeFit(id);
+        },
+        ImageCompare: async (node, inputs) => {
+            const { id } = node;
+            if (!inputs.imageB) throw new Error('B 输入未连接图片');
+            await syncImageCompareNode(id, inputs.imageA || null, inputs.imageB);
+            await refreshDependentImageResizePreviews(id);
         },
         ImageSave: async (node, inputs) => {
             const { id } = node;

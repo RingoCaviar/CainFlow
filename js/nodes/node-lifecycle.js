@@ -118,6 +118,8 @@ export function createNodeLifecycleApi({
             el,
             data: {},
             imageData: null,
+            compareImageA: null,
+            compareImageB: null,
             importMode: restoreData?.importMode === 'url' ? 'url' : 'upload',
             imageUrl: restoreData?.imageUrl || '',
             previewZoom: 1,
@@ -155,7 +157,7 @@ export function createNodeLifecycleApi({
         if (!nodeData.enabled) el.classList.add('disabled');
         state.nodes.set(id, nodeData);
 
-        if (type === 'ImageImport' || type === 'ImagePreview' || type === 'ImageSave' || type === 'ImageResize') {
+        if (type === 'ImageImport' || type === 'ImagePreview' || type === 'ImageSave' || type === 'ImageResize' || type === 'ImageCompare') {
             (async () => {
                 const isImportUrlMode = type === 'ImageImport' && nodeData.importMode === 'url';
                 const hasInitialData = !!(restoreData && restoreData.imageData);
@@ -217,6 +219,15 @@ export function createNodeLifecycleApi({
                             outputQuality: restoreData?.outputQuality || null,
                             estimatedBytes: restoreData?.estimatedBytes || null
                         });
+                        onConnectionsChanged();
+                    } else if (type === 'ImageCompare') {
+                        nodeData.compareImageB = data;
+                        const compareContainer = el.querySelector(`#${id}-compare`);
+                        if (compareContainer) {
+                            compareContainer.classList.add('has-images');
+                            compareContainer.innerHTML = `<img class="image-compare-img image-compare-b" src="${data}" alt="B 输入图片" draggable="false" />`;
+                        }
+                        showResolutionBadge(id, data);
                         onConnectionsChanged();
                     }
                 }

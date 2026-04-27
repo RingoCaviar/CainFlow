@@ -246,6 +246,18 @@ function renderImagePreviewBody(id) {
     `;
 }
 
+function renderImageCompareBody(id) {
+    return `
+        <div class="image-compare-container" id="${id}-compare" style="--compare-x: 50%;">
+            <div class="preview-placeholder">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                运行后对比图片
+            </div>
+        </div>
+        <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
+    `;
+}
+
 function renderImageResizeBody(id, restoreData) {
     const rd = restoreData || {};
     const mode = rd.resizeMode || 'scale';
@@ -369,6 +381,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageGenerate') return renderImageGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);
     if (type === 'ImagePreview') return renderImagePreviewBody(id);
+    if (type === 'ImageCompare') return renderImageCompareBody(id);
     if (type === 'TextInput') return renderTextInputBody(id, restoreData);
     if (type === 'TextDisplay') return renderTextDisplayBody(id);
     if (type === 'ImageSave') return renderImageSaveBody(id, restoreData, state.globalSaveDirHandle);

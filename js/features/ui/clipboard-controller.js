@@ -23,7 +23,7 @@ export function createClipboardControllerApi({
             width: node.width || null,
             height: node.height || null
         };
-        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageResize') {
+        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageResize' || node.type === 'ImageCompare') {
             serialized.imageData = node.data.image || node.imageData || null;
         }
         if (node.type === 'ImageImport') {

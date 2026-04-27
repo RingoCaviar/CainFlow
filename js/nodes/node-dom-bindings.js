@@ -24,6 +24,7 @@ export function createNodeDomBindingsApi({
     setupImageResize,
     setupImageSave,
     setupImagePreview,
+    setupImageCompare,
     copyToClipboard,
     showToast,
     scheduleSave,
@@ -508,6 +509,7 @@ export function createNodeDomBindingsApi({
         else if (type === 'ImageResize') setupImageResize(id, el);
         else if (type === 'ImageSave') setupImageSave(id, el);
         else if (type === 'ImagePreview') setupImagePreview(id, el);
+        else if (type === 'ImageCompare') setupImageCompare(id, el);
         else if (type === 'TextChat') {
             const copyBtn = el.querySelector(`#${id}-copy-btn`);
             if (copyBtn) {

@@ -320,6 +320,8 @@ const {
     setupImageSave,
     autoSaveToDir,
     setupImagePreview,
+    setupImageCompare,
+    syncImageCompareNode,
     adjustPreviewZoom,
     openFullscreenPreview
 } = mediaControllerApi;
@@ -347,6 +349,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     setupImageResize,
     setupImageSave,
     setupImagePreview,
+    setupImageCompare,
     copyToClipboard,
     showToast,
     scheduleSave,
@@ -733,6 +736,7 @@ function getExecutionCoreApi() {
             autoSaveToDir,
             restoreImageResizePreview,
             refreshDependentImageResizePreviews,
+            syncImageCompareNode,
             fitNodeToContent,
             getAbortMessage: getAbortMessageService,
             updateAllConnections,

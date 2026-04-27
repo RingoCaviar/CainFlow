@@ -50,6 +50,9 @@ export function createMediaControllerApi({
                 ? (node.imageUrl || null)
                 : (node.imageData || null);
         }
+        if (node.type === 'ImageCompare') {
+            return node.data?.image || node.compareImageB || node.imageData || null;
+        }
         return node.resizePreviewData || node.data?.image || node.imageData || null;
     }
 
@@ -348,6 +351,72 @@ export function createMediaControllerApi({
         requestNodeFit(nodeId);
     }
 
+    function getConnectedImageInput(nodeId, portName) {
+        const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === portName);
+        if (!incoming) return null;
+        return getNodePreviewSourceData(getNodeById(incoming.from.nodeId));
+    }
+
+    function renderImageCompareEmptyState(nodeId, message = '等待 B 输入') {
+        const container = documentRef.getElementById(`${nodeId}-compare`);
+        const badge = documentRef.getElementById(`${nodeId}-res`);
+        if (container) {
+            container.classList.remove('has-images', 'is-comparing');
+            container.style.setProperty('--compare-x', '50%');
+            container.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>${message}</div>`;
+        }
+        if (badge) {
+            badge.textContent = '';
+            badge.style.display = 'none';
+        }
+        requestNodeFit(nodeId);
+    }
+
+    async function syncImageCompareNode(nodeId, imageA = null, imageB = null) {
+        const node = getNodeById(nodeId);
+        if (!node || node.type !== 'ImageCompare') return;
+
+        const nextImageA = Object.prototype.hasOwnProperty.call(arguments, 1)
+            ? imageA
+            : getConnectedImageInput(nodeId, 'imageA');
+        const nextImageB = Object.prototype.hasOwnProperty.call(arguments, 2)
+            ? imageB
+            : getConnectedImageInput(nodeId, 'imageB');
+        const container = documentRef.getElementById(`${nodeId}-compare`);
+
+        node.compareImageA = nextImageA || null;
+        node.compareImageB = nextImageB || null;
+        node.data = node.data || {};
+
+        if (!nextImageB) {
+            node.imageData = null;
+            delete node.data.image;
+            if (deleteImageAsset) await deleteImageAsset(nodeId);
+            renderImageCompareEmptyState(nodeId, nextImageA ? '等待 B 输入' : '等待 A / B 输入');
+            return;
+        }
+
+        node.data.image = nextImageB;
+        node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
+        if (node.imageData) await saveImageAsset(nodeId, node.imageData);
+        else if (deleteImageAsset) await deleteImageAsset(nodeId);
+
+        if (container) {
+            container.classList.add('has-images');
+            container.classList.toggle('has-a-image', Boolean(nextImageA));
+            container.classList.remove('is-comparing');
+            container.style.setProperty('--compare-x', '50%');
+            container.innerHTML = `
+                <img class="image-compare-img image-compare-b" src="${nextImageB}" alt="B 输入图片" draggable="false" />
+                ${nextImageA ? `<img class="image-compare-img image-compare-a" src="${nextImageA}" alt="A 输入图片" draggable="false" />` : ''}
+                ${nextImageA ? '<div class="image-compare-divider" aria-hidden="true"></div>' : ''}
+            `;
+        }
+
+        await showResolutionBadge(nodeId, nextImageB);
+        requestNodeFit(nodeId);
+    }
+
     async function refreshDependentImageResizePreviews(sourceNodeId, options = {}, visited = new Set()) {
         if (visited.has(sourceNodeId)) return;
         visited.add(sourceNodeId);
@@ -358,7 +427,10 @@ export function createMediaControllerApi({
             : getNodePreviewSourceData(sourceNode);
 
         const dependents = state.connections
-            .filter((conn) => conn.from.nodeId === sourceNodeId && conn.to.port === 'image')
+            .filter((conn) => (
+                conn.from.nodeId === sourceNodeId
+                && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+            ))
             .map((conn) => conn.to.nodeId)
             .filter((nodeId, index, list) => list.indexOf(nodeId) === index);
 
@@ -381,6 +453,15 @@ export function createMediaControllerApi({
             if (node.type === 'ImageSave') {
                 await syncImageSaveNode(nodeId, sourceImage);
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
+                continue;
+            }
+
+            if (node.type === 'ImageCompare') {
+                await syncImageCompareNode(nodeId);
+                await refreshDependentImageResizePreviews(nodeId, {
+                    ...options,
+                    sourceImage: getNodePreviewSourceData(node)
+                }, visited);
             }
         }
     }
@@ -902,6 +983,35 @@ export function createMediaControllerApi({
         });
     }
 
+    function setupImageCompare(id, el) {
+        const container = el.querySelector(`#${id}-compare`);
+        if (!container) return;
+
+        container.addEventListener('mouseenter', () => {
+            if (!container.classList.contains('has-a-image')) return;
+            container.classList.add('is-comparing');
+        });
+        container.addEventListener('mousemove', (e) => {
+            if (!container.classList.contains('has-a-image')) return;
+            const rect = container.getBoundingClientRect();
+            const ratio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+            const percent = Math.max(0, Math.min(100, ratio * 100));
+            container.style.setProperty('--compare-x', `${percent}%`);
+            container.classList.add('is-comparing');
+        });
+        container.addEventListener('mouseleave', () => {
+            container.classList.remove('is-comparing');
+        });
+        container.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (state.justDragged) return;
+            const node = getNodeById(id);
+            if (node?.compareImageB) openFullscreenPreview(node.compareImageB, id);
+        });
+
+        void syncImageCompareNode(id);
+    }
+
     function adjustPreviewZoom(nodeId, factor) {
         const node = getNodeById(nodeId);
         if (!node) return;
@@ -1004,6 +1114,8 @@ export function createMediaControllerApi({
         setupImageSave,
         autoSaveToDir,
         setupImagePreview,
+        setupImageCompare,
+        syncImageCompareNode,
         adjustPreviewZoom,
         openFullscreenPreview
     };

@@ -3,6 +3,7 @@
  */
 import { imageGenerateNode } from './types/image-generate.js';
 import { imageImportNode } from './types/image-import.js';
+import { imageCompareNode } from './types/image-compare.js';
 import { imageResizeNode } from './types/image-resize.js';
 import { imagePreviewNode } from './types/image-preview.js';
 import { imageSaveNode } from './types/image-save.js';
@@ -12,6 +13,7 @@ import { textInputNode } from './types/text-input.js';
 
 const nodeDefinitions = [
     imageImportNode,
+    imageCompareNode,
     imageResizeNode,
     imageGenerateNode,
     textChatNode,
