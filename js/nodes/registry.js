@@ -8,8 +8,7 @@ import { imageResizeNode } from './types/image-resize.js';
 import { imagePreviewNode } from './types/image-preview.js';
 import { imageSaveNode } from './types/image-save.js';
 import { textChatNode } from './types/text-chat.js';
-import { textDisplayNode } from './types/text-display.js';
-import { textInputNode } from './types/text-input.js';
+import { textNode } from './types/text.js';
 
 const nodeDefinitions = [
     imageImportNode,
@@ -17,8 +16,7 @@ const nodeDefinitions = [
     imageResizeNode,
     imageGenerateNode,
     textChatNode,
-    textInputNode,
-    textDisplayNode,
+    textNode,
     imagePreviewNode,
     imageSaveNode
 ];

@@ -33,7 +33,7 @@ export function createNodeDomBindingsApi({
     fitNodeToContent = () => {},
     documentRef = document
 }) {
-    function syncTextInputNodeData(id) {
+    function syncTextNodeData(id) {
         const node = state.nodes.get(id);
         const textarea = documentRef.getElementById(`${id}-text`);
         if (!node || !textarea) return;
@@ -181,8 +181,39 @@ export function createNodeDomBindingsApi({
             return Math.ceil(Math.min(optionTextWidth + horizontalPadding + horizontalBorder + extraSelectSpace, maxWidth));
         }
 
+        if (control.tagName === 'TEXTAREA') {
+            const minWidth = getPx(style, 'min-width');
+            return Math.ceil(Math.max(minWidth, horizontalPadding + horizontalBorder + 32));
+        }
+
         const text = control.value || control.placeholder || '';
         return Math.ceil(Math.max(control.scrollWidth, measureTextWidth(text, font) + horizontalPadding + horizontalBorder));
+    }
+
+    function getFlexContentWidth(container) {
+        if (!container) return 0;
+        const style = getComputedStyle(container);
+        const gap = getPx(style, 'column-gap') || getPx(style, 'gap') || 0;
+        const children = Array.from(container.children).filter((child) => child.offsetParent !== null);
+        const contentWidth = children.reduce((total, child) => {
+            const childStyle = getComputedStyle(child);
+            const marginX = getPx(childStyle, 'margin-left') + getPx(childStyle, 'margin-right');
+            const childWidth = child.classList.contains('node-title')
+                ? Math.min(child.scrollWidth || child.offsetWidth || 0, 96)
+                : (child.offsetWidth || child.scrollWidth || 0);
+            return total + Math.ceil(childWidth + marginX);
+        }, 0);
+        return contentWidth + Math.max(0, children.length - 1) * gap;
+    }
+
+    function getHeaderMinimumWidth(header, fallbackWidth) {
+        if (!header) return fallbackWidth;
+        const style = getComputedStyle(header);
+        const paddingX = getPx(style, 'padding-left') + getPx(style, 'padding-right');
+        const leftWidth = getFlexContentWidth(header.querySelector('.header-left'));
+        const rightWidth = getFlexContentWidth(header.querySelector('.header-right'));
+        const headerGap = getPx(style, 'column-gap') || getPx(style, 'gap') || 12;
+        return Math.ceil(paddingX + leftWidth + rightWidth + headerGap);
     }
 
     function getNodeMinimumSize(el, headerFallbackWidth) {
@@ -192,8 +223,11 @@ export function createNodeDomBindingsApi({
         const bodyPaddingX = bodyStyle ? getPx(bodyStyle, 'padding-left') + getPx(bodyStyle, 'padding-right') : 0;
         const bodyPaddingY = bodyStyle ? getPx(bodyStyle, 'padding-top') + getPx(bodyStyle, 'padding-bottom') : 0;
         const bodyGap = bodyStyle ? getPx(bodyStyle, 'row-gap') || getPx(bodyStyle, 'gap') : 0;
-        const headerWidth = header ? Math.ceil(header.getBoundingClientRect().width) : headerFallbackWidth;
+        const headerWidth = getHeaderMinimumWidth(header, headerFallbackWidth);
         const headerHeight = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+        const isCompactTextNode = el.classList.contains('node-text');
+        const baseMinWidth = isCompactTextNode ? 120 : 180;
+        const baseMinHeight = isCompactTextNode ? 88 : 120;
         let minContentWidth = 0;
         let minBodyHeight = bodyPaddingY;
         let visibleBodyChildren = 0;
@@ -274,8 +308,8 @@ export function createNodeDomBindingsApi({
         }
 
         return {
-            minWidth: Math.max(180, Math.ceil(headerWidth), Math.ceil(minContentWidth + bodyPaddingX)),
-            minHeight: Math.max(120, Math.ceil(headerHeight + minBodyHeight))
+            minWidth: Math.max(baseMinWidth, Math.ceil(headerWidth), Math.ceil(minContentWidth + bodyPaddingX)),
+            minHeight: Math.max(baseMinHeight, Math.ceil(headerHeight + minBodyHeight))
         };
     }
 
@@ -522,24 +556,24 @@ export function createNodeDomBindingsApi({
                     }
                 };
             }
-        } else if (type === 'TextInput') {
-            syncTextInputNodeData(id);
+        } else if (type === 'Text') {
+            syncTextNodeData(id);
         }
 
         el.querySelectorAll('input, select, textarea').forEach((input) => {
             input.addEventListener('change', () => scheduleSave());
             input.addEventListener('input', debounce(() => scheduleSave(), 500));
 
-            if (type === 'TextInput' && input.id === `${id}-text`) {
-                input.addEventListener('input', () => syncTextInputNodeData(id));
-                input.addEventListener('change', () => syncTextInputNodeData(id));
+            if (type === 'Text' && input.id === `${id}-text`) {
+                input.addEventListener('input', () => syncTextNodeData(id));
+                input.addEventListener('change', () => syncTextNodeData(id));
             }
 
             const isExpandable = input.closest('.node-field-expand');
             if (input.tagName === 'TEXTAREA' && !isExpandable) {
                 input.addEventListener('input', () => adjustTextareaHeight(input));
                 setTimeout(() => adjustTextareaHeight(input), 0);
-            } else if (input.tagName === 'TEXTAREA' && isExpandable) {
+            } else if (input.tagName === 'TEXTAREA' && isExpandable && type !== 'Text') {
                 bindExpandableTextareaResize(id, input);
             }
         });

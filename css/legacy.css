@@ -3160,7 +3160,8 @@ input[type=number] {
     flex: 1;
 }
 
-/* ===== Node: TextInput & TextDisplay ===== */
+/* ===== Node: Text ===== */
+.node-text .node-header-color,
 .node-text-in .node-header-color {
     background: linear-gradient(90deg, #f59e0b, #d97706);
 }
@@ -3169,10 +3170,22 @@ input[type=number] {
     background: linear-gradient(90deg, #10b981, #059669);
 }
 
+.node-text textarea,
 .node-text-in textarea {
-    min-height: 120px;
+    min-height: 48px;
     font-family: var(--font-mono);
     font-size: 13px;
+}
+
+.node-text .node-field-expand {
+    display: flex;
+    flex-direction: column;
+}
+
+.node-text .node-field-expand textarea {
+    flex: 1 1 auto;
+    height: 100%;
+    resize: none;
 }
 
 .text-display-box {

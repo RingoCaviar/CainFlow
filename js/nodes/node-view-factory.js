@@ -337,19 +337,11 @@ function renderImageResizeBody(id, restoreData) {
     `;
 }
 
-function renderTextInputBody(id, restoreData) {
+function renderTextBody(id, restoreData) {
     const rd = restoreData || {};
     return `
         <div class="node-field node-field-expand">
-            <textarea id="${id}-text" placeholder="输入你想传递的文本..." rows="6">${rd.text || ''}</textarea>
-        </div>
-    `;
-}
-
-function renderTextDisplayBody(id) {
-    return `
-        <div class="node-field node-field-expand">
-            <div class="text-display-box" id="${id}-display">等待输入文本...</div>
+            <textarea id="${id}-text" placeholder="输入文本，或运行后预览上游文本..." rows="6">${rd.text || rd.lastText || ''}</textarea>
         </div>
     `;
 }
@@ -388,8 +380,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);
     if (type === 'ImagePreview') return renderImagePreviewBody(id);
     if (type === 'ImageCompare') return renderImageCompareBody(id);
-    if (type === 'TextInput') return renderTextInputBody(id, restoreData);
-    if (type === 'TextDisplay') return renderTextDisplayBody(id);
+    if (type === 'Text') return renderTextBody(id, restoreData);
     if (type === 'ImageSave') return renderImageSaveBody(id, restoreData, state.globalSaveDirHandle);
     return '';
 }

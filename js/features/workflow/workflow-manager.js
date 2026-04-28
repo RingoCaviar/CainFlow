@@ -212,7 +212,7 @@ export function createWorkflowManagerApi({
             const defaultData = {
                 canvas: { x: 0, y: 0, zoom: 1 },
                 nodes: [
-                    { id: 'n_prompt', type: 'TextInput', x: 100, y: 150, width: 240, height: 160, text: 'A futuristic city at sunset, cinematic lighting, 8k resolution' },
+                    { id: 'n_prompt', type: 'Text', x: 100, y: 150, width: 240, height: 160, text: 'A futuristic city at sunset, cinematic lighting, 8k resolution' },
                     { id: 'n_gen', type: 'ImageGenerate', x: 450, y: 100, width: 260, height: 520, apiConfigId: state.models[0]?.id || 'default', generationCount: 1 },
                     { id: 'n_prev', type: 'ImagePreview', x: 800, y: 150, width: 300, height: 350 }
                 ],

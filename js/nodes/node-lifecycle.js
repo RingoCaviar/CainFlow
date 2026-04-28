@@ -47,6 +47,61 @@ export function createNodeLifecycleApi({
         return height;
     }
 
+    function getPx(style, property) {
+        const value = parseFloat(style?.getPropertyValue?.(property) || '0');
+        return Number.isFinite(value) ? value : 0;
+    }
+
+    function getOuterHeight(el) {
+        if (!el || el.offsetParent === null) return 0;
+        const style = getComputedStyle(el);
+        if (style.position === 'absolute') return 0;
+        return Math.ceil(el.offsetHeight + getPx(style, 'margin-top') + getPx(style, 'margin-bottom'));
+    }
+
+    function getTextNodeRequiredHeight(el, body) {
+        const textarea = body.querySelector('.node-field-expand textarea');
+        if (!textarea) return null;
+
+        const bodyStyle = getComputedStyle(body);
+        const bodyPaddingY = getPx(bodyStyle, 'padding-top') + getPx(bodyStyle, 'padding-bottom');
+        const bodyGap = getPx(bodyStyle, 'row-gap') || getPx(bodyStyle, 'gap');
+        const textareaStyle = getComputedStyle(textarea);
+        const textareaMinHeight = getPx(textareaStyle, 'min-height');
+        const previousTextareaHeight = textarea.style.height;
+        const previousTextareaFlex = textarea.style.flex;
+        textarea.style.height = 'auto';
+        textarea.style.flex = '0 0 auto';
+        const textareaHeight = Math.max(textareaMinHeight, textarea.scrollHeight);
+        textarea.style.height = previousTextareaHeight;
+        textarea.style.flex = previousTextareaFlex;
+        let bodyHeight = bodyPaddingY;
+        let visibleBodyChildren = 0;
+
+        Array.from(body.children).forEach((child) => {
+            if (child.offsetParent === null) return;
+            visibleBodyChildren += 1;
+
+            if (child.classList.contains('node-field') && child.contains(textarea)) {
+                const childStyle = getComputedStyle(child);
+                const label = child.querySelector(':scope > label');
+                const fieldGap = getPx(childStyle, 'row-gap') || getPx(childStyle, 'gap');
+                bodyHeight += (label?.offsetHeight || 0) + (label ? fieldGap : 0) + textareaHeight;
+                return;
+            }
+
+            bodyHeight += child.scrollHeight || child.offsetHeight || 0;
+        });
+
+        bodyHeight += Math.max(0, visibleBodyChildren - 1) * bodyGap;
+
+        const chromeHeight = Array.from(el.children).reduce((total, child) => {
+            return child === body ? total : total + getOuterHeight(child);
+        }, 0);
+
+        return Math.ceil(chromeHeight + bodyHeight);
+    }
+
     function fitNodeToContent(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
@@ -62,9 +117,13 @@ export function createNodeLifecycleApi({
         el.style.height = 'auto';
         body.style.maxHeight = 'none';
 
-        const requiredHeight = node.maxHeight
-            ? Math.min(el.offsetHeight, node.maxHeight)
+        const textNodeRequiredHeight = node.type === 'Text' ? getTextNodeRequiredHeight(el, body) : null;
+        const rawRequiredHeight = Number.isFinite(textNodeRequiredHeight) && textNodeRequiredHeight > 0
+            ? textNodeRequiredHeight
             : el.offsetHeight;
+        const requiredHeight = node.maxHeight
+            ? Math.min(rawRequiredHeight, node.maxHeight)
+            : rawRequiredHeight;
         const currentPx = parseFloat(originalHeight) || el.offsetHeight;
         const heightChanged = allowShrink
             ? Math.abs(requiredHeight - currentPx) > 2
@@ -81,9 +140,15 @@ export function createNodeLifecycleApi({
         body.style.maxHeight = originalBodyMaxHeight;
     }
 
+    function normalizeNodeType(type) {
+        if (type === 'TextInput' || type === 'TextDisplay') return 'Text';
+        return type;
+    }
+
     function addNode(type, x, y, restoreData, silent = false) {
         if (!silent) pushHistory();
-        const config = nodeConfigs[type];
+        const normalizedType = normalizeNodeType(type);
+        const config = nodeConfigs[normalizedType];
         if (!config) return;
         const id = restoreData?.id ? restoreData.id : generateId();
         const el = documentRef.createElement('div');
@@ -101,7 +166,7 @@ export function createNodeLifecycleApi({
         );
         if (initialHeight) el.style.height = initialHeight + 'px';
 
-        el.innerHTML = createNodeMarkup({ type, id, config, restoreData, state });
+        el.innerHTML = createNodeMarkup({ type: normalizedType, id, config, restoreData, state });
         nodesLayer.appendChild(el);
 
         if (restoreData && restoreData.height) {
@@ -112,7 +177,7 @@ export function createNodeLifecycleApi({
 
         const nodeData = {
             id,
-            type,
+            type: normalizedType,
             x,
             y,
             el,
@@ -157,9 +222,9 @@ export function createNodeLifecycleApi({
         if (!nodeData.enabled) el.classList.add('disabled');
         state.nodes.set(id, nodeData);
 
-        if (type === 'ImageImport' || type === 'ImagePreview' || type === 'ImageSave' || type === 'ImageResize' || type === 'ImageCompare') {
+        if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare') {
             (async () => {
-                const isImportUrlMode = type === 'ImageImport' && nodeData.importMode === 'url';
+                const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
                 const hasInitialData = !!(restoreData && restoreData.imageData);
                 const data = isImportUrlMode
                     ? null
@@ -184,7 +249,7 @@ export function createNodeLifecycleApi({
                         await saveImageAsset(id, data);
                     }
 
-                    if (type === 'ImageImport') {
+                    if (normalizedType === 'ImageImport') {
                         const dropZone = el.querySelector(`#${id}-drop`);
                         if (dropZone) {
                             dropZone.classList.add('has-image');
@@ -192,7 +257,7 @@ export function createNodeLifecycleApi({
                         }
                         showResolutionBadge(id, data);
                         onConnectionsChanged();
-                    } else if (type === 'ImagePreview') {
+                    } else if (normalizedType === 'ImagePreview') {
                         const previewContainer = el.querySelector(`#${id}-preview`);
                         if (previewContainer) {
                             previewContainer.innerHTML = `<img src="${data}" alt="预览" draggable="false" style="pointer-events: none;" />`;
@@ -201,7 +266,7 @@ export function createNodeLifecycleApi({
                         if (controls) controls.style.display = 'flex';
                         showResolutionBadge(id, data);
                         onConnectionsChanged();
-                    } else if (type === 'ImageSave') {
+                    } else if (normalizedType === 'ImageSave') {
                         const savePreview = el.querySelector(`#${id}-save-preview`);
                         if (savePreview) {
                             savePreview.innerHTML = `<img src="${data}" alt="待保存" draggable="false" style="pointer-events: none;" />`;
@@ -212,7 +277,7 @@ export function createNodeLifecycleApi({
                         if (viewFullBtn) viewFullBtn.disabled = false;
                         showResolutionBadge(id, data);
                         onConnectionsChanged();
-                    } else if (type === 'ImageResize') {
+                    } else if (normalizedType === 'ImageResize') {
                         restoreImageResizePreview(id, data, {
                             outputWidth: restoreData?.outputWidth || 0,
                             outputHeight: restoreData?.outputHeight || 0,
@@ -220,7 +285,7 @@ export function createNodeLifecycleApi({
                             estimatedBytes: restoreData?.estimatedBytes || null
                         });
                         onConnectionsChanged();
-                    } else if (type === 'ImageCompare') {
+                    } else if (normalizedType === 'ImageCompare') {
                         nodeData.compareImageB = data;
                         const compareContainer = el.querySelector(`#${id}-compare`);
                         if (compareContainer) {
@@ -234,7 +299,7 @@ export function createNodeLifecycleApi({
             })();
         }
 
-        bindNodeInteractions({ id, type, el });
+        bindNodeInteractions({ id, type: normalizedType, el });
 
         if (!restoreData && !silent) showToast(`已添加「${config.title}」节点`, 'success');
         if (!restoreData) scheduleSave();

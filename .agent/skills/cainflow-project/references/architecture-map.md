@@ -41,7 +41,7 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | **执行引擎** | | |
-| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数 |
+| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数；Text 节点运行时只同步文本输入/输出，不自动改变节点尺寸 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
 | 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置 |
 | **帮助** | | |
@@ -84,10 +84,10 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
-| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化 |
-| 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新 |
-| 序列化 | `js/nodes/node-serializer.js` | 工作流导入导出结构与节点序列化，含 ImageGenerate `generationCount` |
-| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 ImageGenerate 分辨率与生成次数控件，以及 ImageCompare 高级对比入口按钮 |
+| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text 节点编辑时只同步数据与保存，不自动缩放节点 |
+| 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 创建时映射为 Text，Text 节点尺寸测量兜底在这里 |
+| 序列化 | `js/nodes/node-serializer.js` | 工作流导入导出结构与节点序列化，含 ImageGenerate `generationCount` 与 Text 文本字段 |
+| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框、ImageGenerate 分辨率与生成次数控件，以及 ImageCompare 高级对比入口按钮 |
 | 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义、端口与默认尺寸 |
 | 图片导入节点 | `js/nodes/types/image-import.js` | ImageImport 节点定义 |
 | 图片对比节点 | `js/nodes/types/image-compare.js` | ImageCompare 节点定义，包含 A/B 图片输入与 B 图片输出 |
@@ -95,8 +95,9 @@
 | 图片缩放节点 | `js/nodes/types/image-resize.js` | ImageResize 节点定义 |
 | 图片保存节点 | `js/nodes/types/image-save.js` | ImageSave 节点定义 |
 | 对话节点 | `js/nodes/types/text-chat.js` | TextChat 节点定义 |
-| 文本显示节点 | `js/nodes/types/text-display.js` | TextDisplay 节点定义 |
-| 文本输入节点 | `js/nodes/types/text-input.js` | TextInput 节点定义 |
+| 文本节点 | `js/nodes/types/text.js` | Text 节点正式定义，包含 1 个文本输入口和 1 个文本输出口 |
+| 文本显示兼容节点 | `js/nodes/types/text-display.js` | TextDisplay 旧缓存/旧工作流兼容 shim，不在注册表中作为新节点注册 |
+| 文本输入兼容节点 | `js/nodes/types/text-input.js` | TextInput 旧缓存/旧工作流兼容 shim，不在注册表中作为新节点注册 |
 
 ---
 
@@ -148,6 +149,7 @@
 | 修复历史记录图片拖拽到画布/节点 | `js/features/history/history-panel.js`, `js/features/ui/global-interactions.js`, `js/features/media/media-controller.js`, `js/core/state.js` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `backend/services/log_service.py` |
 | 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/components/nodes.css` |
+| 修改文本节点输入/输出/尺寸行为 | `js/nodes/types/text.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/ui/global-interactions.js`, `index.html`, `css/legacy.css` |
 | 新增或修改图片对比/预览/缩放/保存类节点 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `css/components/nodes.css` |
 | 修改图片对比高级模式（全屏对比、A/B 选图、历史图片、展开选择、滚轮缩放、左键平移） | `js/nodes/node-view-factory.js`, `js/features/media/media-controller.js`, `index.js`, `js/services/storage-idb.js`, `css/components/nodes.css` |
 | 修复节点 DOM 绑定或事件 | `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js` |
@@ -209,6 +211,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
 - 媒体处理放 `js/features/media/`，不要堆回节点类型文件。
 - 图片类节点的定义、模板、DOM 绑定、媒体同步和执行输出要分层处理：`js/nodes/types/*.js` 只放元数据和端口；`js/nodes/node-view-factory.js` 只生成结构；`js/nodes/node-dom-bindings.js` 只接入节点事件；`js/features/media/media-controller.js` 负责图片显示状态、交互与依赖刷新；`js/features/execution/execution-core.js` 负责运行时输入校验、输出写入和向下游分发。
+- 文本节点统一使用 `Text`。`TextInput` / `TextDisplay` 只保留兼容 shim 和创建时映射，不要重新暴露为新建节点。Text 节点运行后不要自动设置大小；编辑文本时也不要自动缩放节点。若要改尺寸策略，先同时检查 `node-dom-bindings.js`、`node-lifecycle.js`、`execution-core.js` 和 `css/legacy.css`。
 - ImageCompare 高级模式继续沿用图片类节点分层：入口按钮和节点内结构放 `js/nodes/node-view-factory.js`；全屏高级对比界面、A/B 选择状态、从当前输入/画布图片节点/历史记录汇总图片、鼠标位置切割、滚轮缩放、左键平移和缩略图选择区展开放 `js/features/media/media-controller.js`；历史图片读取通过 `index.js` 注入 `getHistory`，来源在 `js/services/storage-idb.js`；样式集中在 `css/components/nodes.css`。高级模式选图显示可用缩略图，但设置 A/B 必须使用原图数据。
 - 历史记录面板显示可以使用 `item.thumb` 缩略图，但拖拽导入必须使用 `item.image` 原图。拖拽源在 `js/features/history/history-panel.js`，画布 drop 与现有 ImageImport 节点更新在 `js/features/ui/global-interactions.js`，直接写入 data URL 的能力放 `js/features/media/media-controller.js`。
 - 全局动画开关以 `globalAnimationEnabled` 为准，旧的 `connectionFlowAnimationEnabled` 只做兼容读写。应用根节点类名与兼容字段同步放 `js/features/ui/animation-controller.js`；具体动画执行点仍在各自模块中读取全局状态或依赖 CSS 禁用规则。

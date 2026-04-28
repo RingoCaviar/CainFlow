@@ -69,7 +69,7 @@ export function createClipboardControllerApi({
         if (node.type === 'ImageSave') {
             serialized.filename = documentRef.getElementById(`${id}-filename`)?.value || 'generated_image';
         }
-        if (node.type === 'TextInput') {
+        if (node.type === 'Text') {
             serialized.text = documentRef.getElementById(`${id}-text`)?.value || '';
         }
         return serialized;

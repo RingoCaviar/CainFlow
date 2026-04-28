@@ -166,7 +166,7 @@ export function createGlobalInteractionsApi({
             } else if (textContent && textContent.trim().length > 0) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
-                const nodeId = addNode('TextInput', pos.x, pos.y, null, true);
+                const nodeId = addNode('Text', pos.x, pos.y, null, true);
                 if (nodeId) {
                     const textEl = documentRef.getElementById(`${nodeId}-text`);
                     if (textEl) {

@@ -411,7 +411,7 @@ export function createExecutionCoreApi({
         }
 
         if (portName === 'text') {
-            if (node.type === 'TextInput') {
+            if (node.type === 'Text' || node.type === 'TextInput') {
                 return documentRef.getElementById(`${node.id}-text`)?.value;
             }
 
@@ -912,6 +912,14 @@ export function createExecutionCoreApi({
         },
         TextInput: async (node) => {
             node.data.text = documentRef.getElementById(`${node.id}-text`).value;
+        },
+        Text: async (node, inputs = {}) => {
+            const textarea = documentRef.getElementById(`${node.id}-text`);
+            const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
+            const text = hasIncomingText ? (inputs.text ?? '') : (textarea?.value || node.data.text || '');
+            if (textarea && textarea.value !== text) textarea.value = text;
+            node.data.text = text;
+            updateAllConnections();
         },
         TextDisplay: async (node, inputs) => {
             const text = inputs.text || '';
