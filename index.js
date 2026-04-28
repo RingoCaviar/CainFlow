@@ -298,6 +298,7 @@ const mediaControllerApi = createMediaControllerApi({
     addLog,
     scheduleSave,
     openImagePainter,
+    getHistory,
     fitNodeToContent
 });
 const connectionsApi = createConnectionsApi({

@@ -255,6 +255,12 @@ function renderImageCompareBody(id) {
             </div>
         </div>
         <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
+        <div class="preview-controls image-compare-controls">
+            <button class="preview-ctrl-btn image-compare-advanced-btn" id="${id}-advanced-compare" title="高级对比">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/><path d="M12 5v14"/></svg>
+                <span>高级对比</span>
+            </button>
+        </div>
     `;
 }
 

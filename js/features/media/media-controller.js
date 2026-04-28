@@ -16,6 +16,7 @@ export function createMediaControllerApi({
     addLog,
     scheduleSave,
     openImagePainter,
+    getHistory = async () => [],
     fitNodeToContent = () => {},
     documentRef = document,
     windowRef = window
@@ -62,6 +63,15 @@ export function createMediaControllerApi({
 
     function isRemoteImageUrl(value) {
         return typeof value === 'string' && /^https?:\/\//i.test(value);
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function updateImageImportModeState(nodeId) {
@@ -361,7 +371,7 @@ export function createMediaControllerApi({
         const container = documentRef.getElementById(`${nodeId}-compare`);
         const badge = documentRef.getElementById(`${nodeId}-res`);
         if (container) {
-            container.classList.remove('has-images', 'is-comparing');
+            container.classList.remove('has-images', 'has-a-image', 'is-comparing');
             container.style.setProperty('--compare-x', '50%');
             container.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>${message}</div>`;
         }
@@ -996,9 +1006,298 @@ export function createMediaControllerApi({
         });
     }
 
+    function getAdvancedCompareSourceLabel(node) {
+        if (!node) return '图片';
+        if (node.type === 'ImageImport') return '用户输入';
+        if (node.type === 'ImageGenerate') return '生成结果';
+        if (node.type === 'ImageResize') return '缩放结果';
+        if (node.type === 'ImagePreview') return '预览图片';
+        if (node.type === 'ImageSave') return '保存图片';
+        if (node.type === 'ImageCompare') return '对比输出';
+        return '节点图片';
+    }
+
+    async function collectAdvancedCompareImages(nodeId) {
+        const node = getNodeById(nodeId);
+        const items = [];
+        const seen = new Set();
+        const addItem = ({ image, thumb = null, label, source = '' }) => {
+            if (typeof image !== 'string' || !image.trim()) return;
+            const key = image.trim();
+            if (seen.has(key)) return;
+            seen.add(key);
+            items.push({
+                image: key,
+                thumb: thumb || key,
+                label: label || '图片',
+                source
+            });
+        };
+
+        addItem({ image: node?.compareImageA || getConnectedImageInput(nodeId, 'imageA'), label: '当前 A', source: '图片对比节点' });
+        addItem({ image: node?.compareImageB || getConnectedImageInput(nodeId, 'imageB'), label: '当前 B', source: '图片对比节点' });
+
+        state.nodes.forEach((entry) => {
+            const image = getNodePreviewSourceData(entry);
+            addItem({
+                image,
+                label: getAdvancedCompareSourceLabel(entry),
+                source: entry.id === nodeId ? '当前节点' : `节点 ${entry.id}`
+            });
+        });
+
+        try {
+            const historyItems = await getHistory();
+            historyItems.forEach((item, index) => {
+                addItem({
+                    image: item.image,
+                    thumb: item.thumb || item.image,
+                    label: '历史记录',
+                    source: item.timestamp ? new Date(item.timestamp).toLocaleString() : `第 ${index + 1} 张`
+                });
+            });
+        } catch (error) {
+            console.warn('Load compare history failed:', error);
+            showToast('读取历史图片失败', 'error', 3000);
+        }
+
+        return items;
+    }
+
+    function openAdvancedImageCompare(nodeId) {
+        const node = getNodeById(nodeId);
+        if (!node || node.type !== 'ImageCompare') return;
+
+        const overlay = documentRef.createElement('div');
+        overlay.className = 'image-compare-advanced-overlay';
+        overlay.innerHTML = `
+            <button type="button" class="image-compare-advanced-close" title="关闭 (Esc)">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="image-compare-advanced-shell">
+                <div class="image-compare-advanced-stage" style="--compare-x: 50%;">
+                    <div class="image-compare-advanced-empty">正在加载图片...</div>
+                </div>
+                <div class="image-compare-advanced-picker">
+                    <div class="image-compare-advanced-actions">
+                        <div class="image-compare-advanced-status">选择一张缩略图</div>
+                        <div class="image-compare-advanced-buttons">
+                            <button type="button" class="image-compare-expand-btn" title="展开图片选择">展开选择</button>
+                            <button type="button" class="image-compare-set-btn" data-role="A" disabled>设置为 A</button>
+                            <button type="button" class="image-compare-set-btn" data-role="B" disabled>设置为 B</button>
+                        </div>
+                    </div>
+                    <div class="image-compare-advanced-thumbs"></div>
+                </div>
+            </div>
+        `;
+        documentRef.body.appendChild(overlay);
+
+        const shell = overlay.querySelector('.image-compare-advanced-shell');
+        const stage = overlay.querySelector('.image-compare-advanced-stage');
+        const status = overlay.querySelector('.image-compare-advanced-status');
+        const thumbs = overlay.querySelector('.image-compare-advanced-thumbs');
+        const expandButton = overlay.querySelector('.image-compare-expand-btn');
+        const setButtons = Array.from(overlay.querySelectorAll('.image-compare-set-btn'));
+        let compareA = node.compareImageA || getConnectedImageInput(nodeId, 'imageA') || null;
+        let compareB = node.compareImageB || getConnectedImageInput(nodeId, 'imageB') || null;
+        let selectedIndex = -1;
+        let items = [];
+        let isPickerExpanded = false;
+        let compareZoom = 1;
+        let compareOffsetX = 0;
+        let compareOffsetY = 0;
+        let isPanning = false;
+        let panStart = { x: 0, y: 0 };
+
+        const applyStageTransform = () => {
+            stage.style.setProperty('--compare-zoom', compareZoom.toFixed(4));
+            stage.style.setProperty('--compare-pan-x', `${compareOffsetX.toFixed(2)}px`);
+            stage.style.setProperty('--compare-pan-y', `${compareOffsetY.toFixed(2)}px`);
+        };
+
+        const updateStagePosition = (event) => {
+            if (!compareA || !compareB) return;
+            const rect = stage.getBoundingClientRect();
+            const ratio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5;
+            const percent = Math.max(0, Math.min(100, ratio * 100));
+            stage.style.setProperty('--compare-x', `${percent}%`);
+            stage.classList.add('is-comparing');
+        };
+
+        const renderStage = () => {
+            stage.classList.toggle('has-a-image', Boolean(compareA && compareB));
+            stage.classList.toggle('is-single-image', Boolean((compareA || compareB) && !(compareA && compareB)));
+            stage.classList.remove('is-comparing');
+            stage.style.setProperty('--compare-x', '50%');
+            stage.innerHTML = '';
+            applyStageTransform();
+
+            if (!compareA && !compareB) {
+                stage.innerHTML = '<div class="image-compare-advanced-empty">从下方选择图片并设置为 A 或 B</div>';
+                return;
+            }
+
+            const appendCompareImage = (className, src, alt) => {
+                const layer = documentRef.createElement('div');
+                layer.className = `image-compare-advanced-layer ${className}`;
+                const img = documentRef.createElement('img');
+                img.className = 'image-compare-advanced-img';
+                img.src = src;
+                img.alt = alt;
+                img.draggable = false;
+                layer.appendChild(img);
+                stage.appendChild(layer);
+            };
+
+            const baseImage = compareB || compareA;
+            appendCompareImage('image-compare-advanced-b-layer', baseImage, compareB ? 'B 对比图' : '对比图');
+
+            if (compareA && compareB) {
+                appendCompareImage('image-compare-advanced-a-layer', compareA, 'A 对比图');
+
+                const divider = documentRef.createElement('div');
+                divider.className = 'image-compare-advanced-divider';
+                divider.setAttribute('aria-hidden', 'true');
+                stage.appendChild(divider);
+            }
+        };
+
+        const renderThumbs = () => {
+            thumbs.innerHTML = '';
+            if (!items.length) {
+                thumbs.innerHTML = '<div class="image-compare-advanced-empty-thumb">暂无可选择图片</div>';
+                setButtons.forEach((button) => { button.disabled = true; });
+                status.textContent = '没有找到图片';
+                return;
+            }
+
+            setButtons.forEach((button) => { button.disabled = selectedIndex < 0; });
+            const selectedItem = selectedIndex >= 0 ? items[selectedIndex] : null;
+            status.textContent = selectedItem
+                ? `${selectedItem.label}${selectedItem.source ? ` · ${selectedItem.source}` : ''}`
+                : `共 ${items.length} 张图片`;
+
+            items.forEach((item, index) => {
+                const button = documentRef.createElement('button');
+                button.type = 'button';
+                button.className = `image-compare-thumb${index === selectedIndex ? ' selected' : ''}`;
+                button.title = `${item.label}${item.source ? ` - ${item.source}` : ''}`;
+                button.addEventListener('click', () => {
+                    selectedIndex = index;
+                    renderThumbs();
+                });
+
+                const img = documentRef.createElement('img');
+                img.src = item.thumb;
+                img.alt = item.label;
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                button.appendChild(img);
+
+                const label = documentRef.createElement('span');
+                label.innerHTML = escapeHtml(item.label);
+                button.appendChild(label);
+                thumbs.appendChild(button);
+            });
+        };
+
+        const setSelectedImage = (role) => {
+            const selected = items[selectedIndex];
+            if (!selected) return;
+            if (role === 'A') compareA = selected.image;
+            if (role === 'B') compareB = selected.image;
+            renderStage();
+        };
+
+        setButtons.forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                setSelectedImage(button.dataset.role);
+            });
+        });
+        expandButton?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            isPickerExpanded = !isPickerExpanded;
+            overlay.classList.toggle('is-picker-expanded', isPickerExpanded);
+            if (shell) shell.classList.toggle('is-picker-expanded', isPickerExpanded);
+            expandButton.textContent = isPickerExpanded ? '收起选择' : '展开选择';
+            expandButton.title = isPickerExpanded ? '收起图片选择' : '展开图片选择';
+        });
+
+        stage.addEventListener('mousemove', updateStagePosition);
+        stage.addEventListener('mouseenter', () => {
+            if (compareA && compareB) stage.classList.add('is-comparing');
+        });
+        stage.addEventListener('mouseleave', () => {
+            stage.classList.remove('is-comparing');
+        });
+        stage.addEventListener('wheel', (event) => {
+            if (!compareA && !compareB) return;
+            event.preventDefault();
+            const nextZoom = Math.max(0.2, Math.min(12, compareZoom * (event.deltaY > 0 ? 0.9 : 1.1)));
+            if (nextZoom === compareZoom) return;
+            const rect = stage.getBoundingClientRect();
+            const cursorX = event.clientX - rect.left - rect.width / 2;
+            const cursorY = event.clientY - rect.top - rect.height / 2;
+            const zoomRatio = nextZoom / compareZoom;
+            compareOffsetX = cursorX - (cursorX - compareOffsetX) * zoomRatio;
+            compareOffsetY = cursorY - (cursorY - compareOffsetY) * zoomRatio;
+            compareZoom = nextZoom;
+            applyStageTransform();
+        }, { passive: false });
+        stage.addEventListener('mousedown', (event) => {
+            if (event.button !== 0 || (!compareA && !compareB)) return;
+            event.preventDefault();
+            isPanning = true;
+            panStart = {
+                x: event.clientX - compareOffsetX,
+                y: event.clientY - compareOffsetY
+            };
+            stage.classList.add('is-panning');
+        });
+        const onPanMove = (event) => {
+            if (!isPanning) return;
+            compareOffsetX = event.clientX - panStart.x;
+            compareOffsetY = event.clientY - panStart.y;
+            applyStageTransform();
+            updateStagePosition(event);
+        };
+        const stopPanning = () => {
+            isPanning = false;
+            stage.classList.remove('is-panning');
+        };
+        windowRef.addEventListener('mousemove', onPanMove);
+        windowRef.addEventListener('mouseup', stopPanning);
+
+        const cleanup = () => {
+            overlay.remove();
+            documentRef.removeEventListener('keydown', onKeyDown);
+            windowRef.removeEventListener('mousemove', onPanMove);
+            windowRef.removeEventListener('mouseup', stopPanning);
+        };
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') cleanup();
+        };
+        overlay.querySelector('.image-compare-advanced-close').addEventListener('click', cleanup);
+        documentRef.addEventListener('keydown', onKeyDown);
+
+        requestAnimationFrame(() => overlay.classList.add('active'));
+        renderStage();
+        collectAdvancedCompareImages(nodeId).then((nextItems) => {
+            items = nextItems;
+            if (!compareB && items[0]) compareB = items[0].image;
+            if (!compareA && items[1]) compareA = items[1].image;
+            selectedIndex = items.length ? 0 : -1;
+            renderStage();
+            renderThumbs();
+        });
+    }
+
     function setupImageCompare(id, el) {
         const container = el.querySelector(`#${id}-compare`);
         if (!container) return;
+        const advancedBtn = el.querySelector(`#${id}-advanced-compare`);
 
         container.addEventListener('mouseenter', () => {
             if (!container.classList.contains('has-a-image')) return;
@@ -1020,6 +1319,11 @@ export function createMediaControllerApi({
             if (state.justDragged) return;
             const node = getNodeById(id);
             if (node?.compareImageB) openFullscreenPreview(node.compareImageB, id);
+        });
+        advancedBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (state.justDragged) return;
+            openAdvancedImageCompare(id);
         });
 
         void syncImageCompareNode(id);
