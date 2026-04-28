@@ -98,6 +98,13 @@
             <line x1="16" y1="17" x2="8" y2="17" />
             <polyline points="10 9 9 9 8 9" />
         </symbol>
+        <symbol id="icon-prompt-library" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16v16H4z" />
+            <path d="M8 8h8" />
+            <path d="M8 12h8" />
+            <path d="M8 16h5" />
+        </symbol>
         <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3" />
             <path
@@ -310,6 +317,12 @@
                     </svg>
                     <span>缓存</span>
                 </button>
+                <button id="btn-prompt-library" class="side-bar-btn" title="提示词库">
+                    <svg class="icon-sm">
+                        <use href="#icon-prompt-library" />
+                    </svg>
+                    <span>提示词</span>
+                </button>
                 <button id="btn-auto-arrange" class="side-bar-btn" title="自动整理节点">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round">
@@ -339,6 +352,74 @@
                     <button id="btn-close-help" class="help-close-btn">&times;</button>
                 </div>
                 <div id="help-panel-content" class="help-panel-body"></div>
+            </div>
+
+            <!-- Prompt Library Modal -->
+            <div id="prompt-library-modal" class="modal-overlay prompt-library-overlay hidden">
+                <section class="prompt-library-panel" role="dialog" aria-modal="true" aria-labelledby="prompt-library-title">
+                    <header class="prompt-library-header">
+                        <div class="prompt-library-title-group">
+                            <svg class="icon-sm">
+                                <use href="#icon-prompt-library" />
+                            </svg>
+                            <h2 id="prompt-library-title">提示词库</h2>
+                            <span id="prompt-library-count" class="prompt-library-count">0</span>
+                        </div>
+                        <div class="prompt-library-actions">
+                            <button id="btn-new-prompt" class="btn btn-primary" type="button">新建</button>
+                            <button id="btn-import-prompts" class="btn btn-secondary" type="button">导入</button>
+                            <button id="btn-export-prompts" class="btn btn-secondary" type="button">导出</button>
+                            <input id="input-import-prompts" type="file" accept="application/json,.json" class="hidden" />
+                            <button id="btn-toggle-prompt-select" class="btn btn-secondary" type="button">多选</button>
+                            <button id="btn-select-all-prompts" class="btn btn-secondary prompt-selection-action hidden" type="button">全选</button>
+                            <button id="btn-delete-selected-prompts" class="btn btn-danger prompt-selection-action hidden" type="button" disabled>删除选中</button>
+                            <button id="btn-cancel-prompt-select" class="btn btn-secondary prompt-selection-action hidden" type="button">取消</button>
+                            <button id="btn-close-prompt-library" class="modal-close-btn" type="button">&times;</button>
+                        </div>
+                    </header>
+                    <div class="prompt-library-body">
+                        <section id="prompt-library-grid" class="prompt-library-grid"></section>
+                        <section id="prompt-editor" class="prompt-editor hidden" aria-labelledby="prompt-editor-title">
+                            <div class="prompt-editor-header">
+                                <h3 id="prompt-editor-title">新建提示词</h3>
+                                <button id="btn-cancel-prompt-edit" class="icon-btn" type="button" title="关闭编辑器">
+                                    <svg class="icon-sm">
+                                        <use href="#icon-close" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <label class="prompt-editor-field">
+                                <span>名称</span>
+                                <input id="prompt-name-input" type="text" maxlength="80" autocomplete="off" />
+                            </label>
+                            <label class="prompt-editor-field prompt-editor-field-grow">
+                                <span>内容</span>
+                                <textarea id="prompt-content-input" spellcheck="false"></textarea>
+                            </label>
+                            <div class="prompt-editor-actions">
+                                <button id="btn-save-prompt" class="btn btn-primary" type="button">保存</button>
+                                <button id="btn-cancel-prompt" class="btn btn-secondary" type="button">取消</button>
+                            </div>
+                        </section>
+                    </div>
+                    <div id="prompt-import-dialog" class="prompt-import-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="prompt-import-title">
+                        <section class="prompt-import-panel">
+                            <header class="prompt-import-header">
+                                <div>
+                                    <h3 id="prompt-import-title">导入提示词预设</h3>
+                                    <p id="prompt-import-summary">已选择 0 / 0 条</p>
+                                </div>
+                                <button id="btn-close-prompt-import" class="modal-close-btn" type="button">&times;</button>
+                            </header>
+                            <div id="prompt-import-list" class="prompt-import-list"></div>
+                            <footer class="prompt-import-footer">
+                                <button id="btn-import-select-all" class="btn btn-secondary" type="button">取消全选</button>
+                                <button id="btn-confirm-import-prompts" class="btn btn-primary" type="button">导入选中</button>
+                                <button id="btn-cancel-import-prompts" class="btn btn-secondary" type="button">取消</button>
+                            </footer>
+                        </section>
+                    </div>
+                </section>
             </div>
 
 

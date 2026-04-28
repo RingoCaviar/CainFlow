@@ -66,6 +66,7 @@ import { createSettingsControllerApi } from './js/features/settings/settings-con
 import { createUpdateManager } from './js/features/update/update-manager.js';
 import { createHelpPanelApi } from './js/features/help/help-panel.js';
 import { createWorkflowManagerApi } from './js/features/workflow/workflow-manager.js';
+import { createPromptLibraryApi } from './js/features/prompts/prompt-library.js';
 
 /**
  * index.js 是 CainFlow 前端的总装配入口。
@@ -231,6 +232,7 @@ let startupControllerApi = null;
 let errorModalControllerApi = null;
 let toastControllerApi = null;
 let themeControllerApi = null;
+let promptLibraryApi = null;
 
 function getLogPanelApi() {
     if (!logPanelApi) {
@@ -600,6 +602,21 @@ function getToolbarControllerApi() {
     return toolbarControllerApi;
 }
 
+function getPromptLibraryApi() {
+    if (!promptLibraryApi) {
+        promptLibraryApi = createPromptLibraryApi({
+            state,
+            canvasContainer,
+            viewportApi,
+            addNode,
+            saveState,
+            showToast,
+            copyToClipboard
+        });
+    }
+    return promptLibraryApi;
+}
+
 function getNodeAutoLayoutApi() {
     if (!nodeAutoLayoutApi) {
         nodeAutoLayoutApi = createNodeAutoLayoutApi({
@@ -867,6 +884,7 @@ function initFeatureModules() {
     helpPanelApi.initHelpPanel();
     updateManager.initRefreshNotice();
     workflowManagerApi.initWorkflow();
+    getPromptLibraryApi().initPromptLibrary();
     initCache();
 }
 

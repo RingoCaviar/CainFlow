@@ -832,6 +832,200 @@ html[data-app-theme="light"] .modal-overlay {
     background: var(--overlay-backdrop);
 }
 
+html[data-app-theme="light"] .prompt-library-overlay {
+    background: rgba(15, 23, 42, 0.24);
+}
+
+html[data-app-theme="light"] .prompt-library-panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.98));
+    border-color: rgba(148, 163, 184, 0.34);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+}
+
+html[data-app-theme="light"] .prompt-library-header {
+    border-bottom-color: rgba(148, 163, 184, 0.28);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(247, 250, 255, 0.96));
+}
+
+html[data-app-theme="light"] .prompt-library-title-group h2,
+html[data-app-theme="light"] .prompt-editor-header h3,
+html[data-app-theme="light"] .prompt-card-main h3 {
+    color: #172033;
+}
+
+html[data-app-theme="light"] .prompt-library-title-group .icon-sm {
+    color: #0f766e;
+}
+
+html[data-app-theme="light"] .prompt-library-count {
+    color: #0f766e;
+    background: rgba(15, 118, 110, 0.1);
+    border-color: rgba(15, 118, 110, 0.22);
+}
+
+html[data-app-theme="light"] .prompt-library-empty {
+    color: #64748b;
+    background: rgba(255, 255, 255, 0.72);
+    border-color: rgba(148, 163, 184, 0.34);
+}
+
+html[data-app-theme="light"] .prompt-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
+    border-color: rgba(148, 163, 184, 0.26);
+    box-shadow:
+        0 14px 30px rgba(148, 163, 184, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+html[data-app-theme="light"] .prompt-card:hover {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(236, 244, 252, 0.96));
+    border-color: rgba(15, 118, 110, 0.25);
+    box-shadow:
+        0 18px 34px rgba(148, 163, 184, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+html[data-app-theme="light"] .prompt-card.selected {
+    border-color: rgba(15, 118, 110, 0.62);
+    box-shadow:
+        0 0 0 2px rgba(15, 118, 110, 0.14),
+        0 18px 34px rgba(148, 163, 184, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+html[data-app-theme="light"] .prompt-card-select {
+    color: #0f766e;
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(15, 118, 110, 0.24);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+html[data-app-theme="light"] .prompt-card.selected .prompt-card-select {
+    color: #ffffff;
+    background: #0f766e;
+    border-color: rgba(15, 118, 110, 0.36);
+}
+
+html[data-app-theme="light"] .prompt-card-select:hover {
+    background: rgba(15, 118, 110, 0.1);
+    border-color: rgba(15, 118, 110, 0.34);
+}
+
+html[data-app-theme="light"] .prompt-card-main p {
+    color: #526077;
+}
+
+html[data-app-theme="light"] .prompt-card-actions {
+    background: rgba(248, 250, 252, 0.86);
+    border-top-color: rgba(148, 163, 184, 0.22);
+}
+
+html[data-app-theme="light"] .prompt-card-btn,
+html[data-app-theme="light"] .prompt-card-icon-btn {
+    color: #526077;
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(148, 163, 184, 0.28);
+}
+
+html[data-app-theme="light"] .prompt-import-btn {
+    color: #0f766e;
+    background: rgba(15, 118, 110, 0.1);
+    border-color: rgba(15, 118, 110, 0.24);
+}
+
+html[data-app-theme="light"] .prompt-card-btn:hover,
+html[data-app-theme="light"] .prompt-card-icon-btn:hover {
+    color: #172033;
+    background: rgba(241, 245, 249, 0.96);
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+html[data-app-theme="light"] .prompt-card-icon-btn:hover {
+    color: #b91c1c;
+    background: rgba(254, 226, 226, 0.92);
+    border-color: rgba(220, 38, 38, 0.32);
+}
+
+html[data-app-theme="light"] .prompt-editor {
+    background: rgba(241, 245, 249, 0.64);
+    border-left-color: rgba(148, 163, 184, 0.28);
+}
+
+html[data-app-theme="light"] .prompt-editor-field {
+    color: #64748b;
+}
+
+html[data-app-theme="light"] .prompt-editor-field input,
+html[data-app-theme="light"] .prompt-editor-field textarea {
+    color: #172033;
+    background: rgba(255, 255, 255, 0.94);
+    border-color: rgba(148, 163, 184, 0.32);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+html[data-app-theme="light"] .prompt-editor-field input:focus,
+html[data-app-theme="light"] .prompt-editor-field textarea:focus {
+    background: #ffffff;
+    border-color: rgba(15, 118, 110, 0.42);
+    box-shadow:
+        0 0 0 3px rgba(15, 118, 110, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.98);
+}
+
+html[data-app-theme="light"] .prompt-import-dialog {
+    background: rgba(15, 23, 42, 0.24);
+}
+
+html[data-app-theme="light"] .prompt-import-panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.98));
+    border-color: rgba(148, 163, 184, 0.34);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+}
+
+html[data-app-theme="light"] .prompt-import-header,
+html[data-app-theme="light"] .prompt-import-footer {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(248, 250, 252, 0.82);
+}
+
+html[data-app-theme="light"] .prompt-import-header h3,
+html[data-app-theme="light"] .prompt-import-preview h4 {
+    color: #172033;
+}
+
+html[data-app-theme="light"] .prompt-import-header p,
+html[data-app-theme="light"] .prompt-import-preview p {
+    color: #526077;
+}
+
+html[data-app-theme="light"] .prompt-import-item {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
+    border-color: rgba(148, 163, 184, 0.26);
+    box-shadow:
+        0 12px 24px rgba(148, 163, 184, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+html[data-app-theme="light"] .prompt-import-item.selected {
+    border-color: rgba(15, 118, 110, 0.62);
+    box-shadow:
+        0 0 0 2px rgba(15, 118, 110, 0.14),
+        0 14px 28px rgba(148, 163, 184, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+html[data-app-theme="light"] .prompt-import-check {
+    color: #0f766e;
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(15, 118, 110, 0.24);
+}
+
+html[data-app-theme="light"] .prompt-import-item.selected .prompt-import-check {
+    color: #ffffff;
+    background: #0f766e;
+    border-color: rgba(15, 118, 110, 0.36);
+}
+
 html[data-app-theme="light"] #settings-modal .modal-header,
 html[data-app-theme="light"] #settings-modal .modal-tabs,
 html[data-app-theme="light"] #settings-modal .modal-footer {

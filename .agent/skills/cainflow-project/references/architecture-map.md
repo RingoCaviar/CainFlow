@@ -49,6 +49,8 @@
 | **历史记录** | | |
 | 历史面板 | `js/features/history/history-panel.js` | 历史面板 UI 与列表交互；历史图片拖拽和高级图片对比选图应携带 `item.image` 原图而不是缩略图 |
 | 历史预览 | `js/features/history/history-preview.js` | 历史记录条目预览渲染 |
+| **提示词库** | | |
+| 提示词库管理 | `js/features/prompts/prompt-library.js` | 提示词预设的全屏管理界面行为、本地 `localStorage` 持久化、多选删除、导入/导出、导入前格式校验、导入项选择，以及导入画布时创建不重叠的 Text 节点 |
 | **日志** | | |
 | 日志面板 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
 | **媒体** | | |
@@ -147,6 +149,7 @@
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/services/storage-idb.js` |
 | 修复历史记录图片拖拽到画布/节点 | `js/features/history/history-panel.js`, `js/features/ui/global-interactions.js`, `js/features/media/media-controller.js`, `js/core/state.js` |
+| 新增或修改提示词库管理、预设卡片、多选删除、复制、导入画布、提示词 JSON 导入导出 | `js/features/prompts/prompt-library.js`, `index.html`, `index.js`, `css/features/panels.css`, `css/themes.css` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `backend/services/log_service.py` |
 | 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/components/nodes.css` |
 | 修改文本节点输入/输出/尺寸行为 | `js/nodes/types/text.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/ui/global-interactions.js`, `index.html`, `css/legacy.css` |
@@ -214,6 +217,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 文本节点统一使用 `Text`。`TextInput` / `TextDisplay` 只保留兼容 shim 和创建时映射，不要重新暴露为新建节点。Text 节点运行后不要自动设置大小；编辑文本时也不要自动缩放节点。若要改尺寸策略，先同时检查 `node-dom-bindings.js`、`node-lifecycle.js`、`execution-core.js` 和 `css/legacy.css`。
 - ImageCompare 高级模式继续沿用图片类节点分层：入口按钮和节点内结构放 `js/nodes/node-view-factory.js`；全屏高级对比界面、A/B 选择状态、从当前输入/画布图片节点/历史记录汇总图片、鼠标位置切割、滚轮缩放、左键平移和缩略图选择区展开放 `js/features/media/media-controller.js`；历史图片读取通过 `index.js` 注入 `getHistory`，来源在 `js/services/storage-idb.js`；样式集中在 `css/components/nodes.css`。高级模式选图显示可用缩略图，但设置 A/B 必须使用原图数据。
 - 历史记录面板显示可以使用 `item.thumb` 缩略图，但拖拽导入必须使用 `item.image` 原图。拖拽源在 `js/features/history/history-panel.js`，画布 drop 与现有 ImageImport 节点更新在 `js/features/ui/global-interactions.js`，直接写入 data URL 的能力放 `js/features/media/media-controller.js`。
+- 提示词库是独立功能域：全屏管理、预设卡片、多选删除、复制、JSON 导入/导出、导入文件校验和导入选择窗口放 `js/features/prompts/prompt-library.js`；左侧栏入口和面板骨架放 `index.html`；总装配只在 `index.js` 注入依赖并初始化。提示词预设当前使用 `localStorage` 键 `cainflow_prompt_library`，不是工作流文件、后端文件或 IndexedDB。导出 JSON 使用 `type: "cainflow-prompt-library"`、`version`、`prompts`；导入必须先校验格式，确认规范后再默认全选并允许用户选择导入项。导入画布时创建正式 `Text` 节点，位置查找应避免与现有节点重叠。
 - 全局动画开关以 `globalAnimationEnabled` 为准，旧的 `connectionFlowAnimationEnabled` 只做兼容读写。应用根节点类名与兼容字段同步放 `js/features/ui/animation-controller.js`；具体动画执行点仍在各自模块中读取全局状态或依赖 CSS 禁用规则。
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - 后端按 route 与 service 分责，不要混写。
