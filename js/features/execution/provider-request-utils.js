@@ -57,6 +57,7 @@ export function normalizeModelTaskType(taskType, model = {}) {
     const fingerprint = `${model?.name || ''} ${model?.modelId || ''}`.toLowerCase();
     if (
         fingerprint.includes('gpt-image') ||
+        fingerprint.includes('banana') ||
         fingerprint.includes('dall-e') ||
         fingerprint.includes('image-preview') ||
         fingerprint.includes('image generation') ||

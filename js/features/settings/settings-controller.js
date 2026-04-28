@@ -14,6 +14,7 @@ import {
     resolveProviderUrl,
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
+import { createProxyHeadersGetter } from '../../services/api-client.js';
 
 export function createSettingsControllerApi({
     appVersion,
@@ -40,6 +41,146 @@ export function createSettingsControllerApi({
 }) {
     const providerCollapseState = new Map();
     const modelCollapseState = new Map();
+    const getProxyHeaders = createProxyHeadersGetter(() => state);
+    const modelFetchDialogState = {
+        providerId: '',
+        models: [],
+        query: '',
+        loading: false,
+        error: ''
+    };
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getSafeProviderName(provider) {
+        return String(provider?.name || '').trim() || '未命名供应商';
+    }
+
+    function getModelFetchProtocol(provider) {
+        return normalizeProviderType(provider?.type, provider, 'openai') || 'openai';
+    }
+
+    function getProviderModelListUrl(provider, protocol) {
+        const endpoint = String(provider?.endpoint || '').trim().replace(/\/+$/, '');
+        if (!endpoint) return '';
+        let base = normalizeAutoCompleteBase(endpoint, protocol).replace(/\/models\/?$/i, '');
+        if (protocol === 'google') {
+            const query = provider?.apikey ? `?key=${encodeURIComponent(provider.apikey)}` : '';
+            return `${base}/v1beta/models${query}`;
+        }
+        if (!/\/v\d+(?:beta)?$/i.test(base)) {
+            base = `${base}/v1`;
+        }
+        return `${base}/models`;
+    }
+
+    function normalizeFetchedModelId(rawId) {
+        return String(rawId || '').replace(/^models\//, '').trim();
+    }
+
+    function inferFetchedModelTaskType(modelId, sourceModel = {}) {
+        const fingerprint = `${modelId} ${sourceModel.displayName || ''} ${sourceModel.name || ''}`.toLowerCase();
+        if (
+            fingerprint.includes('image') ||
+            fingerprint.includes('banana') ||
+            fingerprint.includes('dall-e') ||
+            fingerprint.includes('gpt-image') ||
+            fingerprint.includes('imagen')
+        ) {
+            return 'image';
+        }
+        return 'chat';
+    }
+
+    function inferFetchedModelProtocol(provider, fetchedModel = {}) {
+        const fingerprint = `${fetchedModel.id || ''} ${fetchedModel.name || ''}`.toLowerCase();
+        if (
+            fingerprint.includes('gpt-') ||
+            fingerprint.includes('gpt ') ||
+            fingerprint.includes('dall-e') ||
+            fingerprint.includes('openai') ||
+            fingerprint.includes('o1-') ||
+            fingerprint.includes('o3-') ||
+            fingerprint.includes('o4-')
+        ) {
+            return 'openai';
+        }
+        if (fingerprint.includes('gemini')) return 'google';
+        return getModelFetchProtocol(provider);
+    }
+
+    function normalizeFetchedModelName(modelId, sourceModel = {}) {
+        return String(sourceModel.displayName || sourceModel.id || modelId || '').replace(/^models\//, '').trim() || modelId;
+    }
+
+    function parseFetchedModels(payload, protocol) {
+        const rawModels = protocol === 'google'
+            ? (Array.isArray(payload?.models) ? payload.models : [])
+            : (Array.isArray(payload?.data)
+                ? payload.data
+                : Array.isArray(payload?.models)
+                    ? payload.models
+                    : Array.isArray(payload)
+                        ? payload
+                        : []);
+
+        const seen = new Set();
+        return rawModels
+            .map((item) => {
+                const rawId = protocol === 'google' ? item?.name : (item?.id || item?.name);
+                const modelId = normalizeFetchedModelId(rawId);
+                if (!modelId || seen.has(modelId)) return null;
+                seen.add(modelId);
+                return {
+                    id: modelId,
+                    name: normalizeFetchedModelName(modelId, item),
+                    taskType: inferFetchedModelTaskType(modelId, item),
+                    raw: item
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
+    function modelAlreadyExists(providerId, modelId, protocol) {
+        return state.models.some((model) => (
+            model.providerId === providerId &&
+            model.modelId === modelId &&
+            normalizeModelProtocol(model.protocol, model, state.providers.find((provider) => provider.id === providerId)) === protocol
+        ));
+    }
+
+    function addFetchedModel(provider, fetchedModel) {
+        if (!provider || !fetchedModel) return;
+        const protocol = inferFetchedModelProtocol(provider, fetchedModel);
+        if (modelAlreadyExists(provider.id, fetchedModel.id, protocol)) {
+            showToast('该模型已在模型列表中', 'info');
+            return;
+        }
+
+        const newModelId = 'mod_' + Math.random().toString(36).substr(2, 9);
+        state.models.push({
+            id: newModelId,
+            name: fetchedModel.name || fetchedModel.id,
+            modelId: fetchedModel.id,
+            providerId: provider.id,
+            taskType: normalizeModelTaskType(fetchedModel.taskType, fetchedModel),
+            protocol
+        });
+        modelCollapseState.set(newModelId, true);
+        renderModels();
+        updateAllNodeModelDropdowns();
+        saveState();
+        renderProviderModelsDialog({ preserveListScroll: true });
+        showToast(`已添加模型：${fetchedModel.id}`, 'success');
+    }
 
     function syncCollapseState(items, collapseState, defaultCollapsed = true) {
         const itemIds = new Set(items.map((item) => item.id));
@@ -234,6 +375,171 @@ export function createSettingsControllerApi({
         return 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations；生图节点有参考图输入时自动改走 /images/edits。';
     }
 
+    function getProviderModelsDialog() {
+        let dialog = documentRef.getElementById('provider-models-dialog');
+        if (dialog) return dialog;
+
+        dialog = documentRef.createElement('div');
+        dialog.id = 'provider-models-dialog';
+        dialog.className = 'provider-models-dialog hidden';
+        (documentRef.body || settingsModal).appendChild(dialog);
+        return dialog;
+    }
+
+    function closeProviderModelsDialog() {
+        const dialog = getProviderModelsDialog();
+        dialog.classList.add('hidden');
+        modelFetchDialogState.providerId = '';
+        modelFetchDialogState.models = [];
+        modelFetchDialogState.query = '';
+        modelFetchDialogState.loading = false;
+        modelFetchDialogState.error = '';
+    }
+
+    function renderProviderModelsDialog(options = {}) {
+        const dialog = getProviderModelsDialog();
+        const previousListScrollTop = options.preserveListScroll
+            ? dialog.querySelector('.provider-models-list')?.scrollTop || 0
+            : 0;
+        const provider = state.providers.find((candidate) => candidate.id === modelFetchDialogState.providerId);
+        if (!provider) {
+            dialog.classList.add('hidden');
+            return;
+        }
+
+        const providerProtocol = getModelFetchProtocol(provider);
+        const query = modelFetchDialogState.query.trim().toLowerCase();
+        const filteredModels = query
+            ? modelFetchDialogState.models.filter((model) => (
+                model.id.toLowerCase().includes(query) ||
+                model.name.toLowerCase().includes(query)
+            ))
+            : modelFetchDialogState.models;
+        const modelRows = filteredModels.map((model) => {
+            const modelProtocol = inferFetchedModelProtocol(provider, model);
+            const exists = modelAlreadyExists(provider.id, model.id, modelProtocol);
+            return `
+                <div class="provider-models-row">
+                    <div class="provider-models-row-main">
+                        <div class="provider-models-row-name">${escapeHtml(model.name)}</div>
+                        <div class="provider-models-row-id">${escapeHtml(model.id)}</div>
+                    </div>
+                    <span class="provider-models-badge">${model.taskType === 'image' ? '生图' : '对话'} · ${modelProtocol === 'openai' ? 'OpenAI' : 'Gemini'}</span>
+                    <button type="button" class="provider-models-add" data-model-id="${escapeHtml(model.id)}" ${exists ? 'disabled' : ''} title="${exists ? '模型已添加' : '添加到模型列表'}">${exists ? '已添加' : '+'}</button>
+                </div>
+            `;
+        }).join('');
+
+        const emptyText = modelFetchDialogState.loading
+            ? '正在获取模型列表...'
+            : modelFetchDialogState.error
+                ? modelFetchDialogState.error
+                : query
+                    ? '没有匹配的模型'
+                    : '暂无可显示的模型';
+
+        dialog.innerHTML = `
+            <div class="provider-models-backdrop" data-close-models="true"></div>
+            <div class="provider-models-panel" role="dialog" aria-modal="true" aria-labelledby="provider-models-title">
+                <div class="provider-models-header">
+                    <div>
+                        <h3 id="provider-models-title">获取模型列表</h3>
+                        <div class="provider-models-subtitle">${escapeHtml(getSafeProviderName(provider))} · ${providerProtocol === 'google' ? 'Google / Gemini' : 'OpenAI 兼容'}</div>
+                    </div>
+                    <button type="button" class="provider-models-close" data-close-models="true" title="关闭">×</button>
+                </div>
+                <div class="provider-models-search-row">
+                    <input id="provider-models-search" type="search" value="${escapeHtml(modelFetchDialogState.query)}" placeholder="搜索模型 ID 或名称" autocomplete="off" />
+                    <button type="button" class="btn btn-secondary btn-sm" id="provider-models-refresh" ${modelFetchDialogState.loading ? 'disabled' : ''}>重新获取</button>
+                </div>
+                <div class="provider-models-list">
+                    ${modelRows || `<div class="provider-models-empty">${escapeHtml(emptyText)}</div>`}
+                </div>
+            </div>
+        `;
+        dialog.classList.remove('hidden');
+
+        dialog.querySelectorAll('[data-close-models="true"]').forEach((element) => {
+            element.addEventListener('click', closeProviderModelsDialog);
+        });
+        dialog.querySelector('#provider-models-refresh')?.addEventListener('click', () => {
+            fetchProviderModels(provider.id);
+        });
+        dialog.querySelector('#provider-models-search')?.addEventListener('input', (event) => {
+            modelFetchDialogState.query = event.target.value;
+            renderProviderModelsDialog({ keepSearchFocus: true });
+        });
+        dialog.querySelectorAll('.provider-models-add').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                const modelId = event.currentTarget.dataset.modelId;
+                const fetchedModel = modelFetchDialogState.models.find((model) => model.id === modelId);
+                addFetchedModel(provider, fetchedModel);
+            });
+        });
+
+        if (options.keepSearchFocus) {
+            const searchInput = dialog.querySelector('#provider-models-search');
+            searchInput?.focus();
+            searchInput?.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }
+        if (options.preserveListScroll) {
+            const list = dialog.querySelector('.provider-models-list');
+            if (list) list.scrollTop = previousListScrollTop;
+        }
+    }
+
+    async function fetchProviderModels(providerId) {
+        const provider = state.providers.find((candidate) => candidate.id === providerId);
+        if (!provider) return;
+
+        const protocol = getModelFetchProtocol(provider);
+        const url = getProviderModelListUrl(provider, protocol);
+        modelFetchDialogState.providerId = providerId;
+        modelFetchDialogState.models = [];
+        modelFetchDialogState.error = '';
+        modelFetchDialogState.loading = true;
+        renderProviderModelsDialog();
+
+        try {
+            if (!url) throw new Error('请先填写供应商 API 地址');
+            if (!provider.apikey && protocol === 'google') throw new Error('请先填写供应商 API 密钥');
+
+            const headers = protocol === 'openai' && provider.apikey
+                ? getProxyHeaders(url, 'GET', {
+                    Accept: 'application/json',
+                    Authorization: `Bearer ${provider.apikey}`
+                })
+                : getProxyHeaders(url, 'GET', { Accept: 'application/json' });
+            const response = await fetchImpl('/proxy', {
+                method: 'POST',
+                headers
+            });
+            const responseText = await response.text();
+            if (!response.ok) {
+                throw new Error(responseText || `请求失败 (${response.status})`);
+            }
+
+            let payload = null;
+            try {
+                payload = JSON.parse(responseText);
+            } catch {
+                throw new Error('供应商没有返回有效的 JSON 模型列表');
+            }
+
+            const models = parseFetchedModels(payload, protocol);
+            modelFetchDialogState.models = models;
+            modelFetchDialogState.error = models.length ? '' : '供应商返回的模型列表为空';
+            showToast(`已获取 ${models.length} 个模型`, models.length ? 'success' : 'info');
+        } catch (error) {
+            const message = error?.message || String(error);
+            modelFetchDialogState.error = `获取失败：${message}`;
+            showToast(modelFetchDialogState.error, 'error');
+        } finally {
+            modelFetchDialogState.loading = false;
+            renderProviderModelsDialog();
+        }
+    }
+
     function renderProviders() {
         providersList.innerHTML = '';
         if (state.providers.length === 0) {
@@ -251,6 +557,7 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:var(--accent-cyan);width:150px" />
                     <div class="card-header-actions">
+                        <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
                         <button class="card-btn-collapse" data-id="${prov.id}" data-target="provider" title="${isCollapsed ? '展开此供应商' : '折叠此供应商'}" aria-expanded="${isCollapsed ? 'false' : 'true'}">${isCollapsed ? '▸' : '▾'}</button>
                         ${prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
                     </div>
@@ -336,6 +643,13 @@ export function createSettingsControllerApi({
                 renderProviders();
                 renderModels();
                 saveState();
+            });
+        });
+
+        providersList.querySelectorAll('.card-btn-fetch-models').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                const { id } = e.currentTarget.dataset;
+                fetchProviderModels(id);
             });
         });
 

@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.7.5.2
+> 当前版本：v2.7.6
 
 ## 前端结构
 
@@ -42,7 +42,7 @@
 | --- | --- | --- |
 | **执行引擎** | | |
 | 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数；Text 节点运行时只同步文本输入/输出，不自动改变节点尺寸 |
-| 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
+| 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
 | 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置 |
 | **帮助** | | |
 | 帮助面板 | `js/features/help/help-panel.js` | 帮助文档面板 UI 与交互 |
@@ -61,7 +61,7 @@
 | 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出 |
 | 会话管理 | `js/features/persistence/session-manager.js` | 自动保存、页面关闭前恢复等会话持久化 |
 | **设置** | | |
-| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、持久化、代理检测、版本更新、画布连线设置 |
+| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、搜索与添加模型、持久化、代理检测、版本更新、画布连线设置 |
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
@@ -130,7 +130,7 @@
 | Base | `css/base/variables.css` | 主题变量与全局令牌 |
 | Layout | `css/layout/layout.css` | 应用整体布局与面板排布 |
 | Components | `css/components/nodes.css` | 可复用的节点与组件样式；图片对比节点、高级全屏对比、A/B 互斥裁切、缩略图选择网格、展开选图态和对比舞台缩放/平移光标样式 |
-| Features | `css/features/panels.css` | 功能区或面板专属样式 |
+| Features | `css/features/panels.css`, `css/features/settings.css` | 功能区或面板专属样式；设置面板新增交互（如供应商模型列表弹窗、获取模型列表按钮）放 `settings.css` |
 | Themes | `css/themes.css` | 主题切换相关样式（明暗模式等） |
 | Legacy | `css/legacy.css` | 兼容层与遗留样式承接 |
 
@@ -147,6 +147,7 @@
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
+| 修改 API 供应商卡片、获取模型列表弹窗、模型搜索或添加模型到模型管理 | `js/features/settings/settings-controller.js`, `js/services/api-client.js`, `js/features/execution/provider-request-utils.js`, `css/features/settings.css`, `index.css` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/services/storage-idb.js` |
 | 修复历史记录图片拖拽到画布/节点 | `js/features/history/history-panel.js`, `js/features/ui/global-interactions.js`, `js/features/media/media-controller.js`, `js/core/state.js` |
 | 新增或修改提示词库管理、预设卡片、多选删除、复制、导入画布、提示词 JSON 导入导出 | `js/features/prompts/prompt-library.js`, `index.html`, `index.js`, `css/features/panels.css`, `css/themes.css` |
@@ -208,7 +209,8 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 先判断现有模块是否已经负责这类行为；如果职责仍然清晰，就继续在现有模块中扩展，不要为了“新功能”机械拆文件。
 - 如果一个新能力会被多个画布/设置/持久化流程复用，或继续塞进现有文件会让职责变混乱，再提炼成 `js/canvas/*`、`js/core/*` 或 `js/features/<feature>/*` 下的新模块，而不是继续堆进 `index.js` 或单个控制器。
 - 执行逻辑放 `js/features/execution/`，不要混入 UI 控制器。
-- 供应商协议、模型能力、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
+- 供应商协议、模型能力、模型用途/协议归一化、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
+- 设置面板里的 API 供应商/模型管理继续放 `js/features/settings/settings-controller.js`：供应商卡片操作、获取模型列表按钮、模型列表弹窗、搜索、滚动位置保留、调用 `/proxy` 获取 OpenAI 兼容 `/v1/models` 或 Google `/v1beta/models`、添加条目到 `state.models` 都属于这里。调用代理请求头时复用 `js/services/api-client.js`；添加模型时要同步遵守 `provider-request-utils.js` 的用途与协议归一化，GPT/DALL-E/OpenAI 类模型用 OpenAI 兼容格式，Gemini 用 Google 格式，banana/imagen/image 类模型归为生图。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
@@ -222,5 +224,5 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - 后端按 route 与 service 分责，不要混写。
 - 版本号升级必须同时覆盖前端常量、页面展示、静态资源缓存参数、CSS 版本变量、后端启动提示、代理 User-Agent、包元数据和 README，避免界面、请求标识与发布文档不一致。
-- 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。
+- 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
 - 保留当前启动流程中已经对外暴露的兼容钩子。
