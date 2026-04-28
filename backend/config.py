@@ -3,6 +3,8 @@ import socket
 import sys
 from datetime import datetime
 
+HOST = '0.0.0.0'
+LOCAL_HOST = '127.0.0.1'
 PORT = 8767
 PROXY_STREAM_CHUNK_SIZE = 64 * 1024
 LOG_FILE_PREFIX = 'backend'
@@ -44,7 +46,7 @@ def get_log_file_path(now=None):
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         try:
-            sock.bind(('127.0.0.1', port))
+            sock.bind((HOST, port))
         except socket.error:
             return True
         return False

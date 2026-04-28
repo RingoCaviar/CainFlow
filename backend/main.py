@@ -40,7 +40,8 @@ def print_banner():
 {reset}"""
     print(banner)
     print(f' {white}> CainFlow v2.7.6.1 已就绪{reset}')
-    print(f' {white}> 正在监听: {cyan}http://127.0.0.1:{config.PORT}{reset}')
+    print(f' {white}> 正在监听: {cyan}http://{config.HOST}:{config.PORT}{reset}')
+    print(f' {white}> 本机访问: {cyan}http://{config.LOCAL_HOST}:{config.PORT}{reset}')
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
 
@@ -52,9 +53,9 @@ def run():
         print_port_error_and_exit()
 
     try:
-        with socketserver.ThreadingTCPServer(('127.0.0.1', config.PORT), ProxyHTTPRequestHandler) as httpd:
+        with socketserver.ThreadingTCPServer((config.HOST, config.PORT), ProxyHTTPRequestHandler) as httpd:
             print_banner()
-            webbrowser.open(f'http://127.0.0.1:{config.PORT}')
+            webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')
             httpd.serve_forever()
     except Exception as exc:
         print(f'\n[ERROR] 无法启动服务器: {exc}')
