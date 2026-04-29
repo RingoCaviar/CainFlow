@@ -9,6 +9,7 @@ export function createConnectionsApi({
     originAxes,
     getNodeById,
     createBezierPath,
+    getConnectionSamplePoints,
     pushHistory,
     showToast,
     scheduleSave,
@@ -17,8 +18,10 @@ export function createConnectionsApi({
 }) {
     const pathById = new Map();
     const flowDecorationById = new Map();
+    const insertionPreviewPaths = [];
     let flowAnimationFrame = null;
     const view = documentRef.defaultView || window;
+    const INSERTION_PREVIEW_PADDING = 24;
 
     function isGlobalAnimationEnabled() {
         return state.globalAnimationEnabled !== false;
@@ -193,6 +196,230 @@ export function createConnectionsApi({
         };
     }
 
+    function getNodeCenter(node) {
+        const bounds = getNodeBounds(node);
+        return {
+            x: (bounds.left + bounds.right) / 2,
+            y: (bounds.top + bounds.bottom) / 2
+        };
+    }
+
+    function expandBounds(bounds, padding) {
+        return {
+            left: bounds.left - padding,
+            top: bounds.top - padding,
+            right: bounds.right + padding,
+            bottom: bounds.bottom + padding
+        };
+    }
+
+    function isPointInsideBounds(point, bounds) {
+        return point.x >= bounds.left &&
+            point.x <= bounds.right &&
+            point.y >= bounds.top &&
+            point.y <= bounds.bottom;
+    }
+
+    function getDistancePointToSegment(point, a, b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq <= 0.0001) return Math.hypot(point.x - a.x, point.y - a.y);
+
+        const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lenSq));
+        return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+    }
+
+    function getOrientation(a, b, c) {
+        const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+        if (Math.abs(value) < 0.0001) return 0;
+        return value > 0 ? 1 : 2;
+    }
+
+    function isPointOnSegment(point, a, b) {
+        return point.x <= Math.max(a.x, b.x) + 0.0001 &&
+            point.x >= Math.min(a.x, b.x) - 0.0001 &&
+            point.y <= Math.max(a.y, b.y) + 0.0001 &&
+            point.y >= Math.min(a.y, b.y) - 0.0001;
+    }
+
+    function doSegmentsIntersect(a, b, c, d) {
+        const o1 = getOrientation(a, b, c);
+        const o2 = getOrientation(a, b, d);
+        const o3 = getOrientation(c, d, a);
+        const o4 = getOrientation(c, d, b);
+
+        if (o1 !== o2 && o3 !== o4) return true;
+        if (o1 === 0 && isPointOnSegment(c, a, b)) return true;
+        if (o2 === 0 && isPointOnSegment(d, a, b)) return true;
+        if (o3 === 0 && isPointOnSegment(a, c, d)) return true;
+        return o4 === 0 && isPointOnSegment(b, c, d);
+    }
+
+    function doesSegmentIntersectBounds(a, b, bounds) {
+        if (isPointInsideBounds(a, bounds) || isPointInsideBounds(b, bounds)) return true;
+
+        const topLeft = { x: bounds.left, y: bounds.top };
+        const topRight = { x: bounds.right, y: bounds.top };
+        const bottomRight = { x: bounds.right, y: bounds.bottom };
+        const bottomLeft = { x: bounds.left, y: bounds.bottom };
+
+        return doSegmentsIntersect(a, b, topLeft, topRight) ||
+            doSegmentsIntersect(a, b, topRight, bottomRight) ||
+            doSegmentsIntersect(a, b, bottomRight, bottomLeft) ||
+            doSegmentsIntersect(a, b, bottomLeft, topLeft);
+    }
+
+    function isNodeIsolated(nodeId) {
+        return !state.connections.some((conn) => (
+            conn.from.nodeId === nodeId ||
+            conn.to.nodeId === nodeId
+        ));
+    }
+
+    function getFirstCompatiblePort(node, direction, dataType) {
+        const port = node?.el?.querySelector(`.node-port[data-direction="${direction}"][data-type="${dataType}"]`);
+        return port?.dataset?.port || null;
+    }
+
+    function getInsertionPorts(nodeId, dataType) {
+        const node = getNodeById(nodeId);
+        if (!node) return null;
+
+        const inputPort = getFirstCompatiblePort(node, 'input', dataType);
+        const outputPort = getFirstCompatiblePort(node, 'output', dataType);
+        if (!inputPort || !outputPort) return null;
+
+        return { inputPort, outputPort };
+    }
+
+    function getConnectionInsertScore(conn, node, containerRect) {
+        if (typeof getConnectionSamplePoints !== 'function') return null;
+
+        const bounds = expandBounds(getNodeBounds(node), INSERTION_PREVIEW_PADDING);
+        const center = getNodeCenter(node);
+        const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
+        const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
+        const samplePoints = getConnectionSamplePoints(from.x, from.y, to.x, to.y, {
+            type: state.connectionLineType || 'bezier'
+        });
+
+        let bestScore = Infinity;
+        for (let i = 1; i < samplePoints.length; i++) {
+            const prev = samplePoints[i - 1];
+            const current = samplePoints[i];
+            if (!doesSegmentIntersectBounds(prev, current, bounds)) continue;
+            bestScore = Math.min(bestScore, getDistancePointToSegment(center, prev, current));
+        }
+
+        return Number.isFinite(bestScore) ? bestScore : null;
+    }
+
+    function findConnectionInsertPreview(draggingState) {
+        if (!draggingState?.nodes || draggingState.nodes.length !== 1) return null;
+        if (draggingState.connectionShakeDetached) return null;
+
+        const nodeId = draggingState.nodes[0];
+        const node = getNodeById(nodeId);
+        if (!node || !isNodeIsolated(nodeId)) return null;
+
+        const containerRect = canvasContainer.getBoundingClientRect();
+        let bestCandidate = null;
+
+        for (const conn of state.connections) {
+            if (conn.from.nodeId === nodeId || conn.to.nodeId === nodeId) continue;
+            if (!getNodeById(conn.from.nodeId) || !getNodeById(conn.to.nodeId)) continue;
+
+            const dataType = conn.type || '';
+            const ports = getInsertionPorts(nodeId, dataType);
+            if (!ports) continue;
+
+            const score = getConnectionInsertScore(conn, node, containerRect);
+            if (score === null) continue;
+
+            if (!bestCandidate || score < bestCandidate.score) {
+                bestCandidate = {
+                    connectionId: conn.id,
+                    nodeId,
+                    inputPort: ports.inputPort,
+                    outputPort: ports.outputPort,
+                    type: dataType,
+                    score
+                };
+            }
+        }
+
+        return bestCandidate;
+    }
+
+    function ensureInsertionPreviewPath(index) {
+        if (insertionPreviewPaths[index]) return insertionPreviewPaths[index];
+
+        const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.classList.add('connection-insert-preview-path');
+        path.setAttribute('data-insert-preview-index', String(index));
+        connectionsGroup.appendChild(path);
+        insertionPreviewPaths[index] = path;
+        return path;
+    }
+
+    function clearConnectionInsertPreview() {
+        pathById.forEach((path) => path.classList.remove('connection-insert-target'));
+        state.nodes.forEach((node) => node.el?.classList.remove('connection-insert-candidate'));
+        insertionPreviewPaths.forEach((path) => path?.remove());
+        insertionPreviewPaths.length = 0;
+        state.connectionInsertPreview = null;
+    }
+
+    function renderConnectionInsertPreview() {
+        const preview = state.connectionInsertPreview;
+        pathById.forEach((path) => path.classList.remove('connection-insert-target'));
+        state.nodes.forEach((node) => node.el?.classList.remove('connection-insert-candidate'));
+
+        if (!preview) {
+            insertionPreviewPaths.forEach((path) => path.setAttribute('d', ''));
+            return;
+        }
+
+        const conn = state.connections.find((candidate) => candidate.id === preview.connectionId);
+        const node = getNodeById(preview.nodeId);
+        if (!conn || !node) {
+            clearConnectionInsertPreview();
+            return;
+        }
+
+        const containerRect = canvasContainer.getBoundingClientRect();
+        const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
+        const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
+        const nodeInput = getPortPosition(preview.nodeId, preview.inputPort, 'input', containerRect);
+        const nodeOutput = getPortPosition(preview.nodeId, preview.outputPort, 'output', containerRect);
+        const pathOptions = { type: state.connectionLineType || 'bezier' };
+
+        const inboundPath = ensureInsertionPreviewPath(0);
+        const outboundPath = ensureInsertionPreviewPath(1);
+        inboundPath.setAttribute('d', createBezierPath(from.x, from.y, nodeInput.x, nodeInput.y, pathOptions));
+        outboundPath.setAttribute('d', createBezierPath(nodeOutput.x, nodeOutput.y, to.x, to.y, pathOptions));
+
+        pathById.get(conn.id)?.classList.add('connection-insert-target');
+        node.el?.classList.add('connection-insert-candidate');
+    }
+
+    function updateConnectionInsertPreview(draggingState) {
+        const candidate = findConnectionInsertPreview(draggingState);
+        if (!candidate) {
+            clearConnectionInsertPreview();
+            return null;
+        }
+
+        state.connectionInsertPreview = candidate;
+        renderConnectionInsertPreview();
+        return candidate;
+    }
+
+    function createConnectionId() {
+        return 'c_' + Math.random().toString(36).substr(2, 9);
+    }
+
     function isNodeVisibleInViewport(node, viewport, padding = 100) {
         if (!node) return false;
         const bounds = getNodeBounds(node);
@@ -286,12 +513,14 @@ export function createConnectionsApi({
             updateFlowDecoration(path, conn.id, isSelected);
         }
 
+        renderConnectionInsertPreview();
         ensureFlowAnimation();
     }
 
     function updateDraggingConnections(draggingState) {
         if (!draggingState?.connectionsToUpdate?.length) {
             updateAllConnections();
+            updateConnectionInsertPreview(draggingState);
             return;
         }
 
@@ -312,7 +541,52 @@ export function createConnectionsApi({
             }));
         }
 
+        updateConnectionInsertPreview(draggingState);
         ensureFlowAnimation();
+    }
+
+    function commitConnectionInsertPreview() {
+        const preview = state.connectionInsertPreview;
+        if (!preview) return false;
+
+        const conn = state.connections.find((candidate) => candidate.id === preview.connectionId);
+        const node = getNodeById(preview.nodeId);
+        if (!conn || !node || !isNodeIsolated(preview.nodeId)) {
+            clearConnectionInsertPreview();
+            return false;
+        }
+
+        const ports = getInsertionPorts(preview.nodeId, conn.type || '');
+        if (!ports ||
+            ports.inputPort !== preview.inputPort ||
+            ports.outputPort !== preview.outputPort) {
+            clearConnectionInsertPreview();
+            return false;
+        }
+
+        state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
+        state.connections.push(
+            {
+                id: createConnectionId(),
+                from: { nodeId: conn.from.nodeId, port: conn.from.port },
+                to: { nodeId: preview.nodeId, port: preview.inputPort },
+                type: conn.type
+            },
+            {
+                id: createConnectionId(),
+                from: { nodeId: preview.nodeId, port: preview.outputPort },
+                to: { nodeId: conn.to.nodeId, port: conn.to.port },
+                type: conn.type
+            }
+        );
+
+        clearConnectionInsertPreview();
+        updateAllConnections();
+        updatePortStyles();
+        showToast('节点已插入连线', 'success');
+        scheduleSave();
+        onConnectionsChanged();
+        return true;
     }
 
     function finishConnection(src, tgt) {
@@ -377,6 +651,8 @@ export function createConnectionsApi({
         getPortPosition,
         updateAllConnections,
         updateDraggingConnections,
+        clearConnectionInsertPreview,
+        commitConnectionInsertPreview,
         finishConnection,
         drawTempConnection,
         updatePortStyles

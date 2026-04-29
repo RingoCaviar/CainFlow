@@ -9,6 +9,7 @@ export function createInitialState() {
         connections: [],
         canvas: { x: 0, y: 0, zoom: 1, isPanning: false, panStart: { x: 0, y: 0 }, canvasStart: { x: 0, y: 0 } },
         dragging: null,
+        connectionInsertPreview: null,
         connecting: null,
         resizing: null,
         marquee: null,

@@ -310,6 +310,7 @@ const connectionsApi = createConnectionsApi({
     originAxes,
     getNodeById: (nodeId) => state.nodes.get(nodeId),
     createBezierPath: createBezierPathService,
+    getConnectionSamplePoints: getConnectionSamplePointsService,
     pushHistory: () => pushHistory(),
     showToast,
     scheduleSave,
@@ -350,7 +351,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     viewportApi,
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
-    removeNode: (nodeId) => removeNode(nodeId),
+    removeNode: (nodeId, options) => removeNode(nodeId, options),
     selectNode: (nodeId, isMulti) => selectNode(nodeId, isMulti),
     toggleNodesEnabled: (nodeIds, referenceNodeId) => toggleNodesEnabled(nodeIds, referenceNodeId),
     finishConnection: (src, tgt) => finishConnection(src, tgt),
@@ -370,6 +371,8 @@ const {
     getPortPosition,
     updateAllConnections,
     updateDraggingConnections,
+    clearConnectionInsertPreview,
+    commitConnectionInsertPreview,
     finishConnection,
     drawTempConnection,
     updatePortStyles
@@ -394,8 +397,8 @@ function addNode(type, x, y, restoreData, silent = false) {
     return getNodeLifecycleApi().addNode(type, x, y, restoreData, silent);
 }
 
-function removeNode(id) {
-    return getNodeLifecycleApi().removeNode(id);
+function removeNode(id, options) {
+    return getNodeLifecycleApi().removeNode(id, options);
 }
 
 function selectNode(id, isMulti) {
@@ -560,6 +563,9 @@ function getCanvasInteractionsApi() {
             drawTempConnection,
             updateAllConnections,
             updateDraggingConnections,
+            clearConnectionInsertPreview,
+            commitConnectionInsertPreview,
+            detachNodesFromConnections: (nodeIds, options) => getNodeLifecycleApi().detachNodesFromConnections(nodeIds, options),
             updatePortStyles,
             onConnectionsChanged: () => refreshAllImageResizePreviews(),
             scheduleSave,

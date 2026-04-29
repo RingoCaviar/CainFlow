@@ -11,6 +11,9 @@ export function createCanvasInteractionsApi({
     drawTempConnection,
     updateAllConnections,
     updateDraggingConnections = null,
+    clearConnectionInsertPreview = null,
+    commitConnectionInsertPreview = null,
+    detachNodesFromConnections = null,
     updatePortStyles,
     scheduleSave,
     serializeOneNode,
@@ -23,6 +26,12 @@ export function createCanvasInteractionsApi({
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     let rafUpdate = null;
+    const SHAKE_DETACH_DURATION_MS = 300;
+    const SHAKE_SAMPLE_DISTANCE = 8;
+    const SHAKE_RESET_MS = 520;
+    const SHAKE_MIN_REVERSALS = 4;
+    const SHAKE_MIN_TRAVEL = 120;
+    const SHAKE_REVERSE_DOT = -0.45;
 
     function scheduleUIUpdate() {
         if (rafUpdate) return;
@@ -34,6 +43,110 @@ export function createCanvasInteractionsApi({
             }
             rafUpdate = null;
         });
+    }
+
+    function getNow() {
+        return windowRef.performance?.now?.() || Date.now();
+    }
+
+    function hasNodeConnections(nodeId) {
+        return state.connections.some((connection) => (
+            connection.from.nodeId === nodeId ||
+            connection.to.nodeId === nodeId
+        ));
+    }
+
+    function clearShakeDetachVisuals(draggingState) {
+        const nodeId = draggingState?.nodes?.[0];
+        const node = nodeId ? state.nodes.get(nodeId) : null;
+        node?.el?.classList.remove('connection-shake-armed');
+        node?.el?.style.removeProperty('--connection-shake-progress');
+    }
+
+    function resetShakeTracker(draggingState, pos, now) {
+        clearShakeDetachVisuals(draggingState);
+        draggingState.connectionShake = {
+            lastX: pos.x,
+            lastY: pos.y,
+            lastTime: now,
+            lastVector: null,
+            activeSince: null,
+            lastReversalAt: null,
+            reversalCount: 0,
+            travel: 0
+        };
+        return draggingState.connectionShake;
+    }
+
+    function updateShakeDetach(draggingState, pos) {
+        if (!detachNodesFromConnections) return;
+        if (!draggingState?.nodes || draggingState.nodes.length !== 1) return;
+        if (draggingState.isCloneDrag || draggingState.connectionShakeDetached) return;
+
+        const nodeId = draggingState.nodes[0];
+        const node = state.nodes.get(nodeId);
+        if (!node || !hasNodeConnections(nodeId)) {
+            clearShakeDetachVisuals(draggingState);
+            return;
+        }
+
+        const now = getNow();
+        const shake = draggingState.connectionShake || resetShakeTracker(draggingState, pos, now);
+        const dx = pos.x - shake.lastX;
+        const dy = pos.y - shake.lastY;
+        const distance = Math.hypot(dx, dy);
+
+        if (shake.lastTime && now - shake.lastTime > SHAKE_RESET_MS) {
+            resetShakeTracker(draggingState, pos, now);
+            return;
+        }
+        if (distance < SHAKE_SAMPLE_DISTANCE) return;
+
+        const vector = { x: dx / distance, y: dy / distance };
+        if (shake.lastVector) {
+            const dot = vector.x * shake.lastVector.x + vector.y * shake.lastVector.y;
+            if (dot <= SHAKE_REVERSE_DOT) {
+                if (!shake.activeSince || (shake.lastReversalAt && now - shake.lastReversalAt > SHAKE_RESET_MS)) {
+                    shake.activeSince = now;
+                    shake.reversalCount = 1;
+                    shake.travel = 0;
+                } else {
+                    shake.reversalCount += 1;
+                }
+                shake.lastReversalAt = now;
+            }
+        }
+
+        if (shake.activeSince) {
+            shake.travel += distance;
+            const progress = Math.min(1, Math.max(0, (now - shake.activeSince) / SHAKE_DETACH_DURATION_MS));
+            node.el.classList.add('connection-shake-armed');
+            node.el.style.setProperty('--connection-shake-progress', progress.toFixed(3));
+
+            if (
+                now - shake.activeSince >= SHAKE_DETACH_DURATION_MS &&
+                shake.reversalCount >= SHAKE_MIN_REVERSALS &&
+                shake.travel >= SHAKE_MIN_TRAVEL
+            ) {
+                const result = detachNodesFromConnections([nodeId], { save: false });
+                draggingState.connectionShakeDetached = result?.changed;
+                draggingState.connectionsToUpdate = [];
+                draggingState.portOffsets = new Map();
+                clearShakeDetachVisuals(draggingState);
+                if (result?.changed) {
+                    clearConnectionInsertPreview?.();
+                    node.el.classList.add('connection-shake-detached');
+                    windowRef.setTimeout(() => {
+                        node.el?.classList.remove('connection-shake-detached');
+                    }, 700);
+                }
+            }
+        }
+
+        shake.lastX = pos.x;
+        shake.lastY = pos.y;
+        shake.lastTime = now;
+        shake.lastVector = vector;
     }
 
     function initCanvasInteractions() {
@@ -233,6 +346,7 @@ export function createCanvasInteractionsApi({
                         node.el.style.transform = `translate(${dx}px, ${dy}px)`;
                     }
                 }
+                updateShakeDetach(state.dragging, pos);
                 scheduleUIUpdate();
             }
             if (state.resizing) {
@@ -338,8 +452,14 @@ export function createCanvasInteractionsApi({
                         node.el.style.left = node.x + 'px';
                         node.el.style.top = node.y + 'px';
                         node.el.style.transform = '';
-                        node.el.classList.remove('is-interacting');
+                        node.el.classList.remove('is-interacting', 'connection-shake-armed');
+                        node.el.style.removeProperty('--connection-shake-progress');
                     }
+                }
+                if (commitConnectionInsertPreview) {
+                    commitConnectionInsertPreview();
+                } else if (clearConnectionInsertPreview) {
+                    clearConnectionInsertPreview();
                 }
                 state.dragging = null;
                 updateAllConnections();

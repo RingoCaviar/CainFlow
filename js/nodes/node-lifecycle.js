@@ -121,6 +121,75 @@ export function createNodeLifecycleApi({
         return Math.ceil(el.offsetHeight + getPx(style, 'margin-top') + getPx(style, 'margin-bottom'));
     }
 
+    function getOuterWidth(el) {
+        if (!el || el.offsetParent === null) return 0;
+        const style = getComputedStyle(el);
+        if (style.position === 'absolute') return 0;
+        return Math.ceil(el.offsetWidth + getPx(style, 'margin-left') + getPx(style, 'margin-right'));
+    }
+
+    function getNonTextareaRequiredChildHeight(child) {
+        if (!child || child.offsetParent === null) return 0;
+        if (child.querySelector?.('textarea')) return getOuterHeight(child);
+
+        const style = getComputedStyle(child);
+        const marginY = getPx(style, 'margin-top') + getPx(style, 'margin-bottom');
+        return Math.ceil(Math.max(child.offsetHeight || 0, child.scrollHeight || 0) + marginY);
+    }
+
+    function getNonTextareaRequiredChildWidth(child) {
+        if (!child || child.offsetParent === null) return 0;
+        const style = getComputedStyle(child);
+        const marginX = getPx(style, 'margin-left') + getPx(style, 'margin-right');
+        const minWidth = getPx(style, 'min-width');
+        return Math.ceil(Math.max(child.offsetWidth || 0, child.scrollWidth || 0, minWidth) + marginX);
+    }
+
+    function getNonTextareaRequiredNodeSize(el, body) {
+        const originalHeight = el.style.height;
+        const originalBodyMaxHeight = body.style.maxHeight;
+        const originalBodyOverflowY = body.style.overflowY;
+
+        el.style.height = 'auto';
+        body.style.maxHeight = 'none';
+        body.style.overflowY = 'visible';
+
+        const bodyStyle = getComputedStyle(body);
+        const bodyPaddingX = getPx(bodyStyle, 'padding-left') + getPx(bodyStyle, 'padding-right');
+        const bodyPaddingY = getPx(bodyStyle, 'padding-top') + getPx(bodyStyle, 'padding-bottom');
+        const bodyGap = getPx(bodyStyle, 'row-gap') || getPx(bodyStyle, 'gap');
+        let bodyHeight = bodyPaddingY;
+        let bodyWidth = 0;
+        let visibleBodyChildren = 0;
+
+        Array.from(body.children).forEach((child) => {
+            if (child.offsetParent === null) return;
+            visibleBodyChildren += 1;
+            bodyHeight += getNonTextareaRequiredChildHeight(child);
+            bodyWidth = Math.max(bodyWidth, getNonTextareaRequiredChildWidth(child));
+        });
+
+        bodyHeight += Math.max(0, visibleBodyChildren - 1) * bodyGap;
+
+        let chromeHeight = 0;
+        let chromeWidth = 0;
+        Array.from(el.children).forEach((child) => {
+            if (child === body) return;
+            chromeHeight += getOuterHeight(child);
+            chromeWidth = Math.max(chromeWidth, getOuterWidth(child));
+        });
+
+        const requiredSize = {
+            width: Math.ceil(Math.max(chromeWidth, bodyWidth + bodyPaddingX)),
+            height: Math.ceil(chromeHeight + bodyHeight)
+        };
+
+        el.style.height = originalHeight;
+        body.style.maxHeight = originalBodyMaxHeight;
+        body.style.overflowY = originalBodyOverflowY;
+        return requiredSize;
+    }
+
     function getTextNodeRequiredHeight(el, body) {
         const textarea = body.querySelector('.node-field-expand textarea');
         if (!textarea) return null;
@@ -204,6 +273,46 @@ export function createNodeLifecycleApi({
         body.style.maxHeight = originalBodyMaxHeight;
     }
 
+    function ensureNodeContentVisible(nodeId, options = {}) {
+        const node = state.nodes.get(nodeId);
+        if (!node || !node.el) return;
+
+        const el = node.el;
+        const body = el.querySelector('.node-body');
+        if (!body) return;
+
+        const requiredSize = getNonTextareaRequiredNodeSize(el, body);
+        const currentWidth = el.offsetWidth || Number(node.width) || 0;
+        const currentHeight = el.offsetHeight || Number(node.height) || 0;
+        const nextWidth = Math.max(currentWidth, requiredSize.width);
+        const nextHeight = Math.max(currentHeight, requiredSize.height);
+        const widthChanged = nextWidth > currentWidth + 2;
+        const heightChanged = nextHeight > currentHeight + 2;
+
+        if (!widthChanged && !heightChanged) return;
+
+        if (widthChanged) {
+            el.style.width = nextWidth + 'px';
+            node.width = nextWidth;
+            node.observedWidth = nextWidth;
+        }
+        if (heightChanged) {
+            el.style.height = nextHeight + 'px';
+            node.height = nextHeight;
+            node.observedHeight = nextHeight;
+        }
+
+        updateAllConnections();
+        if (options.save !== false) scheduleSave();
+    }
+
+    function scheduleEnsureNodeContentVisible(nodeId, options = {}) {
+        const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
+        requestFrame(() => {
+            ensureNodeContentVisible(nodeId, options);
+        });
+    }
+
     function normalizeNodeType(type) {
         if (type === 'TextInput' || type === 'TextDisplay') return 'Text';
         return type;
@@ -285,6 +394,11 @@ export function createNodeLifecycleApi({
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
         state.nodes.set(id, nodeData);
+        el.addEventListener('load', (event) => {
+            if (event.target?.tagName === 'IMG') {
+                scheduleEnsureNodeContentVisible(id);
+            }
+        }, true);
         bindNodeSizeObserver(nodeData);
 
         if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare') {
@@ -303,6 +417,7 @@ export function createNodeLifecycleApi({
                     const urlInput = el.querySelector(`#${id}-url-input`);
                     if (urlInput) urlInput.value = nodeData.imageUrl;
                     onConnectionsChanged();
+                    scheduleEnsureNodeContentVisible(id);
                     return;
                 }
 
@@ -360,20 +475,133 @@ export function createNodeLifecycleApi({
                         showResolutionBadge(id, data);
                         onConnectionsChanged();
                     }
+                    scheduleEnsureNodeContentVisible(id);
                 }
             })();
         }
 
         bindNodeInteractions({ id, type: normalizedType, el });
+        scheduleEnsureNodeContentVisible(id);
 
         if (!restoreData && !silent) showToast(`已添加「${config.title}」节点`, 'success');
         if (!restoreData) scheduleSave();
         return id;
     }
 
-    function removeNode(id) {
+    function createConnectionId() {
+        return 'c_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function getPortDataType(nodeId, portName, direction) {
+        const node = state.nodes.get(nodeId);
+        const port = node?.el?.querySelector(`.node-port[data-port="${portName}"][data-direction="${direction}"]`);
+        return port?.dataset?.type || '';
+    }
+
+    function getConnectionDataType(connection) {
+        return connection.type ||
+            getPortDataType(connection.from.nodeId, connection.from.port, 'output') ||
+            getPortDataType(connection.to.nodeId, connection.to.port, 'input') ||
+            '';
+    }
+
+    function buildPreservedConnections(idsToRemove) {
+        const removeSet = new Set(idsToRemove);
+        const candidates = [];
+
+        idsToRemove.forEach((nid) => {
+            const incoming = state.connections.filter((connection) => (
+                connection.to.nodeId === nid &&
+                !removeSet.has(connection.from.nodeId)
+            ));
+            const outgoing = state.connections.filter((connection) => (
+                connection.from.nodeId === nid &&
+                !removeSet.has(connection.to.nodeId)
+            ));
+
+            incoming.forEach((inConn) => {
+                const inputType = getConnectionDataType(inConn);
+                outgoing.forEach((outConn) => {
+                    const outputType = getConnectionDataType(outConn);
+                    if (!inputType || inputType !== outputType) return;
+                    if (inConn.from.nodeId === outConn.to.nodeId) return;
+
+                    candidates.push({
+                        from: { nodeId: inConn.from.nodeId, port: inConn.from.port },
+                        to: { nodeId: outConn.to.nodeId, port: outConn.to.port },
+                        type: inputType
+                    });
+                });
+            });
+        });
+
+        return candidates;
+    }
+
+    function appendPreservedConnections(candidates) {
+        let added = 0;
+        candidates.forEach((candidate) => {
+            const hasSameConnection = state.connections.some((connection) => (
+                connection.from.nodeId === candidate.from.nodeId &&
+                connection.from.port === candidate.from.port &&
+                connection.to.nodeId === candidate.to.nodeId &&
+                connection.to.port === candidate.to.port
+            ));
+            const hasInputConnection = state.connections.some((connection) => (
+                connection.to.nodeId === candidate.to.nodeId &&
+                connection.to.port === candidate.to.port
+            ));
+            if (hasSameConnection || hasInputConnection) return;
+
+            state.connections.push({
+                id: createConnectionId(),
+                from: candidate.from,
+                to: candidate.to,
+                type: candidate.type
+            });
+            added += 1;
+        });
+        return added;
+    }
+
+    function detachNodesFromConnections(idsToDetach, options = {}) {
+        const ids = Array.from(new Set(Array.isArray(idsToDetach) ? idsToDetach : [idsToDetach]))
+            .filter((nid) => state.nodes.has(nid));
+        if (!ids.length) return { changed: false, removedConnectionCount: 0, preservedConnectionCount: 0 };
+
+        const detachSet = new Set(ids);
+        const preservedConnectionCandidates = buildPreservedConnections(ids);
+        const before = state.connections.length;
+        state.connections = state.connections.filter((connection) => (
+            !detachSet.has(connection.from.nodeId) &&
+            !detachSet.has(connection.to.nodeId)
+        ));
+
+        const removedConnectionCount = before - state.connections.length;
+        const preservedConnectionCount = appendPreservedConnections(preservedConnectionCandidates);
+        const changed = removedConnectionCount > 0 || preservedConnectionCount > 0;
+
+        if (!changed) return { changed: false, removedConnectionCount, preservedConnectionCount };
+
+        updateAllConnections();
+        updatePortStyles();
+        onConnectionsChanged();
+        if (options.save !== false) scheduleSave();
+        if (options.showToast !== false) {
+            showToast(preservedConnectionCount > 0
+                ? `节点已摘取，已保留 ${preservedConnectionCount} 条连线`
+                : '节点已从连线中摘取', 'info');
+        }
+
+        return { changed, removedConnectionCount, preservedConnectionCount };
+    }
+
+    function removeNode(id, options = {}) {
         pushHistory();
         const idsToRemove = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
+        const preservedConnectionCandidates = options.preserveConnections
+            ? buildPreservedConnections(idsToRemove)
+            : [];
         let removedConnections = false;
         idsToRemove.forEach((nid) => {
             const node = state.nodes.get(nid);
@@ -395,10 +623,18 @@ export function createNodeLifecycleApi({
             state.selectedNodes.delete(nid);
             deleteImageAsset(nid);
         });
+        const preservedConnectionCount = appendPreservedConnections(preservedConnectionCandidates);
+        if (preservedConnectionCount > 0) removedConnections = true;
         updateAllConnections();
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
-        showToast(idsToRemove.length > 1 ? `已删除 ${idsToRemove.length} 个节点` : '节点已删除', 'info');
+        if (preservedConnectionCount > 0) {
+            showToast(idsToRemove.length > 1
+                ? `已删除 ${idsToRemove.length} 个节点，已保留 ${preservedConnectionCount} 条连线`
+                : '节点已删除，连线已保留', 'info');
+        } else {
+            showToast(idsToRemove.length > 1 ? `已删除 ${idsToRemove.length} 个节点` : '节点已删除', 'info');
+        }
         scheduleSave();
         if (getCacheSidebarActive()) {
             updateCacheUsage();
@@ -456,6 +692,7 @@ export function createNodeLifecycleApi({
         fitNodeToContent,
         addNode,
         removeNode,
+        detachNodesFromConnections,
         selectNode,
         toggleNodesEnabled
     };

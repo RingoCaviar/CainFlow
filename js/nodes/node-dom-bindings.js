@@ -394,7 +394,7 @@ export function createNodeDomBindingsApi({
 
         el.querySelector('.node-delete').addEventListener('click', (e) => {
             e.stopPropagation();
-            removeNode(id);
+            removeNode(id, { preserveConnections: e.altKey });
         });
 
         el.querySelector('.node-bypass-btn').addEventListener('click', (e) => {
