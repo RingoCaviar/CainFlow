@@ -56,6 +56,14 @@ export function createCanvasInteractionsApi({
         ));
     }
 
+    function isNodeRunning(nodeId) {
+        return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
+    }
+
+    function hasRunningEndpoint(connection) {
+        return isNodeRunning(connection.from.nodeId) || isNodeRunning(connection.to.nodeId);
+    }
+
     function clearShakeDetachVisuals(draggingState) {
         const nodeId = draggingState?.nodes?.[0];
         const node = nodeId ? state.nodes.get(nodeId) : null;
@@ -224,6 +232,7 @@ export function createCanvasInteractionsApi({
                 const connectionsToRemove = new Set();
 
                 for (const conn of state.connections) {
+                    if (hasRunningEndpoint(conn)) continue;
                     const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
                     const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
 
@@ -339,6 +348,7 @@ export function createCanvasInteractionsApi({
 
                 for (const nodeId of state.dragging.nodes) {
                     const node = state.nodes.get(nodeId);
+                    if (state.dragging.isCloneDrag !== true && isNodeRunning(nodeId)) continue;
                     if (node) {
                         const startPos = state.dragging.startPositions.get(nodeId);
                         node.x = startPos.x + dx;
@@ -356,6 +366,7 @@ export function createCanvasInteractionsApi({
                 const dy = (e.clientY - r.startY) / zoom;
                 const node = state.nodes.get(r.nodeId);
                 if (node) {
+                    if (isNodeRunning(r.nodeId)) return;
                     const targetW = r.startWidth + dx;
                     const targetH = r.startHeight + dy;
 

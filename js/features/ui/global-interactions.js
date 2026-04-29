@@ -26,9 +26,17 @@ export function createGlobalInteractionsApi({
         return node?.type === 'ImageImport' ? targetNodeEl.id : null;
     }
 
+    function isNodeRunning(nodeId) {
+        return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
+    }
+
     function importImageDataAtDrop(event, imageData, message) {
         const targetNodeId = getImageDropTargetNodeId(event);
         if (targetNodeId) {
+            if (isNodeRunning(targetNodeId)) {
+                showToast('节点正在运行，暂不能修改图片', 'warning');
+                return;
+            }
             loadImageData(targetNodeId, imageData);
             showToast(message.update, 'success');
             return;
@@ -69,6 +77,10 @@ export function createGlobalInteractionsApi({
             if (files.length > 0) {
                 const targetNodeId = getImageDropTargetNodeId(e);
                 if (targetNodeId && files.length === 1) {
+                    if (isNodeRunning(targetNodeId)) {
+                        showToast('节点正在运行，暂不能修改图片', 'warning');
+                        return;
+                    }
                     loadImageFile(targetNodeId, files[0]);
                     showToast('已更新现有的图片节点', 'success');
                     return;
@@ -150,6 +162,10 @@ export function createGlobalInteractionsApi({
                 }
 
                 if (targetNodeId) {
+                    if (isNodeRunning(targetNodeId)) {
+                        showToast('节点正在运行，暂不能修改图片', 'warning');
+                        return;
+                    }
                     loadImageFile(targetNodeId, imageFile);
                     showToast('图片已导入选中的节点', 'success');
                 } else {

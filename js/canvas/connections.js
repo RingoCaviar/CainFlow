@@ -27,6 +27,14 @@ export function createConnectionsApi({
         return state.globalAnimationEnabled !== false;
     }
 
+    function isNodeRunning(nodeId) {
+        return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
+    }
+
+    function hasRunningEndpoint(connection) {
+        return isNodeRunning(connection.from.nodeId) || isNodeRunning(connection.to.nodeId);
+    }
+
     function createFlowArrowElement() {
         const arrow = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
         arrow.classList.add('connection-flow-arrow');
@@ -321,12 +329,14 @@ export function createConnectionsApi({
 
         const nodeId = draggingState.nodes[0];
         const node = getNodeById(nodeId);
+        if (isNodeRunning(nodeId)) return null;
         if (!node || !isNodeIsolated(nodeId)) return null;
 
         const containerRect = canvasContainer.getBoundingClientRect();
         let bestCandidate = null;
 
         for (const conn of state.connections) {
+            if (hasRunningEndpoint(conn)) continue;
             if (conn.from.nodeId === nodeId || conn.to.nodeId === nodeId) continue;
             if (!getNodeById(conn.from.nodeId) || !getNodeById(conn.to.nodeId)) continue;
 
@@ -493,6 +503,10 @@ export function createConnectionsApi({
                 path.classList.add('connection-path');
                 path.addEventListener('dblclick', (e) => {
                     e.stopPropagation();
+                    if (hasRunningEndpoint(conn)) {
+                        showToast('节点正在运行，暂不能修改连线', 'warning');
+                        return;
+                    }
                     state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
                     pathById.get(conn.id)?.remove();
                     pathById.delete(conn.id);
@@ -555,6 +569,11 @@ export function createConnectionsApi({
             clearConnectionInsertPreview();
             return false;
         }
+        if (isNodeRunning(preview.nodeId) || hasRunningEndpoint(conn)) {
+            clearConnectionInsertPreview();
+            showToast('节点正在运行，暂不能修改连线', 'warning');
+            return false;
+        }
 
         const ports = getInsertionPorts(preview.nodeId, conn.type || '');
         if (!ports ||
@@ -590,7 +609,9 @@ export function createConnectionsApi({
     }
 
     function finishConnection(src, tgt) {
-        pushHistory();
+        if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) {
+            return showToast('节点正在运行，暂不能修改连线', 'warning');
+        }
         if (src.nodeId === tgt.nodeId) return showToast('不能连接同一节点', 'warning');
         if (src.isOutput && tgt.dir === 'output') return showToast('不能连接两个输出', 'warning');
         if (!src.isOutput && tgt.dir === 'input') return showToast('不能连接两个输入', 'warning');
@@ -605,6 +626,12 @@ export function createConnectionsApi({
             return showToast('连接已存在', 'warning');
         }
 
+        const replacedConnection = state.connections.find((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
+        if (replacedConnection && hasRunningEndpoint(replacedConnection)) {
+            return showToast('节点正在运行，暂不能修改连线', 'warning');
+        }
+
+        pushHistory();
         state.connections = state.connections.filter((conn) => !(conn.to.nodeId === toId && conn.to.port === toPort));
         state.connections.push({
             id: 'c_' + Math.random().toString(36).substr(2, 9),

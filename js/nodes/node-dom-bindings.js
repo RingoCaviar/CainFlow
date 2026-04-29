@@ -40,6 +40,18 @@ export function createNodeDomBindingsApi({
         node.data.text = textarea.value;
     }
 
+    function isNodeRunning(id) {
+        return state.runningNodeIds?.has(id) || state.nodes.get(id)?.el?.classList.contains('running');
+    }
+
+    function blockRunningNodeMutation(id, event, message = '节点正在运行，暂不能修改') {
+        if (!isNodeRunning(id)) return false;
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        showToast(message, 'warning');
+        return true;
+    }
+
     function bindExpandableTextareaResize(nodeId, textarea) {
         if (!textarea || typeof ResizeObserver === 'undefined') return;
 
@@ -335,14 +347,24 @@ export function createNodeDomBindingsApi({
             e.preventDefault();
             e.stopPropagation();
 
+            const isCloneDrag = e.ctrlKey || e.metaKey;
+            if (isNodeRunning(id) && !isCloneDrag) {
+                showToast('节点正在运行，暂不能移动；按住 Ctrl 可克隆运行中的节点', 'warning');
+                return;
+            }
+
             const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
-            const isMulti = e.ctrlKey || e.metaKey;
+            const isMulti = isCloneDrag;
 
             if (!state.selectedNodes.has(id)) {
                 selectNode(id, isMulti);
             }
 
             const nodesToDrag = Array.from(state.selectedNodes);
+            if (!isCloneDrag && nodesToDrag.some((nodeId) => isNodeRunning(nodeId))) {
+                showToast('选区中有节点正在运行，暂不能移动', 'warning');
+                return;
+            }
             const startPositions = new Map();
             const draggedNodeIds = new Set(nodesToDrag);
 
@@ -394,11 +416,13 @@ export function createNodeDomBindingsApi({
 
         el.querySelector('.node-delete').addEventListener('click', (e) => {
             e.stopPropagation();
+            if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能删除')) return;
             removeNode(id, { preserveConnections: e.altKey });
         });
 
         el.querySelector('.node-bypass-btn').addEventListener('click', (e) => {
             e.stopPropagation();
+            if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能启用或禁用')) return;
             const nodesToUpdate = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
             toggleNodesEnabled(nodesToUpdate, id);
         });
@@ -408,6 +432,7 @@ export function createNodeDomBindingsApi({
             if (isPanAction) return;
             e.stopPropagation();
             e.preventDefault();
+            if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能调整大小')) return;
             const header = el.querySelector('.node-header');
             const headerMinWidth = header ? Math.ceil(header.getBoundingClientRect().width) : 180;
             const contentMinimum = getNodeMinimumSize(el, headerMinWidth);
@@ -439,6 +464,7 @@ export function createNodeDomBindingsApi({
                 if (isPanAction) return;
                 e.stopPropagation();
                 e.preventDefault();
+                if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能修改连线')) return;
 
                 const tgt = {
                     nodeId: portEl.dataset.nodeId,
@@ -475,6 +501,11 @@ export function createNodeDomBindingsApi({
             dot.addEventListener('mouseup', (e) => {
                 if (!state.connecting) return;
                 e.stopPropagation();
+                if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能修改连线')) {
+                    tempConnection.setAttribute('d', '');
+                    state.connecting = null;
+                    return;
+                }
 
                 const src = state.connecting;
                 const tgt = {

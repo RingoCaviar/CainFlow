@@ -318,6 +318,10 @@ export function createNodeLifecycleApi({
         return type;
     }
 
+    function isNodeRunning(nodeId) {
+        return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
+    }
+
     function addNode(type, x, y, restoreData, silent = false) {
         if (!silent) pushHistory();
         const normalizedType = normalizeNodeType(type);
@@ -568,6 +572,12 @@ export function createNodeLifecycleApi({
         const ids = Array.from(new Set(Array.isArray(idsToDetach) ? idsToDetach : [idsToDetach]))
             .filter((nid) => state.nodes.has(nid));
         if (!ids.length) return { changed: false, removedConnectionCount: 0, preservedConnectionCount: 0 };
+        if (ids.some((nid) => isNodeRunning(nid))) {
+            if (options.showToast !== false) {
+                showToast('节点正在运行，暂不能修改连线', 'warning');
+            }
+            return { changed: false, removedConnectionCount: 0, preservedConnectionCount: 0 };
+        }
 
         const detachSet = new Set(ids);
         const preservedConnectionCandidates = buildPreservedConnections(ids);
@@ -597,8 +607,14 @@ export function createNodeLifecycleApi({
     }
 
     function removeNode(id, options = {}) {
+        const selectedIds = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
+        const lockedIds = selectedIds.filter((nid) => isNodeRunning(nid));
+        const idsToRemove = selectedIds.filter((nid) => !isNodeRunning(nid));
+        if (lockedIds.length > 0) {
+            showToast(lockedIds.length > 1 ? `有 ${lockedIds.length} 个节点正在运行，暂不能删除` : '节点正在运行，暂不能删除', 'warning');
+        }
+        if (idsToRemove.length === 0) return;
         pushHistory();
-        const idsToRemove = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
         const preservedConnectionCandidates = options.preserveConnections
             ? buildPreservedConnections(idsToRemove)
             : [];
@@ -665,13 +681,20 @@ export function createNodeLifecycleApi({
     function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
         if (!nodeIds || nodeIds.length === 0) return;
 
-        const refId = referenceNodeId || nodeIds[0];
+        const lockedIds = nodeIds.filter((nid) => isNodeRunning(nid));
+        const editableIds = nodeIds.filter((nid) => !isNodeRunning(nid));
+        if (lockedIds.length > 0) {
+            showToast(lockedIds.length > 1 ? `有 ${lockedIds.length} 个节点正在运行，暂不能启用或禁用` : '节点正在运行，暂不能启用或禁用', 'warning');
+        }
+        if (editableIds.length === 0) return;
+
+        const refId = (referenceNodeId && !isNodeRunning(referenceNodeId)) ? referenceNodeId : editableIds[0];
         const refNode = state.nodes.get(refId);
         if (!refNode) return;
 
         const targetState = !refNode.enabled;
 
-        nodeIds.forEach((nid) => {
+        editableIds.forEach((nid) => {
             const nodeData = state.nodes.get(nid);
             if (nodeData) {
                 nodeData.enabled = targetState;
@@ -684,7 +707,7 @@ export function createNodeLifecycleApi({
             }
         });
 
-        showToast(targetState ? `已启用 ${nodeIds.length} 个节点` : `已禁用 ${nodeIds.length} 个节点`, 'info');
+        showToast(targetState ? `已启用 ${editableIds.length} 个节点` : `已禁用 ${editableIds.length} 个节点`, 'info');
         scheduleSave();
     }
 

@@ -132,6 +132,10 @@ export function createWorkflowManagerApi({
     }
 
     function applyWorkflowData(data) {
+        if (state.runningNodeIds?.size > 0) {
+            showToast('有节点正在运行，暂不能加载其他工作流', 'warning');
+            return false;
+        }
         const modelResolution = resolveWorkflowModelReferences(data, state);
         const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
         if (warningMessage && !windowRef.confirm(`${warningMessage}\n\n是否继续加载工作流？`)) {

@@ -50,6 +50,10 @@ export function createSessionManagerApi({
 
     async function undo() {
         if (state.undoStack.length === 0) return;
+        if (state.runningNodeIds?.size > 0) {
+            showToast('有节点正在运行，暂不能撤销会修改运行中节点的操作', 'warning');
+            return;
+        }
 
         const raw = state.undoStack.pop();
         const snapshot = JSON.parse(raw);

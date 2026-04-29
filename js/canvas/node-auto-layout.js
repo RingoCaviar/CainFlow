@@ -31,6 +31,10 @@ export function createNodeAutoLayoutApi({
         return selectedIds.length > 0 ? selectedIds : Array.from(state.nodes.keys());
     }
 
+    function isNodeRunning(nodeId) {
+        return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
+    }
+
     function compareByCurrentPosition(a, b) {
         const nodeA = state.nodes.get(a);
         const nodeB = state.nodes.get(b);
@@ -189,7 +193,12 @@ export function createNodeAutoLayoutApi({
     }
 
     function autoArrangeNodes() {
-        const nodeIds = getTargetNodeIds();
+        const targetNodeIds = getTargetNodeIds();
+        const runningCount = targetNodeIds.filter((id) => isNodeRunning(id)).length;
+        const nodeIds = targetNodeIds.filter((id) => !isNodeRunning(id));
+        if (runningCount > 0) {
+            showToast(runningCount > 1 ? `有 ${runningCount} 个节点正在运行，已跳过这些节点` : '节点正在运行，已跳过该节点', 'warning');
+        }
         if (nodeIds.length === 0) {
             showToast('画布中没有可排列的节点', 'info');
             return false;

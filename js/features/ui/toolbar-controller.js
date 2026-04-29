@@ -81,7 +81,11 @@ export function createToolbarControllerApi({
             if (state.isRunning) {
                 state.abortReason = 'manual';
                 state.isRunning = false;
-                state.abortController?.abort();
+                if (state.runAbortControllers instanceof Set && state.runAbortControllers.size > 0) {
+                    state.runAbortControllers.forEach((controller) => controller.abort());
+                } else {
+                    state.abortController?.abort();
+                }
             }
         });
         documentRef.getElementById('toggle-retry')?.addEventListener('change', (e) => {
@@ -150,6 +154,10 @@ export function createToolbarControllerApi({
         documentRef.getElementById('btn-clear')?.addEventListener('click', () => {
             if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
             if (confirmRef('确定要清除所有节点和连接吗？')) {
+                if (state.runningNodeIds?.size > 0) {
+                    showToast('有节点正在运行，暂不能清空画布', 'warning');
+                    return;
+                }
                 state.connections = [];
                 for (const [, node] of state.nodes) node.el.remove();
                 state.nodes.clear();

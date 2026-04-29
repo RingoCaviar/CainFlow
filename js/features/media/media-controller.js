@@ -27,6 +27,10 @@ export function createMediaControllerApi({
         });
     }
 
+    function isNodeRunning(nodeId) {
+        return state.runningNodeIds?.has(nodeId) || getNodeById(nodeId)?.el?.classList.contains('running');
+    }
+
     function formatBytes(bytes) {
         if (!bytes || bytes <= 0) return '';
         if (bytes >= 1024 * 1024) return `预计 ${(bytes / (1024 * 1024)).toFixed(2)} MB`;
@@ -695,6 +699,10 @@ export function createMediaControllerApi({
     }
 
     function loadImageFile(nodeId, file) {
+        if (isNodeRunning(nodeId)) {
+            showToast('节点正在运行，暂不能修改图片', 'warning');
+            return;
+        }
         const reader = new FileReader();
         reader.onload = async (e) => {
             const node = getNodeById(nodeId);
@@ -725,6 +733,10 @@ export function createMediaControllerApi({
 
     async function loadImageData(nodeId, imageData) {
         const node = getNodeById(nodeId);
+        if (isNodeRunning(nodeId)) {
+            showToast('节点正在运行，暂不能修改图片', 'warning');
+            return;
+        }
         if (!node || node.type !== 'ImageImport' || !isInlineImageData(imageData)) return;
 
         node.importMode = 'upload';
@@ -738,6 +750,10 @@ export function createMediaControllerApi({
 
     async function loadImageUrl(nodeId, rawUrl, options = {}) {
         const node = getNodeById(nodeId);
+        if (isNodeRunning(nodeId)) {
+            showToast('节点正在运行，暂不能修改图片', 'warning');
+            return;
+        }
         if (!node) return;
 
         const imageUrl = String(rawUrl || '').trim();

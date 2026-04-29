@@ -42,14 +42,91 @@ export function createWorkflowRunnerApi({
         }
     }
 
+    function getRunningNodeIds() {
+        if (!(state.runningNodeIds instanceof Set)) {
+            state.runningNodeIds = new Set();
+        }
+        return state.runningNodeIds;
+    }
+
+    function getRunAbortControllers() {
+        if (!(state.runAbortControllers instanceof Set)) {
+            state.runAbortControllers = new Set();
+        }
+        return state.runAbortControllers;
+    }
+
+    function syncRunToolbarState() {
+        const runBtn = documentRef.getElementById('btn-run');
+        const stopBtn = documentRef.getElementById('btn-stop');
+        const hasActiveRuns = (state.activeRunCount || 0) > 0;
+
+        if (runBtn) {
+            runBtn.classList.toggle('running', hasActiveRuns);
+            runBtn.disabled = hasActiveRuns;
+        }
+        if (stopBtn) {
+            stopBtn.classList.toggle('running', hasActiveRuns);
+            stopBtn.disabled = !hasActiveRuns;
+        }
+    }
+
+    function setControlRunningLock(control, locked) {
+        if (!control) return;
+        if (locked) {
+            if (control.dataset.runningLockApplied !== '1') {
+                control.dataset.runningLockApplied = '1';
+                control.dataset.runningLockPrevDisabled = control.disabled ? '1' : '0';
+            }
+            control.disabled = true;
+            return;
+        }
+
+        if (control.dataset.runningLockApplied === '1') {
+            control.disabled = control.dataset.runningLockPrevDisabled === '1';
+            delete control.dataset.runningLockApplied;
+            delete control.dataset.runningLockPrevDisabled;
+        }
+    }
+
+    function setNodeRunningLock(node, locked) {
+        if (!node?.el) return;
+        node.el.classList.toggle('running-locked', locked);
+        node.el.querySelectorAll('input, select, textarea, button').forEach((control) => {
+            setControlRunningLock(control, locked);
+        });
+    }
+
+    function markNodeRunning(nodeId, node) {
+        getRunningNodeIds().add(nodeId);
+        if (node?.el) {
+            node.el.classList.add('running');
+            node.el.classList.remove('completed', 'error');
+        }
+        setNodeRunningLock(node, true);
+    }
+
+    function clearNodeRunning(nodeId, node) {
+        getRunningNodeIds().delete(nodeId);
+        if (node?.el) node.el.classList.remove('running', 'running-locked');
+        setNodeRunningLock(node, false);
+    }
+
+    function hasRunningNodeInPlan(plan) {
+        const runningNodeIds = getRunningNodeIds();
+        return (plan.executionOrder || plan.nodeIds || []).filter((nodeId) => runningNodeIds.has(nodeId));
+    }
+
     function shouldResetNodeData(plan, nodeId) {
         if (plan.mode === 'all') return true;
         return plan.scopeNodeSet.has(nodeId);
     }
 
     function resetNodesForPlan(plan) {
+        const runningNodeIds = getRunningNodeIds();
         for (const [nid, node] of state.nodes) {
             if (!shouldResetNodeData(plan, nid)) continue;
+            if (runningNodeIds.has(nid)) continue;
 
             const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
             const isFixed = fixedToggle ? fixedToggle.checked : false;
@@ -114,11 +191,15 @@ export function createWorkflowRunnerApi({
             showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
             return;
         }
-        if (state.isRunning) return;
-
         let runOptions = normalizeRunOptions(runInput);
         let plan = resolveExecutionPlan(runOptions);
         if (!plan) return;
+
+        const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
+        if (alreadyRunningNodeIds.length > 0) {
+            showToast(`当前运行范围内有 ${alreadyRunningNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
+            return;
+        }
 
         const missingKeysProviders = new Set();
         for (const id of plan.nodeIds) {
@@ -146,20 +227,27 @@ export function createWorkflowRunnerApi({
             }
         }
 
+        const session = {
+            controller: new AbortController(),
+            timeoutId: null,
+            stopped: false,
+            abortReason: null,
+            finalized: false
+        };
+        getRunAbortControllers().add(session.controller);
+        state.activeRunCount = (state.activeRunCount || 0) + 1;
         state.isRunning = true;
         state.abortReason = null;
-        state.abortController = new AbortController();
-        if (state.workflowTimeoutId) {
-            clearTimeout(state.workflowTimeoutId);
-            state.workflowTimeoutId = null;
-        }
+        state.abortController = session.controller;
+        syncRunToolbarState();
         if (state.requestTimeoutEnabled) {
             const timeoutMs = Math.max(1, parseInt(state.requestTimeoutSeconds, 10) || 60) * 1000;
-            state.workflowTimeoutId = setTimeout(() => {
-                if (!state.isRunning || !state.abortController) return;
+            session.timeoutId = setTimeout(() => {
+                if (session.finalized || session.controller.signal.aborted) return;
+                session.abortReason = 'timeout';
                 state.abortReason = 'timeout';
-                state.isRunning = false;
-                state.abortController.abort();
+                session.stopped = true;
+                session.controller.abort();
             }, timeoutMs);
         }
 
@@ -175,15 +263,6 @@ export function createWorkflowRunnerApi({
                 console.warn('Audio warm-up blocked:', e);
                 addLog('warning', '音频保活受限', '浏览器禁用了后台音频，通知音效可能在非活动状态下失效，请确保已与页面交互。');
             });
-        }
-
-        const runBtn = documentRef.getElementById('btn-run');
-        const stopBtn = documentRef.getElementById('btn-stop');
-        runBtn.classList.add('running');
-        runBtn.disabled = true;
-        if (stopBtn) {
-            stopBtn.classList.add('running');
-            stopBtn.disabled = false;
         }
 
         resetNodesForPlan(plan);
@@ -261,16 +340,21 @@ export function createWorkflowRunnerApi({
         }
 
         function finalizeWorkflow() {
-            state.isRunning = false;
-            runBtn.classList.remove('running');
-            runBtn.disabled = false;
-            if (stopBtn) {
-                stopBtn.classList.remove('running');
-                stopBtn.disabled = true;
+            if (session.finalized) return;
+            session.finalized = true;
+            if (session.timeoutId) {
+                clearTimeout(session.timeoutId);
+                session.timeoutId = null;
             }
-            state.abortController = null;
-            state.workflowTimeoutId = null;
-            state.abortReason = null;
+            const controllers = getRunAbortControllers();
+            controllers.delete(session.controller);
+            state.activeRunCount = Math.max(0, (state.activeRunCount || 0) - 1);
+            state.isRunning = state.activeRunCount > 0;
+            state.abortController = Array.from(controllers).at(-1) || null;
+            if (!state.isRunning) {
+                state.abortReason = null;
+            }
+            syncRunToolbarState();
         }
 
         if (plan.mode !== 'selected-only') {
@@ -318,11 +402,12 @@ export function createWorkflowRunnerApi({
         const failedNodes = new Set();
         const runningNodes = new Set();
         let terminatedByError = false;
+        const isRunActive = () => !session.stopped && !session.controller.signal.aborted;
 
         try {
             while (true) {
                 while (true) {
-                    if (!state.isRunning) break;
+                    if (!isRunActive()) break;
 
                     const readyNodes = order.filter((nid) => {
                         if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
@@ -346,8 +431,7 @@ export function createWorkflowRunnerApi({
                             const nodeTitle = nodeConfigs[node.type].title;
 
                             (async () => {
-                                node.el.classList.add('running');
-                                node.el.classList.remove('completed', 'error');
+                                markNodeRunning(nid, node);
                                 const timeBadge = documentRef.getElementById(`${nid}-time`);
                                 const timeContainer = documentRef.getElementById(`${nid}-time-container`);
                                 const startTime = Date.now();
@@ -365,13 +449,13 @@ export function createWorkflowRunnerApi({
                                 try {
                                     const inputs = collectInputsForNode(plan, nid);
 
-                                    await executeNode(node, inputs, state.abortController?.signal);
+                                    await executeNode(node, inputs, session.controller.signal);
 
                                     if (timerId) clearInterval(timerId);
                                     const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
                                     node.isSucceeded = true;
                                     node.lastDuration = durationSec;
-                                    node.el.classList.remove('running');
+                                    clearNodeRunning(nid, node);
                                     node.el.classList.add('completed');
                                     if (timeBadge) {
                                         timeBadge.textContent = `${durationSec}s`;
@@ -382,12 +466,13 @@ export function createWorkflowRunnerApi({
                                     completedNodes.add(nid);
                                 } catch (err) {
                                     if (isAbortLikeError(err)) {
-                                        node.el.classList.remove('running');
+                                        clearNodeRunning(nid, node);
                                         clearAbortedNodeFeedback(nid);
+                                        if (session.abortReason) state.abortReason = session.abortReason;
                                         addLog('warning', `节点已中止: ${nodeTitle}`, getAbortMessage(state));
                                         return;
                                     }
-                                    node.el.classList.remove('running');
+                                    clearNodeRunning(nid, node);
                                     node.el.classList.add('error');
                                     const errorMsg = err.message || '未知错误';
                                     if (timeBadge) timeBadge.textContent = 'Err';
@@ -401,10 +486,11 @@ export function createWorkflowRunnerApi({
                                     if (!state.autoRetry) {
                                         showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
                                         terminatedByError = true;
-                                        state.isRunning = false;
+                                        session.stopped = true;
                                     }
                                 } finally {
                                     if (timerId) clearInterval(timerId);
+                                    clearNodeRunning(nid, node);
                                     runningNodes.delete(nid);
                                 }
                             })();
@@ -412,10 +498,10 @@ export function createWorkflowRunnerApi({
                     }
 
                     await new Promise((resolve) => setTimeout(resolve, 100));
-                    if (!state.isRunning) break;
+                    if (!isRunActive()) break;
                 }
 
-                if (!state.isRunning) break;
+                if (!isRunActive()) break;
 
                 const actualFailures = order.filter((id) => {
                     const node = state.nodes.get(id);
@@ -443,18 +529,19 @@ export function createWorkflowRunnerApi({
                 showToast(`正在启动第 ${retryAttempt} 轮自动重试（${actualFailures.length} 个节点）...`, 'warning', 4000);
                 failedNodes.clear();
                 await new Promise((resolve) => setTimeout(resolve, 1500));
-                if (!state.isRunning) break;
+                if (!isRunActive()) break;
             }
         } finally {
-            if (state.workflowTimeoutId) {
-                clearTimeout(state.workflowTimeoutId);
-                state.workflowTimeoutId = null;
+            if (session.timeoutId) {
+                clearTimeout(session.timeoutId);
+                session.timeoutId = null;
             }
-            if (!state.isRunning) {
+            if (!isRunActive()) {
+                if (session.abortReason) state.abortReason = session.abortReason;
                 addLog('info', '工作流停止', getAbortMessage(state));
                 for (const nid of runningNodes) {
                     const node = state.nodes.get(nid);
-                    if (node) node.el.classList.remove('running');
+                    if (node) clearNodeRunning(nid, node);
                 }
             }
 
@@ -467,8 +554,8 @@ export function createWorkflowRunnerApi({
                 }
             }
 
-            const wasRunning = state.isRunning;
-            const abortReason = state.abortReason;
+            const completedRun = !terminatedByError && isRunActive();
+            const abortReason = session.abortReason || state.abortReason;
             finalizeWorkflow();
 
             if (state.notificationsEnabled) {
@@ -483,7 +570,7 @@ export function createWorkflowRunnerApi({
                         });
                     }
                     playNotificationSound();
-                } else if (state.isRunning || wasRunning) {
+                } else if (completedRun) {
                     showToast(`工作流运行完成，总耗时 ${totalDuration}s`, 'success', 6000);
                     if (notificationRef && notificationRef.permission === 'granted') {
                         new notificationRef('CainFlow 运行完毕', {
