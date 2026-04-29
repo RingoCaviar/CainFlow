@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.7.6
+> 当前版本：v2.7.6.2
 
 ## 前端结构
 
@@ -58,7 +58,8 @@
 | 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片预览/保存/缩放/对比节点的运行态同步与交互；图片对比高级模式的全屏界面、A/B 选图、历史图片汇总、缩略图选择区展开、鼠标切割、滚轮缩放与左键平移；提供文件导入与 data URL 直接写入入口 |
 | 媒体工具 | `js/features/media/media-utils.js` | 图片格式转换、Blob 处理等工具函数 |
 | **持久化** | | |
-| 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出 |
+| 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出；导出不写入 API 供应商/模型配置，导入时保留当前 API 设置 |
+| 工作流模型引用解析 | `js/features/persistence/workflow-model-resolver.js` | 旧工作流模型 ID 到当前模型配置的自动匹配；缺失模型或供应商引用提示 |
 | 会话管理 | `js/features/persistence/session-manager.js` | 自动保存、页面关闭前恢复等会话持久化 |
 | **设置** | | |
 | 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、搜索与添加模型、持久化、代理检测、版本更新、画布连线设置 |
@@ -79,7 +80,7 @@
 | **更新** | | |
 | 更新检查 | `js/features/update/update-manager.js` | GitHub Release 版本对比与更新提示 |
 | **工作流** | | |
-| 工作流管理 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排 |
+| 工作流管理 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排；保存时只写画布、节点、连线和版本号 |
 
 ### Nodes（节点层）
 
@@ -88,7 +89,7 @@
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
 | 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text 节点编辑时只同步数据与保存，不自动缩放节点 |
 | 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 创建时映射为 Text，Text 节点尺寸测量兜底在这里 |
-| 序列化 | `js/nodes/node-serializer.js` | 工作流导入导出结构与节点序列化，含 ImageGenerate `generationCount` 与 Text 文本字段 |
+| 序列化 | `js/nodes/node-serializer.js` | 节点序列化、会话状态 payload、workflow 导出结构；workflow 导出只含画布、节点、连线和版本号 |
 | 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框、ImageGenerate 分辨率与生成次数控件，以及 ImageCompare 高级对比入口按钮 |
 | 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义、端口与默认尺寸 |
 | 图片导入节点 | `js/nodes/types/image-import.js` | ImageImport 节点定义 |
@@ -140,7 +141,8 @@
 
 | 需求 | 优先检查这些文件 |
 | --- | --- |
-| 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
+| 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
+| 修改 workflow JSON 契约、导入旧工作流模型匹配或缺失模型提示 | `js/nodes/node-serializer.js`, `js/features/workflow/workflow-manager.js`, `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `workflows/Default.json` |
 | 修复工作流执行、节点调度 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` |
 | 修复代理请求拼装或 API 调用 | `js/services/api-client.js`, `backend/handler.py`, `backend/services/proxy_service.py` |
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
@@ -160,13 +162,14 @@
 | 修复画布拖拽、框选、缩放、几何绘制 | `js/canvas/canvas-interactions.js`, `js/canvas/selection.js`, `js/canvas/viewport.js`, `js/canvas/geometry.js` |
 | 修复连线绘制 | `js/canvas/connections.js` |
 | 修改共享常量或默认值 | `js/core/constants.js`, `js/core/state.js` |
+| 修改默认 API 供应商或默认模型 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/execution/provider-request-utils.js` |
 | 修改连线类型 | `js/features/settings/settings-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `js/canvas/geometry.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js` |
 | 修改全局动画开关或禁用动画性能模式 | `js/features/settings/settings-controller.js`, `js/features/ui/animation-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `css/legacy.css`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js`, `index.html` |
 | 修改 DOM 获取或顶层元素引用 | `js/core/elements.js`, `index.html` |
 | 添加通用工具函数 | `js/core/common-utils.js` |
 | 媒体/图片处理 | `js/features/media/image-painter.js`, `js/features/media/media-controller.js`, `js/features/media/media-utils.js` |
 | 图片节点的运行态预览、对比、下游级联刷新 | `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `js/nodes/node-dom-bindings.js` |
-| 项目文件导入导出 | `js/features/persistence/project-io.js` |
+| 项目文件导入导出 | `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `js/nodes/node-serializer.js` |
 | 自动保存 / 会话恢复 | `js/features/persistence/session-manager.js` |
 | 主题切换 | `js/features/ui/theme-controller.js`, `css/themes.css` |
 | Toast 通知 | `js/features/ui/toast-controller.js` |
@@ -222,6 +225,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 提示词库是独立功能域：全屏管理、预设卡片、多选删除、复制、JSON 导入/导出、导入文件校验和导入选择窗口放 `js/features/prompts/prompt-library.js`；左侧栏入口和面板骨架放 `index.html`；总装配只在 `index.js` 注入依赖并初始化。提示词预设当前使用 `localStorage` 键 `cainflow_prompt_library`，不是工作流文件、后端文件或 IndexedDB。导出 JSON 使用 `type: "cainflow-prompt-library"`、`version`、`prompts`；导入必须先校验格式，确认规范后再默认全选并允许用户选择导入项。导入画布时创建正式 `Text` 节点，位置查找应避免与现有节点重叠。
 - 全局动画开关以 `globalAnimationEnabled` 为准，旧的 `connectionFlowAnimationEnabled` 只做兼容读写。应用根节点类名与兼容字段同步放 `js/features/ui/animation-controller.js`；具体动画执行点仍在各自模块中读取全局状态或依赖 CSS 禁用规则。
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
+- Workflow JSON 是画布文件，不是 API 配置快照：保存、导出和 `workflows/Default.json` 只包含 `canvas`、`nodes`、`connections`、`version`，节点通过 `apiConfigId` 保存所选模型 ID。默认供应商/默认模型只维护在 `js/core/constants.js`。导入旧 workflow 时可读取旧 `models/providers` 作为匹配线索，但不得把它们合并进当前 API 设置；缺失模型或供应商引用由 `js/features/persistence/workflow-model-resolver.js` 提示。
 - 后端按 route 与 service 分责，不要混写。
 - 版本号升级必须同时覆盖前端常量、页面展示、静态资源缓存参数、CSS 版本变量、后端启动提示、代理 User-Agent、包元数据和 README，避免界面、请求标识与发布文档不一致。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
