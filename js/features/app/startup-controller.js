@@ -10,11 +10,10 @@ export function createStartupControllerApi({
     loadDefaultWorkflow,
     applyDefaultWorkflow,
     updateCanvasTransform,
-    checkUpdate,
+    scheduleAutoUpdateCheck,
     checkRefreshNotice,
     documentRef = document,
-    consoleRef = console,
-    setTimeoutRef = setTimeout
+    consoleRef = console
 }) {
     async function bootstrapApp() {
         consoleRef.log('CainFlow Initializing...');
@@ -35,7 +34,7 @@ export function createStartupControllerApi({
             }
             consoleRef.log('CainFlow Initialized successfully.');
 
-            setTimeoutRef(() => checkUpdate(), 3000);
+            scheduleAutoUpdateCheck();
             checkRefreshNotice();
         } catch (error) {
             consoleRef.error('CainFlow Initialization Failed:', error);

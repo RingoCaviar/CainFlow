@@ -15,6 +15,9 @@ export function createUpdateManager({
     setTimeoutImpl = setTimeout,
     clearTimeoutImpl = clearTimeout
 }) {
+    let autoCheckCountdownTimer = null;
+    let autoCheckCountdownToast = null;
+
     function compareVersions(v1, v2) {
         const parse = (value) => {
             const match = String(value || '').trim().match(/\d+(?:\.\d+)*/);
@@ -126,6 +129,91 @@ export function createUpdateManager({
         return '检查更新失败，请检查网络连接或代理设置';
     }
 
+    function getToastContainer() {
+        return documentRef.getElementById('toast-container');
+    }
+
+    function renderAutoCheckCountdownToast(secondsRemaining) {
+        const container = getToastContainer();
+        if (!container) return;
+
+        if (!autoCheckCountdownToast || !documentRef.body?.contains(autoCheckCountdownToast)) {
+            const toast = documentRef.createElement('div');
+            toast.className = 'toast info';
+
+            const icon = documentRef.createElement('span');
+            icon.textContent = '[i]';
+
+            const message = documentRef.createElement('span');
+            message.className = 'update-auto-check-countdown-message';
+
+            toast.appendChild(icon);
+            toast.appendChild(message);
+            container.appendChild(toast);
+            autoCheckCountdownToast = toast;
+        }
+
+        const message = autoCheckCountdownToast.querySelector('.update-auto-check-countdown-message');
+        if (message) {
+            message.textContent = `将在 ${secondsRemaining} 秒后自动检查更新`;
+        }
+    }
+
+    function dismissAutoCheckCountdownToast(delay = 0) {
+        if (!autoCheckCountdownToast) return;
+
+        const toast = autoCheckCountdownToast;
+        autoCheckCountdownToast = null;
+
+        setTimeoutImpl(() => {
+            toast.style.animation = 'toast-out 0.3s ease-out forwards';
+            setTimeoutImpl(() => toast.remove(), 300);
+        }, delay);
+    }
+
+    function scheduleAutoUpdateCheck(options = {}) {
+        const {
+            delayMs = 5000,
+            force = true,
+            showModal = false,
+            showCanvasNotification = true
+        } = options;
+
+        if (autoCheckCountdownTimer !== null) {
+            clearTimeoutImpl(autoCheckCountdownTimer);
+            autoCheckCountdownTimer = null;
+        }
+        dismissAutoCheckCountdownToast();
+
+        const targetTime = Date.now() + delayMs;
+
+        const tick = () => {
+            const remainingMs = targetTime - Date.now();
+            const secondsRemaining = Math.ceil(remainingMs / 1000);
+
+            if (secondsRemaining > 0) {
+                renderAutoCheckCountdownToast(secondsRemaining);
+                autoCheckCountdownTimer = setTimeoutImpl(tick, Math.min(1000, Math.max(remainingMs, 0)));
+                return;
+            }
+
+            autoCheckCountdownTimer = null;
+            if (autoCheckCountdownToast) {
+                const message = autoCheckCountdownToast.querySelector('.update-auto-check-countdown-message');
+                if (message) message.textContent = '正在自动检查更新...';
+            }
+            dismissAutoCheckCountdownToast(1200);
+            checkUpdate(false, {
+                force,
+                showModal,
+                showCanvasNotification,
+                showProgressToast: false
+            });
+        };
+
+        tick();
+    }
+
     async function checkUpdate(isManual = false, options = {}) {
         const {
             force = false,
@@ -220,6 +308,7 @@ export function createUpdateManager({
 
     return {
         checkUpdate,
+        scheduleAutoUpdateCheck,
         checkRefreshNotice,
         initRefreshNotice
     };

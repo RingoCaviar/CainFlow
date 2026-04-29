@@ -408,7 +408,6 @@ export function createUiControllerApi({
 
                 deleteRequest.onblocked = () => {
                     console.warn('Delete blocked');
-                    alertRef('数据库清理被阻塞，请关闭其他标签页后重试。');
                     locationRef.reload();
                 };
             }
