@@ -2,6 +2,10 @@
  * 负责工作流项目的导入导出与恢复加载，是前端项目 IO 的统一入口。
  */
 import { normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import {
+    buildWorkflowModelWarningMessage,
+    resolveWorkflowModelReferences
+} from './workflow-model-resolver.js';
 
 export function createProjectIoApi({
     state,
@@ -24,7 +28,7 @@ export function createProjectIoApi({
 }) {
     function exportWorkflow() {
         try {
-            const data = nodeSerializer.buildWorkflowExport('1.2');
+            const data = nodeSerializer.buildWorkflowExport('1.3');
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = documentRef.createElement('a');
@@ -33,7 +37,7 @@ export function createProjectIoApi({
             a.download = `CainFlow_Project_${time}.json`;
             a.click();
             URL.revokeObjectURL(url);
-            showToast('项目已导出 (已自动移除 API 密钥以保护安全)', 'success');
+            showToast('工作流已导出，API 供应商与模型配置不会写入文件', 'success');
         } catch (e) {
             showToast('导出失败: ' + e.message, 'error');
         }
@@ -48,37 +52,23 @@ export function createProjectIoApi({
                     throw new Error('无效的 CainFlow 项目文件格式');
                 }
 
-                if (!windowRef.confirm('导入将覆盖当前所有画布节点、API 及模型配置、连线，确定继续吗？')) {
+                if (!windowRef.confirm('导入将覆盖当前画布节点和连线，当前 API 供应商与模型配置会保留，确定继续吗？')) {
                     return;
                 }
 
                 const currentState = JSON.parse(localStorageRef.getItem(storageKey) || '{}');
-                const currentProviders = state.providers;
-                const existingProvidersMap = new Map(currentProviders.map((provider) => [provider.id, provider]));
-
-                const mergedProviders = Array.isArray(importedData.providers)
-                    ? importedData.providers.map((importedProvider) => {
-                        const existingProvider = existingProvidersMap.get(importedProvider.id);
-                        if (existingProvider) {
-                            return {
-                                ...importedProvider,
-                                apikey: existingProvider.apikey || importedProvider.apikey || '',
-                                endpoint: existingProvider.endpoint || importedProvider.endpoint || ''
-                            };
-                        }
-                        return {
-                            ...importedProvider,
-                            apikey: importedProvider.apikey || ''
-                        };
-                    })
-                    : currentProviders;
+                const modelResolution = resolveWorkflowModelReferences(importedData, state);
+                const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
+                if (warningMessage && !windowRef.confirm(`${warningMessage}\n\n是否继续导入工作流？`)) {
+                    return;
+                }
 
                 const mergedData = {
                     canvas: importedData.canvas || currentState.canvas || { x: 0, y: 0, zoom: 1 },
-                    nodes: importedData.nodes || [],
+                    nodes: modelResolution.nodes || [],
                     connections: importedData.connections || [],
-                    providers: mergedProviders,
-                    models: importedData.models || currentState.models || state.models,
+                    providers: state.providers,
+                    models: state.models,
                     themeMode: currentState.themeMode !== undefined ? currentState.themeMode : state.themeMode,
                     notificationsEnabled: currentState.notificationsEnabled !== undefined ? currentState.notificationsEnabled : state.notificationsEnabled,
                     notificationVolume: currentState.notificationVolume !== undefined ? currentState.notificationVolume : state.notificationVolume,
@@ -100,7 +90,10 @@ export function createProjectIoApi({
                 };
 
                 localStorageRef.setItem(storageKey, JSON.stringify(mergedData));
-                showToast('导入成功，现有 API 密钥、地址和全局设置已保留，正在重新加载...', 'success');
+                const remapText = modelResolution.remappedModels.length > 0
+                    ? `，已自动匹配 ${modelResolution.remappedModels.length} 个模型引用`
+                    : '';
+                showToast(`导入成功，当前 API 设置已保留${remapText}，正在重新加载...`, 'success');
                 setTimeout(() => windowRef.location.reload(), 800);
             } catch (err) {
                 showToast('导入失败: ' + err.message, 'error');

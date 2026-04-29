@@ -1,7 +1,7 @@
 /**
  * 负责节点与连接的序列化和反序列化，为保存、导入、撤销和工作流复制提供数据结构转换。
  */
-export function createNodeSerializer({ state, documentRef, getSafeProviders }) {
+export function createNodeSerializer({ state, documentRef }) {
     function serializeNodes(includeImages = false) {
         const nodes = [];
         for (const [id, node] of state.nodes) {
@@ -105,7 +105,7 @@ export function createNodeSerializer({ state, documentRef, getSafeProviders }) {
         };
     }
 
-    function buildWorkflowExport(version = '1.2') {
+    function buildWorkflowExport(version = '1.3') {
         return {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
             nodes: serializeNodes(),
@@ -115,8 +115,6 @@ export function createNodeSerializer({ state, documentRef, getSafeProviders }) {
                 to: connection.to,
                 type: connection.type
             })),
-            providers: getSafeProviders(),
-            models: state.models,
             version
         };
     }

@@ -208,8 +208,7 @@ const viewportApi = createViewportApi({ state, elements, updateAllConnections: (
 const selectionApi = createSelectionApi({ state, updateAllConnections: () => updateAllConnections() });
 const nodeSerializer = createNodeSerializer({
     state,
-    documentRef: document,
-    getSafeProviders: () => getSafeProviders()
+    documentRef: document
 });
 let logPanelApi = null;
 let historyPanelApi = null;
@@ -445,14 +444,6 @@ function updateUndoButton() {
 
 async function undo() {
     return getSessionManagerApi().undo();
-}
-
-function getSafeProviders() {
-    // 返回已去除 apikey 的 providers 副本，用于安全导出
-    return state.providers.map(p => {
-        const { apikey, ...rest } = p;
-        return { ...rest, apikey: '' };
-    });
 }
 
 function getSessionManagerApi() {

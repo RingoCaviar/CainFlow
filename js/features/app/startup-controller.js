@@ -26,8 +26,9 @@ export function createStartupControllerApi({
             } else if (state.nodes.size === 0) {
                 const defaultData = await loadDefaultWorkflow();
                 if (defaultData) {
-                    applyDefaultWorkflow(defaultData);
-                    showToast('已自动加载默认工作流', 'info');
+                    if (applyDefaultWorkflow(defaultData) !== false) {
+                        showToast('已自动加载默认工作流', 'info');
+                    }
                 } else {
                     updateCanvasTransform();
                 }

@@ -8,7 +8,10 @@ import {
     renameWorkflowFile as renameWorkflowFileService,
     saveWorkflowToFile as saveWorkflowToFileService
 } from '../../services/workflow-api.js';
-import { normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import {
+    buildWorkflowModelWarningMessage,
+    resolveWorkflowModelReferences
+} from '../persistence/workflow-model-resolver.js';
 
 export function createWorkflowManagerApi({
     state,
@@ -94,8 +97,9 @@ export function createWorkflowManagerApi({
                 if (e.target.closest('.workflow-action-btn')) return;
                 const data = await loadWorkflowFromFile(name);
                 if (data && windowRef.confirm(`确定要加载工作流「${name}」吗？这将覆盖当前画布。`)) {
-                    applyWorkflowData(data);
-                    showToast('已加载工作流: ' + name, 'success');
+                    if (applyWorkflowData(data)) {
+                        showToast('已加载工作流: ' + name, 'success');
+                    }
                 }
             });
 
@@ -128,53 +132,19 @@ export function createWorkflowManagerApi({
     }
 
     function applyWorkflowData(data) {
+        const modelResolution = resolveWorkflowModelReferences(data, state);
+        const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
+        if (warningMessage && !windowRef.confirm(`${warningMessage}\n\n是否继续加载工作流？`)) {
+            return false;
+        }
+        if (modelResolution.remappedModels.length > 0) {
+            showToast(`已自动匹配 ${modelResolution.remappedModels.length} 个模型引用`, 'info', 6000);
+        }
+
         state.connections = [];
         for (const [, node] of state.nodes) node.el.remove();
         state.nodes.clear();
         state.selectedNodes.clear();
-
-        if (data.providers) {
-            let missingKeys = 0;
-            const existingProviders = new Map(state.providers.map((provider) => [provider.id, provider]));
-
-            data.providers.forEach((newProvider) => {
-                if (existingProviders.has(newProvider.id)) {
-                    const oldProvider = existingProviders.get(newProvider.id);
-                    const mergedProvider = {
-                        ...newProvider,
-                        name: oldProvider.name || newProvider.name,
-                        type: normalizeProviderType(oldProvider.type || newProvider.type, {
-                            endpoint: oldProvider.endpoint || newProvider.endpoint
-                        }),
-                        endpoint: oldProvider.endpoint || newProvider.endpoint,
-                        apikey: oldProvider.apikey || newProvider.apikey || ''
-                    };
-                    existingProviders.set(newProvider.id, mergedProvider);
-                    if (!mergedProvider.apikey) missingKeys++;
-                } else {
-                    existingProviders.set(newProvider.id, {
-                        ...newProvider,
-                        type: normalizeProviderType(newProvider.type, newProvider),
-                        apikey: newProvider.apikey || ''
-                    });
-                    if (!newProvider.apikey) missingKeys++;
-                }
-            });
-            state.providers = Array.from(existingProviders.values());
-
-            if (missingKeys > 0) {
-                showToast(`检测到 ${missingKeys} 个 API 供应商缺少密钥，请在设置中配置以正常运行`, 'warning', 8000);
-            }
-        }
-
-        if (data.models) {
-            const existingModels = new Map(state.models.map((model) => [model.id, model]));
-            const providersById = new Map(state.providers.map((provider) => [provider.id, provider]));
-            data.models.forEach((newModel) => {
-                existingModels.set(newModel.id, normalizeModelConfig(newModel, 0, providersById));
-            });
-            state.models = Array.from(existingModels.values());
-        }
 
         if (data.canvas) {
             state.canvas.x = data.canvas.x || 0;
@@ -182,8 +152,8 @@ export function createWorkflowManagerApi({
             state.canvas.zoom = data.canvas.zoom || 1;
         }
 
-        if (data.nodes?.length) {
-            for (const nodeData of data.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData);
+        if (modelResolution.nodes?.length) {
+            for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData);
         }
 
         if (data.connections?.length) {
@@ -200,29 +170,25 @@ export function createWorkflowManagerApi({
         onConnectionsChanged();
         viewportApi.updateCanvasTransform();
         scheduleSave();
+        return true;
     }
 
     async function ensureDefaultWorkflow() {
         const names = await fetchWorkflows();
         if (!names.includes('Default')) {
-            const safeProviders = state.providers.map((provider) => {
-                const { apikey, ...rest } = provider;
-                return rest;
-            });
+            const defaultImageModel = state.models.find((model) => model.taskType === 'image');
             const defaultData = {
                 canvas: { x: 0, y: 0, zoom: 1 },
                 nodes: [
                     { id: 'n_prompt', type: 'Text', x: 100, y: 150, width: 240, height: 160, text: 'A futuristic city at sunset, cinematic lighting, 8k resolution' },
-                    { id: 'n_gen', type: 'ImageGenerate', x: 450, y: 100, width: 260, height: 520, apiConfigId: state.models[0]?.id || 'default', generationCount: 1 },
+                    { id: 'n_gen', type: 'ImageGenerate', x: 450, y: 100, width: 260, height: 520, apiConfigId: defaultImageModel?.id || 'default', generationCount: 1 },
                     { id: 'n_prev', type: 'ImagePreview', x: 800, y: 150, width: 300, height: 350 }
                 ],
                 connections: [
                     { id: 'c_p_g', from: { nodeId: 'n_prompt', port: 'text' }, to: { nodeId: 'n_gen', port: 'prompt' }, type: 'text' },
                     { id: 'c_g_p', from: { nodeId: 'n_gen', port: 'image' }, to: { nodeId: 'n_prev', port: 'image' }, type: 'image' }
                 ],
-                providers: safeProviders,
-                models: state.models,
-                version: '1.2'
+                version: '1.3'
             };
             await saveWorkflowToFile('Default', defaultData);
         }
@@ -250,18 +216,11 @@ export function createWorkflowManagerApi({
             const name = inputName.value.trim();
             if (!name) return showToast('请输入工作流名称', 'warning');
 
-            const safeProviders = state.providers.map((provider) => {
-                const { apikey, ...rest } = provider;
-                return rest;
-            });
-
             const data = {
                 canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
                 nodes: nodeSerializer.serializeNodes(),
                 connections: state.connections.map((conn) => ({ id: conn.id, from: conn.from, to: conn.to, type: conn.type })),
-                providers: safeProviders,
-                models: state.models,
-                version: '1.2'
+                version: '1.3'
             };
 
             if (await saveWorkflowToFile(name, data)) {

@@ -57,11 +57,15 @@ function renderNodeHeader(id, config) {
 
 function renderApiConfigOptions(models, providers, selectedId, taskType) {
     const filteredModels = getModelsForTask(models, taskType);
+    const hasSelectedModel = filteredModels.some((model) => model.id === selectedId);
+    const missingSelectedOption = selectedId && !hasSelectedModel
+        ? `<option value="${selectedId}" selected>缺失模型：${selectedId}</option>`
+        : '';
     if (filteredModels.length === 0) {
-        return '<option value="">-- 暂无可用模型 --</option>';
+        return missingSelectedOption || '<option value="">-- 暂无可用模型 --</option>';
     }
 
-    return filteredModels.map((model) => {
+    return missingSelectedOption + filteredModels.map((model) => {
         const selected = selectedId === model.id ? 'selected' : '';
         return `<option value="${model.id}" ${selected}>${getModelOptionLabel(model, providers)}</option>`;
     }).join('');
