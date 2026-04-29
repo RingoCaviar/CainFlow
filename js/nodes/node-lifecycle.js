@@ -23,6 +23,68 @@ export function createNodeLifecycleApi({
     updateCacheUsage,
     documentRef = document
 }) {
+    const view = documentRef.defaultView || window;
+    let pendingNodeSizeConnectionRefresh = null;
+
+    function scheduleNodeSizeConnectionRefresh() {
+        if (pendingNodeSizeConnectionRefresh !== null) return;
+        const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
+        pendingNodeSizeConnectionRefresh = requestFrame(() => {
+            pendingNodeSizeConnectionRefresh = null;
+            updateAllConnections();
+        });
+    }
+
+    function readObservedNodeSize(entry, el) {
+        const borderSize = Array.isArray(entry.borderBoxSize)
+            ? entry.borderBoxSize[0]
+            : entry.borderBoxSize;
+        const width = borderSize?.inlineSize || el.offsetWidth || entry.contentRect?.width || 0;
+        const height = borderSize?.blockSize || el.offsetHeight || entry.contentRect?.height || 0;
+        return {
+            width: Math.round(width),
+            height: Math.round(height)
+        };
+    }
+
+    function bindNodeSizeObserver(nodeData) {
+        const ResizeObserverCtor = view.ResizeObserver;
+        if (!ResizeObserverCtor || !nodeData?.el) return;
+
+        nodeData.observedWidth = nodeData.el.offsetWidth || Number(nodeData.width) || 0;
+        nodeData.observedHeight = nodeData.el.offsetHeight || Number(nodeData.height) || 0;
+
+        const observer = new ResizeObserverCtor((entries) => {
+            const entry = entries[0];
+            if (!entry || !state.nodes.has(nodeData.id)) return;
+
+            const { width, height } = readObservedNodeSize(entry, nodeData.el);
+            const widthChanged = Math.abs(width - (nodeData.observedWidth || 0)) > 1;
+            const heightChanged = Math.abs(height - (nodeData.observedHeight || 0)) > 1;
+            if (!widthChanged && !heightChanged) return;
+
+            nodeData.observedWidth = width;
+            nodeData.observedHeight = height;
+            if (width > 0) nodeData.width = width;
+            if (height > 0) nodeData.height = height;
+            scheduleNodeSizeConnectionRefresh();
+        });
+
+        try {
+            observer.observe(nodeData.el, { box: 'border-box' });
+        } catch {
+            observer.observe(nodeData.el);
+        }
+        nodeData.sizeObserver = observer;
+    }
+
+    function disconnectNodeSizeObserver(nodeData) {
+        if (nodeData?.sizeObserver) {
+            nodeData.sizeObserver.disconnect();
+            nodeData.sizeObserver = null;
+        }
+    }
+
     function isRemoteImageUrl(value) {
         return typeof value === 'string' && /^https?:\/\//i.test(value);
     }
@@ -132,6 +194,8 @@ export function createNodeLifecycleApi({
         if (heightChanged) {
             el.style.height = requiredHeight + 'px';
             node.height = requiredHeight;
+            node.observedWidth = el.offsetWidth || Number(node.width) || 0;
+            node.observedHeight = requiredHeight;
             updateAllConnections();
             scheduleSave();
         } else {
@@ -221,6 +285,7 @@ export function createNodeLifecycleApi({
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
         state.nodes.set(id, nodeData);
+        bindNodeSizeObserver(nodeData);
 
         if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare') {
             (async () => {
@@ -324,6 +389,7 @@ export function createNodeLifecycleApi({
                     textarea._cleanupFns = [];
                 }
             });
+            disconnectNodeSizeObserver(node);
             node.el.remove();
             state.nodes.delete(nid);
             state.selectedNodes.delete(nid);
