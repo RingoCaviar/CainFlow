@@ -33,6 +33,10 @@ export function createNodeDomBindingsApi({
     fitNodeToContent = () => {},
     documentRef = document
 }) {
+    const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container';
+    const FALLBACK_DEFAULT_NODE_WIDTH = 180;
+    const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
+
     function syncTextNodeData(id) {
         const node = state.nodes.get(id);
         const textarea = documentRef.getElementById(`${id}-text`);
@@ -164,6 +168,39 @@ export function createNodeDomBindingsApi({
         return Number.isFinite(value) ? value : 0;
     }
 
+    function getBoxExtras(style, axis) {
+        if (axis === 'x') {
+            return getPx(style, 'padding-left') + getPx(style, 'padding-right') +
+                getPx(style, 'border-left-width') + getPx(style, 'border-right-width');
+        }
+        return getPx(style, 'padding-top') + getPx(style, 'padding-bottom') +
+            getPx(style, 'border-top-width') + getPx(style, 'border-bottom-width');
+    }
+
+    function getOuterExtras(style, axis) {
+        if (axis === 'x') {
+            return getPx(style, 'margin-left') + getPx(style, 'margin-right');
+        }
+        return getPx(style, 'margin-top') + getPx(style, 'margin-bottom');
+    }
+
+    function getLayoutGap(style, axis) {
+        if (axis === 'x') {
+            return getPx(style, 'column-gap') || getPx(style, 'gap') || 0;
+        }
+        return getPx(style, 'row-gap') || getPx(style, 'gap') || 0;
+    }
+
+    function isVisibleElement(el) {
+        if (!el) return false;
+        const style = getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'collapse' && el.offsetParent !== null;
+    }
+
+    function isResizableMediaElement(el) {
+        return Boolean(el?.matches?.(NODE_RESIZABLE_MEDIA_SELECTOR));
+    }
+
     function measureTextWidth(text, font) {
         if (!measureTextWidth.canvas) {
             measureTextWidth.canvas = documentRef.createElement('canvas');
@@ -180,6 +217,7 @@ export function createNodeDomBindingsApi({
         const horizontalPadding = getPx(style, 'padding-left') + getPx(style, 'padding-right');
         const horizontalBorder = getPx(style, 'border-left-width') + getPx(style, 'border-right-width');
         const extraSelectSpace = control.tagName === 'SELECT' ? 14 : 0;
+        const minWidth = getPx(style, 'min-width');
 
         if (control.tagName === 'SELECT') {
             const isModelSelect = control.id.endsWith('-apiconfig');
@@ -193,13 +231,89 @@ export function createNodeDomBindingsApi({
             return Math.ceil(Math.min(optionTextWidth + horizontalPadding + horizontalBorder + extraSelectSpace, maxWidth));
         }
 
+        if (control.tagName === 'BUTTON') {
+            const text = String(control.textContent || '').replace(/\s+/g, ' ').trim();
+            const textWidth = text ? measureTextWidth(text, font) : 0;
+            const children = Array.from(control.children).filter(isVisibleElement);
+            const childrenWidth = children.reduce((total, child) => {
+                return total + (child.getBoundingClientRect?.().width || child.offsetWidth || 0);
+            }, 0);
+            const gap = getLayoutGap(style, 'x') * Math.max(0, children.length + (text ? 1 : 0) - 1);
+            return Math.ceil(Math.max(minWidth, textWidth + childrenWidth + gap + horizontalPadding + horizontalBorder));
+        }
+
         if (control.tagName === 'TEXTAREA') {
-            const minWidth = getPx(style, 'min-width');
             return Math.ceil(Math.max(minWidth, horizontalPadding + horizontalBorder + 32));
         }
 
         const text = control.value || control.placeholder || '';
-        return Math.ceil(Math.max(control.scrollWidth, measureTextWidth(text, font) + horizontalPadding + horizontalBorder));
+        return Math.ceil(Math.max(minWidth, measureTextWidth(text, font) + horizontalPadding + horizontalBorder));
+    }
+
+    function getElementMinimumWidth(el) {
+        if (!isVisibleElement(el)) return 0;
+        const style = getComputedStyle(el);
+        const minWidth = getPx(style, 'min-width');
+        const marginX = getOuterExtras(style, 'x');
+
+        if (isResizableMediaElement(el)) {
+            return Math.ceil(minWidth + marginX);
+        }
+
+        if (el.matches?.('input, select, textarea, button')) {
+            return Math.ceil(Math.max(minWidth, getControlContentWidth(el)) + marginX);
+        }
+
+        const children = Array.from(el.children).filter(isVisibleElement);
+        if (!children.length) {
+            return Math.ceil(minWidth + marginX);
+        }
+
+        const display = style.display || '';
+        const flexDirection = style.flexDirection || 'row';
+        const gap = getLayoutGap(style, 'x');
+        const childWidths = children.map((child) => getElementMinimumWidth(child));
+        const contentWidth = (display.includes('flex') && !flexDirection.startsWith('column')) ||
+            display.includes('grid') ||
+            el.classList.contains('save-btn-group') ||
+            el.classList.contains('image-resize-mode-group')
+            ? childWidths.reduce((total, width) => total + width, 0) + Math.max(0, childWidths.length - 1) * gap
+            : Math.max(0, ...childWidths);
+
+        return Math.ceil(Math.max(minWidth, contentWidth + getBoxExtras(style, 'x')) + marginX);
+    }
+
+    function getElementMinimumHeight(el) {
+        if (!isVisibleElement(el)) return 0;
+        const style = getComputedStyle(el);
+        const minHeight = getPx(style, 'min-height');
+        const marginY = getOuterExtras(style, 'y');
+
+        if (isResizableMediaElement(el)) {
+            return Math.ceil(minHeight + marginY);
+        }
+
+        if (el.matches?.('input, select, textarea, button')) {
+            return Math.ceil(Math.max(minHeight, el.offsetHeight || 0) + marginY);
+        }
+
+        const children = Array.from(el.children).filter(isVisibleElement);
+        if (!children.length) {
+            return Math.ceil(Math.max(minHeight, el.offsetHeight || 0) + marginY);
+        }
+
+        const display = style.display || '';
+        const flexDirection = style.flexDirection || 'row';
+        const gap = getLayoutGap(style, 'y');
+        const childHeights = children.map((child) => getElementMinimumHeight(child));
+        const contentHeight = (display.includes('flex') && !flexDirection.startsWith('column')) ||
+            display.includes('grid') ||
+            el.classList.contains('save-btn-group') ||
+            el.classList.contains('image-resize-mode-group')
+            ? Math.max(0, ...childHeights)
+            : childHeights.reduce((total, height) => total + height, 0) + Math.max(0, childHeights.length - 1) * gap;
+
+        return Math.ceil(Math.max(minHeight, contentHeight + getBoxExtras(style, 'y')) + marginY);
     }
 
     function getFlexContentWidth(container) {
@@ -234,7 +348,6 @@ export function createNodeDomBindingsApi({
         const bodyStyle = body ? getComputedStyle(body) : null;
         const bodyPaddingX = bodyStyle ? getPx(bodyStyle, 'padding-left') + getPx(bodyStyle, 'padding-right') : 0;
         const bodyPaddingY = bodyStyle ? getPx(bodyStyle, 'padding-top') + getPx(bodyStyle, 'padding-bottom') : 0;
-        const bodyGap = bodyStyle ? getPx(bodyStyle, 'row-gap') || getPx(bodyStyle, 'gap') : 0;
         const headerWidth = getHeaderMinimumWidth(header, headerFallbackWidth);
         const headerHeight = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
         const isCompactTextNode = el.classList.contains('node-text');
@@ -242,7 +355,7 @@ export function createNodeDomBindingsApi({
         const baseMinHeight = isCompactTextNode ? 88 : 120;
         let minContentWidth = 0;
         let minBodyHeight = bodyPaddingY;
-        let visibleBodyChildren = 0;
+        let minBodyViewportHeight = 0;
 
         el.querySelectorAll('.node-port .port-label').forEach((label) => {
             const port = label.closest('.node-port');
@@ -294,8 +407,8 @@ export function createNodeDomBindingsApi({
 
         if (body) {
             Array.from(body.children).forEach((child) => {
-                if (child.offsetParent === null) return;
-                visibleBodyChildren += 1;
+                if (!isVisibleElement(child)) return;
+                minContentWidth = Math.max(minContentWidth, getElementMinimumWidth(child));
 
                 if (child.classList.contains('node-field')) {
                     const childStyle = getComputedStyle(child);
@@ -309,19 +422,46 @@ export function createNodeDomBindingsApi({
                             ? controlMinHeight
                             : Math.max(controlMinHeight, control.offsetHeight || 0)
                         : 0;
-                    minBodyHeight += (label?.offsetHeight || 0) + (label && control ? fieldGap : 0) + controlHeight;
+                    minBodyViewportHeight = Math.max(
+                        minBodyViewportHeight,
+                        (label?.offsetHeight || 0) + (label && control ? fieldGap : 0) + controlHeight
+                    );
                     return;
                 }
 
-                minBodyHeight += child.scrollHeight || child.offsetHeight || 0;
+                minBodyViewportHeight = Math.max(minBodyViewportHeight, getElementMinimumHeight(child));
             });
 
-            minBodyHeight += Math.max(0, visibleBodyChildren - 1) * bodyGap;
+            minBodyHeight += minBodyViewportHeight;
         }
 
         return {
             minWidth: Math.max(baseMinWidth, Math.ceil(headerWidth), Math.ceil(minContentWidth + bodyPaddingX)),
             minHeight: Math.max(baseMinHeight, Math.ceil(headerHeight + minBodyHeight))
+        };
+    }
+
+    function getConfiguredDefaultSize(node, el, headerFallbackWidth) {
+        const defaultWidth = Number(node?.defaultWidth);
+        const defaultHeight = Number(node?.defaultHeight);
+        const hasDefaultWidth = Number.isFinite(defaultWidth) && defaultWidth > 0;
+        const hasDefaultHeight = Number.isFinite(defaultHeight) && defaultHeight > 0;
+
+        if (hasDefaultWidth && hasDefaultHeight) {
+            return {
+                minWidth: defaultWidth,
+                minHeight: defaultHeight
+            };
+        }
+
+        const measuredMinimum = getNodeMinimumSize(el, headerFallbackWidth);
+        return {
+            minWidth: hasDefaultWidth
+                ? defaultWidth
+                : Math.max(FALLBACK_DEFAULT_NODE_WIDTH, measuredMinimum.minWidth),
+            minHeight: hasDefaultHeight
+                ? defaultHeight
+                : Math.max(FALLBACK_DEFAULT_NODE_HEIGHT, measuredMinimum.minHeight)
         };
     }
 
@@ -435,10 +575,8 @@ export function createNodeDomBindingsApi({
             if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能调整大小')) return;
             const header = el.querySelector('.node-header');
             const headerMinWidth = header ? Math.ceil(header.getBoundingClientRect().width) : 180;
-            const contentMinimum = getNodeMinimumSize(el, headerMinWidth);
-            const minWidth = contentMinimum.minWidth;
-            const minHeight = contentMinimum.minHeight;
             const node = state.nodes.get(id);
+            const defaultMinimum = getConfiguredDefaultSize(node, el, headerMinWidth);
 
             state.resizing = {
                 nodeId: id,
@@ -446,8 +584,8 @@ export function createNodeDomBindingsApi({
                 startY: e.clientY,
                 startWidth: el.offsetWidth,
                 startHeight: el.offsetHeight,
-                minWidth,
-                minHeight,
+                minWidth: defaultMinimum.minWidth,
+                minHeight: defaultMinimum.minHeight,
                 maxHeight: node?.maxHeight || null
             };
 

@@ -1295,6 +1295,7 @@ body {
 
 .image-import-mode-shell {
     margin-bottom: 10px;
+    flex: 0 0 auto;
 }
 
 .image-import-upload-section,
@@ -1302,6 +1303,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .file-drop-zone {
@@ -1320,6 +1323,23 @@ body {
     align-items: center;
     justify-content: center;
     flex: 1 1 auto;
+}
+
+.node-import .node-body {
+    overflow: hidden;
+}
+
+.node-import .file-drop-zone {
+    max-height: none;
+    min-height: 0;
+}
+
+.node-import .image-import-upload-section .file-drop-zone {
+    min-height: 120px;
+}
+
+.node-import .image-import-url-section .file-drop-zone {
+    min-height: 140px;
 }
 
 .file-drop-zone:hover {
@@ -1773,6 +1793,10 @@ body {
     background: linear-gradient(90deg, var(--accent-orange), var(--accent-red));
 }
 
+.node-save {
+    overflow: hidden !important;
+}
+
 .save-preview-container {
     width: 100%;
     min-height: 100px;
@@ -1786,6 +1810,35 @@ body {
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.05);
     flex: 1 1 auto;
+}
+
+.node-save .node-body {
+    max-height: 100%;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.node-save .save-preview-container {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+}
+
+.node-save .save-no-path-warning,
+.node-save .image-resolution-badge,
+.node-save .node-field,
+.node-save .save-btn-group {
+    min-width: 0;
+    flex: 0 0 auto;
+}
+
+.node-save .node-field input,
+.node-save .save-btn,
+.node-save .save-btn-secondary {
+    min-width: 0;
 }
 
 .save-preview-container img {

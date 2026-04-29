@@ -482,6 +482,7 @@ export function createCanvasInteractionsApi({
                 if (node) {
                     node.width = parseInt(node.el.style.width, 10);
                     node.height = parseInt(node.el.style.height, 10);
+                    node.userResized = true;
 
                     node.el.classList.remove('is-interacting');
                     scheduleUIUpdate();

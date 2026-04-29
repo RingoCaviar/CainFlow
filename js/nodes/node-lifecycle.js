@@ -25,6 +25,7 @@ export function createNodeLifecycleApi({
 }) {
     const view = documentRef.defaultView || window;
     let pendingNodeSizeConnectionRefresh = null;
+    const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container';
 
     function scheduleNodeSizeConnectionRefresh() {
         if (pendingNodeSizeConnectionRefresh !== null) return;
@@ -109,9 +110,38 @@ export function createNodeLifecycleApi({
         return height;
     }
 
+    function getDefaultNodeWidth(config) {
+        const width = Number(config?.defaultWidth);
+        return Number.isFinite(width) && width > 0 ? width : 180;
+    }
+
+    function getDefaultNodeHeight(config) {
+        const height = Number(config?.defaultHeight);
+        return Number.isFinite(height) && height > 0 ? height : 120;
+    }
+
+    function clampNodeWidthToDefault(width, config) {
+        const defaultWidth = getDefaultNodeWidth(config);
+        const numericWidth = Number(width);
+        return Number.isFinite(numericWidth) && numericWidth > 0
+            ? Math.max(numericWidth, defaultWidth)
+            : defaultWidth;
+    }
+
     function getPx(style, property) {
         const value = parseFloat(style?.getPropertyValue?.(property) || '0');
         return Number.isFinite(value) ? value : 0;
+    }
+
+    function getOuterExtras(style, axis) {
+        if (axis === 'x') {
+            return getPx(style, 'margin-left') + getPx(style, 'margin-right');
+        }
+        return getPx(style, 'margin-top') + getPx(style, 'margin-bottom');
+    }
+
+    function isResizableMediaElement(el) {
+        return Boolean(el?.matches?.(NODE_RESIZABLE_MEDIA_SELECTOR));
     }
 
     function getOuterHeight(el) {
@@ -130,18 +160,24 @@ export function createNodeLifecycleApi({
 
     function getNonTextareaRequiredChildHeight(child) {
         if (!child || child.offsetParent === null) return 0;
+        const style = getComputedStyle(child);
+        const marginY = getOuterExtras(style, 'y');
+        if (isResizableMediaElement(child)) {
+            return Math.ceil(getPx(style, 'min-height') + marginY);
+        }
         if (child.querySelector?.('textarea')) return getOuterHeight(child);
 
-        const style = getComputedStyle(child);
-        const marginY = getPx(style, 'margin-top') + getPx(style, 'margin-bottom');
         return Math.ceil(Math.max(child.offsetHeight || 0, child.scrollHeight || 0) + marginY);
     }
 
     function getNonTextareaRequiredChildWidth(child) {
         if (!child || child.offsetParent === null) return 0;
         const style = getComputedStyle(child);
-        const marginX = getPx(style, 'margin-left') + getPx(style, 'margin-right');
+        const marginX = getOuterExtras(style, 'x');
         const minWidth = getPx(style, 'min-width');
+        if (isResizableMediaElement(child)) {
+            return Math.ceil(minWidth + marginX);
+        }
         return Math.ceil(Math.max(child.offsetWidth || 0, child.scrollWidth || 0, minWidth) + marginX);
     }
 
@@ -237,6 +273,7 @@ export function createNodeLifecycleApi({
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
         const { allowShrink = false } = options;
+        if (allowShrink && node.userResized) return;
 
         const el = node.el;
         const body = el.querySelector('.node-body');
@@ -249,22 +286,27 @@ export function createNodeLifecycleApi({
         body.style.maxHeight = 'none';
 
         const textNodeRequiredHeight = node.type === 'Text' ? getTextNodeRequiredHeight(el, body) : null;
+        const nonTextRequiredSize = Number.isFinite(textNodeRequiredHeight) && textNodeRequiredHeight > 0
+            ? null
+            : getNonTextareaRequiredNodeSize(el, body);
         const rawRequiredHeight = Number.isFinite(textNodeRequiredHeight) && textNodeRequiredHeight > 0
             ? textNodeRequiredHeight
-            : el.offsetHeight;
+            : nonTextRequiredSize.height;
+        const defaultHeight = Number(node.defaultHeight) > 0 ? Number(node.defaultHeight) : 120;
         const requiredHeight = node.maxHeight
             ? Math.min(rawRequiredHeight, node.maxHeight)
             : rawRequiredHeight;
+        const normalizedRequiredHeight = Math.max(defaultHeight, requiredHeight);
         const currentPx = parseFloat(originalHeight) || el.offsetHeight;
         const heightChanged = allowShrink
-            ? Math.abs(requiredHeight - currentPx) > 2
-            : requiredHeight > currentPx + 2;
+            ? Math.abs(normalizedRequiredHeight - currentPx) > 2
+            : normalizedRequiredHeight > currentPx + 2;
 
         if (heightChanged) {
-            el.style.height = requiredHeight + 'px';
-            node.height = requiredHeight;
+            el.style.height = normalizedRequiredHeight + 'px';
+            node.height = normalizedRequiredHeight;
             node.observedWidth = el.offsetWidth || Number(node.width) || 0;
-            node.observedHeight = requiredHeight;
+            node.observedHeight = normalizedRequiredHeight;
             updateAllConnections();
             scheduleSave();
         } else {
@@ -276,6 +318,7 @@ export function createNodeLifecycleApi({
     function ensureNodeContentVisible(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        if (node.userResized) return;
 
         const el = node.el;
         const body = el.querySelector('.node-body');
@@ -333,14 +376,15 @@ export function createNodeLifecycleApi({
         el.id = id;
         el.style.left = x + 'px';
         el.style.top = y + 'px';
-        if (restoreData && restoreData.width) el.style.width = restoreData.width + 'px';
-        else if (config.defaultWidth) el.style.width = config.defaultWidth + 'px';
+        const initialWidth = clampNodeWidthToDefault(restoreData?.width, config);
+        el.style.width = initialWidth + 'px';
 
-        const initialHeight = clampNodeHeight(
-            restoreData?.height || config.defaultHeight || null,
+        const clampedInitialHeight = clampNodeHeight(
+            Math.max(Number(restoreData?.height) || 0, getDefaultNodeHeight(config)),
             config,
             { isRestore: Boolean(restoreData?.height) }
         );
+        const initialHeight = Math.max(clampedInitialHeight || 0, getDefaultNodeHeight(config));
         if (initialHeight) el.style.height = initialHeight + 'px';
 
         el.innerHTML = createNodeMarkup({ type: normalizedType, id, config, restoreData, state });
@@ -368,8 +412,11 @@ export function createNodeLifecycleApi({
             resizePreviewData: null,
             resizePreviewMeta: null,
             resizePreviewToken: 0,
-            width: restoreData?.width || config.defaultWidth || null,
+            width: initialWidth,
             height: initialHeight,
+            defaultWidth: getDefaultNodeWidth(config),
+            defaultHeight: getDefaultNodeHeight(config),
+            userResized: Boolean(restoreData?.width || restoreData?.height),
             maxHeight: config.maxHeight || null,
             dirHandle: null,
             enabled: restoreData?.enabled !== false,

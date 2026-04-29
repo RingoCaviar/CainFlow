@@ -23,6 +23,7 @@ export function createMediaControllerApi({
 }) {
     function requestNodeFit(nodeId) {
         windowRef.requestAnimationFrame(() => {
+            if (state.resizing?.nodeId === nodeId) return;
             fitNodeToContent(nodeId, { allowShrink: true });
         });
     }
