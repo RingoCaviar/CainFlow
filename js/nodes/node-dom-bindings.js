@@ -4,6 +4,9 @@
 import {
     getEffectiveProtocol,
     getImageResolutionOptionsForModel,
+    getModelProviders,
+    getResolvedProviderForModel,
+    getResolvedProviderIdForModel,
     normalizeImageResolutionForModel,
     validateOpenAiImageSize
 } from '../features/execution/provider-request-utils.js';
@@ -42,6 +45,59 @@ export function createNodeDomBindingsApi({
         const textarea = documentRef.getElementById(`${id}-text`);
         if (!node || !textarea) return;
         node.data.text = textarea.value;
+    }
+
+    function getRememberedNodeDefault(type) {
+        if (type !== 'ImageGenerate' && type !== 'TextChat') return null;
+        if (!state.nodeDefaults || typeof state.nodeDefaults !== 'object') {
+            state.nodeDefaults = {};
+        }
+        if (!state.nodeDefaults[type] || typeof state.nodeDefaults[type] !== 'object') {
+            state.nodeDefaults[type] = { apiConfigId: '', providerId: '' };
+        }
+        return state.nodeDefaults[type];
+    }
+
+    function syncNodeProviderOptions(id, type) {
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
+        const providerField = documentRef.getElementById(`${id}-provider-field`);
+        const node = state.nodes.get(id);
+        if (!modelSelect) {
+            return { model: null, providerId: '' };
+        }
+
+        const selectedModel = state.models.find((candidate) => candidate.id === modelSelect.value) || null;
+        const modelProviders = getModelProviders(selectedModel, state.providers);
+        const currentProviderId = providerSelect?.value || node?.providerId || '';
+        const resolvedProviderId = getResolvedProviderIdForModel(selectedModel, state.providers, currentProviderId);
+
+        if (providerSelect) {
+            providerSelect.innerHTML = modelProviders.length > 0
+                ? modelProviders.map((provider) => `<option value="${provider.id}">${provider.name || provider.id}</option>`).join('')
+                : '<option value="">-- 暂无可用供应商 --</option>';
+            providerSelect.value = resolvedProviderId;
+        }
+        if (providerField) {
+            providerField.classList.toggle('hidden', modelProviders.length <= 1);
+        }
+        if (node) {
+            node.providerId = resolvedProviderId;
+        }
+
+        return {
+            model: selectedModel,
+            providerId: resolvedProviderId
+        };
+    }
+
+    function persistNodeModelSelection(id, type) {
+        const defaults = getRememberedNodeDefault(type);
+        if (!defaults) return;
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
+        defaults.apiConfigId = modelSelect?.value || '';
+        defaults.providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
     }
 
     function isNodeRunning(id) {
@@ -91,14 +147,15 @@ export function createNodeDomBindingsApi({
 
     function syncImageGenerateResolutionOptions(id) {
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
         const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
         if (!modelSelect || !resolutionSelect) return;
 
-        const model = state.models.find((candidate) => candidate.id === modelSelect.value);
-        const provider = state.providers.find((candidate) => candidate.id === model?.providerId);
+        const { model, providerId: selectedProviderId } = syncNodeProviderOptions(id, 'ImageGenerate');
+        const provider = getResolvedProviderForModel(model, state.providers, selectedProviderId);
         const previousValue = resolutionSelect.value;
-        const normalizedValue = normalizeImageResolutionForModel(previousValue, model, state.providers);
-        const options = getImageResolutionOptionsForModel(model, state.providers);
+        const normalizedValue = normalizeImageResolutionForModel(previousValue, model, state.providers, selectedProviderId);
+        const options = getImageResolutionOptionsForModel(model, state.providers, selectedProviderId);
         resolutionSelect.innerHTML = options
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
@@ -671,6 +728,13 @@ export function createNodeDomBindingsApi({
             const modelSelect = el.querySelector(`#${id}-apiconfig`);
             modelSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
+                persistNodeModelSelection(id, type);
+                fitNodeToContent(id, { allowShrink: true });
+            });
+            const providerSelect = el.querySelector(`#${id}-provider`);
+            providerSelect?.addEventListener('change', () => {
+                syncImageGenerateResolutionOptions(id);
+                persistNodeModelSelection(id, type);
                 fitNodeToContent(id, { allowShrink: true });
             });
             const resolutionSelect = el.querySelector(`#${id}-resolution`);
@@ -714,6 +778,18 @@ export function createNodeDomBindingsApi({
         else if (type === 'ImagePreview') setupImagePreview(id, el);
         else if (type === 'ImageCompare') setupImageCompare(id, el);
         else if (type === 'TextChat') {
+            syncNodeProviderOptions(id, type);
+            const modelSelect = el.querySelector(`#${id}-apiconfig`);
+            modelSelect?.addEventListener('change', () => {
+                syncNodeProviderOptions(id, type);
+                persistNodeModelSelection(id, type);
+                fitNodeToContent(id, { allowShrink: true });
+            });
+            const providerSelect = el.querySelector(`#${id}-provider`);
+            providerSelect?.addEventListener('change', () => {
+                syncNodeProviderOptions(id, type);
+                persistNodeModelSelection(id, type);
+            });
             const copyBtn = el.querySelector(`#${id}-copy-btn`);
             if (copyBtn) {
                 copyBtn.onclick = () => {

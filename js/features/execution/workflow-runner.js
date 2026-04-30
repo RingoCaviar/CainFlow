@@ -1,3 +1,5 @@
+import { getResolvedProviderForModel } from './provider-request-utils.js';
+
 /**
  * 负责整条工作流的运行编排，包括前置校验、逐节点执行、重试与状态收尾。
  */
@@ -210,7 +212,8 @@ export function createWorkflowRunnerApi({
                 if (configSelect) {
                     const modelCfg = state.models.find((model) => model.id === configSelect.value);
                     if (modelCfg) {
-                        const apiCfg = state.providers.find((provider) => provider.id === modelCfg.providerId);
+                        const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || state.nodes.get(id)?.providerId || '';
+                        const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, selectedProviderId);
                         if (apiCfg && !apiCfg.apikey.trim()) {
                             missingKeysProviders.add(apiCfg.name);
                         }

@@ -1,7 +1,7 @@
 /**
  * 负责主界面各类面板与按钮的事件装配，是通用 UI 行为的集中控制器。
  */
-import { normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import { getModelProviderIds, normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
 
 export function createUiControllerApi({
     state,
@@ -105,9 +105,10 @@ export function createUiControllerApi({
         ensureUniqueIds(models, '模型配置');
 
         const providerIds = new Set(providers.map((provider) => provider.id));
-        const invalidModel = models.find((model) => model.providerId && !providerIds.has(model.providerId));
+        const invalidModel = models.find((model) => getModelProviderIds(model).some((providerId) => !providerIds.has(providerId)));
         if (invalidModel) {
-            throw new Error(`模型 ${invalidModel.name} 绑定了不存在的供应商：${invalidModel.providerId}`);
+            const invalidProviderId = getModelProviderIds(invalidModel).find((providerId) => !providerIds.has(providerId));
+            throw new Error(`模型 ${invalidModel.name} 绑定了不存在的供应商：${invalidProviderId}`);
         }
 
         state.providers = providers;

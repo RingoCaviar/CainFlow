@@ -1,4 +1,6 @@
 import {
+    getModelProviderIds,
+    getResolvedProviderForModel,
     normalizeModelProtocol,
     normalizeModelTaskType
 } from '../execution/provider-request-utils.js';
@@ -54,13 +56,16 @@ function findCurrentModelMatch(modelId, taskType, legacyModel, currentModels, cu
 
     if (!legacyModel) return null;
 
-    const legacyProvider = getProviderById(legacyModel.providerId, legacyProviders);
+    const legacyProviderId = Array.isArray(legacyModel?.providerIds) && legacyModel.providerIds.length > 0
+        ? legacyModel.providerIds[0]
+        : legacyModel?.providerId;
+    const legacyProvider = getProviderById(legacyProviderId, legacyProviders);
     const legacyProtocol = normalizeModelProtocol(legacyModel.protocol, legacyModel, legacyProvider);
     const legacyModelId = normalizeKey(legacyModel.modelId);
     const legacyName = normalizeKey(legacyModel.name);
 
     const protocolMatches = (model) => {
-        const provider = getProviderById(model.providerId, currentProviders);
+        const provider = getResolvedProviderForModel(model, currentProviders);
         return normalizeModelProtocol(model.protocol, model, provider) === legacyProtocol;
     };
 
@@ -90,15 +95,28 @@ export function resolveWorkflowModelReferences(workflowData, currentState) {
 
             const currentModel = modelById.get(modelId);
             if (currentModel) {
-                if (!providerById.has(currentModel.providerId) && !reportedMissingProviders.has(currentModel.providerId)) {
-                    missingProviders.push({
-                        providerId: currentModel.providerId,
-                        modelId: currentModel.id,
-                        modelName: currentModel.name || currentModel.id
+                const providerIds = getModelProviderIds(currentModel);
+                const availableProviderIds = providerIds.filter((providerId) => providerById.has(providerId));
+                const requestedProviderId = String(node?.providerId || '').trim();
+                const nextProviderId = requestedProviderId && availableProviderIds.includes(requestedProviderId)
+                    ? requestedProviderId
+                    : (availableProviderIds[0] || '');
+                if (!nextProviderId && providerIds.length > 0) {
+                    providerIds.forEach((providerId) => {
+                        if (!reportedMissingProviders.has(providerId)) {
+                            missingProviders.push({
+                                providerId,
+                                modelId: currentModel.id,
+                                modelName: currentModel.name || currentModel.id
+                            });
+                            reportedMissingProviders.add(providerId);
+                        }
                     });
-                    reportedMissingProviders.add(currentModel.providerId);
                 }
-                return node;
+                return {
+                    ...node,
+                    providerId: nextProviderId
+                };
             }
 
             const legacyModel = getLegacyModel(workflowData, modelId);
@@ -111,7 +129,8 @@ export function resolveWorkflowModelReferences(workflowData, currentState) {
                 });
                 return {
                     ...node,
-                    apiConfigId: matchedModel.id
+                    apiConfigId: matchedModel.id,
+                    providerId: String(node?.providerId || '').trim()
                 };
             }
 

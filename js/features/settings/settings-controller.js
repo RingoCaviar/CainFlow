@@ -5,7 +5,10 @@ import {
     getEffectiveProtocol,
     getImageResolutionOptionsForModel,
     getModelOptionLabel,
+    getModelProviderIds,
     getModelsForTask,
+    getResolvedProviderForModel,
+    getResolvedProviderIdForModel,
     normalizeAutoCompleteBase,
     normalizeImageResolutionForModel,
     normalizeModelProtocol,
@@ -49,6 +52,7 @@ export function createSettingsControllerApi({
         loading: false,
         error: ''
     };
+    let openModelProviderPanelId = '';
 
     function escapeHtml(value) {
         return String(value || '')
@@ -65,6 +69,38 @@ export function createSettingsControllerApi({
 
     function getModelFetchProtocol(provider) {
         return normalizeProviderType(provider?.type, provider, 'openai') || 'openai';
+    }
+
+    function syncModelProviderBindings(model) {
+        const providerIds = getModelProviderIds(model).filter((providerId) => (
+            state.providers.some((provider) => provider.id === providerId)
+        ));
+        model.providerIds = providerIds;
+        model.providerId = providerIds[0] || '';
+        return providerIds;
+    }
+
+    function getModelBoundProviders(model) {
+        return getModelProviderIds(model)
+            .map((providerId) => state.providers.find((provider) => provider.id === providerId))
+            .filter(Boolean);
+    }
+
+    function getResolvedModelProvider(model, preferredProviderId = '') {
+        return getResolvedProviderForModel(model, state.providers, preferredProviderId);
+    }
+
+    function getResolvedModelProviderId(model, preferredProviderId = '') {
+        return getResolvedProviderIdForModel(model, state.providers, preferredProviderId);
+    }
+
+    function getModelProviderSummary(model) {
+        const providers = getModelBoundProviders(model);
+        if (providers.length === 0) return '未绑定供应商';
+        if (providers.length === 1) return providers[0].name || providers[0].id;
+        const names = providers.slice(0, 2).map((provider) => provider.name || provider.id);
+        if (providers.length === 2) return names.join('、');
+        return `${names.join('、')} 等 ${providers.length} 个`;
     }
 
     function getProviderModelListUrl(provider, protocol) {
@@ -149,19 +185,33 @@ export function createSettingsControllerApi({
             .sort((a, b) => a.id.localeCompare(b.id));
     }
 
-    function modelAlreadyExists(providerId, modelId, protocol) {
-        return state.models.some((model) => (
-            model.providerId === providerId &&
-            model.modelId === modelId &&
-            normalizeModelProtocol(model.protocol, model, state.providers.find((provider) => provider.id === providerId)) === protocol
-        ));
+    function findMatchingModelConfig(modelId, protocol, taskType) {
+        return state.models.find((model) => {
+            const provider = getResolvedModelProvider(model);
+            return model.modelId === modelId &&
+                normalizeModelTaskType(model.taskType, model) === normalizeModelTaskType(taskType, model) &&
+                normalizeModelProtocol(model.protocol, model, provider) === protocol;
+        }) || null;
     }
 
     function addFetchedModel(provider, fetchedModel) {
         if (!provider || !fetchedModel) return;
         const protocol = inferFetchedModelProtocol(provider, fetchedModel);
-        if (modelAlreadyExists(provider.id, fetchedModel.id, protocol)) {
-            showToast('该模型已在模型列表中', 'info');
+        const taskType = normalizeModelTaskType(fetchedModel.taskType, fetchedModel);
+        const existingModel = findMatchingModelConfig(fetchedModel.id, protocol, taskType);
+        if (existingModel) {
+            const providerIds = syncModelProviderBindings(existingModel);
+            if (providerIds.includes(provider.id)) {
+                showToast('该模型已在模型列表中', 'info');
+                return;
+            }
+            existingModel.providerIds = [...providerIds, provider.id];
+            existingModel.providerId = existingModel.providerIds[0] || '';
+            renderModels();
+            updateAllNodeModelDropdowns();
+            saveState();
+            renderProviderModelsDialog({ preserveListScroll: true });
+            showToast(`已将供应商绑定到模型：${fetchedModel.id}`, 'success');
             return;
         }
 
@@ -170,8 +220,9 @@ export function createSettingsControllerApi({
             id: newModelId,
             name: fetchedModel.name || fetchedModel.id,
             modelId: fetchedModel.id,
+            providerIds: [provider.id],
             providerId: provider.id,
-            taskType: normalizeModelTaskType(fetchedModel.taskType, fetchedModel),
+            taskType,
             protocol
         });
         modelCollapseState.set(newModelId, true);
@@ -336,7 +387,7 @@ export function createSettingsControllerApi({
     }
 
     function getModelRequestPreview(model) {
-        const provider = state.providers.find((candidate) => candidate.id === model.providerId);
+        const provider = getResolvedModelProvider(model);
         if (!provider) return '请先绑定供应商';
 
         const base = (provider.endpoint || '').replace(/\/+$/, '');
@@ -367,7 +418,7 @@ export function createSettingsControllerApi({
     }
 
     function getModelProtocolHelp(model) {
-        const provider = state.providers.find((candidate) => candidate.id === model.providerId);
+        const provider = getResolvedModelProvider(model);
         const protocol = getEffectiveProtocol(model, provider);
         if (protocol === 'google') {
             return 'Google / Gemini 格式会走 generateContent，请求体按 Gemini 协议构造。';
@@ -639,9 +690,15 @@ export function createSettingsControllerApi({
         providersList.querySelectorAll('.card-btn-delete').forEach((btn) => {
             btn.addEventListener('click', (e) => {
                 if (!windowRef.confirm('确定删除此供应商吗？绑定的模型可能会失效。')) return;
-                state.providers = state.providers.filter((candidate) => candidate.id !== e.target.dataset.id);
+                const providerId = e.target.dataset.id;
+                state.providers = state.providers.filter((candidate) => candidate.id !== providerId);
+                state.models.forEach((model) => {
+                    model.providerIds = getModelProviderIds(model).filter((id) => id !== providerId);
+                    syncModelProviderBindings(model);
+                });
                 renderProviders();
                 renderModels();
+                updateAllNodeModelDropdowns();
                 saveState();
             });
         });
@@ -680,13 +737,33 @@ export function createSettingsControllerApi({
         syncCollapseState(state.models, modelCollapseState);
 
         state.models.forEach((mod) => {
+            syncModelProviderBindings(mod);
             const isCollapsed = modelCollapseState.get(mod.id) !== false;
             const el = documentRef.createElement('div');
             el.className = 'api-config-card';
-            const providerOptions = state.providers.map((provider) => `<option value="${provider.id}" ${mod.providerId === provider.id ? 'selected' : ''}>${provider.name}</option>`).join('');
             const taskType = normalizeModelTaskType(mod.taskType, mod);
-            const provider = state.providers.find((candidate) => candidate.id === mod.providerId);
+            const provider = getResolvedModelProvider(mod);
             const protocol = getEffectiveProtocol(mod, provider);
+            const boundProviderIds = getModelProviderIds(mod);
+            const isProviderPanelOpen = openModelProviderPanelId === mod.id;
+            const providerDropdown = state.providers.length > 0
+                ? `
+                    <div class="provider-multiselect" data-id="${mod.id}">
+                        <button type="button" class="provider-multiselect-trigger" data-id="${mod.id}" aria-expanded="${isProviderPanelOpen ? 'true' : 'false'}">
+                            <span class="provider-multiselect-summary">${escapeHtml(getModelProviderSummary(mod))}</span>
+                            <span class="provider-multiselect-caret">▾</span>
+                        </button>
+                        <div class="provider-multiselect-panel ${isProviderPanelOpen ? '' : 'hidden'}" data-id="${mod.id}">
+                            ${state.providers.map((providerItem) => `
+                                <label class="provider-multiselect-option">
+                                    <input type="checkbox" data-id="${mod.id}" data-field="providerIds" value="${providerItem.id}" ${boundProviderIds.includes(providerItem.id) ? 'checked' : ''} />
+                                    <span>${escapeHtml(providerItem.name || providerItem.id)}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                `
+                : '<div style="font-size:11px;color:var(--text-dim);padding-top:8px;">请先添加供应商</div>';
             el.innerHTML = `
                 <div class="card-header">
                     <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:#a855f7;width:200px" />
@@ -699,10 +776,7 @@ export function createSettingsControllerApi({
                     <div class="card-row">
                         <div class="card-field"><label>模型代码 (Model ID)</label><input type="text" value="${mod.modelId}" placeholder="如: gemini-2.5-flash" data-id="${mod.id}" data-field="modelId" /></div>
                         <div class="card-field"><label>绑定供应商</label>
-                            <select data-id="${mod.id}" data-field="providerId">
-                                <option value="">-- 请选择供应商 --</option>
-                                ${providerOptions}
-                            </select>
+                            <div style="display:flex;flex-direction:column;gap:2px;padding-top:4px;">${providerDropdown}</div>
                         </div>
                     </div>
                     <div class="card-row">
@@ -742,22 +816,64 @@ export function createSettingsControllerApi({
                 const field = e.target.dataset.field;
                 const mod = state.models.find((candidate) => candidate.id === id);
                 if (!mod) return;
-                const nextProviderId = field === 'providerId' ? e.target.value : mod.providerId;
-                const provider = state.providers.find((candidate) => candidate.id === nextProviderId);
-                mod[field] = field === 'taskType'
-                    ? normalizeModelTaskType(e.target.value, mod)
-                    : field === 'protocol'
-                        ? normalizeModelProtocol(e.target.value, mod, provider)
-                        : e.target.value;
+                if (field === 'providerIds') {
+                    openModelProviderPanelId = id;
+                    const panel = modelsList.querySelector(`.provider-multiselect-panel[data-id="${id}"]`);
+                    const checkedValues = panel
+                        ? Array.from(panel.querySelectorAll('input[data-field="providerIds"]:checked')).map((inputEl) => inputEl.value)
+                        : [];
+                    mod.providerIds = checkedValues;
+                    syncModelProviderBindings(mod);
+                } else {
+                    const provider = getResolvedModelProvider(mod);
+                    mod[field] = field === 'taskType'
+                        ? normalizeModelTaskType(e.target.value, mod)
+                        : field === 'protocol'
+                            ? normalizeModelProtocol(e.target.value, mod, provider)
+                            : e.target.value;
+                }
                 saveState();
                 renderModels();
                 updateAllNodeModelDropdowns();
             });
         });
 
+        modelsList.querySelectorAll('.provider-multiselect-trigger').forEach((button) => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const { id } = e.currentTarget.dataset;
+                const wrapper = modelsList.querySelector(`.provider-multiselect[data-id="${id}"]`);
+                if (!wrapper) return;
+                const panel = wrapper.querySelector('.provider-multiselect-panel');
+                const willOpen = panel?.classList.contains('hidden');
+                modelsList.querySelectorAll('.provider-multiselect-panel').forEach((element) => element.classList.add('hidden'));
+                modelsList.querySelectorAll('.provider-multiselect-trigger').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
+                openModelProviderPanelId = '';
+                if (panel && willOpen) {
+                    panel.classList.remove('hidden');
+                    e.currentTarget.setAttribute('aria-expanded', 'true');
+                    openModelProviderPanelId = id;
+                }
+            });
+        });
+
+        modelsList.querySelectorAll('.provider-multiselect-panel').forEach((panel) => {
+            panel.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        });
+
+        documentRef.addEventListener('click', () => {
+            modelsList.querySelectorAll('.provider-multiselect-panel').forEach((element) => element.classList.add('hidden'));
+            modelsList.querySelectorAll('.provider-multiselect-trigger').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
+            openModelProviderPanelId = '';
+        }, { once: true });
+
         modelsList.querySelectorAll('.card-btn-delete').forEach((btn) => {
             btn.addEventListener('click', (e) => {
                 if (!windowRef.confirm('确定删除此模型配置吗？')) return;
+                if (openModelProviderPanelId === e.target.dataset.id) openModelProviderPanelId = '';
                 state.models = state.models.filter((candidate) => candidate.id !== e.target.dataset.id);
                 renderModels();
                 updateAllNodeModelDropdowns();
@@ -1157,13 +1273,19 @@ export function createSettingsControllerApi({
 
     function syncImageGenerateResolutionOptions(id) {
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
         const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
         if (!modelSelect || !resolutionSelect) return;
 
         const model = state.models.find((candidate) => candidate.id === modelSelect.value);
-        const provider = state.providers.find((candidate) => candidate.id === model?.providerId);
-        const normalizedValue = normalizeImageResolutionForModel(resolutionSelect.value, model, state.providers);
-        resolutionSelect.innerHTML = getImageResolutionOptionsForModel(model, state.providers)
+        const selectedProviderId = providerSelect?.value || '';
+        const provider = getResolvedModelProvider(model, selectedProviderId);
+        const normalizedProviderId = getResolvedModelProviderId(model, selectedProviderId);
+        if (providerSelect && providerSelect.value !== normalizedProviderId) {
+            providerSelect.value = normalizedProviderId;
+        }
+        const normalizedValue = normalizeImageResolutionForModel(resolutionSelect.value, model, state.providers, normalizedProviderId);
+        resolutionSelect.innerHTML = getImageResolutionOptionsForModel(model, state.providers, normalizedProviderId)
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = normalizedValue;
@@ -1191,21 +1313,47 @@ export function createSettingsControllerApi({
     function updateAllNodeModelDropdowns() {
         for (const [id, node] of state.nodes) {
             if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
-                const select = documentRef.getElementById(`${id}-apiconfig`);
-                if (select) {
-                    const currentVal = select.value;
-                    const taskType = node.type === 'ImageGenerate' ? 'image' : 'chat';
-                    const models = getModelsForTask(state.models, taskType);
-                    if (models.length === 0) {
-                        select.innerHTML = '<option value="">-- 暂无可用模型 --</option>';
-                        select.value = '';
-                        continue;
-                    }
-                    select.innerHTML = models.map((model) => `<option value="${model.id}">${getModelOptionLabel(model, state.providers)}</option>`).join('');
-                    if (models.find((model) => model.id === currentVal)) select.value = currentVal;
-                    else select.value = models[0].id;
-                    if (node.type === 'ImageGenerate') syncImageGenerateResolutionOptions(id);
+                const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+                const providerSelect = documentRef.getElementById(`${id}-provider`);
+                const providerField = documentRef.getElementById(`${id}-provider-field`);
+                if (!modelSelect) continue;
+
+                const currentModelId = modelSelect.value;
+                const currentProviderId = providerSelect?.value || node.providerId || '';
+                const taskType = node.type === 'ImageGenerate' ? 'image' : 'chat';
+                const models = getModelsForTask(state.models, taskType);
+                if (models.length === 0) {
+                    modelSelect.innerHTML = '<option value="">-- 暂无可用模型 --</option>';
+                    modelSelect.value = '';
+                    if (providerSelect) providerSelect.innerHTML = '<option value="">-- 暂无可用供应商 --</option>';
+                    if (providerField) providerField.classList.add('hidden');
+                    node.providerId = '';
+                    continue;
                 }
+
+                modelSelect.innerHTML = models.map((model) => `<option value="${model.id}">${escapeHtml(model.name || model.modelId || model.id)}</option>`).join('');
+                const selectedModel = models.find((model) => model.id === currentModelId) || models[0];
+                modelSelect.value = selectedModel.id;
+
+                if (providerSelect && providerField) {
+                    const boundProviders = getModelBoundProviders(selectedModel);
+                    if (boundProviders.length > 1) {
+                        providerSelect.innerHTML = boundProviders
+                            .map((provider) => `<option value="${provider.id}">${escapeHtml(provider.name || provider.id)}</option>`)
+                            .join('');
+                        providerSelect.value = getResolvedModelProviderId(selectedModel, currentProviderId);
+                        providerField.classList.remove('hidden');
+                    } else {
+                        providerSelect.innerHTML = boundProviders.length === 1
+                            ? `<option value="${boundProviders[0].id}">${escapeHtml(boundProviders[0].name || boundProviders[0].id)}</option>`
+                            : '<option value="">-- 暂无可用供应商 --</option>';
+                        providerSelect.value = getResolvedModelProviderId(selectedModel, currentProviderId);
+                        providerField.classList.add('hidden');
+                    }
+                }
+
+                node.providerId = getResolvedModelProviderId(selectedModel, providerSelect?.value || currentProviderId);
+                if (node.type === 'ImageGenerate') syncImageGenerateResolutionOptions(id);
             }
         }
     }
@@ -1329,6 +1477,7 @@ export function createSettingsControllerApi({
                 id: newModelId,
                 name: '新模型配置',
                 modelId: '',
+                providerIds: defaultProvider ? [defaultProvider.id] : [],
                 providerId: defaultProvider ? defaultProvider.id : '',
                 taskType: 'chat',
                 protocol: normalizeModelProtocol('', { taskType: 'chat' }, defaultProvider)
