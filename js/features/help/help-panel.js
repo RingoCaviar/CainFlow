@@ -49,6 +49,7 @@ export function createHelpPanelApi({
         <h4>连线操作</h4>
         <div class="help-grid">
             <div class="help-item"><span class="help-desc">创建连接</span><span class="help-key">拖拽端口圆点</span></div>
+            <div class="help-item"><span class="help-desc">拖到空白处快速建点</span><span class="help-key">松手后点选兼容节点</span></div>
             <div class="help-item"><span class="help-desc">删除单条连接</span><span class="help-key">双击连线</span></div>
             <div class="help-item"><span class="help-desc">快速剪断多条连接</span><span class="help-key">Ctrl + 右键划线</span></div>
             <div class="help-item"><span class="help-desc">把孤立节点插入连线</span><span class="help-key">拖到兼容连线上松开</span></div>

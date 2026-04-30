@@ -21,6 +21,8 @@ export function createCanvasInteractionsApi({
     checkLineIntersection,
     getConnectionSamplePoints,
     onConnectionsChanged = () => {},
+    getConnectionCreateCandidates = null,
+    openConnectionCreatePopup = null,
     documentRef = document,
     windowRef = window,
     requestAnimationFrameRef = requestAnimationFrame
@@ -492,6 +494,27 @@ export function createCanvasInteractionsApi({
             }
             if (state.connecting) {
                 if (state.connecting.dragged) {
+                    const releasedOnCanvas = e.target.closest('#canvas-container');
+                    const releasedOnPort = e.target.closest('.port-dot');
+                    const releasedOnNode = e.target.closest('.node');
+                    if (releasedOnCanvas && !releasedOnPort && !releasedOnNode && typeof getConnectionCreateCandidates === 'function') {
+                        const candidates = getConnectionCreateCandidates(state.connecting);
+                        if (candidates.length > 0) {
+                            const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
+                            tempConnection.setAttribute('d', '');
+                            const source = state.connecting;
+                            state.connecting = null;
+                            openConnectionCreatePopup?.({
+                                source,
+                                candidates,
+                                screenX: e.clientX,
+                                screenY: e.clientY,
+                                canvasX: pos.x,
+                                canvasY: pos.y
+                            });
+                            return;
+                        }
+                    }
                     tempConnection.setAttribute('d', '');
                     state.connecting = null;
                 } else if (e.target.closest('#canvas-container') && !e.target.closest('.port-dot')) {

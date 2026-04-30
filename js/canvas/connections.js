@@ -1,6 +1,8 @@
 /**
  * 负责节点端口连线的创建、删除、渲染与样式更新，是画布连接关系的核心实现。
  */
+import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/registry.js';
+
 export function createConnectionsApi({
     state,
     canvasContainer,
@@ -14,6 +16,7 @@ export function createConnectionsApi({
     showToast,
     scheduleSave,
     onConnectionsChanged = () => {},
+    addNode = null,
     documentRef = document
 }) {
     const pathById = new Map();
@@ -299,6 +302,49 @@ export function createConnectionsApi({
         if (!inputPort || !outputPort) return null;
 
         return { inputPort, outputPort };
+    }
+
+    function getPopupCandidateDirection(source) {
+        return source?.isOutput ? 'input' : 'output';
+    }
+
+    function getCompatibleNodeTypeCandidates(source) {
+        if (!source?.dataType) return [];
+        const direction = getPopupCandidateDirection(source);
+
+        return listNodeDefinitions()
+            .map((definition) => {
+                const port = getFirstCompatibleDefinitionPort(definition, direction, source.dataType);
+                if (!port) return null;
+                return {
+                    type: definition.type,
+                    title: definition.title || definition.type,
+                    matchPortName: port.name,
+                    matchDirection: direction
+                };
+            })
+            .filter(Boolean);
+    }
+
+    function createNodeFromConnectionCandidate(source, candidate, x, y) {
+        if (!addNode || !source || !candidate) return false;
+        if (isNodeRunning(source.nodeId)) {
+            showToast('节点正在运行，暂不能修改连线', 'warning');
+            return false;
+        }
+
+        const offsetX = source.isOutput ? 24 : -24;
+        const nodeId = addNode(candidate.type, x + offsetX, y);
+        if (!nodeId) return false;
+
+        const target = {
+            nodeId,
+            port: candidate.matchPortName,
+            type: source.dataType,
+            dir: candidate.matchDirection
+        };
+
+        return finishConnection(source, target);
     }
 
     function getConnectionInsertScore(conn, node, containerRect) {
@@ -680,6 +726,8 @@ export function createConnectionsApi({
         updateDraggingConnections,
         clearConnectionInsertPreview,
         commitConnectionInsertPreview,
+        getCompatibleNodeTypeCandidates,
+        createNodeFromConnectionCandidate,
         finishConnection,
         drawTempConnection,
         updatePortStyles

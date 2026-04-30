@@ -35,6 +35,19 @@ export function listNodeDefinitions() {
 export function getNodeDefinition(type) {
     return NODE_CONFIGS[type] || null;
 }
+
+export function getNodeDefinitionPorts(type, direction) {
+    const definition = typeof type === 'string' ? getNodeDefinition(type) : type;
+    if (!definition) return [];
+    if (direction === 'input') return Array.isArray(definition.inputs) ? definition.inputs : [];
+    if (direction === 'output') return Array.isArray(definition.outputs) ? definition.outputs : [];
+    return [];
+}
+
+export function getFirstCompatibleDefinitionPort(type, direction, dataType) {
+    const ports = getNodeDefinitionPorts(type, direction);
+    return ports.find((port) => port?.type === dataType) || null;
+}
 /**
  * 注册并暴露所有节点定义，供画布创建和执行流程统一查询。
  */

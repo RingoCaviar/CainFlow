@@ -188,6 +188,7 @@ async function renderHistoryList() {
 const elements = createElements(document);
 
 const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
+const connectionCreatePopup = elements.connectionCreatePopup;
 const panelManager = createPanelManager(document);
 
 // ===== 应用状态 =====
@@ -314,7 +315,8 @@ const connectionsApi = createConnectionsApi({
     pushHistory: () => pushHistory(),
     showToast,
     scheduleSave,
-    onConnectionsChanged: () => refreshAllImageResizePreviews()
+    onConnectionsChanged: () => refreshAllImageResizePreviews(),
+    addNode
 });
 const {
     showResolutionBadge,
@@ -373,6 +375,8 @@ const {
     updateDraggingConnections,
     clearConnectionInsertPreview,
     commitConnectionInsertPreview,
+    getCompatibleNodeTypeCandidates,
+    createNodeFromConnectionCandidate,
     finishConnection,
     drawTempConnection,
     updatePortStyles
@@ -568,6 +572,8 @@ function getCanvasInteractionsApi() {
             detachNodesFromConnections: (nodeIds, options) => getNodeLifecycleApi().detachNodesFromConnections(nodeIds, options),
             updatePortStyles,
             onConnectionsChanged: () => refreshAllImageResizePreviews(),
+            getConnectionCreateCandidates: (source) => getCompatibleNodeTypeCandidates(source),
+            openConnectionCreatePopup: (popupState) => getContextMenuControllerApi().openConnectionCreatePopup(popupState),
             scheduleSave,
             serializeOneNode,
             addNode,
@@ -633,9 +639,11 @@ function getContextMenuControllerApi() {
             state,
             canvasContainer,
             contextMenu,
+            connectionCreatePopup,
             viewportApi,
             addNode,
             runWorkflow,
+            createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             updateAllConnections
         });
     }

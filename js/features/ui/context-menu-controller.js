@@ -5,9 +5,11 @@ export function createContextMenuControllerApi({
     state,
     canvasContainer,
     contextMenu,
+    connectionCreatePopup,
     viewportApi,
     addNode,
     runWorkflow,
+    createNodeFromConnectionCandidate,
     updateAllConnections,
     documentRef = document
 }) {
@@ -49,11 +51,55 @@ export function createContextMenuControllerApi({
         }
     }
 
+    let ignoreNextDocumentClickForConnectionPopup = false;
+
+    function closeConnectionCreatePopup() {
+        state.connectionCreatePopup = null;
+        connectionCreatePopup?.classList.add('hidden');
+        if (connectionCreatePopup) {
+            connectionCreatePopup.innerHTML = '';
+        }
+    }
+
+    function openConnectionCreatePopup(popupState) {
+        if (!connectionCreatePopup) return;
+        state.connectionCreatePopup = popupState;
+        ignoreNextDocumentClickForConnectionPopup = true;
+        connectionCreatePopup.style.left = `${popupState.screenX}px`;
+        connectionCreatePopup.style.top = `${popupState.screenY}px`;
+        connectionCreatePopup.innerHTML = [
+            '<div class="context-menu-header">创建并连接节点</div>',
+            ...popupState.candidates.map((candidate) => (`
+                <div class="context-menu-item" data-popup-node-type="${candidate.type}">
+                    ${candidate.title}
+                </div>
+            `))
+        ].join('');
+        connectionCreatePopup.classList.remove('hidden');
+    }
+
+    function initConnectionCreatePopup() {
+        connectionCreatePopup?.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-popup-node-type]');
+            if (!item || !state.connectionCreatePopup) return;
+            const candidate = state.connectionCreatePopup.candidates.find((entry) => entry.type === item.dataset.popupNodeType);
+            if (!candidate) return;
+            createNodeFromConnectionCandidate?.(
+                state.connectionCreatePopup.source,
+                candidate,
+                state.connectionCreatePopup.canvasX,
+                state.connectionCreatePopup.canvasY
+            );
+            closeConnectionCreatePopup();
+        });
+    }
+
     function initContextMenu() {
         canvasContainer.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             if (state.justCut) return;
 
+            closeConnectionCreatePopup();
             state.contextMenu = { x: e.clientX, y: e.clientY };
 
             const nodeEl = e.target.closest('.node');
@@ -76,6 +122,11 @@ export function createContextMenuControllerApi({
         });
 
         documentRef.addEventListener('click', (e) => {
+            if (ignoreNextDocumentClickForConnectionPopup) {
+                ignoreNextDocumentClickForConnectionPopup = false;
+            } else if (connectionCreatePopup && !connectionCreatePopup.contains(e.target)) {
+                closeConnectionCreatePopup();
+            }
             if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden');
 
             if (e.target.id === 'canvas-container' && !state.justDragged) {
@@ -84,7 +135,13 @@ export function createContextMenuControllerApi({
             }
         });
 
-        documentRef.querySelectorAll('.context-menu-item').forEach((item) => {
+        documentRef.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeConnectionCreatePopup();
+            }
+        });
+
+        contextMenu.querySelectorAll('.context-menu-item').forEach((item) => {
             item.addEventListener('click', () => {
                 if (item.id === 'context-menu-run-to-here') {
                     if (state.contextMenuNodeId) {
@@ -107,9 +164,13 @@ export function createContextMenuControllerApi({
                 contextMenu.classList.add('hidden');
             });
         });
+
+        initConnectionCreatePopup();
     }
 
     return {
-        initContextMenu
+        initContextMenu,
+        openConnectionCreatePopup,
+        closeConnectionCreatePopup
     };
 }

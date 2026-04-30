@@ -9,6 +9,7 @@ export function createElements(doc = document) {
         tempConnection: doc.getElementById('temp-connection'),
         originAxes: doc.getElementById('origin-axes'),
         contextMenu: doc.getElementById('context-menu'),
+        connectionCreatePopup: doc.getElementById('connection-create-popup'),
         toastContainer: doc.getElementById('toast-container'),
         logList: doc.getElementById('log-list'),
         historyList: doc.getElementById('history-list'),
