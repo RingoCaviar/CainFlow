@@ -8,6 +8,8 @@ import {
     buildOpenAiImageRequest,
     extractImageResult,
     getEffectiveProtocol,
+    getResolvedProviderForModel,
+    getResolvedProviderIdForModel,
     resolveProviderUrl,
     validateOpenAiImageSize
 } from './provider-request-utils.js';
@@ -69,6 +71,7 @@ export function createExecutionCoreApi({
             providerType: protocol || 'unknown',
             url,
             modelId: modelCfg?.modelId || '',
+            providerId: apiCfg?.id || '',
             apiKeyShape: getApiKeyShape(apiCfg?.apikey)
         };
     }
@@ -562,8 +565,11 @@ export function createExecutionCoreApi({
                 const configId = documentRef.getElementById(`${id}-apiconfig`).value;
                 const modelCfg = state.models.find((model) => model.id === configId);
                 if (!modelCfg) throw new Error('未找到选定的模型配置');
-                const apiCfg = state.providers.find((provider) => provider.id === modelCfg.providerId);
+                const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
+                const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
+                const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
                 if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+                node.providerId = resolvedProviderId;
 
                 const aspect = documentRef.getElementById(`${id}-aspect`).value;
                 const selectedResolution = documentRef.getElementById(`${id}-resolution`).value;
@@ -711,8 +717,11 @@ export function createExecutionCoreApi({
             const configId = documentRef.getElementById(`${id}-apiconfig`).value;
             const modelCfg = state.models.find((model) => model.id === configId);
             if (!modelCfg) throw new Error('未找到选定的模型配置');
-            const apiCfg = state.providers.find((provider) => provider.id === modelCfg.providerId);
+            const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
+            const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
+            const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
             if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+            node.providerId = resolvedProviderId;
 
             const sysprompt = documentRef.getElementById(`${id}-sysprompt`).value;
             const prompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
@@ -955,7 +964,8 @@ export function createExecutionCoreApi({
         if ((node.type === 'ImageGenerate' || node.type === 'TextChat') && hasRemoteImageInput(inputs)) {
             const configId = documentRef.getElementById(`${node.id}-apiconfig`)?.value || '';
             const modelCfg = state.models.find((model) => model.id === configId);
-            const apiCfg = modelCfg ? state.providers.find((provider) => provider.id === modelCfg.providerId) : null;
+            const selectedProviderId = documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || '';
+            const apiCfg = modelCfg ? getResolvedProviderForModel(modelCfg, state.providers, selectedProviderId) : null;
             const protocol = getEffectiveProtocol(modelCfg, apiCfg);
             if (protocol === 'google') {
                 throw new Error('URL 图片仅支持 OpenAI 兼容参考图，当前模型不支持');

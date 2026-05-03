@@ -3,6 +3,31 @@
  */
 import { DEFAULT_MODELS, DEFAULT_PROVIDERS } from './constants.js';
 
+export const NODE_DEFAULT_TYPES = ['ImageGenerate', 'TextChat'];
+
+export function createInitialNodeDefaults() {
+    return NODE_DEFAULT_TYPES.reduce((defaults, type) => {
+        defaults[type] = {
+            apiConfigId: '',
+            providerId: ''
+        };
+        return defaults;
+    }, {});
+}
+
+export function normalizeNodeDefaults(raw = {}) {
+    const defaults = createInitialNodeDefaults();
+    NODE_DEFAULT_TYPES.forEach((type) => {
+        const current = raw?.[type];
+        if (!current || typeof current !== 'object') return;
+        defaults[type] = {
+            apiConfigId: typeof current.apiConfigId === 'string' ? current.apiConfigId : '',
+            providerId: typeof current.providerId === 'string' ? current.providerId : ''
+        };
+    });
+    return defaults;
+}
+
 export function createInitialState() {
     return {
         nodes: new Map(),
@@ -28,6 +53,7 @@ export function createInitialState() {
         runningNodeIds: new Set(),
         activeRunCount: 0,
         runAbortControllers: new Set(),
+        nodeDefaults: createInitialNodeDefaults(),
         historySelectionMode: false,
         selectedHistoryIds: new Set(),
         draggedHistoryImage: null,

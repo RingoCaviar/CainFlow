@@ -2,6 +2,7 @@
  * 负责工作流项目的导入导出与恢复加载，是前端项目 IO 的统一入口。
  */
 import { normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import { normalizeNodeDefaults } from '../../core/state.js';
 import {
     buildWorkflowModelWarningMessage,
     resolveWorkflowModelReferences
@@ -69,6 +70,7 @@ export function createProjectIoApi({
                     connections: importedData.connections || [],
                     providers: state.providers,
                     models: state.models,
+                    nodeDefaults: normalizeNodeDefaults(currentState.nodeDefaults || state.nodeDefaults),
                     themeMode: currentState.themeMode !== undefined ? currentState.themeMode : state.themeMode,
                     notificationsEnabled: currentState.notificationsEnabled !== undefined ? currentState.notificationsEnabled : state.notificationsEnabled,
                     notificationVolume: currentState.notificationVolume !== undefined ? currentState.notificationVolume : state.notificationVolume,
@@ -127,6 +129,7 @@ export function createProjectIoApi({
                             id: cfg.id,
                             name: cfg.name,
                             modelId: cfg.model || '',
+                            providerIds: [provId],
                             providerId: provId,
                             protocol: cfg.protocol || cfg.type
                         }, newModels.length, newProviders));
@@ -150,6 +153,7 @@ export function createProjectIoApi({
                         state.models = data.models.map((model, index) => normalizeModelConfig(model, index, providersById));
                     }
                 }
+            state.nodeDefaults = normalizeNodeDefaults(data.nodeDefaults);
             if (data.themeMode !== undefined) {
                 applyTheme(data.themeMode);
             } else {

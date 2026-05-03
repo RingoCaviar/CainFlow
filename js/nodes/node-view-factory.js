@@ -4,7 +4,9 @@
 import {
     getEffectiveProtocol,
     getImageResolutionOptionsForModel,
-    getModelOptionLabel,
+    getModelProviders,
+    getResolvedProviderForModel,
+    getResolvedProviderIdForModel,
     getModelsForTask,
     normalizeImageResolutionForModel
 } from '../features/execution/provider-request-utils.js';
@@ -67,7 +69,7 @@ function renderApiConfigOptions(models, providers, selectedId, taskType) {
 
     return missingSelectedOption + filteredModels.map((model) => {
         const selected = selectedId === model.id ? 'selected' : '';
-        return `<option value="${model.id}" ${selected}>${getModelOptionLabel(model, providers)}</option>`;
+        return `<option value="${model.id}" ${selected}>${model.name || model.modelId || model.id}</option>`;
     }).join('');
 }
 
@@ -142,8 +144,13 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const rd = restoreData || {};
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'image');
     const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'image');
+    const selectedProviderId = getResolvedProviderIdForModel(selectedModel, providers, rd.providerId || '');
+    const modelProviders = getModelProviders(selectedModel, providers);
+    const providerOptions = modelProviders
+        .map((provider) => `<option value="${provider.id}" ${selectedProviderId === provider.id ? 'selected' : ''}>${provider.name || provider.id}</option>`)
+        .join('');
     const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, rd.resolution);
-    const selectedProvider = providers?.find?.((provider) => provider.id === selectedModel?.providerId) || null;
+    const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
     const isOpenAiModel = !!selectedModel && getEffectiveProtocol(selectedModel, selectedProvider) === 'openai';
     const showResolutionParamNote = isOpenAiModel;
     const showCustomResolution = rd.resolution === 'custom';
@@ -154,6 +161,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
+        <div class="node-field ${modelProviders.length > 1 ? '' : 'hidden'}" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
         <div class="node-field">
             <label>生成次数</label>
             <div class="generation-count-control">
@@ -210,9 +218,16 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
 function renderTextChatBody(id, restoreData, models, providers) {
     const rd = restoreData || {};
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'chat');
+    const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'chat');
+    const selectedProviderId = getResolvedProviderIdForModel(selectedModel, providers, rd.providerId || '');
+    const modelProviders = getModelProviders(selectedModel, providers);
+    const providerOptions = modelProviders
+        .map((provider) => `<option value="${provider.id}" ${selectedProviderId === provider.id ? 'selected' : ''}>${provider.name || provider.id}</option>`)
+        .join('');
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
+        <div class="node-field ${modelProviders.length > 1 ? '' : 'hidden'}" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
         <div class="node-field"><label>系统提示语（可选）</label>
             <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="2">${rd.sysprompt || ''}</textarea></div>
         <div class="node-field node-field-row"><label>启用搜索</label>

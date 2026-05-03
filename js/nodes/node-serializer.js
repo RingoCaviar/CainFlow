@@ -43,6 +43,7 @@ export function createNodeSerializer({ state, documentRef }) {
 
             if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
                 serialized.apiConfigId = documentRef.getElementById(`${id}-apiconfig`)?.value || 'default';
+                serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
                 if (node.type === 'ImageGenerate') {
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
@@ -88,6 +89,7 @@ export function createNodeSerializer({ state, documentRef }) {
             })),
             providers: state.providers,
             models: state.models,
+            nodeDefaults: state.nodeDefaults,
             themeMode: state.themeMode,
             notificationsEnabled: state.notificationsEnabled,
             notificationVolume: state.notificationVolume,

@@ -36,7 +36,19 @@ function getFingerprintProtocol(model = {}) {
     return '';
 }
 
-function getProviderFromLookup(providerId, providers) {
+function normalizeUniqueStringList(values = []) {
+    const seen = new Set();
+    const result = [];
+    values.forEach((value) => {
+        const normalized = String(value || '').trim();
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        result.push(normalized);
+    });
+    return result;
+}
+
+export function getProviderFromLookup(providerId, providers) {
     if (!providerId || !providers) return null;
     if (providers instanceof Map) return providers.get(providerId) || null;
     if (Array.isArray(providers)) return providers.find((provider) => provider?.id === providerId) || null;
@@ -44,11 +56,59 @@ function getProviderFromLookup(providerId, providers) {
     return null;
 }
 
+export function getModelProviderIds(model = {}) {
+    const providerIds = Array.isArray(model?.providerIds) ? model.providerIds : [];
+    const fallbackProviderId = typeof model?.providerId === 'string' ? model.providerId : '';
+    return normalizeUniqueStringList([
+        ...providerIds,
+        fallbackProviderId
+    ]);
+}
+
+export function modelSupportsProvider(model = {}, providerId = '') {
+    const normalizedProviderId = String(providerId || '').trim();
+    if (!normalizedProviderId) return false;
+    return getModelProviderIds(model).includes(normalizedProviderId);
+}
+
+export function getModelProviders(model = {}, providers = null) {
+    return getModelProviderIds(model)
+        .map((providerId) => getProviderFromLookup(providerId, providers))
+        .filter(Boolean);
+}
+
+export function getResolvedProviderIdForModel(model = {}, providers = null, preferredProviderId = '') {
+    const preferredId = String(preferredProviderId || '').trim();
+    const configuredProviderIds = getModelProviderIds(model);
+    const availableProviderIds = providers
+        ? getModelProviders(model, providers).map((provider) => provider.id)
+        : configuredProviderIds;
+
+    if (preferredId && availableProviderIds.includes(preferredId)) {
+        return preferredId;
+    }
+    return availableProviderIds[0] || configuredProviderIds[0] || '';
+}
+
+export function getResolvedProviderForModel(model = {}, providers = null, preferredProviderId = '') {
+    const providerId = getResolvedProviderIdForModel(model, providers, preferredProviderId);
+    return getProviderFromLookup(providerId, providers);
+}
+
 export function getModelOptionLabel(model = {}, providers = null) {
     const modelName = String(model?.name || '').trim() || '未命名模型';
-    const provider = getProviderFromLookup(model?.providerId, providers);
-    const providerName = String(provider?.name || '').trim();
-    return providerName ? `${modelName} - ${providerName}` : modelName;
+    const modelProviders = getModelProviders(model, providers);
+    if (modelProviders.length === 1) {
+        const providerName = String(modelProviders[0]?.name || '').trim();
+        return providerName ? `${modelName} - ${providerName}` : modelName;
+    }
+    if (modelProviders.length > 1) {
+        const providerName = String(modelProviders[0]?.name || '').trim();
+        return providerName
+            ? `${modelName} - ${providerName} 等${modelProviders.length}个供应商`
+            : `${modelName} - ${modelProviders.length}个供应商`;
+    }
+    return modelName;
 }
 
 export function normalizeModelTaskType(taskType, model = {}) {
@@ -107,15 +167,15 @@ export function getEffectiveProtocol(modelCfg = {}, apiCfg = null) {
     return normalizeModelProtocol(modelCfg?.protocol, modelCfg, apiCfg);
 }
 
-export function getImageResolutionOptionsForModel(model = {}, providers = null) {
-    const provider = getProviderFromLookup(model?.providerId, providers);
+export function getImageResolutionOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
+    const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
     return getEffectiveProtocol(model, provider) === 'openai'
         ? OPENAI_IMAGE_RESOLUTION_OPTIONS
         : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
 }
 
-export function normalizeImageResolutionForModel(resolution, model = {}, providers = null) {
-    const options = getImageResolutionOptionsForModel(model, providers);
+export function normalizeImageResolutionForModel(resolution, model = {}, providers = null, preferredProviderId = '') {
+    const options = getImageResolutionOptionsForModel(model, providers, preferredProviderId);
     const value = String(resolution || '').trim();
     if (options.some((option) => option.value === value)) return value;
     return options[0]?.value || '';
@@ -155,12 +215,14 @@ export function validateOpenAiImageSize(widthValue, heightValue) {
 }
 
 export function normalizeModelConfig(model = {}, index = 0, providers = null) {
-    const provider = getProviderFromLookup(model?.providerId, providers);
+    const providerIds = getModelProviderIds(model);
+    const provider = getResolvedProviderForModel({ ...model, providerIds }, providers);
     return {
         id: String(model?.id || `mod_import_${index + 1}`),
         name: typeof model?.name === 'string' && model.name.trim() ? model.name.trim() : `导入模型 ${index + 1}`,
         modelId: typeof model?.modelId === 'string' ? model.modelId : '',
-        providerId: typeof model?.providerId === 'string' ? model.providerId : '',
+        providerIds,
+        providerId: providerIds[0] || '',
         taskType: normalizeModelTaskType(model?.taskType, model),
         protocol: normalizeModelProtocol(model?.protocol, model, provider)
     };

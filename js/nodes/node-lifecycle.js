@@ -1,6 +1,8 @@
 ﻿/**
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
  */
+import { NODE_DEFAULT_TYPES } from '../core/state.js';
+
 export function createNodeLifecycleApi({
     state,
     nodeConfigs,
@@ -361,6 +363,16 @@ export function createNodeLifecycleApi({
         return type;
     }
 
+    function getNodeDefaultRestoreData(type) {
+        if (!NODE_DEFAULT_TYPES.includes(type)) return null;
+        const defaults = state.nodeDefaults?.[type];
+        if (!defaults || (!defaults.apiConfigId && !defaults.providerId)) return null;
+        return {
+            apiConfigId: defaults.apiConfigId || '',
+            providerId: defaults.providerId || ''
+        };
+    }
+
     function isNodeRunning(nodeId) {
         return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
     }
@@ -370,27 +382,28 @@ export function createNodeLifecycleApi({
         const normalizedType = normalizeNodeType(type);
         const config = nodeConfigs[normalizedType];
         if (!config) return;
-        const id = restoreData?.id ? restoreData.id : generateId();
+        const effectiveRestoreData = restoreData || getNodeDefaultRestoreData(normalizedType);
+        const id = effectiveRestoreData?.id ? effectiveRestoreData.id : generateId();
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
         el.id = id;
         el.style.left = x + 'px';
         el.style.top = y + 'px';
-        const initialWidth = clampNodeWidthToDefault(restoreData?.width, config);
+        const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config);
         el.style.width = initialWidth + 'px';
 
         const clampedInitialHeight = clampNodeHeight(
-            Math.max(Number(restoreData?.height) || 0, getDefaultNodeHeight(config)),
+            Math.max(Number(effectiveRestoreData?.height) || 0, getDefaultNodeHeight(config)),
             config,
-            { isRestore: Boolean(restoreData?.height) }
+            { isRestore: Boolean(effectiveRestoreData?.height) }
         );
         const initialHeight = Math.max(clampedInitialHeight || 0, getDefaultNodeHeight(config));
         if (initialHeight) el.style.height = initialHeight + 'px';
 
-        el.innerHTML = createNodeMarkup({ type: normalizedType, id, config, restoreData, state });
+        el.innerHTML = createNodeMarkup({ type: normalizedType, id, config, restoreData: effectiveRestoreData, state });
         nodesLayer.appendChild(el);
 
-        if (restoreData && restoreData.height) {
+        if (effectiveRestoreData && effectiveRestoreData.height) {
             el.querySelectorAll('.preview-container, .save-preview-container, .file-drop-zone').forEach((container) => {
                 container.style.maxHeight = 'none';
             });
@@ -406,30 +419,31 @@ export function createNodeLifecycleApi({
             imageData: null,
             compareImageA: null,
             compareImageB: null,
-            importMode: restoreData?.importMode === 'url' ? 'url' : 'upload',
-            imageUrl: restoreData?.imageUrl || '',
+            importMode: effectiveRestoreData?.importMode === 'url' ? 'url' : 'upload',
+            imageUrl: effectiveRestoreData?.imageUrl || '',
             previewZoom: 1,
             resizePreviewData: null,
             resizePreviewMeta: null,
             resizePreviewToken: 0,
+            providerId: effectiveRestoreData?.providerId || '',
             width: initialWidth,
             height: initialHeight,
             defaultWidth: getDefaultNodeWidth(config),
             defaultHeight: getDefaultNodeHeight(config),
-            userResized: Boolean(restoreData?.width || restoreData?.height),
+            userResized: Boolean(effectiveRestoreData?.width || effectiveRestoreData?.height),
             maxHeight: config.maxHeight || null,
             dirHandle: null,
-            enabled: restoreData?.enabled !== false,
-            isSucceeded: restoreData?.isSucceeded || false,
-            lastDuration: restoreData?.lastDuration || null,
-            lastResponse: restoreData?.lastResponse || '',
-            originalWidth: restoreData?.originalWidth || 0,
-            originalHeight: restoreData?.originalHeight || 0,
-            outputWidth: restoreData?.outputWidth || 0,
-            outputHeight: restoreData?.outputHeight || 0,
-            outputFormat: restoreData?.outputFormat || '',
-            outputQuality: restoreData?.outputQuality || null,
-            estimatedBytes: restoreData?.estimatedBytes || null
+            enabled: effectiveRestoreData?.enabled !== false,
+            isSucceeded: effectiveRestoreData?.isSucceeded || false,
+            lastDuration: effectiveRestoreData?.lastDuration || null,
+            lastResponse: effectiveRestoreData?.lastResponse || '',
+            originalWidth: effectiveRestoreData?.originalWidth || 0,
+            originalHeight: effectiveRestoreData?.originalHeight || 0,
+            outputWidth: effectiveRestoreData?.outputWidth || 0,
+            outputHeight: effectiveRestoreData?.outputHeight || 0,
+            outputFormat: effectiveRestoreData?.outputFormat || '',
+            outputQuality: effectiveRestoreData?.outputQuality || null,
+            estimatedBytes: effectiveRestoreData?.estimatedBytes || null
         };
         if (nodeData.lastDuration) {
             const timeBadge = el.querySelector(`#${id}-time`);
@@ -439,8 +453,8 @@ export function createNodeLifecycleApi({
                 timeContainer.style.display = 'flex';
             }
         }
-        if (restoreData?.lastText) {
-            nodeData.data.text = restoreData.lastText;
+        if (effectiveRestoreData?.lastText) {
+            nodeData.data.text = effectiveRestoreData.lastText;
         }
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
@@ -455,10 +469,10 @@ export function createNodeLifecycleApi({
         if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare') {
             (async () => {
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
-                const hasInitialData = !!(restoreData && restoreData.imageData);
+                const hasInitialData = !!(effectiveRestoreData && effectiveRestoreData.imageData);
                 const data = isImportUrlMode
                     ? null
-                    : (hasInitialData ? restoreData.imageData : await getImageAsset(id));
+                    : (hasInitialData ? effectiveRestoreData.imageData : await getImageAsset(id));
 
                 if (!state.nodes.has(id)) return;
 
@@ -510,10 +524,10 @@ export function createNodeLifecycleApi({
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageResize') {
                         restoreImageResizePreview(id, data, {
-                            outputWidth: restoreData?.outputWidth || 0,
-                            outputHeight: restoreData?.outputHeight || 0,
-                            outputQuality: restoreData?.outputQuality || null,
-                            estimatedBytes: restoreData?.estimatedBytes || null
+                            outputWidth: effectiveRestoreData?.outputWidth || 0,
+                            outputHeight: effectiveRestoreData?.outputHeight || 0,
+                            outputQuality: effectiveRestoreData?.outputQuality || null,
+                            estimatedBytes: effectiveRestoreData?.estimatedBytes || null
                         });
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageCompare') {
