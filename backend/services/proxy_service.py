@@ -88,7 +88,7 @@ def handle_proxy_request(handler):
 
     req_headers['Connection'] = 'keep-alive'
     if 'user-agent' not in [header.lower() for header in req_headers.keys()]:
-        req_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CainFlow/2.7.8.2'
+        req_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CainFlow/2.7.9'
 
     context = ssl.create_default_context()
     context.check_hostname = False
