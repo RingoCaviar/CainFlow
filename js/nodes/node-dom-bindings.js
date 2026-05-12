@@ -670,7 +670,21 @@ export function createNodeDomBindingsApi({
     function syncImageGenerateCount(id) {
         const input = documentRef.getElementById(`${id}-generation-count`);
         if (!input) return;
-        input.value = String(normalizeImageGenerateCountValue(input.value));
+        const count = normalizeImageGenerateCountValue(input.value);
+        input.value = String(count);
+
+        const node = state.nodes.get(id);
+        if (node) {
+            node.generationCount = count;
+            node.data.generationCount = count;
+        }
+
+        const progressEl = documentRef.getElementById(`${id}-generation-progress`);
+        if (progressEl) {
+            const completedCount = Math.max(0, parseInt(node?.generationCompletedCount || '0', 10) || 0);
+            progressEl.textContent = `${Math.min(completedCount, count)}/${count}`;
+            progressEl.classList.remove('hidden');
+        }
     }
 
     function getPx(style, name) {
