@@ -148,7 +148,9 @@ function loadImageElement(src) {
 }
 
 function getSubjectHorizontalDirection(yaw) {
-    return yaw >= 0 ? 'left' : 'right';
+    // In this scene setup, positive yaw moves the camera toward +X while staying
+    // in front of the subject, which reveals the subject's right side.
+    return yaw >= 0 ? 'right' : 'left';
 }
 
 function getPitchInstruction(pitch) {

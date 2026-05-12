@@ -64,7 +64,7 @@ import { createToastControllerApi } from './js/features/ui/toast-controller.js';
 import { createLogPanelApi } from './js/features/logs/log-panel.js';
 import { createStartupControllerApi } from './js/features/app/startup-controller.js';
 import { createSettingsModalApi } from './js/features/settings/settings-modal.js';
-import { createSettingsControllerApi } from './js/features/settings/settings-controller.js?v=2.7.9.2-model-fetch-fix';
+import { createSettingsControllerApi } from './js/features/settings/settings-controller.js?v=2.7.9.3-model-fetch-fix';
 import { createUpdateManager } from './js/features/update/update-manager.js';
 import { createHelpPanelApi } from './js/features/help/help-panel.js';
 import { createWorkflowManagerApi } from './js/features/workflow/workflow-manager.js';
