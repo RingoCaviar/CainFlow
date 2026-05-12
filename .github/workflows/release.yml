@@ -42,7 +42,6 @@ jobs:
             --add-data "index.js;." `
             --add-data "index.css;." `
             --add-data "cainflow.ico;." `
-            --add-data "allowed_hosts.json;." `
             --add-data "css;css" `
             --add-data "js;js" `
             --add-data "sounds;sounds" `
