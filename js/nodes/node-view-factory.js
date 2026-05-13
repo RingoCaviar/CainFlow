@@ -10,7 +10,6 @@ import {
     getModelsForTask,
     normalizeImageResolutionForModel
 } from '../features/execution/provider-request-utils.js';
-import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -61,16 +60,14 @@ function getTextSplitPreviewEnabledValue(restoreData = {}) {
     return rd.previewEnabled === true;
 }
 
-function getTextSplitOutputPorts(restoreData = {}) {
+function getTextSplitOutputCountValue(restoreData = {}) {
     const rd = restoreData || {};
-    const parts = Array.isArray(rd.parts) && rd.parts.length > 0
-        ? rd.parts
-        : splitTextForTextSplitNode(
-            getTextSplitTextValue(rd),
-            getTextSplitDelimiterValue(rd),
-            { removeEmptyLines: getTextSplitRemoveEmptyLinesValue(rd) }
-        );
-    const count = Math.max(1, parts.length);
+    const value = parseInt(rd.outputCount ?? '1', 10);
+    return Number.isFinite(value) ? Math.max(1, value) : 1;
+}
+
+function getTextSplitOutputPorts(restoreData = {}) {
+    const count = getTextSplitOutputCountValue(restoreData);
     return Array.from({ length: count }, (_, index) => ({
         name: `part_${index + 1}`,
         type: 'text',
@@ -483,12 +480,17 @@ function renderTextBody(id, restoreData) {
 function renderTextSplitBody(id, restoreData) {
     const rd = restoreData || {};
     const delimiter = getTextSplitDelimiterValue(rd);
+    const outputCount = getTextSplitOutputCountValue(rd);
     const removeEmptyLines = getTextSplitRemoveEmptyLinesValue(rd);
     const previewEnabled = getTextSplitPreviewEnabledValue(rd);
     return `
         <div class="node-field">
             <label>分隔字符串</label>
             <textarea id="${id}-delimiter" class="text-split-delimiter" placeholder="输入用于分割文本的字符串" rows="2"${getTextareaHeightStyle(rd, 'delimiter')}>${delimiter}</textarea>
+        </div>
+        <div class="node-field">
+            <label>输出数量</label>
+            <input type="number" id="${id}-output-count" min="1" step="1" value="${outputCount}" />
         </div>
         <div class="node-field node-field-row">
             <label>删除空行</label>

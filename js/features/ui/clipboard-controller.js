@@ -92,6 +92,7 @@ export function createClipboardControllerApi({
         if (node.type === 'TextSplit') {
             serialized.text = node.data?.text || '';
             serialized.delimiter = documentRef.getElementById(`${id}-delimiter`)?.value || '';
+            serialized.outputCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-output-count`)?.value || node.data?.outputCount || '1', 10) || 1);
             serialized.removeEmptyLines = documentRef.getElementById(`${id}-remove-empty-lines`)?.checked === true;
             serialized.previewEnabled = documentRef.getElementById(`${id}-preview-enabled`)?.checked === true;
             serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];

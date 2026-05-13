@@ -90,13 +90,19 @@ export function createNodeDomBindingsApi({
             .replace(/'/g, '&#39;');
     }
 
-    function getTextSplitParts(id) {
+    function normalizeTextSplitOutputCountValue(value) {
+        const parsed = parseInt(value ?? '1', 10);
+        return Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    }
+
+    function getTextSplitOutputCount(id) {
+        const outputCountInput = documentRef.getElementById(`${id}-output-count`);
         const node = state.nodes.get(id);
-        const delimiterInput = documentRef.getElementById(`${id}-delimiter`);
-        const removeEmptyLinesInput = documentRef.getElementById(`${id}-remove-empty-lines`);
-        return splitTextForTextSplitNode(node?.data?.text || '', delimiterInput?.value || '', {
-            removeEmptyLines: removeEmptyLinesInput?.checked === true
-        });
+        return normalizeTextSplitOutputCountValue(outputCountInput?.value ?? node?.data?.outputCount ?? 1);
+    }
+
+    function limitTextSplitParts(parts, outputCount) {
+        return parts.slice(0, Math.max(1, outputCount));
     }
 
     function renderTextSplitOutputPort(id, index) {
@@ -105,10 +111,6 @@ export function createNodeDomBindingsApi({
                 <span class="port-label">片段 ${index + 1}</span>
                 <div class="port-dot type-text"></div>
             </div>`;
-    }
-
-    function getTextSplitOutputCount(id) {
-        return Math.max(1, getTextSplitParts(id).length);
     }
 
     function bindPortInteraction(portEl) {
@@ -406,14 +408,23 @@ export function createNodeDomBindingsApi({
         const { refreshPorts = true } = options;
         const node = state.nodes.get(id);
         const delimiterInput = documentRef.getElementById(`${id}-delimiter`);
+        const outputCountInput = documentRef.getElementById(`${id}-output-count`);
         const removeEmptyLinesInput = documentRef.getElementById(`${id}-remove-empty-lines`);
         const previewEnabledInput = documentRef.getElementById(`${id}-preview-enabled`);
         if (!node || !delimiterInput) return;
 
+        const outputCount = getTextSplitOutputCount(id);
+        if (outputCountInput) {
+            outputCountInput.value = String(outputCount);
+        }
         const removeEmptyLines = removeEmptyLinesInput?.checked === true;
         const previewEnabled = previewEnabledInput?.checked === true;
-        const parts = splitTextForTextSplitNode(node.data?.text || '', delimiterInput.value, { removeEmptyLines });
+        const parts = limitTextSplitParts(
+            splitTextForTextSplitNode(node.data?.text || '', delimiterInput.value, { removeEmptyLines }),
+            outputCount
+        );
         node.data.delimiter = delimiterInput.value;
+        node.data.outputCount = outputCount;
         node.data.removeEmptyLines = removeEmptyLines;
         node.data.previewEnabled = previewEnabled;
         node.data.parts = parts;
@@ -430,7 +441,7 @@ export function createNodeDomBindingsApi({
                 ? `按 ${JSON.stringify(delimiterInput.value)} 分割`
                 : '未设置分隔字符串，整段作为一个输出';
             const emptyLineText = removeEmptyLines ? '，已删除空行' : '';
-            summary.textContent = `${delimiterText}${emptyLineText}，当前 ${Math.max(1, parts.length)} 个输出端口`;
+            summary.textContent = `${delimiterText}${emptyLineText}，当前配置 ${outputCount} 个输出端口`;
         }
 
         const preview = documentRef.getElementById(`${id}-split-preview`);
@@ -447,7 +458,7 @@ export function createNodeDomBindingsApi({
         }
 
         if (refreshPorts) {
-            refreshTextSplitOutputPorts(id, Math.max(1, parts.length));
+            refreshTextSplitOutputPorts(id, outputCount);
         }
 
         const requestFrame = documentRef.defaultView?.requestAnimationFrame;
@@ -1264,7 +1275,7 @@ export function createNodeDomBindingsApi({
                 input.addEventListener('input', () => syncTextNodeData(id));
                 input.addEventListener('change', () => syncTextNodeData(id));
             }
-            if (type === 'TextSplit' && (input.id === `${id}-delimiter` || input.id === `${id}-remove-empty-lines` || input.id === `${id}-preview-enabled`)) {
+            if (type === 'TextSplit' && (input.id === `${id}-delimiter` || input.id === `${id}-output-count` || input.id === `${id}-remove-empty-lines` || input.id === `${id}-preview-enabled`)) {
                 input.addEventListener('input', () => syncTextSplitNodeData(id));
                 input.addEventListener('change', () => syncTextSplitNodeData(id));
             }

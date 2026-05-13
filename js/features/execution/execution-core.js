@@ -461,8 +461,9 @@ function renderImageGeneratePreviewState(nodeId, {
             if (node.data && node.data[portName] !== undefined) return node.data[portName];
             const text = node.data?.text || '';
             const delimiter = documentRef.getElementById(`${node.id}-delimiter`)?.value || '';
+            const outputCount = Math.max(1, parseInt(documentRef.getElementById(`${node.id}-output-count`)?.value || node.data?.outputCount || '1', 10) || 1);
             const removeEmptyLines = documentRef.getElementById(`${node.id}-remove-empty-lines`)?.checked === true;
-            const parts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines });
+            const parts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines }).slice(0, outputCount);
             const index = Math.max(0, parseInt(portName.replace('part_', ''), 10) - 1);
             return parts[index];
         }
@@ -1074,14 +1075,17 @@ function renderImageGeneratePreviewState(nodeId, {
         },
         TextSplit: async (node, inputs = {}) => {
             const delimiterInput = documentRef.getElementById(`${node.id}-delimiter`);
+            const outputCountInput = documentRef.getElementById(`${node.id}-output-count`);
             const removeEmptyLinesInput = documentRef.getElementById(`${node.id}-remove-empty-lines`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
             const text = hasIncomingText ? (inputs.text ?? '') : (node.data.text || '');
             const delimiter = delimiterInput?.value ?? node.data.delimiter ?? '';
+            const outputCount = Math.max(1, parseInt(outputCountInput?.value ?? node.data.outputCount ?? '1', 10) || 1);
             const removeEmptyLines = removeEmptyLinesInput?.checked === true;
-            const parts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines });
+            const parts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines }).slice(0, outputCount);
             node.data.text = text;
             node.data.delimiter = delimiter;
+            node.data.outputCount = outputCount;
             node.data.removeEmptyLines = removeEmptyLines;
             node.data.parts = parts;
             Object.keys(node.data).forEach((key) => {

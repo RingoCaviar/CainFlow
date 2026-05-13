@@ -697,9 +697,12 @@ export function createNodeLifecycleApi({
         if (normalizedType === 'TextSplit') {
             nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';
             nodeData.data.delimiter = effectiveRestoreData?.delimiter || '';
+            nodeData.data.outputCount = Math.max(1, parseInt(effectiveRestoreData?.outputCount ?? '1', 10) || 1);
             nodeData.data.removeEmptyLines = effectiveRestoreData?.removeEmptyLines === true;
             nodeData.data.previewEnabled = effectiveRestoreData?.previewEnabled === true;
-            nodeData.data.parts = Array.isArray(effectiveRestoreData?.parts) ? effectiveRestoreData.parts.slice() : [];
+            nodeData.data.parts = Array.isArray(effectiveRestoreData?.parts)
+                ? effectiveRestoreData.parts.slice(0, nodeData.data.outputCount)
+                : [];
             nodeData.data.parts.forEach((part, index) => {
                 nodeData.data[`part_${index + 1}`] = part;
             });
