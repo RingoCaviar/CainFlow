@@ -2,6 +2,7 @@
  * 负责主界面各类面板与按钮的事件装配，是通用 UI 行为的集中控制器。
  */
 import { getModelProviderIds, normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 
 export function createUiControllerApi({
     state,
@@ -78,11 +79,40 @@ export function createUiControllerApi({
         }));
     }
 
+    function getLockedProviders(importedProviders = []) {
+        const importedById = new Map((importedProviders || []).map((provider) => [provider.id, provider]));
+        return DEFAULT_PROVIDERS.map((provider) => {
+            const current = state.providers.find((candidate) => candidate.id === provider.id);
+            const imported = importedById.get(provider.id);
+            return {
+                ...provider,
+                name: current?.name || imported?.name || provider.name,
+                apikey: current?.apikey || imported?.apikey || provider.apikey
+            };
+        });
+    }
+
+    function bindModelToAvailableProviders(model, providers) {
+        const availableProviderIds = new Set((providers || []).map((provider) => provider.id));
+        const providerIds = getModelProviderIds(model).filter((providerId) => availableProviderIds.has(providerId));
+        const fallbackProviderId = providers?.[0]?.id || '';
+        const nextProviderIds = providerIds.length > 0
+            ? providerIds
+            : (fallbackProviderId ? [fallbackProviderId] : []);
+        return {
+            ...model,
+            providerIds: nextProviderIds,
+            providerId: nextProviderIds[0] || ''
+        };
+    }
+
     function normalizeModels(models, providers) {
         if (!Array.isArray(models)) throw new Error('配置文件缺少 models 数组');
 
         const providersById = new Map((providers || []).map((provider) => [provider.id, provider]));
-        return models.map((model, index) => normalizeModelConfig(model, index, providersById));
+        return models
+            .map((model, index) => normalizeModelConfig(model, index, providersById))
+            .map((model) => API_PROVIDERS_LOCKED ? bindModelToAvailableProviders(model, providers) : model);
     }
 
     function ensureUniqueIds(items, label) {
@@ -100,7 +130,8 @@ export function createUiControllerApi({
             throw new Error('配置文件格式无效');
         }
 
-        const providers = normalizeProviders(configData.providers);
+        const importedProviders = normalizeProviders(configData.providers);
+        const providers = API_PROVIDERS_LOCKED ? getLockedProviders(importedProviders) : importedProviders;
         const models = normalizeModels(configData.models, providers);
         const settings = configData.settings && typeof configData.settings === 'object'
             ? configData.settings

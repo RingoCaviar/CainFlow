@@ -27,6 +27,7 @@
 - 新增按钮、图标按钮或按钮组时，要把按钮周围留白也当成正式需求：避免贴着文字、标签、端口、输入框或其他控件；如果按钮位置异常，先检查是否被全局定位或通用样式误伤。
 - API 供应商标题旁的新手帮助入口属于设置面板上下文帮助：入口结构在 `index.html`，帮助弹窗 DOM 创建、文案渲染与关闭事件在 `js/features/settings/settings-controller.js`，视觉样式在 `css/features/settings.css`。它不是全局“操作帮助”面板，不要改到 `js/features/help/help-panel.js` 或 `css/legacy.css`。
 - 安全相关开关应放在独立安全卡片中展示，新增高风险选项时同步检查状态默认值与持久化链路。
+- 如果要锁定 API 供应商，开关常量放 `js/core/constants.js`，设置页的新增/删除入口隐藏与 `endpoint` 只读态放 `js/features/settings/settings-controller.js`；不要只做按钮隐藏而漏掉导入配置、会话恢复等旁路。
 
 ### 固定结构节点缩放约定
 
@@ -62,7 +63,7 @@
 | 启动入口 | `js/main.js`, `index.js` | 应用启动、总装配、跨模块编排 |
 | 页面骨架 | `index.html` | 页面结构、面板容器、弹窗结构、脚本与样式入口 |
 | 应用启动控制 | `js/features/app/startup-controller.js` | 应用初始化流程、模块装载编排 |
-| 共享常量 | `js/core/constants.js` | APP_VERSION、GITHUB_REPO、STORAGE_KEY、DB_VERSION 等前端共享常量 |
+| 共享常量 | `js/core/constants.js` | APP_VERSION、GITHUB_REPO、STORAGE_KEY、DB_VERSION、默认供应商/默认模型，以及 `API_PROVIDERS_LOCKED` 这类前端共享策略常量 |
 | DOM 引用 | `js/core/elements.js` | 跨模块共用的顶层 DOM 元素查找 |
 | 全局状态 | `js/core/state.js` | 前端运行时共享状态与初始值 |
 | 通用工具 | `js/core/common-utils.js` | 多模块共用的纯函数工具集 |
@@ -112,11 +113,11 @@
 | **相机** | | |
 | 视角控制 | `js/features/camera/camera-control-node.js` | `CameraControl` 节点的编辑器壳、3D 预览初始化、世界中心坐标轴、第一人称/第三人称预览切换、受控相机与观察相机交互、重置为正视视角、滑块与手动数值输入的统一状态链，以及相机参数到英文摄影提示词的映射 |
 | **持久化** | | |
-| 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出；导出不写入 API 供应商/模型配置，导入时保留当前 API 设置 |
+| 项目导入导出 | `js/features/persistence/project-io.js` | 工作流 JSON 文件导入导出；导出不写入 API 供应商/模型配置，导入时保留当前 API 设置；供应商锁定开启时，会话恢复也不能覆盖被锁定的默认供应商 URL |
 | 工作流模型引用解析 | `js/features/persistence/workflow-model-resolver.js` | 旧工作流模型 ID 到当前模型配置的自动匹配；缺失模型或供应商引用提示 |
 | 会话管理 | `js/features/persistence/session-manager.js` | 自动保存、页面关闭前恢复等会话持久化 |
 | **设置** | | |
-| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、版本更新、画布连线设置、通用设置卡片布局与安全开关 |
+| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、版本更新、画布连线设置、通用设置卡片布局与安全开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
@@ -130,7 +131,7 @@
 | Toast 通知 | `js/features/ui/toast-controller.js` | Toast 消息弹出与自动消失 |
 | 左上角悬浮通知 | `js/features/ui/floating-notices-controller.js`, `index.js`, `js/features/update/update-manager.js` | 画布左上角通知条；固定启动通知在 `index.js` 的 `initFloatingNotices()`，更新提醒在 `showUpdateCanvasNotice()` |
 | 工具栏 | `js/features/ui/toolbar-controller.js` | 顶部工具栏按钮绑定与状态同步 |
-| UI 总控 | `js/features/ui/ui-controller.js` | UI 层模块统一初始化与依赖注入 |
+| UI 总控 | `js/features/ui/ui-controller.js` | UI 层模块统一初始化与依赖注入；配置导入时如果启用了供应商锁定，需要保留锁定的默认供应商并把导入模型重新绑定到当前可用供应商 |
 | UI 工具 | `js/features/ui/ui-utils.js` | UI 层通用辅助函数 |
 | **更新** | | |
 | 在线更新 | `js/features/update/update-manager.js` | GitHub Release 版本对比、更新提示、直接下载更新、右下角常驻下载进度/速度/百分比通知、取消下载、窗口关闭取消、100% 后重启提示 |
@@ -236,6 +237,7 @@
 | 更新操作帮助面板内容或帮助字体 | `js/features/help/help-panel.js`, `css/legacy.css` |
 | 修改共享常量或默认值 | `js/core/constants.js`, `js/core/state.js` |
 | 修改默认 API 供应商或默认模型 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/execution/provider-request-utils.js` |
+| 新增或调整“锁定 API 供应商”能力 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js` |
 | 修改连线类型 | `js/features/settings/settings-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `js/canvas/geometry.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js` |
 | 修改全局动画开关或禁用动画性能模式 | `js/features/settings/settings-controller.js`, `js/features/ui/animation-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `css/legacy.css`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js`, `index.html` |
 | 修改 DOM 获取或顶层元素引用 | `js/core/elements.js`, `index.html` |
@@ -291,6 +293,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 设置面板里的 API 供应商/模型管理继续放 `js/features/settings/settings-controller.js`：供应商卡片操作、获取模型列表按钮、模型列表弹窗、搜索、滚动位置保留、调用 `/proxy` 获取 OpenAI 兼容 `/v1/models` 或 Google `/v1beta/models`、添加条目到 `state.models` 都属于这里。调用代理请求头时复用 `js/services/api-client.js`；添加模型时要同步遵守 `provider-request-utils.js` 的用途与协议归一化，GPT/DALL-E/OpenAI 类模型用 OpenAI 兼容格式，Gemini 用 Google 格式，banana/imagen/image 类模型归为生图。
 - API 设置帮助属于设置面板内的轻量弹窗能力：标题旁入口只在 `index.html` 放静态按钮，弹窗内容和事件由 `settings-controller.js` 渲染管理，关闭按钮、遮罩关闭和设置弹窗关闭时的清理都应在同一控制器中处理；样式集中到 `css/features/settings.css` 并补浅色主题覆盖。
 - 通用设置是设置面板里的独立视觉区域：卡片结构继续由 `js/features/settings/settings-controller.js` 渲染，布局和视觉收敛到 `css/features/settings.css`。优先使用统一 grid（例如 `general-settings-grid` / `general-settings-card`）和统一的滑动开关 `toggle-switch` / `toggle-slider`，不要在通用设置里继续堆内联布局、混用 checkbox 外观或把样式加回 `css/legacy.css`。
+- 供应商锁定属于“共享常量 + 设置页 + 持久化”的联合约束：`API_PROVIDERS_LOCKED` 放 `js/core/constants.js`，设置页按钮显隐和供应商 `endpoint` 只读在 `js/features/settings/settings-controller.js`，配置导入旁路保护在 `js/features/ui/ui-controller.js`，会话恢复旁路保护在 `js/features/persistence/project-io.js`。锁定后模型管理仍可用，但不能让导入配置或本地恢复替换默认供应商 URL。
 - 代理安全策略的职责边界要固定：允许域名、内置默认放行域名、私网/本机阻断、`allowPrivateNetworkTargets` 逻辑都收在 `backend/services/security_service.py`；`backend/services/proxy_service.py` 只负责读取请求头并调用校验；前端安全开关与允许域名维护入口在 `js/features/settings/settings-controller.js`；统一中文错误提示在 `js/services/api-client.js`；更新检查如需复用这套提示，走 `js/features/update/update-manager.js`。
 - 项目内建功能依赖的官方域名也属于默认允许名单的一部分，而不只是第三方 API 供应商域名。当前更新检查依赖 `api.github.com` / `github.com`，调整 SSRF 默认策略时要把这些项目自用域名一起纳入考虑，避免误拦截。
 - 启动冲突提示需要同时照顾源码运行和打包运行：`start_cainflow.bat` 是源码双击入口，`backend/main.py` 是后端真实启动入口。端口占用时不要自动 `taskkill`，应识别占用进程并在黑色窗口中停留提示，区分 CainFlow 已运行和其他程序占用；测试冲突分支时可临时监听 `0.0.0.0:8767` 或模拟 CainFlow 命令行，结束后必须释放端口并清理临时缓存。

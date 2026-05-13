@@ -18,6 +18,7 @@ import {
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
 import { createProxyHeadersGetter } from '../../services/api-client.js';
+import { API_PROVIDERS_LOCKED } from '../../core/constants.js';
 
 export function createSettingsControllerApi({
     appVersion,
@@ -809,6 +810,12 @@ export function createSettingsControllerApi({
     }
 
     function renderProviders() {
+        const addProviderButton = documentRef.getElementById('btn-add-provider');
+        if (addProviderButton) {
+            addProviderButton.classList.toggle('hidden', API_PROVIDERS_LOCKED);
+            addProviderButton.disabled = API_PROVIDERS_LOCKED;
+        }
+
         providersList.innerHTML = '';
         if (state.providers.length === 0) {
             providersList.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:20px;font-size:12px;">暂无供应商配置</div>';
@@ -827,7 +834,7 @@ export function createSettingsControllerApi({
                     <div class="card-header-actions">
                         <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
                         <button class="card-btn-collapse" data-id="${prov.id}" data-target="provider" title="${isCollapsed ? '展开此供应商' : '折叠此供应商'}" aria-expanded="${isCollapsed ? 'false' : 'true'}">${isCollapsed ? '▸' : '▾'}</button>
-                        ${prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
+                        ${!API_PROVIDERS_LOCKED && prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
                     </div>
                 </div>
                 <div class="card-collapsible" style="display:${isCollapsed ? 'none' : 'flex'};">
@@ -842,14 +849,14 @@ export function createSettingsControllerApi({
                                 </button>
                             </form>
                         </div>
-                        <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
+                        <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" ${API_PROVIDERS_LOCKED ? 'readonly aria-readonly="true" title="供应商已锁定，API 地址不可修改"' : ''} /></div>
                     </div>
                     <div class="provider-toggle-row">
                         <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;color:var(--text-dim);word-break:break-all;line-height:1.4;opacity:0.75;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
                         <label class="settings-toggle-row provider-toggle-label">
                             <span class="settings-toggle-text">自动补全</span>
                             <span class="toggle-switch">
-                                <input type="checkbox" ${prov.autoComplete !== false ? 'checked' : ''} data-id="${prov.id}" data-field="autoComplete" />
+                                <input type="checkbox" ${prov.autoComplete !== false ? 'checked' : ''} data-id="${prov.id}" data-field="autoComplete" ${API_PROVIDERS_LOCKED ? 'disabled title="供应商已锁定，自动补全不可修改"' : ''} />
                                 <span class="toggle-slider"></span>
                             </span>
                         </label>
@@ -883,6 +890,12 @@ export function createSettingsControllerApi({
                 const field = e.target.dataset.field;
                 const prov = state.providers.find((candidate) => candidate.id === id);
                 if (!prov) return;
+                if (API_PROVIDERS_LOCKED && (field === 'endpoint' || field === 'autoComplete')) {
+                    e.target.value = prov[field] ?? '';
+                    if (field === 'autoComplete') e.target.checked = prov.autoComplete !== false;
+                    updatePreview(id);
+                    return;
+                }
 
                 if (field === 'autoComplete') {
                     prov.autoComplete = e.target.checked;
@@ -902,6 +915,11 @@ export function createSettingsControllerApi({
                     const id = e.target.dataset.id;
                     const prov = state.providers.find((candidate) => candidate.id === id);
                     if (!prov) return;
+                    if (API_PROVIDERS_LOCKED) {
+                        e.target.value = prov.endpoint || '';
+                        updatePreview(id);
+                        return;
+                    }
                     prov.endpoint = e.target.value;
                     updatePreview(id);
                 });
@@ -1801,6 +1819,10 @@ export function createSettingsControllerApi({
         });
 
         documentRef.getElementById('btn-add-provider').addEventListener('click', () => {
+            if (API_PROVIDERS_LOCKED) {
+                showToast('API 供应商已锁定，无法添加供应商', 'info');
+                return;
+            }
             const newProviderId = 'prov_' + Math.random().toString(36).substr(2, 9);
             state.providers.push({
                 id: newProviderId,
