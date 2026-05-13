@@ -10,6 +10,6 @@ export const cameraControlNode = {
         { name: 'text', type: 'text', label: '相机提示词' }
     ],
     defaultWidth: 300,
-    defaultHeight: 286,
-    minHeight: 248
+    defaultHeight: 356,
+    minHeight: 320
 };

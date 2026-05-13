@@ -323,6 +323,9 @@ function renderCameraControlBody(id, restoreData) {
         ? `<img src="${previewImage}" alt="视角预览图" draggable="false" />`
         : `<div class="camera-control-node-preview-placeholder">${escapeHtml(placeholder)}</div>`}
             </div>
+            <div class="camera-control-note" role="note">
+                说明：本节点会生成一段有关视角的提示词，并不是真正传递相机参数，因此控制效果不精确，请不要过度依赖此节点。
+            </div>
         </div>
     `;
 }

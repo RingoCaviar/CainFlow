@@ -111,6 +111,16 @@
     text-align: center;
 }
 
+.camera-control-note {
+    padding: 10px 12px;
+    border: 1px solid rgba(250, 204, 21, 0.24);
+    border-radius: 8px;
+    background: rgba(250, 204, 21, 0.08);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
 .camera-control-editor-overlay {
     position: fixed;
     inset: 0;

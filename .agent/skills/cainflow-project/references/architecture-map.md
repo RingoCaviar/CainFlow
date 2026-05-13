@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.7.9.5
+> 当前版本：v2.8.0
 
 ## 近期约定
 
@@ -67,6 +67,7 @@
 | --- | --- | --- |
 | 画布交互总线 | `js/canvas/canvas-interactions.js` | 鼠标事件总线、拖拽与交互调度；拖拽时节点晃动摘取连线的识别入口；滚轮缩放结束后的 settle delay 也在这里 |
 | 连线绘制 | `js/canvas/connections.js` | 节点连线绘制、连线可见性裁剪、选中态流动箭头动画、孤立节点拖入兼容连线的插入预览与提交；流动箭头受全局动画开关控制 |
+| 节点自动整理 | `js/canvas/node-auto-layout.js` | 自动整理选中节点或全画布节点；只改变节点坐标，负责连通组件拆分、拓扑分层、按上下游端口顺序排序、按依赖中心线松弛、无连线节点网格排列，并保留运行中节点跳过、历史、连线刷新和保存链路 |
 | 几何计算 | `js/canvas/geometry.js` | 贝塞尔曲线、直角圆角连线、剪线采样、坐标相关几何工具 |
 | 框选 | `js/canvas/selection.js` | 矩形框选逻辑与选中状态 |
 | 视口 | `js/canvas/viewport.js` | 缩放、平移、视口坐标变换；节点文字清晰化重绘入口 `refreshNodeTextRendering()` 在这里 |
@@ -298,6 +299,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 节点内自定义下拉的滚轮必须优先滚动下拉面板本身，而不是触发画布缩放；面板应拦截 `wheel` 并设置 `overscroll-behavior: contain`，避免滚动链传给外层画布。
 - 画布滚轮缩放“停下来后再变清晰”的体验由多处共同决定：滚轮结束延迟主要在 `js/canvas/canvas-interactions.js`，节点文字强制重绘在 `js/canvas/viewport.js` 的 `refreshNodeTextRendering()`，工具栏按钮缩放的收尾在 `js/features/ui/toolbar-controller.js`。要统一缩放手感时，这三处要一起看。
 - 优化缩放性能时，优先先调结束延迟、缩放曲线或文字重绘范围；不要轻易把 `viewport.js` 的视口更新和 `connections.js` 的 `updateAllConnections()` 拆开。现有连线渲染、初始化和工作流恢复流程依赖这条同步链路，拆错很容易造成已有连线不显示。
+- 自动整理节点只属于 `js/canvas/node-auto-layout.js`：算法可在内部做连通组件拆分、拓扑分层、重心排序、按依赖中心线松弛和无连线节点网格排列，但不应修改节点结构、端口结构或连线契约。排序时要考虑连接端口的上下顺序：例如 `A -> B.input_1`、`C -> B.input_2` 时，若 `input_1` 在 `input_2` 上方，A 应排在 C 上方；同一上游节点多个输出口连接到不同下游节点时，也尽量按输出口顺序传递给下游排序。端口顺序优先从节点 DOM 的 `.node-port[data-direction]` 读取，动态端口也要自然生效。
 - `ImageGenerate` 当前节点内结果区是纯进度读数，只显示 `xx/xx`，不再显示节点内图片预览；运行态进度数字由 `js/features/execution/execution-core.js` 更新，生成图片数据仍保留给下游节点、历史记录和持久化链路使用。若后续再把节点内图片预览加回来，需要同步复查 `node-view-factory.js`、`node-dom-bindings.js`、`execution-core.js` 与媒体 helper 是否仍匹配。
 - ImageCompare 高级模式继续沿用图片类节点分层：入口按钮和节点内结构放 `js/nodes/node-view-factory.js`；全屏高级对比界面、A/B 选择状态、从当前输入/画布图片节点/历史记录汇总图片、鼠标位置切割、滚轮缩放、左键平移和缩略图选择区展开放 `js/features/media/media-controller.js`；历史图片读取通过 `index.js` 注入 `getHistory`，来源在 `js/services/storage-idb.js`；样式集中在 `css/components/nodes.css`。高级模式选图显示可用缩略图，但设置 A/B 必须使用原图数据。
 - 节点或卡片里新增按钮时，除了交互功能本身，还要检查对齐、留白和与邻近文字/端口/控件的距离；优先让按钮留在所属容器的正常布局流里，避免被全局 `.preview-controls`、绝对定位或通用按钮样式挤到不合理的位置。
