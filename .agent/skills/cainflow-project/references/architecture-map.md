@@ -47,6 +47,12 @@
 - `js/services/workflow-api.js` 负责重命名请求封装；名称通过请求头传递时要做编码，避免中文或特殊字符在链路中出问题。
 - 后端冲突处理放在 `backend/routes/workflow_routes.py` 与 `backend/services/workflow_service.py`：目标工作流已存在时应明确返回冲突，而不是静默覆盖。
 
+### 启动冲突提示约定
+
+- 源码双击启动的第一层逻辑在 `start_cainflow.bat`，后端统一启动逻辑在 `backend/main.py`，`server.py` 只保留兼容转发；修改本地启动、端口检测、黑色窗口停留或打包直启体验时要同时检查这三处。
+- 端口 `8767` 冲突时不要自动关闭占用进程，也不要让窗口一闪而过。提示需要停留在黑色窗口中，并明确区分“CainFlow 已在运行”和“端口被其他程序占用”，同时显示 PID、进程名和可用的命令行，交给用户自己关闭窗口或处理进程。
+- `.bat` 调后端时可用环境变量避免重复等待；后端打包直启时仍应自行等待用户确认。自动化测试可设置跳过等待的环境变量，并在验证后确认 `127.0.0.1:8767` 没有残留监听、清理 `__pycache__` 等临时文件。
+
 ## 前端结构
 
 ### 启动 & 核心
@@ -159,8 +165,9 @@
 
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
+| 批处理启动入口 | `start_cainflow.bat` | 源码双击启动、Python 探测、端口预检查、黑色窗口停留提示；端口冲突时只提示 PID / 进程名 / 命令行，不自动关闭占用进程 |
 | 兼容入口 | `server.py` | 兼容性启动壳，转调 backend 主入口 |
-| 服务启动 | `backend/main.py` | 端口检查、Banner 打印、浏览器打开、服务启动；启动时清理上次遗留的更新临时文件 |
+| 服务启动 | `backend/main.py` | 端口检查、冲突进程识别、启动失败停留提示、Banner 打印、浏览器打开、服务启动；启动时清理上次遗留的更新临时文件 |
 | 请求分发 | `backend/handler.py` | 静态资源服务、路由分发、`/proxy` 与 `/api/update/*` 入口 |
 | 运行时配置 | `backend/config.py` | 端口、路径、运行时目录、GitHub 仓库与 `MAIN_EXE_PATH` 等配置项 |
 | 运行时状态 | `backend/state.py` | 共享运行时状态与噪音请求过滤 |
@@ -247,7 +254,7 @@
 | 升级应用版本号 | `package.json`, `js/core/constants.js`, `index.html`, `css/base/variables.css`, `backend/main.py`, `backend/services/proxy_service.py`, `README.md` |
 | 应用启动流程 | `js/features/app/startup-controller.js`, `js/main.js`, `index.js` |
 | 修复静态资源加载或路由兜底问题 | `index.html`, `backend/handler.py`, `backend/state.py` |
-| 修改服务启动或本地运行行为 | `server.py`, `backend/main.py`, `backend/config.py` |
+| 修改服务启动或本地运行行为 | `start_cainflow.bat`, `server.py`, `backend/main.py`, `backend/config.py` |
 | 添加功能专属样式 | `css/features/panels.css` 或 `css/features/` 下新增文件，并接入 `index.css` |
 | 添加共享视觉变量 | `css/base/variables.css` |
 | 服务端日志 | `backend/services/log_service.py`, `backend/routes/` |
@@ -286,6 +293,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 通用设置是设置面板里的独立视觉区域：卡片结构继续由 `js/features/settings/settings-controller.js` 渲染，布局和视觉收敛到 `css/features/settings.css`。优先使用统一 grid（例如 `general-settings-grid` / `general-settings-card`）和统一的滑动开关 `toggle-switch` / `toggle-slider`，不要在通用设置里继续堆内联布局、混用 checkbox 外观或把样式加回 `css/legacy.css`。
 - 代理安全策略的职责边界要固定：允许域名、内置默认放行域名、私网/本机阻断、`allowPrivateNetworkTargets` 逻辑都收在 `backend/services/security_service.py`；`backend/services/proxy_service.py` 只负责读取请求头并调用校验；前端安全开关与允许域名维护入口在 `js/features/settings/settings-controller.js`；统一中文错误提示在 `js/services/api-client.js`；更新检查如需复用这套提示，走 `js/features/update/update-manager.js`。
 - 项目内建功能依赖的官方域名也属于默认允许名单的一部分，而不只是第三方 API 供应商域名。当前更新检查依赖 `api.github.com` / `github.com`，调整 SSRF 默认策略时要把这些项目自用域名一起纳入考虑，避免误拦截。
+- 启动冲突提示需要同时照顾源码运行和打包运行：`start_cainflow.bat` 是源码双击入口，`backend/main.py` 是后端真实启动入口。端口占用时不要自动 `taskkill`，应识别占用进程并在黑色窗口中停留提示，区分 CainFlow 已运行和其他程序占用；测试冲突分支时可临时监听 `0.0.0.0:8767` 或模拟 CainFlow 命令行，结束后必须释放端口并清理临时缓存。
 - 在线更新的前端状态、通知、下载进度/速度/百分比、取消按钮、关闭窗口确认和关闭后自动取消都收在 `js/features/update/update-manager.js`；设置页只展示入口和状态，不另写下载逻辑。右下角常驻下载进度通知挂到 `#toast-container`，样式在 `css/legacy.css` / `css/themes.css`，普通 Toast 可以自动消失，但更新下载进度卡片在完成、取消或失败前必须常驻。后端更新路由只做接口分发，下载、取消、临时文件清理、Release ZIP 选择、`CainFlow.exe` 提取和主程序替换都放 `backend/services/update_service.py`。更新服务必须只提取并校验 Windows 主程序文件，不允许整包解压；目标路径使用 `backend/config.py` 的 `MAIN_EXE_PATH`，打包后应指向 `sys.executable`。下载进度总量优先用 GitHub Release asset 的 `size`，完成态要在顶层状态写入 `downloadedBytes`、`totalBytes` 和 `percent=100`；前端收到完成态后先渲染 100% 进度，再延迟弹出重启提示，避免 `alert()` 阻塞 100% 进度帧。取消、失败、完成和下次启动都要清理未完成下载与 ZIP 临时文件；运行中的 EXE 被锁住时，使用待替换文件加重试脚本完成覆盖，并提示用户重启 CainFlow 主程序。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
