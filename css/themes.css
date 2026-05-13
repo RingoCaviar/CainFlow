@@ -1583,6 +1583,27 @@ html[data-app-theme="light"] .update-download-status.error {
     color: #b91c1c;
 }
 
+html[data-app-theme="light"] .update-download-progress--settings {
+    background: rgba(37, 99, 235, 0.07);
+    border-color: rgba(37, 99, 235, 0.16);
+}
+
+html[data-app-theme="light"] .update-download-progress__percent {
+    color: #1d4ed8;
+}
+
+html[data-app-theme="light"] .update-download-progress__track {
+    background: rgba(37, 99, 235, 0.12);
+}
+
+html[data-app-theme="light"] .update-download-progress__bar {
+    background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%);
+}
+
+html[data-app-theme="light"] .update-download-progress__detail {
+    color: #475569;
+}
+
 html[data-app-theme="light"] .update-canvas-notice {
     background: rgba(255, 255, 255, 0.92);
     border-color: rgba(124, 58, 237, 0.22);

@@ -1165,6 +1165,13 @@ export function createSettingsControllerApi({
         const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
         const updateError = localStorageRef.getItem('cainflow_update_error') || '检查失败，请检查网络连接或代理设置';
         const updateDownloadText = localStorageRef.getItem('cainflow_update_download_text') || '';
+        let updateDownloadSnapshot = null;
+        try {
+            const rawDownloadSnapshot = localStorageRef.getItem('cainflow_update_download_snapshot');
+            updateDownloadSnapshot = rawDownloadSnapshot ? JSON.parse(rawDownloadSnapshot) : null;
+        } catch {
+            updateDownloadSnapshot = null;
+        }
         const serverVersionText = latestVer || (updateStatus === 'checking' ? '检查中...' : '尚未获取');
         const escapeHtml = (value) => String(value || '')
             .replace(/&/g, '&amp;')
@@ -1173,12 +1180,75 @@ export function createSettingsControllerApi({
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
 
+        const formatBytes = (bytes) => {
+            const value = Number(bytes) || 0;
+            if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+            if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
+            if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+            return `${value} B`;
+        };
+
+        const getDownloadPercent = (snapshot) => {
+            const explicitPercent = Number(snapshot?.percent);
+            if (Number.isFinite(explicitPercent)) return Math.max(0, Math.min(100, explicitPercent));
+
+            const downloaded = Number(snapshot?.downloadedBytes) || 0;
+            const total = Number(snapshot?.totalBytes) || 0;
+            if (downloaded >= 0 && total > 0) return Math.max(0, Math.min(100, (downloaded / total) * 100));
+            return null;
+        };
+
+        const renderUpdateDownloadProgressHtml = (snapshot, fallbackText) => {
+            const status = snapshot?.status || updateStatus;
+            const percent = getDownloadPercent(snapshot);
+            const percentLabel = percent === null ? '计算中' : `${percent.toFixed(percent >= 10 || percent === 0 ? 0 : 1)}%`;
+            const trackClass = percent === null ? 'update-download-progress__track is-indeterminate' : 'update-download-progress__track';
+            const barStyle = percent === null ? '' : ` style="width:${percent}%"`;
+            const title = status === 'downloading' ? '正在下载更新' : (fallbackText || '正在处理更新');
+            const detailText = status === 'downloading'
+                ? `${formatBytes(snapshot?.downloadedBytes || 0)} / ${snapshot?.totalBytes ? formatBytes(snapshot.totalBytes) : '未知大小'}`
+                : (fallbackText || '');
+            const speed = Number(snapshot?.speedBytesPerSecond) || 0;
+            const speedHtml = status === 'downloading'
+                ? `<span>速度：${speed > 0 ? escapeHtml(`${formatBytes(speed)}/s`) : '等待数据'}</span>`
+                : '';
+
+            return `
+                <div class="update-download-progress update-download-progress--settings">
+                    <div class="update-download-progress__row">
+                        <span class="update-download-progress__title">${escapeHtml(title)}</span>
+                        <span class="update-download-progress__percent">${escapeHtml(percentLabel)}</span>
+                    </div>
+                    <div class="${trackClass}">
+                        <div class="update-download-progress__bar"${barStyle}></div>
+                    </div>
+                    <div class="update-download-progress__detail">
+                        <span>${escapeHtml(detailText)}</span>
+                        ${speedHtml}
+                    </div>
+                </div>
+            `;
+        };
+
         let statusHtml = '';
+        let updateDownloadProgressHtml = '';
         const timeStr = lastCheck ? new Date(parseInt(lastCheck, 10)).toLocaleString() : '从未检查';
 
         if (updateStatus === 'checking') statusHtml = `<span class="update-status-loading">正在检查中...</span>`;
-        else if (updateStatus === 'downloading') statusHtml = `<span class="update-status-loading">${escapeHtml(updateDownloadText || '正在下载更新...')}</span>`;
-        else if (updateStatus === 'canceling') statusHtml = `<span class="update-status-loading">${escapeHtml(updateDownloadText || '正在取消下载...')}</span>`;
+        else if (updateStatus === 'downloading') {
+            statusHtml = '<span class="update-status-loading">正在下载更新...</span>';
+            updateDownloadProgressHtml = renderUpdateDownloadProgressHtml(
+                updateDownloadSnapshot || { status: 'downloading', message: updateDownloadText },
+                updateDownloadText || '正在下载更新...'
+            );
+        }
+        else if (updateStatus === 'canceling') {
+            statusHtml = '<span class="update-status-loading">正在取消下载...</span>';
+            updateDownloadProgressHtml = renderUpdateDownloadProgressHtml(
+                updateDownloadSnapshot || { status: 'canceling', message: updateDownloadText },
+                updateDownloadText || '正在取消下载...'
+            );
+        }
         else if (updateStatus === 'downloaded') statusHtml = `<span class="update-status-latest">✓ 更新已完成，请重启 CainFlow 主程序</span>`;
         else if (updateStatus === 'latest') statusHtml = `<span class="update-status-latest">✓ 当前已是最新版本</span>`;
         else if (updateStatus === 'new_version') {
@@ -1357,6 +1427,7 @@ export function createSettingsControllerApi({
                                 <span>服务端版本</span>
                                 <strong>${serverVersionText}</strong>
                             </div>
+                            ${updateDownloadProgressHtml}
                             <div class="general-settings-update-actions" style="display:flex; flex-direction:column; gap:8px; width:100%;">
                                 ${updateActionButtonHtml}
                                 <button id="btn-check-update" class="btn btn-secondary" style="width:100%;">检查更新</button>

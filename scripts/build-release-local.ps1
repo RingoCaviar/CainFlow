@@ -1,8 +1,7 @@
 param(
   [string]$TagName,
   [string]$Python = "python",
-  [switch]$SkipDependencyInstall,
-  [switch]$KeepStaging
+  [switch]$SkipDependencyInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,10 +130,11 @@ if (Test-Path -LiteralPath "workflows") {
 Write-Step "Creating $zipName"
 Compress-Archive -Path "release_staging/*" -DestinationPath $zipName -Force
 
-if (!$KeepStaging) {
-  Write-Step "Removing release_staging"
-  Remove-PathIfExists "release_staging"
-}
+Write-Step "Cleaning temporary build files"
+Remove-PathIfExists "build"
+Remove-PathIfExists "dist"
+Remove-PathIfExists "release_staging"
+Remove-PathIfExists "CainFlow_Launcher.spec"
 
 $zipPath = (Resolve-Path $zipName).Path
 Write-Host ""

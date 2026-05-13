@@ -16,7 +16,7 @@ from urllib import request as urllib_request
 from backend import config, state
 
 
-DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+DOWNLOAD_CHUNK_SIZE = 256 * 1024
 GITHUB_RELEASE_API_TIMEOUT = 45.0
 GITHUB_DOWNLOAD_TIMEOUT = 600.0
 ACTIVE_UPDATE_STATUSES = {'starting', 'resolving', 'downloading', 'extracting', 'replacing', 'canceling'}
@@ -138,6 +138,8 @@ def _download_release_zip(download_url, destination, progress_callback=None, can
         with _open_github_url(download_url, GITHUB_DOWNLOAD_TIMEOUT) as response:
             expected_total = int(response.headers.get('Content-Length') or 0)
             started_at = time.monotonic()
+            if progress_callback:
+                progress_callback(0, expected_total, started_at)
             with open(temp_destination, 'wb') as output:
                 while True:
                     if cancel_event and cancel_event.is_set():
