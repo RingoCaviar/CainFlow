@@ -4,10 +4,12 @@
 import { imageGenerateNode } from './types/image-generate.js';
 import { imageImportNode } from './types/image-import.js';
 import { imageCompareNode } from './types/image-compare.js';
+import { imageMergeNode } from './types/image-merge.js';
 import { imageResizeNode } from './types/image-resize.js';
 import { imagePreviewNode } from './types/image-preview.js';
 import { imageSaveNode } from './types/image-save.js';
 import { textChatNode } from './types/text-chat.js';
+import { textMergeNode } from './types/text-merge.js';
 import { textNode } from './types/text.js';
 import { textSplitNode } from './types/text-split.js';
 import { cameraControlNode } from './types/camera-control.js';
@@ -15,11 +17,13 @@ import { cameraControlNode } from './types/camera-control.js';
 const nodeDefinitions = [
     imageImportNode,
     imageCompareNode,
+    imageMergeNode,
     imageResizeNode,
     imageGenerateNode,
     cameraControlNode,
     textChatNode,
     textNode,
+    textMergeNode,
     textSplitNode,
     imagePreviewNode,
     imageSaveNode

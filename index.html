@@ -752,6 +752,14 @@
                 </svg>
                 只运行选中的节点
             </div>
+            <div class="context-menu-item" id="context-menu-rename-node">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"></path>
+                </svg>
+                重命名节点
+            </div>
             <div class="context-menu-divider" id="context-menu-node-divider"></div>
         </div>
         <div class="context-menu-header">添加节点</div>
@@ -786,6 +794,12 @@
             </svg>
             文本
         </div>
+        <div class="context-menu-item" data-type="TextMerge">
+            <svg class="icon-sm">
+                <use href="#icon-logs" />
+            </svg>
+            多文本合一
+        </div>
         <div class="context-menu-divider"></div>
         <div class="context-menu-item" data-type="TextSplit">
             <svg class="icon-sm">
@@ -799,6 +813,12 @@
                 <use href="#icon-history" />
             </svg>
             图片预览
+        </div>
+        <div class="context-menu-item" data-type="ImageMerge">
+            <svg class="icon-sm">
+                <use href="#icon-history" />
+            </svg>
+            多图合一
         </div>
         <div class="context-menu-item" data-type="ImageCompare">
             <svg class="icon-sm">

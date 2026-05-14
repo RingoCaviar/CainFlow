@@ -611,6 +611,26 @@ export function createNodeLifecycleApi({
         return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
     }
 
+    function normalizeCustomNodeTitle(value) {
+        return typeof value === 'string' ? value.trim() : '';
+    }
+
+    function getNodeDefaultTitle(nodeData) {
+        return nodeData?.defaultTitle || nodeConfigs[nodeData?.type]?.title || nodeData?.type || '节点';
+    }
+
+    function applyNodeTitle(nodeData) {
+        if (!nodeData?.el) return;
+        const defaultTitle = getNodeDefaultTitle(nodeData);
+        const displayTitle = nodeData.customTitle || defaultTitle;
+        const titleEl = nodeData.el.querySelector('.node-title');
+        if (titleEl) {
+            titleEl.textContent = displayTitle;
+            titleEl.title = nodeData.customTitle ? displayTitle : '';
+        }
+        nodeData.el.dataset.nodeTitle = displayTitle;
+    }
+
     function addNode(type, x, y, restoreData, silent = false) {
         if (!silent) pushHistory();
         const normalizedType = normalizeNodeType(type);
@@ -686,8 +706,11 @@ export function createNodeLifecycleApi({
             outputHeight: effectiveRestoreData?.outputHeight || 0,
             outputFormat: effectiveRestoreData?.outputFormat || '',
             outputQuality: effectiveRestoreData?.outputQuality || null,
-            estimatedBytes: effectiveRestoreData?.estimatedBytes || null
+            estimatedBytes: effectiveRestoreData?.estimatedBytes || null,
+            defaultTitle: config.title,
+            customTitle: normalizeCustomNodeTitle(effectiveRestoreData?.customTitle || '')
         };
+        applyNodeTitle(nodeData);
         if (nodeData.lastDuration) {
             const timeBadge = el.querySelector(`#${id}-time`);
             const timeContainer = el.querySelector(`#${id}-time-container`);
@@ -698,6 +721,19 @@ export function createNodeLifecycleApi({
         }
         if (effectiveRestoreData?.lastText) {
             nodeData.data.text = effectiveRestoreData.lastText;
+        }
+        if (normalizedType === 'Text') {
+            if (Array.isArray(effectiveRestoreData?.texts) && effectiveRestoreData.texts.length > 0) {
+                nodeData.data.texts = effectiveRestoreData.texts.filter((item) => typeof item === 'string');
+                nodeData.textPreviewIndex = Math.max(0, Math.min(
+                    nodeData.data.texts.length - 1,
+                    parseInt(effectiveRestoreData?.textPreviewIndex || '0', 10) || 0
+                ));
+                nodeData.data.text = nodeData.data.texts[nodeData.textPreviewIndex] || '';
+            } else {
+                nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';
+                nodeData.textPreviewIndex = 0;
+            }
         }
         if (normalizedType === 'CameraControl') {
             nodeData.data.pitch = Number.isFinite(Number(effectiveRestoreData?.pitch)) ? Number(effectiveRestoreData.pitch) : 12;
@@ -1069,6 +1105,33 @@ export function createNodeLifecycleApi({
         scheduleSave();
     }
 
+    function renameNode(nodeId, nextTitle) {
+        const nodeData = state.nodes.get(nodeId);
+        if (!nodeData) return false;
+        if (isNodeRunning(nodeId)) {
+            showToast('节点正在运行，暂不能重命名', 'warning');
+            return false;
+        }
+
+        const customTitle = normalizeCustomNodeTitle(nextTitle);
+        if (customTitle === (nodeData.customTitle || '')) return false;
+
+        pushHistory();
+        if (customTitle) {
+            nodeData.customTitle = customTitle;
+            nodeData.data.customTitle = customTitle;
+        } else {
+            delete nodeData.customTitle;
+            delete nodeData.data.customTitle;
+        }
+        applyNodeTitle(nodeData);
+        scheduleEnsureNodeContentVisible(nodeId, { save: false });
+        updateAllConnections();
+        scheduleSave();
+        showToast(customTitle ? `节点已重命名为「${customTitle}」` : '节点名称已还原', 'success');
+        return true;
+    }
+
     return {
         fitNodeToContent,
         getNodeMinimumSize,
@@ -1076,6 +1139,7 @@ export function createNodeLifecycleApi({
         removeNode,
         detachNodesFromConnections,
         selectNode,
-        toggleNodesEnabled
+        toggleNodesEnabled,
+        renameNode
     };
 }

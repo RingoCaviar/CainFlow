@@ -268,6 +268,7 @@ function refreshAllCameraControlPreviews() {
 }
 
 function handleNodeGraphChanged() {
+    nodeDomBindingsApi?.syncImageMergeNodes?.();
     refreshAllImageResizePreviews();
     refreshAllCameraControlPreviews();
 }
@@ -514,6 +515,10 @@ function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
     return getNodeLifecycleApi().toggleNodesEnabled(nodeIds, referenceNodeId);
 }
 
+function renameNode(nodeId, nextTitle) {
+    return getNodeLifecycleApi().renameNode(nodeId, nextTitle);
+}
+
 function autoArrangeNodes() {
     return getNodeAutoLayoutApi().autoArrangeNodes();
 }
@@ -752,6 +757,7 @@ function getContextMenuControllerApi() {
             connectionCreatePopup,
             viewportApi,
             addNode,
+            renameNode,
             runWorkflow,
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             updateAllConnections,

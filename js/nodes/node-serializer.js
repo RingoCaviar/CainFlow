@@ -29,6 +29,9 @@ export function createNodeSerializer({ state, documentRef }) {
                 enabled: node.enabled,
                 lastDuration: node.lastDuration || null
             };
+            if (typeof node.customTitle === 'string' && node.customTitle.trim()) {
+                serialized.customTitle = node.customTitle.trim();
+            }
             const textareaHeights = getNodeTextareaHeights(id);
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
 
@@ -84,8 +87,18 @@ export function createNodeSerializer({ state, documentRef }) {
             if (node.type === 'ImageSave') {
                 serialized.filename = documentRef.getElementById(`${id}-filename`)?.value || 'generated_image';
             }
+            if (node.type === 'ImageMerge') {
+                serialized.inputCount = Math.max(1, parseInt(node.data?.inputCount || '1', 10) || 1);
+            }
+            if (node.type === 'TextMerge') {
+                serialized.inputCount = Math.max(1, parseInt(node.data?.inputCount || '1', 10) || 1);
+            }
             if (node.type === 'Text') {
                 serialized.text = documentRef.getElementById(`${id}-text`)?.value || '';
+                if (Array.isArray(node.data?.texts) && node.data.texts.length > 0) {
+                    serialized.texts = node.data.texts.slice();
+                    serialized.textPreviewIndex = Math.max(0, parseInt(node.textPreviewIndex || '0', 10) || 0);
+                }
             }
             if (node.type === 'TextSplit') {
                 serialized.text = node.data?.text || '';

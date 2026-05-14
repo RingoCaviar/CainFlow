@@ -6,6 +6,13 @@
 
 ## 近期约定
 
+### 多值数据与备用输入口约定
+
+- 图片数组的规范载体是 `data.images`、`imageDataList`、`generatedImages`，文本数组的规范载体是 `data.texts`，动态文本端口也可以在 `data.part_N` 等端口字段上保存数组。`js/features/execution/execution-core.js` 负责节点 handler、数组输出写入与 `getCachedOutputValue` 的多值读取，`js/features/execution/workflow-runner.js` 负责把数组输入识别为批处理信号。
+- 普通节点接到数组输入时，下游应按所有数组输入的笛卡尔组合批量执行，而不是按索引拉链式配对；例如 2 张图片 × 3 段文本必须运行 6 次。批量执行后的图片结果聚合回 `data.images`，文本结果按真实输出端口分别聚合，主文本口同步到 `data.texts`。`TextChat` 接收多图数组或多文本数组时也属于普通批处理节点，应按组合逐次运行，而不是只运行一次或漏掉组合。
+- `ImageMerge`、`TextMerge`、`ImagePreview`、`ImageSave`、`Text` 是收集/展示/保存/数组预览类节点，接到数组时一次性接收整组数据，不按数组拆批。`ImagePreview` / `ImageSave` 通过左右箭头和计数器切换多图；`Text` 节点接收 `data.texts` 后通过左右箭头切换多文本，并用 `textPreviewIndex` 记录当前项。
+- 备用输入口（Spare Input Port）指动态输入端口始终保持“已连接端口最大序号 + 1”，保证末尾总有 1 个空输入口可继续连接。`ImageMerge` / `TextMerge` 使用该端口规则：端口同步和失效连线清理在 `js/nodes/node-dom-bindings.js`，初始端口恢复在 `js/nodes/node-view-factory.js`，`inputCount` 保存/复制在 `js/nodes/node-serializer.js` 与 `js/features/ui/clipboard-controller.js`。
+
 ### 错误提示中文化
 
 - 用户可见的代理/安全拦截提示优先统一走 `js/services/api-client.js`，不要在各个调用点手写不同版本的错误文案。
@@ -94,9 +101,9 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | **执行引擎** | | |
-| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数；Text 节点运行时只同步文本输入/输出，不自动改变节点尺寸；`getCachedOutputValue` 必须把禁用节点视为没有输出 |
+| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数；Text 节点运行时同步单文本/多文本输入输出，不自动改变节点尺寸；处理 ImageMerge/TextMerge 数组输出，`getCachedOutputValue` 必须把禁用节点视为没有输出，并能读取图片/文本数组缓存 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
-| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出 |
+| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出；普通节点接到数组输入时按笛卡尔组合批量运行并聚合输出，动态文本输出按真实端口聚合，ImageMerge/TextMerge/ImagePreview/ImageSave/Text 不拆批 |
 | **帮助** | | |
 | 帮助面板 | `js/features/help/help-panel.js` | 操作帮助文档内容、帮助面板打开关闭与交互；新增画布/节点交互时同步补充对应说明 |
 | **历史记录** | | |
@@ -145,19 +152,21 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
-| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；运行中节点浮动取消按钮的 2 秒长按、拖动阈值取消长按、事件阻止冒泡也在这里绑定；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
+| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；Text 多文本切换与当前项编辑、可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；ImageMerge/TextMerge 的备用输入口同步和失效连线清理也在这里；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；运行中节点浮动取消按钮的 2 秒长按、拖动阈值取消长按、事件阻止冒泡也在这里绑定；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
 | 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 创建时映射为 Text；Text 节点尺寸测量、非文本内容显示不全兜底、Alt 删除保留上下游连接、拖拽晃动摘取节点后的连线保留逻辑在这里；TextSplit 预览区、TextChat 回复区和文本显示框这类可滚动长内容不得按完整内容 `scrollHeight` 撑高最小尺寸；节点类型的 `defaultHeight` 与 `minHeight` 在这里分开使用，支持默认较高但手动缩小到独立最小高度；删除、摘取、启用/禁用必须跳过运行中节点；启用/禁用后要刷新连线、端口状态与依赖预览 |
-| 序列化 | `js/nodes/node-serializer.js` | 节点序列化、会话状态 payload、workflow 导出结构；workflow 导出只含画布、节点、连线和版本号；TextSplit 的 `delimiter` / `outputCount` / `removeEmptyLines` / `previewEnabled` / `parts` 以及输入框手动高度缓存 `textareaHeights` 也在这里保存 |
-| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框、TextSplit 分隔符、输出数量步进控件、删除空行与节点内预览控件、TextChat 回复框内部左上角小复制按钮、ImageGenerate 分辨率与生成次数控件、ImageCompare 高级对比入口按钮，以及运行中节点卡片外浮动取消按钮结构；TextSplit 不再渲染内部长文本输入框，输出数量为 `0` 时按分割结果自动生成端口并显示提示；ImageGenerate 当前在节点内只显示 `xx/xx` 生成进度，不再显示结果预览；textarea 初始高度从 `textareaHeights` 恢复；节点端口区当前由顶部并排的 `.node-ports-row` 统一生成，输入/输出两列顶部对齐 |
+| 序列化 | `js/nodes/node-serializer.js` | 节点序列化、会话状态 payload、workflow 导出结构；workflow 导出只含画布、节点、连线和版本号；TextSplit 的 `delimiter` / `outputCount` / `removeEmptyLines` / `previewEnabled` / `parts`、Text 的 `texts` / `textPreviewIndex`、ImageMerge/TextMerge 的 `inputCount` 以及输入框手动高度缓存 `textareaHeights` 也在这里保存 |
+| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框和多文本切换控件、TextSplit 分隔符、输出数量步进控件、删除空行与节点内预览控件、TextChat 回复框内部左上角小复制按钮、ImageGenerate 分辨率与生成次数控件、ImageCompare 高级对比入口按钮，以及运行中节点卡片外浮动取消按钮结构；TextSplit 不再渲染内部长文本输入框，输出数量为 `0` 时按分割结果自动生成端口并显示提示；ImageMerge/TextMerge 初始端口数量从 `inputCount` 恢复并遵守备用输入口；ImageGenerate 当前在节点内只显示 `xx/xx` 生成进度，不再显示结果预览；textarea 初始高度从 `textareaHeights` 恢复；节点端口区当前由顶部并排的 `.node-ports-row` 统一生成，输入/输出两列顶部对齐 |
 | 视角控制节点 | `js/nodes/types/camera-control.js` | CameraControl 节点定义、端口、默认尺寸与最小尺寸；固定结构节点不要把最小尺寸散落到私有逻辑里 |
 | 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义、端口与默认尺寸 |
 | 图片导入节点 | `js/nodes/types/image-import.js` | ImageImport 节点定义 |
 | 图片对比节点 | `js/nodes/types/image-compare.js` | ImageCompare 节点定义，包含 A/B 图片输入与 B 图片输出 |
+| 多图合一节点 | `js/nodes/types/image-merge.js` | ImageMerge 节点定义，多个 `image_N` 输入按端口顺序展平成一个图片数组，由单个 `image` 输出口输出；输入端口遵守备用输入口规则 |
 | 图片预览节点 | `js/nodes/types/image-preview.js` | ImagePreview 节点定义 |
 | 图片缩放节点 | `js/nodes/types/image-resize.js` | ImageResize 节点定义 |
 | 图片保存节点 | `js/nodes/types/image-save.js` | ImageSave 节点定义、默认尺寸与固定结构节点的基础高度约束 |
 | 对话节点 | `js/nodes/types/text-chat.js` | TextChat 节点定义；回复文本框内部左上角放小复制按钮，长回复在框内滚动，不应撑高节点；默认高度可保持便于阅读，手动缩小时通过独立 `minHeight` 控制下限 |
 | 文本节点 | `js/nodes/types/text.js` | Text 节点正式定义，包含 1 个文本输入口和 1 个文本输出口 |
+| 多文本合一节点 | `js/nodes/types/text-merge.js` | TextMerge 节点定义，多个 `text_N` 输入按端口顺序展平成一个文本数组，由单个 `text` 输出口输出；输入端口遵守备用输入口规则 |
 | 文本分割节点 | `js/nodes/types/text-split.js` | TextSplit 节点定义，按自定义分隔字符串把上游文本切成多段；输出口数量可由 `outputCount` 固定控制，`0` 表示根据分割结果自动生成端口；可开启删除空行和节点内预览，预览区滚动展示且不锁定节点高度 |
 | 文本显示兼容节点 | `js/nodes/types/text-display.js` | TextDisplay 旧缓存/旧工作流兼容 shim，不在注册表中作为新节点注册 |
 | 文本输入兼容节点 | `js/nodes/types/text-input.js` | TextInput 旧缓存/旧工作流兼容 shim，不在注册表中作为新节点注册 |
@@ -213,7 +222,9 @@
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
 | 修复禁用节点仍影响下游、缓存输出穿透或禁用后预览未断流 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/media/media-controller.js`, `js/nodes/node-lifecycle.js` |
+| 修改多图/多文本数组批处理、下游逐项运行或数组输出聚合 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修改节点端口位置、输入/输出端口顶部对齐或端口行结构 | `js/nodes/node-view-factory.js`, `css/legacy.css`, `js/canvas/connections.js` |
+| 修改 ImageMerge/TextMerge 合一节点或备用输入口动态端口 | `js/nodes/types/image-merge.js`, `js/nodes/types/text-merge.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `index.html` |
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修改 API 供应商卡片、API 设置帮助入口、获取模型列表弹窗、模型搜索或添加模型到模型管理 | `index.html`, `js/features/settings/settings-controller.js`, `js/services/api-client.js`, `js/features/execution/provider-request-utils.js`, `css/features/settings.css`, `index.css` |
 | 调整通用设置卡片布局、字号、留白、对齐或统一开关样式 | `js/features/settings/settings-controller.js`, `css/features/settings.css`, `css/themes.css` |
@@ -225,7 +236,7 @@
 | 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/components/nodes.css` |
 | 修复固定结构节点缩放后内容裁剪、文本框显示不全或控件重叠 | `js/nodes/types/*.js`, `js/nodes/node-lifecycle.js`, `js/canvas/canvas-interactions.js`, `js/nodes/node-view-factory.js`, `css/components/nodes.css` |
 | 新增或修改 `CameraControl` 视角控制节点 | `js/nodes/types/camera-control.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/features/camera/camera-control-node.js`, `js/nodes/node-lifecycle.js`, `js/canvas/canvas-interactions.js`, `css/components/nodes.css`, `css/themes.css`, `js/features/execution/execution-core.js`, `js/features/ui/clipboard-controller.js`, `js/features/persistence/project-io.js` |
-| 修改 `ImageSave` 多图预览/批量保存/自动保存编号文件名 | `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/features/media/media-controller.js`, `js/nodes/node-view-factory.js`, `js/nodes/types/image-save.js`, `css/legacy.css` |
+| 修改 `ImagePreview` / `ImageSave` 多图预览、批量保存或自动保存编号文件名 | `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/features/media/media-controller.js`, `js/nodes/node-view-factory.js`, `js/nodes/types/image-preview.js`, `js/nodes/types/image-save.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/legacy.css` |
 | 修改文本节点输入/输出/尺寸行为 | `js/nodes/types/text.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/ui/global-interactions.js`, `index.html`, `css/legacy.css` |
 | 修改 TextSplit 输出数量、自动端口、节点内预览或输出字段序列化 | `js/nodes/types/text-split.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `css/legacy.css` |
 | 修改文本框高度缓存、TextSplit 预览区滚动或 TextChat 回复框布局 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/legacy.css` |

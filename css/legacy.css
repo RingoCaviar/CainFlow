@@ -840,6 +840,15 @@ body {
     gap: 8px;
 }
 
+.node-header .header-left {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.node-header .header-right {
+    flex: 0 0 auto;
+}
+
 .node-header:active {
     cursor: grabbing;
 }
@@ -860,8 +869,10 @@ body {
 .node-title {
     font-size: 14px;
     font-weight: 700;
-    letter-spacing: -0.3px;
-    flex: 1;
+    letter-spacing: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1626,6 +1637,7 @@ body {
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.05);
     flex: 1 1 auto;
+    position: relative;
 }
 
 .preview-container img {
@@ -3613,6 +3625,40 @@ input[type=number] {
 .node-text .node-field-expand {
     display: flex;
     flex-direction: column;
+}
+
+.text-multi-nav {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex: 0 0 auto;
+}
+
+.text-multi-nav-btn {
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    border-radius: var(--radius-xs);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1;
+}
+
+.text-multi-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+}
+
+.text-multi-counter {
+    min-width: 42px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
 }
 
 .node-text .node-field-expand textarea {

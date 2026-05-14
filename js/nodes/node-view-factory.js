@@ -99,6 +99,29 @@ function getTextSplitOutputPorts(restoreData = {}) {
     }));
 }
 
+function normalizeImageMergeInputCountValue(value, fallback = 1) {
+    const parsed = parseInt(value ?? fallback, 10);
+    return Number.isFinite(parsed) ? Math.max(1, parsed) : Math.max(1, fallback);
+}
+
+function getImageMergeInputPorts(restoreData = {}) {
+    const count = normalizeImageMergeInputCountValue(restoreData?.inputCount || restoreData?.imageMergeInputCount || 1);
+    return Array.from({ length: count }, (_, index) => ({
+        name: `image_${index + 1}`,
+        type: 'image',
+        label: `图片 ${index + 1}`
+    }));
+}
+
+function getTextMergeInputPorts(restoreData = {}) {
+    const count = normalizeImageMergeInputCountValue(restoreData?.inputCount || restoreData?.textMergeInputCount || 1);
+    return Array.from({ length: count }, (_, index) => ({
+        name: `text_${index + 1}`,
+        type: 'text',
+        label: `文本 ${index + 1}`
+    }));
+}
+
 function renderPortSections(id, config) {
     const inputPorts = renderPorts(id, config.inputs || [], 'input');
     const outputPorts = renderPorts(id, config.outputs || [], 'output');
@@ -121,12 +144,13 @@ function renderPortSections(id, config) {
 function renderNodeHeader(id, config, options = {}) {
     const collapseTitle = options.collapsed ? '展开节点' : '折叠节点';
     const collapseStateClass = options.collapsed ? 'is-collapsed' : '';
+    const displayTitle = options.customTitle || config.title;
     return `
         <div class="node-glass-bg"></div>
         <div class="node-header" data-node-id="${id}" title="双击折叠或展开">
             <div class="header-left">
                 ${config.icon}
-                <span class="node-title">${config.title}</span>
+                <span class="node-title">${escapeHtml(displayTitle)}</span>
             </div>
             <div class="header-right">
                 <span class="node-time-badge" id="${id}-time-container" style="display:none">
@@ -508,9 +532,33 @@ function renderImageResizeBody(id, restoreData) {
 
 function renderTextBody(id, restoreData) {
     const rd = restoreData || {};
+    const texts = Array.isArray(rd.texts) && rd.texts.length > 0 ? rd.texts : [];
+    const previewIndex = Math.max(0, Math.min(texts.length - 1, parseInt(rd.textPreviewIndex || '0', 10) || 0));
+    const textValue = texts.length > 0 ? texts[previewIndex] : (rd.text || rd.lastText || '');
     return `
         <div class="node-field node-field-expand">
-            <textarea id="${id}-text" placeholder="输入文本，或运行后预览上游文本..." rows="6"${getTextareaHeightStyle(rd, 'text')}>${rd.text || rd.lastText || ''}</textarea>
+            <div class="text-multi-nav ${texts.length > 1 ? '' : 'hidden'}" id="${id}-text-nav">
+                <button type="button" class="text-multi-nav-btn" data-direction="-1" title="上一条">‹</button>
+                <span class="text-multi-counter" id="${id}-text-counter">${texts.length > 1 ? `${previewIndex + 1}/${texts.length}` : ''}</span>
+                <button type="button" class="text-multi-nav-btn" data-direction="1" title="下一条">›</button>
+            </div>
+            <textarea id="${id}-text" placeholder="输入文本，或运行后预览上游文本..." rows="6"${getTextareaHeightStyle(rd, 'text')}>${escapeHtml(textValue)}</textarea>
+        </div>
+    `;
+}
+
+function renderImageMergeBody(id) {
+    return `
+        <div class="image-merge-panel">
+            <div class="image-merge-summary" id="${id}-merge-summary">连接多个图片输入后，输出合并后的多图数据</div>
+        </div>
+    `;
+}
+
+function renderTextMergeBody(id) {
+    return `
+        <div class="text-merge-panel">
+            <div class="text-merge-summary" id="${id}-merge-summary">连接多个文本输入后，输出合并后的多文本数据</div>
         </div>
     `;
 }
@@ -588,21 +636,31 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'CameraControl') return renderCameraControlBody(id, restoreData);
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);
     if (type === 'ImagePreview') return renderImagePreviewBody(id);
+    if (type === 'ImageMerge') return renderImageMergeBody(id);
     if (type === 'ImageCompare') return renderImageCompareBody(id);
     if (type === 'Text') return renderTextBody(id, restoreData);
+    if (type === 'TextMerge') return renderTextMergeBody(id);
     if (type === 'TextSplit') return renderTextSplitBody(id, restoreData);
     if (type === 'ImageSave') return renderImageSaveBody(id, restoreData, state.globalSaveDirHandle);
     return '';
 }
 
 export function createNodeMarkup({ type, id, config, restoreData, state }) {
-    const effectiveConfig = type === 'TextSplit'
-        ? { ...config, outputs: getTextSplitOutputPorts(restoreData) }
-        : config;
+    let effectiveConfig = config;
+    if (type === 'TextSplit') {
+        effectiveConfig = { ...config, outputs: getTextSplitOutputPorts(restoreData) };
+    } else if (type === 'TextMerge') {
+        effectiveConfig = { ...config, inputs: getTextMergeInputPorts(restoreData) };
+    } else if (type === 'ImageMerge') {
+        effectiveConfig = { ...config, inputs: getImageMergeInputPorts(restoreData) };
+    }
     const isCollapsed = restoreData?.collapsed === true;
+    const customTitle = typeof restoreData?.customTitle === 'string' && restoreData.customTitle.trim()
+        ? restoreData.customTitle.trim()
+        : '';
     const bodyClassName = isCollapsed ? 'node-body is-collapsed' : 'node-body';
     return [
-        renderNodeHeader(id, effectiveConfig, { collapsed: isCollapsed }),
+        renderNodeHeader(id, effectiveConfig, { collapsed: isCollapsed, customTitle }),
         renderPortSections(id, effectiveConfig),
         `<div class="${bodyClassName}">`,
         renderNodeBody(type, id, restoreData, state),

@@ -65,6 +65,11 @@ export function createWorkflowRunnerApi({
         return state.runningNodeCancelHandlers;
     }
 
+    function getNodeDisplayTitle(node) {
+        if (!node) return '节点';
+        return node.customTitle || nodeConfigs[node.type]?.title || node.type;
+    }
+
     function syncRunToolbarState() {
         const runBtn = documentRef.getElementById('btn-run');
         const stopBtn = documentRef.getElementById('btn-stop');
@@ -203,15 +208,28 @@ export function createWorkflowRunnerApi({
         return typeof value === 'string' && value.trim() ? [value] : [];
     }
 
-    function getImageGenerateOutputForTarget(fromNode, toNode) {
-        if (fromNode?.type !== 'ImageGenerate' || toNode?.type !== 'ImageSave') return null;
-        const images = normalizeImageList(fromNode.data?.images || fromNode.generatedImages);
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getNodeImageOutputList(node) {
+        const images = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
         return images.length > 0 ? images : null;
     }
 
     function getEnabledNodeOutputValue(fromNode, toNode, portName) {
         if (!fromNode || fromNode.enabled === false) return undefined;
-        return getImageGenerateOutputForTarget(fromNode, toNode) || getCachedOutputValue(fromNode, portName);
+        if (portName === 'image') {
+            const images = getNodeImageOutputList(fromNode);
+            if (images?.length > 1) return images;
+            if (images?.length === 1) return images[0];
+        }
+        return getCachedOutputValue(fromNode, portName);
     }
 
     function hasPromptInputValue(plan, nodeId) {
@@ -240,6 +258,151 @@ export function createWorkflowRunnerApi({
         }
 
         return inputs;
+    }
+
+    function isBatchInputValue(value) {
+        return Array.isArray(value) && value.length > 0;
+    }
+
+    function normalizeTextList(value) {
+        if (Array.isArray(value)) {
+            return value.filter((item) => typeof item === 'string');
+        }
+        return typeof value === 'string' ? [value] : [];
+    }
+
+    function shouldRunNodeForEachInput(node, inputs) {
+        if (!node) return false;
+        if (node.type === 'ImageMerge' || node.type === 'TextMerge' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'Text') return false;
+        return Object.values(inputs || {}).some(isBatchInputValue);
+    }
+
+    function buildInputBatches(inputs) {
+        const entries = Object.entries(inputs || {});
+        if (entries.length === 0) return [{}];
+
+        return entries.reduce((batches, [key, value]) => {
+            const values = isBatchInputValue(value) ? value : [value];
+            const nextBatches = [];
+            batches.forEach((batch) => {
+                values.forEach((item) => {
+                    nextBatches.push({ ...batch, [key]: item });
+                });
+            });
+            return nextBatches;
+        }, [{}]);
+    }
+
+    function getNodeOutputPortNames(node, dataType) {
+        const names = new Set();
+        node?.el?.querySelectorAll(`.node-port[data-direction="output"][data-type="${dataType}"]`).forEach((portEl) => {
+            if (portEl.dataset.port) names.add(portEl.dataset.port);
+        });
+        (nodeConfigs[node?.type]?.outputs || []).forEach((output) => {
+            if (output.type === dataType && output.name) names.add(output.name);
+        });
+        return Array.from(names);
+    }
+
+    function resetNodeImageOutputsForBatch(node) {
+        if (!node) return;
+        node.data = node.data || {};
+        delete node.data.images;
+        delete node.data.image;
+        node.imageData = null;
+        node.imageDataList = [];
+        if (node.type === 'ImageGenerate') {
+            node.generatedImages = [];
+            node.generationCompletedCount = 0;
+        }
+    }
+
+    function resetNodeTextOutputsForBatch(node) {
+        if (!node) return;
+        node.data = node.data || {};
+        delete node.data.texts;
+        delete node.data.text;
+        if (node.type === 'TextChat') {
+            node.isSucceeded = false;
+            node.lastResponse = '';
+        }
+    }
+
+    async function executeNodeWithInputBatches(node, inputs, signal) {
+        if (!shouldRunNodeForEachInput(node, inputs)) {
+            await executeNode(node, inputs, signal);
+            return inputs;
+        }
+
+        const batches = buildInputBatches(inputs);
+        const aggregatedImages = [];
+        const textOutputPorts = getNodeOutputPortNames(node, 'text');
+        const aggregatedTextsByPort = new Map(textOutputPorts.map((portName) => [portName, []]));
+        const shouldAggregateImages = getNodeOutputPortNames(node, 'image').length > 0;
+        const shouldAggregateTexts = textOutputPorts.length > 0;
+        addLog('info', `批量执行节点: ${getNodeDisplayTitle(node)}`, `检测到多图输入，将顺序运行 ${batches.length} 次`, {
+            nodeId: node.id,
+            batchCount: batches.length
+        });
+
+        for (let index = 0; index < batches.length; index += 1) {
+            if (signal?.aborted) {
+                const abortError = new Error('Node run aborted');
+                abortError.name = 'AbortError';
+                throw abortError;
+            }
+
+            if (shouldAggregateImages) resetNodeImageOutputsForBatch(node);
+            if (shouldAggregateTexts) resetNodeTextOutputsForBatch(node);
+            await executeNode(node, batches[index], signal);
+
+            if (shouldAggregateImages) {
+                const imageOutputs = normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
+                aggregatedImages.push(...imageOutputs);
+            }
+            if (shouldAggregateTexts) {
+                textOutputPorts.forEach((portName) => {
+                    const values = normalizeTextList(getCachedOutputValue(node, portName));
+                    if (values.length > 0) {
+                        aggregatedTextsByPort.get(portName).push(...values);
+                    }
+                });
+            }
+        }
+
+        if (shouldAggregateImages && aggregatedImages.length > 0) {
+            node.data = node.data || {};
+            node.data.images = aggregatedImages.slice();
+            node.data.image = aggregatedImages[aggregatedImages.length - 1];
+            node.imageDataList = aggregatedImages.slice();
+            node.imageData = node.data.image;
+            if (node.type === 'ImageGenerate') {
+                node.generatedImages = aggregatedImages.slice();
+                node.generationCompletedCount = aggregatedImages.length;
+            }
+        }
+
+        if (shouldAggregateTexts) {
+            node.data = node.data || {};
+            aggregatedTextsByPort.forEach((values, portName) => {
+                if (values.length === 0) return;
+                node.data[portName] = values.length > 1 ? values.slice() : values[0];
+                if (portName === 'text') {
+                    node.data.texts = values.slice();
+                    node.data.text = values[values.length - 1];
+                }
+            });
+            if (node.type === 'TextChat') {
+                const aggregatedTexts = aggregatedTextsByPort.get('text') || [];
+                node.lastResponse = aggregatedTexts
+                    .map((text, index) => `<div><strong>第 ${index + 1} 次</strong></div><div>${escapeHtml(text).replace(/\n/g, '<br>')}</div>`)
+                    .join('<hr />');
+                const responseArea = documentRef.getElementById(`${node.id}-response`);
+                if (responseArea) responseArea.innerHTML = node.lastResponse;
+            }
+        }
+
+        return batches[batches.length - 1] || inputs;
     }
 
     function collectDownstreamNodeIds(plan, sourceNodeId) {
@@ -500,7 +663,7 @@ export function createWorkflowRunnerApi({
                                 type: 'image'
                             });
                             injected = true;
-                            addLog('info', '自动注入节点', `为「${nodeConfigs[node.type].title}」自动添加了图片保存节点`);
+                            addLog('info', '自动注入节点', `为「${getNodeDisplayTitle(node)}」自动添加了图片保存节点`);
                         }
                     }
                 }
@@ -548,7 +711,7 @@ export function createWorkflowRunnerApi({
             }
 
             const node = state.nodes.get(nodeId);
-            const nodeTitle = node ? nodeConfigs[node.type]?.title || node.type : nodeId;
+            const nodeTitle = node ? getNodeDisplayTitle(node) : nodeId;
             const downstreamCount = Math.max(0, branchNodeIds.size - 1);
             addLog('warning', `节点已取消: ${nodeTitle}`, downstreamCount > 0
                 ? `已取消当前节点，并跳过 ${downstreamCount} 个下游节点`
@@ -584,7 +747,7 @@ export function createWorkflowRunnerApi({
                             if (session.canceledBranchNodeIds.has(nid) || runningNodes.has(nid) || completedNodes.has(nid)) return;
                             runningNodes.add(nid);
                             const node = state.nodes.get(nid);
-                            const nodeTitle = nodeConfigs[node.type].title;
+                            const nodeTitle = getNodeDisplayTitle(node);
                             const nodeController = new AbortController();
                             const linkedAbort = createLinkedAbortSignal([
                                 session.controller.signal,
@@ -611,8 +774,7 @@ export function createWorkflowRunnerApi({
 
                                 try {
                                     const inputs = collectInputsForNode(plan, nid);
-
-                                    await executeNode(node, inputs, linkedAbort.signal);
+                                    const loggedInputs = await executeNodeWithInputBatches(node, inputs, linkedAbort.signal);
 
                                     if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
                                         const abortError = new Error('Node run aborted');
@@ -630,7 +792,7 @@ export function createWorkflowRunnerApi({
                                         timeBadge.textContent = `${durationSec}s`;
                                         timeBadge.style.color = '';
                                     }
-                                    addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs, data: node.data });
+                                    addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs: loggedInputs, data: node.data });
                                     scheduleSave();
                                     completedNodes.add(nid);
                                 } catch (err) {

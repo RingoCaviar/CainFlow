@@ -429,11 +429,11 @@ function renderImageGeneratePreviewState(nodeId, {
         if (portName === 'image' && node.type === 'ImageImport') {
             return getImageImportOutputValue(node);
         }
-        if (node.data && node.data[portName] !== undefined) {
-            return node.data[portName];
-        }
-
         if (portName === 'text') {
+            if (Array.isArray(node.data?.texts) && node.data.texts.length > 0) {
+                return node.data.texts.filter((item) => typeof item === 'string' && item.trim());
+            }
+
             if (node.type === 'Text' || node.type === 'TextInput') {
                 return documentRef.getElementById(`${node.id}-text`)?.value;
             }
@@ -457,6 +457,10 @@ function renderImageGeneratePreviewState(nodeId, {
             }
         }
 
+        if (node.data && node.data[portName] !== undefined) {
+            return node.data[portName];
+        }
+
         if (/^part_\d+$/.test(portName) && node.type === 'TextSplit') {
             if (node.data && node.data[portName] !== undefined) return node.data[portName];
             const text = node.data?.text || '';
@@ -471,6 +475,10 @@ function renderImageGeneratePreviewState(nodeId, {
         }
 
         if (portName === 'image') {
+            const imageList = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
+            if (imageList.length > 1) return imageList;
+            if (imageList.length === 1) return imageList[0];
+
             if (node.type === 'ImageResize') {
                 return node.imageData || node.resizePreviewData || undefined;
             }
@@ -508,6 +516,42 @@ function renderImageGeneratePreviewState(nodeId, {
             return completedCount > 0 ? images.slice(0, completedCount) : images;
         }
         return normalizeImageList(node?.data?.image || node?.imageData);
+    }
+
+    function getImagePreviewIndex(node, images) {
+        if (!images.length) return 0;
+        const rawIndex = Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0;
+        return Math.max(0, Math.min(images.length - 1, rawIndex));
+    }
+
+    function renderImagePreviewImage(nodeId, images) {
+        const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
+        if (!previewContainer) return;
+
+        const imageList = normalizeImageList(images);
+        if (imageList.length === 0) {
+            previewContainer.classList.remove('has-multiple-images');
+            previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
+            return;
+        }
+
+        const node = state.nodes.get(nodeId);
+        const index = getImagePreviewIndex(node, imageList);
+        if (node) node.imagePreviewIndex = index;
+        const image = imageList[index];
+        previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
+        previewContainer.innerHTML = `
+            <img src="${image}" alt="预览 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" />
+            ${imageList.length > 1 ? `
+                <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+                <div class="image-save-preview-counter">${index + 1}/${imageList.length}</div>
+            ` : ''}
+        `;
     }
 
     function renderImageSavePreview(nodeId, images, emptyMessage = '无输入图片') {
@@ -972,16 +1016,22 @@ function renderImageGeneratePreviewState(nodeId, {
         },
         ImagePreview: async (node, inputs) => {
             const { id } = node;
-            const imgData = inputs.image;
+            const imageList = normalizeImageList(inputs.image);
+            const imgData = imageList[0] || null;
             const previewContainer = documentRef.getElementById(`${id}-preview`);
             const controls = documentRef.getElementById(`${id}-controls`);
             const resolutionBadge = documentRef.getElementById(`${id}-res`);
             if (imgData) {
                 node.previewZoom = 1;
+                node.imagePreviewIndex = 0;
                 previewContainer.innerHTML = `<img src="${imgData}" alt="预览" style="cursor:pointer" draggable="false" />`;
+                renderImagePreviewImage(id, imageList);
                 controls.style.display = 'flex';
                 node.imageData = imgData;
+                node.imageDataList = imageList;
                 node.data.image = imgData;
+                if (imageList.length > 1) node.data.images = imageList.slice();
+                else delete node.data.images;
                 if (isInlineImageData(imgData)) {
                     await saveImageAsset(id, imgData);
                 } else {
@@ -992,7 +1042,10 @@ function renderImageGeneratePreviewState(nodeId, {
             } else {
                 node.previewZoom = 1;
                 node.imageData = null;
+                node.imageDataList = [];
                 delete node.data.image;
+                delete node.data.images;
+                previewContainer.classList.remove('has-multiple-images');
                 previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
                 controls.style.display = 'none';
                 await deleteImageAsset(id);
@@ -1009,6 +1062,34 @@ function renderImageGeneratePreviewState(nodeId, {
             if (!inputs.imageB) throw new Error('B 输入未连接图片');
             await syncImageCompareNode(id, inputs.imageA || null, inputs.imageB);
             await refreshDependentImageResizePreviews(id);
+        },
+        ImageMerge: async (node, inputs = {}) => {
+            const images = Object.entries(inputs)
+                .filter(([key]) => /^image_\d+$/.test(key))
+                .sort(([a], [b]) => parseInt(a.replace('image_', ''), 10) - parseInt(b.replace('image_', ''), 10))
+                .flatMap(([, value]) => normalizeImageList(value));
+            if (images.length === 0) throw new Error('请至少连接一张图片');
+            node.data.images = images.slice();
+            node.data.image = images[images.length - 1];
+            node.imageDataList = images.slice();
+            node.imageData = node.data.image;
+            const summary = documentRef.getElementById(`${node.id}-merge-summary`);
+            if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
+            await refreshDependentImageResizePreviews(node.id);
+            updateAllConnections();
+        },
+        TextMerge: async (node, inputs = {}) => {
+            const texts = Object.entries(inputs)
+                .filter(([key]) => /^text_\d+$/.test(key))
+                .sort(([a], [b]) => parseInt(a.replace('text_', ''), 10) - parseInt(b.replace('text_', ''), 10))
+                .flatMap(([, value]) => Array.isArray(value) ? value : [value])
+                .filter((value) => typeof value === 'string');
+            if (texts.length === 0) throw new Error('请至少连接一段文本');
+            node.data.texts = texts.slice();
+            node.data.text = texts[texts.length - 1];
+            const summary = documentRef.getElementById(`${node.id}-merge-summary`);
+            if (summary) summary.textContent = `已合并 ${texts.length} 段文本`;
+            updateAllConnections();
         },
         ImageSave: async (node, inputs) => {
             const { id } = node;
@@ -1053,9 +1134,25 @@ function renderImageGeneratePreviewState(nodeId, {
         Text: async (node, inputs = {}) => {
             const textarea = documentRef.getElementById(`${node.id}-text`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
-            const text = hasIncomingText ? (inputs.text ?? '') : (textarea?.value || node.data.text || '');
+            const texts = Array.isArray(inputs.text)
+                ? inputs.text.filter((item) => typeof item === 'string')
+                : [];
+            const text = texts.length > 0
+                ? texts[0]
+                : (hasIncomingText ? (inputs.text ?? '') : (textarea?.value || node.data.text || ''));
+            if (texts.length > 0) {
+                node.data.texts = texts.slice();
+                node.textPreviewIndex = 0;
+            } else {
+                delete node.data.texts;
+                node.textPreviewIndex = 0;
+            }
             if (textarea && textarea.value !== text) textarea.value = text;
             node.data.text = text;
+            const nav = documentRef.getElementById(`${node.id}-text-nav`);
+            const counter = documentRef.getElementById(`${node.id}-text-counter`);
+            if (nav) nav.classList.toggle('hidden', texts.length <= 1);
+            if (counter) counter.textContent = texts.length > 1 ? `1/${texts.length}` : '';
             updateAllConnections();
         },
         CameraControl: async (node, inputs = {}) => {

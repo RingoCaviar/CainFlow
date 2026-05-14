@@ -8,6 +8,7 @@ export function createContextMenuControllerApi({
     connectionCreatePopup,
     viewportApi,
     addNode,
+    renameNode = null,
     runWorkflow,
     createNodeFromConnectionCandidate,
     updateAllConnections,
@@ -38,10 +39,12 @@ export function createContextMenuControllerApi({
         const nodeActions = documentRef.getElementById('context-menu-node-actions');
         const runToHereItem = documentRef.getElementById('context-menu-run-to-here');
         const runSelectedItem = documentRef.getElementById('context-menu-run-selected');
+        const renameNodeItem = documentRef.getElementById('context-menu-rename-node');
         const divider = documentRef.getElementById('context-menu-node-divider');
 
         setElementVisible(runToHereItem, hasNodeTarget);
         setElementVisible(runSelectedItem, hasSelection);
+        setElementVisible(renameNodeItem, hasNodeTarget);
 
         const hasAnyNodeAction = hasNodeTarget || hasSelection;
         if (nodeActions) {
@@ -87,6 +90,20 @@ export function createContextMenuControllerApi({
                         mode: 'selected-only',
                         selectedNodeIds: Array.from(state.selectedNodes)
                     });
+                }
+                return;
+            }
+
+            if (item.id === 'context-menu-rename-node') {
+                const nodeId = state.contextMenuNodeId;
+                const node = nodeId ? state.nodes.get(nodeId) : null;
+                if (!node || typeof renameNode !== 'function') return;
+                const currentTitle = node.customTitle || node.defaultTitle || node.el?.querySelector('.node-title')?.textContent || '';
+                const promptRef = documentRef.defaultView?.prompt || (typeof prompt !== 'undefined' ? prompt : null);
+                if (!promptRef) return;
+                const nextTitle = promptRef('请输入新的节点名称；留空将还原节点原本的名字', currentTitle);
+                if (nextTitle !== null) {
+                    renameNode(nodeId, nextTitle);
                 }
                 return;
             }

@@ -81,7 +81,60 @@ export function createNodeDomBindingsApi({
         const node = state.nodes.get(id);
         const textarea = documentRef.getElementById(`${id}-text`);
         if (!node || !textarea) return;
+        node.data = node.data || {};
+        if (Array.isArray(node.data.texts) && node.data.texts.length > 0) {
+            const index = Math.max(0, Math.min(node.data.texts.length - 1, parseInt(node.textPreviewIndex || '0', 10) || 0));
+            node.textPreviewIndex = index;
+            node.data.texts[index] = textarea.value;
+            node.data.text = textarea.value;
+            return;
+        }
         node.data.text = textarea.value;
+    }
+
+    function normalizeTextList(value) {
+        if (Array.isArray(value)) {
+            return value.filter((item) => typeof item === 'string');
+        }
+        return typeof value === 'string' ? [value] : [];
+    }
+
+    function getTextPreviewIndex(node, texts) {
+        if (!texts.length) return 0;
+        const rawIndex = Number.isFinite(node?.textPreviewIndex) ? node.textPreviewIndex : 0;
+        return Math.max(0, Math.min(texts.length - 1, rawIndex));
+    }
+
+    function renderTextMultiPreview(id) {
+        const node = state.nodes.get(id);
+        const textarea = documentRef.getElementById(`${id}-text`);
+        const nav = documentRef.getElementById(`${id}-text-nav`);
+        const counter = documentRef.getElementById(`${id}-text-counter`);
+        if (!node || !textarea) return;
+
+        const texts = normalizeTextList(node.data?.texts);
+        if (texts.length <= 1) {
+            nav?.classList.add('hidden');
+            if (counter) counter.textContent = '';
+            if (texts.length === 1 && textarea.value !== texts[0]) textarea.value = texts[0];
+            return;
+        }
+
+        const index = getTextPreviewIndex(node, texts);
+        node.textPreviewIndex = index;
+        if (textarea.value !== texts[index]) textarea.value = texts[index];
+        nav?.classList.remove('hidden');
+        if (counter) counter.textContent = `${index + 1}/${texts.length}`;
+    }
+
+    function stepTextPreview(id, delta) {
+        const node = state.nodes.get(id);
+        if (!node) return;
+        const texts = normalizeTextList(node.data?.texts);
+        if (texts.length <= 1) return;
+        node.textPreviewIndex = (getTextPreviewIndex(node, texts) + delta + texts.length) % texts.length;
+        renderTextMultiPreview(id);
+        scheduleSave();
     }
 
     function escapeHtml(value) {
@@ -129,6 +182,22 @@ export function createNodeDomBindingsApi({
         return `<div class="node-port output" data-node-id="${id}" data-port="${portName}" data-type="text" data-direction="output">
                 <span class="port-label">片段 ${index + 1}</span>
                 <div class="port-dot type-text"></div>
+            </div>`;
+    }
+
+    function renderImageMergeInputPort(id, index) {
+        const portName = `image_${index + 1}`;
+        return `<div class="node-port input" data-node-id="${id}" data-port="${portName}" data-type="image" data-direction="input">
+                <div class="port-dot type-image"></div>
+                <span class="port-label">图片 ${index + 1}</span>
+            </div>`;
+    }
+
+    function renderTextMergeInputPort(id, index) {
+        const portName = `text_${index + 1}`;
+        return `<div class="node-port input" data-node-id="${id}" data-port="${portName}" data-type="text" data-direction="input">
+                <div class="port-dot type-text"></div>
+                <span class="port-label">文本 ${index + 1}</span>
             </div>`;
     }
 
@@ -366,6 +435,111 @@ export function createNodeDomBindingsApi({
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
         scheduleSave();
+    }
+
+    function getImageMergeConnectedInputCount(nodeId) {
+        const indices = state.connections
+            .filter((connection) => connection.to.nodeId === nodeId && /^image_\d+$/.test(connection.to.port))
+            .map((connection) => parseInt(connection.to.port.replace('image_', ''), 10))
+            .filter((index) => Number.isFinite(index) && index > 0);
+        return indices.length > 0 ? Math.max(...indices) : 0;
+    }
+
+    function getTextMergeConnectedInputCount(nodeId) {
+        const indices = state.connections
+            .filter((connection) => connection.to.nodeId === nodeId && /^text_\d+$/.test(connection.to.port))
+            .map((connection) => parseInt(connection.to.port.replace('text_', ''), 10))
+            .filter((index) => Number.isFinite(index) && index > 0);
+        return indices.length > 0 ? Math.max(...indices) : 0;
+    }
+
+    function refreshImageMergeInputPorts(nodeId, nextCount = getImageMergeConnectedInputCount(nodeId) + 1) {
+        const node = state.nodes.get(nodeId);
+        if (!node?.el || node.type !== 'ImageMerge') return;
+        const inputsSection = node.el.querySelector('.node-inputs-section');
+        if (!inputsSection) return;
+
+        const nextPorts = Array.from({ length: Math.max(1, nextCount) }, (_, index) => `image_${index + 1}`);
+        node.data = node.data || {};
+        node.data.inputCount = nextPorts.length;
+
+        const summary = documentRef.getElementById(`${nodeId}-merge-summary`);
+        const connectedCount = state.connections.filter((connection) => (
+            connection.to.nodeId === nodeId &&
+            nextPorts.includes(connection.to.port)
+        )).length;
+        if (summary) {
+            summary.textContent = connectedCount > 0
+                ? `已接入 ${connectedCount} 路图片，输出为 ${connectedCount} 路合并后的多图数据`
+                : '连接多个图片输入后，输出合并后的多图数据';
+        }
+
+        const currentPorts = Array.from(inputsSection.querySelectorAll('.node-port.input')).map((port) => port.dataset.port);
+        const unchanged = currentPorts.length === nextPorts.length && currentPorts.every((port, index) => port === nextPorts[index]);
+        if (unchanged) return;
+
+        inputsSection.innerHTML = nextPorts.map((_, index) => renderImageMergeInputPort(nodeId, index)).join('');
+        bindNodePorts(inputsSection);
+        bindZoomSettleGuard(inputsSection);
+
+        const validPortSet = new Set(nextPorts);
+        const beforeConnectionCount = state.connections.length;
+        state.connections = state.connections.filter((connection) => (
+            connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
+        ));
+        const removedConnections = beforeConnectionCount !== state.connections.length;
+        updateAllConnections();
+        updatePortStyles();
+        if (removedConnections) onConnectionsChanged();
+        scheduleSave();
+    }
+
+    function refreshTextMergeInputPorts(nodeId, nextCount = getTextMergeConnectedInputCount(nodeId) + 1) {
+        const node = state.nodes.get(nodeId);
+        if (!node?.el || node.type !== 'TextMerge') return;
+        const inputsSection = node.el.querySelector('.node-inputs-section');
+        if (!inputsSection) return;
+
+        const nextPorts = Array.from({ length: Math.max(1, nextCount) }, (_, index) => `text_${index + 1}`);
+        node.data = node.data || {};
+        node.data.inputCount = nextPorts.length;
+
+        const summary = documentRef.getElementById(`${nodeId}-merge-summary`);
+        const connectedCount = state.connections.filter((connection) => (
+            connection.to.nodeId === nodeId &&
+            nextPorts.includes(connection.to.port)
+        )).length;
+        if (summary) {
+            summary.textContent = connectedCount > 0
+                ? `已接入 ${connectedCount} 路文本，输出为 ${connectedCount} 路合并后的多文本数据`
+                : '连接多个文本输入后，输出合并后的多文本数据';
+        }
+
+        const currentPorts = Array.from(inputsSection.querySelectorAll('.node-port.input')).map((port) => port.dataset.port);
+        const unchanged = currentPorts.length === nextPorts.length && currentPorts.every((port, index) => port === nextPorts[index]);
+        if (unchanged) return;
+
+        inputsSection.innerHTML = nextPorts.map((_, index) => renderTextMergeInputPort(nodeId, index)).join('');
+        bindNodePorts(inputsSection);
+        bindZoomSettleGuard(inputsSection);
+
+        const validPortSet = new Set(nextPorts);
+        const beforeConnectionCount = state.connections.length;
+        state.connections = state.connections.filter((connection) => (
+            connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
+        ));
+        const removedConnections = beforeConnectionCount !== state.connections.length;
+        updateAllConnections();
+        updatePortStyles();
+        if (removedConnections) onConnectionsChanged();
+        scheduleSave();
+    }
+
+    function syncImageMergeNodes() {
+        state.nodes.forEach((node, nodeId) => {
+            if (node.type === 'ImageMerge') refreshImageMergeInputPorts(nodeId);
+            if (node.type === 'TextMerge') refreshTextMergeInputPorts(nodeId);
+        });
     }
 
     function toggleNodeCollapsed(id) {
@@ -1301,6 +1475,15 @@ export function createNodeDomBindingsApi({
         bindCustomNodeSelects(el);
 
         if (type === 'ImageImport') setupImageImport(id, el);
+        else if (type === 'Text') {
+            renderTextMultiPreview(id);
+            el.querySelectorAll('.text-multi-nav-btn').forEach((button) => {
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    stepTextPreview(id, parseInt(button.dataset.direction || '0', 10) || 0);
+                });
+            });
+        }
         else if (type === 'ImageGenerate') {
             syncImageGenerateResolutionOptions(id);
             const modelSelect = el.querySelector(`#${id}-apiconfig`);
@@ -1355,6 +1538,14 @@ export function createNodeDomBindingsApi({
         else if (type === 'ImageResize') setupImageResize(id, el);
         else if (type === 'ImageSave') setupImageSave(id, el);
         else if (type === 'ImagePreview') setupImagePreview(id, el);
+        else if (type === 'ImageMerge') {
+            refreshImageMergeInputPorts(id);
+            fitNodeToContent(id);
+        }
+        else if (type === 'TextMerge') {
+            refreshTextMergeInputPorts(id);
+            fitNodeToContent(id);
+        }
         else if (type === 'ImageCompare') setupImageCompare(id, el);
         else if (type === 'CameraControl') {
             setupCameraControlNode?.(id, el);
@@ -1441,6 +1632,7 @@ export function createNodeDomBindingsApi({
 
     return {
         bindNodeInteractions,
-        syncTextSplitNodeData
+        syncTextSplitNodeData,
+        syncImageMergeNodes
     };
 }
