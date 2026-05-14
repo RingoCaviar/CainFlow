@@ -70,6 +70,7 @@ export function createInitialState() {
         mouseCanvas: { x: 0, y: 0 },
         selectedNodes: new Set(),
         runningNodeIds: new Set(),
+        runningNodeCancelHandlers: new Map(),
         activeRunCount: 0,
         runAbortControllers: new Set(),
         nodeDefaults: createInitialNodeDefaults(),

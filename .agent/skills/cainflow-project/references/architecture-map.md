@@ -94,9 +94,9 @@
 | **执行引擎** | | |
 | 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数；Text 节点运行时只同步文本输入/输出，不自动改变节点尺寸；`getCachedOutputValue` 必须把禁用节点视为没有输出 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
-| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；收集下游输入和提示词预检查时必须过滤禁用上游输出 |
+| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出 |
 | **帮助** | | |
-| 帮助面板 | `js/features/help/help-panel.js` | 操作帮助文档内容、帮助面板打开关闭与交互 |
+| 帮助面板 | `js/features/help/help-panel.js` | 操作帮助文档内容、帮助面板打开关闭与交互；新增画布/节点交互时同步补充对应说明 |
 | **历史记录** | | |
 | 历史面板 | `js/features/history/history-panel.js` | 侧边历史列表 UI 与列表交互；只读最近有限条元数据并空闲补缩略图；拖拽时按需读取原图或传递 `imagePromise`，不要从卡片 `<img>` 取缩略图 |
 | 历史预览 | `js/features/history/history-preview.js` | 历史记录条目预览渲染；先显示缩略图/加载态，再异步加载原图、计算分辨率、处理下载和删除 |
@@ -143,10 +143,10 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
-| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
+| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；运行中节点浮动取消按钮的 2 秒长按、拖动阈值取消长按、事件阻止冒泡也在这里绑定；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
 | 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 创建时映射为 Text；Text 节点尺寸测量、非文本内容显示不全兜底、Alt 删除保留上下游连接、拖拽晃动摘取节点后的连线保留逻辑在这里；TextSplit 预览区和 TextChat 回复区这类可滚动长内容不得按完整内容撑高最小尺寸；删除、摘取、启用/禁用必须跳过运行中节点；启用/禁用后要刷新连线、端口状态与依赖预览 |
 | 序列化 | `js/nodes/node-serializer.js` | 节点序列化、会话状态 payload、workflow 导出结构；workflow 导出只含画布、节点、连线和版本号；TextSplit 的 `delimiter` / `outputCount` / `removeEmptyLines` / `previewEnabled` / `parts` 以及输入框手动高度缓存 `textareaHeights` 也在这里保存 |
-| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框、TextSplit 分隔符、输出数量步进控件、删除空行与节点内预览控件、TextChat 回复框内部左上角小复制按钮、ImageGenerate 分辨率与生成次数控件，以及 ImageCompare 高级对比入口按钮；TextSplit 不再渲染内部长文本输入框，输出数量为 `0` 时按分割结果自动生成端口并显示提示；ImageGenerate 当前在节点内只显示 `xx/xx` 生成进度，不再显示结果预览；textarea 初始高度从 `textareaHeights` 恢复；节点端口区当前由顶部并排的 `.node-ports-row` 统一生成，输入/输出两列顶部对齐 |
+| 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框、TextSplit 分隔符、输出数量步进控件、删除空行与节点内预览控件、TextChat 回复框内部左上角小复制按钮、ImageGenerate 分辨率与生成次数控件、ImageCompare 高级对比入口按钮，以及运行中节点卡片外浮动取消按钮结构；TextSplit 不再渲染内部长文本输入框，输出数量为 `0` 时按分割结果自动生成端口并显示提示；ImageGenerate 当前在节点内只显示 `xx/xx` 生成进度，不再显示结果预览；textarea 初始高度从 `textareaHeights` 恢复；节点端口区当前由顶部并排的 `.node-ports-row` 统一生成，输入/输出两列顶部对齐 |
 | 视角控制节点 | `js/nodes/types/camera-control.js` | CameraControl 节点定义、端口、默认尺寸与最小尺寸；固定结构节点不要把最小尺寸散落到私有逻辑里 |
 | 图片生成节点 | `js/nodes/types/image-generate.js` | ImageGenerate 节点定义、端口与默认尺寸 |
 | 图片导入节点 | `js/nodes/types/image-import.js` | ImageImport 节点定义 |
@@ -205,6 +205,7 @@
 | 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
 | 修改 workflow JSON 契约、导入旧工作流模型匹配或缺失模型提示 | `js/nodes/node-serializer.js`, `js/features/workflow/workflow-manager.js`, `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `workflows/Default.json` |
 | 修复工作流执行、节点调度 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` |
+| 修改运行中节点取消、下游跳过或单节点 abort 行为 | `js/features/execution/workflow-runner.js`, `js/core/state.js`, `index.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `css/components/nodes.css`, `css/themes.css`, `js/features/help/help-panel.js` |
 | 修复代理请求拼装或 API 调用 | `js/services/api-client.js`, `backend/handler.py`, `backend/services/proxy_service.py` |
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
@@ -290,6 +291,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 如果一个新能力会被多个画布/设置/持久化流程复用，或继续塞进现有文件会让职责变混乱，再提炼成 `js/canvas/*`、`js/core/*` 或 `js/features/<feature>/*` 下的新模块，而不是继续堆进 `index.js` 或单个控制器。
 - 执行逻辑放 `js/features/execution/`，不要混入 UI 控制器。
 - 运行中节点锁定由 `state.runningNodeIds` 驱动：正在运行的节点不能编辑、移动、缩放、删除、禁用或改连线，但允许复制/克隆；右键运行其他未运行节点时只阻止运行范围与 `runningNodeIds` 重叠，不再用全局 `state.isRunning` 阻止所有运行入口。
+- 运行中单节点取消和顶部停止工作流是两条不同链路：顶部停止按钮继续 abort `state.runAbortControllers` 里的所有 active sessions；节点底部浮动取消按钮只调用当前节点在 `state.runningNodeCancelHandlers` 中注册的 handler。执行器必须只 abort 该节点自己的 signal，并把本次 execution plan 内从该节点可达的下游加入跳过集合，不得影响其他已在运行或即将调度的无关分支。按钮结构在 `node-view-factory.js`，长按 2 秒和拖动阈值判断在 `node-dom-bindings.js`，样式在 `css/components/nodes.css` / `css/themes.css`，新增交互要同步 `help-panel.js`。
 - 供应商协议、模型能力、模型用途/协议归一化、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
 - 设置面板里的 API 供应商/模型管理继续放 `js/features/settings/settings-controller.js`：供应商卡片操作、获取模型列表按钮、模型列表弹窗、搜索、滚动位置保留、调用 `/proxy` 获取 OpenAI 兼容 `/v1/models` 或 Google `/v1beta/models`、添加条目到 `state.models` 都属于这里。调用代理请求头时复用 `js/services/api-client.js`；添加模型时要同步遵守 `provider-request-utils.js` 的用途与协议归一化，GPT/DALL-E/OpenAI 类模型用 OpenAI 兼容格式，Gemini 用 Google 格式，banana/imagen/image 类模型归为生图。
 - API 设置帮助属于设置面板内的轻量弹窗能力：标题旁入口只在 `index.html` 放静态按钮，弹窗内容和事件由 `settings-controller.js` 渲染管理，关闭按钮、遮罩关闭和设置弹窗关闭时的清理都应在同一控制器中处理；样式集中到 `css/features/settings.css` 并补浅色主题覆盖。

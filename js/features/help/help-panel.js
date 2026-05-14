@@ -41,6 +41,7 @@ export function createHelpPanelApi({
             <div class="help-item"><span class="help-desc">克隆节点或选区</span><span class="help-key">Ctrl + 拖拽</span></div>
             <div class="help-item"><span class="help-desc">调整节点尺寸</span><span class="help-key">右下角手柄</span></div>
             <div class="help-item"><span class="help-desc">启用或禁用节点</span><span class="help-key">节点电源按钮</span></div>
+            <div class="help-item"><span class="help-desc">取消运行中节点</span><span class="help-key">长按取消 2 秒</span></div>
             <div class="help-item"><span class="help-desc">删除并尝试保留上下游</span><span class="help-key">Alt + 删除按钮</span></div>
             <div class="help-item"><span class="help-desc">从连线中摘取节点</span><span class="help-key">拖拽时晃动 1 秒</span></div>
         </div>

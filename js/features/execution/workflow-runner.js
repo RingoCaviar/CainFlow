@@ -58,6 +58,13 @@ export function createWorkflowRunnerApi({
         return state.runAbortControllers;
     }
 
+    function getRunningNodeCancelHandlers() {
+        if (!(state.runningNodeCancelHandlers instanceof Map)) {
+            state.runningNodeCancelHandlers = new Map();
+        }
+        return state.runningNodeCancelHandlers;
+    }
+
     function syncRunToolbarState() {
         const runBtn = documentRef.getElementById('btn-run');
         const stopBtn = documentRef.getElementById('btn-stop');
@@ -94,7 +101,7 @@ export function createWorkflowRunnerApi({
     function setNodeRunningLock(node, locked) {
         if (!node?.el) return;
         node.el.classList.toggle('running-locked', locked);
-        node.el.querySelectorAll('input, select, textarea, button').forEach((control) => {
+        node.el.querySelectorAll('input, select, textarea, button:not(.node-run-cancel-btn)').forEach((control) => {
             setControlRunningLock(control, locked);
         });
     }
@@ -110,7 +117,10 @@ export function createWorkflowRunnerApi({
 
     function clearNodeRunning(nodeId, node) {
         getRunningNodeIds().delete(nodeId);
-        if (node?.el) node.el.classList.remove('running', 'running-locked');
+        if (node?.el) {
+            node.el.classList.remove('running', 'running-locked');
+            node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
+        }
         setNodeRunningLock(node, false);
     }
 
@@ -232,6 +242,69 @@ export function createWorkflowRunnerApi({
         return inputs;
     }
 
+    function collectDownstreamNodeIds(plan, sourceNodeId) {
+        const downstream = new Set();
+        const queue = [sourceNodeId];
+
+        while (queue.length > 0) {
+            const currentId = queue.shift();
+            if (downstream.has(currentId)) continue;
+            downstream.add(currentId);
+
+            state.connections
+                .filter((connection) => (
+                    connection.from.nodeId === currentId &&
+                    plan.scopeNodeSet.has(connection.to.nodeId)
+                ))
+                .forEach((connection) => {
+                    if (!downstream.has(connection.to.nodeId)) {
+                        queue.push(connection.to.nodeId);
+                    }
+                });
+        }
+
+        return downstream;
+    }
+
+    function createLinkedAbortSignal(signals) {
+        const controller = new AbortController();
+        const validSignals = signals.filter(Boolean);
+        const abort = () => {
+            if (!controller.signal.aborted) {
+                controller.abort();
+            }
+        };
+
+        for (const signal of validSignals) {
+            if (signal.aborted) {
+                abort();
+                break;
+            }
+            signal.addEventListener('abort', abort, { once: true });
+        }
+
+        return {
+            signal: controller.signal,
+            cleanup() {
+                validSignals.forEach((signal) => {
+                    signal.removeEventListener('abort', abort);
+                });
+            }
+        };
+    }
+
+    function unregisterNodeCancelHandler(session, nodeId) {
+        getRunningNodeCancelHandlers().delete(nodeId);
+        session.nodeAbortControllers?.delete(nodeId);
+    }
+
+    function cancelRunningNode(nodeId) {
+        const handler = getRunningNodeCancelHandlers().get(nodeId);
+        if (typeof handler !== 'function') return false;
+        handler();
+        return true;
+    }
+
     async function runWorkflow(runInput = null) {
         if (state.nodes.size === 0) {
             showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
@@ -279,7 +352,9 @@ export function createWorkflowRunnerApi({
             timeoutId: null,
             stopped: false,
             abortReason: null,
-            finalized: false
+            finalized: false,
+            canceledBranchNodeIds: new Set(),
+            nodeAbortControllers: new Map()
         };
         getRunAbortControllers().add(session.controller);
         state.activeRunCount = (state.activeRunCount || 0) + 1;
@@ -395,6 +470,9 @@ export function createWorkflowRunnerApi({
             }
             const controllers = getRunAbortControllers();
             controllers.delete(session.controller);
+            for (const nodeId of Array.from(session.nodeAbortControllers.keys())) {
+                unregisterNodeCancelHandler(session, nodeId);
+            }
             state.activeRunCount = Math.max(0, (state.activeRunCount || 0) - 1);
             state.isRunning = state.activeRunCount > 0;
             state.abortController = Array.from(controllers).at(-1) || null;
@@ -451,12 +529,43 @@ export function createWorkflowRunnerApi({
         let terminatedByError = false;
         const isRunActive = () => !session.stopped && !session.controller.signal.aborted;
 
+        const markNodeBranchCanceled = (nodeId) => {
+            if (!runningNodes.has(nodeId)) return false;
+
+            const branchNodeIds = collectDownstreamNodeIds(plan, nodeId);
+            let newlyCanceledCount = 0;
+            branchNodeIds.forEach((branchNodeId) => {
+                if (!session.canceledBranchNodeIds.has(branchNodeId)) {
+                    session.canceledBranchNodeIds.add(branchNodeId);
+                    failedNodes.delete(branchNodeId);
+                    newlyCanceledCount += 1;
+                }
+            });
+
+            const nodeController = session.nodeAbortControllers.get(nodeId);
+            if (nodeController && !nodeController.signal.aborted) {
+                nodeController.abort();
+            }
+
+            const node = state.nodes.get(nodeId);
+            const nodeTitle = node ? nodeConfigs[node.type]?.title || node.type : nodeId;
+            const downstreamCount = Math.max(0, branchNodeIds.size - 1);
+            addLog('warning', `节点已取消: ${nodeTitle}`, downstreamCount > 0
+                ? `已取消当前节点，并跳过 ${downstreamCount} 个下游节点`
+                : '已取消当前节点');
+            showToast(downstreamCount > 0
+                ? `已取消当前节点，下游 ${downstreamCount} 个节点不会继续运行`
+                : '已取消当前节点运行', 'info', 4000);
+            return newlyCanceledCount > 0;
+        };
+
         try {
             while (true) {
                 while (true) {
                     if (!isRunActive()) break;
 
                     const readyNodes = order.filter((nid) => {
+                        if (session.canceledBranchNodeIds.has(nid)) return false;
                         if (completedNodes.has(nid) || runningNodes.has(nid) || failedNodes.has(nid)) return false;
                         const node = state.nodes.get(nid);
                         if (!node || node.enabled === false) {
@@ -472,10 +581,17 @@ export function createWorkflowRunnerApi({
 
                     if (readyNodes.length > 0) {
                         readyNodes.forEach((nid) => {
-                            if (runningNodes.has(nid) || completedNodes.has(nid)) return;
+                            if (session.canceledBranchNodeIds.has(nid) || runningNodes.has(nid) || completedNodes.has(nid)) return;
                             runningNodes.add(nid);
                             const node = state.nodes.get(nid);
                             const nodeTitle = nodeConfigs[node.type].title;
+                            const nodeController = new AbortController();
+                            const linkedAbort = createLinkedAbortSignal([
+                                session.controller.signal,
+                                nodeController.signal
+                            ]);
+                            session.nodeAbortControllers.set(nid, nodeController);
+                            getRunningNodeCancelHandlers().set(nid, () => markNodeBranchCanceled(nid));
 
                             (async () => {
                                 markNodeRunning(nid, node);
@@ -496,7 +612,13 @@ export function createWorkflowRunnerApi({
                                 try {
                                     const inputs = collectInputsForNode(plan, nid);
 
-                                    await executeNode(node, inputs, session.controller.signal);
+                                    await executeNode(node, inputs, linkedAbort.signal);
+
+                                    if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
+                                        const abortError = new Error('Node run aborted');
+                                        abortError.name = 'AbortError';
+                                        throw abortError;
+                                    }
 
                                     if (timerId) clearInterval(timerId);
                                     const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -516,7 +638,9 @@ export function createWorkflowRunnerApi({
                                         clearNodeRunning(nid, node);
                                         clearAbortedNodeFeedback(nid);
                                         if (session.abortReason) state.abortReason = session.abortReason;
-                                        addLog('warning', `节点已中止: ${nodeTitle}`, getAbortMessage(state));
+                                        if (!session.canceledBranchNodeIds.has(nid)) {
+                                            addLog('warning', `节点已中止: ${nodeTitle}`, getAbortMessage(state));
+                                        }
                                         return;
                                     }
                                     clearNodeRunning(nid, node);
@@ -537,7 +661,9 @@ export function createWorkflowRunnerApi({
                                     }
                                 } finally {
                                     if (timerId) clearInterval(timerId);
+                                    linkedAbort.cleanup();
                                     clearNodeRunning(nid, node);
+                                    unregisterNodeCancelHandler(session, nid);
                                     runningNodes.delete(nid);
                                 }
                             })();
@@ -551,6 +677,7 @@ export function createWorkflowRunnerApi({
                 if (!isRunActive()) break;
 
                 const actualFailures = order.filter((id) => {
+                    if (session.canceledBranchNodeIds.has(id)) return false;
                     const node = state.nodes.get(id);
                     return node && node.enabled !== false && !node.isSucceeded;
                 });
@@ -601,7 +728,8 @@ export function createWorkflowRunnerApi({
                 }
             }
 
-            const completedRun = !terminatedByError && isRunActive();
+            const hasNodeBranchCancellation = session.canceledBranchNodeIds.size > 0;
+            const completedRun = !terminatedByError && isRunActive() && !hasNodeBranchCancellation;
             const abortReason = session.abortReason || state.abortReason;
             finalizeWorkflow();
 
@@ -626,6 +754,9 @@ export function createWorkflowRunnerApi({
                         });
                     }
                     playNotificationSound();
+                } else if (hasNodeBranchCancellation && isRunActive()) {
+                    showToast(`已跳过被取消节点的下游，其余节点已结束，耗时 ${totalDuration}s`, 'info', 6000);
+                    playNotificationSound();
                 } else if (abortReason === 'timeout') {
                     showToast('请求超时，生成失败', 'error');
                 } else {
@@ -636,6 +767,7 @@ export function createWorkflowRunnerApi({
     }
 
     return {
-        runWorkflow
+        runWorkflow,
+        cancelRunningNode
     };
 }

@@ -452,6 +452,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     removeNode: (nodeId, options) => removeNode(nodeId, options),
     selectNode: (nodeId, isMulti) => selectNode(nodeId, isMulti),
     toggleNodesEnabled: (nodeIds, referenceNodeId) => toggleNodesEnabled(nodeIds, referenceNodeId),
+    cancelRunningNode: (nodeId) => cancelRunningNode(nodeId),
     finishConnection: (src, tgt) => finishConnection(src, tgt),
     setupImageImport,
     setupImageResize,
@@ -529,6 +530,10 @@ function topologicalSort(runInput = null) {
 
 async function runWorkflow(runInput = null) {
     return getWorkflowRunnerApi().runWorkflow(runInput);
+}
+
+function cancelRunningNode(nodeId) {
+    return getWorkflowRunnerApi().cancelRunningNode(nodeId);
 }
 
 // ===== 持久化 =====

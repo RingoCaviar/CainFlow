@@ -23,6 +23,7 @@ export function createNodeDomBindingsApi({
     removeNode,
     selectNode,
     toggleNodesEnabled,
+    cancelRunningNode = null,
     finishConnection,
     setupImageImport,
     setupImageResize,
@@ -45,6 +46,8 @@ export function createNodeDomBindingsApi({
     const FALLBACK_DEFAULT_NODE_WIDTH = 180;
     const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
     const ZOOM_SETTLE_GUARD_MS = 220;
+    const NODE_CANCEL_HOLD_MS = 2000;
+    const NODE_CANCEL_DRAG_THRESHOLD = 8;
 
     function postponeZoomSettle() {
         state.zoomSettleBlockedUntil = Date.now() + ZOOM_SETTLE_GUARD_MS;
@@ -569,6 +572,108 @@ export function createNodeDomBindingsApi({
         event?.stopPropagation?.();
         showToast(message, 'warning');
         return true;
+    }
+
+    function bindNodeRunCancelButton(id, el) {
+        const button = el.querySelector('.node-run-cancel-btn');
+        if (!button || button.dataset.bound === '1') return;
+        button.dataset.bound = '1';
+
+        let holdTimer = null;
+        let activePointerId = null;
+        let startX = 0;
+        let startY = 0;
+        let didTriggerCancel = false;
+
+        const clearHoldTimer = () => {
+            if (holdTimer !== null) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+        };
+
+        const releasePointer = () => {
+            const pointerId = activePointerId;
+            activePointerId = null;
+            if (pointerId !== null && button.hasPointerCapture?.(pointerId)) {
+                button.releasePointerCapture(pointerId);
+            }
+        };
+
+        const resetHold = ({ keepCanceling = false } = {}) => {
+            clearHoldTimer();
+            button.classList.remove('is-holding');
+            if (!keepCanceling) button.classList.remove('is-canceling');
+            releasePointer();
+        };
+
+        button.addEventListener('pointerdown', (event) => {
+            if (event.button !== undefined && event.button !== 0) return;
+            if (!isNodeRunning(id)) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            clearHoldTimer();
+            activePointerId = event.pointerId;
+            startX = event.clientX;
+            startY = event.clientY;
+            didTriggerCancel = false;
+
+            button.classList.remove('is-canceling', 'is-holding');
+            void button.offsetWidth;
+            button.classList.add('is-holding');
+            button.setPointerCapture?.(event.pointerId);
+
+            holdTimer = setTimeout(() => {
+                holdTimer = null;
+                if (!isNodeRunning(id)) {
+                    resetHold();
+                    return;
+                }
+                didTriggerCancel = true;
+                button.classList.remove('is-holding');
+                button.classList.add('is-canceling');
+
+                const handled = typeof cancelRunningNode === 'function'
+                    ? cancelRunningNode(id)
+                    : false;
+                if (!handled) {
+                    button.classList.remove('is-canceling');
+                    showToast('这个节点当前没有可取消的运行任务', 'warning');
+                }
+            }, NODE_CANCEL_HOLD_MS);
+        });
+
+        button.addEventListener('pointermove', (event) => {
+            if (activePointerId === null || event.pointerId !== activePointerId || didTriggerCancel) return;
+            const distance = Math.hypot(event.clientX - startX, event.clientY - startY);
+            if (distance > NODE_CANCEL_DRAG_THRESHOLD) {
+                resetHold();
+            }
+        });
+
+        const endPointerHold = (event) => {
+            if (activePointerId !== null && event.pointerId !== activePointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            resetHold({ keepCanceling: didTriggerCancel });
+        };
+
+        button.addEventListener('pointerup', endPointerHold);
+        button.addEventListener('pointercancel', endPointerHold);
+        button.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        button.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+        });
     }
 
     function bindExpandableElementResize(nodeId, element) {
@@ -1190,6 +1295,7 @@ export function createNodeDomBindingsApi({
             documentRef.getElementById('connections-group').classList.add('is-interacting');
         });
 
+        bindNodeRunCancelButton(id, el);
         bindNodePorts(el);
         bindZoomSettleGuard(el);
         bindCustomNodeSelects(el);

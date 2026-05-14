@@ -344,6 +344,24 @@ html[data-app-theme="light"] .node.running .node-glass-bg {
     border-color: #0891b2 !important;
 }
 
+html[data-app-theme="light"] .node-run-cancel-btn {
+    background: rgba(255, 241, 242, 0.96);
+    border-color: rgba(220, 38, 38, 0.32);
+    color: #991b1b;
+    box-shadow: 0 calc(8px / var(--canvas-zoom, 1)) calc(18px / var(--canvas-zoom, 1)) rgba(127, 29, 29, 0.16);
+}
+
+html[data-app-theme="light"] .node-run-cancel-btn:hover,
+html[data-app-theme="light"] .node-run-cancel-btn.is-holding {
+    background: rgba(254, 226, 226, 0.98);
+    border-color: rgba(220, 38, 38, 0.48);
+}
+
+html[data-app-theme="light"] .node-run-cancel-btn.is-canceling {
+    background: #dc2626;
+    color: #ffffff;
+}
+
 html[data-app-theme="light"] .node-header,
 html[data-app-theme="light"] .drawer-subheader,
 html[data-app-theme="light"] .help-panel-header,
