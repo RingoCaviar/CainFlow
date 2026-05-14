@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.8.2
+> 当前版本：v2.8.1
 
 ## 近期约定
 
@@ -26,6 +26,12 @@
 - 后端下载能力分为 `backend/routes/update_routes.py` 与 `backend/services/update_service.py`：只从最新 GitHub Release ZIP 中提取 `CainFlow.exe`，覆盖 `backend/config.py` 的 `MAIN_EXE_PATH`，不要整包解压，避免误覆盖工作流、配置或其他文件；进度总量优先使用 GitHub Release asset 的 `size`，完成态必须回传顶层 `downloadedBytes` / `totalBytes` / `percent=100`。
 - 下载取消、窗口关闭取消、失败和完成后都要清理 `.download`、提取中间文件与 Release ZIP；如果 Windows 锁住正在运行的主程序，应留下待替换文件和重试替换脚本，并提示用户重启 CainFlow 主程序。
 - 前端收到完成态后要先把右下角进度条渲染到 100%，再延迟弹出重启提示；不要让 `alert()` 或同步弹窗阻塞 100% 进度帧的绘制。
+
+### 代理设置与版本号约定
+
+- 代理设置的“自动检测代理端口”属于设置面板数据逻辑：按钮、自动填充和自动保存放 `js/features/settings/settings-controller.js`，检测接口在 `backend/routes/settings_routes.py`，常见本地代理端口探测和连通性校验放 `backend/services/security_service.py`。检测成功后再自动勾选代理并填入端口；不要把批量端口探测散到前端。
+- 代理配置是前端本地状态与后端全局代理状态的双端同步能力。设置页保存代理时立即同步到 `/api/proxy`；应用启动时 `js/features/app/startup-controller.js` 在 `loadState()` 结束后无论是否恢复出节点，都要调用 `syncProxyToServer()`，避免空画布启动后更新下载继续使用后端默认代理。
+- 应用版本号的单一来源是 `js/core/constants.js` 的 `APP_VERSION_NUMBER`。前端展示、`APP_VERSION`、`APP_ASSET_VERSION` 和静态资源缓存参数由它派生；后端启动提示和 User-Agent 通过 `backend/services/version_service.py` 运行时读取同一值；批量升级脚本入口在 `change_version.py`。不要再恢复 `package.json` 或 `css/base/variables.css` 这类第二份版本号。
 
 ### 设置页视觉规范
 
@@ -69,10 +75,10 @@
 
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
-| 启动入口 | `js/main.js`, `index.js` | 应用启动、总装配、跨模块编排 |
+| 启动入口 | `js/main.js`, `index.js` | 应用启动、总装配、跨模块编排；保持同步静态加载，避免初始化注册晚于 `DOMContentLoaded` |
 | 页面骨架 | `index.html` | 页面结构、面板容器、弹窗结构、脚本与样式入口 |
-| 应用启动控制 | `js/features/app/startup-controller.js` | 应用初始化流程、模块装载编排 |
-| 共享常量 | `js/core/constants.js` | APP_VERSION、GITHUB_REPO、STORAGE_KEY、DB_VERSION、默认供应商/默认模型，以及 `API_PROVIDERS_LOCKED` 这类前端共享策略常量 |
+| 应用启动控制 | `js/features/app/startup-controller.js` | 应用初始化流程、模块装载编排；`loadState()` 后始终同步代理到后端 |
+| 共享常量 | `js/core/constants.js` | `APP_VERSION_NUMBER`、`APP_VERSION`、`APP_ASSET_VERSION`、GITHUB_REPO、STORAGE_KEY、DB_VERSION、默认供应商/默认模型，以及 `API_PROVIDERS_LOCKED` 这类前端共享策略常量 |
 | DOM 引用 | `js/core/elements.js` | 跨模块共用的顶层 DOM 元素查找 |
 | 全局状态 | `js/core/state.js` | 前端运行时共享状态与初始值 |
 | 通用工具 | `js/core/common-utils.js` | 多模块共用的纯函数工具集 |
@@ -126,7 +132,7 @@
 | 工作流模型引用解析 | `js/features/persistence/workflow-model-resolver.js` | 旧工作流模型 ID 到当前模型配置的自动匹配；缺失模型或供应商引用提示 |
 | 会话管理 | `js/features/persistence/session-manager.js` | 自动保存、页面关闭前恢复等会话持久化 |
 | **设置** | | |
-| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、版本更新、画布连线设置、通用设置卡片布局与安全开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
+| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、自动检测本地代理端口、版本更新、画布连线设置、通用设置卡片布局与安全开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
@@ -144,6 +150,7 @@
 | UI 工具 | `js/features/ui/ui-utils.js` | UI 层通用辅助函数 |
 | **更新** | | |
 | 在线更新 | `js/core/constants.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js` | GitHub Release 版本对比、启动自动检测开关、设置页更新模块显隐、更新提示、直接下载更新、右下角常驻下载进度/速度/百分比通知、取消下载、窗口关闭取消、100% 后重启提示 |
+| 版本读取 | `js/core/constants.js`, `backend/services/version_service.py`, `change_version.py` | 以 `APP_VERSION_NUMBER` 作为唯一来源；前端展示、静态资源版本、后端启动提示与 User-Agent、版本同步脚本都从这条链路读取 |
 | **工作流** | | |
 | 工作流管理 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排；列表按钮与右键菜单共用重命名逻辑，前端负责空名/同名/非法字符/重名校验；保存时只写画布、节点、连线和版本号 |
 
@@ -200,7 +207,6 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 样式入口 | `index.css` | 分层样式入口，@import 各子目录 |
-| Base | `css/base/variables.css` | 主题变量与全局令牌 |
 | Layout | `css/layout/layout.css` | 应用整体布局与面板排布 |
 | Components | `css/components/nodes.css` | 可复用的节点与组件样式；图片对比节点、高级全屏对比、A/B 互斥裁切、缩略图选择网格、展开选图态和对比舞台缩放/平移光标样式 |
 | Features | `css/features/panels.css`, `css/features/settings.css` | 功能区或面板专属样式；设置面板新增交互（如供应商模型列表弹窗、API 设置帮助弹窗、获取模型列表按钮、通用设置卡片 grid、统一滑动开关样式）放 `settings.css` |
@@ -268,12 +274,12 @@
 | 剪贴板操作 | `js/features/ui/clipboard-controller.js` |
 | 右键菜单 | `js/features/ui/context-menu-controller.js` |
 | 版本更新检查、更新模块显隐与直接下载更新 | `js/core/constants.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js`, `backend/routes/update_routes.py`, `backend/services/update_service.py`, `backend/config.py`, `backend/main.py`, `backend/handler.py`, `index.html`, `css/legacy.css`, `css/themes.css` |
-| 升级应用版本号 | `package.json`, `js/core/constants.js`, `index.html`, `css/base/variables.css`, `backend/main.py`, `backend/services/proxy_service.py`, `README.md` |
+| 修改代理自动检测端口或检测顺序 | `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
+| 升级应用版本号 | `js/core/constants.js`, `index.html`, `js/main.js`, `index.js`, `backend/services/version_service.py`, `backend/main.py`, `backend/services/proxy_service.py`, `backend/routes/settings_routes.py`, `backend/services/update_service.py`, `change_version.py`, `README.md` |
 | 应用启动流程 | `js/features/app/startup-controller.js`, `js/main.js`, `index.js` |
 | 修复静态资源加载或路由兜底问题 | `index.html`, `backend/handler.py`, `backend/state.py` |
 | 修改服务启动或本地运行行为 | `start_cainflow.bat`, `server.py`, `backend/main.py`, `backend/config.py` |
 | 添加功能专属样式 | `css/features/panels.css` 或 `css/features/` 下新增文件，并接入 `index.css` |
-| 添加共享视觉变量 | `css/base/variables.css` |
 | 服务端日志 | `backend/services/log_service.py`, `backend/routes/` |
 
 ---
@@ -352,6 +358,6 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - Workflow JSON 是画布文件，不是 API 配置快照：保存、导出和 `workflows/Default.json` 只包含 `canvas`、`nodes`、`connections`、`version`，节点通过 `apiConfigId` 保存所选模型 ID。默认供应商/默认模型只维护在 `js/core/constants.js`。导入旧 workflow 时可读取旧 `models/providers` 作为匹配线索，但不得把它们合并进当前 API 设置；缺失模型或供应商引用由 `js/features/persistence/workflow-model-resolver.js` 提示。
 - 后端按 route 与 service 分责，不要混写。
-- 版本号升级必须同时覆盖前端常量、页面展示、静态资源缓存参数、CSS 版本变量、后端启动提示、代理 User-Agent、包元数据和 README，避免界面、请求标识与发布文档不一致；如果当前任务显式要求更新 skill 文档，也要同步改 `.agent/skills/cainflow-project/SKILL.md` 与本架构图中的版本标记和经验说明。
+- 版本号升级必须以 `js/core/constants.js` 的 `APP_VERSION_NUMBER` 为唯一来源：页面展示、静态资源缓存参数、后端启动提示、代理 User-Agent 与版本同步脚本都应从这条链路派生；不要再引入 `package.json`、`css/base/variables.css` 这类第二份版本号。若当前任务显式要求更新 skill 文档，也要同步改 `.agent/skills/cainflow-project/SKILL.md` 与本架构图中的版本标记和经验说明。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
 - 保留当前启动流程中已经对外暴露的兼容钩子。
