@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "version",
         nargs="?",
-        help="Target version, e.g. 2.8.1 or v2.8.1",
+        help="Target version, e.g. 2.8.2 or v2.8.2",
     )
     parser.add_argument(
         "--dry-run",
@@ -114,7 +114,7 @@ def normalize_version(raw_version: str | None) -> str:
     if not version:
         fail("Version cannot be empty.")
     if not VERSION_PATTERN.fullmatch(version):
-        fail("Invalid version format. Use values like 2.8.1 or 2.8.1-beta.1.")
+        fail("Invalid version format. Use values like 2.8.2 or 2.8.2-beta.1.")
     return version
 
 
