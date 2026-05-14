@@ -1215,6 +1215,7 @@ export function createSettingsControllerApi({
         const autoResizeEnabled = state.imageAutoResizeEnabled !== false;
         const connectionLineType = state.connectionLineType || 'bezier';
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
+        const concurrentRequestMode = state.concurrentRequestMode === true;
         const allowPrivateNetworkTargets = state.allowPrivateNetworkTargets === true;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
@@ -1424,6 +1425,16 @@ export function createSettingsControllerApi({
                     </div>
                     <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                            <label style="margin:0;">并发请求模式</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-concurrent-request-mode" ${concurrentRequestMode ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求，并对失败项自动重试，全部成功后才继续下游节点。</p>
+                    </div>
+                    <div class="card-field">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
                             <label style="margin:0;">请求超时设置</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-timeout-enabled" ${state.requestTimeoutEnabled ? 'checked' : ''}>
@@ -1512,6 +1523,7 @@ export function createSettingsControllerApi({
         const btnCancelUpdateList = Array.from(documentRef.querySelectorAll('[data-action="cancel-update"]'));
         const timeoutEnabledInput = documentRef.getElementById('setting-timeout-enabled');
         const timeoutSecondsInput = documentRef.getElementById('setting-timeout-seconds');
+        const concurrentRequestModeInput = documentRef.getElementById('setting-concurrent-request-mode');
         const allowPrivateNetworkTargetsInput = documentRef.getElementById('setting-allow-private-network-targets');
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
@@ -1595,6 +1607,11 @@ export function createSettingsControllerApi({
                 state.maxRetries = val;
                 saveState();
             };
+        });
+
+        concurrentRequestModeInput?.addEventListener('change', (e) => {
+            state.concurrentRequestMode = e.target.checked;
+            saveState();
         });
 
         timeoutEnabledInput?.addEventListener('change', (e) => {

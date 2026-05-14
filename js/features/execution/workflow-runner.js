@@ -21,6 +21,7 @@ export function createWorkflowRunnerApi({
     scheduleSave,
     updateAllConnections,
     updatePortStyles,
+    refreshDependentImageResizePreviews = () => {},
     getAbortMessage,
     playNotificationSound
 }) {
@@ -175,6 +176,7 @@ export function createWorkflowRunnerApi({
             }
 
             node.el.classList.remove('completed', 'error', 'running');
+            removeConcurrentRequestStatusPanel(node);
             node.data = getPreservedNodeDataForReset(node);
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') {
@@ -274,8 +276,16 @@ export function createWorkflowRunnerApi({
         return typeof value === 'string' ? [value] : [];
     }
 
+    function isFixedTextChatWithCachedResult(node) {
+        if (node?.type !== 'TextChat') return false;
+        const fixedToggle = documentRef.getElementById(`${node.id}-fixed`);
+        const isFixed = fixedToggle ? fixedToggle.checked : false;
+        return isFixed && node.isSucceeded === true && typeof node.data?.text === 'string' && node.data.text.length > 0;
+    }
+
     function shouldRunNodeForEachInput(node, inputs) {
         if (!node) return false;
+        if (isFixedTextChatWithCachedResult(node)) return false;
         if (node.type === 'ImageMerge' || node.type === 'TextMerge' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'Text') return false;
         return Object.values(inputs || {}).some(isBatchInputValue);
     }
@@ -296,6 +306,128 @@ export function createWorkflowRunnerApi({
         }, [{}]);
     }
 
+    function isConcurrentRequestModeEnabled() {
+        return state.concurrentRequestMode === true;
+    }
+
+    async function commitConcurrentBatchResults(node, results = []) {
+        if (!node) return;
+        if (node.type === 'ImageGenerate') {
+            const images = results.flatMap((result) => normalizeImageList(result?.images || result?.image));
+            node.data = node.data || {};
+            if (images.length > 0) {
+                node.data.images = images.slice();
+                node.data.image = images[images.length - 1];
+            } else {
+                delete node.data.images;
+                delete node.data.image;
+            }
+            node.imageDataList = images.slice();
+            node.imageData = images[images.length - 1] || null;
+            node.generatedImages = images.slice();
+            node.generationCompletedCount = images.length;
+            node.isSucceeded = true;
+            await refreshDependentImageResizePreviews(node.id);
+            updateAllConnections();
+            return;
+        }
+
+        if (node.type === 'TextChat') {
+            const texts = results
+                .map((result) => result?.text)
+                .filter((value) => typeof value === 'string');
+            node.data = node.data || {};
+            if (texts.length > 0) {
+                node.data.texts = texts.slice();
+                node.data.text = texts[texts.length - 1];
+            } else {
+                delete node.data.texts;
+                delete node.data.text;
+            }
+            node.lastResponse = results
+                .map((result, index) => {
+                    const text = result?.lastResponse
+                        ? result.lastResponse
+                        : (typeof result?.text === 'string' ? escapeHtml(result.text).replace(/\n/g, '<br>') : '');
+                    return text ? `<div><strong>第 ${index + 1} 次</strong></div><div>${text}</div>` : '';
+                })
+                .filter(Boolean)
+                .join('<hr />');
+            const responseArea = documentRef.getElementById(`${node.id}-response`);
+            if (responseArea) responseArea.innerHTML = node.lastResponse;
+            node.isSucceeded = true;
+            updateAllConnections();
+        }
+    }
+
+    function getConcurrentRequestRetryLimit() {
+        const retries = parseInt(state.maxRetries, 10);
+        return Number.isFinite(retries) && retries > 0 ? retries : 0;
+    }
+
+    async function executeConcurrentBatchRequest(node, batch, index, batchCount, signal, requestStatusTracker = null) {
+        const requestsPerBatch = node?.type === 'ImageGenerate'
+            ? getConfiguredImageGenerationCount(node)
+            : 1;
+        const requestOffset = index * requestsPerBatch;
+        const markRequestRange = (status, options = {}) => {
+            requestStatusTracker?.markRange(requestOffset, requestsPerBatch, status, options);
+        };
+        const executionContext = {
+            concurrentExecution: true,
+            batchIndex: index,
+            batchCount,
+            concurrentRequestStatus: createConcurrentRequestStatusContext(
+                requestStatusTracker,
+                requestOffset,
+                requestsPerBatch
+            )
+        };
+        if (node?.type !== 'TextChat') {
+            try {
+                const result = await executeNode(node, batch, signal, executionContext);
+                markRequestRange('success', { onlyRunning: true });
+                return result;
+            } catch (error) {
+                markRequestRange('failed', { onlyRunning: true });
+                throw error;
+            }
+        }
+
+        const maxRetries = getConcurrentRequestRetryLimit();
+        let attempt = 0;
+        while (true) {
+            try {
+                const result = await executeNode(node, batch, signal, executionContext);
+                markRequestRange('success', { onlyRunning: true });
+                return result;
+            } catch (error) {
+                if (isAbortLikeError(error)) {
+                    markRequestRange('failed', { onlyRunning: true });
+                    throw error;
+                }
+                const isRetryableRequestError = !!error?.serverResponse ||
+                    error?.name === 'TypeError' ||
+                    /failed to fetch|networkerror/i.test(String(error?.message || ''));
+                if (!isRetryableRequestError) {
+                    markRequestRange('failed', { onlyRunning: true });
+                    throw error;
+                }
+                if (attempt >= maxRetries) {
+                    markRequestRange('failed', { onlyRunning: true });
+                    throw error;
+                }
+                attempt += 1;
+                addLog('warning', `并发请求重试: ${getNodeDisplayTitle(node)}`, `正在第 ${attempt} 次重试第 ${index + 1}/${batchCount} 个请求。`, {
+                    nodeId: node.id,
+                    batchIndex: index,
+                    attempt,
+                    error: error?.message || String(error)
+                });
+            }
+        }
+    }
+
     function getConfiguredImageGenerationCount(node) {
         const input = documentRef.getElementById(`${node.id}-generation-count`);
         return Math.max(1, parseInt(input?.value || node?.generationCount || node?.data?.generationCount || '1', 10) || 1);
@@ -309,6 +441,101 @@ export function createWorkflowRunnerApi({
         return 0;
     }
 
+    function removeConcurrentRequestStatusPanel(node) {
+        const panel = Array.from(node?.el?.children || [])
+            .find((child) => child.classList?.contains('node-concurrent-status-panel'));
+        if (panel) panel.remove();
+    }
+
+    function createConcurrentRequestStatusTracker(node, total) {
+        const safeTotal = Math.max(1, parseInt(total, 10) || 1);
+        removeConcurrentRequestStatusPanel(node);
+
+        if (!node?.el) {
+            return {
+                total: safeTotal,
+                mark: () => {},
+                markRange: () => {}
+            };
+        }
+
+        const panel = documentRef.createElement('div');
+        panel.className = 'node-concurrent-status-panel';
+        panel.dataset.total = String(safeTotal);
+        panel.setAttribute('aria-label', 'Concurrent request status');
+
+        const grid = documentRef.createElement('div');
+        grid.className = 'node-concurrent-status-grid';
+        panel.appendChild(grid);
+
+        const dots = Array.from({ length: safeTotal }, (_, index) => {
+            const dot = documentRef.createElement('span');
+            dot.className = 'node-concurrent-status-dot';
+            dot.dataset.status = 'running';
+            dot.title = `Request ${index + 1}: running`;
+            grid.appendChild(dot);
+            return dot;
+        });
+
+        node.el.appendChild(panel);
+
+        const setDotStatus = (index, status) => {
+            const dot = dots[index];
+            if (!dot) return;
+            const normalizedStatus = status === 'success' || status === 'failed' ? status : 'running';
+            dot.dataset.status = normalizedStatus;
+            dot.title = `Request ${index + 1}: ${normalizedStatus}`;
+        };
+
+        return {
+            total: safeTotal,
+            mark(index, status) {
+                setDotStatus(index, status);
+            },
+            markRange(start, count, status, { onlyRunning = false } = {}) {
+                const safeStart = Math.max(0, parseInt(start, 10) || 0);
+                const safeCount = Math.max(0, parseInt(count, 10) || 0);
+                for (let offset = 0; offset < safeCount; offset += 1) {
+                    const index = safeStart + offset;
+                    if (onlyRunning && dots[index]?.dataset.status !== 'running') continue;
+                    setDotStatus(index, status);
+                }
+            }
+        };
+    }
+
+    function createConcurrentRequestStatusContext(requestStatusTracker, requestOffset = 0, requestsPerBatch = 1) {
+        return {
+            requestOffset,
+            requestsPerBatch,
+            markRequestStatus(relativeIndex, status) {
+                const safeIndex = Math.max(0, parseInt(relativeIndex, 10) || 0);
+                requestStatusTracker?.mark(requestOffset + safeIndex, status);
+            }
+        };
+    }
+
+    async function executeStandaloneConcurrentImageRequests(node, inputs, signal) {
+        const requestCount = getConfiguredImageGenerationCount(node);
+        const requestStatusTracker = createConcurrentRequestStatusTracker(node, requestCount);
+        try {
+            const result = await executeNode(node, inputs, signal, {
+                concurrentRequestStatus: createConcurrentRequestStatusContext(requestStatusTracker, 0, requestCount)
+            });
+            requestStatusTracker.markRange(0, requestCount, 'success', { onlyRunning: true });
+            return result;
+        } catch (error) {
+            requestStatusTracker.markRange(0, requestCount, 'failed', { onlyRunning: true });
+            throw error;
+        }
+    }
+
+    function shouldTrackStandaloneConcurrentImageRequests(node) {
+        return isConcurrentRequestModeEnabled() &&
+            node?.type === 'ImageGenerate' &&
+            getConfiguredImageGenerationCount(node) > 1;
+    }
+
     function renderApiNodeGenerationProgress(node, current, total) {
         if (!node?.id) return;
         const progressEl = documentRef.getElementById(`${node.id}-generation-progress`);
@@ -316,6 +543,7 @@ export function createWorkflowRunnerApi({
         const safeTotal = Math.max(1, parseInt(total, 10) || 1);
         const safeCurrent = Math.max(0, Math.min(safeTotal, parseInt(current, 10) || 0));
         progressEl.textContent = `${safeCurrent}/${safeTotal}`;
+        progressEl.dataset.total = String(safeTotal);
         progressEl.classList.remove('hidden');
     }
 
@@ -374,8 +602,46 @@ export function createWorkflowRunnerApi({
         prepareApiNodeGenerationProgress(node, batches.length);
 
         if (!shouldRunBatches) {
-            await executeNode(node, inputs, signal);
+            if (shouldTrackStandaloneConcurrentImageRequests(node)) {
+                await executeStandaloneConcurrentImageRequests(node, inputs, signal);
+            } else {
+                await executeNode(node, inputs, signal);
+            }
             return inputs;
+        }
+
+        const shouldRunConcurrentBatches = isConcurrentRequestModeEnabled() &&
+            (node?.type === 'ImageGenerate' || node?.type === 'TextChat') &&
+            batches.length > 1;
+        if (shouldRunConcurrentBatches) {
+            if (node.type === 'ImageGenerate') resetNodeImageOutputsForBatch(node);
+            if (node.type === 'TextChat') resetNodeTextOutputsForBatch(node);
+            delete node.apiGenerationProgress;
+            prepareApiNodeGenerationProgress(node, batches.length);
+            addLog('info', `并发执行节点: ${getNodeDisplayTitle(node)}`, `检测到 ${batches.length} 组输入，将并发发起请求，并仅重试失败项。`, {
+                nodeId: node.id,
+                batchCount: batches.length
+            });
+
+            const requestStatusTracker = createConcurrentRequestStatusTracker(
+                node,
+                getApiNodeRunCount(node, batches.length)
+            );
+            const settled = await Promise.allSettled(batches.map((batch, index) => (
+                executeConcurrentBatchRequest(node, batch, index, batches.length, signal, requestStatusTracker)
+            )));
+            const rejected = settled.find((result) => result.status === 'rejected');
+            if (rejected) {
+                throw rejected.reason;
+            }
+            const batchResults = settled.map((result) => result.value || {});
+            await commitConcurrentBatchResults(node, batchResults);
+            return batches[batches.length - 1] || inputs;
+        }
+
+        if (shouldTrackStandaloneConcurrentImageRequests(node) && batches.length === 1) {
+            await executeStandaloneConcurrentImageRequests(node, batches[0], signal);
+            return batches[0] || inputs;
         }
 
         const aggregatedImages = [];

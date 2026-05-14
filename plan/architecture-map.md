@@ -15,7 +15,7 @@
 | 历史记录 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/features/history/history-fullscreen.js`, `js/features/history/history-utils.js` | 侧边历史面板、历史预览、全屏历史浏览与按天分组工具 |
 | 日志 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
 | 设置 | `js/features/settings/settings-controller.js`, `js/features/settings/settings-modal.js` | 设置数据加载、API配置与弹窗行为 |
-| 执行 | `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` | 工作流拓扑排序、各类型节点底层通信与执行逻辑；供应商协议、OpenAI/Gemini 生图请求路径与分辨率预设 |
+| 执行 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` | 工作流调度、运行态节点反馈、各类型节点底层通信与执行逻辑；供应商协议、OpenAI/Gemini 生图请求路径与分辨率预设 |
 | 工作流 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排 |
 | 右键菜单与节点克隆 | `index.html`, `js/features/ui/context-menu-controller.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-serializer.js`, `css/components/nodes.css`, `js/features/media/media-controller.js`, `index.js` | 画布/节点右键菜单，克隆节点、独立化克隆节点、源节点跳转、只读参数控件、参数同步与工作流序列化 |
 | 媒体控制 | `js/features/media/media-controller.js` | 图片导入、预览、保存、缩放与下游节点同步逻辑 |
@@ -68,6 +68,7 @@
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修改 API 调用类节点的生成进度显示或总次数计算 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `css/legacy.css` |
+| 修改并发请求点阵状态 UI | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `css/components/nodes.css` |
 | 修复设置面板或配置交互 | `js/features/settings/settings-controller.js`, `js/features/settings/settings-modal.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/features/history/history-fullscreen.js`, `js/features/history/history-utils.js`, `js/services/storage-idb.js`, `index.js` |
 | 修复缓存管理统计或缓存清理误删 | `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/services/storage-idb.js`, `js/core/constants.js`, `index.html` |
@@ -108,6 +109,7 @@ rg "handle_get|handle_post|handle_delete|def " backend -g "*.py"
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - API 调用类节点（当前包含 `ImageGenerate`、`TextChat`）的底部生成进度框由 `js/nodes/node-view-factory.js` / `css/legacy.css` 提供静态结构与样式；运行前总调用次数预计算放 `js/features/execution/workflow-runner.js`，运行中的成功递增、失败回退和固定结果兜底显示放 `js/features/execution/execution-core.js`。
 - 批量输入会直接影响 API 节点的进度总数：`TextChat` 的总数等于数组输入展开后的运行次数，`ImageGenerate` 的总数等于“数组输入展开后的运行次数 × generationCount”。失败不计入进度，自动重试应沿用运行时进度状态继续补剩余次数，不要把进度重新置回 0。
+- 并发请求点阵状态 UI 是运行态 DOM 反馈，不是持久化数据。`workflow-runner.js` 创建/重置 `.node-concurrent-status-panel`、按并发请求总数生成圆点并维护批量输入到点位的映射；`execution-core.js` 在 `ImageGenerate` 内部并发生成请求成功/失败时更新单点状态；样式放 `css/components/nodes.css`。圆点黄色表示进行中、绿色表示成功、红色表示失败，全部完成后保留最终状态；刷新页面后自然消失，不写入 `node.data`、缓存、工作流 JSON 或 `node-serializer.js`。点阵面板悬浮在节点上方，宽度等于卡片宽度，高度随点数量自动换行增高，使用节点坐标系尺寸，不要用画布缩放反向抵消。
 - 后端按 route 与 service 分责，不要混写。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。
 - 保留当前启动流程中已经对外暴露的兼容钩子。

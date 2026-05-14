@@ -64,6 +64,7 @@ export function createInitialState() {
         notificationsEnabled: false,
         autoRetry: false,
         maxRetries: 15,
+        concurrentRequestMode: true,
         clipboard: null,
         clipboardTimestamp: 0,
         lastFocusTime: Date.now(),

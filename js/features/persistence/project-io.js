@@ -124,6 +124,7 @@ export function createProjectIoApi({
                     notificationVolume: currentState.notificationVolume !== undefined ? currentState.notificationVolume : state.notificationVolume,
                     autoRetry: currentState.autoRetry !== undefined ? currentState.autoRetry : state.autoRetry,
                     maxRetries: currentState.maxRetries !== undefined ? currentState.maxRetries : state.maxRetries,
+                    concurrentRequestMode: currentState.concurrentRequestMode !== undefined ? currentState.concurrentRequestMode : state.concurrentRequestMode,
                     imageAutoResizeEnabled: currentState.imageAutoResizeEnabled !== undefined ? currentState.imageAutoResizeEnabled : state.imageAutoResizeEnabled,
                     imageMaxPixels: currentState.imageMaxPixels !== undefined ? currentState.imageMaxPixels : state.imageMaxPixels,
                     connectionLineType: currentState.connectionLineType !== undefined ? currentState.connectionLineType : state.connectionLineType,
@@ -219,6 +220,9 @@ export function createProjectIoApi({
             }
             if (data.maxRetries !== undefined) {
                 state.maxRetries = data.maxRetries;
+            }
+            if (data.concurrentRequestMode !== undefined) {
+                state.concurrentRequestMode = !!data.concurrentRequestMode;
             }
             if (data.imageAutoResizeEnabled !== undefined) {
                 state.imageAutoResizeEnabled = !!data.imageAutoResizeEnabled;

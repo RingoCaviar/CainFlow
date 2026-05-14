@@ -52,6 +52,7 @@ export function createUiControllerApi({
                 notificationVolume: state.notificationVolume,
                 autoRetry: state.autoRetry,
                 maxRetries: state.maxRetries,
+                concurrentRequestMode: state.concurrentRequestMode,
                 imageAutoResizeEnabled: state.imageAutoResizeEnabled,
                 imageMaxPixels: state.imageMaxPixels,
                 connectionLineType: state.connectionLineType,
@@ -180,6 +181,10 @@ export function createUiControllerApi({
             if (!Number.isNaN(maxRetries) && maxRetries >= 1) {
                 state.maxRetries = Math.min(100, maxRetries);
             }
+        }
+
+        if (settings.concurrentRequestMode !== undefined) {
+            state.concurrentRequestMode = !!settings.concurrentRequestMode;
         }
 
         if (settings.imageAutoResizeEnabled !== undefined) {

@@ -918,6 +918,7 @@ function getWorkflowRunnerApi() {
             scheduleSave,
             updateAllConnections,
             updatePortStyles,
+            refreshDependentImageResizePreviews,
             getAbortMessage: getAbortMessageService,
             playNotificationSound: () => settingsControllerApi.playNotificationSound()
         });

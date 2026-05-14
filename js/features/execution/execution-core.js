@@ -63,6 +63,7 @@ export function createExecutionCoreApi({
         const safeTotal = Math.max(1, parseInt(total, 10) || 1);
         const safeCurrent = Math.max(0, Math.min(safeTotal, parseInt(current, 10) || 0));
         progressEl.textContent = `${safeCurrent}/${safeTotal}`;
+        progressEl.dataset.total = String(safeTotal);
         progressEl.classList.remove('hidden');
 
         requestNodeFit(nodeId);
@@ -115,6 +116,66 @@ export function createExecutionCoreApi({
         renderApiGenerationProgressState(node.id, { current: total, total });
     }
 
+    function getConcurrentRequestRetryLimit() {
+        const retries = Number.parseInt(state.maxRetries, 10);
+        return Number.isFinite(retries) && retries > 0 ? retries : 0;
+    }
+
+    function isConcurrentRequestModeEnabled() {
+        return state.concurrentRequestMode === true;
+    }
+
+    function isRetryableRequestError(error) {
+        if (error?.serverResponse) return true;
+        if (error?.name === 'TypeError') return true;
+        const message = String(error?.message || '').toLowerCase();
+        return /failed to fetch|networkerror|timeout|timed out|download|下载|超时/.test(message);
+    }
+
+    async function runRequestWithRetries(requestFn, {
+        label,
+        signal,
+        onRetry = () => {}
+    } = {}) {
+        const maxRetries = getConcurrentRequestRetryLimit();
+        let attempt = 0;
+        while (true) {
+            if (signal?.aborted) {
+                const abortError = new Error('Node run aborted');
+                abortError.name = 'AbortError';
+                throw abortError;
+            }
+            try {
+                return await requestFn({ attempt });
+            } catch (error) {
+                if (isAbortLikeError(error, signal)) throw error;
+                if (!isRetryableRequestError(error)) throw error;
+                if (attempt >= maxRetries) throw error;
+                attempt += 1;
+                onRetry(attempt, error);
+                addLog('warning', `${label} 重试`, `第 ${attempt} 次重试即将开始。`, {
+                    error: error?.message || String(error)
+                });
+            }
+        }
+    }
+
+    function commitImageGenerateOutputs(node, images = []) {
+        const normalizedImages = normalizeImageList(images);
+        node.data = node.data || {};
+        if (normalizedImages.length > 0) {
+            node.data.images = normalizedImages.slice();
+            node.data.image = normalizedImages[normalizedImages.length - 1];
+        } else {
+            delete node.data.images;
+            delete node.data.image;
+        }
+        node.imageDataList = normalizedImages.slice();
+        node.imageData = normalizedImages[normalizedImages.length - 1] || null;
+        node.generatedImages = normalizedImages.slice();
+        node.generationCompletedCount = normalizedImages.length;
+    }
+
     function isAbortLikeError(err, signal) {
         if (!err) return Boolean(signal?.aborted);
         if (signal?.aborted) return true;
@@ -140,6 +201,15 @@ export function createExecutionCoreApi({
             providerId: apiCfg?.id || '',
             apiKeyShape: getApiKeyShape(apiCfg?.apikey)
         };
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function applyUserFacingError(err, userFacing) {
@@ -349,6 +419,13 @@ export function createExecutionCoreApi({
             : (node.imageData || undefined);
     }
 
+    function isFixedTextChatWithCachedResult(node) {
+        if (node?.type !== 'TextChat') return false;
+        const fixedToggle = documentRef.getElementById(`${node.id}-fixed`);
+        const isFixed = fixedToggle ? fixedToggle.checked : false;
+        return isFixed && node.isSucceeded === true && typeof node.data?.text === 'string' && node.data.text.trim().length > 0;
+    }
+
     function collectUpstreamNodeIds(targetNodeId) {
         if (!targetNodeId || !state.nodes.has(targetNodeId)) return null;
 
@@ -357,6 +434,8 @@ export function createExecutionCoreApi({
         function visit(nodeId) {
             if (scopeNodeSet.has(nodeId)) return;
             scopeNodeSet.add(nodeId);
+            const node = state.nodes.get(nodeId);
+            if (isFixedTextChatWithCachedResult(node)) return;
             state.connections
                 .filter((connection) => connection.to.nodeId === nodeId)
                 .forEach((connection) => {
@@ -375,9 +454,12 @@ export function createExecutionCoreApi({
         const inputConnectionsByNode = Object.create(null);
 
         scopeNodeSet.forEach((nodeId) => {
-            const allIncoming = state.connections.filter((connection) => (
-                connection.to.nodeId === nodeId && state.nodes.has(connection.from.nodeId)
-            ));
+            const node = state.nodes.get(nodeId);
+            const allIncoming = isFixedTextChatWithCachedResult(node)
+                ? []
+                : state.connections.filter((connection) => (
+                    connection.to.nodeId === nodeId && state.nodes.has(connection.from.nodeId)
+                ));
             inputConnectionsByNode[nodeId] = allIncoming;
             incomingConnectionsByNode[nodeId] = mode === 'selected-only'
                 ? allIncoming.filter((connection) => scopeNodeSet.has(connection.from.nodeId))
@@ -476,6 +558,10 @@ export function createExecutionCoreApi({
             return getImageImportOutputValue(node);
         }
         if (portName === 'text') {
+            if (isFixedTextChatWithCachedResult(node)) {
+                return node.data.text;
+            }
+
             if (Array.isArray(node.data?.texts) && node.data.texts.length > 0) {
                 return node.data.texts.filter((item) => typeof item === 'string' && item.trim());
             }
@@ -729,7 +815,7 @@ export function createExecutionCoreApi({
             await saveImageAsset(id, result.dataUrl);
             await refreshDependentImageResizePreviews(id);
         },
-        ImageGenerate: async (node, inputs, signal) => {
+        ImageGenerate: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
             const errorEl = documentRef.getElementById(`${id}-error`);
             if (errorEl) {
@@ -778,23 +864,178 @@ export function createExecutionCoreApi({
                     });
                 const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                 targetGenerationCount = generationCount;
-                node.generationCompletedCount = Math.min(
+                const storedCompletedCount = Math.min(
                     generationCount,
                     Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0)
                 );
-                node.generatedImages = getStoredGeneratedImages(node, node.generationCompletedCount);
-                if (node.generationCompletedCount <= 0 || node.generatedImages.length === 0) {
-                    node.generatedImages = [];
-                    delete node.data.images;
-                } else {
-                    node.data.images = node.generatedImages.slice();
-                    node.data.image = node.generatedImages[node.generatedImages.length - 1];
-                    node.imageData = node.data.image;
+                const storedGeneratedImages = getStoredGeneratedImages(node, storedCompletedCount).slice(0, generationCount);
+                if (!executionContext.concurrentExecution) {
+                    commitImageGenerateOutputs(node, storedGeneratedImages);
                 }
                 renderNodeApiGenerationProgress(node, {
-                    current: node.generationCompletedCount,
+                    current: executionContext.concurrentExecution ? 0 : node.generationCompletedCount,
                     total: generationCount
                 });
+
+                const shouldRunConcurrentRequests = isConcurrentRequestModeEnabled() &&
+                    (generationCount > 1 || executionContext.concurrentExecution);
+                if (shouldRunConcurrentRequests) {
+                    const progressTotal = Math.max(1, parseInt(node.apiGenerationProgress?.total ?? generationCount, 10) || generationCount);
+                    const generatedImages = executionContext.concurrentExecution
+                        ? new Array(generationCount)
+                        : getStoredGeneratedImages(node, node.generationCompletedCount).slice(0, generationCount);
+                    const completedBefore = executionContext.concurrentExecution
+                        ? 0
+                        : Math.min(generationCount, normalizeImageList(generatedImages).length);
+
+                    if (completedBefore >= generationCount) {
+                        const completedImages = normalizeImageList(generatedImages);
+                        if (!executionContext.concurrentExecution) {
+                            commitImageGenerateOutputs(node, completedImages);
+                            node.isSucceeded = true;
+                            await refreshDependentImageResizePreviews(id);
+                            updateAllConnections();
+                        }
+                        return {
+                            image: completedImages[completedImages.length - 1] || '',
+                            images: completedImages.slice()
+                        };
+                    }
+
+                    const runSingleGeneration = async (nextGenerationIndex) => {
+                        const requestBody = isGoogle
+                            ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                            : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
+                        showToast(
+                            generationCount > 1
+                                ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
+                                : `正在调用 ${modelCfg.name}...`,
+                            'info',
+                            5000
+                        );
+
+                        const requestPayload = isOpenAiImageEdit
+                            ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
+                            : JSON.stringify(requestBody);
+                        const loggedRequestBody = isOpenAiImageEdit
+                            ? getOpenAiImageRequestLogBody(requestBody, inputs)
+                            : requestBody;
+                        logRequestToPanel(
+                            generationCount > 1
+                                ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                                : `请求发送: ${modelCfg.name}`,
+                            url,
+                            loggedRequestBody,
+                            {
+                                nodeId: id,
+                                nodeType: 'TextToImage',
+                                providerType: protocol
+                            }
+                        );
+
+                        const response = await fetchRef('/proxy', {
+                            method: 'POST',
+                            headers,
+                            body: requestPayload,
+                            signal
+                        });
+
+                        if (!response.ok) {
+                            const t = await response.text();
+                            const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                            const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                            err.serverResponse = {
+                                url,
+                                requestBody,
+                                status: response.status,
+                                body: t
+                            };
+                            applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                            throw err;
+                        }
+
+                        const result = await parseJsonResponseOrThrow(response, {
+                            apiCfg,
+                            modelCfg,
+                            url,
+                            requestBody
+                        });
+                        if (!result) throw new Error('API 返回了空的 JSON 响应');
+
+                        let imageData = '';
+                        const imageResult = extractImageResult(apiCfg, result, modelCfg);
+                        if (imageResult?.dataUrl) {
+                            imageData = imageResult.dataUrl;
+                        } else if (imageResult?.url) {
+                            const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
+                            imageData = await blobToDataUrl(imgBlob);
+                        }
+
+                        if (!imageData) {
+                            const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
+                            err.serverResponse = JSON.stringify(result, null, 2);
+                            throw err;
+                        }
+
+                        return imageData;
+                    };
+
+                    const requestIndexes = Array.from(
+                        { length: generationCount - completedBefore },
+                        (_, offset) => completedBefore + offset
+                    );
+                    const markConcurrentRequestStatus = (relativeIndex, status) => {
+                        executionContext.concurrentRequestStatus?.markRequestStatus?.(relativeIndex, status);
+                    };
+                    const requestResults = await Promise.allSettled(requestIndexes.map((index) => {
+                        const nextGenerationIndex = index + 1;
+                        return runRequestWithRetries(() => runSingleGeneration(nextGenerationIndex), {
+                            label: generationCount > 1
+                                ? `图片生成 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                                : `图片生成 ${modelCfg.name}`,
+                            signal
+                        }).then(async (imageData) => {
+                            generatedImages[index] = imageData;
+                            incrementNodeApiGenerationProgress(node, 1, {
+                                current: nextGenerationIndex,
+                                total: progressTotal
+                            });
+                            await saveHistoryEntry({
+                                nodeId: id,
+                                image: imageData,
+                                prompt,
+                                model: modelCfg.name
+                            });
+                            if (getImageHistorySidebarActive()) renderHistoryList();
+                            markConcurrentRequestStatus(index, 'success');
+                        }).catch((error) => {
+                            markConcurrentRequestStatus(index, 'failed');
+                            throw error;
+                        });
+                    }));
+                    const rejectedRequest = requestResults.find((result) => result.status === 'rejected');
+                    if (rejectedRequest) {
+                        if (!executionContext.concurrentExecution) {
+                            commitImageGenerateOutputs(node, generatedImages);
+                            await refreshDependentImageResizePreviews(id);
+                            updateAllConnections();
+                        }
+                        throw rejectedRequest.reason;
+                    }
+
+                    const completedImages = normalizeImageList(generatedImages);
+                    if (!executionContext.concurrentExecution) {
+                        commitImageGenerateOutputs(node, completedImages);
+                        node.isSucceeded = true;
+                        await refreshDependentImageResizePreviews(id);
+                        updateAllConnections();
+                    }
+
+                    return {
+                        image: completedImages[completedImages.length - 1] || '',
+                        images: completedImages.slice()
+                    };
+                }
 
                 while (node.generationCompletedCount < generationCount) {
                     const nextGenerationIndex = node.generationCompletedCount + 1;
@@ -930,8 +1171,22 @@ export function createExecutionCoreApi({
                 throw err;
             }
         },
-        TextChat: async (node, inputs, signal) => {
+        TextChat: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
+            const fixedToggle = documentRef.getElementById(`${id}-fixed`);
+            const isFixed = fixedToggle ? fixedToggle.checked : false;
+
+            if (isFixed && node.isSucceeded && node.data && node.data.text) {
+                completeNodeApiGenerationProgress(node);
+                const cachedHtml = node.lastResponse || escapeHtml(node.data.text).replace(/\n/g, '<br>');
+                const responseArea = documentRef.getElementById(`${id}-response`);
+                if (responseArea) responseArea.innerHTML = cachedHtml;
+                return {
+                    text: node.data.text,
+                    lastResponse: cachedHtml
+                };
+            }
+
             const configId = documentRef.getElementById(`${id}-apiconfig`).value;
             const modelCfg = state.models.find((model) => model.id === configId);
             if (!modelCfg) throw new Error('未找到选定的模型配置');
@@ -943,14 +1198,6 @@ export function createExecutionCoreApi({
 
             const sysprompt = documentRef.getElementById(`${id}-sysprompt`).value;
             const prompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
-            const fixedToggle = documentRef.getElementById(`${id}-fixed`);
-            const isFixed = fixedToggle ? fixedToggle.checked : false;
-
-            if (isFixed && node.isSucceeded && node.data && node.data.text) {
-                completeNodeApiGenerationProgress(node);
-                return;
-            }
-
             const responseArea = documentRef.getElementById(`${id}-response`);
 
             if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
@@ -1053,17 +1300,28 @@ export function createExecutionCoreApi({
                     if (jsonResponse) err.serverResponse = JSON.stringify(jsonResponse, null, 2);
                     throw err;
                 }
-                if (windowRef.marked && windowRef.marked.parse) {
-                    responseArea.innerHTML = windowRef.marked.parse(responseText);
-                } else {
-                    responseArea.innerText = responseText;
-                }
-                node.data.text = responseText;
-                node.lastResponse = responseArea.innerHTML;
-                node.isSucceeded = true;
+                const responseHtml = windowRef.marked && windowRef.marked.parse
+                    ? windowRef.marked.parse(responseText)
+                    : escapeHtml(responseText).replace(/\n/g, '<br>');
+
                 incrementNodeApiGenerationProgress(node);
 
-                updateAllConnections();
+                if (!executionContext.concurrentExecution) {
+                    if (windowRef.marked && windowRef.marked.parse) {
+                        responseArea.innerHTML = responseHtml;
+                    } else {
+                        responseArea.innerText = responseText;
+                    }
+                    node.data.text = responseText;
+                    node.lastResponse = responseHtml;
+                    node.isSucceeded = true;
+                    updateAllConnections();
+                }
+
+                return {
+                    text: responseText,
+                    lastResponse: responseHtml
+                };
             } catch (err) {
                 renderNodeApiGenerationProgress(node, { current: 0, total: 1 });
                 responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
@@ -1265,7 +1523,7 @@ export function createExecutionCoreApi({
         }
     };
 
-    async function executeNode(node, inputs, signal) {
+    async function executeNode(node, inputs, signal, executionContext = {}) {
         if (node.type === 'ImageImport') {
             const imageValue = getImageImportOutputValue(node);
             if (!imageValue) {
@@ -1298,7 +1556,7 @@ export function createExecutionCoreApi({
 
         const handler = nodeHandlers[node.type];
         if (handler) {
-            await handler(node, inputs, signal);
+            return await handler(node, inputs, signal, executionContext);
         } else {
             console.warn(`No handler defined for node type: ${node.type}`);
         }

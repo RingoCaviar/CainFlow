@@ -10,8 +10,15 @@
 
 - 图片数组的规范载体是 `data.images`、`imageDataList`、`generatedImages`，文本数组的规范载体是 `data.texts`，动态文本端口也可以在 `data.part_N` 等端口字段上保存数组。`js/features/execution/execution-core.js` 负责节点 handler、数组输出写入与 `getCachedOutputValue` 的多值读取，`js/features/execution/workflow-runner.js` 负责把数组输入识别为批处理信号。
 - 普通节点接到数组输入时，下游应按所有数组输入的笛卡尔组合批量执行，而不是按索引拉链式配对；例如 2 张图片 × 3 段文本必须运行 6 次。批量执行后的图片结果聚合回 `data.images`，文本结果按真实输出端口分别聚合，主文本口同步到 `data.texts`。`TextChat` 接收多图数组或多文本数组时也属于普通批处理节点，应按组合逐次运行，而不是只运行一次或漏掉组合。
+- `TextChat` 勾选“固定结果”且已有缓存结果时，不再属于普通批处理节点：执行计划遇到它应停止向上追溯输入依赖，批量调度不得因上游数组展开它，缓存输出只返回 `node.data.text` 单条结果，不继续透出旧 `data.texts`。固定缓存命中时不检查模型/供应商/API Key，不发起请求。
 - `ImageMerge`、`TextMerge`、`ImagePreview`、`ImageSave`、`Text` 是收集/展示/保存/数组预览类节点，接到数组时一次性接收整组数据，不按数组拆批。`ImagePreview` / `ImageSave` 通过左右箭头和计数器切换多图；`Text` 节点接收 `data.texts` 后通过左右箭头切换多文本，并用 `textPreviewIndex` 记录当前项。
 - 备用输入口（Spare Input Port）指动态输入端口始终保持“已连接端口最大序号 + 1”，保证末尾总有 1 个空输入口可继续连接。`ImageMerge` / `TextMerge` 使用该端口规则：端口同步和失效连线清理在 `js/nodes/node-dom-bindings.js`，初始端口恢复在 `js/nodes/node-view-factory.js`，`inputCount` 保存/复制在 `js/nodes/node-serializer.js` 与 `js/features/ui/clipboard-controller.js`。
+
+### 并发请求模式约定
+
+- 并发请求模式是通用设置里的全局开关，状态字段为 `concurrentRequestMode`，默认开启。修改该能力时同步 `js/core/state.js`、`js/features/settings/settings-controller.js`、`js/features/ui/ui-controller.js`、`js/features/persistence/project-io.js`、`js/nodes/node-serializer.js` 与 `index.js` 注入链，避免刷新、导入导出或会话恢复后设置丢失。
+- 开关打开后，`workflow-runner.js` 负责识别 `ImageGenerate` / `TextChat` 因数组输入即将运行多次的场景，用 `executeConcurrentBatchRequest` 并发发起各组请求；失败项按自动重试次数独立重试，只有所有 batch 成功后才用 `commitConcurrentBatchResults` 一次性提交到节点输出并运行下游。
+- `ImageGenerate` 的单节点 `generationCount > 1` 也在 `execution-core.js` 内部并发执行。内部并发只用局部数组收集结果；普通运行失败时先提交已成功图片和 `generationCompletedCount`，自动重试只补剩余；批量并发运行时不得提前写共享 `node.data.image` / `node.data.images`，避免多个 batch 互相覆盖。
 
 ### 错误提示中文化
 
@@ -107,9 +114,9 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | **执行引擎** | | |
-| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数；Text 节点运行时同步单文本/多文本输入输出，不自动改变节点尺寸；处理 ImageMerge/TextMerge 数组输出，`getCachedOutputValue` 必须把禁用节点视为没有输出，并能读取图片/文本数组缓存 |
+| 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数与并发生成请求；TextChat 固定结果缓存命中时直接返回缓存，`getCachedOutputValue` 必须把禁用节点视为没有输出，并在固定 TextChat 下只返回单条缓存文本；Text 节点运行时同步单文本/多文本输入输出，不自动改变节点尺寸；处理 ImageMerge/TextMerge 数组输出并读取图片/文本数组缓存 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
-| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出；普通节点接到数组输入时按笛卡尔组合批量运行并聚合输出，动态文本输出按真实端口聚合，ImageMerge/TextMerge/ImagePreview/ImageSave/Text 不拆批 |
+| 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出，固定且有缓存的 TextChat 不向上追溯依赖、不按数组拆批；普通节点接到数组输入时按笛卡尔组合批量运行并聚合输出，动态文本输出按真实端口聚合，ImageMerge/TextMerge/ImagePreview/ImageSave/Text 不拆批；并发请求模式下并发执行 ImageGenerate/TextChat 的 batch 并在全部成功后统一提交 |
 | **帮助** | | |
 | 帮助面板 | `js/features/help/help-panel.js` | 操作帮助文档内容、帮助面板打开关闭与交互；新增画布/节点交互时同步补充对应说明 |
 | **历史记录** | | |
@@ -132,7 +139,7 @@
 | 工作流模型引用解析 | `js/features/persistence/workflow-model-resolver.js` | 旧工作流模型 ID 到当前模型配置的自动匹配；缺失模型或供应商引用提示 |
 | 会话管理 | `js/features/persistence/session-manager.js` | 自动保存、页面关闭前恢复等会话持久化 |
 | **设置** | | |
-| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、自动检测本地代理端口、版本更新、画布连线设置、通用设置卡片布局与安全开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
+| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、自动检测本地代理端口、版本更新、画布连线设置、通用设置卡片布局、安全开关与并发请求模式开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
@@ -229,6 +236,8 @@
 | 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
 | 修复禁用节点仍影响下游、缓存输出穿透或禁用后预览未断流 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/media/media-controller.js`, `js/nodes/node-lifecycle.js` |
 | 修改多图/多文本数组批处理、下游逐项运行或数组输出聚合 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
+| 修改并发请求模式、API 节点批量并发、失败项重试或并发结果提交 | `js/core/state.js`, `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js`, `index.js`, `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js` |
+| 修改 TextChat 固定结果缓存、忽略上游依赖或固定缓存输出语义 | `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/nodes/node-serializer.js`, `js/nodes/node-view-factory.js` |
 | 修改节点端口位置、输入/输出端口顶部对齐或端口行结构 | `js/nodes/node-view-factory.js`, `css/legacy.css`, `js/canvas/connections.js` |
 | 修改 ImageMerge/TextMerge 合一节点或备用输入口动态端口 | `js/nodes/types/image-merge.js`, `js/nodes/types/text-merge.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `index.html` |
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
@@ -315,6 +324,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 设置面板里的 API 供应商/模型管理继续放 `js/features/settings/settings-controller.js`：供应商卡片操作、获取模型列表按钮、模型列表弹窗、搜索、滚动位置保留、调用 `/proxy` 获取 OpenAI 兼容 `/v1/models` 或 Google `/v1beta/models`、添加条目到 `state.models` 都属于这里。调用代理请求头时复用 `js/services/api-client.js`；添加模型时要同步遵守 `provider-request-utils.js` 的用途与协议归一化，GPT/DALL-E/OpenAI 类模型用 OpenAI 兼容格式，Gemini 用 Google 格式，banana/imagen/image 类模型归为生图。
 - API 设置帮助属于设置面板内的轻量弹窗能力：标题旁入口只在 `index.html` 放静态按钮，弹窗内容和事件由 `settings-controller.js` 渲染管理，关闭按钮、遮罩关闭和设置弹窗关闭时的清理都应在同一控制器中处理；样式集中到 `css/features/settings.css` 并补浅色主题覆盖。
 - 通用设置是设置面板里的独立视觉区域：卡片结构继续由 `js/features/settings/settings-controller.js` 渲染，布局和视觉收敛到 `css/features/settings.css`。优先使用统一 grid（例如 `general-settings-grid` / `general-settings-card`）和统一的滑动开关 `toggle-switch` / `toggle-slider`，不要在通用设置里继续堆内联布局、混用 checkbox 外观或把样式加回 `css/legacy.css`。
+- 并发请求模式属于通用设置中的“自动化与重试”能力，状态字段是 `concurrentRequestMode`，默认开启。该开关影响执行调度和 API 节点结果提交，新增或迁移时必须同步状态默认值、设置页 UI、导入导出、会话恢复、节点序列化和 `index.js` 依赖注入。
 - 供应商锁定属于“共享常量 + 设置页 + 持久化”的联合约束：`API_PROVIDERS_LOCKED` 放 `js/core/constants.js`，设置页按钮显隐和供应商 `endpoint` 只读在 `js/features/settings/settings-controller.js`，配置导入旁路保护在 `js/features/ui/ui-controller.js`，会话恢复旁路保护在 `js/features/persistence/project-io.js`。锁定后模型管理仍可用，但不能让导入配置或本地恢复替换默认供应商 URL。
 - 代理安全策略的职责边界要固定：允许域名、内置默认放行域名、私网/本机阻断、`allowPrivateNetworkTargets` 逻辑都收在 `backend/services/security_service.py`；`backend/services/proxy_service.py` 只负责读取请求头并调用校验；前端安全开关与允许域名维护入口在 `js/features/settings/settings-controller.js`；统一中文错误提示在 `js/services/api-client.js`；更新检查如需复用这套提示，走 `js/features/update/update-manager.js`。
 - 项目内建功能依赖的官方域名也属于默认允许名单的一部分，而不只是第三方 API 供应商域名。当前更新检查依赖 `api.github.com` / `github.com`，调整 SSRF 默认策略时要把这些项目自用域名一起纳入考虑，避免误拦截。
@@ -324,6 +334,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
+- 并发请求模式下的 ImageGenerate 既可能由 `workflow-runner.js` 对多组上游输入并发运行，也可能由 `execution-core.js` 对同一节点的 `generationCount` 内部并发运行。内部并发成功前优先保持局部结果，失败时普通运行可提交已成功图片供重试续跑；批量并发运行只能返回 `{ image, images }` 给运行器统一提交，不要在每个 batch 内写共享节点输出。
 - 媒体处理放 `js/features/media/`，不要堆回节点类型文件。
 - 图片类节点的定义、模板、DOM 绑定、媒体同步和执行输出要分层处理：`js/nodes/types/*.js` 只放元数据和端口；`js/nodes/node-view-factory.js` 只生成结构；`js/nodes/node-dom-bindings.js` 只接入节点事件；`js/features/media/media-controller.js` 负责图片显示状态、交互与依赖刷新；`js/features/execution/execution-core.js` 负责运行时输入校验、输出写入和向下游分发。
 - 节点端口位置先看 `js/nodes/node-view-factory.js` 与 `css/legacy.css`：当前输入/输出端口在顶部同一行并排展开，最上方端口需要左右对齐。`js/canvas/connections.js` 只负责按端口圆点实际 DOM 坐标取点，除非连线命中或路径本身有问题，不要为端口视觉位置改连线几何。
@@ -332,6 +343,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - ImageGenerate / TextChat / Text 等带 textarea 的节点若出现“点击输入框后节点变小”，优先检查 `js/nodes/node-dom-bindings.js` 里的可扩展元素尺寸监听。只允许 `ResizeObserver` 等真实尺寸变化触发 fit，不要把 `mouseup`、`touchend`、focus/click 这类交互事件接到 shrink fit。
 - TextSplit 输出数量控件是节点内步进控件：左右按钮增减，中间输入框只能输入数字；`outputCount > 0` 时固定生成对应数量端口，`outputCount = 0` 时按分割结果自动生成端口。保存、复制、恢复和运行都要保留 `outputCount`，旧工作流缺少该字段时应从 `parts` 或分割结果推导端口数量，避免已有 `part_N` 连线失效。
 - TextSplit 预览区、TextChat 回复区这类节点内长内容必须在节点内部滚动展示，不能把完整内容高度纳入最小尺寸测量；复制按钮等覆盖控件应收在结果框内部，不要额外占用一列布局。共享测量链遇到可滚动结果区时只测稳定容器高度，避免 `body.scrollHeight` 或父容器 `offsetHeight` 把长回复全文重新算进 resize 最小高度。
+- TextChat 的“固定结果”是缓存输出语义，不是普通复用请求语义：已有缓存时执行计划不再收集它的上游依赖，批量调度不按上游数组拆批，handler 不检查 API 配置也不发请求；下游读取文本输出时只拿 `node.data.text`，避免旧 `node.data.texts` 把缓存结果重新变成多组输入。
 - `CameraControl` 这类固定结构工具节点遵循统一责任链：节点定义在 `js/nodes/types/camera-control.js`，模板在 `js/nodes/node-view-factory.js`，DOM 绑定在 `js/nodes/node-dom-bindings.js`，3D 逻辑和 prompt 映射在 `js/features/camera/camera-control-node.js`，共享最小尺寸/显示兜底在 `js/nodes/node-lifecycle.js`，拖拽缩放期的动态最小尺寸约束在 `js/canvas/canvas-interactions.js`，样式在 `css/components/nodes.css`。
 - `CameraControl` 节点的编辑器只在用户点击“编辑视角”时出现；退出编辑后不应继续显示 3D 窗口，以免白白占用渲染压力。缩略图、参数和提示词要保存在 `node.data` 里，并在运行、复制、导出和恢复时保持一致。
 - `CameraControl` 编辑器里的正视重置、世界中心坐标轴、手动数值输入、单位显示和浅色主题覆盖继续分别收口在 `js/features/camera/camera-control-node.js`、`css/components/nodes.css` 与 `css/themes.css`；不要把浅色专属规则或运行态逻辑散回模板层。

@@ -1,5 +1,49 @@
 /* Component entry point for node-specific styling. */
 
+.node-concurrent-status-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 10px);
+    z-index: 70;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.88);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: none;
+}
+
+.node-concurrent-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12px, 1fr));
+    gap: 5px;
+    align-items: center;
+}
+
+.node-concurrent-status-dot {
+    width: 8px;
+    height: 8px;
+    justify-self: center;
+    border-radius: 50%;
+    background: #facc15;
+    box-shadow: 0 0 8px rgba(250, 204, 21, 0.55);
+    transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.node-concurrent-status-dot[data-status="success"] {
+    background: var(--accent-green);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.node-concurrent-status-dot[data-status="failed"] {
+    background: var(--accent-red);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.52);
+}
+
 .node-run-cancel-btn {
     position: absolute;
     left: 50%;
