@@ -145,8 +145,12 @@ function renderNodeHeader(id, config, options = {}) {
     const collapseTitle = options.collapsed ? '展开节点' : '折叠节点';
     const collapseStateClass = options.collapsed ? 'is-collapsed' : '';
     const displayTitle = options.customTitle || config.title;
+    const cloneBadge = options.isClone
+        ? `<button type="button" class="node-clone-badge" data-node-id="${id}" title="跳转到源节点" aria-label="跳转到源节点">克隆</button>`
+        : '';
     return `
         <div class="node-glass-bg"></div>
+        ${cloneBadge}
         <div class="node-header" data-node-id="${id}" title="双击折叠或展开">
             <div class="header-left">
                 ${config.icon}
@@ -655,12 +659,13 @@ export function createNodeMarkup({ type, id, config, restoreData, state }) {
         effectiveConfig = { ...config, inputs: getImageMergeInputPorts(restoreData) };
     }
     const isCollapsed = restoreData?.collapsed === true;
+    const isClone = restoreData?.isClone === true && typeof restoreData?.cloneSourceId === 'string' && restoreData.cloneSourceId;
     const customTitle = typeof restoreData?.customTitle === 'string' && restoreData.customTitle.trim()
         ? restoreData.customTitle.trim()
         : '';
     const bodyClassName = isCollapsed ? 'node-body is-collapsed' : 'node-body';
     return [
-        renderNodeHeader(id, effectiveConfig, { collapsed: isCollapsed, customTitle }),
+        renderNodeHeader(id, effectiveConfig, { collapsed: isCollapsed, customTitle, isClone }),
         renderPortSections(id, effectiveConfig),
         `<div class="${bodyClassName}">`,
         renderNodeBody(type, id, restoreData, state),

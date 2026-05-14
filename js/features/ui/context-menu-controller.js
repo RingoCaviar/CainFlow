@@ -8,6 +8,8 @@ export function createContextMenuControllerApi({
     connectionCreatePopup,
     viewportApi,
     addNode,
+    cloneNode = null,
+    detachCloneNode = null,
     renameNode = null,
     runWorkflow,
     createNodeFromConnectionCandidate,
@@ -40,11 +42,17 @@ export function createContextMenuControllerApi({
         const runToHereItem = documentRef.getElementById('context-menu-run-to-here');
         const runSelectedItem = documentRef.getElementById('context-menu-run-selected');
         const renameNodeItem = documentRef.getElementById('context-menu-rename-node');
+        const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
+        const detachCloneNodeItem = documentRef.getElementById('context-menu-detach-clone-node');
         const divider = documentRef.getElementById('context-menu-node-divider');
+        const targetNode = state.contextMenuNodeId ? state.nodes.get(state.contextMenuNodeId) : null;
+        const isCloneTarget = targetNode?.isClone === true;
 
         setElementVisible(runToHereItem, hasNodeTarget);
         setElementVisible(runSelectedItem, hasSelection);
-        setElementVisible(renameNodeItem, hasNodeTarget);
+        setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
+        setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
+        setElementVisible(detachCloneNodeItem, hasNodeTarget && isCloneTarget);
 
         const hasAnyNodeAction = hasNodeTarget || hasSelection;
         if (nodeActions) {
@@ -104,6 +112,22 @@ export function createContextMenuControllerApi({
                 const nextTitle = promptRef('请输入新的节点名称；留空将还原节点原本的名字', currentTitle);
                 if (nextTitle !== null) {
                     renameNode(nodeId, nextTitle);
+                }
+                return;
+            }
+
+            if (item.id === 'context-menu-clone-node') {
+                const nodeId = state.contextMenuNodeId;
+                if (nodeId && typeof cloneNode === 'function') {
+                    cloneNode(nodeId);
+                }
+                return;
+            }
+
+            if (item.id === 'context-menu-detach-clone-node') {
+                const nodeId = state.contextMenuNodeId;
+                if (nodeId && typeof detachCloneNode === 'function') {
+                    detachCloneNode(nodeId);
                 }
                 return;
             }

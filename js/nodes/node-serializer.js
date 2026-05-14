@@ -29,6 +29,10 @@ export function createNodeSerializer({ state, documentRef }) {
                 enabled: node.enabled,
                 lastDuration: node.lastDuration || null
             };
+            if (node.isClone === true && typeof node.cloneSourceId === 'string' && node.cloneSourceId) {
+                serialized.isClone = true;
+                serialized.cloneSourceId = node.cloneSourceId;
+            }
             if (typeof node.customTitle === 'string' && node.customTitle.trim()) {
                 serialized.customTitle = node.customTitle.trim();
             }

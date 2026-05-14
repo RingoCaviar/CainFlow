@@ -16,6 +16,7 @@ export function createMediaControllerApi({
     addLog,
     scheduleSave,
     syncCameraControlNodePreview = () => {},
+    syncClonesFromSource = () => {},
     openImagePainter,
     getHistory = async () => [],
     fitNodeToContent = () => {},
@@ -283,6 +284,7 @@ export function createMediaControllerApi({
         if (refreshDependents) {
             await refreshDependentImageResizePreviews(nodeId);
         }
+        syncClonesFromSource(nodeId);
 
         return node.data.image || null;
     }

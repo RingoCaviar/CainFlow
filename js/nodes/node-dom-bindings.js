@@ -410,6 +410,177 @@ export function createNodeDomBindingsApi({
         }
     }
 
+    function clonePlainValue(value) {
+        if (value === undefined) return undefined;
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch {
+            return value;
+        }
+    }
+
+    function getNodeControlSuffix(control, nodeId) {
+        if (!control?.id || !control.id.startsWith(`${nodeId}-`)) return '';
+        return control.id.slice(`${nodeId}-`.length);
+    }
+
+    function escapeCssIdent(value) {
+        const cssRef = documentRef.defaultView?.CSS || globalThis.CSS;
+        return cssRef?.escape ? cssRef.escape(String(value)) : String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    }
+
+    function syncCloneNodeFromSource(cloneNode, sourceNode) {
+        if (!cloneNode?.el || !sourceNode?.el) return;
+        sourceNode.el.querySelectorAll('input[id], select[id], textarea[id]').forEach((sourceControl) => {
+            const suffix = getNodeControlSuffix(sourceControl, sourceNode.id);
+            if (!suffix) return;
+            const cloneControl = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-${escapeCssIdent(suffix)}`);
+            if (!cloneControl) return;
+            if (sourceControl.type === 'checkbox') {
+                cloneControl.checked = sourceControl.checked;
+            } else {
+                cloneControl.value = sourceControl.value;
+            }
+            const customWrapper = cloneControl.nextElementSibling?.classList?.contains('node-select')
+                ? cloneControl.nextElementSibling
+                : null;
+            if (customWrapper) renderCustomSelectOptions(cloneControl, customWrapper);
+        });
+
+        cloneNode.providerId = sourceNode.providerId || '';
+        cloneNode.customTitle = sourceNode.customTitle || '';
+        const cloneTitle = cloneNode.el.querySelector('.node-title');
+        const sourceTitle = sourceNode.el.querySelector('.node-title');
+        if (cloneTitle && sourceTitle) cloneTitle.textContent = sourceTitle.textContent || cloneTitle.textContent;
+
+        if (cloneNode.type === 'ImageImport') {
+            cloneNode.importMode = sourceNode.importMode || 'upload';
+            cloneNode.imageUrl = sourceNode.imageUrl || '';
+            cloneNode.imageData = sourceNode.imageData || null;
+            cloneNode.data = clonePlainValue(cloneNode.data || {});
+            if (cloneNode.importMode === 'url') {
+                cloneNode.data.image = cloneNode.imageUrl || '';
+            } else if (cloneNode.imageData) {
+                cloneNode.data.image = cloneNode.imageData;
+            } else {
+                delete cloneNode.data.image;
+            }
+        }
+
+        if (cloneNode.type === 'Text') {
+            cloneNode.data = clonePlainValue(cloneNode.data || {});
+            cloneNode.data.text = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-text`)?.value || '';
+        }
+
+        if (cloneNode.type === 'TextSplit') {
+            cloneNode.data = clonePlainValue(cloneNode.data || {});
+            cloneNode.data.delimiter = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-delimiter`)?.value || '';
+            cloneNode.data.outputCount = normalizeTextSplitOutputCountValue(
+                cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-output-count`)?.value ?? cloneNode.data.outputCount ?? 1
+            );
+            cloneNode.data.removeEmptyLines = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-remove-empty-lines`)?.checked === true;
+            cloneNode.data.previewEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-preview-enabled`)?.checked === true;
+        }
+
+        if (cloneNode.type === 'CameraControl') {
+            cloneNode.data = clonePlainValue(cloneNode.data || {});
+            cloneNode.data.pitch = Number(sourceNode.data?.pitch ?? cloneNode.data.pitch ?? 12);
+            cloneNode.data.yaw = Number(sourceNode.data?.yaw ?? cloneNode.data.yaw ?? 28);
+            cloneNode.data.distance = Number(sourceNode.data?.distance ?? cloneNode.data.distance ?? 6.5);
+            cloneNode.data.fov = Number(sourceNode.data?.fov ?? cloneNode.data.fov ?? 50);
+            cloneNode.data.roll = Number(sourceNode.data?.roll ?? cloneNode.data.roll ?? 0);
+            cloneNode.data.text = String(sourceNode.data?.text ?? cloneNode.data.text ?? '');
+            cloneNode.data.cameraPrompt = String(sourceNode.data?.cameraPrompt ?? cloneNode.data.text ?? '');
+            cloneNode.data.cameraViewMode = sourceNode.data?.cameraViewMode === 'thirdPerson' ? 'thirdPerson' : 'firstPerson';
+        }
+
+        if (cloneNode.type === 'ImageImport') {
+            const modeInput = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-import-mode`);
+            const mode = cloneNode.importMode === 'url' ? 'url' : 'upload';
+            if (modeInput) modeInput.value = mode;
+            cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-upload-section`)?.classList.toggle('hidden', mode !== 'upload');
+            cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-url-section`)?.classList.toggle('hidden', mode !== 'url');
+            const drop = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-drop`);
+            if (drop && mode === 'upload' && cloneNode.imageData) {
+                drop.classList.add('has-image');
+                drop.innerHTML = `<img src="${cloneNode.imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
+            } else if (drop) {
+                drop.classList.remove('has-image');
+                drop.innerHTML = `<div class="drop-text">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    拖拽图片到此处
+                </div>`;
+            }
+            const urlPreview = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-url-preview`);
+            if (urlPreview && mode === 'url' && cloneNode.imageUrl) {
+                urlPreview.classList.add('has-image');
+                urlPreview.innerHTML = `<img src="${cloneNode.imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" />`;
+            } else if (urlPreview) {
+                urlPreview.classList.remove('has-image');
+                urlPreview.innerHTML = `<div class="drop-text">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    输入 URL 后自动显示预览
+                </div>`;
+            }
+        }
+        if (cloneNode.type === 'Text') renderTextMultiPreview(cloneNode.id);
+        if (cloneNode.type === 'TextSplit') syncTextSplitNodeData(cloneNode.id);
+    }
+
+    function syncClonesFromSource(sourceNodeId) {
+        const sourceNode = state.nodes.get(sourceNodeId);
+        if (!sourceNode || sourceNode.isClone) return;
+        state.nodes.forEach((node) => {
+            if (node?.isClone === true && node.cloneSourceId === sourceNodeId && node.type === sourceNode.type) {
+                syncCloneNodeFromSource(node, sourceNode);
+            }
+        });
+        updateAllConnections();
+    }
+
+    function lockCloneNodeEditing(id, el) {
+        const node = state.nodes.get(id);
+        if (!node?.isClone) return;
+        el.querySelectorAll('.node-body input, .node-body select, .node-body textarea, .node-body button, .node-select-trigger').forEach((control) => {
+            control.dataset.cloneLocked = '1';
+            control.classList.add('clone-locked-control');
+            if (control.tagName === 'TEXTAREA' || control.tagName === 'INPUT') {
+                control.readOnly = true;
+            }
+            if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA' || control.tagName === 'SELECT' || control.tagName === 'BUTTON') {
+                control.disabled = true;
+            }
+        });
+        el.querySelectorAll('.node-body .toggle-switch').forEach((control) => {
+            control.classList.add('clone-locked-control');
+        });
+    }
+
+    function scrollToCloneSource(id) {
+        const node = state.nodes.get(id);
+        const source = node?.cloneSourceId ? state.nodes.get(node.cloneSourceId) : null;
+        if (!source?.el) {
+            showToast('源节点不存在，右键可将此克隆节点独立化', 'warning');
+            return;
+        }
+        state.selectedNodes.forEach((nid) => {
+            const selectedNode = state.nodes.get(nid);
+            selectedNode?.el?.classList.remove('selected');
+        });
+        state.selectedNodes.clear();
+        state.selectedNodes.add(source.id);
+        source.el.classList.add('selected', 'clone-source-highlight');
+        const containerRect = canvasContainer.getBoundingClientRect();
+        const zoom = state.canvas.zoom || 1;
+        const width = source.el.offsetWidth || source.width || 180;
+        const height = source.el.offsetHeight || source.height || 120;
+        state.canvas.x = (containerRect.width / 2) - ((source.x + width / 2) * zoom);
+        state.canvas.y = (containerRect.height / 2) - ((source.y + height / 2) * zoom);
+        viewportApi.updateCanvasTransform();
+        setTimeout(() => source.el?.classList.remove('clone-source-highlight'), 1200);
+        updateAllConnections();
+    }
+
     function refreshTextSplitOutputPorts(nodeId, nextCount = getCurrentTextSplitRenderedOutputCount(nodeId)) {
         const node = state.nodes.get(nodeId);
         if (!node?.el) return;
@@ -1439,6 +1610,12 @@ export function createNodeDomBindingsApi({
             toggleNodeCollapsed(id);
         });
 
+        el.querySelector('.node-clone-badge')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            scrollToCloneSource(id);
+        });
+
         el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => {
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
@@ -1473,6 +1650,7 @@ export function createNodeDomBindingsApi({
         bindNodePorts(el);
         bindZoomSettleGuard(el);
         bindCustomNodeSelects(el);
+        lockCloneNodeEditing(id, el);
 
         if (type === 'ImageImport') setupImageImport(id, el);
         else if (type === 'Text') {
@@ -1604,8 +1782,14 @@ export function createNodeDomBindingsApi({
         }
 
         el.querySelectorAll('input, select, textarea').forEach((input) => {
-            input.addEventListener('change', () => scheduleSave());
-            input.addEventListener('input', debounce(() => scheduleSave(), 500));
+            input.addEventListener('change', () => {
+                if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
+                scheduleSave();
+            });
+            input.addEventListener('input', debounce(() => {
+                if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
+                scheduleSave();
+            }, 500));
 
             if (type === 'Text' && input.id === `${id}-text`) {
                 input.addEventListener('input', () => syncTextNodeData(id));
@@ -1628,11 +1812,17 @@ export function createNodeDomBindingsApi({
                 bindTextareaHeightPersistence(input);
             }
         });
+
+        if (state.nodes.get(id)?.isClone) {
+            const sourceNode = state.nodes.get(state.nodes.get(id)?.cloneSourceId);
+            if (sourceNode) syncCloneNodeFromSource(state.nodes.get(id), sourceNode);
+        }
     }
 
     return {
         bindNodeInteractions,
         syncTextSplitNodeData,
-        syncImageMergeNodes
+        syncImageMergeNodes,
+        syncClonesFromSource
     };
 }

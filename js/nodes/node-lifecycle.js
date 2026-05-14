@@ -16,6 +16,7 @@ export function createNodeLifecycleApi({
     showResolutionBadge,
     restoreImageResizePreview,
     bindNodeInteractions,
+    serializeOneNode = null,
     pushHistory,
     scheduleSave,
     showToast,
@@ -631,6 +632,15 @@ export function createNodeLifecycleApi({
         nodeData.el.dataset.nodeTitle = displayTitle;
     }
 
+    function clonePlainValue(value) {
+        if (value === undefined) return undefined;
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch {
+            return value;
+        }
+    }
+
     function addNode(type, x, y, restoreData, silent = false) {
         if (!silent) pushHistory();
         const normalizedType = normalizeNodeType(type);
@@ -644,6 +654,10 @@ export function createNodeLifecycleApi({
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
         el.id = id;
+        if (effectiveRestoreData?.isClone === true && effectiveRestoreData?.cloneSourceId) {
+            el.classList.add('node-clone');
+            el.dataset.cloneSourceId = effectiveRestoreData.cloneSourceId;
+        }
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config);
@@ -708,8 +722,13 @@ export function createNodeLifecycleApi({
             outputQuality: effectiveRestoreData?.outputQuality || null,
             estimatedBytes: effectiveRestoreData?.estimatedBytes || null,
             defaultTitle: config.title,
-            customTitle: normalizeCustomNodeTitle(effectiveRestoreData?.customTitle || '')
+            customTitle: normalizeCustomNodeTitle(effectiveRestoreData?.customTitle || ''),
+            isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
+            cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        if (!nodeData.isClone) {
+            nodeData.cloneSourceId = '';
+        }
         applyNodeTitle(nodeData);
         if (nodeData.lastDuration) {
             const timeBadge = el.querySelector(`#${id}-time`);
@@ -1108,6 +1127,10 @@ export function createNodeLifecycleApi({
     function renameNode(nodeId, nextTitle) {
         const nodeData = state.nodes.get(nodeId);
         if (!nodeData) return false;
+        if (nodeData.isClone) {
+            showToast('克隆节点的参数与标题由源节点同步，请先独立化后再重命名', 'warning');
+            return false;
+        }
         if (isNodeRunning(nodeId)) {
             showToast('节点正在运行，暂不能重命名', 'warning');
             return false;
@@ -1125,10 +1148,80 @@ export function createNodeLifecycleApi({
             delete nodeData.data.customTitle;
         }
         applyNodeTitle(nodeData);
+        state.nodes.forEach((candidate) => {
+            if (candidate?.isClone === true && candidate.cloneSourceId === nodeId) {
+                candidate.customTitle = nodeData.customTitle || '';
+                applyNodeTitle(candidate);
+            }
+        });
         scheduleEnsureNodeContentVisible(nodeId, { save: false });
         updateAllConnections();
         scheduleSave();
         showToast(customTitle ? `节点已重命名为「${customTitle}」` : '节点名称已还原', 'success');
+        return true;
+    }
+
+    function cloneNode(sourceNodeId) {
+        const sourceNode = state.nodes.get(sourceNodeId);
+        if (!sourceNode) return null;
+        if (sourceNode.isClone) {
+            showToast('请从源节点创建克隆，或先独立化这个克隆节点', 'warning');
+            return null;
+        }
+        if (typeof serializeOneNode !== 'function') {
+            showToast('当前无法读取节点参数，克隆失败', 'error');
+            return null;
+        }
+
+        pushHistory();
+        const snapshot = serializeOneNode(sourceNodeId);
+        if (!snapshot) return null;
+        const newId = addNode(sourceNode.type, sourceNode.x + 36, sourceNode.y + 36, {
+            ...snapshot,
+            id: null,
+            x: sourceNode.x + 36,
+            y: sourceNode.y + 36,
+            isClone: true,
+            cloneSourceId: sourceNodeId
+        }, true);
+        if (!newId) return null;
+
+        state.selectedNodes.forEach((nid) => {
+            const node = state.nodes.get(nid);
+            if (node) node.el.classList.remove('selected');
+        });
+        state.selectedNodes.clear();
+        state.selectedNodes.add(newId);
+        state.nodes.get(newId)?.el.classList.add('selected');
+        updateAllConnections();
+        scheduleSave();
+        showToast('已创建克隆节点', 'success');
+        return newId;
+    }
+
+    function detachCloneNode(nodeId) {
+        const nodeData = state.nodes.get(nodeId);
+        if (!nodeData?.isClone) return false;
+        if (isNodeRunning(nodeId)) {
+            showToast('节点正在运行，暂不能独立化', 'warning');
+            return false;
+        }
+
+        pushHistory();
+        nodeData.isClone = false;
+        nodeData.cloneSourceId = '';
+        nodeData.data = clonePlainValue(nodeData.data || {});
+        nodeData.el.classList.remove('node-clone');
+        nodeData.el.removeAttribute('data-clone-source-id');
+        nodeData.el.querySelector('.node-clone-badge')?.remove();
+        nodeData.el.querySelectorAll('[data-clone-locked="1"]').forEach((control) => {
+            control.removeAttribute('data-clone-locked');
+            if (control.tagName === 'TEXTAREA' || control.tagName === 'INPUT') control.readOnly = false;
+            if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA' || control.tagName === 'SELECT' || control.tagName === 'BUTTON') control.disabled = false;
+            control.classList.remove('clone-locked-control');
+        });
+        scheduleSave();
+        showToast('克隆节点已独立化', 'success');
         return true;
     }
 
@@ -1140,6 +1233,8 @@ export function createNodeLifecycleApi({
         detachNodesFromConnections,
         selectNode,
         toggleNodesEnabled,
-        renameNode
+        renameNode,
+        cloneNode,
+        detachCloneNode
     };
 }
