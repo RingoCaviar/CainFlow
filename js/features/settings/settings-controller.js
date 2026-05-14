@@ -59,6 +59,7 @@ export function createSettingsControllerApi({
         error: '',
         status: ''
     };
+    const HISTORY_ASSET_KEY_PREFIX = 'history:';
     let activeModelFetchRequestId = 0;
     let openModelProviderPanelId = '';
 
@@ -1757,7 +1758,37 @@ export function createSettingsControllerApi({
         }
     }
 
-    async function getStoreSizeMB(storeName) {
+    let storageTextEncoder = null;
+
+    function getStringStorageBytes(value) {
+        const text = String(value ?? '');
+        const Encoder = windowRef.TextEncoder || globalThis.TextEncoder;
+        if (Encoder) {
+            storageTextEncoder = storageTextEncoder || new Encoder();
+            return storageTextEncoder.encode(text).length;
+        }
+        return text.length * 2;
+    }
+
+    function getValueStorageBytes(value) {
+        if (value === undefined || value === null) return 0;
+        if (typeof value === 'string') return getStringStorageBytes(value);
+        try {
+            return getStringStorageBytes(JSON.stringify(value));
+        } catch {
+            return getStringStorageBytes(String(value));
+        }
+    }
+
+    function formatMB(bytes) {
+        return `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function isHistoryAssetKey(key) {
+        return typeof key === 'string' && key.startsWith(HISTORY_ASSET_KEY_PREFIX);
+    }
+
+    async function getStoreSizeBytes(storeName, includeEntry = () => true) {
         try {
             const db = await openDB();
             return new Promise((resolve) => {
@@ -1768,33 +1799,35 @@ export function createSettingsControllerApi({
                 req.onsuccess = (e) => {
                     const cursor = e.target.result;
                     if (cursor) {
-                        const val = cursor.value;
-                        if (typeof val === 'string') bytes += val.length;
-                        else bytes += JSON.stringify(val).length;
+                        if (includeEntry(cursor.key, cursor.value)) {
+                            bytes += getValueStorageBytes(cursor.key);
+                            bytes += getValueStorageBytes(cursor.value);
+                        }
                         cursor.continue();
                     } else {
-                        resolve((bytes / (1024 * 1024)).toFixed(2));
+                        resolve(bytes);
                     }
                 };
-                req.onerror = () => resolve('0.00');
+                req.onerror = () => resolve(0);
             });
         } catch (e) {
-            return '0.00';
+            return 0;
         }
     }
 
-    function getLocalStorageMB() {
+    function getLocalStorageBytes() {
         let bytes = 0;
         try {
             for (let i = 0; i < localStorageRef.length; i++) {
                 const key = localStorageRef.key(i);
                 const val = localStorageRef.getItem(key);
-                bytes += (key.length + val.length) * 2;
+                bytes += getStringStorageBytes(key);
+                bytes += getStringStorageBytes(val);
             }
         } catch (e) {
             // ignore
         }
-        return (bytes / (1024 * 1024)).toFixed(2);
+        return bytes;
     }
 
     async function updateCacheUsage(force = false) {
@@ -1805,24 +1838,22 @@ export function createSettingsControllerApi({
         if (!display) return;
 
         try {
-            if (windowRef.navigator.storage && windowRef.navigator.storage.estimate) {
-                const estimate = await windowRef.navigator.storage.estimate();
-                const mb = (estimate.usage / (1024 * 1024)).toFixed(2);
-                display.textContent = `${mb} MB`;
-            }
-
             if (force) {
                 state.cacheSizes[storeHistoryName] = null;
                 state.cacheSizes[storeAssetsName] = null;
             }
 
-            const historySize = await getStoreSizeMB(storeHistoryName);
-            const assetsSize = await getStoreSizeMB(storeAssetsName);
-            const localSize = getLocalStorageMB();
+            const historyStoreBytes = await getStoreSizeBytes(storeHistoryName);
+            const historyAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => isHistoryAssetKey(key));
+            const nodeAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => !isHistoryAssetKey(key));
+            const localBytes = getLocalStorageBytes();
+            const historyBytes = historyStoreBytes + historyAssetBytes;
+            const totalBytes = historyBytes + nodeAssetBytes + localBytes;
 
-            if (historyEl) historyEl.textContent = `${Number(historySize).toFixed(2)} MB`;
-            if (assetsEl) assetsEl.textContent = `${Number(assetsSize).toFixed(2)} MB`;
-            if (localEl) localEl.textContent = `${Number(localSize).toFixed(2)} MB`;
+            display.textContent = formatMB(totalBytes);
+            if (historyEl) historyEl.textContent = formatMB(historyBytes);
+            if (assetsEl) assetsEl.textContent = formatMB(nodeAssetBytes);
+            if (localEl) localEl.textContent = formatMB(localBytes);
         } catch (e) {
             display.textContent = '获取失败';
             console.error('Cache audit failed:', e);

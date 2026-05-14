@@ -362,7 +362,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             <textarea id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>
         <div class="node-field">
             <label>生成进度</label>
-            <div class="image-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
+            <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
         </div>
         <div class="node-error-msg" id="${id}-error"></div>
     `;
@@ -430,6 +430,10 @@ function renderTextChatBody(id, restoreData, models, providers) {
                 </button>
                 <div class="chat-response-area" id="${id}-response">${rd.lastResponse ? rd.lastResponse : '<div class="chat-response-placeholder">运行后显示对话结果</div>'}</div>
             </div>
+        </div>
+        <div class="node-field">
+            <label>生成进度</label>
+            <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/1</div>
         </div>
     `;
 }

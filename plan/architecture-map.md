@@ -67,8 +67,10 @@
 | 修复工作流执行反馈或逻辑 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js`, `backend/services/proxy_service.py` |
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
+| 修改 API 调用类节点的生成进度显示或总次数计算 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `css/legacy.css` |
 | 修复设置面板或配置交互 | `js/features/settings/settings-controller.js`, `js/features/settings/settings-modal.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 修复历史记录面板 | `js/features/history/history-panel.js`, `js/features/history/history-preview.js`, `js/features/history/history-fullscreen.js`, `js/features/history/history-utils.js`, `js/services/storage-idb.js`, `index.js` |
+| 修复缓存管理统计或缓存清理误删 | `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/services/storage-idb.js`, `js/core/constants.js`, `index.html` |
 | 修复日志面板或错误详情 | `js/features/logs/log-panel.js`, `index.js` |
 | 新增或修改节点类型 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `index.html` (右键菜单), `js/features/execution/execution-core.js` (执行逻辑) |
 | 新增或修改 `CameraControl` 视角控制节点 | `js/nodes/types/camera-control.js`, `js/features/camera/camera-control-node.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/canvas/canvas-interactions.js`, `css/components/nodes.css`, `js/features/execution/execution-core.js` |
@@ -99,10 +101,13 @@ rg "handle_get|handle_post|handle_delete|def " backend -g "*.py"
 - `js/main.js` 保持极简。
 - 行为是 feature 级别的，就新增到 `js/features/<feature>/`。
 - 节点克隆的同步边界是“参数和配置”而不是“运行结果”。克隆节点可以自己连输入输出端口并产生自己的输出，只有参数类变更（如 `textarea` / `select` / `input` / 导入模式等）才需要从源节点推送到克隆节点。
+- 缓存管理要保证“统计口径”和“清理边界”一致：`history:` 前缀资产属于历史记录，不属于当前节点资产；缓存面板里的分项清理只操作对应 IndexedDB 分区，不应清空 `localStorage` 中的 API 供应商、模型配置或其他设置。缓存大小统计优先在 `js/features/settings/settings-controller.js` 按 `STORE_HISTORY`、`STORE_ASSETS` 和 `localStorage` 分项计算，不要把 `navigator.storage.estimate()` 直接当成分项展示。
 - 供应商协议、模型能力、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
 - `CameraControl` 节点点击“编辑视角”后才显示 3D 界面；退出后要隐藏 3D 窗口，把缩略图和参数留在 `node.data` 里，运行重置也不要把这些数据清掉。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
+- API 调用类节点（当前包含 `ImageGenerate`、`TextChat`）的底部生成进度框由 `js/nodes/node-view-factory.js` / `css/legacy.css` 提供静态结构与样式；运行前总调用次数预计算放 `js/features/execution/workflow-runner.js`，运行中的成功递增、失败回退和固定结果兜底显示放 `js/features/execution/execution-core.js`。
+- 批量输入会直接影响 API 节点的进度总数：`TextChat` 的总数等于数组输入展开后的运行次数，`ImageGenerate` 的总数等于“数组输入展开后的运行次数 × generationCount”。失败不计入进度，自动重试应沿用运行时进度状态继续补剩余次数，不要把进度重新置回 0。
 - 后端按 route 与 service 分责，不要混写。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。
 - 保留当前启动流程中已经对外暴露的兼容钩子。

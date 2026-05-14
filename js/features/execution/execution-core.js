@@ -53,8 +53,7 @@ export function createExecutionCoreApi({
         });
     }
 
-function renderImageGeneratePreviewState(nodeId, {
-        message = '',
+    function renderApiGenerationProgressState(nodeId, {
         current = 0,
         total = 1
     } = {}) {
@@ -67,6 +66,53 @@ function renderImageGeneratePreviewState(nodeId, {
         progressEl.classList.remove('hidden');
 
         requestNodeFit(nodeId);
+    }
+
+    function renderNodeApiGenerationProgress(node, fallback = {}) {
+        const runtimeProgress = node?.apiGenerationProgress;
+        if (runtimeProgress) {
+            renderApiGenerationProgressState(node.id, {
+                current: runtimeProgress.completed,
+                total: runtimeProgress.total
+            });
+            return;
+        }
+
+        renderApiGenerationProgressState(node.id, fallback);
+    }
+
+    function incrementNodeApiGenerationProgress(node, amount = 1, fallback = {}) {
+        if (!node) return;
+        const fallbackCompleted = fallback.current ?? fallback.completed;
+        const runtimeProgress = node.apiGenerationProgress || {
+            completed: fallbackCompleted === undefined
+                ? 0
+                : Math.max(0, (parseInt(fallbackCompleted, 10) || 0) - amount),
+            total: Math.max(1, parseInt(fallback.total ?? amount, 10) || 1)
+        };
+        const total = Math.max(1, parseInt(runtimeProgress.total, 10) || 1);
+        const completed = Math.max(0, Math.min(total, (parseInt(runtimeProgress.completed, 10) || 0) + amount));
+        node.apiGenerationProgress = {
+            ...runtimeProgress,
+            total,
+            completed
+        };
+        renderApiGenerationProgressState(node.id, { current: completed, total });
+    }
+
+    function completeNodeApiGenerationProgress(node, fallback = { current: 1, total: 1 }) {
+        const runtimeProgress = node?.apiGenerationProgress;
+        if (!runtimeProgress) {
+            renderApiGenerationProgressState(node.id, fallback);
+            return;
+        }
+        const total = Math.max(1, parseInt(runtimeProgress.total, 10) || 1);
+        node.apiGenerationProgress = {
+            ...runtimeProgress,
+            total,
+            completed: total
+        };
+        renderApiGenerationProgressState(node.id, { current: total, total });
     }
 
     function isAbortLikeError(err, signal) {
@@ -745,15 +791,15 @@ function renderImageGeneratePreviewState(nodeId, {
                     node.data.image = node.generatedImages[node.generatedImages.length - 1];
                     node.imageData = node.data.image;
                 }
-                renderImageGeneratePreviewState(id, {
-                    current: Math.min(node.generationCompletedCount + 1, generationCount),
+                renderNodeApiGenerationProgress(node, {
+                    current: node.generationCompletedCount,
                     total: generationCount
                 });
 
                 while (node.generationCompletedCount < generationCount) {
                     const nextGenerationIndex = node.generationCompletedCount + 1;
-                    renderImageGeneratePreviewState(id, {
-                        current: nextGenerationIndex,
+                    renderNodeApiGenerationProgress(node, {
+                        current: node.generationCompletedCount,
                         total: generationCount
                     });
                     const requestBody = isGoogle
@@ -836,7 +882,7 @@ function renderImageGeneratePreviewState(nodeId, {
                     node.generatedImages[nextGenerationIndex - 1] = imageData;
                     node.data.images = node.generatedImages.slice(0, nextGenerationIndex);
                     node.generationCompletedCount = nextGenerationIndex;
-                    renderImageGeneratePreviewState(id, {
+                    incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
                         total: generationCount
                     });
@@ -852,7 +898,7 @@ function renderImageGeneratePreviewState(nodeId, {
                 }
             } catch (err) {
                 if (isAbortLikeError(err, signal)) {
-                    renderImageGeneratePreviewState(id, {
+                    renderNodeApiGenerationProgress(node, {
                         current: Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0),
                         total: targetGenerationCount
                     });
@@ -862,7 +908,7 @@ function renderImageGeneratePreviewState(nodeId, {
                     }
                     throw err;
                 }
-                renderImageGeneratePreviewState(id, {
+                renderNodeApiGenerationProgress(node, {
                     current: Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0),
                     total: targetGenerationCount
                 });
@@ -871,7 +917,13 @@ function renderImageGeneratePreviewState(nodeId, {
                     const progressText = targetGenerationCount > 1
                         ? `<div>已成功 ${completedCount}/${targetGenerationCount} 次，本次失败不计入次数。</div>`
                         : '';
-                    errorEl.innerHTML = `<strong>生成失败</strong>${progressText}${err.message}`;
+                    const runtimeFailedProgress = node.apiGenerationProgress || {};
+                    const runtimeFailedTotal = Math.max(1, parseInt(runtimeFailedProgress.total ?? targetGenerationCount, 10) || 1);
+                    const runtimeCompletedCount = Math.max(0, Math.min(runtimeFailedTotal, parseInt(runtimeFailedProgress.completed ?? completedCount, 10) || 0));
+                    const runtimeProgressText = runtimeFailedTotal > 1
+                        ? progressText.replace(`${completedCount}/${targetGenerationCount}`, `${runtimeCompletedCount}/${runtimeFailedTotal}`)
+                        : '';
+                    errorEl.innerHTML = `<strong>生成失败</strong>${runtimeProgressText}${err.message}`;
                     errorEl.style.display = 'block';
                     requestNodeFit(id);
                 }
@@ -895,6 +947,7 @@ function renderImageGeneratePreviewState(nodeId, {
             const isFixed = fixedToggle ? fixedToggle.checked : false;
 
             if (isFixed && node.isSucceeded && node.data && node.data.text) {
+                completeNodeApiGenerationProgress(node);
                 return;
             }
 
@@ -905,6 +958,7 @@ function renderImageGeneratePreviewState(nodeId, {
 
             showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
             responseArea.innerHTML = '<div class="chat-response-placeholder">正在生成回复...</div>';
+            renderNodeApiGenerationProgress(node, { current: 0, total: 1 });
 
             try {
                 let jsonResponse = null;
@@ -1007,9 +1061,11 @@ function renderImageGeneratePreviewState(nodeId, {
                 node.data.text = responseText;
                 node.lastResponse = responseArea.innerHTML;
                 node.isSucceeded = true;
+                incrementNodeApiGenerationProgress(node);
 
                 updateAllConnections();
             } catch (err) {
+                renderNodeApiGenerationProgress(node, { current: 0, total: 1 });
                 responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
                 throw err;
             }

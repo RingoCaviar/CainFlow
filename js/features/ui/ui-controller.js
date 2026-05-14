@@ -491,6 +491,36 @@ export function createUiControllerApi({
         initFeatureModules();
     }
 
+    function waitForTransaction(tx) {
+        return new Promise((resolve) => {
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
+        });
+    }
+
+    function isHistoryAssetKey(key) {
+        return typeof key === 'string' && key.startsWith('history:');
+    }
+
+    async function clearCurrentNodeAssetsOnly() {
+        if (clearImageAssets) {
+            return await clearImageAssets({ preserveHistory: true });
+        }
+
+        const db = await openDB();
+        const tx = db.transaction(storeAssetsName, 'readwrite');
+        const store = tx.objectStore(storeAssetsName);
+        const req = store.openKeyCursor();
+        req.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (!cursor) return;
+            if (!isHistoryAssetKey(cursor.key)) store.delete(cursor.key);
+            cursor.continue();
+        };
+        return await waitForTransaction(tx);
+    }
+
     function initCache() {
         const btnToggle = documentRef.getElementById('btn-toggle-cache');
         const cacheSidebar = documentRef.getElementById('cache-sidebar');
@@ -514,7 +544,8 @@ export function createUiControllerApi({
             if (!confirmRef('确定要清理所有历史记录吗？\n\n这将永久删除浏览器本地存储的历史生成图库，无法撤销。')) return;
 
             try {
-                await clearHistory();
+                const ok = await clearHistory();
+                if (!ok) throw new Error('IndexedDB 历史清理未完成');
 
                 showToast('历史生成记录已清空', 'success');
                 settingsControllerApi?.updateCacheUsage();
@@ -530,13 +561,8 @@ export function createUiControllerApi({
             if (!confirmRef('确定要清理所有节点资产吗？\n\n这会删除画布上当前正在显示的所有图片缓存。清理后刷新页面，图片将变成占位符！')) return;
 
             try {
-                if (clearImageAssets) {
-                    await clearImageAssets({ preserveHistory: true });
-                } else {
-                    const db = await openDB();
-                    const tx = db.transaction(storeAssetsName, 'readwrite');
-                    tx.objectStore(storeAssetsName).clear();
-                }
+                const ok = await clearCurrentNodeAssetsOnly();
+                if (!ok) throw new Error('IndexedDB 节点资产清理未完成');
 
                 showToast('当前画布资产已清理', 'success');
                 settingsControllerApi?.updateCacheUsage();

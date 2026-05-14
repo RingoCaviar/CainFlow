@@ -1405,7 +1405,7 @@ export function createNodeDomBindingsApi({
                 fieldMinHeight += label.offsetHeight;
             });
 
-            field.querySelectorAll('input, select, textarea, .toggle-switch, .generation-count-control, .text-split-output-count-control, .chat-response-wrapper, .text-display-box').forEach((control) => {
+            field.querySelectorAll('input, select, textarea, .toggle-switch, .generation-count-control, .text-split-output-count-control, .chat-response-wrapper, .text-display-box, .api-generation-progress').forEach((control) => {
                 if (control.closest('.node-field') !== field) return;
                 if (control.matches('input, select, textarea')) {
                     fieldMinWidth = Math.max(fieldMinWidth, getControlContentWidth(control));
@@ -1443,7 +1443,7 @@ export function createNodeDomBindingsApi({
                 if (child.classList.contains('node-field')) {
                     const childStyle = getComputedStyle(child);
                     const label = child.querySelector(':scope > label');
-                    const control = child.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .generation-count-control, :scope > .text-split-output-count-control, :scope > .chat-response-wrapper, :scope > .text-display-box');
+                    const control = child.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .generation-count-control, :scope > .text-split-output-count-control, :scope > .chat-response-wrapper, :scope > .text-display-box, :scope > .api-generation-progress');
                     const fieldGap = getPx(childStyle, 'row-gap') || getPx(childStyle, 'gap');
                     const controlStyle = control ? getComputedStyle(control) : null;
                     const controlMinHeight = controlStyle ? getPx(controlStyle, 'min-height') : 0;

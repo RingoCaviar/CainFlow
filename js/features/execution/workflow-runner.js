@@ -181,6 +181,9 @@ export function createWorkflowRunnerApi({
                 node.generationCompletedCount = 0;
                 node.generatedImages = [];
             }
+            if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
+                delete node.apiGenerationProgress;
+            }
         }
     }
 
@@ -293,6 +296,43 @@ export function createWorkflowRunnerApi({
         }, [{}]);
     }
 
+    function getConfiguredImageGenerationCount(node) {
+        const input = documentRef.getElementById(`${node.id}-generation-count`);
+        return Math.max(1, parseInt(input?.value || node?.generationCount || node?.data?.generationCount || '1', 10) || 1);
+    }
+
+    function getApiNodeRunCount(node, batchCount) {
+        if (!node) return 0;
+        const safeBatchCount = Math.max(1, parseInt(batchCount, 10) || 1);
+        if (node.type === 'ImageGenerate') return safeBatchCount * getConfiguredImageGenerationCount(node);
+        if (node.type === 'TextChat') return safeBatchCount;
+        return 0;
+    }
+
+    function renderApiNodeGenerationProgress(node, current, total) {
+        if (!node?.id) return;
+        const progressEl = documentRef.getElementById(`${node.id}-generation-progress`);
+        if (!progressEl) return;
+        const safeTotal = Math.max(1, parseInt(total, 10) || 1);
+        const safeCurrent = Math.max(0, Math.min(safeTotal, parseInt(current, 10) || 0));
+        progressEl.textContent = `${safeCurrent}/${safeTotal}`;
+        progressEl.classList.remove('hidden');
+    }
+
+    function prepareApiNodeGenerationProgress(node, batchCount) {
+        const total = getApiNodeRunCount(node, batchCount);
+        if (total <= 0) return;
+        const existingProgress = node.apiGenerationProgress;
+        const shouldPreserveCompleted = existingProgress &&
+            Math.max(1, parseInt(existingProgress.total, 10) || 1) === total &&
+            node.isSucceeded !== true;
+        const completed = shouldPreserveCompleted
+            ? Math.max(0, Math.min(total, parseInt(existingProgress.completed, 10) || 0))
+            : 0;
+        node.apiGenerationProgress = { total, completed };
+        renderApiNodeGenerationProgress(node, completed, total);
+    }
+
     function getNodeOutputPortNames(node, dataType) {
         const names = new Set();
         node?.el?.querySelectorAll(`.node-port[data-direction="output"][data-type="${dataType}"]`).forEach((portEl) => {
@@ -329,12 +369,15 @@ export function createWorkflowRunnerApi({
     }
 
     async function executeNodeWithInputBatches(node, inputs, signal) {
-        if (!shouldRunNodeForEachInput(node, inputs)) {
+        const shouldRunBatches = shouldRunNodeForEachInput(node, inputs);
+        const batches = shouldRunBatches ? buildInputBatches(inputs) : [inputs || {}];
+        prepareApiNodeGenerationProgress(node, batches.length);
+
+        if (!shouldRunBatches) {
             await executeNode(node, inputs, signal);
             return inputs;
         }
 
-        const batches = buildInputBatches(inputs);
         const aggregatedImages = [];
         const textOutputPorts = getNodeOutputPortNames(node, 'text');
         const aggregatedTextsByPort = new Map(textOutputPorts.map((portName) => [portName, []]));
