@@ -1,63 +1,65 @@
 /**
- * 封装工作流文件相关的前后端通信，请求列表、保存、读取、删除与重命名等接口。
+ * 封装工作流文件相关的前后端通信。
  */
-export async function fetchWorkflows() {
+
+async function requestWorkflow(url, options, errorMessage) {
     try {
-        const res = await fetch('/api/workflows');
-        if (!res.ok) throw new Error('读取工作流列表失败');
-        return await res.json();
+        const res = await fetch(url, options);
+        if (!res.ok) throw new Error(errorMessage);
+        return res;
     } catch (error) {
-        console.error(error);
+        return { ok: false, message: error.message };
+    }
+}
+
+export async function fetchWorkflows() {
+    const result = await requestWorkflow('/api/workflows', undefined, '读取工作流列表失败');
+    if (result?.ok === false) {
+        console.error(result.message);
         return [];
     }
+    return result.json();
 }
 
 export async function saveWorkflowToFile(name, data) {
-    try {
-        const res = await fetch(`/api/workflows/${encodeURIComponent(name)}`, {
+    const result = await requestWorkflow(
+        `/api/workflows/${encodeURIComponent(name)}`,
+        {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error('保存工作流失败');
-        return true;
-    } catch (error) {
-        return { ok: false, message: error.message };
-    }
+        },
+        '保存工作流失败'
+    );
+    return result?.ok === false ? result : true;
 }
 
 export async function loadWorkflowFromFile(name) {
-    try {
-        const res = await fetch(`/api/workflows/${encodeURIComponent(name)}`);
-        if (!res.ok) throw new Error('读取工作流文件失败');
-        return await res.json();
-    } catch (error) {
-        return { ok: false, message: error.message };
-    }
+    const result = await requestWorkflow(
+        `/api/workflows/${encodeURIComponent(name)}`,
+        undefined,
+        '读取工作流文件失败'
+    );
+    return result?.ok === false ? result : result.json();
 }
 
 export async function deleteWorkflowFile(name) {
-    try {
-        const res = await fetch(`/api/workflows/${encodeURIComponent(name)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('删除工作流失败');
-        return true;
-    } catch (error) {
-        return { ok: false, message: error.message };
-    }
+    const result = await requestWorkflow(
+        `/api/workflows/${encodeURIComponent(name)}`,
+        { method: 'DELETE' },
+        '删除工作流失败'
+    );
+    return result?.ok === false ? result : true;
 }
 
 export async function renameWorkflowFile(oldName, newName) {
-    try {
-        const res = await fetch(`/api/workflows/${encodeURIComponent(oldName)}`, {
+    const result = await requestWorkflow(
+        `/api/workflows/${encodeURIComponent(oldName)}`,
+        {
             method: 'POST',
             headers: { 'x-rename-to': encodeURIComponent(newName) }
-        });
-        if (!res.ok) throw new Error('重命名失败');
-        return true;
-    } catch (error) {
-        return { ok: false, message: error.message };
-    }
+        },
+        '重命名工作流失败'
+    );
+    return result?.ok === false ? result : true;
 }
-/**
- * 封装前端对工作流后端接口的调用。
- */

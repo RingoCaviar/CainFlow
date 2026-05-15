@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.8.1
+> 当前版本：v2.8.2.x
 
 ## 近期约定
 
@@ -45,7 +45,7 @@
 - 代理设置的“自动检测代理端口”属于设置面板数据逻辑：按钮、自动填充和自动保存放 `js/features/settings/settings-controller.js`，检测接口在 `backend/routes/settings_routes.py`，常见本地代理端口探测和连通性校验放 `backend/services/security_service.py`。检测成功后再自动勾选代理并填入端口；不要把批量端口探测散到前端。
 - 代理配置是前端本地状态与后端全局代理状态的双端同步能力。设置页保存代理时立即同步到 `/api/proxy`；应用启动时 `js/features/app/startup-controller.js` 在 `loadState()` 结束后无论是否恢复出节点，都要调用 `syncProxyToServer()`，避免空画布启动后更新下载继续使用后端默认代理。
 - `/proxy` 的错误归类属于 `backend/services/proxy_service.py` 的职责边界：真正的浏览器断连（如 `BrokenPipeError`、`ConnectionResetError`）才记为 `client_disconnect`；`http.client.RemoteDisconnected` 代表上游在返回响应前关闭连接，应继续走上游断连分支并把错误回给前端，避免执行节点只得到 `Failed to fetch` 这种不可排查的表象。
-- 应用版本号的单一来源是 `js/core/constants.js` 的 `APP_VERSION_NUMBER`。前端展示、`APP_VERSION`、`APP_ASSET_VERSION` 和静态资源缓存参数由它派生；后端启动提示和 User-Agent 通过 `backend/services/version_service.py` 运行时读取同一值；批量升级脚本入口在 `change_version.py`。不要再恢复 `package.json` 或 `css/base/variables.css` 这类第二份版本号。
+- 应用版本号的单一来源是 `js/core/constants.js` 的 `APP_VERSION_NUMBER`。前端展示、`APP_VERSION`、`APP_ASSET_VERSION` 和静态资源缓存参数由它派生；后端启动提示和 User-Agent 通过 `backend/services/version_service.py` 运行时读取同一值。不要再恢复 `package.json` 或 `css/base/variables.css` 这类第二份版本号。
 
 ### 设置页视觉规范
 
@@ -95,7 +95,7 @@
 
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
-| 启动入口 | `js/main.js`, `index.js` | 应用启动、总装配、跨模块编排；保持同步静态加载，避免初始化注册晚于 `DOMContentLoaded` |
+| 启动入口 | `index.js` | 前端真实入口与总装配层，负责模块初始化与依赖注入 |
 | 页面骨架 | `index.html` | 页面结构、面板容器、弹窗结构、脚本与样式入口 |
 | 应用启动控制 | `js/features/app/startup-controller.js` | 应用初始化流程、模块装载编排；`loadState()` 后始终同步代理到后端 |
 | 共享常量 | `js/core/constants.js` | `APP_VERSION_NUMBER`、`APP_VERSION`、`APP_ASSET_VERSION`、GITHUB_REPO、STORAGE_KEY、DB_VERSION、默认供应商/默认模型，以及 `API_PROVIDERS_LOCKED` 这类前端共享策略常量 |
@@ -170,7 +170,7 @@
 | UI 工具 | `js/features/ui/ui-utils.js` | UI 层通用辅助函数 |
 | **更新** | | |
 | 在线更新 | `js/core/constants.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js` | GitHub Release 版本对比、启动自动检测开关、设置页更新模块显隐、更新提示、直接下载更新、右下角常驻下载进度/速度/百分比通知、取消下载、窗口关闭取消、100% 后重启提示 |
-| 版本读取 | `js/core/constants.js`, `backend/services/version_service.py`, `change_version.py` | 以 `APP_VERSION_NUMBER` 作为唯一来源；前端展示、静态资源版本、后端启动提示与 User-Agent、版本同步脚本都从这条链路读取 |
+| 版本读取 | `js/core/constants.js`, `backend/services/version_service.py` | 以 `APP_VERSION_NUMBER` 作为唯一来源；前端展示、静态资源版本、后端启动提示与 User-Agent 都从这条链路读取 |
 | **工作流** | | |
 | 工作流管理 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排；列表按钮与右键菜单共用重命名逻辑，前端负责空名/同名/非法字符/重名校验；保存时只写画布、节点、连线和版本号 |
 
@@ -298,8 +298,8 @@
 | 右键菜单 / 添加节点分类二级菜单 | `index.html`, `js/features/ui/context-menu-controller.js`, `css/legacy.css`, `css/themes.css` |
 | 版本更新检查、更新模块显隐与直接下载更新 | `js/core/constants.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js`, `backend/routes/update_routes.py`, `backend/services/update_service.py`, `backend/config.py`, `backend/main.py`, `backend/handler.py`, `index.html`, `css/legacy.css`, `css/themes.css` |
 | 修改代理自动检测端口或检测顺序 | `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
-| 升级应用版本号 | `js/core/constants.js`, `index.html`, `js/main.js`, `index.js`, `backend/services/version_service.py`, `backend/main.py`, `backend/services/proxy_service.py`, `backend/routes/settings_routes.py`, `backend/services/update_service.py`, `change_version.py`, `README.md` |
-| 应用启动流程 | `js/features/app/startup-controller.js`, `js/main.js`, `index.js` |
+| 升级应用版本号 | `js/core/constants.js`, `index.html`, `index.js`, `backend/services/version_service.py`, `backend/main.py`, `backend/services/proxy_service.py`, `backend/routes/settings_routes.py`, `backend/services/update_service.py`, `README.md` |
+| 应用启动流程 | `js/features/app/startup-controller.js`, `index.js` |
 | 修复静态资源加载或路由兜底问题 | `index.html`, `backend/handler.py`, `backend/state.py` |
 | 修改服务启动或本地运行行为 | `start_cainflow.bat`, `server.py`, `backend/main.py`, `backend/config.py` |
 | 添加功能专属样式 | `css/features/panels.css` 或 `css/features/` 下新增文件，并接入 `index.css` |
@@ -328,7 +328,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 ## 模块化约束
 
 - `index.js` 是集成层，不是新的逻辑堆放场。
-- `js/main.js` 保持极简，只负责引导 `index.js`。
+- 前端入口直接使用 `index.js`，不要再增加无意义的二次转发入口。
 - 先判断现有模块是否已经负责这类行为；如果职责仍然清晰，就继续在现有模块中扩展，不要为了“新功能”机械拆文件。
 - 如果一个新能力会被多个画布/设置/持久化流程复用，或继续塞进现有文件会让职责变混乱，再提炼成 `js/canvas/*`、`js/core/*` 或 `js/features/<feature>/*` 下的新模块，而不是继续堆进 `index.js` 或单个控制器。
 - 执行逻辑放 `js/features/execution/`，不要混入 UI 控制器。

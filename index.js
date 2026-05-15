@@ -18,10 +18,7 @@ import {
     classifyProviderError as classifyProviderErrorService,
     createProxyHeadersGetter,
     formatProxyErrorMessage as formatProxyErrorMessageService,
-    getAbortMessage as getAbortMessageService,
-    sanitizeDetails as sanitizeDetailsService,
-    sanitizeRequestPayload as sanitizeRequestPayloadService,
-    sanitizeRequestUrl as sanitizeRequestUrlService
+    getAbortMessage as getAbortMessageService
 } from './js/services/api-client.js';
 import { createIndexedDbApi } from './js/services/storage-idb.js';
 import {
