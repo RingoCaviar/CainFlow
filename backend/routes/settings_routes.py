@@ -122,21 +122,26 @@ def handle_post(handler):
 
     if handler.path == '/api/detect_proxy':
         detected = detect_available_proxy()
-        if detected:
+        detected_proxy = detected.get('proxy') if isinstance(detected, dict) else None
+        attempts = detected.get('attempts', []) if isinstance(detected, dict) else []
+        if detected_proxy:
             write_json(handler, {
                 'success': True,
                 'proxy': {
                     'enabled': True,
-                    'ip': detected.get('ip', '127.0.0.1'),
-                    'port': detected.get('port', ''),
+                    'ip': detected_proxy.get('ip', '127.0.0.1'),
+                    'port': detected_proxy.get('port', ''),
                 },
-                'latency': detected.get('latency', 0),
-                'source': detected.get('name', 'Local proxy'),
+                'latency': detected_proxy.get('latency', 0),
+                'source': detected_proxy.get('name', 'Local proxy'),
+                'checkedTarget': detected_proxy.get('checkedTarget', ''),
+                'attempts': attempts,
             })
         else:
             write_json(handler, {
                 'success': False,
-                'message': '未检测到常见本地代理端口，请确认代理软件已启动，或手动填写代理地址与端口。'
+                'message': '未检测到可用代理，请确认代理软件已启动，或手动填写代理地址与端口。',
+                'attempts': attempts,
             })
         return True
 

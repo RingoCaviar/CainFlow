@@ -459,6 +459,7 @@ export function createSettingsControllerApi({
                         body: '{}'
                     });
                     const data = await response.json();
+                    const attemptSummary = formatProxyDetectionSummary(data?.attempts);
                     if (response.ok && data?.success && data?.proxy) {
                         newCheck.checked = true;
                         newIp.value = String(data.proxy.ip || '127.0.0.1');
@@ -467,9 +468,12 @@ export function createSettingsControllerApi({
                         await handleSave();
                         const sourceText = data.source ? ` (${data.source})` : '';
                         const latencyText = Number.isFinite(data.latency) && data.latency > 0 ? `，延迟 ${data.latency}ms` : '';
-                        showToast(`已检测到可用代理${sourceText}，已自动填入 ${newIp.value}:${newPort.value}${latencyText}`, 'success');
+                        const targetText = data.checkedTarget ? `，探测目标 ${data.checkedTarget}` : '';
+                        const summaryText = attemptSummary ? `\n已测试端口：\n${attemptSummary}` : '';
+                        showToast(`已检测到可用代理${sourceText}，已自动填入 ${newIp.value}:${newPort.value}${latencyText}${targetText}${summaryText}`, 'success', 12000);
                     } else {
-                        showToast(data?.message || '未检测到可用的本地代理端口', 'warning');
+                        const summaryText = attemptSummary ? `\n已测试端口：\n${attemptSummary}` : '';
+                        showToast(`${data?.message || '未检测到可用的本地代理端口'}${summaryText}`, 'warning', 12000);
                     }
                 } catch (e) {
                     showToast('自动检测代理失败: ' + e, 'error');
@@ -1799,6 +1803,24 @@ export function createSettingsControllerApi({
 
     function formatMB(bytes) {
         return `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function formatProxyDetectionSummary(attempts = []) {
+        if (!Array.isArray(attempts) || attempts.length === 0) return '';
+        return attempts.map((attempt) => {
+            const endpoint = `${attempt?.ip || '127.0.0.1'}:${attempt?.port || ''}`;
+            const name = String(attempt?.name || '').trim();
+            const label = name ? `${endpoint} ${name}` : endpoint;
+            const checkedTarget = attempt?.checkedTarget ? `，目标 ${attempt.checkedTarget}` : '';
+            if (attempt?.available) {
+                const latency = Number.isFinite(attempt?.latency) && attempt.latency > 0 ? `，${attempt.latency}ms` : '';
+                return `• ${label}: 可用${latency}${checkedTarget}`;
+            }
+            if (attempt?.reachable) {
+                return `• ${label}: 端口可达，但代理不可用${attempt?.detail ? `（${attempt.detail}）` : ''}`;
+            }
+            return `• ${label}: 不可用${attempt?.detail ? `（${attempt.detail}）` : ''}`;
+        }).join('\n');
     }
 
     function isHistoryAssetKey(key) {

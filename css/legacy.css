@@ -2345,6 +2345,11 @@ body {
     max-width: 360px;
 }
 
+.toast-message {
+    white-space: pre-line;
+    word-break: break-word;
+}
+
 .toast.success {
     border-left: 3px solid var(--accent-green);
 }
