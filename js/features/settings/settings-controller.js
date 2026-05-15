@@ -583,7 +583,7 @@ export function createSettingsControllerApi({
         if (protocol === 'google') {
             return 'Google / Gemini 格式会走 generateContent，请求体按 Gemini 协议构造。';
         }
-        return 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations；生图节点有参考图输入时自动改走 /images/edits。';
+        return 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations；图片生成节点开启“多部分表单数据”后，参考图会改走 /images/edits。';
     }
 
     function getProviderModelsDialog() {

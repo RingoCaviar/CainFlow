@@ -1241,6 +1241,16 @@ export function createNodeDomBindingsApi({
         }
     }
 
+    function syncImageGenerateMultipartFormData(id) {
+        const input = documentRef.getElementById(`${id}-multipart-form-data`);
+        const node = state.nodes.get(id);
+        if (!input || !node) return;
+        const enabled = input.checked === true;
+        node.data ||= {};
+        node.multipartFormData = enabled;
+        node.data.multipartFormData = enabled;
+    }
+
     function getPx(style, name) {
         const value = parseFloat(style.getPropertyValue(name));
         return Number.isFinite(value) ? value : 0;
@@ -1784,7 +1794,12 @@ export function createNodeDomBindingsApi({
                     generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
                 });
             });
+            const multipartFormDataInput = el.querySelector(`#${id}-multipart-form-data`);
+            const syncMultipartFormData = () => syncImageGenerateMultipartFormData(id);
+            multipartFormDataInput?.addEventListener('input', syncMultipartFormData);
+            multipartFormDataInput?.addEventListener('change', syncMultipartFormData);
             syncImageGenerateCount(id);
+            syncImageGenerateMultipartFormData(id);
             fitNodeToContent(id);
         }
         else if (type === 'ImageResize') setupImageResize(id, el);

@@ -850,6 +850,7 @@ export function createExecutionCoreApi({
                 const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
                 const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
+                const multipartFormDataEnabled = documentRef.getElementById(`${id}-multipart-form-data`)?.checked === true;
                 const userPrompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
                 const cameraPrompt = typeof inputs.camera_prompt === 'string' ? inputs.camera_prompt.trim() : '';
                 const prompt = [cameraPrompt, userPrompt].filter((part) => typeof part === 'string' && part.trim()).join(', ');
@@ -863,7 +864,10 @@ export function createExecutionCoreApi({
                     const validation = validateOpenAiImageSize(customWidth, customHeight);
                     if (!validation.valid) throw new Error(`自定义分辨率不符合 OpenAI 规范：${validation.errors.join(' ')}`);
                 }
-                const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
+                const url = resolveProviderUrl(apiCfg, modelCfg, 'image', {
+                    inputs,
+                    preferMultipartFormData: multipartFormDataEnabled
+                });
                 const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
                 const headers = isGoogle
                     ? getProxyHeaders(url, 'POST')

@@ -285,7 +285,9 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     }
 
     if (taskType === 'image') {
-        const imagePath = hasOpenAiReferenceImages(options.inputs) ? '/images/edits' : '/images/generations';
+        const imagePath = options.preferMultipartFormData === true && hasOpenAiReferenceImages(options.inputs)
+            ? '/images/edits'
+            : '/images/generations';
         return appendOpenAiPath(base, imagePath);
     }
 

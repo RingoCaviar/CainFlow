@@ -319,6 +319,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
     const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
+    const multipartFormDataEnabled = rd.multipartFormData === true;
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
@@ -330,6 +331,11 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
                 <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
             </div>
+        </div>
+        <div class="node-field node-field-row"><label>多部分表单数据</label>
+            <label class="toggle-switch"><input type="checkbox" id="${id}-multipart-form-data" ${multipartFormDataEnabled ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
+        <div class="node-field" style="margin-top:-4px;">
+            <div style="font-size:11px;color:var(--text-dim);line-height:1.45;">开启后，上传参考图时会使用 <code>multipart/form-data</code>，并走 <code>/images/edits</code>；关闭时继续按 JSON 中的 base64 或 URL 发送。</div>
         </div>
         <div class="node-field ${isOpenAiModel ? 'hidden' : ''}" id="${id}-aspect-field"><label>宽高比</label>
             <select id="${id}-aspect">
