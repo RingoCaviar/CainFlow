@@ -65,6 +65,11 @@ export function createContextMenuControllerApi({
 
     let ignoreNextDocumentClickForConnectionPopup = false;
     let ignoreNextContextMenuClick = false;
+    let closeSubmenuTimer = null;
+
+    function getContextSubmenus() {
+        return Array.from(documentRef.querySelectorAll('[data-context-submenu]'));
+    }
 
     function closeConnectionCreatePopup() {
         state.connectionCreatePopup = null;
@@ -76,10 +81,34 @@ export function createContextMenuControllerApi({
 
     function closeContextMenu() {
         contextMenu?.classList.add('hidden');
+        closeContextSubmenus();
+    }
+
+    function cancelSubmenuClose() {
+        if (!closeSubmenuTimer) return;
+        clearTimeout(closeSubmenuTimer);
+        closeSubmenuTimer = null;
+    }
+
+    function closeContextSubmenus() {
+        cancelSubmenuClose();
+        getContextSubmenus().forEach((submenu) => submenu.classList.add('hidden'));
+        contextMenu?.querySelectorAll('[data-submenu-target]').forEach((trigger) => trigger.classList.remove('is-open'));
+    }
+
+    function scheduleSubmenuClose() {
+        cancelSubmenuClose();
+        closeSubmenuTimer = setTimeout(() => {
+            closeContextSubmenus();
+        }, 180);
     }
 
     function handleContextMenuItemSelection(item) {
         if (!item) return;
+        if (item.dataset.submenuTarget) {
+            openContextSubmenu(item);
+            return;
+        }
 
         try {
             if (item.id === 'context-menu-run-to-here') {
@@ -165,6 +194,46 @@ export function createContextMenuControllerApi({
         menu.style.top = `${nextTop}px`;
     }
 
+    function positionSubmenu(submenu, trigger) {
+        if (!submenu || !trigger) return;
+
+        const padding = 8;
+        const gap = 6;
+        const triggerRect = trigger.getBoundingClientRect();
+        const viewportWidth = documentRef.defaultView?.innerWidth || documentRef.documentElement.clientWidth || 0;
+        const viewportHeight = documentRef.defaultView?.innerHeight || documentRef.documentElement.clientHeight || 0;
+
+        submenu.style.left = `${triggerRect.right + gap}px`;
+        submenu.style.top = `${triggerRect.top}px`;
+        submenu.classList.remove('hidden');
+
+        const rect = submenu.getBoundingClientRect();
+        const hasRoomRight = triggerRect.right + gap + rect.width <= viewportWidth - padding;
+        const nextLeft = hasRoomRight
+            ? triggerRect.right + gap
+            : Math.max(padding, triggerRect.left - rect.width - gap);
+        const nextTop = Math.max(padding, Math.min(triggerRect.top, viewportHeight - rect.height - padding));
+
+        submenu.style.left = `${nextLeft}px`;
+        submenu.style.top = `${nextTop}px`;
+    }
+
+    function openContextSubmenu(trigger) {
+        const submenuId = trigger?.dataset.submenuTarget;
+        const submenu = submenuId ? documentRef.getElementById(submenuId) : null;
+        if (!trigger || !submenu || contextMenu?.classList.contains('hidden')) return;
+
+        cancelSubmenuClose();
+        getContextSubmenus().forEach((entry) => {
+            if (entry !== submenu) entry.classList.add('hidden');
+        });
+        contextMenu?.querySelectorAll('[data-submenu-target]').forEach((entry) => {
+            if (entry !== trigger) entry.classList.remove('is-open');
+        });
+        trigger.classList.add('is-open');
+        positionSubmenu(submenu, trigger);
+    }
+
     function openConnectionCreatePopup(popupState) {
         if (!connectionCreatePopup) return;
         state.connectionCreatePopup = popupState;
@@ -219,6 +288,7 @@ export function createContextMenuControllerApi({
                 hasNodeTarget: Boolean(state.contextMenuNodeId),
                 hasSelection: state.selectedNodes.size > 0
             });
+            closeContextSubmenus();
 
             positionFloatingMenu(contextMenu, e.clientX, e.clientY);
         });
@@ -229,7 +299,8 @@ export function createContextMenuControllerApi({
             } else if (connectionCreatePopup && !connectionCreatePopup.contains(e.target)) {
                 closeConnectionCreatePopup();
             }
-            if (!contextMenu.contains(e.target)) closeContextMenu();
+            const isInsideSubmenu = getContextSubmenus().some((submenu) => submenu.contains(e.target));
+            if (!contextMenu.contains(e.target) && !isInsideSubmenu) closeContextMenu();
 
             if (e.target.id === 'canvas-container' && !state.justDragged) {
                 clearSelection();
@@ -242,6 +313,21 @@ export function createContextMenuControllerApi({
                 closeContextMenu();
                 closeConnectionCreatePopup();
             }
+        });
+
+        contextMenu.addEventListener('pointerover', (e) => {
+            const submenuTrigger = e.target.closest('[data-submenu-target]');
+            if (submenuTrigger) {
+                openContextSubmenu(submenuTrigger);
+            } else if (e.target.closest('.context-menu-item')) {
+                closeContextSubmenus();
+            }
+        });
+
+        contextMenu.addEventListener('pointerleave', scheduleSubmenuClose);
+        getContextSubmenus().forEach((submenu) => {
+            submenu.addEventListener('pointerenter', cancelSubmenuClose);
+            submenu.addEventListener('pointerleave', scheduleSubmenuClose);
         });
 
         contextMenu.addEventListener('pointerdown', (e) => {
@@ -263,6 +349,29 @@ export function createContextMenuControllerApi({
                 return;
             }
             handleContextMenuItemSelection(item);
+        });
+
+        getContextSubmenus().forEach((submenu) => {
+            submenu.addEventListener('pointerdown', (e) => {
+                const item = e.target.closest('.context-menu-item');
+                if (!item) return;
+                e.preventDefault();
+                e.stopPropagation();
+                ignoreNextContextMenuClick = true;
+                handleContextMenuItemSelection(item);
+            });
+
+            submenu.addEventListener('click', (e) => {
+                const item = e.target.closest('.context-menu-item');
+                if (!item) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (ignoreNextContextMenuClick) {
+                    ignoreNextContextMenuClick = false;
+                    return;
+                }
+                handleContextMenuItemSelection(item);
+            });
         });
 
         initConnectionCreatePopup();

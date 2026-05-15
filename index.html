@@ -802,6 +802,46 @@
             <div class="context-menu-divider" id="context-menu-node-divider"></div>
         </div>
         <div class="context-menu-header">添加节点</div>
+        <div class="context-menu-item context-menu-item-submenu" data-submenu-target="context-menu-image-nodes">
+            <span class="context-menu-item-main">
+                <svg class="icon-sm">
+                    <use href="#icon-history" />
+                </svg>
+                图片节点
+            </span>
+            <svg class="context-menu-submenu-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"></path>
+            </svg>
+        </div>
+        <div class="context-menu-item context-menu-item-submenu" data-submenu-target="context-menu-text-nodes">
+            <span class="context-menu-item-main">
+                <svg class="icon-sm">
+                    <use href="#icon-logs" />
+                </svg>
+                文本节点
+            </span>
+            <svg class="context-menu-submenu-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"></path>
+            </svg>
+        </div>
+        <div class="context-menu-item context-menu-item-submenu" data-submenu-target="context-menu-control-nodes">
+            <span class="context-menu-item-main">
+                <svg class="icon-sm">
+                    <use href="#icon-eye" />
+                </svg>
+                控制节点
+            </span>
+            <svg class="context-menu-submenu-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"></path>
+            </svg>
+        </div>
+    </div>
+
+    <div id="context-menu-image-nodes" class="context-menu hidden context-menu-submenu" data-context-submenu>
+        <div class="context-menu-header">图片节点</div>
         <div class="context-menu-item" data-type="ImageImport">
             <svg class="icon-sm">
                 <use href="#icon-history" />
@@ -814,39 +854,6 @@
             </svg>
             图片生成
         </div>
-        <div class="context-menu-item" data-type="CameraControl">
-            <svg class="icon-sm">
-                <use href="#icon-eye" />
-            </svg>
-            视角控制
-        </div>
-        <div class="context-menu-item" data-type="TextChat">
-            <svg class="icon-sm">
-                <use href="#icon-logs" />
-            </svg>
-            智能对话
-        </div>
-        <div class="context-menu-divider"></div>
-        <div class="context-menu-item" data-type="Text">
-            <svg class="icon-sm">
-                <use href="#icon-logs" />
-            </svg>
-            文本
-        </div>
-        <div class="context-menu-item" data-type="TextMerge">
-            <svg class="icon-sm">
-                <use href="#icon-logs" />
-            </svg>
-            多文本合一
-        </div>
-        <div class="context-menu-divider"></div>
-        <div class="context-menu-item" data-type="TextSplit">
-            <svg class="icon-sm">
-                <use href="#icon-logs" />
-            </svg>
-            多行文本分割
-        </div>
-        <div class="context-menu-divider"></div>
         <div class="context-menu-item" data-type="ImagePreview">
             <svg class="icon-sm">
                 <use href="#icon-history" />
@@ -876,6 +883,44 @@
                 <use href="#icon-download" />
             </svg>
             图片保存
+        </div>
+    </div>
+
+    <div id="context-menu-text-nodes" class="context-menu hidden context-menu-submenu" data-context-submenu>
+        <div class="context-menu-header">文本节点</div>
+        <div class="context-menu-item" data-type="Text">
+            <svg class="icon-sm">
+                <use href="#icon-logs" />
+            </svg>
+            文本
+        </div>
+        <div class="context-menu-item" data-type="TextChat">
+            <svg class="icon-sm">
+                <use href="#icon-logs" />
+            </svg>
+            智能对话
+        </div>
+        <div class="context-menu-item" data-type="TextMerge">
+            <svg class="icon-sm">
+                <use href="#icon-logs" />
+            </svg>
+            多文本合一
+        </div>
+        <div class="context-menu-item" data-type="TextSplit">
+            <svg class="icon-sm">
+                <use href="#icon-logs" />
+            </svg>
+            多行文本分割
+        </div>
+    </div>
+
+    <div id="context-menu-control-nodes" class="context-menu hidden context-menu-submenu" data-context-submenu>
+        <div class="context-menu-header">控制节点</div>
+        <div class="context-menu-item" data-type="CameraControl">
+            <svg class="icon-sm">
+                <use href="#icon-eye" />
+            </svg>
+            视角控制
         </div>
     </div>
 

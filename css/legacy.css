@@ -2271,6 +2271,38 @@ body {
     background: rgba(168, 85, 247, 0.12);
 }
 
+.context-menu-item.is-open {
+    background: rgba(168, 85, 247, 0.16);
+}
+
+.context-menu-item-submenu {
+    justify-content: space-between;
+}
+
+.context-menu-item-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.context-menu-submenu-arrow {
+    margin-left: 16px;
+    opacity: 0.78;
+    transition: transform var(--transition), opacity var(--transition);
+}
+
+.context-menu-item-submenu.is-open .context-menu-submenu-arrow,
+.context-menu-item-submenu:hover .context-menu-submenu-arrow {
+    opacity: 1;
+    transform: translateX(2px);
+}
+
+.context-menu-submenu {
+    z-index: 2001;
+    min-width: 210px;
+}
+
 .context-menu-item svg {
     color: var(--text-secondary);
     flex-shrink: 0;

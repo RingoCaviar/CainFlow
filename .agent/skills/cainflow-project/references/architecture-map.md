@@ -6,6 +6,12 @@
 
 ## 近期约定
 
+### 右键菜单分类子菜单约定
+
+- 画布右键添加节点菜单采用“一级分类 + 二级节点列表”，不要把所有节点直接堆在根菜单，也不要退化成根菜单只有一个“添加节点”入口。分类入口结构放 `index.html`，通过 `data-submenu-target` 指向对应二级菜单；二级菜单加 `data-context-submenu`，具体节点项继续用 `data-type` 交给 `js/features/ui/context-menu-controller.js` 创建节点。
+- `js/features/ui/context-menu-controller.js` 负责分类子菜单的打开/关闭、同级互斥、悬停延迟关闭、点击分发和视口边缘避让。新增分类时应复用通用 `data-submenu-target` / `data-context-submenu` 机制，不要为单个分类再写一套硬编码控制逻辑。
+- 右键菜单视觉仍沿用现有 `.context-menu` / `.context-menu-item` 风格；子菜单箭头、打开态和层级样式放 `css/legacy.css`，浅色主题打开态覆盖放 `css/themes.css`。
+
 ### 多值数据与备用输入口约定
 
 - 图片数组的规范载体是 `data.images`、`imageDataList`、`generatedImages`，文本数组的规范载体是 `data.texts`，动态文本端口也可以在 `data.part_N` 等端口字段上保存数组。`js/features/execution/execution-core.js` 负责节点 handler、数组输出写入与 `getCachedOutputValue` 的多值读取，`js/features/execution/workflow-runner.js` 负责把数组输入识别为批处理信号。
@@ -143,7 +149,7 @@
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
-| 右键菜单 | `js/features/ui/context-menu-controller.js` | 右键菜单渲染与事件分发 |
+| 右键菜单 | `index.html`, `js/features/ui/context-menu-controller.js`, `css/legacy.css`, `css/themes.css` | 画布/节点右键菜单结构、分类二级菜单、节点项事件分发、视口避让、悬停延迟关闭与主题样式；分类入口用 `data-submenu-target`，二级菜单用 `data-context-submenu`，具体节点创建项仍用 `data-type` |
 | 错误弹窗 | `js/features/ui/error-modal-controller.js` | 错误详情弹窗 UI |
 | 全局交互 | `js/features/ui/global-interactions.js` | 键盘快捷键、全局点击、粘贴、全局图片拖拽/drop 等顶层事件 |
 | 面板管理 | `js/features/ui/panel-manager.js` | 侧边栏面板展开收起管理 |
@@ -281,7 +287,7 @@
 | 画布左上角悬浮通知 | `index.js` 的 `initFloatingNotices()`, `js/features/ui/floating-notices-controller.js`, `js/features/update/update-manager.js`, `css/legacy.css`, `css/themes.css` |
 | 键盘快捷键 / 全局事件 | `js/features/ui/global-interactions.js` |
 | 剪贴板操作 | `js/features/ui/clipboard-controller.js` |
-| 右键菜单 | `js/features/ui/context-menu-controller.js` |
+| 右键菜单 / 添加节点分类二级菜单 | `index.html`, `js/features/ui/context-menu-controller.js`, `css/legacy.css`, `css/themes.css` |
 | 版本更新检查、更新模块显隐与直接下载更新 | `js/core/constants.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js`, `backend/routes/update_routes.py`, `backend/services/update_service.py`, `backend/config.py`, `backend/main.py`, `backend/handler.py`, `index.html`, `css/legacy.css`, `css/themes.css` |
 | 修改代理自动检测端口或检测顺序 | `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
 | 升级应用版本号 | `js/core/constants.js`, `index.html`, `js/main.js`, `index.js`, `backend/services/version_service.py`, `backend/main.py`, `backend/services/proxy_service.py`, `backend/routes/settings_routes.py`, `backend/services/update_service.py`, `change_version.py`, `README.md` |

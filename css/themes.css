@@ -1339,6 +1339,10 @@ html[data-app-theme="light"] .context-menu-item:hover {
     background: rgba(67, 56, 202, 0.08);
 }
 
+html[data-app-theme="light"] .context-menu-item.is-open {
+    background: rgba(67, 56, 202, 0.1);
+}
+
 html[data-app-theme="light"] .toast {
     border-color: rgba(148, 163, 184, 0.28);
 }
