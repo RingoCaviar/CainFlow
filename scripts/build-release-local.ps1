@@ -109,7 +109,6 @@ Write-Step "Building CainFlow_Launcher.exe with PyInstaller"
   --add-data "css;css" `
   --add-data "js;js" `
   --add-data "sounds;sounds" `
-  --add-data "backend;backend" `
   server.py
 
 if (!(Test-Path -LiteralPath "dist/CainFlow_Launcher.exe")) {
