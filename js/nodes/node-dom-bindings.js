@@ -234,6 +234,55 @@ export function createNodeDomBindingsApi({
             const dotRect = dot.getBoundingClientRect();
             const containerRect = canvasContainer.getBoundingClientRect();
             const { x: cx, y: cy, zoom } = state.canvas;
+            const existingInputConnection = portEl.dataset.direction === 'input'
+                ? state.connections.find((connection) => (
+                    connection.to.nodeId === portEl.dataset.nodeId &&
+                    connection.to.port === portEl.dataset.port
+                ))
+                : null;
+
+            if (existingInputConnection) {
+                if (isNodeRunning(existingInputConnection.from.nodeId)) {
+                    showToast('节点正在运行，暂不能修改连线', 'warning');
+                    return;
+                }
+
+                const sourcePosition = getPortPosition(
+                    existingInputConnection.from.nodeId,
+                    existingInputConnection.from.port,
+                    'output'
+                );
+
+                pushHistory();
+                state.connections = state.connections.filter((connection) => connection.id !== existingInputConnection.id);
+                updateAllConnections();
+                updatePortStyles();
+                scheduleSave();
+                onConnectionsChanged();
+
+                state.connecting = {
+                    nodeId: existingInputConnection.from.nodeId,
+                    portName: existingInputConnection.from.port,
+                    dataType: existingInputConnection.type || portEl.dataset.type,
+                    isOutput: true,
+                    startX: sourcePosition.x,
+                    startY: sourcePosition.y,
+                    screenX: e.clientX,
+                    screenY: e.clientY,
+                    dragged: false,
+                    historyPushed: true,
+                    rewiredFromConnection: {
+                        id: existingInputConnection.id,
+                        from: existingInputConnection.from,
+                        to: existingInputConnection.to,
+                        type: existingInputConnection.type
+                    }
+                };
+                documentRef.body.classList.add('is-interacting');
+                documentRef.getElementById('connections-group').classList.add('is-interacting');
+                return;
+            }
+
             state.connecting = {
                 nodeId: portEl.dataset.nodeId,
                 portName: portEl.dataset.port,

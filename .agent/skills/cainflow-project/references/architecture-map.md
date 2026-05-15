@@ -69,6 +69,12 @@
 - `CameraControl` 编辑器里的滑块、数值输入框、单位标记、重置视角按钮和浅色主题覆盖也属于固定结构 UI；调整其中任一项时，要连同顶部操作区、舞台、提示词框和共享测量链一起检查，避免缩小节点或切换主题后重新出现重叠、颜色失衡或点击热区异常。
 - `CameraControl` 编辑器的第一人称/第三人称视图切换属于 3D 预览逻辑，不属于节点模板层。第一人称渲染受控相机；第三人称用独立观察相机渲染，并显示世界中的受控摄像机模型和视锥。第三人称下鼠标左键、滚轮和右键重置只调整观察相机，右侧参数才控制受控摄像机。
 
+### 输入端口改线约定
+
+- 从未连接输入端口拖拽时，仍按普通端口拖线处理；从已连接输入端口拖拽时，应先摘除该输入口的旧 incoming connection，并以旧连接的输出端作为临时连线起点继续拖拽，用于把 A -> B.input 改接到其他输入口。
+- 这条交互的责任链是：`js/nodes/node-dom-bindings.js` 在端口 `mousedown` 识别已连接输入口、执行断开、设置 `state.connecting.rewiredFromConnection` / `historyPushed`；`js/canvas/canvas-interactions.js` 负责移动和松手判定，尤其是改线拖到空白处只保留断开结果，不弹“创建并自动连接节点”候选；`js/canvas/connections.js` 负责最终提交新连接、替换目标输入口和避免同一次改线产生两段撤销历史。
+- 不要把已连接输入口拖拽伪装成普通输出端拖线来复用创建候选逻辑；普通输出端拖到空白处可以弹创建节点候选，但改线拖拽到空白处的语义是取消该连接线。
+
 ### 工作流重命名约定
 
 - 工作流重命名的交互入口统一收口在 `js/features/workflow/workflow-manager.js`：列表按钮和右键菜单共用同一套重命名逻辑，不要各写一份。
@@ -108,8 +114,8 @@
 
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
-| 画布交互总线 | `js/canvas/canvas-interactions.js` | 鼠标事件总线、拖拽与交互调度；拖拽时节点晃动摘取连线的识别入口；滚轮缩放结束后的 settle delay 也在这里 |
-| 连线绘制 | `js/canvas/connections.js` | 节点连线绘制、连线可见性裁剪、选中态流动箭头动画、孤立节点拖入兼容连线的插入预览与提交；流动箭头受全局动画开关控制 |
+| 画布交互总线 | `js/canvas/canvas-interactions.js` | 鼠标事件总线、拖拽与交互调度；拖拽时节点晃动摘取连线的识别入口；已连接输入端口改线拖拽松到空白处只断开、不弹创建候选的判定；滚轮缩放结束后的 settle delay 也在这里 |
+| 连线绘制 | `js/canvas/connections.js` | 节点连线绘制、连线可见性裁剪、选中态流动箭头动画、孤立节点拖入兼容连线的插入预览与提交，以及从端口拖到空白处松手后的“创建并自动连接节点”候选匹配；流动箭头受全局动画开关控制。像 `ImageGenerate` 这类多同型输入口节点，候选创建时不要机械使用第一个兼容端口：`CameraControl` 文本输出默认接 `camera_prompt`，其他文本输出默认接 `prompt` |
 | 节点自动整理 | `js/canvas/node-auto-layout.js` | 自动整理选中节点或全画布节点；只改变节点坐标，负责连通组件拆分、拓扑分层、按上下游端口顺序排序、按依赖中心线松弛、无连线节点网格排列，并保留运行中节点跳过、历史、连线刷新和保存链路 |
 | 几何计算 | `js/canvas/geometry.js` | 贝塞尔曲线、直角圆角连线、剪线采样、坐标相关几何工具 |
 | 框选 | `js/canvas/selection.js` | 矩形框选逻辑与选中状态 |
@@ -172,7 +178,7 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
-| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；Text 多文本切换与当前项编辑、可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；ImageMerge/TextMerge 的备用输入口同步和失效连线清理也在这里；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；运行中节点浮动取消按钮的 2 秒长按、拖动阈值取消长按、事件阻止冒泡也在这里绑定；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
+| 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；端口 `mousedown` 也在这里区分未连接输入口普通拖线和已连接输入口改线/断线；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；Text 多文本切换与当前项编辑、可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；ImageMerge/TextMerge 的备用输入口同步和失效连线清理也在这里；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；运行中节点浮动取消按钮的 2 秒长按、拖动阈值取消长按、事件阻止冒泡也在这里绑定；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
 | 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 创建时映射为 Text；Text 节点尺寸测量、非文本内容显示不全兜底、Alt 删除保留上下游连接、拖拽晃动摘取节点后的连线保留逻辑在这里；TextSplit 预览区、TextChat 回复区和文本显示框这类可滚动长内容不得按完整内容 `scrollHeight` 撑高最小尺寸；节点类型的 `defaultHeight` 与 `minHeight` 在这里分开使用，支持默认较高但手动缩小到独立最小高度；删除、摘取、启用/禁用必须跳过运行中节点；启用/禁用后要刷新连线、端口状态与依赖预览 |
 | 序列化 | `js/nodes/node-serializer.js` | 节点序列化、会话状态 payload、workflow 导出结构；workflow 导出只含画布、节点、连线和版本号；TextSplit 的 `delimiter` / `outputCount` / `removeEmptyLines` / `previewEnabled` / `parts`、Text 的 `texts` / `textPreviewIndex`、ImageMerge/TextMerge 的 `inputCount` 以及输入框手动高度缓存 `textareaHeights` 也在这里保存 |
 | 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框和多文本切换控件、TextSplit 分隔符、输出数量步进控件、删除空行与节点内预览控件、TextChat 回复框内部左上角小复制按钮、ImageGenerate 分辨率与生成次数控件、ImageCompare 高级对比入口按钮，以及运行中节点卡片外浮动取消按钮结构；TextSplit 不再渲染内部长文本输入框，输出数量为 `0` 时按分割结果自动生成端口并显示提示；ImageMerge/TextMerge 初始端口数量从 `inputCount` 恢复并遵守备用输入口；ImageGenerate 当前在节点内只显示 `xx/xx` 生成进度，不再显示结果预览；textarea 初始高度从 `textareaHeights` 恢复；节点端口区当前由顶部并排的 `.node-ports-row` 统一生成，输入/输出两列顶部对齐 |
@@ -267,7 +273,8 @@
 | 修改 `ImageGenerate` 节点内进度区 / 结果区显示 | `js/nodes/node-view-factory.js`, `js/features/execution/execution-core.js`, `js/nodes/node-dom-bindings.js`, `css/legacy.css` |
 | 修复节点 DOM 绑定或事件 | `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js` |
 | 修复画布拖拽、框选、缩放、几何绘制、晃动摘取节点交互 | `js/canvas/canvas-interactions.js`, `js/canvas/selection.js`, `js/canvas/viewport.js`, `js/canvas/geometry.js` |
-| 修复连线绘制、孤立节点拖入连线插入预览 | `js/canvas/connections.js` |
+| 修复连线绘制、孤立节点拖入连线插入预览、拖线到空白处创建候选节点后的默认接线 | `js/canvas/connections.js` |
+| 修复已连接输入端口拖拽改线、拖到空白处断开连接 | `js/nodes/node-dom-bindings.js`, `js/canvas/canvas-interactions.js`, `js/canvas/connections.js` |
 | 调整滚轮缩放结束后的文字锐化延迟或缩放手感 | `js/canvas/canvas-interactions.js`, `js/canvas/viewport.js`, `js/features/ui/toolbar-controller.js` |
 | 修复节点删除、摘取节点、节点尺寸显示不全兜底 | `js/nodes/node-lifecycle.js`, `js/nodes/node-dom-bindings.js` |
 | 更新操作帮助面板内容或帮助字体 | `js/features/help/help-panel.js`, `css/legacy.css` |

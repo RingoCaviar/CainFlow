@@ -694,7 +694,9 @@ export function createConnectionsApi({
             return showToast('节点正在运行，暂不能修改连线', 'warning');
         }
 
-        pushHistory();
+        if (!src.historyPushed) {
+            pushHistory();
+        }
         state.connections = state.connections.filter((conn) => !(conn.to.nodeId === toId && conn.to.port === toPort));
         state.connections.push({
             id: 'c_' + Math.random().toString(36).substr(2, 9),

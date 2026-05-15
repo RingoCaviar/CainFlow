@@ -562,7 +562,13 @@ export function createCanvasInteractionsApi({
                     const releasedOnCanvas = e.target.closest('#canvas-container');
                     const releasedOnPort = e.target.closest('.port-dot');
                     const releasedOnNode = e.target.closest('.node');
-                    if (releasedOnCanvas && !releasedOnPort && !releasedOnNode && typeof getConnectionCreateCandidates === 'function') {
+                    if (
+                        releasedOnCanvas &&
+                        !releasedOnPort &&
+                        !releasedOnNode &&
+                        !state.connecting.rewiredFromConnection &&
+                        typeof getConnectionCreateCandidates === 'function'
+                    ) {
                         const candidates = getConnectionCreateCandidates(state.connecting);
                         if (candidates.length > 0) {
                             const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
