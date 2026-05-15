@@ -268,7 +268,7 @@ function renderImageImportBody(id, restoreData) {
         <div class="image-import-upload-section ${importMode === 'upload' ? '' : 'hidden'}" id="${id}-upload-section">
             <div class="file-drop-zone${hasLocalImage ? ' has-image' : ''}" id="${id}-drop">
                 ${hasLocalImage
-                    ? `<img src="${rd.imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`
+                    ? `<img src="${rd.imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`
                     : `<div class="drop-text">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         拖拽图片到此处
@@ -288,7 +288,7 @@ function renderImageImportBody(id, restoreData) {
             </div>
             <div class="file-drop-zone image-import-url-preview${hasUrlImage ? ' has-image' : ''}" id="${id}-url-preview">
                 ${hasUrlImage
-                    ? `<img src="${imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" />`
+                    ? `<img src="${imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`
                     : `<div class="drop-text">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                         输入 URL 后自动显示预览
@@ -404,7 +404,7 @@ function renderCameraControlBody(id, restoreData) {
             </button>
             <div class="camera-control-node-preview ${previewImage ? 'has-image' : ''}" id="${id}-camera-preview">
                 ${previewImage
-        ? `<img src="${previewImage}" alt="视角预览图" draggable="false" />`
+        ? `<img src="${previewImage}" alt="视角预览图" draggable="false" loading="lazy" decoding="async" />`
         : `<div class="camera-control-node-preview-placeholder">${escapeHtml(placeholder)}</div>`}
             </div>
             <div class="camera-control-note" role="note">
@@ -464,7 +464,7 @@ function renderRestoredMultiImagePreview(imageList, previewIndex, altPrefix, pla
     const index = Math.max(0, Math.min(imageList.length - 1, previewIndex));
     const image = imageList[index];
     return `
-        <img src="${image}" alt="${altPrefix} ${index + 1}/${imageList.length}" draggable="false" />
+        <img src="${image}" alt="${altPrefix} ${index + 1}/${imageList.length}" draggable="false" loading="lazy" decoding="async" />
         ${imageList.length > 1 ? `
             <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
@@ -581,7 +581,7 @@ function renderImageResizeBody(id, restoreData) {
             <div class="image-resize-preview-frame">
                 <div class="preview-container image-resize-preview" id="${id}-resize-preview">
                     ${hasPreview
-                        ? `<img src="${previewImage}" alt="缩放结果预览" draggable="false" />`
+                        ? `<img src="${previewImage}" alt="缩放结果预览" draggable="false" loading="lazy" decoding="async" />`
                         : `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>等待上游图片</div>`}
                 </div>
             </div>

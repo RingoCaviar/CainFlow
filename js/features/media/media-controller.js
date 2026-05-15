@@ -23,10 +23,22 @@ export function createMediaControllerApi({
     documentRef = document,
     windowRef = window
 }) {
+    const pendingFitNodeIds = new Set();
+    let fitRequestFrame = null;
+    const resolutionCache = new Map();
+
     function requestNodeFit(nodeId) {
-        windowRef.requestAnimationFrame(() => {
-            if (state.resizing?.nodeId === nodeId) return;
-            fitNodeToContent(nodeId);
+        if (!nodeId) return;
+        pendingFitNodeIds.add(nodeId);
+        if (fitRequestFrame) return;
+        fitRequestFrame = windowRef.requestAnimationFrame(() => {
+            fitRequestFrame = null;
+            const nodeIds = Array.from(pendingFitNodeIds);
+            pendingFitNodeIds.clear();
+            nodeIds.forEach((queuedNodeId) => {
+                if (state.resizing?.nodeId === queuedNodeId) return;
+                fitNodeToContent(queuedNodeId);
+            });
         });
     }
 
@@ -104,6 +116,46 @@ export function createMediaControllerApi({
         return Math.max(0, Math.min(images.length - 1, rawIndex));
     }
 
+    function getPreviewLayoutSignature(images, { compareImageA = null, compareImageB = null } = {}) {
+        const imageList = normalizeImageList(images);
+        return JSON.stringify({
+            count: imageList.length,
+            multiple: imageList.length > 1,
+            hasImage: imageList.length > 0,
+            hasCompareA: Boolean(compareImageA),
+            hasCompareB: Boolean(compareImageB)
+        });
+    }
+
+    function shouldRequestFit(node, nextSignature, key = 'previewLayoutSignature') {
+        if (!node) return true;
+        const prevSignature = node[key] || '';
+        node[key] = nextSignature;
+        return prevSignature !== nextSignature;
+    }
+
+    async function resolveImageResolution(value) {
+        if (typeof value !== 'string' || !value.trim()) return '';
+        const cacheKey = value.trim();
+        const cached = resolutionCache.get(cacheKey);
+        if (cached !== undefined) {
+            return cached instanceof Promise ? cached : Promise.resolve(cached);
+        }
+
+        const pending = Promise.resolve(getImageResolution(cacheKey))
+            .then((result) => {
+                const normalized = typeof result === 'string' ? result : '';
+                resolutionCache.set(cacheKey, normalized);
+                return normalized;
+            })
+            .catch(() => {
+                resolutionCache.delete(cacheKey);
+                return '';
+            });
+        resolutionCache.set(cacheKey, pending);
+        return pending;
+    }
+
     function renderImagePreviewImage(nodeId, images, emptyMessage = '无输入图片') {
         const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
         const node = getNodeById(nodeId);
@@ -127,7 +179,7 @@ export function createMediaControllerApi({
         }
         previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
         previewContainer.innerHTML = `
-            <img src="${image}" alt="预览 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" />
+            <img src="${image}" alt="预览 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" loading="lazy" decoding="async" />
             ${imageList.length > 1 ? `
                 <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
@@ -158,7 +210,7 @@ export function createMediaControllerApi({
         const image = imageList[index];
         previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
         previewContainer.innerHTML = `
-            <img src="${image}" alt="待保存 ${index + 1}/${imageList.length}" draggable="false" />
+            <img src="${image}" alt="待保存 ${index + 1}/${imageList.length}" draggable="false" loading="lazy" decoding="async" />
             ${imageList.length > 1 ? `
                 <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
@@ -225,7 +277,7 @@ export function createMediaControllerApi({
         if (preview) {
             if (imageUrl && isRemoteImageUrl(imageUrl)) {
                 preview.classList.add('has-image');
-                preview.innerHTML = `<img src="${imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" />`;
+                preview.innerHTML = `<img src="${imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`;
             } else {
                 preview.classList.remove('has-image');
                 preview.innerHTML = `<div class="drop-text">
@@ -244,7 +296,7 @@ export function createMediaControllerApi({
 
         if (imageData) {
             dropZone.classList.add('has-image');
-            dropZone.innerHTML = `<img src="${imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
+            dropZone.innerHTML = `<img src="${imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`;
             showResolutionBadge(nodeId, imageData);
         } else {
             dropZone.classList.remove('has-image');
@@ -292,7 +344,10 @@ export function createMediaControllerApi({
     async function showResolutionBadge(nodeId, dataUrl) {
         const badge = documentRef.getElementById(`${nodeId}-res`);
         if (!badge) return;
-        const res = await getImageResolution(dataUrl);
+        const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        badge.dataset.resolutionToken = token;
+        const res = await resolveImageResolution(dataUrl);
+        if (badge.dataset.resolutionToken !== token) return;
         if (res) {
             badge.textContent = `尺寸 ${res}`;
             badge.style.display = 'block';
@@ -323,7 +378,7 @@ export function createMediaControllerApi({
             : '结果预览已更新';
 
         if (preview) {
-            preview.innerHTML = `<img src="${result.dataUrl}" alt="缩放结果预览" draggable="false" />`;
+            preview.innerHTML = `<img src="${result.dataUrl}" alt="缩放结果预览" draggable="false" loading="lazy" decoding="async" />`;
         }
         if (sizeLabel) {
             sizeLabel.textContent = sizeText;
@@ -418,7 +473,9 @@ export function createMediaControllerApi({
             }
         }
 
-        requestNodeFit(nodeId);
+        if (shouldRequestFit(node, getPreviewLayoutSignature(imageList))) {
+            requestNodeFit(nodeId);
+        }
     }
 
     async function syncImageSaveNode(nodeId, imageData) {
@@ -449,7 +506,9 @@ export function createMediaControllerApi({
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
             }
-            requestNodeFit(nodeId);
+            if (shouldRequestFit(node, getPreviewLayoutSignature([]), 'savePreviewLayoutSignature')) {
+                requestNodeFit(nodeId);
+            }
             return;
         }
 
@@ -476,7 +535,9 @@ export function createMediaControllerApi({
             }
         }
 
-        requestNodeFit(nodeId);
+        if (shouldRequestFit(node, getPreviewLayoutSignature(imageList), 'savePreviewLayoutSignature')) {
+            requestNodeFit(nodeId);
+        }
     }
 
     function getConnectedImageInput(nodeId, portName) {
@@ -488,6 +549,7 @@ export function createMediaControllerApi({
     function renderImageCompareEmptyState(nodeId, message = '等待 B 输入') {
         const container = documentRef.getElementById(`${nodeId}-compare`);
         const badge = documentRef.getElementById(`${nodeId}-res`);
+        const node = getNodeById(nodeId);
         if (container) {
             container.classList.remove('has-images', 'has-a-image', 'is-comparing');
             container.style.setProperty('--compare-x', '50%');
@@ -497,7 +559,9 @@ export function createMediaControllerApi({
             badge.textContent = '';
             badge.style.display = 'none';
         }
-        requestNodeFit(nodeId);
+        if (shouldRequestFit(node, getPreviewLayoutSignature([], { compareImageA: null, compareImageB: null }), 'comparePreviewLayoutSignature')) {
+            requestNodeFit(nodeId);
+        }
     }
 
     async function syncImageCompareNode(nodeId, imageA = null, imageB = null) {
@@ -535,14 +599,16 @@ export function createMediaControllerApi({
             container.classList.remove('is-comparing');
             container.style.setProperty('--compare-x', '50%');
             container.innerHTML = `
-                <img class="image-compare-img image-compare-b" src="${nextImageB}" alt="B 输入图片" draggable="false" />
-                ${nextImageA ? `<img class="image-compare-img image-compare-a" src="${nextImageA}" alt="A 输入图片" draggable="false" />` : ''}
+                <img class="image-compare-img image-compare-b" src="${nextImageB}" alt="B 输入图片" draggable="false" loading="lazy" decoding="async" />
+                ${nextImageA ? `<img class="image-compare-img image-compare-a" src="${nextImageA}" alt="A 输入图片" draggable="false" loading="lazy" decoding="async" />` : ''}
                 ${nextImageA ? '<div class="image-compare-divider" aria-hidden="true"></div>' : ''}
             `;
         }
 
         await showResolutionBadge(nodeId, nextImageB);
-        requestNodeFit(nodeId);
+        if (shouldRequestFit(node, getPreviewLayoutSignature([nextImageB], { compareImageA: nextImageA, compareImageB: nextImageB }), 'comparePreviewLayoutSignature')) {
+            requestNodeFit(nodeId);
+        }
     }
 
     async function refreshDependentImageResizePreviews(sourceNodeId, options = {}, visited = new Set()) {
