@@ -308,13 +308,30 @@ export function createConnectionsApi({
         return source?.isOutput ? 'input' : 'output';
     }
 
+    function getPopupCandidatePort(source, definition, direction) {
+        if (
+            direction === 'input' &&
+            source?.isOutput &&
+            source.dataType === 'text' &&
+            definition?.type === 'ImageGenerate'
+        ) {
+            const sourceNode = getNodeById(source.nodeId);
+            const preferredPortName = sourceNode?.type === 'CameraControl' ? 'camera_prompt' : 'prompt';
+            const ports = Array.isArray(definition.inputs) ? definition.inputs : [];
+            const preferredPort = ports.find((port) => port?.name === preferredPortName && port?.type === 'text');
+            if (preferredPort) return preferredPort;
+        }
+
+        return getFirstCompatibleDefinitionPort(definition, direction, source.dataType);
+    }
+
     function getCompatibleNodeTypeCandidates(source) {
         if (!source?.dataType) return [];
         const direction = getPopupCandidateDirection(source);
 
         return listNodeDefinitions()
             .map((definition) => {
-                const port = getFirstCompatibleDefinitionPort(definition, direction, source.dataType);
+                const port = getPopupCandidatePort(source, definition, direction);
                 if (!port) return null;
                 return {
                     type: definition.type,
