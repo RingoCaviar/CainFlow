@@ -435,7 +435,7 @@ export function createExecutionCoreApi({
             if (scopeNodeSet.has(nodeId)) return;
             scopeNodeSet.add(nodeId);
             const node = state.nodes.get(nodeId);
-            if (isFixedTextChatWithCachedResult(node)) return;
+            if (nodeId !== targetNodeId && isFixedTextChatWithCachedResult(node)) return;
             state.connections
                 .filter((connection) => connection.to.nodeId === nodeId)
                 .forEach((connection) => {
@@ -449,13 +449,15 @@ export function createExecutionCoreApi({
         return scopeNodeSet;
     }
 
-    function buildConnectionMaps(scopeNodeSet, mode) {
+    function buildConnectionMaps(scopeNodeSet, mode, runOptions = {}) {
         const incomingConnectionsByNode = Object.create(null);
         const inputConnectionsByNode = Object.create(null);
 
         scopeNodeSet.forEach((nodeId) => {
             const node = state.nodes.get(nodeId);
-            const allIncoming = isFixedTextChatWithCachedResult(node)
+            const useFixedCache = !(mode === 'target-node' && nodeId === runOptions.targetNodeId) &&
+                isFixedTextChatWithCachedResult(node);
+            const allIncoming = useFixedCache
                 ? []
                 : state.connections.filter((connection) => (
                     connection.to.nodeId === nodeId && state.nodes.has(connection.from.nodeId)
@@ -532,7 +534,7 @@ export function createExecutionCoreApi({
         const {
             incomingConnectionsByNode,
             inputConnectionsByNode
-        } = buildConnectionMaps(scopeNodeSet, runOptions.mode);
+        } = buildConnectionMaps(scopeNodeSet, runOptions.mode, runOptions);
         const plan = {
             ...runOptions,
             nodeIds,
@@ -558,6 +560,13 @@ export function createExecutionCoreApi({
             return getImageImportOutputValue(node);
         }
         if (portName === 'text') {
+            if (node.type === 'TextSplit' && node.data?.mergeOutputEnabled === true) {
+                const parts = Array.isArray(node.data?.texts) && node.data.texts.length > 0
+                    ? node.data.texts
+                    : (Array.isArray(node.data?.parts) ? node.data.parts : []);
+                return parts.filter((item) => typeof item === 'string');
+            }
+
             if (isFixedTextChatWithCachedResult(node)) {
                 return node.data.text;
             }
@@ -1490,19 +1499,27 @@ export function createExecutionCoreApi({
             const delimiterInput = documentRef.getElementById(`${node.id}-delimiter`);
             const outputCountInput = documentRef.getElementById(`${node.id}-output-count`);
             const removeEmptyLinesInput = documentRef.getElementById(`${node.id}-remove-empty-lines`);
+            const mergeOutputEnabledInput = documentRef.getElementById(`${node.id}-merge-output-enabled`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
             const text = hasIncomingText ? (inputs.text ?? '') : (node.data.text || '');
             const delimiter = delimiterInput?.value ?? node.data.delimiter ?? '';
             const parsedOutputCount = parseInt(outputCountInput?.value ?? node.data.outputCount ?? '1', 10);
             const outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
             const removeEmptyLines = removeEmptyLinesInput?.checked === true;
+            const mergeOutputEnabled = mergeOutputEnabledInput?.checked === true;
             const rawParts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines });
             const parts = outputCount === 0 ? rawParts : rawParts.slice(0, outputCount);
             node.data.text = text;
             node.data.delimiter = delimiter;
             node.data.outputCount = outputCount;
             node.data.removeEmptyLines = removeEmptyLines;
+            node.data.mergeOutputEnabled = mergeOutputEnabled;
             node.data.parts = parts;
+            if (mergeOutputEnabled) {
+                node.data.texts = parts.slice();
+            } else {
+                delete node.data.texts;
+            }
             Object.keys(node.data).forEach((key) => {
                 if (/^part_\d+$/.test(key)) delete node.data[key];
             });
@@ -1511,6 +1528,7 @@ export function createExecutionCoreApi({
             });
             syncTextSplitNodeData(node.id);
             updateAllConnections();
+            return mergeOutputEnabled ? { text: parts.slice() } : {};
         },
         TextDisplay: async (node, inputs) => {
             const text = inputs.text || '';

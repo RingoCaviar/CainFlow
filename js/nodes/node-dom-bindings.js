@@ -161,6 +161,12 @@ export function createNodeDomBindingsApi({
         return normalizeTextSplitOutputCountValue(outputCountInput?.value ?? node?.data?.outputCount ?? 1);
     }
 
+    function isTextSplitMergeOutputEnabled(id) {
+        const mergeOutputInput = documentRef.getElementById(`${id}-merge-output-enabled`);
+        const node = state.nodes.get(id);
+        return mergeOutputInput ? mergeOutputInput.checked === true : node?.data?.mergeOutputEnabled === true;
+    }
+
     function limitTextSplitParts(parts, outputCount) {
         return outputCount === 0 ? parts : parts.slice(0, Math.max(1, outputCount));
     }
@@ -181,6 +187,13 @@ export function createNodeDomBindingsApi({
         const portName = `part_${index + 1}`;
         return `<div class="node-port output" data-node-id="${id}" data-port="${portName}" data-type="text" data-direction="output">
                 <span class="port-label">片段 ${index + 1}</span>
+                <div class="port-dot type-text"></div>
+            </div>`;
+    }
+
+    function renderTextSplitMergedOutputPort(id) {
+        return `<div class="node-port output" data-node-id="${id}" data-port="text" data-type="text" data-direction="output">
+                <span class="port-label">多文本输出</span>
                 <div class="port-dot type-text"></div>
             </div>`;
     }
@@ -529,6 +542,7 @@ export function createNodeDomBindingsApi({
             );
             cloneNode.data.removeEmptyLines = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-remove-empty-lines`)?.checked === true;
             cloneNode.data.previewEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-preview-enabled`)?.checked === true;
+            cloneNode.data.mergeOutputEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-merge-output-enabled`)?.checked === true;
         }
 
         if (cloneNode.type === 'CameraControl') {
@@ -637,11 +651,16 @@ export function createNodeDomBindingsApi({
         if (!outputsSection) return;
 
         const currentPorts = Array.from(outputsSection.querySelectorAll('.node-port.output')).map((port) => port.dataset.port);
-        const nextPorts = Array.from({ length: nextCount }, (_, index) => `part_${index + 1}`);
+        const mergeOutputEnabled = isTextSplitMergeOutputEnabled(nodeId);
+        const nextPorts = mergeOutputEnabled
+            ? ['text']
+            : Array.from({ length: nextCount }, (_, index) => `part_${index + 1}`);
         const unchanged = currentPorts.length === nextPorts.length && currentPorts.every((port, index) => port === nextPorts[index]);
         if (unchanged) return;
 
-        outputsSection.innerHTML = nextPorts.map((_, index) => renderTextSplitOutputPort(nodeId, index)).join('');
+        outputsSection.innerHTML = mergeOutputEnabled
+            ? renderTextSplitMergedOutputPort(nodeId)
+            : nextPorts.map((_, index) => renderTextSplitOutputPort(nodeId, index)).join('');
         bindNodePorts(outputsSection);
         bindZoomSettleGuard(outputsSection);
 
@@ -824,6 +843,7 @@ export function createNodeDomBindingsApi({
         const outputCountInput = documentRef.getElementById(`${id}-output-count`);
         const removeEmptyLinesInput = documentRef.getElementById(`${id}-remove-empty-lines`);
         const previewEnabledInput = documentRef.getElementById(`${id}-preview-enabled`);
+        const mergeOutputEnabledInput = documentRef.getElementById(`${id}-merge-output-enabled`);
         if (!node || !delimiterInput) return;
 
         const outputCount = getTextSplitOutputCount(id);
@@ -832,6 +852,7 @@ export function createNodeDomBindingsApi({
         }
         const removeEmptyLines = removeEmptyLinesInput?.checked === true;
         const previewEnabled = previewEnabledInput?.checked === true;
+        const mergeOutputEnabled = mergeOutputEnabledInput?.checked === true;
         const rawParts = splitTextForTextSplitNode(node.data?.text || '', delimiterInput.value, { removeEmptyLines });
         const parts = limitTextSplitParts(rawParts, outputCount);
         const renderedOutputCount = getTextSplitRenderedOutputCount(parts, outputCount);
@@ -839,7 +860,10 @@ export function createNodeDomBindingsApi({
         node.data.outputCount = outputCount;
         node.data.removeEmptyLines = removeEmptyLines;
         node.data.previewEnabled = previewEnabled;
+        node.data.mergeOutputEnabled = mergeOutputEnabled;
         node.data.parts = parts;
+        node.data.texts = mergeOutputEnabled ? parts.slice() : [];
+        if (!mergeOutputEnabled) delete node.data.texts;
         Object.keys(node.data).forEach((key) => {
             if (/^part_\d+$/.test(key)) delete node.data[key];
         });
@@ -856,7 +880,8 @@ export function createNodeDomBindingsApi({
             const outputText = outputCount === 0
                 ? `，自动生成 ${renderedOutputCount} 个输出端口`
                 : `，当前配置 ${outputCount} 个输出端口`;
-            summary.textContent = `${delimiterText}${emptyLineText}${outputText}`;
+            const mergeText = mergeOutputEnabled ? '，多合一输出为 1 个端口' : outputText;
+            summary.textContent = `${delimiterText}${emptyLineText}${mergeText}`;
         }
 
         const preview = documentRef.getElementById(`${id}-split-preview`);
@@ -1844,7 +1869,7 @@ export function createNodeDomBindingsApi({
                 input.addEventListener('input', () => syncTextNodeData(id));
                 input.addEventListener('change', () => syncTextNodeData(id));
             }
-            if (type === 'TextSplit' && (input.id === `${id}-delimiter` || input.id === `${id}-output-count` || input.id === `${id}-remove-empty-lines` || input.id === `${id}-preview-enabled`)) {
+            if (type === 'TextSplit' && (input.id === `${id}-delimiter` || input.id === `${id}-output-count` || input.id === `${id}-remove-empty-lines` || input.id === `${id}-preview-enabled` || input.id === `${id}-merge-output-enabled`)) {
                 input.addEventListener('input', () => syncTextSplitNodeData(id));
                 input.addEventListener('change', () => syncTextSplitNodeData(id));
             }

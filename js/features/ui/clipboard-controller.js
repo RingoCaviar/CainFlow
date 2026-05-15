@@ -118,6 +118,7 @@ export function createClipboardControllerApi({
             serialized.outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
             serialized.removeEmptyLines = documentRef.getElementById(`${id}-remove-empty-lines`)?.checked === true;
             serialized.previewEnabled = documentRef.getElementById(`${id}-preview-enabled`)?.checked === true;
+            serialized.mergeOutputEnabled = documentRef.getElementById(`${id}-merge-output-enabled`)?.checked === true;
             serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];
         }
         if (node.type === 'CameraControl') {

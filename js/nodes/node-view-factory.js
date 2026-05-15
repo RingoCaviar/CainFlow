@@ -61,6 +61,11 @@ function getTextSplitPreviewEnabledValue(restoreData = {}) {
     return rd.previewEnabled === true;
 }
 
+function getTextSplitMergeOutputEnabledValue(restoreData = {}) {
+    const rd = restoreData || {};
+    return rd.mergeOutputEnabled === true;
+}
+
 function normalizeTextSplitOutputCountValue(value, fallback = 1) {
     const parsed = parseInt(value ?? fallback, 10);
     return Number.isFinite(parsed) ? Math.max(0, parsed) : Math.max(0, fallback);
@@ -91,6 +96,13 @@ function getTextSplitRenderedOutputCountValue(restoreData = {}) {
 }
 
 function getTextSplitOutputPorts(restoreData = {}) {
+    if (getTextSplitMergeOutputEnabledValue(restoreData)) {
+        return [{
+            name: 'text',
+            type: 'text',
+            label: '多文本输出'
+        }];
+    }
     const count = getTextSplitRenderedOutputCountValue(restoreData);
     return Array.from({ length: count }, (_, index) => ({
         name: `part_${index + 1}`,
@@ -619,6 +631,7 @@ function renderTextSplitBody(id, restoreData) {
     const outputCount = getTextSplitOutputCountSettingValue(rd);
     const removeEmptyLines = getTextSplitRemoveEmptyLinesValue(rd);
     const previewEnabled = getTextSplitPreviewEnabledValue(rd);
+    const mergeOutputEnabled = getTextSplitMergeOutputEnabledValue(rd);
     return `
         <div class="node-field">
             <label>分隔字符串</label>
@@ -637,6 +650,13 @@ function renderTextSplitBody(id, restoreData) {
             <label>删除空行</label>
             <label class="toggle-switch">
                 <input type="checkbox" id="${id}-remove-empty-lines" ${removeEmptyLines ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div class="node-field node-field-row">
+            <label>多合一输出</label>
+            <label class="toggle-switch">
+                <input type="checkbox" id="${id}-merge-output-enabled" ${mergeOutputEnabled ? 'checked' : ''} />
                 <span class="toggle-slider"></span>
             </label>
         </div>

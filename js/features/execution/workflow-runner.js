@@ -160,7 +160,7 @@ export function createWorkflowRunnerApi({
         return {};
     }
 
-    function resetNodesForPlan(plan) {
+    function resetNodesForPlan(plan, { preserveFixedCache = true, forceResetNodeIds = null } = {}) {
         const runningNodeIds = getRunningNodeIds();
         for (const [nid, node] of state.nodes) {
             if (!shouldResetNodeData(plan, nid)) continue;
@@ -168,8 +168,9 @@ export function createWorkflowRunnerApi({
 
             const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
             const isFixed = fixedToggle ? fixedToggle.checked : false;
+            const forceReset = forceResetNodeIds?.has(nid) === true;
 
-            if (isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
+            if (!forceReset && preserveFixedCache && isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
                 node.el.classList.add('completed');
                 node.el.classList.remove('error', 'running');
                 continue;
@@ -180,6 +181,8 @@ export function createWorkflowRunnerApi({
             node.data = getPreservedNodeDataForReset(node);
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') {
+                node.imageData = null;
+                node.imageDataList = [];
                 node.generationCompletedCount = 0;
                 node.generatedImages = [];
             }
@@ -237,12 +240,56 @@ export function createWorkflowRunnerApi({
         return getCachedOutputValue(fromNode, portName);
     }
 
+    function cloneInputValue(value) {
+        if (Array.isArray(value)) {
+            return value.slice();
+        }
+        return value;
+    }
+
+    function captureSelectedOnlyExternalInputs(plan) {
+        if (plan?.mode !== 'selected-only') return Object.create(null);
+
+        const externalInputsByNode = Object.create(null);
+
+        for (const nodeId of plan.nodeIds || []) {
+            for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
+                if (plan.scopeNodeSet.has(connection.from.nodeId)) continue;
+
+                const fromNode = state.nodes.get(connection.from.nodeId);
+                const toNode = state.nodes.get(nodeId);
+                const outputValue = getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+                if (outputValue === undefined) continue;
+
+                if (!externalInputsByNode[nodeId]) {
+                    externalInputsByNode[nodeId] = Object.create(null);
+                }
+                externalInputsByNode[nodeId][connection.to.port] = cloneInputValue(outputValue);
+            }
+        }
+
+        return externalInputsByNode;
+    }
+
+    function getInputValueForConnection(plan, nodeId, connection) {
+        const isSelectedOnlyExternalInput = plan?.mode === 'selected-only' &&
+            !plan.scopeNodeSet.has(connection.from.nodeId);
+        if (isSelectedOnlyExternalInput) {
+            const capturedValue = plan.externalInputsByNode?.[nodeId]?.[connection.to.port];
+            if (capturedValue !== undefined) {
+                return cloneInputValue(capturedValue);
+            }
+        }
+
+        const fromNode = state.nodes.get(connection.from.nodeId);
+        const toNode = state.nodes.get(nodeId);
+        return getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+    }
+
     function hasPromptInputValue(plan, nodeId) {
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
             if (connection.to.port !== 'prompt') continue;
-            const fromNode = state.nodes.get(connection.from.nodeId);
-            const toNode = state.nodes.get(nodeId);
-            const promptValue = getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+            const promptValue = getInputValueForConnection(plan, nodeId, connection);
             if (typeof promptValue === 'string' && promptValue.trim()) return true;
             if (promptValue !== undefined && promptValue !== null && promptValue !== '') return true;
             if (isPromptProducedDuringPlan(plan, nodeId, connection)) return true;
@@ -254,9 +301,7 @@ export function createWorkflowRunnerApi({
         const inputs = {};
 
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
-            const fromNode = state.nodes.get(connection.from.nodeId);
-            const toNode = state.nodes.get(nodeId);
-            const outputValue = getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+            const outputValue = getInputValueForConnection(plan, nodeId, connection);
             if (outputValue !== undefined) {
                 inputs[connection.to.port] = outputValue;
             }
@@ -785,6 +830,7 @@ export function createWorkflowRunnerApi({
         let runOptions = normalizeRunOptions(runInput);
         let plan = resolveExecutionPlan(runOptions);
         if (!plan) return;
+        plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
 
         const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
         if (alreadyRunningNodeIds.length > 0) {
@@ -859,7 +905,12 @@ export function createWorkflowRunnerApi({
             });
         }
 
-        resetNodesForPlan(plan);
+        const forceResetNodeIds = new Set();
+        if (runOptions.mode === 'target-node' && runOptions.targetNodeId) {
+            forceResetNodeIds.add(runOptions.targetNodeId);
+        }
+
+        resetNodesForPlan(plan, { forceResetNodeIds });
 
         let order = plan.executionOrder.slice();
 
@@ -987,6 +1038,7 @@ export function createWorkflowRunnerApi({
                     return;
                 }
                 order = plan.executionOrder.slice();
+                resetNodesForPlan(plan, { forceResetNodeIds });
             }
         }
 
@@ -1150,7 +1202,7 @@ export function createWorkflowRunnerApi({
                 const actualFailures = order.filter((id) => {
                     if (session.canceledBranchNodeIds.has(id)) return false;
                     const node = state.nodes.get(id);
-                    return node && node.enabled !== false && !node.isSucceeded;
+                    return node && node.enabled !== false && !completedNodes.has(id);
                 });
 
                 if (actualFailures.length === 0) {

@@ -23,7 +23,10 @@ from backend.services.version_service import get_app_user_agent
 
 
 def _is_client_disconnect_error(error):
-    return isinstance(error, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError))
+    return (
+        isinstance(error, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError))
+        and not isinstance(error, RemoteDisconnected)
+    )
 
 
 def _is_upstream_disconnect_error(error):

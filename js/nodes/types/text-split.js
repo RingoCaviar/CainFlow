@@ -9,5 +9,5 @@ export const textSplitNode = {
     inputs: [{ name: 'text', type: 'text', label: '文本输入' }],
     outputs: [{ name: 'part_1', type: 'text', label: '片段 1' }],
     defaultWidth: 320,
-    defaultHeight: 292
+    defaultHeight: 330
 };

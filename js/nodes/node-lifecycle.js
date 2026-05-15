@@ -802,9 +802,13 @@ export function createNodeLifecycleApi({
             }
             nodeData.data.removeEmptyLines = effectiveRestoreData?.removeEmptyLines === true;
             nodeData.data.previewEnabled = effectiveRestoreData?.previewEnabled === true;
+            nodeData.data.mergeOutputEnabled = effectiveRestoreData?.mergeOutputEnabled === true;
             nodeData.data.parts = nodeData.data.outputCount === 0
                 ? restoredParts
                 : restoredParts.slice(0, nodeData.data.outputCount);
+            if (nodeData.data.mergeOutputEnabled) {
+                nodeData.data.texts = nodeData.data.parts.slice();
+            }
             nodeData.data.parts.forEach((part, index) => {
                 nodeData.data[`part_${index + 1}`] = part;
             });
