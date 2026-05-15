@@ -12,6 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -23,21 +24,34 @@ jobs:
           python-version: '3.13'
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
+          python -m pip install --upgrade pyinstaller
           if (Test-Path "requirements.txt") { pip install -r requirements.txt }
 
+      - name: Show build environment
+        shell: pwsh
+        run: |
+          python --version
+          python -m PyInstaller --version
+
       - name: Ensure directories exist
+        shell: pwsh
         run: |
           if (!(Test-Path "css")) { New-Item -ItemType Directory -Path "css" }
           if (!(Test-Path "js")) { New-Item -ItemType Directory -Path "js" }
           if (!(Test-Path "sounds")) { New-Item -ItemType Directory -Path "sounds" }
 
       - name: Build Launcher EXE
+        shell: pwsh
         run: |
+          if (Test-Path "build") { Remove-Item "build" -Recurse -Force }
+          if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
+          if (Test-Path "CainFlow_Launcher.spec") { Remove-Item "CainFlow_Launcher.spec" -Force }
+
           # Build with bundled static assets
-          pyinstaller --onefile --name "CainFlow_Launcher" --icon "cainflow.ico" `
+          python -m PyInstaller --clean --noconfirm --log-level INFO --onefile --name "CainFlow_Launcher" --icon "cainflow.ico" `
             --add-data "index.html;." `
             --add-data "index.js;." `
             --add-data "index.css;." `
@@ -52,6 +66,7 @@ jobs:
         shell: pwsh
         run: |
           # Create a staging directory
+          if (Test-Path "release_staging") { Remove-Item "release_staging" -Recurse -Force }
           New-Item -ItemType Directory -Path "release_staging"
           
           # Move the compiled EXE to the staging folder
