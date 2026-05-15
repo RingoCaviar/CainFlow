@@ -156,6 +156,167 @@ export function createMediaControllerApi({
         return pending;
     }
 
+    function createSvgElement(tagName) {
+        return documentRef.createElementNS('http://www.w3.org/2000/svg', tagName);
+    }
+
+    function ensureElement(parent, selector, createElement) {
+        let element = parent.querySelector(selector);
+        if (!element) {
+            element = createElement();
+            parent.appendChild(element);
+        }
+        return element;
+    }
+
+    function removeElements(parent, selector) {
+        parent.querySelectorAll(selector).forEach((element) => element.remove());
+    }
+
+    function setImageElementSource(img, src, alt, options = {}) {
+        if (!img) return;
+        const { cursor = '', className = '' } = options;
+        if (className) img.className = className;
+        img.draggable = false;
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.alt = alt;
+        if (cursor) img.style.cursor = cursor;
+        else img.style.removeProperty('cursor');
+        if (img.getAttribute('src') !== src) {
+            img.src = src;
+        }
+    }
+
+    function createPreviewPlaceholder(className, message, { withIcon = true } = {}) {
+        const placeholder = documentRef.createElement('div');
+        placeholder.className = className;
+
+        if (withIcon) {
+            const svg = createSvgElement('svg');
+            svg.setAttribute('width', '32');
+            svg.setAttribute('height', '32');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('fill', 'none');
+            svg.setAttribute('stroke', 'currentColor');
+            svg.setAttribute('stroke-width', '1.5');
+
+            const rect = createSvgElement('rect');
+            rect.setAttribute('x', '3');
+            rect.setAttribute('y', '3');
+            rect.setAttribute('width', '18');
+            rect.setAttribute('height', '18');
+            rect.setAttribute('rx', '2');
+            rect.setAttribute('ry', '2');
+
+            const circle = createSvgElement('circle');
+            circle.setAttribute('cx', '8.5');
+            circle.setAttribute('cy', '8.5');
+            circle.setAttribute('r', '1.5');
+
+            const polyline = createSvgElement('polyline');
+            polyline.setAttribute('points', '21 15 16 10 5 21');
+
+            svg.append(rect, circle, polyline);
+            placeholder.appendChild(svg);
+        }
+
+        placeholder.appendChild(documentRef.createTextNode(message));
+        return placeholder;
+    }
+
+    function updatePlaceholderText(placeholder, message) {
+        if (!placeholder) return;
+        const textNode = Array.from(placeholder.childNodes).find((node) => node.nodeType === 3);
+        if (textNode) {
+            textNode.textContent = message;
+        } else {
+            placeholder.appendChild(documentRef.createTextNode(message));
+        }
+    }
+
+    function createPreviewNavButton(direction) {
+        const button = documentRef.createElement('button');
+        button.type = 'button';
+        button.className = `image-save-preview-nav ${direction < 0 ? 'image-save-preview-prev' : 'image-save-preview-next'}`;
+        button.dataset.direction = String(direction);
+        button.title = direction < 0 ? '上一张' : '下一张';
+        button.setAttribute('aria-label', direction < 0 ? '上一张' : '下一张');
+
+        const svg = createSvgElement('svg');
+        svg.setAttribute('width', '14');
+        svg.setAttribute('height', '14');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.4');
+
+        const polyline = createSvgElement('polyline');
+        polyline.setAttribute('points', direction < 0 ? '15 18 9 12 15 6' : '9 18 15 12 9 6');
+        svg.appendChild(polyline);
+        button.appendChild(svg);
+        return button;
+    }
+
+    function renderReusableMultiImagePreview(container, image, index, total, {
+        altPrefix,
+        placeholderClass,
+        emptyMessage,
+        cursor = '',
+        placeholderWithIcon = true
+    }) {
+        if (!container) return;
+
+        const hasImage = typeof image === 'string' && image.trim();
+        const hasMultiple = total > 1;
+        container.classList.toggle('has-multiple-images', hasMultiple);
+
+        if (!hasImage) {
+            removeElements(container, 'img, .image-save-preview-nav, .image-save-preview-counter');
+            const placeholder = ensureElement(container, `.${placeholderClass}`, () => createPreviewPlaceholder(placeholderClass, emptyMessage, { withIcon: placeholderWithIcon }));
+            updatePlaceholderText(placeholder, emptyMessage);
+            return;
+        }
+
+        removeElements(container, `.${placeholderClass}`);
+        const img = ensureElement(container, 'img', () => documentRef.createElement('img'));
+        setImageElementSource(img, image, `${altPrefix} ${index + 1}/${total}`, { cursor });
+
+        if (hasMultiple) {
+            ensureElement(container, '.image-save-preview-prev', () => createPreviewNavButton(-1));
+            ensureElement(container, '.image-save-preview-next', () => createPreviewNavButton(1));
+            const counter = ensureElement(container, '.image-save-preview-counter', () => {
+                const el = documentRef.createElement('div');
+                el.className = 'image-save-preview-counter';
+                return el;
+            });
+            counter.textContent = `${index + 1}/${total}`;
+        } else {
+            removeElements(container, '.image-save-preview-nav, .image-save-preview-counter');
+        }
+    }
+
+    function renderReusableComparePreview(container, imageA, imageB) {
+        if (!container) return;
+
+        removeElements(container, '.preview-placeholder');
+        const imageBEl = ensureElement(container, '.image-compare-b', () => documentRef.createElement('img'));
+        setImageElementSource(imageBEl, imageB, 'B 输入图片', { className: 'image-compare-img image-compare-b' });
+
+        if (typeof imageA === 'string' && imageA.trim()) {
+            const imageAEl = ensureElement(container, '.image-compare-a', () => documentRef.createElement('img'));
+            setImageElementSource(imageAEl, imageA, 'A 输入图片', { className: 'image-compare-img image-compare-a' });
+            ensureElement(container, '.image-compare-divider', () => {
+                const divider = documentRef.createElement('div');
+                divider.className = 'image-compare-divider';
+                divider.setAttribute('aria-hidden', 'true');
+                return divider;
+            });
+        } else {
+            removeElements(container, '.image-compare-a, .image-compare-divider');
+        }
+    }
+
     function renderImagePreviewImage(nodeId, images, emptyMessage = '无输入图片') {
         const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
         const node = getNodeById(nodeId);
@@ -163,8 +324,13 @@ export function createMediaControllerApi({
 
         const imageList = normalizeImageList(images);
         if (imageList.length === 0) {
-            previewContainer.classList.remove('has-multiple-images');
-            previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>${escapeHtml(emptyMessage)}</div>`;
+            renderReusableMultiImagePreview(previewContainer, '', 0, 0, {
+                altPrefix: '预览',
+                placeholderClass: 'preview-placeholder',
+                emptyMessage,
+                cursor: 'pointer',
+                placeholderWithIcon: true
+            });
             if (node) node.imagePreviewIndex = 0;
             return;
         }
@@ -177,19 +343,13 @@ export function createMediaControllerApi({
             node.data = node.data || {};
             node.data.image = image;
         }
-        previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
-        previewContainer.innerHTML = `
-            <img src="${image}" alt="预览 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" loading="lazy" decoding="async" />
-            ${imageList.length > 1 ? `
-                <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-                <div class="image-save-preview-counter">${index + 1}/${imageList.length}</div>
-            ` : ''}
-        `;
+        renderReusableMultiImagePreview(previewContainer, image, index, imageList.length, {
+            altPrefix: '预览',
+            placeholderClass: 'preview-placeholder',
+            emptyMessage,
+            cursor: 'pointer',
+            placeholderWithIcon: true
+        });
     }
 
     function renderImageSavePreview(nodeId, images, emptyMessage = '无输入图片') {
@@ -199,8 +359,12 @@ export function createMediaControllerApi({
 
         const imageList = normalizeImageList(images);
         if (imageList.length === 0) {
-            previewContainer.classList.remove('has-multiple-images');
-            previewContainer.innerHTML = `<div class="save-preview-placeholder">${escapeHtml(emptyMessage)}</div>`;
+            renderReusableMultiImagePreview(previewContainer, '', 0, 0, {
+                altPrefix: '待保存',
+                placeholderClass: 'save-preview-placeholder',
+                emptyMessage,
+                placeholderWithIcon: false
+            });
             if (node) node.imagePreviewIndex = 0;
             return;
         }
@@ -208,19 +372,12 @@ export function createMediaControllerApi({
         const index = getImageSavePreviewIndex(node, imageList);
         if (node) node.imagePreviewIndex = index;
         const image = imageList[index];
-        previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
-        previewContainer.innerHTML = `
-            <img src="${image}" alt="待保存 ${index + 1}/${imageList.length}" draggable="false" loading="lazy" decoding="async" />
-            ${imageList.length > 1 ? `
-                <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-                <div class="image-save-preview-counter">${index + 1}/${imageList.length}</div>
-            ` : ''}
-        `;
+        renderReusableMultiImagePreview(previewContainer, image, index, imageList.length, {
+            altPrefix: '待保存',
+            placeholderClass: 'save-preview-placeholder',
+            emptyMessage,
+            placeholderWithIcon: false
+        });
     }
 
     function getCurrentImageSavePreviewImage(node) {
@@ -553,7 +710,9 @@ export function createMediaControllerApi({
         if (container) {
             container.classList.remove('has-images', 'has-a-image', 'is-comparing');
             container.style.setProperty('--compare-x', '50%');
-            container.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>${message}</div>`;
+            removeElements(container, '.image-compare-img, .image-compare-divider');
+            const placeholder = ensureElement(container, '.preview-placeholder', () => createPreviewPlaceholder('preview-placeholder', message));
+            updatePlaceholderText(placeholder, message);
         }
         if (badge) {
             badge.textContent = '';
@@ -598,11 +757,7 @@ export function createMediaControllerApi({
             container.classList.toggle('has-a-image', Boolean(nextImageA));
             container.classList.remove('is-comparing');
             container.style.setProperty('--compare-x', '50%');
-            container.innerHTML = `
-                <img class="image-compare-img image-compare-b" src="${nextImageB}" alt="B 输入图片" draggable="false" loading="lazy" decoding="async" />
-                ${nextImageA ? `<img class="image-compare-img image-compare-a" src="${nextImageA}" alt="A 输入图片" draggable="false" loading="lazy" decoding="async" />` : ''}
-                ${nextImageA ? '<div class="image-compare-divider" aria-hidden="true"></div>' : ''}
-            `;
+            renderReusableComparePreview(container, nextImageA, nextImageB);
         }
 
         await showResolutionBadge(nodeId, nextImageB);

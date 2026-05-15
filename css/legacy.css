@@ -3979,6 +3979,7 @@ input[type=number] {
 /* Removed info-overlay styles for cleaner thumbnails */
 
 .preview-viewport {
+    position: relative;
     width: 100%;
     height: 100%;
     display: flex;
@@ -3987,6 +3988,8 @@ input[type=number] {
     overflow: hidden;
     cursor: grab;
     user-select: none;
+    padding: 30px;
+    box-sizing: border-box;
 }
 
 .preview-viewport:active {
@@ -3994,8 +3997,10 @@ input[type=number] {
 }
 
 #history-preview-img {
+    display: block;
     max-width: none;
     max-height: none;
+    transform-origin: center center;
     transition: transform 0.1s ease-out;
     /* Smooth but responsive zoom */
     will-change: transform;

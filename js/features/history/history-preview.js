@@ -34,6 +34,12 @@ export function createHistoryPreviewApi({
         }
     }
 
+    function resetPreviewTransform() {
+        previewState.scale = 1;
+        previewState.x = 0;
+        previewState.y = 0;
+    }
+
     function fitPreviewImage() {
         const img = documentRef.getElementById('history-preview-img');
         const viewport = documentRef.getElementById('preview-viewport');
@@ -45,7 +51,9 @@ export function createHistoryPreviewApi({
         const ih = img.naturalHeight || img.height;
 
         if (iw && ih) {
-            const scale = Math.min((vw - 60) / iw, (vh - 60) / ih, 1);
+            const safeWidth = Math.max(vw - 60, 80);
+            const safeHeight = Math.max(vh - 60, 80);
+            const scale = Math.min(safeWidth / iw, safeHeight / ih, 1);
             previewState.scale = scale;
             previewState.x = 0;
             previewState.y = 0;
@@ -127,9 +135,7 @@ export function createHistoryPreviewApi({
         const btnDelete = documentRef.getElementById('btn-delete-preview');
 
         previewState.currentItem = item;
-        previewState.scale = 1;
-        previewState.x = 0;
-        previewState.y = 0;
+        resetPreviewTransform();
 
         if (img) {
             img.onload = null;
@@ -211,12 +217,8 @@ export function createHistoryPreviewApi({
         syncPreviewNavState();
         await contentPromise;
 
-        previewState.scale = 1;
-        previewState.x = 0;
-        previewState.y = 0;
+        fitPreviewImage();
         previewState.isDragging = false;
-
-        updatePreviewTransform();
     }
 
     async function navigateHistory(direction) {
@@ -225,9 +227,7 @@ export function createHistoryPreviewApi({
 
         previewState.currentIndex = newIndex;
         const item = previewState.items[newIndex];
-        previewState.scale = 1;
-        previewState.x = 0;
-        previewState.y = 0;
+        resetPreviewTransform();
 
         await updatePreviewContent(item);
     }
@@ -305,6 +305,12 @@ export function createHistoryPreviewApi({
                 previewState.isDragging = false;
             });
         }
+
+        windowRef.addEventListener('resize', () => {
+            const modal = documentRef.getElementById('history-preview-modal');
+            if (!modal || modal.classList.contains('hidden')) return;
+            fitPreviewImage();
+        });
 
         documentRef.getElementById('btn-close-preview')?.addEventListener('click', closeHistoryPreview);
         documentRef.getElementById('btn-prev-preview')?.addEventListener('click', (e) => {
