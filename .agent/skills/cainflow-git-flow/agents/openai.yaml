@@ -1,0 +1,4 @@
+interface:
+  display_name: "CainFlow Git Flow"
+  short_description: "CainFlow 本地开发、提交、推送和提 PR 流程"
+  default_prompt: "Use $cainflow-git-flow to run the CainFlow local development, commit, push, and upstream PR workflow."

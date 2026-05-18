@@ -270,6 +270,24 @@ html[data-app-theme="pink"] .search-chips {
     box-shadow: var(--shadow-node);
 }
 
+html[data-app-theme="pink"] #workflow-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(255, 244, 248, 0.98), rgba(255, 236, 243, 0.96));
+}
+
+html[data-app-theme="pink"] #workflow-sidebar.drawer-left {
+    background: linear-gradient(180deg, rgba(255, 250, 252, 0.99), rgba(255, 241, 246, 0.99));
+    border-right-color: rgba(244, 114, 182, 0.16);
+}
+
+html[data-app-theme="pink"] #workflow-sidebar .workflow-list-container {
+    background: transparent;
+}
+
+html[data-app-theme="pink"] #workflow-sidebar .drawer-footer {
+    background: rgba(255, 255, 255, 0.9);
+    border-top: 1px solid rgba(244, 114, 182, 0.16);
+}
+
 html[data-app-theme="pink"] .node.selected .node-glass-bg {
     border-color: rgba(236, 72, 153, 0.24);
     box-shadow:
@@ -674,6 +692,16 @@ html[data-app-theme="pink"] .workflow-item:hover {
         0 14px 22px rgba(244, 114, 182, 0.1);
 }
 
+html[data-app-theme="pink"] #workflow-sidebar .workflow-item:hover {
+    background: rgba(255, 244, 248, 0.99) !important;
+    border-color: rgba(236, 72, 153, 0.3) !important;
+    transform: translateX(4px);
+}
+
+html[data-app-theme="pink"] .save-workflow-box {
+    background: rgba(255, 255, 255, 0.88);
+}
+
 html[data-app-theme="pink"] .drawer-subheader {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 241, 246, 0.94));
 }
@@ -816,6 +844,10 @@ html[data-app-theme="pink"] .history-fullscreen-rail-tooltip {
     color: var(--text-primary);
     border-color: rgba(244, 114, 182, 0.22);
     box-shadow: 0 14px 30px rgba(190, 24, 93, 0.14);
+}
+
+html[data-app-theme="pink"] #cache-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(255, 244, 248, 0.98), rgba(255, 236, 243, 0.96));
 }
 
 html[data-app-theme="pink"] #cache-sidebar .drawer-content > div[style*="margin-top: 28px;"] {

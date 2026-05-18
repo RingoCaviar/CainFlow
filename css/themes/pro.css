@@ -135,6 +135,24 @@ html[data-app-theme="pro"] .search-chips {
     box-shadow: var(--shadow-node);
 }
 
+html[data-app-theme="pro"] #workflow-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(15, 20, 31, 0.98), rgba(11, 15, 24, 0.98));
+}
+
+html[data-app-theme="pro"] #workflow-sidebar.drawer-left {
+    background: linear-gradient(180deg, rgba(18, 24, 36, 0.99), rgba(11, 15, 24, 0.99));
+    border-right-color: rgba(148, 163, 184, 0.12);
+}
+
+html[data-app-theme="pro"] #workflow-sidebar .workflow-list-container {
+    background: transparent;
+}
+
+html[data-app-theme="pro"] #workflow-sidebar .drawer-footer {
+    background: rgba(14, 19, 29, 0.98);
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
 html[data-app-theme="pro"] .node-header,
 html[data-app-theme="pro"] .drawer-subheader,
 html[data-app-theme="pro"] .help-panel-header,
@@ -189,6 +207,26 @@ html[data-app-theme="pro"] .context-menu-item:hover,
 html[data-app-theme="pro"] .context-menu-item.is-open,
 html[data-app-theme="pro"] .workflow-item:hover {
     background: rgba(93, 124, 255, 0.08);
+}
+
+html[data-app-theme="pro"] .workflow-item {
+    background: rgba(18, 24, 36, 0.9);
+    border-color: rgba(148, 163, 184, 0.14);
+}
+
+html[data-app-theme="pro"] .workflow-item:hover {
+    background: rgba(24, 31, 46, 0.96);
+    border-color: rgba(93, 124, 255, 0.22);
+}
+
+html[data-app-theme="pro"] #workflow-sidebar .workflow-item:hover {
+    background: rgba(24, 31, 46, 0.98) !important;
+    border-color: rgba(93, 124, 255, 0.28) !important;
+    transform: translateX(4px);
+}
+
+html[data-app-theme="pro"] .save-workflow-box {
+    background: rgba(14, 19, 29, 0.96);
 }
 
 html[data-app-theme="pro"] .floating-notice,
@@ -292,6 +330,10 @@ html[data-app-theme="pro"] .history-card-meta,
 html[data-app-theme="pro"] .preview-info {
     background: rgba(17, 23, 34, 0.92);
     border-color: rgba(148, 163, 184, 0.14);
+}
+
+html[data-app-theme="pro"] #cache-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(15, 20, 31, 0.98), rgba(11, 15, 24, 0.98));
 }
 
 html[data-app-theme="pro"] #cache-sidebar .cache-info-card,

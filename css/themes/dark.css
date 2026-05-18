@@ -14,3 +14,54 @@
     --bg-dark: var(--bg-toolbar);
     --panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
 }
+
+html[data-app-theme="dark"] #workflow-sidebar > .drawer-content,
+:root:not([data-app-theme]) #workflow-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(18, 22, 34, 0.98), rgba(12, 15, 24, 0.98));
+}
+
+html[data-app-theme="dark"] #workflow-sidebar.drawer-left,
+:root:not([data-app-theme]) #workflow-sidebar.drawer-left {
+    background: linear-gradient(180deg, rgba(20, 24, 38, 0.99), rgba(12, 15, 24, 0.99));
+    border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-app-theme="dark"] #workflow-sidebar .workflow-list-container,
+:root:not([data-app-theme]) #workflow-sidebar .workflow-list-container {
+    background: transparent;
+}
+
+html[data-app-theme="dark"] #workflow-sidebar .drawer-footer,
+:root:not([data-app-theme]) #workflow-sidebar .drawer-footer {
+    background: rgba(12, 15, 24, 0.98);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+html[data-app-theme="dark"] .workflow-item,
+:root:not([data-app-theme]) .workflow-item {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-app-theme="dark"] .workflow-item:hover,
+:root:not([data-app-theme]) .workflow-item:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(168, 85, 247, 0.3);
+}
+
+html[data-app-theme="dark"] #workflow-sidebar .workflow-item:hover,
+:root:not([data-app-theme]) #workflow-sidebar .workflow-item:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(168, 85, 247, 0.34) !important;
+    transform: translateX(4px);
+}
+
+html[data-app-theme="dark"] .save-workflow-box,
+:root:not([data-app-theme]) .save-workflow-box {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+html[data-app-theme="dark"] #cache-sidebar > .drawer-content,
+:root:not([data-app-theme]) #cache-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(14, 18, 28, 0.98), rgba(9, 12, 18, 0.98));
+}

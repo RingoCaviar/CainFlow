@@ -300,6 +300,24 @@ html[data-app-theme="light"] .search-chips {
     box-shadow: var(--shadow-node);
 }
 
+html[data-app-theme="light"] #workflow-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96));
+}
+
+html[data-app-theme="light"] #workflow-sidebar.drawer-left {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 252, 0.98));
+    border-right-color: rgba(148, 163, 184, 0.18);
+}
+
+html[data-app-theme="light"] #workflow-sidebar .workflow-list-container {
+    background: transparent;
+}
+
+html[data-app-theme="light"] #workflow-sidebar .drawer-footer {
+    background: rgba(255, 255, 255, 0.9);
+    border-top: 1px solid var(--border-color);
+}
+
 html[data-app-theme="light"] .node.selected .node-glass-bg {
     border-color: rgba(109, 40, 217, 0.2);
     box-shadow:
@@ -777,6 +795,26 @@ html[data-app-theme="light"] .node-field select option,
 html[data-app-theme="light"] .api-config-card .card-field select option {
     background: #ffffff;
     color: var(--text-primary);
+}
+
+html[data-app-theme="light"] .workflow-item {
+    background: rgba(255, 255, 255, 0.86);
+    border-color: rgba(148, 163, 184, 0.22);
+}
+
+html[data-app-theme="light"] .workflow-item:hover {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(109, 40, 217, 0.2);
+}
+
+html[data-app-theme="light"] #workflow-sidebar .workflow-item:hover {
+    background: rgba(255, 255, 255, 0.99) !important;
+    border-color: rgba(109, 40, 217, 0.24) !important;
+    transform: translateX(4px);
+}
+
+html[data-app-theme="light"] .save-workflow-box {
+    background: rgba(255, 255, 255, 0.82);
 }
 
 html[data-app-theme="light"] .node-select-trigger {
@@ -1537,6 +1575,10 @@ html[data-app-theme="light"] .history-fullscreen-rail-tooltip {
     color: var(--text-primary);
     border-color: rgba(148, 163, 184, 0.22);
     box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+}
+
+html[data-app-theme="light"] #cache-sidebar > .drawer-content {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96));
 }
 
 html[data-app-theme="light"] #cache-sidebar .drawer-content > div[style*="margin-top: 28px;"] {
