@@ -40,6 +40,13 @@
 - 下载取消、窗口关闭取消、失败和完成后都要清理 `.download`、提取中间文件与 Release ZIP；如果 Windows 锁住正在运行的主程序，应留下待替换文件和重试替换脚本，并提示用户重启 CainFlow 主程序。
 - 前端收到完成态后要先把右下角进度条渲染到 100%，再延迟弹出重启提示；不要让 `alert()` 或同步弹窗阻塞 100% 进度帧的绘制。
 
+### 发布打包约定
+
+- GitHub Release 构建入口是 `.github/workflows/release.yml`，本地等价构建入口是 `scripts/build-release-local.ps1`；修改 PyInstaller 参数、随包资源或 ZIP 结构时要同步检查这两处，避免本地包和 Actions 包不一致。
+- PyInstaller 的程序入口保持为 `server.py`，它会导入 `backend.main` 并让 PyInstaller 自动收集 `backend` Python 模块；不要再额外使用 `--add-data "backend;backend"`，否则会把后端源码和 `__pycache__` 作为静态资源重复塞进 exe。
+- Release ZIP 只应外置运行时会被用户改写或在线更新需要保留的内容，例如 `CainFlow.exe`、`allowed_hosts.json`、`workflows/`；前端静态资源、图标、声音和后端模块随 exe 内置，避免整包更新时误覆盖运行时配置。
+- Windows Actions 中涉及 PowerShell 续行、文件清理和压缩的步骤要显式使用 `shell: pwsh`；构建前清理 `build`、`dist`、`release_staging` 和生成的 `.spec`，并保留 PyInstaller 版本输出，方便排查卡在打包阶段的问题。
+
 ### 代理设置与版本号约定
 
 - 代理设置的“自动检测代理端口”属于设置面板数据逻辑：按钮、自动填充和自动保存放 `js/features/settings/settings-controller.js`，检测接口在 `backend/routes/settings_routes.py`，常见本地代理端口探测和连通性校验放 `backend/services/security_service.py`。检测成功后再自动勾选代理并填入端口；不要把批量端口探测散到前端。
@@ -304,6 +311,7 @@
 | 修改服务启动或本地运行行为 | `start_cainflow.bat`, `server.py`, `backend/main.py`, `backend/config.py` |
 | 添加功能专属样式 | `css/features/panels.css` 或 `css/features/` 下新增文件，并接入 `index.css` |
 | 服务端日志 | `backend/services/log_service.py`, `backend/routes/` |
+| 修改 GitHub Actions 发布打包或 Release ZIP 内容 | `.github/workflows/release.yml`, `scripts/build-release-local.ps1`, `server.py`, `backend/config.py` |
 
 ---
 
@@ -345,6 +353,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 启动冲突提示需要同时照顾源码运行和打包运行：`start_cainflow.bat` 是源码双击入口，`backend/main.py` 是后端真实启动入口。端口占用时不要自动 `taskkill`，应识别占用进程并在黑色窗口中停留提示，区分 CainFlow 已运行和其他程序占用；测试冲突分支时可临时监听 `0.0.0.0:8767` 或模拟 CainFlow 命令行，结束后必须释放端口并清理临时缓存。
 - 在线更新的前端状态、通知、下载进度/速度/百分比、取消按钮、关闭窗口确认和关闭后自动取消都收在 `js/features/update/update-manager.js`；设置页只展示入口和状态，不另写下载逻辑。右下角常驻下载进度通知挂到 `#toast-container`，样式在 `css/legacy.css` / `css/themes.css`，普通 Toast 可以自动消失，但更新下载进度卡片在完成、取消或失败前必须常驻。后端更新路由只做接口分发，下载、取消、临时文件清理、Release ZIP 选择、`CainFlow.exe` 提取和主程序替换都放 `backend/services/update_service.py`。更新服务必须只提取并校验 Windows 主程序文件，不允许整包解压；目标路径使用 `backend/config.py` 的 `MAIN_EXE_PATH`，打包后应指向 `sys.executable`。下载进度总量优先用 GitHub Release asset 的 `size`，完成态要在顶层状态写入 `downloadedBytes`、`totalBytes` 和 `percent=100`；前端收到完成态后先渲染 100% 进度，再延迟弹出重启提示，避免 `alert()` 阻塞 100% 进度帧。取消、失败、完成和下次启动都要清理未完成下载与 ZIP 临时文件；运行中的 EXE 被锁住时，使用待替换文件加重试脚本完成覆盖，并提示用户重启 CainFlow 主程序。
 - 更新能力的全局关闭参数是 `js/core/constants.js` 的 `AUTO_UPDATE_CHECK_DISABLED`。为 `true` 时，`index.js` 把 `autoUpdateCheckDisabled` 注入 `js/features/update/update-manager.js`，启动自动检测不再排队、不显示倒计时、不请求 GitHub；`js/features/settings/settings-controller.js` 也不渲染“系统版本与更新”卡片。调整自动检测、手动检查按钮或设置页更新模块显隐时，要同步检查这条常量链，避免只关一半。
+- 发布包构建链路分为 GitHub Actions 与本地脚本两份入口：`.github/workflows/release.yml` 负责 tag/manual 触发的 Release ZIP，`scripts/build-release-local.ps1` 负责本地复现。两者的 PyInstaller 资源列表要保持一致；`server.py` 导入的 `backend` 会作为 Python 模块自动进入 exe，不要再把 `backend` 当 `--add-data` 静态目录重复打包，尤其不要把 `__pycache__` 带进发布包。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。
