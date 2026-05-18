@@ -87,7 +87,6 @@ export function createNodeSerializer({ state, documentRef }) {
                         : '';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
-                    serialized.multipartFormData = documentRef.getElementById(`${id}-multipart-form-data`)?.checked === true;
                 } else {
                     serialized.sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
