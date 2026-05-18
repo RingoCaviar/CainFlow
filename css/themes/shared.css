@@ -32,6 +32,11 @@
     transform: rotate(12deg);
 }
 
+#btn-theme-toggle[data-theme-id="pink"] .icon-sm {
+    color: var(--accent-pink);
+    transform: rotate(-8deg) scale(1.05);
+}
+
 .theme-menu-panel {
     position: absolute;
     top: calc(100% + 10px);
@@ -114,6 +119,23 @@ html[data-app-theme="light"] .theme-menu-item:focus-visible {
 html[data-app-theme="light"] .theme-menu-item.is-active {
     background: rgba(37, 99, 235, 0.1);
     border-color: rgba(37, 99, 235, 0.2);
+}
+
+html[data-app-theme="pink"] .theme-menu-panel {
+    background: rgba(255, 248, 252, 0.97);
+    border-color: rgba(244, 114, 182, 0.24);
+    box-shadow: 0 20px 44px rgba(190, 24, 93, 0.16);
+}
+
+html[data-app-theme="pink"] .theme-menu-item:hover,
+html[data-app-theme="pink"] .theme-menu-item:focus-visible {
+    background: rgba(244, 114, 182, 0.1);
+    border-color: rgba(244, 114, 182, 0.2);
+}
+
+html[data-app-theme="pink"] .theme-menu-item.is-active {
+    background: rgba(236, 72, 153, 0.12);
+    border-color: rgba(236, 72, 153, 0.24);
 }
 
 @media (max-width: 768px) {
