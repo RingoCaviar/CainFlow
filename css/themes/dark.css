@@ -5,6 +5,15 @@
     --border-color: rgba(255, 255, 255, 0.08);
     --text-main: var(--text-primary);
     --accent-light: #7dd3fc;
+    --node-concurrent-status-panel-bg: rgba(15, 23, 42, 0.88);
+    --node-concurrent-status-panel-border: rgba(148, 163, 184, 0.34);
+    --node-concurrent-status-panel-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    --node-concurrent-status-dot-running: #facc15;
+    --node-concurrent-status-dot-running-glow: rgba(250, 204, 21, 0.55);
+    --node-concurrent-status-dot-success: var(--accent-green);
+    --node-concurrent-status-dot-success-glow: rgba(16, 185, 129, 0.5);
+    --node-concurrent-status-dot-failed: var(--accent-red);
+    --node-concurrent-status-dot-failed-glow: rgba(239, 68, 68, 0.52);
     --connection-flow-color: rgba(168, 85, 247, 0.95);
     --overlay-backdrop: rgba(0, 0, 0, 0.7);
     --surface-soft: rgba(255, 255, 255, 0.03);

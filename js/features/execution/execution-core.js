@@ -1,5 +1,5 @@
-/**
- * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
+﻿/**
+ * 鎻愪緵宸ヤ綔娴佹墽琛屾墍闇€鐨勬牳蹇冭兘鍔涳紝鍖呮嫭鎷撴墤鎺掑簭銆佽妭鐐规墽琛屽拰杩愯鏃堕敊璇鐞嗐€?
  */
 import {
     buildGoogleChatRequest,
@@ -131,7 +131,7 @@ export function createExecutionCoreApi({
         if (error?.serverResponse) return true;
         if (error?.name === 'TypeError') return true;
         const message = String(error?.message || '').toLowerCase();
-        return /failed to fetch|networkerror|timeout|timed out|download|下载|超时/.test(message);
+        return /failed to fetch|networkerror|timeout|timed out|download|涓嬭浇|瓒呮椂/.test(message);
     }
 
     async function runRequestWithRetries(requestFn, {
@@ -228,7 +228,7 @@ export function createExecutionCoreApi({
 
         const isHtmlResponse = contentType.includes('text/html') || /^<!doctype html/i.test(trimmedText) || /^<html/i.test(trimmedText);
         if (isHtmlResponse) {
-            const err = new Error('当前供应商返回的是网页页面，而不是 API JSON。请检查 API 地址是否填成了网站首页，而不是接口地址。');
+            const err = new Error('当前提供商返回的是网页 HTML，而不是 API JSON。请检查 API 地址是否填成了网站首页，而不是接口地址。');
             err.serverResponse = {
                 url: context.url,
                 requestBody: context.requestBody,
@@ -238,11 +238,11 @@ export function createExecutionCoreApi({
             };
             applyUserFacingError(err, {
                 title: 'API 地址配置错误',
-                userMessage: '当前供应商返回的是网页 HTML，不是 API JSON。通常是 API 地址填成了网站首页，或缺少 `/v1` 之类的接口前缀。',
+                userMessage: '当前提供商返回的是网页 HTML，不是 API JSON。通常是 API 地址填成了网站首页，或缺少 `/v1` 之类的接口前缀。',
                 suggestions: [
-                    '检查供应商的 API 地址是否是文档提供的接口基址，而不是官网首页。',
-                    '如果你在使用 OpenAI 兼容供应商，优先确认地址是否应为 `/v1` 结尾。',
-                    '把当前地址复制到浏览器访问时如果看到网页后台界面，通常就说明地址配错了。'
+                    '检查提供商的 API 地址是否为文档中的接口基址，而不是官网首页。',
+                    '如果你在使用 OpenAI 兼容提供商，优先确认地址是否应以 `/v1` 结尾。',
+                    '把当前地址复制到浏览器访问，如果看到网页后台而不是接口响应，通常就是地址填错了。'
                 ],
                 category: 'html_instead_of_json',
                 providerType: getEffectiveProtocol(context.modelCfg, context.apiCfg) || 'unknown',
@@ -266,7 +266,7 @@ export function createExecutionCoreApi({
         try {
             return JSON.parse(trimmedText);
         } catch {
-            const err = new Error('当前供应商返回的不是有效 JSON，请检查接口兼容性或 API 地址。');
+            const err = new Error('当前提供商返回的不是有效 JSON，请检查接口兼容性或 API 地址。');
             err.serverResponse = {
                 url: context.url,
                 requestBody: context.requestBody,
@@ -276,10 +276,10 @@ export function createExecutionCoreApi({
             };
             applyUserFacingError(err, {
                 title: '响应格式不兼容',
-                userMessage: '当前供应商返回的内容不是可解析的 JSON，可能是接口地址不对，或该服务并不兼容当前请求协议。',
+                userMessage: '当前提供商返回的内容不是可解析的 JSON，可能是接口地址不对，或该服务并不兼容当前请求协议。',
                 suggestions: [
                     '检查当前 endpoint 是否正确。',
-                    '确认这个供应商是否真的兼容当前所选模型和协议。',
+                    '确认这个提供商是否真的兼容当前所选模型和协议。',
                     '如果服务商文档有示例请求，建议对照检查路径和请求格式。'
                 ],
                 category: 'invalid_json_response',
@@ -294,14 +294,14 @@ export function createExecutionCoreApi({
         if (!response.ok) {
             const bodyText = await response.text();
             const message = parseProxyError
-                ? formatProxyErrorMessage(response.status, bodyText, `${sourceLabel}失败`)
-                : `${sourceLabel}失败 (${response.status})`;
+                ? formatProxyErrorMessage(response.status, bodyText, `${sourceLabel}澶辫触`)
+                : `${sourceLabel}澶辫触 (${response.status})`;
             throw new Error(message);
         }
 
         const blob = await response.blob();
         if (!blob || (blob.type && !blob.type.startsWith('image/'))) {
-            throw new Error(`${sourceLabel}返回的内容不是图片`);
+            throw new Error(`${sourceLabel} 返回的内容不是图片`);
         }
         return blob;
     }
@@ -326,11 +326,11 @@ export function createExecutionCoreApi({
         let directError = null;
         try {
             const directRes = await fetchRef(imgUrl, { signal });
-            const directBlob = await responseToImageBlob(directRes, '图片直连下载');
+            const directBlob = await responseToImageBlob(directRes, '鍥剧墖鐩磋繛涓嬭浇');
             return ensureImageBlobType(directBlob, imgUrl);
         } catch (error) {
             directError = error;
-            addLog('warning', '图片直连下载失败', error.message, imgUrl);
+            addLog('warning', '鍥剧墖鐩磋繛涓嬭浇澶辫触', error.message, imgUrl);
         }
 
         let proxyError = null;
@@ -344,11 +344,11 @@ export function createExecutionCoreApi({
                 headers: proxyHeaders,
                 signal
             });
-            const proxyBlob = await responseToImageBlob(proxyRes, '图片代理下载', true);
+            const proxyBlob = await responseToImageBlob(proxyRes, '鍥剧墖浠ｇ悊涓嬭浇', true);
             return ensureImageBlobType(proxyBlob, imgUrl);
         } catch (error) {
             proxyError = error;
-            addLog('warning', '图片代理下载失败', error.message, imgUrl);
+            addLog('warning', '鍥剧墖浠ｇ悊涓嬭浇澶辫触', error.message, imgUrl);
         }
 
         const reasons = [directError?.message, proxyError?.message].filter(Boolean).join('；');
@@ -356,7 +356,7 @@ export function createExecutionCoreApi({
     }
 
     function getImageGenerationError(apiCfg, result, modelCfg) {
-        if (result?.error?.message) return `API 错误: ${result.error.message}`;
+        if (result?.error?.message) return `API 閿欒: ${result.error.message}`;
 
         if (getEffectiveProtocol(modelCfg, apiCfg) === 'google') {
             const candidate = result?.candidates?.[0];
@@ -365,15 +365,15 @@ export function createExecutionCoreApi({
             if (candidate?.finishReason) {
                 const finishReason = candidate.finishReason;
                 if (finishReason === 'STOP' && hasTextOnlyResponse) return '模型已正常结束，但这次只返回了文本，没有返回图片。通常是当前模型或中转线路不支持图片输出，或本次请求被当成了文本生成。';
-                if (finishReason === 'SAFETY') return '⚠️ 内容被安全过滤器拦截 (可能包含违规提示词或敏感动作)';
+                if (finishReason === 'SAFETY') return '鈿狅笍 鍐呭琚畨鍏ㄨ繃婊ゅ櫒鎷︽埅 (鍙兘鍖呭惈杩濊鎻愮ず璇嶆垨鏁忔劅鍔ㄤ綔)';
                 if (finishReason === 'RECITATION') return '生成内容由于版权保护被拦截';
-                return `生成停止原因: ${finishReason}`;
+                return `鐢熸垚鍋滄鍘熷洜: ${finishReason}`;
             }
             const blockReason = result?.promptFeedback?.blockReason || result?.promptFeedback?.gemini_block_reason || result?.gemini_block_reason;
             if (blockReason) {
                 return blockReason === 'SAFETY'
-                    ? '⚠️ 请求因违反安全策略被系统拦截 (SAFETY)'
-                    : `请求被屏蔽: ${blockReason}`;
+                    ? '鈿狅笍 璇锋眰鍥犺繚鍙嶅畨鍏ㄧ瓥鐣ヨ绯荤粺鎷︽埅 (SAFETY)'
+                    : `璇锋眰琚睆钄? ${blockReason}`;
             }
         }
 
@@ -499,7 +499,7 @@ export function createExecutionCoreApi({
 
         for (const nodeId of plan.nodeIds) {
             if (!visit(nodeId)) {
-                showToast('循环连接', 'error');
+                showToast('寰幆杩炴帴', 'error');
                 return null;
             }
         }
@@ -520,7 +520,7 @@ export function createExecutionCoreApi({
         } else if (runOptions.mode === 'selected-only') {
             scopeNodeSet = new Set(runOptions.selectedNodeIds);
             if (scopeNodeSet.size === 0) {
-                showToast('请先选择要运行的节点', 'warning');
+                showToast('璇峰厛閫夋嫨瑕佽繍琛岀殑鑺傜偣', 'warning');
                 return null;
             }
         } else {
@@ -528,7 +528,7 @@ export function createExecutionCoreApi({
         }
 
         if (!scopeNodeSet || scopeNodeSet.size === 0) {
-            showToast('当前没有可运行的节点', 'warning');
+            showToast('褰撳墠娌℃湁鍙繍琛岀殑鑺傜偣', 'warning');
             return null;
         }
 
@@ -560,6 +560,19 @@ export function createExecutionCoreApi({
         if (!node || node.enabled === false) return undefined;
         if (portName === 'image' && node.type === 'ImageImport') {
             return getImageImportOutputValue(node);
+        }
+        if (portName === 'image') {
+            const imageList = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
+            if (imageList.length > 1) return imageList;
+            if (imageList.length === 1) return imageList[0];
+
+            if (node.type === 'ImageResize') {
+                return node.imageData || node.resizePreviewData || undefined;
+            }
+
+            if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
+                return node.imageData || undefined;
+            }
         }
         if (portName === 'text') {
             if (node.type === 'TextSplit' && node.data?.mergeOutputEnabled === true) {
@@ -617,20 +630,6 @@ export function createExecutionCoreApi({
             return parts[index];
         }
 
-        if (portName === 'image') {
-            const imageList = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
-            if (imageList.length > 1) return imageList;
-            if (imageList.length === 1) return imageList[0];
-
-            if (node.type === 'ImageResize') {
-                return node.imageData || node.resizePreviewData || undefined;
-            }
-
-            if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
-                return node.imageData || undefined;
-            }
-        }
-
         return undefined;
     }
 
@@ -665,6 +664,42 @@ export function createExecutionCoreApi({
         return normalizeImageList(value).some((image) => isRemoteImageUrl(image));
     }
 
+    function normalizeTextList(value) {
+        if (typeof value === 'string') {
+            return value ? [value] : [];
+        }
+        if (Array.isArray(value)) {
+            return value.flatMap((item) => normalizeTextList(item));
+        }
+        if (value && typeof value === 'object') {
+            return normalizeTextList(
+                value.texts ??
+                value.text ??
+                value.content ??
+                value.message ??
+                []
+            );
+        }
+        return [];
+    }
+
+    function getPrimaryImageInput(value) {
+        return normalizeImageList(value)[0] || '';
+    }
+
+    function getLastImageInput(value) {
+        const images = normalizeImageList(value);
+        return images.length > 0 ? images[images.length - 1] : '';
+    }
+
+    function getPrimaryTextInput(value) {
+        return normalizeTextList(value)[0] || '';
+    }
+
+    function getTextInputList(value) {
+        return normalizeTextList(value);
+    }
+
     function getStoredGeneratedImages(node, completedCount = 0) {
         const images = normalizeImageList(node?.data?.images || node?.generatedImages);
         if (images.length > 0) {
@@ -696,7 +731,7 @@ export function createExecutionCoreApi({
         const image = imageList[index];
         previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
         previewContainer.innerHTML = `
-            <img src="${image}" alt="预览 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" />
+            <img src="${image}" alt="棰勮 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" />
             ${imageList.length > 1 ? `
                 <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
@@ -727,7 +762,7 @@ export function createExecutionCoreApi({
         const image = imageList[index];
         previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
         previewContainer.innerHTML = `
-            <img src="${image}" alt="待保存 ${index + 1}/${imageList.length}" draggable="false" />
+            <img src="${image}" alt="寰呬繚瀛?${index + 1}/${imageList.length}" draggable="false" />
             ${imageList.length > 1 ? `
                 <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
@@ -746,8 +781,8 @@ export function createExecutionCoreApi({
 
     function getReferenceImageInputs(inputs = {}) {
         return ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']
-            .map((key) => ({ key, value: inputs[key] }))
-            .filter((entry) => typeof entry.value === 'string' && entry.value.trim());
+            .map((key) => ({ key, value: getPrimaryImageInput(inputs[key]) }))
+            .filter((entry) => entry.value);
     }
 
     function getImageFileExtension(mimeType = '') {
@@ -761,7 +796,7 @@ export function createExecutionCoreApi({
     async function getReferenceImageBlob(value, signal) {
         if (isInlineImageData(value)) return dataURLtoBlob(value);
         if (isRemoteImageUrl(value)) return downloadGeneratedImage(value, signal);
-        throw new Error('OpenAI 兼容图片编辑只支持 data URL 或 HTTP(S) 参考图');
+        throw new Error('OpenAI 鍏煎鍥剧墖缂栬緫鍙敮鎸?data URL 鎴?HTTP(S) 鍙傝€冨浘');
     }
 
     async function buildOpenAiImageEditFormData(requestBody, inputs, signal) {
@@ -802,7 +837,7 @@ export function createExecutionCoreApi({
         },
         ImageResize: async (node, inputs) => {
             const { id } = node;
-            const sourceImage = inputs.image;
+            const sourceImage = getPrimaryImageInput(inputs.image);
             if (!sourceImage) throw new Error('无输入图片');
 
             const mode = documentRef.getElementById(`${id}-resize-mode`)?.value || 'scale';
@@ -854,7 +889,7 @@ export function createExecutionCoreApi({
                 const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
                 const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
-                if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+                if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
                 node.providerId = resolvedProviderId;
 
                 const aspect = documentRef.getElementById(`${id}-aspect`).value;
@@ -864,12 +899,12 @@ export function createExecutionCoreApi({
                 const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
                 const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
-                const userPrompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
-                const cameraPrompt = typeof inputs.camera_prompt === 'string' ? inputs.camera_prompt.trim() : '';
+                const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`).value;
+                const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
                 const prompt = [cameraPrompt, userPrompt].filter((part) => typeof part === 'string' && part.trim()).join(', ');
 
-                if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
-                if (!prompt) throw new Error('请输入提示词');
+                if (!apiCfg.apikey) throw new Error('API 渚涘簲鍟嗗瘑閽ユ湭閰嶇疆');
+                if (!prompt) throw new Error('璇疯緭鍏ユ彁绀鸿瘝');
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
                 const isGoogle = protocol === 'google';
@@ -931,8 +966,8 @@ export function createExecutionCoreApi({
                             : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
                         showToast(
                             generationCount > 1
-                                ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
-                                : `正在调用 ${modelCfg.name}...`,
+                                ? `姝ｅ湪璋冪敤 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
+                                : `姝ｅ湪璋冪敤 ${modelCfg.name}...`,
                             'info',
                             5000
                         );
@@ -945,8 +980,8 @@ export function createExecutionCoreApi({
                             : requestBody;
                         logRequestToPanel(
                             generationCount > 1
-                                ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
-                                : `请求发送: ${modelCfg.name}`,
+                                ? `璇锋眰鍙戦€? ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                                : `璇锋眰鍙戦€? ${modelCfg.name}`,
                             url,
                             loggedRequestBody,
                             {
@@ -966,7 +1001,7 @@ export function createExecutionCoreApi({
                         if (!response.ok) {
                             const t = await response.text();
                             const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                            const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                            const err = new Error(formatProxyErrorMessage(response.status, t, 'API 閿欒', errorContext));
                             err.serverResponse = {
                                 url,
                                 requestBody,
@@ -1014,8 +1049,8 @@ export function createExecutionCoreApi({
                         const nextGenerationIndex = index + 1;
                         return runRequestWithRetries(() => runSingleGeneration(nextGenerationIndex), {
                             label: generationCount > 1
-                                ? `图片生成 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
-                                : `图片生成 ${modelCfg.name}`,
+                                ? `鍥剧墖鐢熸垚 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                                : `鍥剧墖鐢熸垚 ${modelCfg.name}`,
                             signal
                         }).then(async (imageData) => {
                             generatedImages[index] = imageData;
@@ -1071,8 +1106,8 @@ export function createExecutionCoreApi({
                         : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
                     showToast(
                         generationCount > 1
-                            ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
-                            : `正在调用 ${modelCfg.name}...`,
+                            ? `姝ｅ湪璋冪敤 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
+                            : `姝ｅ湪璋冪敤 ${modelCfg.name}...`,
                         'info',
                         5000
                     );
@@ -1085,8 +1120,8 @@ export function createExecutionCoreApi({
                         : requestBody;
                     logRequestToPanel(
                         generationCount > 1
-                            ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
-                            : `请求发送: ${modelCfg.name}`,
+                            ? `璇锋眰鍙戦€? ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                            : `璇锋眰鍙戦€? ${modelCfg.name}`,
                         url,
                         loggedRequestBody,
                         {
@@ -1106,7 +1141,7 @@ export function createExecutionCoreApi({
                     if (!response.ok) {
                         const t = await response.text();
                         const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                        const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                        const err = new Error(formatProxyErrorMessage(response.status, t, 'API 閿欒', errorContext));
                         err.serverResponse = {
                             url,
                             requestBody,
@@ -1123,7 +1158,7 @@ export function createExecutionCoreApi({
                         url,
                         requestBody
                     });
-                    if (!result) throw new Error('API 返回了空的 JSON 响应');
+                        if (!result) throw new Error('API 返回了空的 JSON 响应');
 
                     let imageData = '';
                     const imageResult = extractImageResult(apiCfg, result, modelCfg);
@@ -1176,7 +1211,7 @@ export function createExecutionCoreApi({
                 if (errorEl) {
                     const completedCount = Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0);
                     const progressText = targetGenerationCount > 1
-                        ? `<div>已成功 ${completedCount}/${targetGenerationCount} 次，本次失败不计入次数。</div>`
+                        ? `<div>宸叉垚鍔?${completedCount}/${targetGenerationCount} 娆★紝鏈澶辫触涓嶈鍏ユ鏁般€?/div>`
                         : '';
                     const runtimeFailedProgress = node.apiGenerationProgress || {};
                     const runtimeFailedTotal = Math.max(1, parseInt(runtimeFailedProgress.total ?? targetGenerationCount, 10) || 1);
@@ -1184,7 +1219,7 @@ export function createExecutionCoreApi({
                     const runtimeProgressText = runtimeFailedTotal > 1
                         ? progressText.replace(`${completedCount}/${targetGenerationCount}`, `${runtimeCompletedCount}/${runtimeFailedTotal}`)
                         : '';
-                    errorEl.innerHTML = `<strong>生成失败</strong>${runtimeProgressText}${err.message}`;
+                    errorEl.innerHTML = `<strong>鐢熸垚澶辫触</strong>${runtimeProgressText}${err.message}`;
                     errorEl.style.display = 'block';
                     requestNodeFit(id);
                 }
@@ -1213,18 +1248,18 @@ export function createExecutionCoreApi({
             const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
             const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
             const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
-            if (!apiCfg) throw new Error('未找到绑定的 API 供应商');
+            if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
             node.providerId = resolvedProviderId;
 
             const sysprompt = documentRef.getElementById(`${id}-sysprompt`).value;
             const prompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
             const responseArea = documentRef.getElementById(`${id}-response`);
 
-            if (!apiCfg.apikey) throw new Error('API 供应商密钥未配置');
+            if (!apiCfg.apikey) throw new Error('API 渚涘簲鍟嗗瘑閽ユ湭閰嶇疆');
             if (!prompt) throw new Error('请输入提问内容');
 
-            showToast(`正在调用 ${modelCfg.name}...`, 'info', 5000);
-            responseArea.innerHTML = '<div class="chat-response-placeholder">正在生成回复...</div>';
+            showToast(`姝ｅ湪璋冪敤 ${modelCfg.name}...`, 'info', 5000);
+            responseArea.innerHTML = '<div class="chat-response-placeholder">姝ｅ湪鐢熸垚鍥炲...</div>';
             renderNodeApiGenerationProgress(node, { current: 0, total: 1 });
 
             try {
@@ -1238,7 +1273,7 @@ export function createExecutionCoreApi({
                     const url = resolveProviderUrl(apiCfg, modelCfg, 'chat');
 
                     const headers = getProxyHeaders(url, 'POST');
-                    logRequestToPanel(`请求发送: ${modelCfg.name}`, url, body, {
+                    logRequestToPanel(`璇锋眰鍙戦€? ${modelCfg.name}`, url, body, {
                         nodeId: id,
                         nodeType: 'TextChat',
                         providerType: protocol
@@ -1253,7 +1288,7 @@ export function createExecutionCoreApi({
                     if (!res.ok) {
                         const t = await res.text();
                         const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                        const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
+                        const err = new Error(formatProxyErrorMessage(res.status, t, '璇锋眰澶辫触', errorContext));
                         err.serverResponse = {
                             url,
                             requestBody: body,
@@ -1281,7 +1316,7 @@ export function createExecutionCoreApi({
                     const headers = getProxyHeaders(url, 'POST', {
                         Authorization: `Bearer ${apiCfg.apikey}`
                     });
-                    logRequestToPanel(`请求发送: ${modelCfg.name}`, url, requestBody, {
+                    logRequestToPanel(`璇锋眰鍙戦€? ${modelCfg.name}`, url, requestBody, {
                         nodeId: id,
                         nodeType: 'TextChat',
                         providerType: protocol
@@ -1296,7 +1331,7 @@ export function createExecutionCoreApi({
                     if (!res.ok) {
                         const t = await res.text();
                         const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                        const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
+                        const err = new Error(formatProxyErrorMessage(res.status, t, '璇锋眰澶辫触', errorContext));
                         err.serverResponse = {
                             url,
                             requestBody,
@@ -1344,7 +1379,7 @@ export function createExecutionCoreApi({
                 };
             } catch (err) {
                 renderNodeApiGenerationProgress(node, { current: 0, total: 1 });
-                responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
+                responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">澶辫触: ${err.message}</div>`;
                 throw err;
             }
         },
@@ -1363,8 +1398,10 @@ export function createExecutionCoreApi({
         },
         ImageCompare: async (node, inputs) => {
             const { id } = node;
-            if (!inputs.imageB) throw new Error('B 输入未连接图片');
-            await syncImageCompareNode(id, inputs.imageA || null, inputs.imageB);
+            const imageA = getPrimaryImageInput(inputs.imageA);
+            const imageB = getPrimaryImageInput(inputs.imageB);
+            if (!imageB) throw new Error('B 输入未连接图片');
+            await syncImageCompareNode(id, imageA || null, imageB);
             await refreshDependentImageResizePreviews(id);
         },
         ImageMerge: async (node, inputs = {}) => {
@@ -1386,7 +1423,7 @@ export function createExecutionCoreApi({
             const texts = Object.entries(inputs)
                 .filter(([key]) => /^text_\d+$/.test(key))
                 .sort(([a], [b]) => parseInt(a.replace('text_', ''), 10) - parseInt(b.replace('text_', ''), 10))
-                .flatMap(([, value]) => Array.isArray(value) ? value : [value])
+                .flatMap(([, value]) => getTextInputList(value))
                 .filter((value) => typeof value === 'string');
             if (texts.length === 0) throw new Error('请至少连接一段文本');
             node.data.texts = texts.slice();
@@ -1414,12 +1451,10 @@ export function createExecutionCoreApi({
         Text: async (node, inputs = {}) => {
             const textarea = documentRef.getElementById(`${node.id}-text`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
-            const texts = Array.isArray(inputs.text)
-                ? inputs.text.filter((item) => typeof item === 'string')
-                : [];
+            const texts = getTextInputList(inputs.text);
             const text = texts.length > 0
                 ? texts[0]
-                : (hasIncomingText ? (inputs.text ?? '') : (textarea?.value || node.data.text || ''));
+                : (hasIncomingText ? getPrimaryTextInput(inputs.text) : (textarea?.value || node.data.text || ''));
             if (texts.length > 0) {
                 node.data.texts = texts.slice();
                 node.textPreviewIndex = 0;
@@ -1437,7 +1472,7 @@ export function createExecutionCoreApi({
         },
         CameraControl: async (node, inputs = {}) => {
             if (Object.prototype.hasOwnProperty.call(inputs, 'image')) {
-                node.data.image = inputs.image || '';
+                node.data.image = getPrimaryImageInput(inputs.image);
             }
             const cameraData = {
                 pitch: Number(node.data?.pitch ?? 12),
@@ -1449,7 +1484,7 @@ export function createExecutionCoreApi({
             const promptText = generateCameraPrompt(cameraData);
             node.data.text = promptText;
             node.data.cameraPrompt = promptText;
-            syncCameraControlNode(node.id, inputs.image || node.data.image || '');
+            syncCameraControlNode(node.id, getPrimaryImageInput(inputs.image) || node.data.image || '');
             updateAllConnections();
         },
         TextSplit: async (node, inputs = {}) => {
@@ -1458,7 +1493,7 @@ export function createExecutionCoreApi({
             const removeEmptyLinesInput = documentRef.getElementById(`${node.id}-remove-empty-lines`);
             const mergeOutputEnabledInput = documentRef.getElementById(`${node.id}-merge-output-enabled`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
-            const text = hasIncomingText ? (inputs.text ?? '') : (node.data.text || '');
+            const text = hasIncomingText ? getPrimaryTextInput(inputs.text) : (node.data.text || '');
             const delimiter = delimiterInput?.value ?? node.data.delimiter ?? '';
             const parsedOutputCount = parseInt(outputCountInput?.value ?? node.data.outputCount ?? '1', 10);
             const outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
@@ -1488,7 +1523,7 @@ export function createExecutionCoreApi({
             return mergeOutputEnabled ? { text: parts.slice() } : {};
         },
         TextDisplay: async (node, inputs) => {
-            const text = inputs.text || '';
+            const text = getPrimaryTextInput(inputs.text);
             const display = documentRef.getElementById(`${node.id}-display`);
             if (display) {
                 display.textContent = text || '当前无输入文本';
@@ -1511,11 +1546,11 @@ export function createExecutionCoreApi({
         }
 
         if (node.type === 'ImageResize' && isRemoteImageUrl(inputs.image)) {
-            throw new Error('URL 图片不支持连接到图片缩放节点');
+            throw new Error('URL 鍥剧墖涓嶆敮鎸佽繛鎺ュ埌鍥剧墖缂╂斁鑺傜偣');
         }
 
         if (node.type === 'ImageSave' && hasRemoteImageValue(inputs.image)) {
-            throw new Error('URL 图片不支持连接到图片保存节点');
+            throw new Error('URL 鍥剧墖涓嶆敮鎸佽繛鎺ュ埌鍥剧墖淇濆瓨鑺傜偣');
         }
 
         if ((node.type === 'ImageGenerate' || node.type === 'TextChat') && hasRemoteImageInput(inputs)) {

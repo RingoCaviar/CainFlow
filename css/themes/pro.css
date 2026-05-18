@@ -35,6 +35,15 @@
     --border-color: rgba(148, 163, 184, 0.14);
     --text-main: #e5edf7;
     --accent-light: #88cae8;
+    --node-concurrent-status-panel-bg: rgba(17, 23, 34, 0.9);
+    --node-concurrent-status-panel-border: rgba(148, 163, 184, 0.26);
+    --node-concurrent-status-panel-shadow: 0 12px 28px rgba(3, 7, 18, 0.3);
+    --node-concurrent-status-dot-running: #d79a4a;
+    --node-concurrent-status-dot-running-glow: rgba(215, 154, 74, 0.4);
+    --node-concurrent-status-dot-success: var(--accent-green);
+    --node-concurrent-status-dot-success-glow: rgba(61, 187, 138, 0.34);
+    --node-concurrent-status-dot-failed: var(--accent-red);
+    --node-concurrent-status-dot-failed-glow: rgba(223, 107, 120, 0.34);
     --overlay-backdrop: rgba(4, 8, 18, 0.72);
     --surface-soft: rgba(255, 255, 255, 0.025);
     --surface-muted: rgba(255, 255, 255, 0.045);
