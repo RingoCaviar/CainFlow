@@ -202,3 +202,469 @@ html[data-app-theme="pro"] .update-canvas-notice {
 html[data-app-theme="pro"] .update-download-progress__bar {
     background: linear-gradient(90deg, #4f7cff 0%, #56b6d9 100%);
 }
+
+html[data-app-theme="pro"] .theme-menu-panel {
+    background: rgba(17, 23, 34, 0.96);
+    border-color: rgba(148, 163, 184, 0.16);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+html[data-app-theme="pro"] .theme-menu-item:hover,
+html[data-app-theme="pro"] .theme-menu-item:focus-visible {
+    background: rgba(93, 124, 255, 0.08);
+    border-color: rgba(93, 124, 255, 0.18);
+}
+
+html[data-app-theme="pro"] .theme-menu-item.is-active {
+    background: rgba(86, 182, 217, 0.1);
+    border-color: rgba(86, 182, 217, 0.2);
+}
+
+html[data-app-theme="pro"] .prompt-library-overlay,
+html[data-app-theme="pro"] .modal-overlay {
+    background: rgba(4, 8, 18, 0.74);
+}
+
+html[data-app-theme="pro"] .prompt-library-panel,
+html[data-app-theme="pro"] .prompt-import-panel {
+    background: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(17, 23, 34, 0.98));
+    border-color: rgba(148, 163, 184, 0.16);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+}
+
+html[data-app-theme="pro"] .prompt-library-header,
+html[data-app-theme="pro"] .prompt-import-header,
+html[data-app-theme="pro"] .prompt-import-footer,
+html[data-app-theme="pro"] .prompt-editor-header {
+    border-color: rgba(148, 163, 184, 0.12);
+}
+
+html[data-app-theme="pro"] .prompt-card {
+    background: linear-gradient(180deg, rgba(27, 35, 51, 0.96), rgba(20, 27, 41, 0.98));
+    border-color: rgba(148, 163, 184, 0.14);
+}
+
+html[data-app-theme="pro"] .prompt-card:hover,
+html[data-app-theme="pro"] .prompt-card.selected,
+html[data-app-theme="pro"] .prompt-import-item.selected {
+    border-color: rgba(93, 124, 255, 0.24);
+    box-shadow: 0 12px 24px rgba(3, 7, 18, 0.22);
+}
+
+html[data-app-theme="pro"] .prompt-card-btn,
+html[data-app-theme="pro"] .prompt-card-icon-btn,
+html[data-app-theme="pro"] .prompt-import-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="pro"] .prompt-card-btn:hover,
+html[data-app-theme="pro"] .prompt-card-icon-btn:hover,
+html[data-app-theme="pro"] .prompt-import-btn:hover {
+    background: rgba(93, 124, 255, 0.1);
+    border-color: rgba(93, 124, 255, 0.22);
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] .history-fullscreen-overlay {
+    background:
+        radial-gradient(circle at top left, rgba(93, 124, 255, 0.1), transparent 28%),
+        radial-gradient(circle at top right, rgba(86, 182, 217, 0.08), transparent 24%),
+        rgba(10, 14, 24, 0.92);
+}
+
+html[data-app-theme="pro"] .history-fullscreen-panel {
+    background: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(16, 22, 34, 0.98));
+    border-color: rgba(148, 163, 184, 0.16);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+}
+
+html[data-app-theme="pro"] .history-fullscreen-header,
+html[data-app-theme="pro"] .history-fullscreen-batch-toolbar,
+html[data-app-theme="pro"] .history-fullscreen-rail,
+html[data-app-theme="pro"] .history-fullscreen-group-header,
+html[data-app-theme="pro"] .preview-meta {
+    border-color: rgba(148, 163, 184, 0.12);
+}
+
+html[data-app-theme="pro"] .history-card-meta,
+html[data-app-theme="pro"] .preview-info {
+    background: rgba(17, 23, 34, 0.92);
+    border-color: rgba(148, 163, 184, 0.14);
+}
+
+html[data-app-theme="pro"] #cache-sidebar .cache-info-card,
+html[data-app-theme="pro"] .cache-info-card,
+html[data-app-theme="pro"] .cache-item,
+html[data-app-theme="pro"] .cache-breakdown {
+    border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html[data-app-theme="pro"] #cache-sidebar .cache-info-card {
+    background: rgba(24, 31, 46, 0.88) !important;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card,
+html[data-app-theme="pro"] #settings-modal .general-settings-card,
+html[data-app-theme="pro"] #settings-modal .provider-models-panel,
+html[data-app-theme="pro"] #settings-modal .api-settings-help-panel {
+    background: linear-gradient(180deg, rgba(24, 31, 46, 0.98), rgba(18, 24, 36, 0.98));
+    border-color: rgba(148, 163, 184, 0.14);
+    box-shadow: 0 18px 36px rgba(3, 7, 18, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-panel {
+    background: linear-gradient(180deg, rgba(18, 24, 36, 0.985), rgba(14, 20, 31, 0.985));
+    border-color: rgba(148, 163, 184, 0.14);
+    box-shadow: 0 26px 72px rgba(0, 0, 0, 0.34);
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-header,
+html[data-app-theme="pro"] #settings-modal .modal-footer {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01));
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-header,
+html[data-app-theme="pro"] #settings-modal .modal-tabs,
+html[data-app-theme="pro"] #settings-modal .modal-footer,
+html[data-app-theme="pro"] #settings-modal .settings-toolbar,
+html[data-app-theme="pro"] #settings-modal .settings-divider,
+html[data-app-theme="pro"] .provider-models-header,
+html[data-app-theme="pro"] .provider-models-search-row,
+html[data-app-theme="pro"] .api-settings-help-header {
+    border-color: rgba(148, 163, 184, 0.12);
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-tabs {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-tab-btn {
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-tab-btn:hover {
+    background: rgba(93, 124, 255, 0.08);
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] #settings-modal .modal-tab-btn.active {
+    background: rgba(93, 124, 255, 0.12);
+    border-color: rgba(93, 124, 255, 0.24);
+    color: #c7d7ff;
+}
+
+html[data-app-theme="pro"] #settings-modal .settings-toolbar h3,
+html[data-app-theme="pro"] #settings-modal #providers-list .card-name,
+html[data-app-theme="pro"] #settings-modal #models-list .card-name,
+html[data-app-theme="pro"] .provider-models-row-name,
+html[data-app-theme="pro"] .api-settings-help-header h3,
+html[data-app-theme="pro"] .api-settings-help-section h4 {
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] #settings-modal .settings-toolbar h3 {
+    color: #bcd0ea;
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-header .card-name {
+    color: #9fc2f6;
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-field label,
+html[data-app-theme="pro"] #general-settings .general-settings-card .card-field label,
+html[data-app-theme="pro"] #general-settings .general-settings-card .card-field p,
+html[data-app-theme="pro"] #general-settings .general-settings-card span,
+html[data-app-theme="pro"] #general-settings .general-settings-card strong,
+html[data-app-theme="pro"] #general-settings .update-status-indicator,
+html[data-app-theme="pro"] #settings-modal .endpoint-preview {
+    color: var(--text-secondary) !important;
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card:hover,
+html[data-app-theme="pro"] #settings-modal .general-settings-card:hover {
+    border-color: rgba(93, 124, 255, 0.2);
+    box-shadow: 0 22px 42px rgba(3, 7, 18, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-type.google {
+    background: rgba(79, 124, 255, 0.14);
+    color: #a9c2ff;
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-type.openai {
+    background: rgba(61, 187, 138, 0.14);
+    color: #9ce3c5;
+}
+
+html[data-app-theme="pro"] #settings-modal .settings-toolbar .btn-accent,
+html[data-app-theme="pro"] .card-btn-fetch-models {
+    background: linear-gradient(135deg, #4b6bff, #3f8cff);
+    border-color: rgba(120, 144, 255, 0.34);
+    color: #f8fbff;
+    box-shadow: 0 10px 22px rgba(63, 140, 255, 0.18), 0 2px 8px rgba(3, 7, 18, 0.18);
+}
+
+html[data-app-theme="pro"] #settings-modal .settings-toolbar .btn-accent:hover,
+html[data-app-theme="pro"] .card-btn-fetch-models:hover {
+    background: linear-gradient(135deg, #6482ff, #54a0ff);
+    border-color: rgba(144, 166, 255, 0.38);
+    color: #ffffff;
+    box-shadow: 0 14px 26px rgba(63, 140, 255, 0.22), 0 4px 12px rgba(3, 7, 18, 0.22);
+}
+
+html[data-app-theme="pro"] #settings-modal .settings-toolbar .btn-accent:focus-visible,
+html[data-app-theme="pro"] .settings-inline-help:focus-visible {
+    outline: 2px solid rgba(93, 124, 255, 0.42);
+    outline-offset: 2px;
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-field input,
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-field select,
+html[data-app-theme="pro"] #settings-modal #proxy-ip,
+html[data-app-theme="pro"] #settings-modal #proxy-port,
+html[data-app-theme="pro"] #settings-modal #setting-max-side,
+html[data-app-theme="pro"] #settings-modal #setting-max-retries,
+html[data-app-theme="pro"] #settings-modal #setting-timeout-seconds,
+html[data-app-theme="pro"] #settings-modal .password-wrapper input,
+html[data-app-theme="pro"] .provider-models-search-row input,
+html[data-app-theme="pro"] .provider-multiselect-trigger {
+    background: rgba(15, 21, 32, 0.94) !important;
+    border-color: rgba(148, 163, 184, 0.16) !important;
+    color: var(--text-primary) !important;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-field input:focus,
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-field select:focus,
+html[data-app-theme="pro"] #settings-modal #proxy-ip:focus,
+html[data-app-theme="pro"] #settings-modal #proxy-port:focus,
+html[data-app-theme="pro"] #settings-modal #setting-max-side:focus,
+html[data-app-theme="pro"] #settings-modal #setting-max-retries:focus,
+html[data-app-theme="pro"] #settings-modal #setting-timeout-seconds:focus,
+html[data-app-theme="pro"] .provider-models-search-row input:focus,
+html[data-app-theme="pro"] .provider-multiselect-trigger:hover,
+html[data-app-theme="pro"] .provider-multiselect-trigger[aria-expanded="true"] {
+    border-color: rgba(93, 124, 255, 0.34) !important;
+    box-shadow: 0 0 0 3px rgba(93, 124, 255, 0.12);
+}
+
+html[data-app-theme="pro"] #settings-modal .api-config-card .card-field select option {
+    background: #141b29 !important;
+    color: var(--text-primary) !important;
+}
+
+html[data-app-theme="pro"] .provider-multiselect-panel {
+    background: rgba(17, 23, 34, 0.98);
+    border-color: rgba(148, 163, 184, 0.16);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.26);
+}
+
+html[data-app-theme="pro"] .provider-multiselect-caret,
+html[data-app-theme="pro"] .provider-toggle-label,
+html[data-app-theme="pro"] .provider-models-subtitle,
+html[data-app-theme="pro"] .provider-models-row-id,
+html[data-app-theme="pro"] .api-settings-help-subtitle,
+html[data-app-theme="pro"] .api-settings-help-section p,
+html[data-app-theme="pro"] .api-settings-help-section li,
+html[data-app-theme="pro"] #settings-modal .footer-left span {
+    color: var(--text-dim) !important;
+}
+
+html[data-app-theme="pro"] .provider-models-row:hover,
+html[data-app-theme="pro"] .api-settings-help-close:hover {
+    background: rgba(93, 124, 255, 0.08);
+}
+
+html[data-app-theme="pro"] .provider-models-badge {
+    background: rgba(86, 182, 217, 0.12);
+    color: #9dd9ee;
+}
+
+html[data-app-theme="pro"] .provider-multiselect-option {
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] #settings-modal .card-btn-collapse,
+html[data-app-theme="pro"] #settings-modal .eye-toggle-btn,
+html[data-app-theme="pro"] #settings-modal .provider-models-add,
+html[data-app-theme="pro"] .provider-models-close {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="pro"] #settings-modal .card-btn-collapse:hover,
+html[data-app-theme="pro"] #settings-modal .eye-toggle-btn:hover,
+html[data-app-theme="pro"] #settings-modal .provider-models-add:hover,
+html[data-app-theme="pro"] .provider-models-close:hover {
+    background: rgba(93, 124, 255, 0.1);
+    border-color: rgba(93, 124, 255, 0.22);
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] #settings-modal .provider-models-add:disabled {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(148, 163, 184, 0.1);
+    color: var(--text-dim);
+}
+
+html[data-app-theme="pro"] #settings-modal .retry-input-group,
+html[data-app-theme="pro"] #settings-modal #global-dir-badge,
+html[data-app-theme="pro"] .save-workflow-box,
+html[data-app-theme="pro"] .workflow-action-btn,
+html[data-app-theme="pro"] .help-key {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html[data-app-theme="pro"] #settings-modal .retry-input-group .btn-retry-step,
+html[data-app-theme="pro"] #settings-modal #setting-max-retries {
+    color: var(--text-primary) !important;
+}
+
+html[data-app-theme="pro"] #settings-modal .retry-input-group .btn-retry-step:hover {
+    background: rgba(93, 124, 255, 0.08) !important;
+    color: #c7d7ff !important;
+}
+
+html[data-app-theme="pro"] #settings-modal .toggle-slider {
+    background: rgba(148, 163, 184, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+}
+
+html[data-app-theme="pro"] #settings-modal .toggle-slider::before {
+    background: rgba(229, 237, 247, 0.92);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+html[data-app-theme="pro"] #settings-modal .toggle-switch input:checked + .toggle-slider {
+    background: linear-gradient(135deg, rgba(79, 124, 255, 0.95), rgba(86, 182, 217, 0.9));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html[data-app-theme="pro"] #settings-modal input[type="checkbox"] {
+    accent-color: #5d7cff;
+}
+
+html[data-app-theme="pro"] #settings-modal .version-badge {
+    background: rgba(93, 124, 255, 0.12);
+    border-color: rgba(93, 124, 255, 0.2);
+    color: #b8ccff;
+}
+
+html[data-app-theme="pro"] #general-settings .update-version-summary {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="pro"] #general-settings .update-version-summary strong {
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] #settings-modal .update-status-loading {
+    color: var(--text-dim);
+}
+
+html[data-app-theme="pro"] #settings-modal .update-status-latest {
+    color: #9ce3c5;
+}
+
+html[data-app-theme="pro"] #settings-modal .update-status-new {
+    color: #b8ccff;
+}
+
+html[data-app-theme="pro"] #settings-modal .update-status-error {
+    color: #f1b0b8;
+}
+
+html[data-app-theme="pro"] #settings-modal .update-version-summary {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(148, 163, 184, 0.14);
+}
+
+html[data-app-theme="pro"] .settings-inline-help {
+    color: #88cae8;
+}
+
+html[data-app-theme="pro"] .settings-inline-help:hover {
+    color: #d7eef7;
+}
+
+html[data-app-theme="pro"] .api-settings-help-section {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(148, 163, 184, 0.12);
+}
+
+html[data-app-theme="pro"] .api-settings-help-section code {
+    background: rgba(86, 182, 217, 0.12);
+    color: #9dd9ee;
+}
+
+html[data-app-theme="pro"] .update-download-status {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(148, 163, 184, 0.12);
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="pro"] .update-download-status.info {
+    background: rgba(79, 124, 255, 0.12);
+    border-color: rgba(79, 124, 255, 0.2);
+    color: #b8ccff;
+}
+
+html[data-app-theme="pro"] .update-download-status.success {
+    background: rgba(61, 187, 138, 0.12);
+    border-color: rgba(61, 187, 138, 0.2);
+    color: #9ce3c5;
+}
+
+html[data-app-theme="pro"] .update-download-status.error {
+    background: rgba(223, 107, 120, 0.12);
+    border-color: rgba(223, 107, 120, 0.2);
+    color: #f1b0b8;
+}
+
+html[data-app-theme="pro"] .camera-control-node-preview,
+html[data-app-theme="pro"] .camera-control-node-preview.has-image,
+html[data-app-theme="pro"] .camera-control-editor-panel,
+html[data-app-theme="pro"] .camera-control-stage,
+html[data-app-theme="pro"] .camera-control-prompt {
+    background: linear-gradient(180deg, rgba(22, 28, 42, 0.98), rgba(16, 22, 34, 0.98));
+    border-color: rgba(148, 163, 184, 0.16);
+}
+
+html[data-app-theme="pro"] .camera-control-editor-overlay {
+    background: rgba(4, 8, 18, 0.72);
+}
+
+html[data-app-theme="pro"] .camera-control-open-btn,
+html[data-app-theme="pro"] .camera-control-editor-close,
+html[data-app-theme="pro"] .camera-control-editor-reset,
+html[data-app-theme="pro"] .camera-control-view-mode-btn,
+html[data-app-theme="pro"] .fullscreen-close,
+html[data-app-theme="pro"] .fullscreen-paint-btn,
+html[data-app-theme="pro"] .preview-nav-btn,
+html[data-app-theme="pro"] .btn-close-preview,
+html[data-app-theme="pro"] .history-card .delete-btn,
+html[data-app-theme="pro"] .copy-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    border-color: rgba(148, 163, 184, 0.14);
+}
+
+html[data-app-theme="pro"] .camera-control-open-btn:hover,
+html[data-app-theme="pro"] .camera-control-editor-close:hover,
+html[data-app-theme="pro"] .camera-control-editor-reset:hover,
+html[data-app-theme="pro"] .camera-control-view-mode-btn:hover,
+html[data-app-theme="pro"] .camera-control-view-mode-btn.active,
+html[data-app-theme="pro"] .fullscreen-close:hover,
+html[data-app-theme="pro"] .fullscreen-paint-btn:hover,
+html[data-app-theme="pro"] .preview-nav-btn:hover,
+html[data-app-theme="pro"] .copy-btn:hover {
+    background: rgba(93, 124, 255, 0.1);
+    border-color: rgba(93, 124, 255, 0.22);
+}

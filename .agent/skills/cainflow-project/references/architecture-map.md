@@ -6,6 +6,15 @@
 
 ## 近期约定
 
+### 多主题系统约定
+
+- 主题系统已从固定 `dark/light` 切换升级为多主题架构。运行态状态字段使用 `themeId`，启动时 `index.html` 会优先从本地状态恢复 `themeId`，并兼容旧 `themeMode`；主题应用和主题菜单交互统一收口在 `js/features/ui/theme-controller.js`。
+- 主题样式文件采用“入口 + 共享层 + 单主题文件”结构：`css/themes.css` 只负责聚合，`css/themes/shared.css` 放主题菜单和公共主题壳子，单个主题分别放在 `css/themes/dark.css`、`css/themes/light.css`、`css/themes/pro.css`。后续新增主题时，优先新增 `css/themes/<theme>.css` 并在 `css/themes.css` 中接入，不要把新主题规则重新堆回 `css/legacy.css` 或一个巨大的总主题文件。
+- 工具栏主题入口已改为下拉菜单而不是循环切换按钮：结构在 `index.html`，样式在 `css/themes/shared.css`，主题注册表、菜单渲染、打开/关闭、主题切换和持久化触发都在 `js/features/ui/theme-controller.js`。
+- 新增主题或修改主题时，一定要做全链路检查，不允许只改主页或工具栏颜色。至少同时覆盖和验证：主页、工具栏、侧边栏、抽屉、弹窗、右键菜单、Toast、设置页、历史记录面板、帮助面板、更新面板、节点内部控件、全屏预览、主题菜单本身。凡是已有 `html[data-app-theme="..."]` 覆盖的区域，都要一起考虑，避免出现“主页主题改了，但某些面板没改”的遗漏。
+- `pro` 是新增的独立深色主题，文件在 `css/themes/pro.css`，已注册进主题菜单。它不是默认 `dark` 的别名；如果后续要继续细化深色系主题，优先在各自独立主题文件里维护，不要把多个深色风格混写到同一份规则里。
+- `pro` 主题当前已补齐主界面之外的细节面板，包括设置页、提示词库、历史全屏、缓存抽屉、主题菜单、相机编辑器、Toast、弹窗和相关按钮态。后续主题验收时，也应默认拿这些面板作为最小检查集。
+
 ### 右键菜单分类子菜单约定
 
 - 画布右键添加节点菜单采用“一级分类 + 二级节点列表”，不要把所有节点直接堆在根菜单，也不要退化成根菜单只有一个“添加节点”入口。分类入口结构放 `index.html`，通过 `data-submenu-target` 指向对应二级菜单；二级菜单加 `data-context-submenu`，具体节点项继续用 `data-type` 交给 `js/features/ui/context-menu-controller.js` 创建节点。
@@ -395,4 +404,5 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 后端按 route 与 service 分责，不要混写。
 - 版本号升级必须以 `js/core/constants.js` 的 `APP_VERSION_NUMBER` 为唯一来源：页面展示、静态资源缓存参数、后端启动提示、代理 User-Agent 与版本同步脚本都应从这条链路派生；不要再引入 `package.json`、`css/base/variables.css` 这类第二份版本号。若当前任务显式要求更新 skill 文档，也要同步改 `.agent/skills/cainflow-project/SKILL.md` 与本架构图中的版本标记和经验说明。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
+- 主题相关改动优先落在 `css/themes/*` 与 `js/features/ui/theme-controller.js`。如果主题变更影响面板、节点、弹窗、菜单或预览区的视觉，必须同步补对应主题文件里的覆盖，而不是只改基础样式后假设所有区域都会自动正确继承。
 - 保留当前启动流程中已经对外暴露的兼容钩子。
