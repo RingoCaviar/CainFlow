@@ -97,10 +97,22 @@ export function createMediaControllerApi({
     }
 
     function normalizeImageList(value) {
-        if (Array.isArray(value)) {
-            return value.filter((item) => typeof item === 'string' && item.trim());
+        if (typeof value === 'string') {
+            return value.trim() ? [value] : [];
         }
-        return typeof value === 'string' && value.trim() ? [value] : [];
+        if (Array.isArray(value)) {
+            return value.flatMap((item) => normalizeImageList(item));
+        }
+        if (value && typeof value === 'object') {
+            return normalizeImageList(
+                value.images ??
+                value.image ??
+                value.dataUrl ??
+                value.url ??
+                []
+            );
+        }
+        return [];
     }
 
     function getStoredImageSaveList(node) {
@@ -114,6 +126,12 @@ export function createMediaControllerApi({
     function getGeneratedImageList(node) {
         const images = normalizeImageList(node?.data?.images || node?.generatedImages);
         return images.length > 0 ? images : normalizeImageList(node?.data?.image || node?.imageData);
+    }
+
+    function getNodeOutputImageList(node) {
+        const images = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
+        if (images.length > 0) return images;
+        return normalizeImageList(node?.resizePreviewData || node?.data?.image || node?.imageData);
     }
 
     function getImageSavePreviewIndex(node, images) {
@@ -843,6 +861,9 @@ export function createMediaControllerApi({
         visited.add(sourceNodeId);
 
         const sourceNode = getNodeById(sourceNodeId);
+        const sourceImageList = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
+            ? normalizeImageList(options.sourceImage)
+            : getNodeOutputImageList(sourceNode);
         const sourceImage = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
             ? options.sourceImage
             : getNodePreviewSourceData(sourceNode);
@@ -870,18 +891,14 @@ export function createMediaControllerApi({
             }
 
             if (node.type === 'ImagePreview') {
-                const imagePreviewSource = sourceNode?.type === 'ImageGenerate'
-                    ? getGeneratedImageList(sourceNode)
-                    : sourceImage;
+                const imagePreviewSource = sourceImageList.length > 0 ? sourceImageList : sourceImage;
                 await syncImagePreviewNode(nodeId, imagePreviewSource);
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
                 continue;
             }
 
             if (node.type === 'ImageSave') {
-                const imageSaveSource = sourceNode?.type === 'ImageGenerate'
-                    ? getGeneratedImageList(sourceNode)
-                    : sourceImage;
+                const imageSaveSource = sourceImageList.length > 0 ? sourceImageList : sourceImage;
                 await syncImageSaveNode(nodeId, imageSaveSource);
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
                 continue;
@@ -1946,6 +1963,8 @@ export function createMediaControllerApi({
         refreshDependentImageResizePreviews,
         refreshAllImageResizePreviews,
         restoreImageResizePreview,
+        syncImagePreviewNode,
+        syncImageSaveNode,
         setupImageSave,
         autoSaveToDir,
         setupImagePreview,

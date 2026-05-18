@@ -40,6 +40,8 @@ export function createExecutionCoreApi({
     autoSaveToDir,
     restoreImageResizePreview,
     refreshDependentImageResizePreviews,
+    syncImagePreviewNode = async () => {},
+    syncImageSaveNode = async () => {},
     syncImageCompareNode,
     syncCameraControlNode = () => '',
     fitNodeToContent,
@@ -641,10 +643,22 @@ export function createExecutionCoreApi({
     }
 
     function normalizeImageList(value) {
-        if (Array.isArray(value)) {
-            return value.filter((item) => typeof item === 'string' && item.trim());
+        if (typeof value === 'string') {
+            return value.trim() ? [value] : [];
         }
-        return typeof value === 'string' && value.trim() ? [value] : [];
+        if (Array.isArray(value)) {
+            return value.flatMap((item) => normalizeImageList(item));
+        }
+        if (value && typeof value === 'object') {
+            return normalizeImageList(
+                value.images ??
+                value.image ??
+                value.dataUrl ??
+                value.url ??
+                []
+            );
+        }
+        return [];
     }
 
     function hasRemoteImageValue(value) {
@@ -1126,12 +1140,9 @@ export function createExecutionCoreApi({
                         throw err;
                     }
 
-                    node.data.image = imageData;
-                    node.imageData = imageData;
                     node.generatedImages = normalizeImageList(node.generatedImages);
                     node.generatedImages[nextGenerationIndex - 1] = imageData;
-                    node.data.images = node.generatedImages.slice(0, nextGenerationIndex);
-                    node.generationCompletedCount = nextGenerationIndex;
+                    commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex));
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
                         total: generationCount
@@ -1341,41 +1352,11 @@ export function createExecutionCoreApi({
             const { id } = node;
             const imageList = normalizeImageList(inputs.image);
             const imgData = imageList[0] || null;
-            const previewContainer = documentRef.getElementById(`${id}-preview`);
-            const controls = documentRef.getElementById(`${id}-controls`);
-            const resolutionBadge = documentRef.getElementById(`${id}-res`);
             if (imgData) {
-                node.previewZoom = 1;
-                node.imagePreviewIndex = 0;
-                previewContainer.innerHTML = `<img src="${imgData}" alt="预览" style="cursor:pointer" draggable="false" />`;
-                renderImagePreviewImage(id, imageList);
-                controls.style.display = 'flex';
-                node.imageData = imgData;
-                node.imageDataList = imageList;
-                node.data.image = imgData;
-                if (imageList.length > 1) node.data.images = imageList.slice();
-                else delete node.data.images;
-                if (isInlineImageData(imgData)) {
-                    await saveImageAsset(id, imgData);
-                } else {
-                    await deleteImageAsset(id);
-                }
-                await showResolutionBadge(id, imgData);
+                await syncImagePreviewNode(id, imageList);
                 await refreshDependentImageResizePreviews(id);
             } else {
-                node.previewZoom = 1;
-                node.imageData = null;
-                node.imageDataList = [];
-                delete node.data.image;
-                delete node.data.images;
-                previewContainer.classList.remove('has-multiple-images');
-                previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
-                controls.style.display = 'none';
-                await deleteImageAsset(id);
-                if (resolutionBadge) {
-                    resolutionBadge.textContent = '';
-                    resolutionBadge.style.display = 'none';
-                }
+                await syncImagePreviewNode(id, []);
                 await refreshDependentImageResizePreviews(id);
             }
             requestNodeFit(id);
@@ -1418,36 +1399,12 @@ export function createExecutionCoreApi({
             const { id } = node;
             const imageList = normalizeImageList(inputs.image);
             const imgData = imageList.length > 0 ? imageList[imageList.length - 1] : null;
-            const manualSaveBtn = documentRef.getElementById(`${id}-manual-save`);
-            const viewFullBtn = documentRef.getElementById(`${id}-view-full`);
-            const resolutionBadge = documentRef.getElementById(`${id}-res`);
             if (imgData) {
-                node.imageData = imgData;
-                node.imageDataList = imageList;
-                node.data.image = imgData;
-                if (imageList.length > 1) node.data.images = imageList.slice();
-                else delete node.data.images;
-                node.imagePreviewIndex = 0;
-                renderImageSavePreview(id, imageList);
-                await saveImageAsset(id, imgData);
-                await showResolutionBadge(id, imageList[0] || imgData);
-                if (manualSaveBtn) manualSaveBtn.disabled = false;
-                if (viewFullBtn) viewFullBtn.disabled = false;
+                await syncImageSaveNode(id, imageList);
                 await autoSaveToDir(id, imageList);
                 await refreshDependentImageResizePreviews(id);
             } else {
-                node.imageData = null;
-                node.imageDataList = [];
-                delete node.data.image;
-                delete node.data.images;
-                renderImageSavePreview(id, [], '无输入图片');
-                await deleteImageAsset(id);
-                if (manualSaveBtn) manualSaveBtn.disabled = true;
-                if (viewFullBtn) viewFullBtn.disabled = true;
-                if (resolutionBadge) {
-                    resolutionBadge.textContent = '';
-                    resolutionBadge.style.display = 'none';
-                }
+                await syncImageSaveNode(id, []);
                 await refreshDependentImageResizePreviews(id);
             }
         },

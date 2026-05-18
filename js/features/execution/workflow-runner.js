@@ -210,10 +210,22 @@ export function createWorkflowRunnerApi({
     }
 
     function normalizeImageList(value) {
-        if (Array.isArray(value)) {
-            return value.filter((item) => typeof item === 'string' && item.trim());
+        if (typeof value === 'string') {
+            return value.trim() ? [value] : [];
         }
-        return typeof value === 'string' && value.trim() ? [value] : [];
+        if (Array.isArray(value)) {
+            return value.flatMap((item) => normalizeImageList(item));
+        }
+        if (value && typeof value === 'object') {
+            return normalizeImageList(
+                value.images ??
+                value.image ??
+                value.dataUrl ??
+                value.url ??
+                []
+            );
+        }
+        return [];
     }
 
     function escapeHtml(value) {
