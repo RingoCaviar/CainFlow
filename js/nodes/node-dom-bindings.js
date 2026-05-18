@@ -146,6 +146,21 @@ export function createNodeDomBindingsApi({
             .replace(/'/g, '&#39;');
     }
 
+    function renderImageImportUrlPreviewContent(imageUrl, message = '') {
+        if (imageUrl) {
+            return `
+                <img src="${escapeHtml(imageUrl)}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="eager" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" />
+                <button type="button" class="image-import-url-refresh" title="重新加载预览" aria-label="重新加载 URL 图片预览">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+                </button>
+            `;
+        }
+        return `<div class="drop-text">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            ${escapeHtml(message || '输入 URL 后自动显示预览')}
+        </div>`;
+    }
+
     function normalizeTextSplitOutputCountValue(value) {
         const parsed = parseInt(value ?? '1', 10);
         return Number.isFinite(parsed) ? Math.max(0, parsed) : 1;
@@ -577,13 +592,10 @@ export function createNodeDomBindingsApi({
             const urlPreview = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-url-preview`);
             if (urlPreview && mode === 'url' && cloneNode.imageUrl) {
                 urlPreview.classList.add('has-image');
-                urlPreview.innerHTML = `<img src="${cloneNode.imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" />`;
+                urlPreview.innerHTML = renderImageImportUrlPreviewContent(cloneNode.imageUrl);
             } else if (urlPreview) {
                 urlPreview.classList.remove('has-image');
-                urlPreview.innerHTML = `<div class="drop-text">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    输入 URL 后自动显示预览
-                </div>`;
+                urlPreview.innerHTML = renderImageImportUrlPreviewContent('');
             }
         }
         if (cloneNode.type === 'Text') renderTextMultiPreview(cloneNode.id);

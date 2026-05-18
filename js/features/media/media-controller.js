@@ -84,6 +84,18 @@ export function createMediaControllerApi({
         return typeof value === 'string' && /^https?:\/\//i.test(value);
     }
 
+    function getReloadableImageUrl(imageUrl) {
+        if (!isRemoteImageUrl(imageUrl)) return imageUrl || '';
+        try {
+            const url = new URL(imageUrl);
+            url.searchParams.set('_cf_preview_reload', String(Date.now()));
+            return url.toString();
+        } catch (error) {
+            const separator = imageUrl.includes('?') ? '&' : '?';
+            return `${imageUrl}${separator}_cf_preview_reload=${Date.now()}`;
+        }
+    }
+
     function normalizeImageList(value) {
         if (Array.isArray(value)) {
             return value.filter((item) => typeof item === 'string' && item.trim());
@@ -401,6 +413,24 @@ export function createMediaControllerApi({
             .replace(/'/g, '&#39;');
     }
 
+    function renderImageImportUrlPreviewContent(imageUrl, options = {}) {
+        const { reloading = false, message = '' } = options;
+        if (imageUrl && isRemoteImageUrl(imageUrl)) {
+            const src = reloading ? getReloadableImageUrl(imageUrl) : imageUrl;
+            return `
+                <img src="${escapeHtml(src)}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="eager" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" data-original-src="${escapeHtml(imageUrl)}" />
+                <button type="button" class="image-import-url-refresh ${reloading ? 'is-loading' : ''}" title="重新加载预览" aria-label="重新加载 URL 图片预览">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+                </button>
+            `;
+        }
+        const placeholderText = message || (imageUrl ? '请输入有效的图片 URL' : '输入 URL 后自动显示预览');
+        return `<div class="drop-text">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            ${escapeHtml(placeholderText)}
+        </div>`;
+    }
+
     function updateImageImportModeState(nodeId) {
         const modeInput = documentRef.getElementById(`${nodeId}-import-mode`);
         const uploadSection = documentRef.getElementById(`${nodeId}-upload-section`);
@@ -434,17 +464,59 @@ export function createMediaControllerApi({
         if (preview) {
             if (imageUrl && isRemoteImageUrl(imageUrl)) {
                 preview.classList.add('has-image');
-                preview.innerHTML = `<img src="${imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`;
+                preview.innerHTML = renderImageImportUrlPreviewContent(imageUrl);
             } else {
                 preview.classList.remove('has-image');
-                preview.innerHTML = `<div class="drop-text">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    ${imageUrl ? '请输入有效的图片 URL' : '输入 URL 后自动显示预览'}
-                </div>`;
+                preview.innerHTML = renderImageImportUrlPreviewContent(imageUrl);
             }
         }
         clearImageImportBadge(nodeId);
         requestNodeFit(nodeId);
+        bindImageImportUrlPreviewEvents(nodeId);
+    }
+
+    function reloadImageImportUrlPreview(nodeId) {
+        const node = getNodeById(nodeId);
+        if (!node || node.type !== 'ImageImport') return;
+        const imageUrl = node.imageUrl || documentRef.getElementById(`${nodeId}-url-input`)?.value?.trim() || '';
+        if (!isRemoteImageUrl(imageUrl)) {
+            renderImageImportUrlState(nodeId, imageUrl);
+            showToast('请输入有效的图片 URL', 'warning');
+            return;
+        }
+        const preview = documentRef.getElementById(`${nodeId}-url-preview`);
+        if (!preview) return;
+        preview.classList.add('has-image');
+        preview.innerHTML = renderImageImportUrlPreviewContent(imageUrl, { reloading: true });
+        bindImageImportUrlPreviewEvents(nodeId);
+    }
+
+    function bindImageImportUrlPreviewEvents(nodeId) {
+        const preview = documentRef.getElementById(`${nodeId}-url-preview`);
+        const img = preview?.querySelector('img');
+        if (!preview || !img || img.dataset.urlPreviewEventsBound === '1') return;
+        img.dataset.urlPreviewEventsBound = '1';
+        img.addEventListener('load', () => {
+            preview.querySelector('.image-import-url-refresh')?.classList.remove('is-loading');
+        });
+        img.addEventListener('error', () => {
+            const imageUrl = img.dataset.originalSrc || img.getAttribute('src') || '';
+            preview.classList.remove('has-image');
+            preview.innerHTML = renderImageImportUrlPreviewContent('', { message: '图片加载失败，请点击刷新或检查图床链接' });
+            const retryButton = documentRef.createElement('button');
+            retryButton.type = 'button';
+            retryButton.className = 'image-import-url-refresh';
+            retryButton.title = '重新加载预览';
+            retryButton.setAttribute('aria-label', '重新加载 URL 图片预览');
+            retryButton.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>';
+            retryButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const node = getNodeById(nodeId);
+                if (node) node.imageUrl = imageUrl;
+                reloadImageImportUrlPreview(nodeId);
+            });
+            preview.appendChild(retryButton);
+        });
     }
 
     function renderImageImportUploadState(nodeId, imageData = null) {
@@ -1040,6 +1112,10 @@ export function createMediaControllerApi({
         });
         urlPreview?.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (e.target.closest('.image-import-url-refresh')) {
+                reloadImageImportUrlPreview(id);
+                return;
+            }
             if (state.justDragged) return;
             const node = getNodeById(id);
             if (node?.importMode === 'url' && node.imageUrl) {

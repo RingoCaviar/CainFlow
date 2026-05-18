@@ -249,6 +249,23 @@ function getTextareaHeightStyle(restoreData = {}, key) {
     return Number.isFinite(height) && height > 0 ? ` style="height:${Math.round(height)}px"` : '';
 }
 
+function renderImageImportUrlPreviewContent(imageUrl, message = '') {
+    const safeUrl = escapeHtml(imageUrl || '');
+    const fallbackMessage = imageUrl ? '请输入有效的图片 URL' : '输入 URL 后自动显示预览';
+    if (imageUrl) {
+        return `
+            <img src="${safeUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="eager" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" />
+            <button type="button" class="image-import-url-refresh" title="重新加载预览" aria-label="重新加载 URL 图片预览">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+            </button>
+        `;
+    }
+    return `<div class="drop-text">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        ${escapeHtml(message || fallbackMessage)}
+    </div>`;
+}
+
 function renderImageImportBody(id, restoreData) {
     const rd = restoreData || {};
     const importMode = rd.importMode === 'url' ? 'url' : 'upload';
@@ -284,15 +301,10 @@ function renderImageImportBody(id, restoreData) {
         <div class="image-import-url-section ${importMode === 'url' ? '' : 'hidden'}" id="${id}-url-section">
             <div class="node-field">
                 <label>图片链接</label>
-                <input type="url" id="${id}-url-input" value="${imageUrl}" placeholder="https://example.com/image.png" />
+                <input type="url" id="${id}-url-input" value="${escapeHtml(imageUrl)}" placeholder="https://example.com/image.png" />
             </div>
             <div class="file-drop-zone image-import-url-preview${hasUrlImage ? ' has-image' : ''}" id="${id}-url-preview">
-                ${hasUrlImage
-                    ? `<img src="${imageUrl}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`
-                    : `<div class="drop-text">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                        输入 URL 后自动显示预览
-                    </div>`}
+                ${hasUrlImage ? renderImageImportUrlPreviewContent(imageUrl) : renderImageImportUrlPreviewContent('')}
             </div>
             <div class="image-import-url-note">URL 模式仅支持 OpenAI 兼容参考图，不支持缩放和保存节点。</div>
         </div>
