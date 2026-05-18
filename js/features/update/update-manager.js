@@ -1,5 +1,3 @@
-import { formatProxyErrorMessage } from '../../services/api-client.js';
-
 /**
  * 管理版本更新检查、刷新提示与更新前备份导出等流程。
  */
@@ -400,16 +398,108 @@ export function createUpdateManager({
         setTimeoutImpl(removeUpdateDownloadToast, updateDownloadTerminalToastDelayMs);
     }
 
-    function notifyUpdateDownloadCompleted(jobId, message) {
+    function removeUpdateResultDialog() {
+        documentRef.getElementById('modal-update-result')?.remove();
+    }
+
+    function showUpdateResultDialog({ title, message, type = 'success' }) {
+        removeUpdateResultDialog();
+
+        const overlay = documentRef.createElement('div');
+        overlay.id = 'modal-update-result';
+        overlay.className = 'modal-overlay active';
+
+        const panel = documentRef.createElement('div');
+        panel.className = 'modal-panel update-modal-panel';
+        panel.style.maxWidth = '520px';
+
+        const header = documentRef.createElement('div');
+        header.className = 'modal-header';
+
+        const heading = documentRef.createElement('h2');
+        heading.textContent = title || '在线更新';
+        header.appendChild(heading);
+
+        const closeButton = documentRef.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'modal-close-btn';
+        closeButton.textContent = '×';
+        closeButton.onclick = removeUpdateResultDialog;
+        header.appendChild(closeButton);
+        panel.appendChild(header);
+
+        const body = documentRef.createElement('div');
+        body.className = 'modal-body';
+
+        const status = documentRef.createElement('div');
+        status.className = `update-download-status ${type}`;
+        status.style.marginTop = '0';
+        status.textContent = message || '';
+        body.appendChild(status);
+        panel.appendChild(body);
+
+        const footer = documentRef.createElement('div');
+        footer.className = 'modal-footer';
+        footer.style.cssText = 'padding: 16px 24px; display: flex; gap: 12px; justify-content: flex-end;';
+
+        const okButton = documentRef.createElement('button');
+        okButton.type = 'button';
+        okButton.className = 'btn btn-primary';
+        okButton.textContent = '我知道了';
+        okButton.onclick = removeUpdateResultDialog;
+        footer.appendChild(okButton);
+        panel.appendChild(footer);
+
+        overlay.appendChild(panel);
+        documentRef.body?.appendChild(overlay);
+        okButton.focus?.();
+    }
+
+    function getUpdateCompletionDialog(snapshot = {}, fallbackMessage = '') {
+        const result = snapshot.result || {};
+        if (result.applied === true) {
+            return {
+                title: '更新已覆盖成功',
+                message: result.message || fallbackMessage || 'CainFlow 主程序已覆盖成功，请重启 CainFlow 主程序以使用新版本。',
+                type: 'success'
+            };
+        }
+        if (result.replacementPending) {
+            return {
+                title: '更新已下载，等待覆盖',
+                message: result.message || fallbackMessage || '当前 CainFlow 主程序仍在运行，关闭当前程序后会自动覆盖；请随后重新启动 CainFlow 主程序。',
+                type: 'info'
+            };
+        }
+        return {
+            title: '更新已完成',
+            message: fallbackMessage || '更新已完成，请重启 CainFlow 主程序。',
+            type: 'success'
+        };
+    }
+
+    function notifyUpdateDownloadCompleted(jobId, snapshot, message) {
         if (handledTerminalUpdateJobId === jobId) return;
         handledTerminalUpdateJobId = jobId;
 
         setTimeoutImpl(() => {
-            showToast(message, 'success', 12000);
-            if (typeof windowRef.alert === 'function') {
-                windowRef.alert(`${message}\n\n请重启 CainFlow 主程序。`);
-            }
+            const dialog = getUpdateCompletionDialog(snapshot, message);
+            showToast(dialog.message, dialog.type === 'info' ? 'info' : 'success', 12000);
+            showUpdateResultDialog(dialog);
         }, updateDownloadCompletionPromptDelayMs);
+    }
+
+    function notifyUpdateDownloadFailed(jobId, message) {
+        if (handledTerminalUpdateJobId === jobId) return;
+        handledTerminalUpdateJobId = jobId;
+
+        const failureMessage = message || '下载或覆盖更新失败，请稍后重试。';
+        showToast(failureMessage, 'error', 9000);
+        showUpdateResultDialog({
+            title: '更新失败',
+            message: failureMessage,
+            type: 'error'
+        });
     }
 
     function setUpdateDownloadStatus(message = '', type = 'info', snapshot = null) {
@@ -731,7 +821,7 @@ export function createUpdateManager({
             setStoredDownloadSnapshot(null);
             setUpdateDownloadStatus(successMessage, 'success');
             renderGeneralSettings();
-            notifyUpdateDownloadCompleted(jobId, successMessage);
+            notifyUpdateDownloadCompleted(jobId, snapshot, successMessage);
             return;
         }
 
@@ -759,10 +849,7 @@ export function createUpdateManager({
             setStoredDownloadSnapshot(null);
             setUpdateDownloadStatus(message, 'error');
             renderGeneralSettings();
-            if (handledTerminalUpdateJobId !== jobId) {
-                handledTerminalUpdateJobId = jobId;
-                showToast(message, 'error', 9000);
-            }
+            notifyUpdateDownloadFailed(jobId, message);
             return;
         }
 
@@ -787,6 +874,129 @@ export function createUpdateManager({
             return `检查更新失败：${error.message}`;
         }
         return '检查更新失败，请检查网络连接或代理设置';
+    }
+
+    function parseUpdateErrorBody(text) {
+        if (!text) return {};
+        try {
+            const json = JSON.parse(text);
+            return {
+                message: json?.message || json?.error?.message || '',
+                documentationUrl: json?.documentation_url || ''
+            };
+        } catch {
+            return { message: text.trim() };
+        }
+    }
+
+    function formatGithubUpdateErrorMessage(status, body, response = null) {
+        const text = typeof body === 'string' ? body.trim() : '';
+        const { message, documentationUrl } = parseUpdateErrorBody(text);
+        const normalized = `${message}\n${text}`.toLowerCase();
+        const statusText = response?.statusText || '响应异常';
+        const prefix = `检查更新失败：GitHub API 返回 ${status} ${statusText}`;
+
+        if (
+            status === 429 ||
+            normalized.includes('rate limit') ||
+            normalized.includes('too many requests') ||
+            normalized.includes('secondary rate limit') ||
+            normalized.includes('api rate limit exceeded')
+        ) {
+            return '检查更新失败：GitHub API 访问频率受限，请稍后再试，或在设置中启用可访问 GitHub 的代理后重试。';
+        }
+
+        if (status === 404) {
+            return `检查更新失败：未找到 GitHub Release 信息，请确认仓库 ${githubRepo} 是否可访问。`;
+        }
+
+        if (status === 401 || status === 403) {
+            return `${prefix}。当前可能无法访问该仓库或请求被 GitHub 拒绝，请检查网络、代理或仓库访问权限。`;
+        }
+
+        if (status >= 500) {
+            return `${prefix}。GitHub 或当前代理服务暂时不可用，请稍后重试。`;
+        }
+
+        const detail = message || text.substring(0, 100);
+        const docHint = documentationUrl ? ` (${documentationUrl})` : '';
+        return detail ? `${prefix}: ${detail}${docHint}` : prefix;
+    }
+
+    function getXmlText(parent, selector) {
+        const node = parent?.querySelector?.(selector);
+        return node?.textContent?.trim() || '';
+    }
+
+    function parseGithubReleaseFeed(xmlText) {
+        if (!xmlText || typeof windowRef.DOMParser !== 'function') return null;
+        const doc = new windowRef.DOMParser().parseFromString(xmlText, 'application/xml');
+        if (doc.querySelector('parsererror')) return null;
+
+        const entry = doc.querySelector('entry');
+        if (!entry) return null;
+
+        const title = getXmlText(entry, 'title');
+        const id = getXmlText(entry, 'id');
+        const link = entry.querySelector('link[rel="alternate"]') || entry.querySelector('link[href]');
+        const href = link?.getAttribute('href') || '';
+        const tagFromUrl = href.match(/\/releases\/tag\/([^/?#]+)/)?.[1];
+        const tagFromId = id.match(/\/releases\/tag\/([^/?#]+)/)?.[1];
+        const tagName = decodeURIComponent(tagFromUrl || tagFromId || title || '').trim();
+
+        if (!tagName) return null;
+
+        return {
+            tag_name: tagName,
+            published_at: getXmlText(entry, 'published') || getXmlText(entry, 'updated') || new Date().toISOString(),
+            body: getXmlText(entry, 'content') || getXmlText(entry, 'summary') || '',
+            html_url: href || `https://github.com/${githubRepo}/releases/tag/${encodeURIComponent(tagName)}`,
+            source: 'github_releases_feed'
+        };
+    }
+
+    async function fetchProxyText(url, signal, accept = '') {
+        const extraHeaders = accept ? { Accept: accept } : {};
+        const response = await fetchImpl('/proxy', {
+            method: 'POST',
+            headers: getProxyHeaders(url, 'GET', extraHeaders),
+            signal
+        });
+        const text = await response.text();
+        if (!response.ok) {
+            throw {
+                isUpdateHttpError: true,
+                status: response.status,
+                response,
+                body: text
+            };
+        }
+        return text;
+    }
+
+    async function fetchLatestReleaseFromFeed(signal) {
+        const url = `https://github.com/${githubRepo}/releases.atom`;
+        const text = await fetchProxyText(url, signal, 'application/atom+xml, application/xml, text/xml');
+        const releaseData = parseGithubReleaseFeed(text);
+        if (!releaseData) {
+            throw new Error('GitHub Releases Feed 响应解析失败');
+        }
+        return releaseData;
+    }
+
+    async function fetchLatestReleaseFromApi(signal) {
+        const url = `https://api.github.com/repos/${githubRepo}/releases/latest`;
+        const text = await fetchProxyText(url, signal, 'application/vnd.github+json');
+        return JSON.parse(text);
+    }
+
+    async function fetchLatestRelease(signal) {
+        try {
+            return await fetchLatestReleaseFromFeed(signal);
+        } catch (feedError) {
+            console.warn('GitHub release feed check failed, falling back to API:', feedError);
+            return fetchLatestReleaseFromApi(signal);
+        }
     }
 
     function getToastContainer() {
@@ -915,26 +1125,9 @@ export function createUpdateManager({
             const controller = new AbortController();
             timeoutId = setTimeoutImpl(() => controller.abort(), 10000);
 
-            const url = `https://api.github.com/repos/${githubRepo}/releases/latest`;
-            const response = await fetchImpl('/proxy', {
-                method: 'POST',
-                headers: getProxyHeaders(url, 'GET'),
-                signal: controller.signal
-            });
+            const data = await fetchLatestRelease(controller.signal);
             clearTimeoutImpl(timeoutId);
             timeoutId = null;
-
-            if (!response.ok) {
-                const responseText = await response.text();
-                const friendlyMessage = formatProxyErrorMessage(response.status, responseText, '检查更新失败', { url });
-                const msg = friendlyMessage || getUpdateFailureMessage(null, response);
-                setUpdateError(msg);
-                showToast(msg, 'error', 6000);
-                renderGeneralSettings();
-                return;
-            }
-
-            const data = await response.json();
             latestReleaseData = data;
             const latestVersion = data.tag_name;
             localStorageRef.setItem('cainflow_update_version', latestVersion || '');
@@ -957,7 +1150,9 @@ export function createUpdateManager({
         } catch (e) {
             if (timeoutId !== null) clearTimeoutImpl(timeoutId);
             console.warn('Update check failed:', e);
-            const msg = getUpdateFailureMessage(e);
+            const msg = e?.isUpdateHttpError
+                ? formatGithubUpdateErrorMessage(e.status, e.body, e.response)
+                : getUpdateFailureMessage(e);
             setUpdateError(msg);
             showToast(msg, 'error', 6000);
             renderGeneralSettings();

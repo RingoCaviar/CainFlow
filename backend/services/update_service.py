@@ -287,22 +287,29 @@ def _replace_main_program(temp_exe, target_path):
             'replacementPending': False,
             'message': '更新已下载并覆盖 CainFlow 主程序，请重启 CainFlow 主程序。',
         }
-    except OSError:
+    except OSError as replace_error:
         if os.name != 'nt':
             raise
-        pending_path = target_path.with_name(f'{target_path.stem}.update{target_path.suffix}')
-        _delete_file_quietly(pending_path)
-        os.replace(temp_exe, pending_path)
-        script_path = _write_pending_replace_script(pending_path, target_path)
-        helper_started = _launch_pending_replace_script(script_path)
-        return {
-            'applied': False,
-            'replacementPending': True,
-            'pendingPath': str(pending_path),
-            'helperPath': str(script_path),
-            'helperStarted': helper_started,
-            'message': '更新已下载完成。当前 CainFlow 主程序正在运行，关闭当前程序后会自动覆盖；请随后重新启动 CainFlow 主程序。',
-        }
+        try:
+            pending_path = target_path.with_name(f'{target_path.stem}.update{target_path.suffix}')
+            _delete_file_quietly(pending_path)
+            os.replace(temp_exe, pending_path)
+            script_path = _write_pending_replace_script(pending_path, target_path)
+            helper_started = _launch_pending_replace_script(script_path)
+            return {
+                'applied': False,
+                'replacementPending': True,
+                'pendingPath': str(pending_path),
+                'helperPath': str(script_path),
+                'helperStarted': helper_started,
+                'replaceError': str(replace_error),
+                'message': '更新已下载完成。当前 CainFlow 主程序正在运行，关闭当前程序后会自动覆盖；请随后重新启动 CainFlow 主程序。',
+            }
+        except Exception as pending_error:
+            raise RuntimeError(
+                f'更新文件已下载，但覆盖 CainFlow 主程序失败：{replace_error}；'
+                f'尝试创建关闭后自动覆盖任务也失败：{pending_error}'
+            ) from pending_error
 
 
 def download_and_prepare_latest_update(repo=None, progress_callback=None, cancel_event=None):
