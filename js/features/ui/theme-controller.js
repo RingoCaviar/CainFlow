@@ -56,8 +56,40 @@ export function createThemeControllerApi({
         return documentRef.getElementById('theme-menu');
     }
 
+    function ensureThemeMenuLayer() {
+        const menu = getThemeMenu();
+        if (!menu) return null;
+        if (menu.parentElement !== documentRef.body) {
+            documentRef.body.appendChild(menu);
+        }
+        return menu;
+    }
+
     function isMenuOpen() {
         return !getThemeMenu()?.classList.contains('hidden');
+    }
+
+    function positionThemeMenu() {
+        const button = getThemeToggleButton();
+        const menu = getThemeMenu();
+        if (!button || !menu) return;
+
+        const rect = button.getBoundingClientRect();
+        const menuWidth = menu.offsetWidth || 180;
+        const menuHeight = menu.offsetHeight || 0;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const left = Math.min(
+            Math.max(12, rect.right - menuWidth),
+            Math.max(12, viewportWidth - menuWidth - 12)
+        );
+        const top = Math.min(
+            rect.bottom + 10,
+            Math.max(12, viewportHeight - menuHeight - 12)
+        );
+
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
     }
 
     function setMenuOpen(isOpen) {
@@ -67,6 +99,7 @@ export function createThemeControllerApi({
 
         menu.classList.toggle('hidden', !isOpen);
         button.setAttribute('aria-expanded', String(isOpen));
+        if (isOpen) positionThemeMenu();
     }
 
     function closeThemeMenu() {
@@ -99,7 +132,7 @@ export function createThemeControllerApi({
     }
 
     function renderThemeMenu() {
-        const menu = getThemeMenu();
+        const menu = ensureThemeMenuLayer();
         if (!menu) return;
 
         if (menu.dataset.themeMenuReady !== 'true') {
@@ -117,7 +150,7 @@ export function createThemeControllerApi({
 
     function bindThemeMenuEvents() {
         const button = getThemeToggleButton();
-        const menu = getThemeMenu();
+        const menu = ensureThemeMenuLayer();
         if (!button || !menu) return;
         if (button.dataset.themeBound === 'true') return;
 
@@ -148,6 +181,14 @@ export function createThemeControllerApi({
                 closeThemeMenu();
             }
         });
+
+        window.addEventListener('resize', () => {
+            if (isMenuOpen()) positionThemeMenu();
+        });
+
+        window.addEventListener('scroll', () => {
+            if (isMenuOpen()) positionThemeMenu();
+        }, true);
 
         button.dataset.themeBound = 'true';
     }
@@ -183,6 +224,7 @@ export function createThemeControllerApi({
     }
 
     function initTheme() {
+        ensureThemeMenuLayer();
         renderThemeMenu();
         bindThemeMenuEvents();
         const bootstrappedTheme = documentRef.documentElement.getAttribute(THEME_ATTRIBUTE);

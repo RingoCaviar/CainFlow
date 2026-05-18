@@ -285,6 +285,8 @@ export function createUiControllerApi({
     }
 
     function initUI() {
+        panelManager.bindCanvasBlankClose?.();
+
         const btnHistory = documentRef.getElementById('btn-history');
         const sidebar = documentRef.getElementById('history-sidebar');
         const logDrawer = documentRef.getElementById('log-drawer');

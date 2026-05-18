@@ -38,9 +38,9 @@
 }
 
 .theme-menu-panel {
-    position: absolute;
-    top: calc(100% + 10px);
-    right: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
     min-width: 180px;
     padding: 8px;
     border: 1px solid var(--border-color);
@@ -48,7 +48,7 @@
     background: var(--bg-context-menu, rgba(22, 22, 42, 0.96));
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
     backdrop-filter: blur(18px);
-    z-index: 4200;
+    z-index: 12000;
 }
 
 .theme-menu-panel.hidden {
@@ -149,7 +149,6 @@ html[data-app-theme="pink"] .theme-menu-item.is-active {
     }
 
     .theme-menu-panel {
-        right: 0;
         min-width: 164px;
     }
 }

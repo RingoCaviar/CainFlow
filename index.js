@@ -189,7 +189,7 @@ const elements = createElements(document);
 
 const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
 const connectionCreatePopup = elements.connectionCreatePopup;
-const panelManager = createPanelManager(document);
+const panelManager = createPanelManager(document, canvasContainer);
 
 // ===== 应用状态 =====
 const state = createInitialState();
