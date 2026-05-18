@@ -33,7 +33,6 @@ EXE_DIR = get_exe_dir()
 MAIN_EXE_PATH = sys.executable if hasattr(sys, 'frozen') else os.path.join(EXE_DIR, UPDATE_MAIN_EXE_NAME)
 WORKFLOWS_DIR = os.path.join(EXE_DIR, 'workflows')
 LOG_DIR = os.path.join(EXE_DIR, 'log')
-ALLOWED_HOSTS_FILE = os.path.join(EXE_DIR, 'allowed_hosts.json')
 
 
 def ensure_runtime_dirs():

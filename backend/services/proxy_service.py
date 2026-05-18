@@ -73,12 +73,11 @@ def handle_proxy_request(handler):
     if not target_url:
         write_error(handler, 400, 'Missing x-target-url header')
         return
-    allow_private_network_targets = handler.headers.get('x-allow-private-network-targets', '').lower() == 'true'
-    if not is_safe_url(target_url, allow_private_network_targets=allow_private_network_targets):
+    if not is_safe_url(target_url):
         write_error(
             handler,
             403,
-            '安全过滤已阻止访问该目标地址。当前仅允许访问已授权的公网 API 地址；如需访问内网、本地或未加入允许列表的地址，请前往“设置 > 通用设置 > 安全”，开启“允许内网 / 本地 API 地址”。'
+            '目标地址无效，仅支持 http 或 https URL。'
         )
         return
 
@@ -92,7 +91,6 @@ def handle_proxy_request(handler):
             'x-target-url',
             'x-target-url-b64',
             'x-target-method',
-            'x-allow-private-network-targets',
             'x-proxy-enabled',
             'x-proxy-host',
             'x-proxy-port',
@@ -295,4 +293,4 @@ def handle_proxy_request(handler):
         write_error(handler, 500, 'Proxy request failed', error)
 
 
-"""Securely forwards frontend proxy requests to upstream AI services."""
+"""Forwards frontend proxy requests to upstream AI services."""

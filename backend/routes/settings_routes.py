@@ -4,8 +4,7 @@ import urllib.request
 
 from backend import state
 from backend.services.http_helpers import read_json_body, write_bytes, write_error, write_json, write_text
-from backend.services.security_service import check_proxy_health, detect_available_proxy, save_allowed_hosts
-from backend.services.security_service import is_safe_url
+from backend.services.security_service import check_proxy_health, detect_available_proxy, is_safe_url
 from backend.services.version_service import get_app_user_agent
 
 
@@ -14,14 +13,13 @@ def _get_provider_models(handler):
     url = str(data.get('url') or '').strip()
     protocol = str(data.get('protocol') or 'openai').strip().lower()
     apikey = str(data.get('apikey') or '').strip()
-    allow_private = bool(data.get('allowPrivateNetworkTargets'))
     proxy_cfg = data.get('proxy') if isinstance(data.get('proxy'), dict) else {}
 
     if not url:
         write_error(handler, 400, 'Missing provider model list URL')
         return
-    if not is_safe_url(url, allow_private_network_targets=allow_private):
-        write_error(handler, 403, '安全过滤已阻止访问该目标地址')
+    if not is_safe_url(url):
+        write_error(handler, 403, '目标地址无效，仅支持 http 或 https URL')
         return
 
     headers = {
@@ -64,9 +62,6 @@ def _get_provider_models(handler):
 
 
 def handle_get(handler):
-    if handler.path == '/api/allowed_hosts':
-        write_json(handler, {'hosts': state.CUSTOM_ALLOWED_HOSTS})
-        return True
     if handler.path == '/api/proxy':
         write_json(handler, state.ACTIVE_PROXY)
         return True
@@ -76,39 +71,6 @@ def handle_get(handler):
 def handle_post(handler):
     if handler.path == '/api/provider_models':
         _get_provider_models(handler)
-        return True
-
-    if handler.path == '/api/allowed_hosts':
-        data = read_json_body(handler)
-        action = data.get('action', 'set')
-
-        if action == 'add':
-            host = data.get('host', '').strip()
-            if host and host not in state.CUSTOM_ALLOWED_HOSTS:
-                state.CUSTOM_ALLOWED_HOSTS.append(host)
-                save_allowed_hosts()
-                write_json(handler, {'success': True, 'hosts': state.CUSTOM_ALLOWED_HOSTS})
-            else:
-                write_error(handler, 400, 'Invalid host or already exists')
-            return True
-
-        if action == 'remove':
-            host = data.get('host', '').strip()
-            if host in state.CUSTOM_ALLOWED_HOSTS:
-                state.CUSTOM_ALLOWED_HOSTS.remove(host)
-                save_allowed_hosts()
-                write_json(handler, {'success': True, 'hosts': state.CUSTOM_ALLOWED_HOSTS})
-            else:
-                write_error(handler, 404, 'Host not found')
-            return True
-
-        hosts = data.get('hosts', [])
-        if isinstance(hosts, list):
-            normalized = [host.strip() for host in hosts if isinstance(host, str) and host.strip()]
-            save_allowed_hosts(normalized)
-            write_json(handler, {'success': True, 'hosts': state.CUSTOM_ALLOWED_HOSTS})
-        else:
-            write_error(handler, 400, 'Invalid hosts format')
         return True
 
     if handler.path == '/api/test_proxy':
@@ -160,22 +122,7 @@ def handle_post(handler):
 
 
 def handle_delete(handler):
-    if handler.path != '/api/allowed_hosts':
-        return False
-
-    try:
-        data = read_json_body(handler)
-        host = data.get('host', '').strip()
-    except Exception:
-        host = ''
-
-    if host and host in state.CUSTOM_ALLOWED_HOSTS:
-        state.CUSTOM_ALLOWED_HOSTS.remove(host)
-        save_allowed_hosts()
-        write_json(handler, {'success': True, 'hosts': state.CUSTOM_ALLOWED_HOSTS})
-    else:
-        write_error(handler, 404, 'Host not found')
-    return True
+    return False
 
 
-"""Route handlers for proxy and allowed-host settings APIs."""
+"""Route handlers for proxy and settings-related APIs."""

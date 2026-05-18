@@ -137,7 +137,6 @@ export function createProjectIoApi({
                         ? currentState.globalAnimationEnabled
                         : (currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.globalAnimationEnabled),
                     proxy: currentState.proxy !== undefined ? currentState.proxy : state.proxy,
-                    allowPrivateNetworkTargets: currentState.allowPrivateNetworkTargets !== undefined ? currentState.allowPrivateNetworkTargets : state.allowPrivateNetworkTargets,
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
                     historyGridCols: currentState.historyGridCols !== undefined ? currentState.historyGridCols : state.historyGridCols
@@ -244,9 +243,6 @@ export function createProjectIoApi({
             }
             if (data.proxy !== undefined) {
                 state.proxy = data.proxy;
-            }
-            if (data.allowPrivateNetworkTargets !== undefined) {
-                state.allowPrivateNetworkTargets = !!data.allowPrivateNetworkTargets;
             }
             if (data.requestTimeoutEnabled !== undefined) {
                 state.requestTimeoutEnabled = !!data.requestTimeoutEnabled;

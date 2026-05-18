@@ -1,9 +1,0 @@
-{
-  "hosts": [
-    "generativelanguage.googleapis.com",
-    "127.0.0.1",
-    "www.6789api.top",
-    "nowcoding.ai"
-  ],
-  "description": "将您的 API 供应商域名添加到此列表中，以允许节点访问其服务器"
-}

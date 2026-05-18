@@ -118,7 +118,6 @@ if (!(Test-Path -LiteralPath "dist/CainFlow_Launcher.exe")) {
 Write-Step "Preparing release_staging"
 New-Item -ItemType Directory -Path "release_staging" | Out-Null
 Copy-Item -LiteralPath "dist/CainFlow_Launcher.exe" -Destination "release_staging/CainFlow.exe"
-Copy-Item -LiteralPath "allowed_hosts.json" -Destination "release_staging/allowed_hosts.json"
 
 if (Test-Path -LiteralPath "workflows") {
   Copy-Item -LiteralPath "workflows" -Destination "release_staging" -Recurse

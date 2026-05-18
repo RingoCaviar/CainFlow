@@ -50,7 +50,6 @@ export function createSettingsControllerApi({
     const getProxyHeaders = createProxyHeadersGetter(() => state);
     const MODEL_FETCH_TIMEOUT_SECONDS = 30;
     const MODEL_FETCH_CLIENT_TIMEOUT_SECONDS = 35;
-    const ALLOWED_HOST_SYNC_TIMEOUT_SECONDS = 5;
     const modelFetchDialogState = {
         providerId: '',
         models: [],
@@ -118,35 +117,6 @@ export function createSettingsControllerApi({
         }
     }
 
-    async function ensureAllowedHostForProvider(provider, options = {}) {
-        const host = getEndpointHost(provider?.endpoint);
-        if (!host) return false;
-        try {
-            const response = await fetchWithTimeout('/api/allowed_hosts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'add', host })
-            }, ALLOWED_HOST_SYNC_TIMEOUT_SECONDS, '允许域名同步超时，请检查本地服务是否响应');
-            if (response.ok || response.status === 400) return true;
-            if (!options.silent) {
-                const text = await response.text();
-                showToast(`允许域名同步失败: ${text || response.status}`, 'warning');
-            }
-        } catch (error) {
-            if (!options.silent) showToast(`允许域名同步异常: ${error?.message || error}`, 'warning');
-        }
-        return false;
-    }
-
-    function syncAllowedHostsForProviders(providers = state.providers, options = {}) {
-        const seen = new Set();
-        return Promise.all((providers || []).map((provider) => {
-            const host = getEndpointHost(provider?.endpoint);
-            if (!host || seen.has(host)) return Promise.resolve(false);
-            seen.add(host);
-            return ensureAllowedHostForProvider(provider, options);
-        }));
-    }
 
     function escapeHtml(value) {
         return String(value || '')
@@ -788,10 +758,6 @@ export function createSettingsControllerApi({
             if (!url) throw new Error('请先填写供应商 API 地址');
             if (!provider.apikey && protocol === 'google') throw new Error('请先填写供应商 API 密钥');
 
-            modelFetchDialogState.status = '正在同步允许域名...';
-            renderProviderModelsDialog();
-            await ensureAllowedHostForProvider(provider);
-            if (requestId !== activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
 
             modelFetchDialogState.status = '正在请求供应商模型列表...';
             renderProviderModelsDialog();
@@ -802,8 +768,7 @@ export function createSettingsControllerApi({
                     url,
                     protocol,
                     apikey: provider.apikey || '',
-                    proxy: state.proxy || null,
-                    allowPrivateNetworkTargets: !!state.allowPrivateNetworkTargets
+                    proxy: state.proxy || null
                 })
             }, MODEL_FETCH_CLIENT_TIMEOUT_SECONDS, `获取模型列表超时（${MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、密钥、代理设置或该供应商的 /models 接口是否可用`);
             if (requestId !== activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
@@ -947,7 +912,6 @@ export function createSettingsControllerApi({
                 }
 
                 saveState();
-                if (field === 'endpoint') ensureAllowedHostForProvider(prov);
                 renderModels();
                 updatePreview(id);
             });
@@ -1220,7 +1184,6 @@ export function createSettingsControllerApi({
         const connectionLineType = state.connectionLineType || 'bezier';
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
-        const allowPrivateNetworkTargets = state.allowPrivateNetworkTargets === true;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
         const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
@@ -1480,23 +1443,6 @@ export function createSettingsControllerApi({
             </div>
             <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">安全</span>
-                </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
-                    <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">允许内网 / 本地 API 地址</label>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="setting-allow-private-network-targets" ${allowPrivateNetworkTargets ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <p style="font-size:11px; color:var(--accent-orange); line-height: 1.4;">默认关闭。开启后，代理将不再限制你填写的 API 地址，可用于本地模型、局域网网关或公司内网服务；同时也会显著降低 SSRF 防护强度。</p>
-                    </div>
-                </div>
-            </div>
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
-                <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
@@ -1528,7 +1474,6 @@ export function createSettingsControllerApi({
         const timeoutEnabledInput = documentRef.getElementById('setting-timeout-enabled');
         const timeoutSecondsInput = documentRef.getElementById('setting-timeout-seconds');
         const concurrentRequestModeInput = documentRef.getElementById('setting-concurrent-request-mode');
-        const allowPrivateNetworkTargetsInput = documentRef.getElementById('setting-allow-private-network-targets');
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
@@ -1634,11 +1579,6 @@ export function createSettingsControllerApi({
             } else {
                 e.target.value = state.requestTimeoutSeconds;
             }
-        });
-
-        allowPrivateNetworkTargetsInput?.addEventListener('change', (e) => {
-            state.allowPrivateNetworkTargets = e.target.checked;
-            saveState();
         });
 
         connectionLineTypeInput?.addEventListener('change', (e) => {
@@ -1947,7 +1887,6 @@ export function createSettingsControllerApi({
             renderProviders();
             renderModels();
             saveState();
-            ensureAllowedHostForProvider(state.providers.find((provider) => provider.id === newProviderId), { silent: true });
         });
 
         documentRef.getElementById('btn-add-model').addEventListener('click', () => {
@@ -1983,7 +1922,6 @@ export function createSettingsControllerApi({
         updateImageSaveWarnings,
         updateAllNodeModelDropdowns,
         updateCacheUsage,
-        initSettingsUI,
-        syncAllowedHostsForProviders
+        initSettingsUI
     };
 }

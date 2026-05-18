@@ -97,7 +97,6 @@ export function createInitialState() {
         notificationVolume: 1.0,
         notificationAudio: null,
         proxy: null,
-        allowPrivateNetworkTargets: false,
         requestTimeoutEnabled: true,
         requestTimeoutSeconds: 600,
         connectionLineType: 'bezier',
