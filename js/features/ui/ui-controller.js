@@ -47,7 +47,7 @@ export function createUiControllerApi({
             providers: state.providers.map((provider) => ({ ...provider })),
             models: state.models.map((model) => ({ ...model })),
             settings: {
-                themeMode: state.themeMode,
+                themeId: state.themeId,
                 notificationsEnabled: state.notificationsEnabled,
                 notificationVolume: state.notificationVolume,
                 autoRetry: state.autoRetry,
@@ -151,10 +151,10 @@ export function createUiControllerApi({
         state.providers = providers;
         state.models = models;
 
-        if (settings.themeMode !== undefined) {
-            applyTheme(settings.themeMode);
+        if (settings.themeId !== undefined || settings.themeMode !== undefined) {
+            applyTheme(settings.themeId !== undefined ? settings.themeId : settings.themeMode);
         } else {
-            applyTheme(state.themeMode);
+            applyTheme(state.themeId);
         }
 
         if (settings.notificationsEnabled !== undefined) {

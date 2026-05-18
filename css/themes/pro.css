@@ -1,0 +1,204 @@
+/* Pro theme: a restrained dark palette tuned for long editing sessions. */
+:root[data-app-theme="pro"] {
+    --bg-canvas: #131722;
+    --bg-grid-dot: rgba(148, 163, 184, 0.12);
+    --bg-toolbar: rgba(18, 23, 34, 0.92);
+    --bg-node: rgba(24, 31, 46, 0.96);
+    --bg-node-header: rgba(255, 255, 255, 0.035);
+    --bg-input: rgba(20, 27, 41, 0.96);
+    --bg-context-menu: rgba(17, 23, 34, 0.96);
+    --border-node: rgba(148, 163, 184, 0.18);
+    --border-input: rgba(148, 163, 184, 0.2);
+    --text-primary: #e5edf7;
+    --text-secondary: #aab7ca;
+    --text-dim: #738197;
+    --accent-purple: #7c88ff;
+    --accent-blue: #4f7cff;
+    --accent-cyan: #56b6d9;
+    --accent-green: #3dbb8a;
+    --accent-orange: #d79a4a;
+    --accent-red: #df6b78;
+    --accent-pink: #c57cff;
+    --accent-primary: #5d7cff;
+    --port-image: #8b7dff;
+    --port-text: #4db8d7;
+    --shadow-node: 0 18px 40px rgba(3, 7, 18, 0.34), 0 4px 14px rgba(3, 7, 18, 0.22);
+    --shadow-node-hover: 0 24px 52px rgba(3, 7, 18, 0.42), 0 10px 22px rgba(3, 7, 18, 0.28);
+    --bg-modal: rgba(18, 24, 36, 0.98);
+    --bg-drawer: rgba(18, 24, 36, 0.98);
+    --bg-log-item: rgba(255, 255, 255, 0.035);
+    --bg-log-item-hover: rgba(255, 255, 255, 0.06);
+    --shadow-drawer: -10px 0 34px rgba(0, 0, 0, 0.32);
+    --conn-color: 93, 124, 255;
+    --connection-flow-color: rgba(93, 124, 255, 0.92);
+    --bg-card: rgba(18, 24, 36, 0.98);
+    --border-color: rgba(148, 163, 184, 0.14);
+    --text-main: #e5edf7;
+    --accent-light: #88cae8;
+    --overlay-backdrop: rgba(4, 8, 18, 0.72);
+    --surface-soft: rgba(255, 255, 255, 0.025);
+    --surface-muted: rgba(255, 255, 255, 0.045);
+    --surface-hover: rgba(255, 255, 255, 0.07);
+    --surface-strong: rgba(255, 255, 255, 0.11);
+    --bg-dark: var(--bg-toolbar);
+    --panel-shadow: 0 24px 72px rgba(0, 0, 0, 0.36);
+}
+
+html[data-app-theme="pro"] {
+    background:
+        radial-gradient(circle at top left, rgba(93, 124, 255, 0.08), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(86, 182, 217, 0.07), transparent 28%),
+        var(--bg-canvas);
+}
+
+html[data-app-theme="pro"] body {
+    background: transparent;
+}
+
+html[data-app-theme="pro"] ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.22);
+    border-color: rgba(17, 23, 34, 0.7);
+}
+
+html[data-app-theme="pro"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.32);
+}
+
+html[data-app-theme="pro"] * {
+    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+}
+
+html[data-app-theme="pro"] #toolbar {
+    border-bottom-color: rgba(148, 163, 184, 0.12);
+    box-shadow: 0 10px 28px rgba(3, 7, 18, 0.28);
+}
+
+html[data-app-theme="pro"] .logo svg {
+    color: var(--accent-primary);
+    filter: drop-shadow(0 2px 8px rgba(93, 124, 255, 0.18));
+}
+
+html[data-app-theme="pro"] .btn {
+    background: linear-gradient(180deg, rgba(30, 38, 55, 0.96), rgba(21, 27, 40, 0.96));
+    border-color: rgba(148, 163, 184, 0.14);
+    color: var(--text-primary);
+    box-shadow:
+        0 8px 18px rgba(3, 7, 18, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+html[data-app-theme="pro"] .btn:hover,
+html[data-app-theme="pro"] .toolbar-toggle-group:hover,
+html[data-app-theme="pro"] .btn-icon:hover,
+html[data-app-theme="pro"] .btn-ghost:hover {
+    background: linear-gradient(180deg, rgba(35, 44, 63, 0.98), rgba(24, 31, 46, 0.98));
+    border-color: rgba(93, 124, 255, 0.18);
+}
+
+html[data-app-theme="pro"] .btn-run,
+html[data-app-theme="pro"] .btn-primary {
+    background: linear-gradient(135deg, #4b6bff, #3f8cff);
+    border-color: rgba(120, 144, 255, 0.34);
+    color: #f8fbff;
+    box-shadow:
+        0 12px 24px rgba(63, 140, 255, 0.18),
+        0 2px 8px rgba(3, 7, 18, 0.18);
+}
+
+html[data-app-theme="pro"] .btn-run:hover,
+html[data-app-theme="pro"] .btn-primary:hover {
+    background: linear-gradient(135deg, #6482ff, #54a0ff);
+}
+
+html[data-app-theme="pro"] #btn-theme-toggle {
+    background: linear-gradient(180deg, rgba(31, 40, 58, 0.98), rgba(22, 28, 42, 0.98));
+    border-color: rgba(86, 182, 217, 0.2);
+    color: #cae5f2;
+}
+
+html[data-app-theme="pro"] #btn-theme-toggle:hover {
+    background: linear-gradient(180deg, rgba(37, 47, 67, 0.98), rgba(25, 33, 48, 0.98));
+    border-color: rgba(86, 182, 217, 0.3);
+}
+
+html[data-app-theme="pro"] #canvas-container {
+    background-image:
+        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0));
+}
+
+html[data-app-theme="pro"] .node-glass-bg,
+html[data-app-theme="pro"] .history-card,
+html[data-app-theme="pro"] .workflow-item,
+html[data-app-theme="pro"] .api-config-card,
+html[data-app-theme="pro"] .search-chips {
+    box-shadow: var(--shadow-node);
+}
+
+html[data-app-theme="pro"] .node-header,
+html[data-app-theme="pro"] .drawer-subheader,
+html[data-app-theme="pro"] .help-panel-header,
+html[data-app-theme="pro"] .modal-header,
+html[data-app-theme="pro"] .modal-tabs {
+    border-color: var(--border-color);
+}
+
+html[data-app-theme="pro"] .node-header {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+        rgba(7, 10, 18, 0.12);
+}
+
+html[data-app-theme="pro"] .node-body {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+}
+
+html[data-app-theme="pro"] .node-field input,
+html[data-app-theme="pro"] .node-field select,
+html[data-app-theme="pro"] .node-field textarea,
+html[data-app-theme="pro"] .api-config-card .card-field input,
+html[data-app-theme="pro"] .api-config-card .card-field select,
+html[data-app-theme="pro"] .save-workflow-box input {
+    background: rgba(15, 21, 32, 0.92);
+    border-color: rgba(148, 163, 184, 0.16);
+    color: var(--text-primary);
+}
+
+html[data-app-theme="pro"] .node-field input:focus,
+html[data-app-theme="pro"] .node-field select:focus,
+html[data-app-theme="pro"] .node-field textarea:focus,
+html[data-app-theme="pro"] .api-config-card .card-field input:focus,
+html[data-app-theme="pro"] .api-config-card .card-field select:focus,
+html[data-app-theme="pro"] .save-workflow-box input:focus {
+    border-color: rgba(93, 124, 255, 0.34);
+    box-shadow: 0 0 0 3px rgba(93, 124, 255, 0.12);
+}
+
+html[data-app-theme="pro"] .drawer,
+html[data-app-theme="pro"] .drawer-left,
+html[data-app-theme="pro"] .modal-panel,
+html[data-app-theme="pro"] .help-panel,
+html[data-app-theme="pro"] .context-menu,
+html[data-app-theme="pro"] .toast,
+html[data-app-theme="pro"] .update-modal-panel {
+    border-color: var(--border-color);
+    box-shadow: var(--panel-shadow);
+}
+
+html[data-app-theme="pro"] .context-menu-item:hover,
+html[data-app-theme="pro"] .context-menu-item.is-open,
+html[data-app-theme="pro"] .workflow-item:hover {
+    background: rgba(93, 124, 255, 0.08);
+}
+
+html[data-app-theme="pro"] .floating-notice,
+html[data-app-theme="pro"] .workflow-backup-notice,
+html[data-app-theme="pro"] .update-canvas-notice {
+    background: rgba(20, 27, 41, 0.94);
+    border-color: rgba(86, 182, 217, 0.16);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26);
+}
+
+html[data-app-theme="pro"] .update-download-progress__bar {
+    background: linear-gradient(90deg, #4f7cff 0%, #56b6d9 100%);
+}

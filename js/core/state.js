@@ -60,7 +60,7 @@ export function createInitialState() {
         marquee: null,
         contextMenu: { x: 0, y: 0 },
         isRunning: false,
-        themeMode: 'dark',
+        themeId: 'dark',
         notificationsEnabled: false,
         autoRetry: false,
         maxRetries: 15,

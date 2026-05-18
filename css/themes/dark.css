@@ -1,0 +1,16 @@
+/* Default dark theme tokens. */
+:root[data-app-theme="dark"],
+:root:not([data-app-theme]) {
+    --bg-card: var(--bg-drawer);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --text-main: var(--text-primary);
+    --accent-light: #7dd3fc;
+    --connection-flow-color: rgba(168, 85, 247, 0.95);
+    --overlay-backdrop: rgba(0, 0, 0, 0.7);
+    --surface-soft: rgba(255, 255, 255, 0.03);
+    --surface-muted: rgba(255, 255, 255, 0.05);
+    --surface-hover: rgba(255, 255, 255, 0.08);
+    --surface-strong: rgba(255, 255, 255, 0.12);
+    --bg-dark: var(--bg-toolbar);
+    --panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}

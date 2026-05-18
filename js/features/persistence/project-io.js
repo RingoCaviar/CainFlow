@@ -119,7 +119,9 @@ export function createProjectIoApi({
                     providers: state.providers,
                     models: state.models,
                     nodeDefaults: normalizeNodeDefaults(currentState.nodeDefaults || state.nodeDefaults),
-                    themeMode: currentState.themeMode !== undefined ? currentState.themeMode : state.themeMode,
+                    themeId: currentState.themeId !== undefined
+                        ? currentState.themeId
+                        : (currentState.themeMode !== undefined ? currentState.themeMode : state.themeId),
                     notificationsEnabled: currentState.notificationsEnabled !== undefined ? currentState.notificationsEnabled : state.notificationsEnabled,
                     notificationVolume: currentState.notificationVolume !== undefined ? currentState.notificationVolume : state.notificationVolume,
                     autoRetry: currentState.autoRetry !== undefined ? currentState.autoRetry : state.autoRetry,
@@ -200,10 +202,10 @@ export function createProjectIoApi({
                     }
                 }
             state.nodeDefaults = normalizeNodeDefaults(data.nodeDefaults);
-            if (data.themeMode !== undefined) {
-                applyTheme(data.themeMode);
+            if (data.themeId !== undefined || data.themeMode !== undefined) {
+                applyTheme(data.themeId !== undefined ? data.themeId : data.themeMode);
             } else {
-                applyTheme(state.themeMode);
+                applyTheme(state.themeId);
             }
             if (data.notificationsEnabled !== undefined) {
                 state.notificationsEnabled = data.notificationsEnabled;

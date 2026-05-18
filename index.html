@@ -28,13 +28,15 @@
                 }
 
                 const parsed = JSON.parse(raw);
-                const themeMode = parsed?.themeMode === 'light' ? 'light' : fallbackTheme;
+                const themeId = typeof parsed?.themeId === 'string' && parsed.themeId
+                    ? parsed.themeId
+                    : (parsed?.themeMode === 'light' ? 'light' : fallbackTheme);
                 const globalAnimationEnabled = parsed?.globalAnimationEnabled !== undefined
                     ? parsed.globalAnimationEnabled !== false
                     : parsed?.connectionFlowAnimationEnabled !== false;
 
-                document.documentElement.setAttribute(themeAttribute, themeMode);
-                document.documentElement.style.colorScheme = themeMode;
+                document.documentElement.setAttribute(themeAttribute, themeId);
+                document.documentElement.style.colorScheme = themeId === 'light' ? 'light' : 'dark';
                 document.documentElement.classList.toggle(animationsDisabledClass, !globalAnimationEnabled);
             } catch (error) {
                 document.documentElement.setAttribute(themeAttribute, fallbackTheme);
@@ -290,13 +292,20 @@
                     保存
                 </button>
                 <div class="toolbar-divider"></div>
-                <button id="btn-theme-toggle" class="btn btn-ghost" type="button" aria-pressed="false"
-                    title="主题切换">
-                    <svg class="icon-sm">
-                        <use href="#icon-theme-toggle" />
-                    </svg>
-                    <span data-role="theme-toggle-label">主题：深色</span>
-                </button>
+                <div class="theme-menu-shell">
+                    <button id="btn-theme-toggle" class="btn btn-ghost" type="button" aria-pressed="false"
+                        aria-haspopup="menu" aria-expanded="false" title="选择主题">
+                        <svg class="icon-sm">
+                            <use href="#icon-theme-toggle" />
+                        </svg>
+                        <span data-role="theme-toggle-label">主题：深色</span>
+                        <svg class="icon-xs theme-menu-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" aria-hidden="true">
+                            <path d="M6 9l6 6 6-6" />
+                        </svg>
+                    </button>
+                    <div id="theme-menu" class="theme-menu-panel hidden" role="menu" aria-labelledby="btn-theme-toggle"></div>
+                </div>
                 <button id="btn-settings" class="btn btn-ghost" title="通用设置">
                     <svg class="icon-sm">
                         <use href="#icon-settings" />

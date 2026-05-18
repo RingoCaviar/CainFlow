@@ -1,5 +1,6 @@
 /**
- * 负责主题模式的标准化、DOM 应用与主题切换按钮状态同步。
+ * Responsible for theme normalization, DOM application, and keeping the theme
+ * menu in sync with the active theme.
  */
 export function createThemeControllerApi({
     state,
@@ -7,84 +8,193 @@ export function createThemeControllerApi({
     saveState = () => {}
 }) {
     const THEME_ATTRIBUTE = 'data-app-theme';
-    const THEME_MODES = Object.freeze({
+    const THEME_IDS = Object.freeze({
         DARK: 'dark',
+        PRO: 'pro',
         LIGHT: 'light'
     });
+    const THEMES = Object.freeze([
+        {
+            id: THEME_IDS.DARK,
+            label: '\u6df1\u8272',
+            colorScheme: 'dark'
+        },
+        {
+            id: THEME_IDS.PRO,
+            label: 'pro',
+            colorScheme: 'dark'
+        },
+        {
+            id: THEME_IDS.LIGHT,
+            label: '\u6d45\u8272',
+            colorScheme: 'light'
+        }
+    ]);
+    const THEME_MAP = new Map(THEMES.map((theme) => [theme.id, theme]));
 
-    function normalizeThemeMode(value) {
-        return value === THEME_MODES.LIGHT ? THEME_MODES.LIGHT : THEME_MODES.DARK;
+    function normalizeThemeId(value) {
+        if (THEME_MAP.has(value)) return value;
+        if (value === THEME_IDS.LIGHT) return THEME_IDS.LIGHT;
+        return THEME_IDS.DARK;
+    }
+
+    function getThemeById(themeId) {
+        return THEME_MAP.get(normalizeThemeId(themeId)) || THEMES[0];
     }
 
     function getThemeToggleButton() {
         return documentRef.getElementById('btn-theme-toggle');
     }
 
-    function bindThemeToggleButton() {
-        const button = getThemeToggleButton();
-        if (!button || button.dataset.themeBound === 'true') return;
+    function getThemeMenu() {
+        return documentRef.getElementById('theme-menu');
+    }
 
-        button.addEventListener('click', () => {
-            toggleTheme();
+    function isMenuOpen() {
+        return !getThemeMenu()?.classList.contains('hidden');
+    }
+
+    function setMenuOpen(isOpen) {
+        const button = getThemeToggleButton();
+        const menu = getThemeMenu();
+        if (!button || !menu) return;
+
+        menu.classList.toggle('hidden', !isOpen);
+        button.setAttribute('aria-expanded', String(isOpen));
+    }
+
+    function closeThemeMenu() {
+        setMenuOpen(false);
+    }
+
+    function openThemeMenu() {
+        setMenuOpen(true);
+    }
+
+    function toggleThemeMenu() {
+        setMenuOpen(!isMenuOpen());
+    }
+
+    function buildThemeMenuMarkup() {
+        return THEMES.map((theme) => `
+            <button
+                type="button"
+                class="theme-menu-item"
+                role="menuitemradio"
+                data-theme-id="${theme.id}"
+                aria-checked="false"
+            >
+                <span class="theme-menu-item-label">${theme.label}</span>
+                <svg class="theme-menu-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M20 6L9 17l-5-5" />
+                </svg>
+            </button>
+        `).join('');
+    }
+
+    function renderThemeMenu() {
+        const menu = getThemeMenu();
+        if (!menu) return;
+
+        if (menu.dataset.themeMenuReady !== 'true') {
+            menu.innerHTML = buildThemeMenuMarkup();
+            menu.dataset.themeMenuReady = 'true';
+        }
+
+        const currentThemeId = normalizeThemeId(state.themeId);
+        menu.querySelectorAll('.theme-menu-item').forEach((item) => {
+            const isActive = item.dataset.themeId === currentThemeId;
+            item.classList.toggle('is-active', isActive);
+            item.setAttribute('aria-checked', String(isActive));
         });
+    }
+
+    function bindThemeMenuEvents() {
+        const button = getThemeToggleButton();
+        const menu = getThemeMenu();
+        if (!button || !menu) return;
+        if (button.dataset.themeBound === 'true') return;
+
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleThemeMenu();
+        });
+
+        menu.addEventListener('click', (event) => {
+            const item = event.target.closest('.theme-menu-item');
+            if (!item) return;
+
+            const selectedThemeId = item.dataset.themeId;
+            if (!selectedThemeId) return;
+
+            applyTheme(selectedThemeId);
+            saveState();
+            closeThemeMenu();
+        });
+
+        documentRef.addEventListener('click', (event) => {
+            const shell = event.target.closest('.theme-menu-shell');
+            if (!shell) closeThemeMenu();
+        });
+
+        documentRef.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeThemeMenu();
+            }
+        });
+
         button.dataset.themeBound = 'true';
     }
 
-    function syncThemeToggleUi(mode) {
+    function syncThemeToggleUi(themeId) {
         const button = getThemeToggleButton();
         if (!button) return;
 
-        const normalizedMode = normalizeThemeMode(mode);
-        const isLight = normalizedMode === THEME_MODES.LIGHT;
-        const currentLabel = isLight ? '浅色' : '深色';
-        const nextLabel = isLight ? '深色' : '浅色';
+        const currentTheme = getThemeById(themeId);
         const buttonLabel = button.querySelector('[data-role="theme-toggle-label"]');
 
-        button.dataset.themeMode = normalizedMode;
-        button.setAttribute('aria-pressed', String(isLight));
-        button.setAttribute('aria-label', `当前${currentLabel}主题，点击切换到${nextLabel}主题`);
-        button.title = `当前${currentLabel}主题，点击切换到${nextLabel}主题`;
+        button.dataset.themeId = currentTheme.id;
+        button.setAttribute('aria-pressed', 'false');
+        button.setAttribute('aria-label', `\u5f53\u524d\u4e3b\u9898\uff1a${currentTheme.label}\uff0c\u70b9\u51fb\u6253\u5f00\u4e3b\u9898\u83dc\u5355`);
+        button.title = `\u5f53\u524d\u4e3b\u9898\uff1a${currentTheme.label}`;
 
         if (buttonLabel) {
-            buttonLabel.textContent = `主题：${currentLabel}`;
+            buttonLabel.textContent = `\u4e3b\u9898\uff1a${currentTheme.label}`;
         }
+
+        renderThemeMenu();
     }
 
-    function applyTheme(mode) {
-        const normalizedMode = normalizeThemeMode(mode);
+    function applyTheme(themeId) {
+        const theme = getThemeById(themeId);
 
-        state.themeMode = normalizedMode;
-        documentRef.documentElement.setAttribute(THEME_ATTRIBUTE, normalizedMode);
-        documentRef.documentElement.style.colorScheme = normalizedMode;
-        syncThemeToggleUi(normalizedMode);
+        state.themeId = theme.id;
+        documentRef.documentElement.setAttribute(THEME_ATTRIBUTE, theme.id);
+        documentRef.documentElement.style.colorScheme = theme.colorScheme || 'dark';
+        syncThemeToggleUi(theme.id);
 
-        return normalizedMode;
-    }
-
-    function toggleTheme() {
-        const nextMode = normalizeThemeMode(state.themeMode) === THEME_MODES.LIGHT
-            ? THEME_MODES.DARK
-            : THEME_MODES.LIGHT;
-
-        const appliedMode = applyTheme(nextMode);
-        saveState();
-        return appliedMode;
+        return theme.id;
     }
 
     function initTheme() {
-        bindThemeToggleButton();
+        renderThemeMenu();
+        bindThemeMenuEvents();
         const bootstrappedTheme = documentRef.documentElement.getAttribute(THEME_ATTRIBUTE);
-        return applyTheme(bootstrappedTheme || state.themeMode);
+        closeThemeMenu();
+        return applyTheme(bootstrappedTheme || state.themeId);
     }
 
     return {
         THEME_ATTRIBUTE,
-        THEME_MODES,
-        normalizeThemeMode,
-        bindThemeToggleButton,
+        THEME_IDS,
+        THEMES,
+        normalizeThemeId,
+        getThemeById,
+        renderThemeMenu,
         applyTheme,
-        syncThemeToggleUi,
-        toggleTheme,
+        closeThemeMenu,
+        openThemeMenu,
+        toggleThemeMenu,
         initTheme
     };
 }

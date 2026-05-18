@@ -592,7 +592,7 @@ function getProjectIoApi() {
             onConnectionsChanged: () => handleNodeGraphChanged(),
             viewportApi,
             showToast,
-            applyTheme: (mode) => getThemeControllerApi().applyTheme(mode),
+            applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting
         });
     }
@@ -620,7 +620,7 @@ function getUiControllerApi() {
             historyFullscreenApi: getHistoryFullscreenApi(),
             settingsControllerApi,
             applyHistoryGridCols,
-            applyTheme: (mode) => getThemeControllerApi().applyTheme(mode),
+            applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting,
             updateAllConnections,
             saveState,

@@ -153,7 +153,7 @@ export function createNodeSerializer({ state, documentRef }) {
             providers: state.providers,
             models: state.models,
             nodeDefaults: state.nodeDefaults,
-            themeMode: state.themeMode,
+            themeId: state.themeId,
             notificationsEnabled: state.notificationsEnabled,
             notificationVolume: state.notificationVolume,
             autoRetry: state.autoRetry,
