@@ -38,6 +38,113 @@
     --conn-opacity: 0.2;
     --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --panel-bg: var(--bg-drawer);
+    --panel-bg-strong: var(--bg-drawer);
+    --panel-bg-soft: rgba(255, 255, 255, 0.03);
+    --panel-bg-muted: rgba(0, 0, 0, 0.2);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --panel-border-strong: rgba(255, 255, 255, 0.1);
+    --panel-shadow-soft: 0 12px 40px rgba(0, 0, 0, 0.5);
+    --panel-shadow-strong: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 20px rgba(168, 85, 247, 0.1);
+    --panel-hover-bg: rgba(255, 255, 255, 0.07);
+    --panel-hover-border: rgba(168, 85, 247, 0.4);
+    --panel-active-bg: rgba(168, 85, 247, 0.16);
+    --panel-active-border: rgba(168, 85, 247, 0.28);
+    --panel-control-bg: rgba(255, 255, 255, 0.06);
+    --panel-control-border: rgba(255, 255, 255, 0.1);
+    --panel-control-text: var(--text-dim);
+    --panel-control-hover-bg: rgba(255, 255, 255, 0.08);
+    --panel-control-hover-border: rgba(168, 85, 247, 0.32);
+    --panel-control-hover-text: var(--text-primary);
+    --panel-input-bg: rgba(255, 255, 255, 0.05);
+    --panel-input-border: rgba(255, 255, 255, 0.1);
+    --panel-accent-bg: rgba(168, 85, 247, 0.12);
+    --panel-accent-border: rgba(168, 85, 247, 0.26);
+    --panel-accent-text: var(--accent-primary);
+    --notice-bg: rgba(16, 16, 32, 0.85);
+    --notice-border: rgba(255, 255, 255, 0.08);
+    --notice-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --notice-inline-bg: rgba(245, 158, 11, 0.1);
+    --notice-inline-text: var(--accent-orange);
+    --notice-inline-border: rgba(245, 158, 11, 0.18);
+    --notice-highlight-bg: rgba(28, 22, 12, 0.9);
+    --notice-highlight-border: rgba(245, 158, 11, 0.26);
+    --notice-update-bg: rgba(23, 20, 36, 0.9);
+    --notice-update-border: rgba(168, 85, 247, 0.28);
+    --notice-update-icon-bg: rgba(168, 85, 247, 0.18);
+    --notice-update-icon-text: var(--accent-purple);
+    --notice-action-bg: rgba(168, 85, 247, 0.12);
+    --notice-action-border: rgba(168, 85, 247, 0.26);
+    --notice-action-hover-bg: rgba(168, 85, 247, 0.2);
+    --notice-action-hover-border: rgba(168, 85, 247, 0.42);
+    --notice-close-hover-bg: rgba(255, 255, 255, 0.06);
+    --workflow-card-bg: rgba(255, 255, 255, 0.03);
+    --workflow-card-border: rgba(255, 255, 255, 0.06);
+    --workflow-card-hover-bg: rgba(255, 255, 255, 0.07);
+    --workflow-card-hover-border: rgba(168, 85, 247, 0.4);
+    --workflow-card-shadow: none;
+    --cache-card-bg: rgba(255, 255, 255, 0.03);
+    --cache-card-border: rgba(255, 255, 255, 0.06);
+    --cache-card-shadow: none;
+    --cache-row-border: rgba(255, 255, 255, 0.05);
+    --sidebar-bg: #0d0d16;
+    --sidebar-border: rgba(255, 255, 255, 0.06);
+    --sidebar-btn-hover-bg: rgba(255, 255, 255, 0.05);
+    --sidebar-btn-active-bg: rgba(168, 85, 247, 0.15);
+    --sidebar-btn-active-text: var(--accent-primary);
+    --prompt-overlay-bg: rgba(5, 8, 18, 0.78);
+    --prompt-panel-bg: rgba(18, 22, 38, 0.98);
+    --prompt-panel-border: rgba(255, 255, 255, 0.1);
+    --prompt-panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+    --prompt-section-border: rgba(255, 255, 255, 0.08);
+    --prompt-header-bg: transparent;
+    --prompt-empty-bg: rgba(255, 255, 255, 0.03);
+    --prompt-empty-border: rgba(255, 255, 255, 0.12);
+    --prompt-card-bg: rgba(255, 255, 255, 0.045);
+    --prompt-card-border: rgba(255, 255, 255, 0.08);
+    --prompt-card-shadow: none;
+    --prompt-card-hover-bg: rgba(255, 255, 255, 0.065);
+    --prompt-card-hover-border: rgba(34, 211, 238, 0.35);
+    --prompt-card-hover-shadow: none;
+    --prompt-card-selected-border: rgba(34, 211, 238, 0.78);
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
+    --prompt-card-actions-bg: rgba(0, 0, 0, 0.12);
+    --prompt-editor-bg: rgba(0, 0, 0, 0.18);
+    --prompt-editor-border: rgba(255, 255, 255, 0.08);
+    --prompt-import-dialog-bg: rgba(5, 8, 18, 0.66);
+    --prompt-import-panel-bg: rgba(18, 22, 38, 0.98);
+    --prompt-import-panel-border: rgba(255, 255, 255, 0.12);
+    --prompt-import-panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+    --prompt-import-item-bg: rgba(255, 255, 255, 0.045);
+    --prompt-import-item-border: rgba(255, 255, 255, 0.08);
+    --prompt-import-item-shadow: none;
+    --prompt-import-item-selected-border: rgba(34, 211, 238, 0.72);
+    --prompt-import-item-selected-shadow: 0 0 0 2px rgba(34, 211, 238, 0.16);
+    --history-overlay-bg:
+        radial-gradient(circle at top left, rgba(25, 86, 140, 0.18), transparent 30%),
+        radial-gradient(circle at top right, rgba(13, 148, 136, 0.12), transparent 26%),
+        rgba(3, 6, 14, 0.88);
+    --history-panel-bg: linear-gradient(180deg, rgba(14, 18, 28, 0.98), rgba(8, 11, 18, 0.98));
+    --history-panel-border: rgba(255, 255, 255, 0.08);
+    --history-panel-shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+    --history-section-border: rgba(255, 255, 255, 0.06);
+    --history-batch-bg: rgba(255, 255, 255, 0.03);
+    --history-empty-bg: transparent;
+    --history-empty-border: rgba(255, 255, 255, 0.1);
+    --history-group-header-bg: linear-gradient(180deg, rgba(8, 11, 18, 0.98), rgba(8, 11, 18, 0.68));
+    --history-rail-bg: rgba(255, 255, 255, 0.02);
+    --history-rail-border: rgba(255, 255, 255, 0.06);
+    --history-rail-tooltip-bg: rgba(9, 13, 22, 0.94);
+    --history-rail-tooltip-border: rgba(255, 255, 255, 0.08);
+    --history-rail-tooltip-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+    --history-rail-tooltip-text: #eff8ff;
+    --history-card-meta-bg: linear-gradient(180deg, rgba(7, 11, 20, 0) 0%, rgba(7, 11, 20, 0.78) 45%, rgba(7, 11, 20, 0.94) 100%);
+    --history-card-meta-text: #f3f7ff;
+    --history-card-meta-subtext: rgba(226, 235, 255, 0.72);
+    --history-preview-bg: rgba(15, 15, 20, 0.85);
+    --history-preview-border: rgba(255, 255, 255, 0.1);
+    --history-preview-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    --history-preview-meta-border: rgba(255, 255, 255, 0.06);
 }
 
 html.animations-disabled,
@@ -147,7 +254,7 @@ body {
     background: var(--bg-toolbar);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--panel-border);
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -1622,8 +1729,8 @@ body {
     font-size: 11px;
     line-height: 1.5;
     color: var(--text-dim);
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--workflow-card-bg);
+    border: 1px solid var(--workflow-card-border);
     border-radius: var(--radius-sm);
     padding: 8px 10px;
 }
@@ -1670,6 +1777,7 @@ body {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    box-shadow: var(--workflow-card-shadow);
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.05);
     flex: 1 1 auto;
@@ -2258,9 +2366,9 @@ body {
     background: var(--bg-context-menu);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--panel-border);
     border-radius: var(--radius-sm);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--panel-shadow-soft);
     z-index: 2000;
     padding: 4px;
     animation: context-menu-in 0.15s ease-out;
@@ -2304,11 +2412,11 @@ body {
 }
 
 .context-menu-item:hover {
-    background: rgba(168, 85, 247, 0.12);
+    background: var(--panel-accent-bg);
 }
 
 .context-menu-item.is-open {
-    background: rgba(168, 85, 247, 0.16);
+    background: var(--panel-active-bg);
 }
 
 .context-menu-item-submenu {
@@ -2369,7 +2477,7 @@ body {
     padding: 10px 16px;
     background: var(--bg-context-menu);
     backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--panel-border);
     border-radius: var(--radius-sm);
     font-size: 13px;
     color: var(--text-primary);
@@ -3838,9 +3946,9 @@ input[type=number] {
     bottom: 0;
     right: -320px;
     width: 320px;
-    background: var(--bg-card);
-    border-left: 1px solid var(--border-color);
-    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+    background: var(--panel-bg);
+    border-left: 1px solid var(--panel-border);
+    box-shadow: var(--panel-shadow-soft);
     z-index: 7000;
     transition: right var(--transition), width 0.3s ease;
     display: flex;
@@ -3882,8 +3990,8 @@ input[type=number] {
     display: flex;
     align-items: center;
     padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--panel-bg-soft);
+    border-bottom: 1px solid var(--panel-border);
     font-size: 12px;
     color: var(--text-secondary);
     flex-shrink: 0;
@@ -4185,7 +4293,7 @@ input[type=number] {
 .preview-meta {
     margin-top: 12px;
     padding-top: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--history-preview-meta-border);
     font-size: 12px;
     color: var(--text-dim);
     display: flex;
@@ -4199,15 +4307,15 @@ input[type=number] {
     transform: translateX(-50%);
     width: 90%;
     max-width: 600px;
-    background: rgba(15, 15, 20, 0.85);
+    background: var(--history-preview-bg);
     backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--history-preview-border);
     border-radius: var(--radius-md);
     padding: 16px 24px;
     color: var(--text-primary);
     font-size: 14px;
     z-index: 3010;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--history-preview-shadow);
     pointer-events: auto;
 }
 
@@ -4229,7 +4337,7 @@ input[type=number] {
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
-    color: var(--text-dim);
+    color: var(--panel-control-text);
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     flex-shrink: 0;
@@ -4240,14 +4348,14 @@ input[type=number] {
 }
 
 .icon-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
+    background: var(--panel-control-hover-bg);
+    color: var(--panel-control-hover-text);
     transform: translateY(-1px);
 }
 
 .icon-btn:active {
     transform: translateY(0);
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--panel-hover-bg);
 }
 
 .drawer-actions {
@@ -4610,8 +4718,8 @@ input[type=number] {
     top: 0;
     bottom: 0;
     width: 60px;
-    background: #0d0d16;
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--sidebar-border);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -4648,7 +4756,7 @@ input[type=number] {
 }
 
 .side-bar-btn:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--sidebar-btn-hover-bg);
     color: var(--text-main);
 }
 
@@ -4668,8 +4776,8 @@ input[type=number] {
 }
 
 .side-bar-btn.active {
-    background: rgba(168, 85, 247, 0.15);
-    color: #a855f7;
+    background: var(--sidebar-btn-active-bg);
+    color: var(--sidebar-btn-active-text);
 }
 
 /* Help Panel (Floating) */
@@ -4679,12 +4787,12 @@ input[type=number] {
     bottom: 20px;
     width: 320px;
     max-height: calc(100vh - var(--toolbar-height, 48px) - 40px);
-    background: rgba(22, 22, 42, 0.95);
+    background: var(--panel-bg-strong);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 20px rgba(168, 85, 247, 0.1);
+    box-shadow: var(--panel-shadow-strong);
     z-index: 7050;
     display: flex;
     flex-direction: column;
@@ -4769,8 +4877,8 @@ input[type=number] {
 }
 
 .help-key {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--panel-control-bg);
+    border: 1px solid var(--panel-control-border);
     padding: 2px 6px;
     border-radius: 4px;
     font-family: var(--font, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
@@ -4787,7 +4895,7 @@ input[type=number] {
     color: var(--text-dim);
     margin-top: 15px;
     font-style: italic;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid var(--panel-border);
     padding-top: 10px;
 }
 
@@ -4797,10 +4905,10 @@ input[type=number] {
     top: 0;
     bottom: 0;
     width: 320px;
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(22, 22, 42, 0.98);
+    border-right: 1px solid var(--panel-border-strong);
+    background: var(--panel-bg-strong);
     backdrop-filter: blur(40px);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--panel-shadow-strong);
     transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 7000;
 }
@@ -4818,8 +4926,8 @@ input[type=number] {
 }
 
 .workflow-item {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--workflow-card-bg);
+    border: 1px solid var(--workflow-card-border);
     border-radius: 12px;
     padding: 12px 14px;
     min-height: 52px;
@@ -4830,11 +4938,12 @@ input[type=number] {
     transition: all 0.2s;
     position: relative;
     overflow: hidden;
+    box-shadow: var(--workflow-card-shadow);
 }
 
 .workflow-item:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(168, 85, 247, 0.4);
+    background: var(--workflow-card-hover-bg);
+    border-color: var(--workflow-card-hover-border);
     transform: translateX(4px);
 }
 
@@ -4861,10 +4970,10 @@ input[type=number] {
     width: 28px;
     height: 28px;
     padding: 0;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--panel-control-bg);
+    border: 1px solid var(--panel-control-border);
     border-radius: 8px;
-    color: var(--text-dim);
+    color: var(--panel-control-text);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4873,9 +4982,9 @@ input[type=number] {
 }
 
 .workflow-action-btn:hover {
-    background: rgba(168, 85, 247, 0.15);
-    border-color: rgba(168, 85, 247, 0.4);
-    color: var(--accent-purple);
+    background: var(--panel-accent-bg);
+    border-color: var(--panel-accent-border);
+    color: var(--panel-accent-text);
     transform: scale(1.1);
 }
 
@@ -4889,19 +4998,109 @@ input[type=number] {
     display: flex;
     gap: 8px;
     padding: 12px;
-    background: rgba(0, 0, 0, 0.2);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--panel-bg-muted);
+    border-top: 1px solid var(--panel-border);
 }
 
 .save-workflow-box input {
     flex: 1;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--panel-input-bg);
+    border: 1px solid var(--panel-input-border);
     border-radius: 8px;
     padding: 8px 10px;
     color: var(--text-main);
     font-size: 12px;
     outline: none;
+}
+
+.cache-drawer-content {
+    padding: 20px;
+}
+
+.cache-info-card {
+    background: var(--cache-card-bg);
+    border: 1px solid var(--cache-card-border);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    box-shadow: var(--cache-card-shadow);
+}
+
+.cache-metric-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.cache-metric-value {
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--accent-primary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.cache-breakdown {
+    margin-top: 20px;
+}
+
+.cache-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--cache-row-border);
+}
+
+.cache-item:last-child {
+    border-bottom: none;
+}
+
+.cache-item-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.cache-item-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.cache-section-actions {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--cache-row-border);
+}
+
+.cache-action-btn {
+    width: 100%;
+    height: 42px;
+    justify-content: center;
+}
+
+.cache-action-btn + .cache-action-btn {
+    margin-top: 12px;
+}
+
+.cache-action-note {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 14px;
+    text-align: center;
+    line-height: 1.5;
+}
+
+.cache-action-btn-warning {
+    color: var(--notice-inline-text);
+    border-color: rgba(245, 158, 11, 0.2);
+}
+
+.cache-action-btn-danger {
+    color: var(--accent-red);
+    border-color: rgba(239, 68, 68, 0.2);
 }
 
 /* ===== Update Notification & Modals ===== */
@@ -5033,7 +5232,7 @@ input[type=number] {
     border-radius: 8px;
     font-size: 13px;
     line-height: 1.45;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--panel-border-strong);
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
 }
@@ -5273,16 +5472,16 @@ input[type=number] {
 .floating-notice {
     position: relative;
     max-width: 100%;
-    background: rgba(16, 16, 32, 0.85);
+    background: var(--notice-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--notice-border);
     border-radius: 12px;
     padding: 8px 12px;
     display: flex;
     align-items: center;
     gap: 10px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--notice-shadow);
     animation: notice-slide-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     transition: all 0.3s ease;
     pointer-events: auto;
@@ -5305,35 +5504,37 @@ input[type=number] {
 }
 
 .floating-notice .notice-content span {
-    color: var(--accent-orange);
+    color: var(--notice-inline-text);
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
     padding: 2px 6px;
-    background: rgba(245, 158, 11, 0.1);
+    background: var(--notice-inline-bg);
+    box-shadow: inset 0 0 0 1px var(--notice-inline-border);
     border-radius: 4px;
     margin: 0 4px;
 }
 
 .floating-notice .notice-content code {
-    color: var(--accent-orange);
+    color: var(--notice-inline-text);
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
     font-weight: 700;
     padding: 2px 6px;
-    background: rgba(245, 158, 11, 0.1);
+    background: var(--notice-inline-bg);
+    box-shadow: inset 0 0 0 1px var(--notice-inline-border);
     border-radius: 4px;
 }
 
 .workflow-backup-notice {
-    border-color: rgba(245, 158, 11, 0.26);
-    background: rgba(28, 22, 12, 0.9);
+    border-color: var(--notice-highlight-border);
+    background: var(--notice-highlight-bg);
 }
 
 .update-canvas-notice {
     width: 100%;
     align-items: center;
-    border-color: rgba(168, 85, 247, 0.28);
-    background: rgba(23, 20, 36, 0.9);
+    border-color: var(--notice-update-border);
+    background: var(--notice-update-bg);
 }
 
 .update-canvas-notice .notice-icon {
@@ -5343,8 +5544,8 @@ input[type=number] {
     width: 22px;
     height: 22px;
     border-radius: 999px;
-    background: rgba(168, 85, 247, 0.18);
-    color: var(--accent-purple);
+    background: var(--notice-update-icon-bg);
+    color: var(--notice-update-icon-text);
     font-size: 15px;
     font-weight: 800;
     flex: 0 0 auto;
@@ -5392,9 +5593,9 @@ input[type=number] {
 
 .floating-notice-actions button,
 .update-canvas-notice-actions button {
-    border: 1px solid rgba(168, 85, 247, 0.26);
+    border: 1px solid var(--notice-action-border);
     border-radius: 6px;
-    background: rgba(168, 85, 247, 0.12);
+    background: var(--notice-action-bg);
     color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
@@ -5405,8 +5606,8 @@ input[type=number] {
 
 .floating-notice-actions button:hover,
 .update-canvas-notice-actions button:hover {
-    background: rgba(168, 85, 247, 0.2);
-    border-color: rgba(168, 85, 247, 0.42);
+    background: var(--notice-action-hover-bg);
+    border-color: var(--notice-action-hover-border);
 }
 
 .notice-close {
@@ -5423,7 +5624,7 @@ input[type=number] {
 
 .notice-close:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--notice-close-hover-bg);
 }
 
 .floating-notice.hidden {

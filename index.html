@@ -36,7 +36,7 @@
                     : parsed?.connectionFlowAnimationEnabled !== false;
 
                 document.documentElement.setAttribute(themeAttribute, themeId);
-                document.documentElement.style.colorScheme = themeId === 'light' ? 'light' : 'dark';
+                document.documentElement.style.colorScheme = ['light', 'pink'].includes(themeId) ? 'light' : 'dark';
                 document.documentElement.classList.toggle(animationsDisabledClass, !globalAnimationEnabled);
             } catch (error) {
                 document.documentElement.setAttribute(themeAttribute, fallbackTheme);
@@ -699,41 +699,34 @@
                 </button>
             </div>
         </div>
-        <div class="drawer-content" style="padding: 20px;">
-            <div class="cache-info-card"
-                style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; text-align: center;">
-                <div
-                    style="font-size: 11px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px;">
+        <div class="drawer-content cache-drawer-content">
+            <div class="cache-info-card">
+                <div class="cache-metric-label">
                     总计占用空间</div>
-                <div id="cache-size-display"
-                    style="font-size: 34px; font-weight: 700; color: var(--accent-primary); font-family: 'JetBrains Mono', monospace;">
+                <div id="cache-size-display" class="cache-metric-value">
                     0.00 MB</div>
             </div>
 
-            <div class="cache-breakdown" style="margin-top: 20px;">
-                <div class="cache-item"
-                    style="display:flex; justify-content:space-between; align-items:center; padding:12px 4px; border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <div style="font-size:13px; color:var(--text-secondary);">🕰 历史记录 (生成图库)</div>
-                    <div id="usage-history" style="font-size:13px; font-weight:500; color:var(--text-primary);">0.00 MB
+            <div class="cache-breakdown">
+                <div class="cache-item">
+                    <div class="cache-item-label">🕰 历史记录 (生成图库)</div>
+                    <div id="usage-history" class="cache-item-value">0.00 MB
                     </div>
                 </div>
-                <div class="cache-item"
-                    style="display:flex; justify-content:space-between; align-items:center; padding:12px 4px; border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <div style="font-size:13px; color:var(--text-secondary);">🖼 节点资产 (当前工作)</div>
-                    <div id="usage-assets" style="font-size:13px; font-weight:500; color:var(--text-primary);">0.00 MB
+                <div class="cache-item">
+                    <div class="cache-item-label">🖼 节点资产 (当前工作)</div>
+                    <div id="usage-assets" class="cache-item-value">0.00 MB
                     </div>
                 </div>
-                <div class="cache-item"
-                    style="display:flex; justify-content:space-between; align-items:center; padding:12px 4px; border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <div style="font-size:13px; color:var(--text-secondary);">💾 基础数据 (存档与配置)</div>
-                    <div id="usage-local" style="font-size:13px; font-weight:500; color:var(--text-primary);">0.00 MB
+                <div class="cache-item">
+                    <div class="cache-item-label">💾 基础数据 (存档与配置)</div>
+                    <div id="usage-local" class="cache-item-value">0.00 MB
                     </div>
                 </div>
             </div>
 
-            <div style="margin-top: 28px;">
-                <button id="btn-clear-assets" class="btn btn-secondary"
-                    style="width: 100%; justify-content: center; color: var(--accent-orange); border-color: rgba(245, 158, 11, 0.2); height: 42px; margin-bottom: 12px;">
+            <div class="cache-section-actions">
+                <button id="btn-clear-assets" class="btn btn-secondary cache-action-btn cache-action-btn-warning">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right: 8px;">
                         <path d="M21 8v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8M21 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2" />
@@ -741,8 +734,7 @@
                     </svg>
                     清理节点资产 (慎点)
                 </button>
-                <button id="btn-clear-cache" class="btn btn-secondary"
-                    style="width: 100%; justify-content: center; color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2); height: 42px;">
+                <button id="btn-clear-cache" class="btn btn-secondary cache-action-btn cache-action-btn-danger">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right: 8px;">
                         <polyline points="3 6 5 6 21 6" />
@@ -750,8 +742,7 @@
                     </svg>
                     清理历史记录 (清除历史库)
                 </button>
-                <p
-                    style="font-size: 11px; color: var(--text-dim); margin-top: 14px; text-align: center; line-height: 1.5;">
+                <p class="cache-action-note">
                     节点资产清理后，画布上的实时预览图将全部恢复为占位符状态（刷新即刻生效）。建议在重新开始工作流之前操作。
                 </p>
             </div>

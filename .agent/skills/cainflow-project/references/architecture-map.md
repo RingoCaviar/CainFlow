@@ -9,11 +9,14 @@
 ### 多主题系统约定
 
 - 主题系统已从固定 `dark/light` 切换升级为多主题架构。运行态状态字段使用 `themeId`，启动时 `index.html` 会优先从本地状态恢复 `themeId`，并兼容旧 `themeMode`；主题应用和主题菜单交互统一收口在 `js/features/ui/theme-controller.js`。
-- 主题样式文件采用“入口 + 共享层 + 单主题文件”结构：`css/themes.css` 只负责聚合，`css/themes/shared.css` 放主题菜单和公共主题壳子，单个主题分别放在 `css/themes/dark.css`、`css/themes/light.css`、`css/themes/pro.css`。后续新增主题时，优先新增 `css/themes/<theme>.css` 并在 `css/themes.css` 中接入，不要把新主题规则重新堆回 `css/legacy.css` 或一个巨大的总主题文件。
+- 主题样式文件采用“入口 + 共享层 + 单主题文件”结构：`css/themes.css` 只负责聚合，`css/themes/shared.css` 放主题菜单和公共主题壳子，单个主题分别放在 `css/themes/dark.css`、`css/themes/light.css`、`css/themes/pro.css`、`css/themes/pink.css`。后续新增主题时，优先新增 `css/themes/<theme>.css` 并在 `css/themes.css` 中接入，不要把新主题规则重新堆回 `css/legacy.css` 或一个巨大的总主题文件。
+- 当前主题系统已经从“每个主题自己覆盖所有面板”转向“共享语义 token 驱动”模式：`css/legacy.css` 维护抽屉、帮助面板、侧边栏、工作流列表、缓存抽屉、左上角悬浮通知等共享 token；`css/features/panels.css` 维护提示词库、提示词导入、全屏历史、历史预览等功能面板 token。新增主题时优先在 `:root[data-app-theme="..."]` 中补 `--panel-*`、`--workflow-card-*`、`--cache-*`、`--notice-*`、`--prompt-*`、`--history-*`，只在确有必要时再写组件级覆盖。
 - 工具栏主题入口已改为下拉菜单而不是循环切换按钮：结构在 `index.html`，样式在 `css/themes/shared.css`，主题注册表、菜单渲染、打开/关闭、主题切换和持久化触发都在 `js/features/ui/theme-controller.js`。
+- `pink` 属于浅色主题：启动阶段 `index.html` 里的主题恢复脚本会把 `light` 和 `pink` 一起按浅色 `color-scheme` 处理。后续如果再引入其他浅色主题，需要同步更新这条启动链，而不是只改主题 CSS。
 - 新增主题或修改主题时，一定要做全链路检查，不允许只改主页或工具栏颜色。至少同时覆盖和验证：主页、工具栏、侧边栏、抽屉、弹窗、右键菜单、Toast、设置页、历史记录面板、帮助面板、更新面板、节点内部控件、全屏预览、主题菜单本身。凡是已有 `html[data-app-theme="..."]` 覆盖的区域，都要一起考虑，避免出现“主页主题改了，但某些面板没改”的遗漏。
 - 主题验收时，主界面之外的细节面板也应默认纳入最小检查集，包括设置页、提示词库、历史全屏、缓存抽屉、主题菜单、相机编辑器、Toast、弹窗和相关按钮态。
 - 设置面板主题适配不是单纯“控件变暗”即可：设置弹窗表面、设置卡片、tab、toolbar 强调按钮、供应商类型 badge、更新状态、版本摘要等都需要和主页保持同一套主色体系与高亮节奏。如果主题看起来“能用但不像同一套皮肤”，优先检查对应 `css/themes/<theme>.css` 里的设置面板专属覆盖是否仍缺少这一层整体对齐。
+- 左上角悬浮通知现在也在主题 token 体系内：基础通知、备份提醒、更新提醒、提醒按钮、提醒关闭 hover 和更新图标颜色都由 `--notice-*` 变量控制。若通知颜色没有同步，先查主题根变量是否补齐，不要再优先写 `.floating-notice` 单独覆盖。
 
 ### 右键菜单分类子菜单约定
 
@@ -245,9 +248,9 @@
 | 样式入口 | `index.css` | 分层样式入口，@import 各子目录 |
 | Layout | `css/layout/layout.css` | 应用整体布局与面板排布 |
 | Components | `css/components/nodes.css` | 可复用的节点与组件样式；图片对比节点、高级全屏对比、A/B 互斥裁切、缩略图选择网格、展开选图态和对比舞台缩放/平移光标样式 |
-| Features | `css/features/panels.css`, `css/features/settings.css` | 功能区或面板专属样式；设置面板新增交互（如供应商模型列表弹窗、API 设置帮助弹窗、获取模型列表按钮、通用设置卡片 grid、统一滑动开关样式）放 `settings.css` |
+| Features | `css/features/panels.css`, `css/features/settings.css` | 功能区或面板专属样式；`panels.css` 承接提示词库、提示词导入、全屏历史、历史预览等共享面板结构与 token 消费；设置面板新增交互（如供应商模型列表弹窗、API 设置帮助弹窗、获取模型列表按钮、通用设置卡片 grid、统一滑动开关样式）放 `settings.css` |
 | Themes | `css/themes.css` | 主题切换相关样式（明暗模式等） |
-| Legacy | `css/legacy.css` | 兼容层与遗留样式承接 |
+| Legacy | `css/legacy.css` | 兼容层与遗留样式承接；同时维护抽屉、帮助、工作流、缓存、侧边栏、左上角悬浮通知等共享主题 token |
 
 ---
 
@@ -306,9 +309,9 @@
 | 图片节点的运行态预览、对比、下游级联刷新 | `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `js/nodes/node-dom-bindings.js` |
 | 项目文件导入导出 | `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `js/nodes/node-serializer.js` |
 | 自动保存 / 会话恢复 | `js/features/persistence/session-manager.js` |
-| 主题切换 | `js/features/ui/theme-controller.js`, `css/themes.css` |
+| 主题切换 | `js/features/ui/theme-controller.js`, `css/themes.css`, `css/themes/shared.css`, `css/themes/*.css`, `index.html` 启动主题恢复脚本 |
 | Toast 通知 | `js/features/ui/toast-controller.js` |
-| 画布左上角悬浮通知 | `index.js` 的 `initFloatingNotices()`, `js/features/ui/floating-notices-controller.js`, `js/features/update/update-manager.js`, `css/legacy.css`, `css/themes.css` |
+| 画布左上角悬浮通知 | `index.js` 的 `initFloatingNotices()`, `js/features/ui/floating-notices-controller.js`, `js/features/update/update-manager.js`, `css/legacy.css`, `css/themes/*.css`；颜色优先由 `--notice-*` token 驱动 |
 | 键盘快捷键 / 全局事件 | `js/features/ui/global-interactions.js` |
 | 剪贴板操作 | `js/features/ui/clipboard-controller.js` |
 | 右键菜单 / 添加节点分类二级菜单 | `index.html`, `js/features/ui/context-menu-controller.js`, `css/legacy.css`, `css/themes.css` |

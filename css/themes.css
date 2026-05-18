@@ -4,4 +4,7 @@
 @import './themes/light.css';
 @import './themes/pink.css';
 
-/* Theme entry for CainFlow. Add one import per theme file here. */
+/* Theme entry for CainFlow.
+ * New themes should prefer assigning shared panel tokens in the theme file first,
+ * and only add component-specific overrides for truly unique visuals.
+ */

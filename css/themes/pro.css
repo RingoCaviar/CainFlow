@@ -42,6 +42,94 @@
     --surface-strong: rgba(255, 255, 255, 0.11);
     --bg-dark: var(--bg-toolbar);
     --panel-shadow: 0 24px 72px rgba(0, 0, 0, 0.36);
+    --panel-bg: rgba(18, 24, 36, 0.98);
+    --panel-bg-strong: rgba(17, 23, 34, 0.98);
+    --panel-bg-soft: rgba(255, 255, 255, 0.03);
+    --panel-bg-muted: rgba(255, 255, 255, 0.03);
+    --panel-border: rgba(148, 163, 184, 0.14);
+    --panel-border-strong: rgba(148, 163, 184, 0.16);
+    --panel-shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.28);
+    --panel-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.3);
+    --panel-hover-bg: rgba(93, 124, 255, 0.08);
+    --panel-hover-border: rgba(93, 124, 255, 0.22);
+    --panel-active-bg: rgba(86, 182, 217, 0.1);
+    --panel-active-border: rgba(86, 182, 217, 0.2);
+    --panel-control-bg: rgba(255, 255, 255, 0.04);
+    --panel-control-border: rgba(148, 163, 184, 0.14);
+    --panel-control-text: var(--text-secondary);
+    --panel-control-hover-bg: rgba(93, 124, 255, 0.1);
+    --panel-control-hover-border: rgba(93, 124, 255, 0.22);
+    --panel-control-hover-text: var(--text-primary);
+    --panel-input-bg: rgba(15, 21, 32, 0.94);
+    --panel-input-border: rgba(148, 163, 184, 0.16);
+    --panel-accent-bg: rgba(93, 124, 255, 0.1);
+    --panel-accent-border: rgba(93, 124, 255, 0.22);
+    --panel-accent-text: #c7d7ff;
+    --notice-bg: rgba(20, 27, 41, 0.94);
+    --notice-border: rgba(86, 182, 217, 0.16);
+    --notice-shadow: 0 16px 34px rgba(0, 0, 0, 0.26);
+    --notice-inline-bg: rgba(86, 182, 217, 0.12);
+    --notice-inline-text: #9dd9ee;
+    --notice-inline-border: rgba(86, 182, 217, 0.18);
+    --notice-highlight-bg: rgba(24, 23, 18, 0.92);
+    --notice-highlight-border: rgba(215, 154, 74, 0.26);
+    --notice-update-bg: rgba(20, 27, 41, 0.94);
+    --notice-update-border: rgba(86, 182, 217, 0.16);
+    --notice-update-icon-bg: rgba(86, 182, 217, 0.14);
+    --notice-update-icon-text: #9dd9ee;
+    --notice-action-bg: rgba(93, 124, 255, 0.1);
+    --notice-action-border: rgba(93, 124, 255, 0.22);
+    --notice-action-hover-bg: rgba(93, 124, 255, 0.16);
+    --notice-action-hover-border: rgba(93, 124, 255, 0.3);
+    --workflow-card-bg: linear-gradient(180deg, rgba(27, 35, 51, 0.96), rgba(20, 27, 41, 0.98));
+    --workflow-card-border: rgba(148, 163, 184, 0.14);
+    --workflow-card-hover-bg: rgba(93, 124, 255, 0.08);
+    --workflow-card-hover-border: rgba(93, 124, 255, 0.24);
+    --workflow-card-shadow: 0 12px 24px rgba(3, 7, 18, 0.22);
+    --cache-card-bg: rgba(24, 31, 46, 0.88);
+    --cache-card-border: rgba(148, 163, 184, 0.12);
+    --cache-card-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+    --cache-row-border: rgba(148, 163, 184, 0.12);
+    --sidebar-bg: rgba(17, 23, 34, 0.96);
+    --sidebar-border: rgba(148, 163, 184, 0.12);
+    --sidebar-btn-hover-bg: rgba(255, 255, 255, 0.05);
+    --sidebar-btn-active-bg: rgba(93, 124, 255, 0.12);
+    --sidebar-btn-active-text: #c7d7ff;
+    --prompt-overlay-bg: rgba(4, 8, 18, 0.74);
+    --prompt-panel-bg: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(17, 23, 34, 0.98));
+    --prompt-panel-border: rgba(148, 163, 184, 0.16);
+    --prompt-panel-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+    --prompt-section-border: rgba(148, 163, 184, 0.12);
+    --prompt-header-bg: transparent;
+    --prompt-card-bg: linear-gradient(180deg, rgba(27, 35, 51, 0.96), rgba(20, 27, 41, 0.98));
+    --prompt-card-border: rgba(148, 163, 184, 0.14);
+    --prompt-card-hover-bg: linear-gradient(180deg, rgba(27, 35, 51, 0.96), rgba(20, 27, 41, 0.98));
+    --prompt-card-hover-border: rgba(93, 124, 255, 0.24);
+    --prompt-card-hover-shadow: 0 12px 24px rgba(3, 7, 18, 0.22);
+    --prompt-card-selected-border: rgba(93, 124, 255, 0.24);
+    --prompt-card-selected-shadow: 0 12px 24px rgba(3, 7, 18, 0.22);
+    --prompt-import-panel-bg: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(17, 23, 34, 0.98));
+    --prompt-import-panel-border: rgba(148, 163, 184, 0.16);
+    --prompt-import-panel-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+    --prompt-import-item-selected-border: rgba(93, 124, 255, 0.24);
+    --prompt-import-item-selected-shadow: 0 12px 24px rgba(3, 7, 18, 0.22);
+    --history-overlay-bg:
+        radial-gradient(circle at top left, rgba(93, 124, 255, 0.1), transparent 28%),
+        radial-gradient(circle at top right, rgba(86, 182, 217, 0.08), transparent 24%),
+        rgba(10, 14, 24, 0.92);
+    --history-panel-bg: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(16, 22, 34, 0.98));
+    --history-panel-border: rgba(148, 163, 184, 0.16);
+    --history-panel-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+    --history-section-border: rgba(148, 163, 184, 0.12);
+    --history-group-header-bg: rgba(17, 23, 34, 0.92);
+    --history-rail-border: rgba(148, 163, 184, 0.12);
+    --history-card-meta-bg: rgba(17, 23, 34, 0.92);
+    --history-card-meta-text: var(--text-primary);
+    --history-card-meta-subtext: var(--text-secondary);
+    --history-preview-bg: rgba(17, 23, 34, 0.92);
+    --history-preview-border: rgba(148, 163, 184, 0.14);
+    --history-preview-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+    --history-preview-meta-border: rgba(148, 163, 184, 0.12);
 }
 
 html[data-app-theme="pro"] {
@@ -191,14 +279,6 @@ html[data-app-theme="pro"] .workflow-item:hover {
     background: rgba(93, 124, 255, 0.08);
 }
 
-html[data-app-theme="pro"] .floating-notice,
-html[data-app-theme="pro"] .workflow-backup-notice,
-html[data-app-theme="pro"] .update-canvas-notice {
-    background: rgba(20, 27, 41, 0.94);
-    border-color: rgba(86, 182, 217, 0.16);
-    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26);
-}
-
 html[data-app-theme="pro"] .update-download-progress__bar {
     background: linear-gradient(90deg, #4f7cff 0%, #56b6d9 100%);
 }
@@ -220,35 +300,8 @@ html[data-app-theme="pro"] .theme-menu-item.is-active {
     border-color: rgba(86, 182, 217, 0.2);
 }
 
-html[data-app-theme="pro"] .prompt-library-overlay,
 html[data-app-theme="pro"] .modal-overlay {
     background: rgba(4, 8, 18, 0.74);
-}
-
-html[data-app-theme="pro"] .prompt-library-panel,
-html[data-app-theme="pro"] .prompt-import-panel {
-    background: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(17, 23, 34, 0.98));
-    border-color: rgba(148, 163, 184, 0.16);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
-}
-
-html[data-app-theme="pro"] .prompt-library-header,
-html[data-app-theme="pro"] .prompt-import-header,
-html[data-app-theme="pro"] .prompt-import-footer,
-html[data-app-theme="pro"] .prompt-editor-header {
-    border-color: rgba(148, 163, 184, 0.12);
-}
-
-html[data-app-theme="pro"] .prompt-card {
-    background: linear-gradient(180deg, rgba(27, 35, 51, 0.96), rgba(20, 27, 41, 0.98));
-    border-color: rgba(148, 163, 184, 0.14);
-}
-
-html[data-app-theme="pro"] .prompt-card:hover,
-html[data-app-theme="pro"] .prompt-card.selected,
-html[data-app-theme="pro"] .prompt-import-item.selected {
-    border-color: rgba(93, 124, 255, 0.24);
-    box-shadow: 0 12px 24px rgba(3, 7, 18, 0.22);
 }
 
 html[data-app-theme="pro"] .prompt-card-btn,
@@ -267,19 +320,6 @@ html[data-app-theme="pro"] .prompt-import-btn:hover {
     color: var(--text-primary);
 }
 
-html[data-app-theme="pro"] .history-fullscreen-overlay {
-    background:
-        radial-gradient(circle at top left, rgba(93, 124, 255, 0.1), transparent 28%),
-        radial-gradient(circle at top right, rgba(86, 182, 217, 0.08), transparent 24%),
-        rgba(10, 14, 24, 0.92);
-}
-
-html[data-app-theme="pro"] .history-fullscreen-panel {
-    background: linear-gradient(180deg, rgba(20, 27, 41, 0.98), rgba(16, 22, 34, 0.98));
-    border-color: rgba(148, 163, 184, 0.16);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
-}
-
 html[data-app-theme="pro"] .history-fullscreen-header,
 html[data-app-theme="pro"] .history-fullscreen-batch-toolbar,
 html[data-app-theme="pro"] .history-fullscreen-rail,
@@ -288,22 +328,10 @@ html[data-app-theme="pro"] .preview-meta {
     border-color: rgba(148, 163, 184, 0.12);
 }
 
-html[data-app-theme="pro"] .history-card-meta,
-html[data-app-theme="pro"] .preview-info {
-    background: rgba(17, 23, 34, 0.92);
-    border-color: rgba(148, 163, 184, 0.14);
-}
-
-html[data-app-theme="pro"] #cache-sidebar .cache-info-card,
 html[data-app-theme="pro"] .cache-info-card,
 html[data-app-theme="pro"] .cache-item,
 html[data-app-theme="pro"] .cache-breakdown {
     border-color: rgba(148, 163, 184, 0.12) !important;
-}
-
-html[data-app-theme="pro"] #cache-sidebar .cache-info-card {
-    background: rgba(24, 31, 46, 0.88) !important;
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
 }
 
 html[data-app-theme="pro"] #settings-modal .api-config-card,

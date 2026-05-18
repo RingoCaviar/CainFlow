@@ -42,6 +42,110 @@
     --surface-strong: rgba(15, 23, 42, 0.14);
     --bg-dark: var(--bg-toolbar);
     --panel-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    --panel-bg: rgba(249, 251, 255, 0.98);
+    --panel-bg-strong: rgba(248, 250, 252, 0.96);
+    --panel-bg-soft: rgba(255, 255, 255, 0.78);
+    --panel-bg-muted: rgba(255, 255, 255, 0.72);
+    --panel-border: rgba(148, 163, 184, 0.24);
+    --panel-border-strong: rgba(148, 163, 184, 0.3);
+    --panel-shadow-soft: 0 18px 40px rgba(15, 23, 42, 0.18);
+    --panel-shadow-strong: 0 24px 60px rgba(15, 23, 42, 0.14);
+    --panel-hover-bg: rgba(67, 56, 202, 0.06);
+    --panel-hover-border: rgba(129, 140, 248, 0.22);
+    --panel-active-bg: rgba(37, 99, 235, 0.1);
+    --panel-active-border: rgba(37, 99, 235, 0.2);
+    --panel-control-bg: rgba(255, 255, 255, 0.82);
+    --panel-control-border: rgba(148, 163, 184, 0.28);
+    --panel-control-text: #64748b;
+    --panel-control-hover-bg: rgba(67, 56, 202, 0.08);
+    --panel-control-hover-border: rgba(67, 56, 202, 0.24);
+    --panel-control-hover-text: #223047;
+    --panel-input-bg: rgba(255, 255, 255, 0.96);
+    --panel-input-border: rgba(148, 163, 184, 0.3);
+    --panel-accent-bg: rgba(124, 58, 237, 0.08);
+    --panel-accent-border: rgba(124, 58, 237, 0.2);
+    --panel-accent-text: #6d28d9;
+    --notice-bg: rgba(255, 255, 255, 0.92);
+    --notice-border: rgba(217, 119, 6, 0.18);
+    --notice-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+    --notice-inline-bg: rgba(217, 119, 6, 0.14);
+    --notice-inline-text: #d97706;
+    --notice-inline-border: rgba(217, 119, 6, 0.12);
+    --notice-highlight-bg: rgba(255, 250, 240, 0.96);
+    --notice-highlight-border: rgba(217, 119, 6, 0.2);
+    --notice-update-bg: rgba(255, 255, 255, 0.94);
+    --notice-update-border: rgba(124, 58, 237, 0.22);
+    --notice-update-icon-bg: rgba(124, 58, 237, 0.12);
+    --notice-update-icon-text: #7c3aed;
+    --notice-action-bg: rgba(124, 58, 237, 0.08);
+    --notice-action-border: rgba(124, 58, 237, 0.2);
+    --notice-action-hover-bg: rgba(124, 58, 237, 0.14);
+    --notice-action-hover-border: rgba(124, 58, 237, 0.32);
+    --notice-close-hover-bg: rgba(15, 23, 42, 0.06);
+    --workflow-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+    --workflow-card-border: rgba(148, 163, 184, 0.18);
+    --workflow-card-hover-bg: rgba(67, 56, 202, 0.06);
+    --workflow-card-hover-border: rgba(129, 140, 248, 0.22);
+    --workflow-card-shadow: 0 2px 6px rgba(148, 163, 184, 0.14), 0 10px 18px rgba(148, 163, 184, 0.08);
+    --cache-card-bg: rgba(255, 255, 255, 0.82);
+    --cache-card-border: rgba(148, 163, 184, 0.24);
+    --cache-card-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+    --cache-row-border: rgba(148, 163, 184, 0.24);
+    --sidebar-bg: rgba(248, 250, 252, 0.9);
+    --sidebar-border: rgba(148, 163, 184, 0.24);
+    --sidebar-btn-hover-bg: rgba(255, 255, 255, 0.82);
+    --sidebar-btn-active-bg: linear-gradient(180deg, rgba(109, 40, 217, 0.12), rgba(79, 70, 229, 0.08));
+    --sidebar-btn-active-text: var(--accent-primary);
+    --prompt-overlay-bg: rgba(15, 23, 42, 0.24);
+    --prompt-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.98));
+    --prompt-panel-border: rgba(148, 163, 184, 0.34);
+    --prompt-panel-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    --prompt-section-border: rgba(148, 163, 184, 0.28);
+    --prompt-header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(247, 250, 255, 0.96));
+    --prompt-empty-bg: rgba(255, 255, 255, 0.72);
+    --prompt-empty-border: rgba(148, 163, 184, 0.34);
+    --prompt-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
+    --prompt-card-border: rgba(148, 163, 184, 0.26);
+    --prompt-card-shadow: 0 14px 30px rgba(148, 163, 184, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    --prompt-card-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(236, 244, 252, 0.96));
+    --prompt-card-hover-border: rgba(15, 118, 110, 0.25);
+    --prompt-card-hover-shadow: 0 18px 34px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    --prompt-card-selected-border: rgba(15, 118, 110, 0.62);
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(15, 118, 110, 0.14), 0 18px 34px rgba(148, 163, 184, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    --prompt-card-actions-bg: rgba(248, 250, 252, 0.86);
+    --prompt-editor-bg: rgba(241, 245, 249, 0.64);
+    --prompt-editor-border: rgba(148, 163, 184, 0.28);
+    --prompt-import-dialog-bg: rgba(15, 23, 42, 0.24);
+    --prompt-import-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.98));
+    --prompt-import-panel-border: rgba(148, 163, 184, 0.34);
+    --prompt-import-panel-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    --prompt-import-item-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
+    --prompt-import-item-border: rgba(148, 163, 184, 0.26);
+    --prompt-import-item-shadow: 0 12px 24px rgba(148, 163, 184, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    --prompt-import-item-selected-border: rgba(15, 118, 110, 0.62);
+    --prompt-import-item-selected-shadow: 0 0 0 2px rgba(15, 118, 110, 0.14), 0 14px 28px rgba(148, 163, 184, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    --history-overlay-bg:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(20, 184, 166, 0.08), transparent 24%),
+        rgba(244, 247, 252, 0.92);
+    --history-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.98));
+    --history-panel-border: rgba(148, 163, 184, 0.22);
+    --history-panel-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+    --history-section-border: rgba(148, 163, 184, 0.18);
+    --history-group-header-bg: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(248, 250, 252, 0.74));
+    --history-rail-bg: transparent;
+    --history-rail-border: rgba(148, 163, 184, 0.18);
+    --history-rail-tooltip-bg: rgba(255, 255, 255, 0.96);
+    --history-rail-tooltip-border: rgba(148, 163, 184, 0.22);
+    --history-rail-tooltip-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+    --history-rail-tooltip-text: var(--text-primary);
+    --history-card-meta-bg: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(248, 250, 252, 0.82) 50%, rgba(241, 245, 249, 0.96) 100%);
+    --history-card-meta-text: var(--text-primary);
+    --history-card-meta-subtext: var(--text-secondary);
+    --history-preview-bg: rgba(255, 255, 255, 0.9);
+    --history-preview-border: rgba(148, 163, 184, 0.28);
+    --history-preview-shadow: 0 18px 44px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    --history-preview-meta-border: rgba(148, 163, 184, 0.24);
 }
 
 html[data-app-theme="light"] {
@@ -848,21 +952,6 @@ html[data-app-theme="light"] .modal-overlay {
     background: var(--overlay-backdrop);
 }
 
-html[data-app-theme="light"] .prompt-library-overlay {
-    background: rgba(15, 23, 42, 0.24);
-}
-
-html[data-app-theme="light"] .prompt-library-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.98));
-    border-color: rgba(148, 163, 184, 0.34);
-    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
-}
-
-html[data-app-theme="light"] .prompt-library-header {
-    border-bottom-color: rgba(148, 163, 184, 0.28);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(247, 250, 255, 0.96));
-}
-
 html[data-app-theme="light"] .prompt-library-title-group h2,
 html[data-app-theme="light"] .prompt-editor-header h3,
 html[data-app-theme="light"] .prompt-card-main h3 {
@@ -877,36 +966,6 @@ html[data-app-theme="light"] .prompt-library-count {
     color: #0f766e;
     background: rgba(15, 118, 110, 0.1);
     border-color: rgba(15, 118, 110, 0.22);
-}
-
-html[data-app-theme="light"] .prompt-library-empty {
-    color: #64748b;
-    background: rgba(255, 255, 255, 0.72);
-    border-color: rgba(148, 163, 184, 0.34);
-}
-
-html[data-app-theme="light"] .prompt-card {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
-    border-color: rgba(148, 163, 184, 0.26);
-    box-shadow:
-        0 14px 30px rgba(148, 163, 184, 0.12),
-        inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-html[data-app-theme="light"] .prompt-card:hover {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(236, 244, 252, 0.96));
-    border-color: rgba(15, 118, 110, 0.25);
-    box-shadow:
-        0 18px 34px rgba(148, 163, 184, 0.16),
-        inset 0 1px 0 rgba(255, 255, 255, 0.96);
-}
-
-html[data-app-theme="light"] .prompt-card.selected {
-    border-color: rgba(15, 118, 110, 0.62);
-    box-shadow:
-        0 0 0 2px rgba(15, 118, 110, 0.14),
-        0 18px 34px rgba(148, 163, 184, 0.16),
-        inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 html[data-app-theme="light"] .prompt-card-select {
@@ -929,11 +988,6 @@ html[data-app-theme="light"] .prompt-card-select:hover {
 
 html[data-app-theme="light"] .prompt-card-main p {
     color: #526077;
-}
-
-html[data-app-theme="light"] .prompt-card-actions {
-    background: rgba(248, 250, 252, 0.86);
-    border-top-color: rgba(148, 163, 184, 0.22);
 }
 
 html[data-app-theme="light"] .prompt-card-btn,
@@ -962,11 +1016,6 @@ html[data-app-theme="light"] .prompt-card-icon-btn:hover {
     border-color: rgba(220, 38, 38, 0.32);
 }
 
-html[data-app-theme="light"] .prompt-editor {
-    background: rgba(241, 245, 249, 0.64);
-    border-left-color: rgba(148, 163, 184, 0.28);
-}
-
 html[data-app-theme="light"] .prompt-editor-field {
     color: #64748b;
 }
@@ -988,22 +1037,6 @@ html[data-app-theme="light"] .prompt-editor-field textarea:focus {
         inset 0 1px 0 rgba(255, 255, 255, 0.98);
 }
 
-html[data-app-theme="light"] .prompt-import-dialog {
-    background: rgba(15, 23, 42, 0.24);
-}
-
-html[data-app-theme="light"] .prompt-import-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 253, 0.98));
-    border-color: rgba(148, 163, 184, 0.34);
-    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
-}
-
-html[data-app-theme="light"] .prompt-import-header,
-html[data-app-theme="light"] .prompt-import-footer {
-    border-color: rgba(148, 163, 184, 0.28);
-    background: rgba(248, 250, 252, 0.82);
-}
-
 html[data-app-theme="light"] .prompt-import-header h3,
 html[data-app-theme="light"] .prompt-import-preview h4 {
     color: #172033;
@@ -1012,22 +1045,6 @@ html[data-app-theme="light"] .prompt-import-preview h4 {
 html[data-app-theme="light"] .prompt-import-header p,
 html[data-app-theme="light"] .prompt-import-preview p {
     color: #526077;
-}
-
-html[data-app-theme="light"] .prompt-import-item {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 252, 0.94));
-    border-color: rgba(148, 163, 184, 0.26);
-    box-shadow:
-        0 12px 24px rgba(148, 163, 184, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-html[data-app-theme="light"] .prompt-import-item.selected {
-    border-color: rgba(15, 118, 110, 0.62);
-    box-shadow:
-        0 0 0 2px rgba(15, 118, 110, 0.14),
-        0 14px 28px rgba(148, 163, 184, 0.14),
-        inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 html[data-app-theme="light"] .prompt-import-check {
@@ -1327,66 +1344,12 @@ html[data-app-theme="light"] .update-download-toast__cancel:hover:not(:disabled)
     color: #1e40af;
 }
 
-html[data-app-theme="light"] #side-bar {
-    background: rgba(248, 250, 252, 0.9);
-    border-right-color: var(--border-color);
-    box-shadow: 8px 0 28px rgba(148, 163, 184, 0.12);
-}
-
-html[data-app-theme="light"] .side-bar-btn {
-    color: #7a889d;
-}
-
-html[data-app-theme="light"] .side-bar-btn:hover {
-    background: rgba(255, 255, 255, 0.82);
-    color: #4f5d73;
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-}
-
-html[data-app-theme="light"] .side-bar-btn.active {
-    background: linear-gradient(180deg, rgba(109, 40, 217, 0.12), rgba(79, 70, 229, 0.08));
-    color: var(--accent-primary);
-    box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.16), 0 10px 20px rgba(109, 40, 217, 0.1);
-}
-
-html[data-app-theme="light"] .help-key,
-html[data-app-theme="light"] .workflow-action-btn,
-html[data-app-theme="light"] .cache-info-card,
 html[data-app-theme="light"] .preview-nav-btn {
     border-color: var(--border-color);
 }
 
-html[data-app-theme="light"] .help-key,
-html[data-app-theme="light"] .workflow-action-btn,
-html[data-app-theme="light"] .save-workflow-box,
-html[data-app-theme="light"] .update-changelog-container,
-html[data-app-theme="light"] .cache-info-card {
+html[data-app-theme="light"] .update-changelog-container {
     background: rgba(255, 255, 255, 0.78);
-}
-
-html[data-app-theme="light"] .help-tip,
-html[data-app-theme="light"] .save-workflow-box,
-html[data-app-theme="light"] .cache-item {
-    border-color: var(--border-color) !important;
-}
-
-html[data-app-theme="light"] .workflow-item:hover {
-    background: rgba(67, 56, 202, 0.06);
-}
-
-html[data-app-theme="light"] .workflow-item {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
-    border-color: rgba(148, 163, 184, 0.18);
-    box-shadow:
-        0 2px 6px rgba(148, 163, 184, 0.14),
-        0 10px 18px rgba(148, 163, 184, 0.08);
-}
-
-html[data-app-theme="light"] .workflow-item:hover {
-    border-color: rgba(129, 140, 248, 0.22);
-    box-shadow:
-        0 4px 10px rgba(148, 163, 184, 0.16),
-        0 14px 22px rgba(148, 163, 184, 0.1);
 }
 
 html[data-app-theme="light"] .drawer-subheader {
@@ -1397,37 +1360,6 @@ html[data-app-theme="light"] .drawer-subheader {
 html[data-app-theme="light"] .drawer-header,
 html[data-app-theme="light"] .help-panel-header {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(249, 251, 255, 0.98));
-}
-
-html[data-app-theme="light"] .floating-notice {
-    background: rgba(255, 255, 255, 0.92);
-    border-color: rgba(217, 119, 6, 0.18);
-    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
-}
-
-html[data-app-theme="light"] .floating-notice .notice-content {
-    color: var(--text-secondary);
-}
-
-html[data-app-theme="light"] .floating-notice .notice-content span {
-    background: rgba(217, 119, 6, 0.14);
-    color: var(--accent-orange);
-    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.12);
-}
-
-html[data-app-theme="light"] .floating-notice .notice-content code {
-    background: rgba(217, 119, 6, 0.14);
-    color: var(--accent-orange);
-    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.12);
-}
-
-html[data-app-theme="light"] .workflow-backup-notice {
-    background: rgba(255, 255, 255, 0.92);
-    border-color: rgba(217, 119, 6, 0.22);
-}
-
-html[data-app-theme="light"] .notice-close:hover {
-    background: rgba(15, 23, 42, 0.06);
 }
 
 html[data-app-theme="light"] .history-card:hover {
@@ -1463,23 +1395,9 @@ html[data-app-theme="light"] .preview-nav-btn:hover {
     box-shadow: 0 12px 24px rgba(67, 56, 202, 0.16);
 }
 
-html[data-app-theme="light"] .preview-info {
-    background: rgba(255, 255, 255, 0.9);
-    border-color: rgba(148, 163, 184, 0.28);
-    color: var(--text-primary);
-    box-shadow:
-        0 18px 44px rgba(15, 23, 42, 0.16),
-        inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
 html[data-app-theme="light"] .preview-prompt-text {
     color: var(--text-primary);
     opacity: 0.96;
-}
-
-html[data-app-theme="light"] .preview-meta {
-    border-top-color: rgba(148, 163, 184, 0.24);
-    color: var(--text-secondary);
 }
 
 html[data-app-theme="light"] .copy-btn {
@@ -1499,65 +1417,14 @@ html[data-app-theme="light"] #history-settings-toolbar .grid-col-tool > div {
     border: 1px solid var(--border-color);
 }
 
-html[data-app-theme="light"] .history-fullscreen-overlay {
-    background:
-        radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
-        radial-gradient(circle at top right, rgba(20, 184, 166, 0.08), transparent 24%),
-        rgba(244, 247, 252, 0.92);
-}
-
-html[data-app-theme="light"] .history-fullscreen-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.98));
-    border-color: rgba(148, 163, 184, 0.22);
-    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
-}
-
 html[data-app-theme="light"] .history-fullscreen-header,
 html[data-app-theme="light"] .history-fullscreen-batch-toolbar,
 html[data-app-theme="light"] .history-fullscreen-rail {
     border-color: rgba(148, 163, 184, 0.18);
 }
 
-html[data-app-theme="light"] .history-fullscreen-group-header {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(248, 250, 252, 0.74));
-}
-
-html[data-app-theme="light"] .history-card-meta {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(248, 250, 252, 0.82) 50%, rgba(241, 245, 249, 0.96) 100%);
-    color: var(--text-primary);
-}
-
 html[data-app-theme="light"] .history-card-meta-sub {
     color: var(--text-secondary);
-}
-
-html[data-app-theme="light"] .history-fullscreen-rail-tooltip {
-    background: rgba(255, 255, 255, 0.96);
-    color: var(--text-primary);
-    border-color: rgba(148, 163, 184, 0.22);
-    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
-}
-
-html[data-app-theme="light"] #cache-sidebar .drawer-content > div[style*="margin-top: 28px;"] {
-    border-top: 1px solid var(--border-color);
-    padding-top: 20px;
-}
-
-html[data-app-theme="light"] #cache-sidebar .cache-info-card,
-html[data-app-theme="light"] #cache-sidebar .cache-breakdown,
-html[data-app-theme="light"] #cache-sidebar .cache-item,
-html[data-app-theme="light"] #cache-sidebar .drawer-content > div[style*="margin-top: 28px;"] {
-    background: transparent !important;
-}
-
-html[data-app-theme="light"] #cache-sidebar .cache-info-card {
-    background: rgba(255, 255, 255, 0.82) !important;
-    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
-}
-
-html[data-app-theme="light"] #cache-sidebar .cache-item {
-    border-bottom-color: var(--border-color) !important;
 }
 
 html[data-app-theme="light"] #workflow-context-menu,
@@ -1617,24 +1484,6 @@ html[data-app-theme="light"] .update-download-progress__bar {
 
 html[data-app-theme="light"] .update-download-progress__detail {
     color: #475569;
-}
-
-html[data-app-theme="light"] .update-canvas-notice {
-    background: rgba(255, 255, 255, 0.92);
-    border-color: rgba(124, 58, 237, 0.22);
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
-}
-
-html[data-app-theme="light"] .floating-notice-actions button,
-html[data-app-theme="light"] .update-canvas-notice-actions button {
-    background: rgba(124, 58, 237, 0.08);
-    border-color: rgba(124, 58, 237, 0.2);
-}
-
-html[data-app-theme="light"] .floating-notice-actions button:hover,
-html[data-app-theme="light"] .update-canvas-notice-actions button:hover {
-    background: rgba(124, 58, 237, 0.14);
-    border-color: rgba(124, 58, 237, 0.32);
 }
 
 html[data-app-theme="light"] .error-modal-images img {

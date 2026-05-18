@@ -42,6 +42,110 @@
     --surface-strong: rgba(236, 72, 153, 0.16);
     --bg-dark: var(--bg-toolbar);
     --panel-shadow: 0 26px 64px rgba(190, 24, 93, 0.16);
+    --panel-bg: rgba(255, 249, 252, 0.98);
+    --panel-bg-strong: rgba(255, 248, 252, 0.98);
+    --panel-bg-soft: rgba(244, 114, 182, 0.06);
+    --panel-bg-muted: rgba(253, 226, 236, 0.58);
+    --panel-border: rgba(244, 114, 182, 0.22);
+    --panel-border-strong: rgba(244, 114, 182, 0.28);
+    --panel-shadow-soft: 0 16px 36px rgba(190, 24, 93, 0.12);
+    --panel-shadow-strong: 0 22px 52px rgba(190, 24, 93, 0.16), 0 0 18px rgba(244, 114, 182, 0.08);
+    --panel-hover-bg: rgba(244, 114, 182, 0.1);
+    --panel-hover-border: rgba(236, 72, 153, 0.26);
+    --panel-active-bg: rgba(236, 72, 153, 0.12);
+    --panel-active-border: rgba(236, 72, 153, 0.24);
+    --panel-control-bg: rgba(255, 255, 255, 0.88);
+    --panel-control-border: rgba(244, 114, 182, 0.24);
+    --panel-control-text: #aa7d95;
+    --panel-control-hover-bg: rgba(244, 114, 182, 0.08);
+    --panel-control-hover-border: rgba(236, 72, 153, 0.26);
+    --panel-control-hover-text: #5f2744;
+    --panel-input-bg: rgba(255, 255, 255, 0.94);
+    --panel-input-border: rgba(244, 114, 182, 0.24);
+    --panel-accent-bg: rgba(244, 114, 182, 0.12);
+    --panel-accent-border: rgba(244, 114, 182, 0.24);
+    --panel-accent-text: #be185d;
+    --notice-bg: rgba(255, 251, 253, 0.94);
+    --notice-border: rgba(244, 114, 182, 0.22);
+    --notice-shadow: 0 14px 30px rgba(190, 24, 93, 0.12);
+    --notice-inline-bg: rgba(244, 114, 182, 0.14);
+    --notice-inline-text: #be185d;
+    --notice-inline-border: rgba(244, 114, 182, 0.12);
+    --notice-highlight-bg: rgba(255, 247, 250, 0.96);
+    --notice-highlight-border: rgba(251, 113, 133, 0.22);
+    --notice-update-bg: rgba(255, 250, 252, 0.96);
+    --notice-update-border: rgba(244, 114, 182, 0.22);
+    --notice-update-icon-bg: rgba(244, 114, 182, 0.14);
+    --notice-update-icon-text: #ec4899;
+    --notice-action-bg: rgba(244, 114, 182, 0.08);
+    --notice-action-border: rgba(244, 114, 182, 0.2);
+    --notice-action-hover-bg: rgba(244, 114, 182, 0.14);
+    --notice-action-hover-border: rgba(244, 114, 182, 0.32);
+    --notice-close-hover-bg: rgba(244, 114, 182, 0.08);
+    --workflow-card-bg: rgba(255, 255, 255, 0.9);
+    --workflow-card-border: rgba(244, 114, 182, 0.18);
+    --workflow-card-hover-bg: rgba(255, 240, 246, 0.98);
+    --workflow-card-hover-border: rgba(236, 72, 153, 0.24);
+    --workflow-card-shadow: 0 8px 20px rgba(244, 114, 182, 0.08);
+    --cache-card-bg: rgba(255, 255, 255, 0.86);
+    --cache-card-border: rgba(244, 114, 182, 0.18);
+    --cache-card-shadow: 0 10px 24px rgba(190, 24, 93, 0.08);
+    --cache-row-border: rgba(244, 114, 182, 0.16);
+    --sidebar-bg: rgba(255, 248, 252, 0.92);
+    --sidebar-border: rgba(244, 114, 182, 0.18);
+    --sidebar-btn-hover-bg: rgba(255, 255, 255, 0.84);
+    --sidebar-btn-active-bg: linear-gradient(180deg, rgba(244, 114, 182, 0.14), rgba(251, 113, 133, 0.1));
+    --sidebar-btn-active-text: #ec4899;
+    --prompt-overlay-bg: rgba(76, 5, 25, 0.22);
+    --prompt-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
+    --prompt-panel-border: rgba(244, 114, 182, 0.22);
+    --prompt-panel-shadow: 0 20px 48px rgba(190, 24, 93, 0.12);
+    --prompt-section-border: rgba(244, 114, 182, 0.18);
+    --prompt-header-bg: transparent;
+    --prompt-empty-bg: rgba(255, 255, 255, 0.76);
+    --prompt-empty-border: rgba(244, 114, 182, 0.22);
+    --prompt-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
+    --prompt-card-border: rgba(244, 114, 182, 0.22);
+    --prompt-card-shadow: 0 20px 48px rgba(190, 24, 93, 0.12);
+    --prompt-card-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
+    --prompt-card-hover-border: rgba(236, 72, 153, 0.26);
+    --prompt-card-hover-shadow: 0 14px 28px rgba(190, 24, 93, 0.12);
+    --prompt-card-selected-border: rgba(236, 72, 153, 0.26);
+    --prompt-card-selected-shadow: 0 14px 28px rgba(190, 24, 93, 0.12);
+    --prompt-card-actions-bg: rgba(255, 250, 251, 0.86);
+    --prompt-editor-bg: rgba(255, 245, 248, 0.76);
+    --prompt-editor-border: rgba(244, 114, 182, 0.18);
+    --prompt-import-dialog-bg: rgba(76, 5, 25, 0.22);
+    --prompt-import-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
+    --prompt-import-panel-border: rgba(244, 114, 182, 0.22);
+    --prompt-import-panel-shadow: 0 20px 48px rgba(190, 24, 93, 0.12);
+    --prompt-import-item-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
+    --prompt-import-item-border: rgba(244, 114, 182, 0.22);
+    --prompt-import-item-shadow: 0 20px 48px rgba(190, 24, 93, 0.12);
+    --prompt-import-item-selected-border: rgba(236, 72, 153, 0.26);
+    --prompt-import-item-selected-shadow: 0 14px 28px rgba(190, 24, 93, 0.12);
+    --history-overlay-bg:
+        radial-gradient(circle at top left, rgba(244, 114, 182, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(251, 113, 133, 0.1), transparent 24%),
+        rgba(255, 244, 248, 0.92);
+    --history-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
+    --history-panel-border: rgba(244, 114, 182, 0.22);
+    --history-panel-shadow: 0 24px 60px rgba(190, 24, 93, 0.14);
+    --history-section-border: rgba(244, 114, 182, 0.18);
+    --history-group-header-bg: linear-gradient(180deg, rgba(255, 248, 252, 0.98), rgba(255, 248, 252, 0.76));
+    --history-rail-bg: transparent;
+    --history-rail-border: rgba(244, 114, 182, 0.18);
+    --history-rail-tooltip-bg: rgba(255, 255, 255, 0.96);
+    --history-rail-tooltip-border: rgba(244, 114, 182, 0.22);
+    --history-rail-tooltip-shadow: 0 14px 30px rgba(190, 24, 93, 0.14);
+    --history-rail-tooltip-text: var(--text-primary);
+    --history-card-meta-bg: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 245, 248, 0.84) 50%, rgba(255, 240, 246, 0.96) 100%);
+    --history-card-meta-text: var(--text-primary);
+    --history-card-meta-subtext: var(--text-secondary);
+    --history-preview-bg: rgba(255, 255, 255, 0.9);
+    --history-preview-border: rgba(244, 114, 182, 0.24);
+    --history-preview-shadow: 0 18px 44px rgba(190, 24, 93, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    --history-preview-meta-border: rgba(244, 114, 182, 0.2);
 }
 
 html[data-app-theme="pink"] {
@@ -616,62 +720,12 @@ html[data-app-theme="pink"] .update-download-toast__cancel:hover:not(:disabled) 
     color: #9d174d;
 }
 
-html[data-app-theme="pink"] #side-bar {
-    background: rgba(255, 248, 252, 0.9);
-    border-right-color: var(--border-color);
-    box-shadow: 8px 0 28px rgba(244, 114, 182, 0.1);
-}
-
-html[data-app-theme="pink"] .side-bar-btn {
-    color: #aa7d95;
-}
-
-html[data-app-theme="pink"] .side-bar-btn:hover {
-    background: rgba(255, 255, 255, 0.84);
-    color: #8b4564;
-    box-shadow: 0 8px 18px rgba(190, 24, 93, 0.08);
-}
-
-html[data-app-theme="pink"] .side-bar-btn.active {
-    background: linear-gradient(180deg, rgba(244, 114, 182, 0.14), rgba(251, 113, 133, 0.1));
-    color: var(--accent-primary);
-    box-shadow: inset 0 0 0 1px rgba(236, 72, 153, 0.14), 0 10px 20px rgba(236, 72, 153, 0.08);
-}
-
-html[data-app-theme="pink"] .help-key,
-html[data-app-theme="pink"] .workflow-action-btn,
-html[data-app-theme="pink"] .cache-info-card,
 html[data-app-theme="pink"] .preview-nav-btn {
     border-color: var(--border-color);
 }
 
-html[data-app-theme="pink"] .help-key,
-html[data-app-theme="pink"] .workflow-action-btn,
-html[data-app-theme="pink"] .save-workflow-box,
-html[data-app-theme="pink"] .update-changelog-container,
-html[data-app-theme="pink"] .cache-info-card {
+html[data-app-theme="pink"] .update-changelog-container {
     background: rgba(255, 255, 255, 0.78);
-}
-
-html[data-app-theme="pink"] .help-tip,
-html[data-app-theme="pink"] .save-workflow-box,
-html[data-app-theme="pink"] .cache-item {
-    border-color: var(--border-color) !important;
-}
-
-html[data-app-theme="pink"] .workflow-item {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 244, 248, 0.98));
-    border-color: rgba(244, 114, 182, 0.18);
-    box-shadow:
-        0 2px 6px rgba(244, 114, 182, 0.12),
-        0 10px 18px rgba(244, 114, 182, 0.08);
-}
-
-html[data-app-theme="pink"] .workflow-item:hover {
-    border-color: rgba(236, 72, 153, 0.24);
-    box-shadow:
-        0 4px 10px rgba(244, 114, 182, 0.16),
-        0 14px 22px rgba(244, 114, 182, 0.1);
 }
 
 html[data-app-theme="pink"] .drawer-subheader {
@@ -681,32 +735,6 @@ html[data-app-theme="pink"] .drawer-subheader {
 html[data-app-theme="pink"] .drawer-header,
 html[data-app-theme="pink"] .help-panel-header {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 248, 252, 0.98));
-}
-
-html[data-app-theme="pink"] .floating-notice {
-    background: rgba(255, 255, 255, 0.94);
-    border-color: rgba(244, 114, 182, 0.22);
-    box-shadow: 0 14px 30px rgba(190, 24, 93, 0.12);
-}
-
-html[data-app-theme="pink"] .floating-notice .notice-content {
-    color: var(--text-secondary);
-}
-
-html[data-app-theme="pink"] .floating-notice .notice-content span,
-html[data-app-theme="pink"] .floating-notice .notice-content code {
-    background: rgba(244, 114, 182, 0.14);
-    color: var(--accent-primary);
-    box-shadow: inset 0 0 0 1px rgba(244, 114, 182, 0.12);
-}
-
-html[data-app-theme="pink"] .workflow-backup-notice {
-    background: rgba(255, 255, 255, 0.94);
-    border-color: rgba(244, 114, 182, 0.22);
-}
-
-html[data-app-theme="pink"] .notice-close:hover {
-    background: rgba(244, 114, 182, 0.08);
 }
 
 html[data-app-theme="pink"] .history-card:hover {
@@ -742,23 +770,9 @@ html[data-app-theme="pink"] .preview-nav-btn:hover {
     box-shadow: 0 12px 24px rgba(244, 114, 182, 0.16);
 }
 
-html[data-app-theme="pink"] .preview-info {
-    background: rgba(255, 255, 255, 0.9);
-    border-color: rgba(244, 114, 182, 0.24);
-    color: var(--text-primary);
-    box-shadow:
-        0 18px 44px rgba(190, 24, 93, 0.14),
-        inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
 html[data-app-theme="pink"] .preview-prompt-text {
     color: var(--text-primary);
     opacity: 0.96;
-}
-
-html[data-app-theme="pink"] .preview-meta {
-    border-top-color: rgba(244, 114, 182, 0.2);
-    color: var(--text-secondary);
 }
 
 html[data-app-theme="pink"] .copy-btn {
@@ -778,65 +792,14 @@ html[data-app-theme="pink"] #history-settings-toolbar .grid-col-tool > div {
     border: 1px solid var(--border-color);
 }
 
-html[data-app-theme="pink"] .history-fullscreen-overlay {
-    background:
-        radial-gradient(circle at top left, rgba(244, 114, 182, 0.14), transparent 28%),
-        radial-gradient(circle at top right, rgba(251, 113, 133, 0.1), transparent 24%),
-        rgba(255, 244, 248, 0.92);
-}
-
-html[data-app-theme="pink"] .history-fullscreen-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
-    border-color: rgba(244, 114, 182, 0.22);
-    box-shadow: 0 24px 60px rgba(190, 24, 93, 0.14);
-}
-
 html[data-app-theme="pink"] .history-fullscreen-header,
 html[data-app-theme="pink"] .history-fullscreen-batch-toolbar,
 html[data-app-theme="pink"] .history-fullscreen-rail {
     border-color: rgba(244, 114, 182, 0.18);
 }
 
-html[data-app-theme="pink"] .history-fullscreen-group-header {
-    background: linear-gradient(180deg, rgba(255, 248, 252, 0.98), rgba(255, 248, 252, 0.76));
-}
-
-html[data-app-theme="pink"] .history-card-meta {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 245, 248, 0.84) 50%, rgba(255, 240, 246, 0.96) 100%);
-    color: var(--text-primary);
-}
-
 html[data-app-theme="pink"] .history-card-meta-sub {
     color: var(--text-secondary);
-}
-
-html[data-app-theme="pink"] .history-fullscreen-rail-tooltip {
-    background: rgba(255, 255, 255, 0.96);
-    color: var(--text-primary);
-    border-color: rgba(244, 114, 182, 0.22);
-    box-shadow: 0 14px 30px rgba(190, 24, 93, 0.14);
-}
-
-html[data-app-theme="pink"] #cache-sidebar .drawer-content > div[style*="margin-top: 28px;"] {
-    border-top: 1px solid var(--border-color);
-    padding-top: 20px;
-}
-
-html[data-app-theme="pink"] #cache-sidebar .cache-info-card,
-html[data-app-theme="pink"] #cache-sidebar .cache-breakdown,
-html[data-app-theme="pink"] #cache-sidebar .cache-item,
-html[data-app-theme="pink"] #cache-sidebar .drawer-content > div[style*="margin-top: 28px;"] {
-    background: transparent !important;
-}
-
-html[data-app-theme="pink"] #cache-sidebar .cache-info-card {
-    background: rgba(255, 255, 255, 0.84) !important;
-    box-shadow: 0 10px 26px rgba(190, 24, 93, 0.08);
-}
-
-html[data-app-theme="pink"] #cache-sidebar .cache-item {
-    border-bottom-color: var(--border-color) !important;
 }
 
 html[data-app-theme="pink"] #workflow-context-menu,
@@ -896,24 +859,6 @@ html[data-app-theme="pink"] .update-download-progress__bar {
 
 html[data-app-theme="pink"] .update-download-progress__detail {
     color: #7a4b64;
-}
-
-html[data-app-theme="pink"] .update-canvas-notice {
-    background: rgba(255, 255, 255, 0.94);
-    border-color: rgba(244, 114, 182, 0.22);
-    box-shadow: 0 12px 28px rgba(190, 24, 93, 0.14);
-}
-
-html[data-app-theme="pink"] .floating-notice-actions button,
-html[data-app-theme="pink"] .update-canvas-notice-actions button {
-    background: rgba(244, 114, 182, 0.08);
-    border-color: rgba(244, 114, 182, 0.2);
-}
-
-html[data-app-theme="pink"] .floating-notice-actions button:hover,
-html[data-app-theme="pink"] .update-canvas-notice-actions button:hover {
-    background: rgba(244, 114, 182, 0.14);
-    border-color: rgba(244, 114, 182, 0.32);
 }
 
 html[data-app-theme="pink"] .error-modal-images img {
@@ -1017,31 +962,8 @@ html[data-app-theme="pink"] .camera-control-prompt {
     color: var(--text-primary);
 }
 
-html[data-app-theme="pink"] .prompt-library-overlay,
 html[data-app-theme="pink"] .modal-overlay {
     background: rgba(76, 5, 25, 0.22);
-}
-
-html[data-app-theme="pink"] .prompt-library-panel,
-html[data-app-theme="pink"] .prompt-import-panel,
-html[data-app-theme="pink"] .prompt-card {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
-    border-color: rgba(244, 114, 182, 0.22);
-    box-shadow: 0 20px 48px rgba(190, 24, 93, 0.12);
-}
-
-html[data-app-theme="pink"] .prompt-library-header,
-html[data-app-theme="pink"] .prompt-import-header,
-html[data-app-theme="pink"] .prompt-import-footer,
-html[data-app-theme="pink"] .prompt-editor-header {
-    border-color: rgba(244, 114, 182, 0.18);
-}
-
-html[data-app-theme="pink"] .prompt-card:hover,
-html[data-app-theme="pink"] .prompt-card.selected,
-html[data-app-theme="pink"] .prompt-import-item.selected {
-    border-color: rgba(236, 72, 153, 0.26);
-    box-shadow: 0 14px 28px rgba(190, 24, 93, 0.12);
 }
 
 html[data-app-theme="pink"] .prompt-card-btn,
