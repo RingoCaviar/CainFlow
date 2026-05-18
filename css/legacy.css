@@ -1,40 +1,40 @@
 ﻿/* ===== CSS Variables & Reset ===== */
 :root {
-    --bg-canvas: #1a1a2e;
-    --bg-grid-dot: rgba(255, 255, 255, 0.06);
-    --bg-toolbar: rgba(16, 16, 32, 0.92);
-    --bg-node: rgba(30, 30, 52, 0.95);
-    --bg-node-header: rgba(255, 255, 255, 0.06);
-    --bg-input: rgba(0, 0, 0, 0.3);
-    --bg-context-menu: rgba(22, 22, 42, 0.96);
+    --bg-canvas: #0a0c10;
+    --bg-grid-dot: rgba(255, 255, 255, 0.045);
+    --bg-toolbar: rgba(10, 12, 16, 0.92);
+    --bg-node: rgba(17, 20, 26, 0.96);
+    --bg-node-header: rgba(255, 255, 255, 0.04);
+    --bg-input: rgba(255, 255, 255, 0.04);
+    --bg-context-menu: rgba(14, 16, 20, 0.97);
     --border-node: rgba(255, 255, 255, 0.08);
     --border-input: rgba(255, 255, 255, 0.1);
-    --text-primary: #e8e8f0;
-    --text-secondary: #9999b8;
-    --text-dim: #666688;
-    --accent-purple: #a855f7;
-    --accent-blue: #6366f1;
+    --text-primary: #e7eaee;
+    --text-secondary: #a0a7b2;
+    --text-dim: #6f7680;
+    --accent-purple: #23272f;
+    --accent-blue: #334155;
     --accent-cyan: #22d3ee;
     --accent-green: #10b981;
     --accent-orange: #f59e0b;
     --accent-red: #ef4444;
     --accent-pink: #ec4899;
-    --accent-primary: var(--accent-purple);
+    --accent-primary: #404854;
     /* Global primary accent for nodes and UI */
-    --port-image: #a855f7;
+    --port-image: #94a3b8;
     --port-text: #22d3ee;
-    --shadow-node: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
-    --shadow-node-hover: 0 12px 48px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
-    --bg-modal: #1e1e34;
-    --bg-drawer: rgba(22, 22, 42, 0.98);
-    --bg-log-item: rgba(255, 255, 255, 0.03);
-    --bg-log-item-hover: rgba(255, 255, 255, 0.06);
-    --shadow-drawer: -8px 0 32px rgba(0, 0, 0, 0.5);
+    --shadow-node: 0 10px 28px rgba(0, 0, 0, 0.52), 0 2px 8px rgba(0, 0, 0, 0.34);
+    --shadow-node-hover: 0 16px 44px rgba(0, 0, 0, 0.58), 0 6px 14px rgba(0, 0, 0, 0.4);
+    --bg-modal: #111418;
+    --bg-drawer: rgba(14, 16, 20, 0.98);
+    --bg-log-item: rgba(255, 255, 255, 0.025);
+    --bg-log-item-hover: rgba(255, 255, 255, 0.055);
+    --shadow-drawer: -8px 0 32px rgba(0, 0, 0, 0.52);
     --radius-node: 12px;
     --radius-sm: 6px;
     --radius-xs: 4px;
-    --conn-color: 168, 85, 247;
-    /* Purple RGB */
+    --conn-color: 111, 123, 139;
+    /* Graphite RGB */
     --conn-opacity: 0.2;
     --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -496,8 +496,8 @@ body {
 }
 
 .connection-path.selected {
-    stroke: #a855f7 !important;
-    /* Force solid purple for selection as requested */
+    stroke: #64748b !important;
+    /* Keep selection readable without a purple accent */
     stroke-width: 3.5;
     stroke-opacity: 1;
     filter: none !important;
@@ -1797,7 +1797,7 @@ body {
     height: 8px;
     flex: 0 0 auto;
     border-radius: 999px;
-    background: linear-gradient(135deg, #38bdf8, #a855f7);
+    background: linear-gradient(135deg, #38bdf8, #334155);
     box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
 }
 
@@ -2578,7 +2578,7 @@ body.is-interacting #canvas-container * {
 }
 
 .toggle-switch input:checked+.toggle-slider {
-    background: var(--accent-purple);
+    background: var(--accent-blue);
 }
 
 .toggle-switch input:checked+.toggle-slider::before {
@@ -3106,7 +3106,7 @@ body.is-interacting #canvas-container * {
     height: 800px;
     /* Fixed height to prevent jitter during tab switching */
     max-height: 92vh;
-    background: rgba(22, 22, 42, 0.98);
+    background: linear-gradient(180deg, rgba(17, 20, 26, 0.99), rgba(10, 12, 16, 0.98));
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
@@ -3214,7 +3214,7 @@ body.is-interacting #canvas-container * {
 
 .btn-accent {
     padding: 7px 14px;
-    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    background: linear-gradient(135deg, #2b3139, #111827);
     border: none;
     border-radius: var(--radius-sm);
     color: white;
@@ -3227,7 +3227,7 @@ body.is-interacting #canvas-container * {
 
 .btn-accent:hover {
     filter: brightness(1.15);
-    box-shadow: 0 4px 16px rgba(168, 85, 247, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
 }
 
 .api-configs-list {
@@ -3363,7 +3363,7 @@ body.is-interacting #canvas-container * {
 
 .api-config-card .card-field input:focus,
 .api-config-card .card-field select:focus {
-    border-color: var(--accent-purple);
+    border-color: var(--accent-cyan);
 }
 
 .api-config-card .card-field select {
@@ -3393,8 +3393,8 @@ body.is-interacting #canvas-container * {
     border-radius: 999px;
     background: linear-gradient(
         90deg,
-        var(--accent-purple) 0%,
-        var(--accent-purple) var(--notify-volume-progress),
+        var(--accent-cyan) 0%,
+        var(--accent-cyan) var(--notify-volume-progress),
         rgba(255, 255, 255, 0.12) var(--notify-volume-progress),
         rgba(255, 255, 255, 0.12) 100%
     );
@@ -3404,11 +3404,11 @@ body.is-interacting #canvas-container * {
     width: 18px;
     height: 18px;
     margin-top: -5px;
-    border: 2px solid var(--accent-purple);
+    border: 2px solid var(--accent-cyan);
     border-radius: 50%;
     background: var(--bg-panel);
     box-sizing: border-box;
-    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+    box-shadow: 0 2px 8px rgba(6, 182, 212, 0.22);
     appearance: none;
     -webkit-appearance: none;
 }
@@ -3423,17 +3423,17 @@ body.is-interacting #canvas-container * {
 .api-config-card .card-field input.notification-volume-slider::-moz-range-progress {
     height: 8px;
     border-radius: 999px;
-    background: var(--accent-purple);
+    background: var(--accent-cyan);
 }
 
 .api-config-card .card-field input.notification-volume-slider::-moz-range-thumb {
     width: 18px;
     height: 18px;
-    border: 2px solid var(--accent-purple);
+    border: 2px solid var(--accent-cyan);
     border-radius: 50%;
     background: var(--bg-panel);
     box-sizing: border-box;
-    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+    box-shadow: 0 2px 8px rgba(6, 182, 212, 0.22);
 }
 
 /* Hide number input spinners (up/down arrows) */
@@ -3536,17 +3536,17 @@ input[type=number] {
     border: 1px solid rgba(255, 255, 255, 0.14);
     font-weight: 600;
     letter-spacing: 0.01em;
-    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    background: linear-gradient(135deg, #3f4a59, #111827);
     box-shadow:
-        0 8px 20px rgba(139, 92, 246, 0.24),
+        0 8px 20px rgba(0, 0, 0, 0.28),
         0 2px 8px rgba(15, 23, 42, 0.16);
 }
 
 #settings-modal .settings-toolbar .btn-accent:hover {
-    background: linear-gradient(135deg, #a78bfa, #7c3aed);
+    background: linear-gradient(135deg, #566273, #1f2937);
     transform: translateY(-1px);
     box-shadow:
-        0 12px 26px rgba(139, 92, 246, 0.32),
+        0 12px 26px rgba(0, 0, 0, 0.34),
         0 4px 12px rgba(15, 23, 42, 0.2);
 }
 
@@ -3925,7 +3925,7 @@ input[type=number] {
 
 .history-card.selected {
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.3);
+    box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.3);
 }
 
 .history-card .selection-checkbox {
@@ -4323,8 +4323,8 @@ input[type=number] {
 
 .log-item.error .log-type-tag,
 .log-item.error .log-status {
-    color: var(--accent-purple);
-    background: rgba(168, 85, 247, 0.1);
+    color: #cbd5e1;
+    background: rgba(100, 116, 139, 0.12);
 }
 
 .log-item.warning .log-type-tag {
@@ -4570,12 +4570,12 @@ input[type=number] {
 
 #selection-box {
     position: fixed;
-    border: 1.5px dashed var(--accent-purple);
-    background: rgba(168, 85, 247, 0.15);
+    border: 1.5px dashed var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.12);
     pointer-events: none;
     z-index: 10000;
     border-radius: 2px;
-    box-shadow: 0 0 10px rgba(168, 85, 247, 0.1);
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.08);
 }
 
 /* Search Chips Branding */
@@ -4668,8 +4668,8 @@ input[type=number] {
 }
 
 .side-bar-btn.active {
-    background: rgba(168, 85, 247, 0.15);
-    color: #a855f7;
+    background: rgba(100, 116, 139, 0.16);
+    color: #cbd5e1;
 }
 
 /* Help Panel (Floating) */
@@ -4679,12 +4679,12 @@ input[type=number] {
     bottom: 20px;
     width: 320px;
     max-height: calc(100vh - var(--toolbar-height, 48px) - 40px);
-    background: rgba(22, 22, 42, 0.95);
+    background: linear-gradient(180deg, rgba(17, 20, 26, 0.98), rgba(10, 12, 16, 0.96));
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 20px rgba(168, 85, 247, 0.1);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.54), 0 0 20px rgba(15, 23, 42, 0.12);
     z-index: 7050;
     display: flex;
     flex-direction: column;
@@ -4750,7 +4750,7 @@ input[type=number] {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    color: var(--accent-purple);
+    color: #94a3b8;
     margin: 0 0 10px 0;
     font-weight: 700;
 }
@@ -4798,7 +4798,7 @@ input[type=number] {
     bottom: 0;
     width: 320px;
     border-right: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(22, 22, 42, 0.98);
+    background: linear-gradient(180deg, rgba(17, 20, 26, 0.99), rgba(10, 12, 16, 0.98));
     backdrop-filter: blur(40px);
     box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
     transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -4916,9 +4916,9 @@ input[type=number] {
     height: auto;
     max-height: 100%;
     background: var(--bg-modal);
-    border: 1px solid var(--accent-purple);
+    border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: var(--radius-node);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 20px rgba(168, 85, 247, 0.2);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.62), 0 0 20px rgba(15, 23, 42, 0.2);
 }
 
 #modal-update .modal-body {
@@ -4934,8 +4934,8 @@ input[type=number] {
 }
 
 .update-tag-badge {
-    background: var(--accent-purple);
-    color: white;
+    background: #334155;
+    color: #e2e8f0;
     padding: 4px 12px;
     border-radius: 20px;
     font-weight: 700;
@@ -5112,7 +5112,7 @@ input[type=number] {
     width: 0;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, #60a5fa 0%, #8b5cf6 100%);
+    background: linear-gradient(90deg, #60a5fa 0%, #334155 100%);
     transition: width 0.25s ease;
 }
 
@@ -5157,22 +5157,22 @@ input[type=number] {
     right: 6px;
     width: 8px;
     height: 8px;
-    background-color: var(--accent-purple);
+    background-color: var(--accent-cyan);
     border-radius: 50%;
     border: 2px solid var(--bg-toolbar);
-    box-shadow: 0 0 10px var(--accent-purple);
+    box-shadow: 0 0 10px var(--accent-cyan);
     animation: common-scale-pulse 2s infinite;
-    --pulse-color: rgba(168, 85, 247, 0.7);
+    --pulse-color: rgba(6, 182, 212, 0.7);
 }
 
 .version-badge {
-    background: rgba(168, 85, 247, 0.15);
-    color: var(--accent-purple);
+    background: rgba(100, 116, 139, 0.16);
+    color: #e2e8f0;
     padding: 4px 10px;
     border-radius: 6px;
     font-size: 13px;
     font-weight: 700;
-    border: 1px solid rgba(168, 85, 247, 0.3);
+    border: 1px solid rgba(148, 163, 184, 0.24);
     font-family: 'JetBrains Mono', monospace;
 }
 
@@ -5195,7 +5195,7 @@ input[type=number] {
 }
 
 .update-status-new {
-    color: var(--accent-purple);
+    color: var(--accent-cyan);
     font-weight: 600;
 }
 
@@ -5332,8 +5332,8 @@ input[type=number] {
 .update-canvas-notice {
     width: 100%;
     align-items: center;
-    border-color: rgba(168, 85, 247, 0.28);
-    background: rgba(23, 20, 36, 0.9);
+    border-color: rgba(148, 163, 184, 0.26);
+    background: rgba(12, 15, 20, 0.92);
 }
 
 .update-canvas-notice .notice-icon {
@@ -5343,8 +5343,8 @@ input[type=number] {
     width: 22px;
     height: 22px;
     border-radius: 999px;
-    background: rgba(168, 85, 247, 0.18);
-    color: var(--accent-purple);
+    background: rgba(100, 116, 139, 0.18);
+    color: #cbd5e1;
     font-size: 15px;
     font-weight: 800;
     flex: 0 0 auto;
@@ -5392,9 +5392,9 @@ input[type=number] {
 
 .floating-notice-actions button,
 .update-canvas-notice-actions button {
-    border: 1px solid rgba(168, 85, 247, 0.26);
+    border: 1px solid rgba(148, 163, 184, 0.26);
     border-radius: 6px;
-    background: rgba(168, 85, 247, 0.12);
+    background: rgba(100, 116, 139, 0.12);
     color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
@@ -5405,8 +5405,8 @@ input[type=number] {
 
 .floating-notice-actions button:hover,
 .update-canvas-notice-actions button:hover {
-    background: rgba(168, 85, 247, 0.2);
-    border-color: rgba(168, 85, 247, 0.42);
+    background: rgba(100, 116, 139, 0.2);
+    border-color: rgba(148, 163, 184, 0.42);
 }
 
 .notice-close {

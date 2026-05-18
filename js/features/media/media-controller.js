@@ -1047,7 +1047,7 @@ export function createMediaControllerApi({
         });
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            dropZone.style.borderColor = 'var(--accent-purple)';
+            dropZone.style.borderColor = 'var(--accent-cyan)';
         });
         dropZone.addEventListener('dragleave', () => {
             dropZone.style.borderColor = '';
