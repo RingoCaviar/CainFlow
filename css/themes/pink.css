@@ -399,7 +399,7 @@ html[data-app-theme="pink"] .node-run-cancel-btn {
     background: rgba(255, 241, 242, 0.96);
     border-color: rgba(225, 29, 72, 0.3);
     color: #9f1239;
-    box-shadow: 0 calc(8px / var(--canvas-zoom, 1)) calc(18px / var(--canvas-zoom, 1)) rgba(190, 24, 93, 0.16);
+    box-shadow: 0 8px 18px rgba(190, 24, 93, 0.16);
 }
 
 html[data-app-theme="pink"] .node-run-cancel-btn:hover,
@@ -417,7 +417,7 @@ html[data-app-theme="pink"] .node-clone-badge {
     background: rgba(255, 240, 246, 0.98);
     border-color: rgba(244, 114, 182, 0.28);
     color: #be185d;
-    box-shadow: 0 calc(8px / var(--canvas-zoom, 1)) calc(18px / var(--canvas-zoom, 1)) rgba(244, 114, 182, 0.14);
+    box-shadow: 0 8px 18px rgba(244, 114, 182, 0.14);
 }
 
 html[data-app-theme="pink"] .node-clone-badge:hover,
