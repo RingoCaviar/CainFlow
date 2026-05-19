@@ -125,11 +125,12 @@ def handle_proxy_request(handler):
             proxy_host = state.ACTIVE_PROXY.get('ip')
             proxy_port = state.ACTIVE_PROXY.get('port')
 
-        opener = None
         if proxy_enabled:
             proxy_url = f'http://{proxy_host}:{proxy_port}'
             proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
-            opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=context))
+        else:
+            proxy_handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=context))
 
         try:
             raw_timeout = handler.headers.get('x-proxy-timeout', '300')
@@ -154,10 +155,7 @@ def handle_proxy_request(handler):
 
         def open_upstream():
             try:
-                if opener:
-                    response = opener.open(request, timeout=timeout_val)
-                else:
-                    response = urllib.request.urlopen(request, context=context, timeout=timeout_val)
+                response = opener.open(request, timeout=timeout_val)
                 upstream['response'] = response
                 upstream['status'] = response.status
                 upstream['headers'] = list(response.getheaders())

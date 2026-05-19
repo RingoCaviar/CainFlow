@@ -14,6 +14,11 @@
     --node-concurrent-status-dot-success-glow: rgba(16, 185, 129, 0.5);
     --node-concurrent-status-dot-failed: var(--accent-red);
     --node-concurrent-status-dot-failed-glow: rgba(239, 68, 68, 0.52);
+    --painter-board-bg: #070812;
+    --painter-board-check-a: rgba(255, 255, 255, 0.052);
+    --painter-board-check-b: rgba(0, 0, 0, 0.12);
+    --painter-board-glow: rgba(34, 211, 238, 0.08);
+    --painter-board-sheen: rgba(255, 255, 255, 0.035);
     --connection-flow-color: rgba(168, 85, 247, 0.95);
     --overlay-backdrop: rgba(0, 0, 0, 0.7);
     --surface-soft: rgba(255, 255, 255, 0.03);

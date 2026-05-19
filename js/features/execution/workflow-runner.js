@@ -461,18 +461,18 @@ export function createWorkflowRunnerApi({
                 return result;
             } catch (error) {
                 if (isAbortLikeError(error)) {
-                    markRequestRange('failed', { onlyRunning: true });
+                    markRequestRange('failed', { onlyRunning: true, error });
                     throw error;
                 }
                 const isRetryableRequestError = !!error?.serverResponse ||
                     error?.name === 'TypeError' ||
                     /failed to fetch|networkerror/i.test(String(error?.message || ''));
                 if (!isRetryableRequestError) {
-                    markRequestRange('failed', { onlyRunning: true });
+                    markRequestRange('failed', { onlyRunning: true, error });
                     throw error;
                 }
                 if (attempt >= maxRetries) {
-                    markRequestRange('failed', { onlyRunning: true });
+                    markRequestRange('failed', { onlyRunning: true, error });
                     throw error;
                 }
                 attempt += 1;
@@ -537,26 +537,73 @@ export function createWorkflowRunnerApi({
 
         node.el.appendChild(panel);
 
-        const setDotStatus = (index, status) => {
+        const errorPopover = documentRef.createElement('div');
+        errorPopover.className = 'node-concurrent-status-error-popover hidden';
+        panel.appendChild(errorPopover);
+
+        const formatErrorMessage = (error) => {
+            if (!error) return '请求失败，但没有返回具体错误信息。';
+            if (typeof error === 'string') return error;
+            if (error?.serverResponse?.body) return String(error.serverResponse.body);
+            if (error?.message) return String(error.message);
+            return String(error);
+        };
+
+        const hideErrorPopover = () => {
+            errorPopover.classList.add('hidden');
+            errorPopover.textContent = '';
+        };
+
+        const setDotStatus = (index, status, error = null) => {
             const dot = dots[index];
             if (!dot) return;
             const normalizedStatus = status === 'success' || status === 'failed' ? status : 'running';
             dot.dataset.status = normalizedStatus;
-            dot.title = `Request ${index + 1}: ${normalizedStatus}`;
+            if (normalizedStatus === 'failed') {
+                const errorMessage = formatErrorMessage(error);
+                dot.dataset.error = errorMessage;
+                dot.title = `Request ${index + 1}: failed\n${errorMessage}`;
+                dot.setAttribute('role', 'button');
+                dot.tabIndex = 0;
+            } else {
+                delete dot.dataset.error;
+                dot.title = `Request ${index + 1}: ${normalizedStatus}`;
+                dot.removeAttribute('role');
+                dot.removeAttribute('tabindex');
+            }
         };
+
+        grid.addEventListener('click', (event) => {
+            const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
+            if (!dot || !grid.contains(dot)) return;
+            event.stopPropagation();
+            const message = dot.dataset.error || '请求失败，但没有返回具体错误信息。';
+            errorPopover.textContent = message;
+            errorPopover.classList.remove('hidden');
+        });
+
+        grid.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
+            if (!dot) return;
+            event.preventDefault();
+            dot.click();
+        });
+
+        panel.addEventListener('mouseleave', hideErrorPopover);
 
         return {
             total: safeTotal,
-            mark(index, status) {
-                setDotStatus(index, status);
+            mark(index, status, error = null) {
+                setDotStatus(index, status, error);
             },
-            markRange(start, count, status, { onlyRunning = false } = {}) {
+            markRange(start, count, status, { onlyRunning = false, error = null } = {}) {
                 const safeStart = Math.max(0, parseInt(start, 10) || 0);
                 const safeCount = Math.max(0, parseInt(count, 10) || 0);
                 for (let offset = 0; offset < safeCount; offset += 1) {
                     const index = safeStart + offset;
                     if (onlyRunning && dots[index]?.dataset.status !== 'running') continue;
-                    setDotStatus(index, status);
+                    setDotStatus(index, status, error);
                 }
             }
         };
@@ -566,9 +613,9 @@ export function createWorkflowRunnerApi({
         return {
             requestOffset,
             requestsPerBatch,
-            markRequestStatus(relativeIndex, status) {
+            markRequestStatus(relativeIndex, status, error = null) {
                 const safeIndex = Math.max(0, parseInt(relativeIndex, 10) || 0);
-                requestStatusTracker?.mark(requestOffset + safeIndex, status);
+                requestStatusTracker?.mark(requestOffset + safeIndex, status, error);
             }
         };
     }
@@ -583,7 +630,7 @@ export function createWorkflowRunnerApi({
             requestStatusTracker.markRange(0, requestCount, 'success', { onlyRunning: true });
             return result;
         } catch (error) {
-            requestStatusTracker.markRange(0, requestCount, 'failed', { onlyRunning: true });
+            requestStatusTracker.markRange(0, requestCount, 'failed', { onlyRunning: true, error });
             throw error;
         }
     }

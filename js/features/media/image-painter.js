@@ -117,8 +117,7 @@ export function createImagePainterApi({
             sizeSlider.value = String(currentStrokeWidth);
             sizeValue.textContent = String(currentStrokeWidth);
             const previewSize = Math.max(4, Math.min(24, currentStrokeWidth));
-            sizePreview.style.width = `${previewSize}px`;
-            sizePreview.style.height = `${previewSize}px`;
+            sizePreview.style.setProperty('--painter-size-preview-scale', String(previewSize / 4));
         }
 
         function resetView() {

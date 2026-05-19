@@ -54,7 +54,21 @@ export function createRuntimeControllerApi({
             return Number.isFinite(value) ? value : fallback;
         }
 
+        function isImmersivePreviewOpen() {
+            if (documentRef.querySelector('.fullscreen-overlay')) return true;
+            const historyPreview = documentRef.getElementById('history-preview-modal');
+            if (historyPreview && !historyPreview.classList.contains('hidden')) return true;
+            return false;
+        }
+
         function updatePeekState(event) {
+            if (isImmersivePreviewOpen()) {
+                body.classList.remove('toolbar-peek-active', 'sidebar-peek-active');
+                lastToolbarPeek = false;
+                lastSidebarPeek = false;
+                return;
+            }
+
             const toolbarDistance = getCssPx(documentRef.getElementById('app-container') || toolbar, '--toolbar-peek-height', 100);
             const sidebarDistance = getCssPx(sidebar, '--side-bar-peek-width', 100);
             const toolbarRect = toolbar.getBoundingClientRect();

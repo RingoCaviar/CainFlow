@@ -14,24 +14,26 @@
     box-shadow: var(--node-concurrent-status-panel-shadow, 0 10px 24px rgba(0, 0, 0, 0.28));
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .node-concurrent-status-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(12px, 1fr));
+    grid-template-columns: repeat(5, 14px);
+    justify-content: center;
     gap: 5px;
     align-items: center;
 }
 
 .node-concurrent-status-dot {
-    width: 8px;
-    height: 8px;
+    width: 14px;
+    height: 14px;
     justify-self: center;
     border-radius: 50%;
     background: var(--node-concurrent-status-dot-running, #facc15);
     box-shadow: 0 0 8px var(--node-concurrent-status-dot-running-glow, rgba(250, 204, 21, 0.55));
     transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    pointer-events: none;
 }
 
 .node-concurrent-status-dot[data-status="success"] {
@@ -42,6 +44,42 @@
 .node-concurrent-status-dot[data-status="failed"] {
     background: var(--node-concurrent-status-dot-failed, var(--accent-red));
     box-shadow: 0 0 8px var(--node-concurrent-status-dot-failed-glow, rgba(239, 68, 68, 0.52));
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.node-concurrent-status-dot[data-status="failed"]:hover,
+.node-concurrent-status-dot[data-status="failed"]:focus-visible {
+    transform: scale(1.18);
+    outline: none;
+}
+
+.node-concurrent-status-error-popover {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 8px);
+    width: min(280px, max-content);
+    max-width: 280px;
+    max-height: 140px;
+    overflow: auto;
+    transform: translateX(-50%);
+    z-index: 2;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(248, 113, 113, 0.34);
+    background: rgba(24, 10, 14, 0.96);
+    color: #fecaca;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.node-concurrent-status-error-popover.hidden {
+    display: none;
 }
 
 .node-run-cancel-btn {

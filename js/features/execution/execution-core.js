@@ -1072,8 +1072,8 @@ export function createExecutionCoreApi({
                         { length: generationCount - completedBefore },
                         (_, offset) => completedBefore + offset
                     );
-                    const markConcurrentRequestStatus = (relativeIndex, status) => {
-                        executionContext.concurrentRequestStatus?.markRequestStatus?.(relativeIndex, status);
+                    const markConcurrentRequestStatus = (relativeIndex, status, error = null) => {
+                        executionContext.concurrentRequestStatus?.markRequestStatus?.(relativeIndex, status, error);
                     };
                     const requestResults = await Promise.allSettled(requestIndexes.map((index) => {
                         const nextGenerationIndex = index + 1;
@@ -1098,7 +1098,7 @@ export function createExecutionCoreApi({
                             if (getImageHistorySidebarActive()) renderHistoryList();
                             markConcurrentRequestStatus(index, 'success');
                         }).catch((error) => {
-                            markConcurrentRequestStatus(index, 'failed');
+                            markConcurrentRequestStatus(index, 'failed', error);
                             throw error;
                         });
                     }));

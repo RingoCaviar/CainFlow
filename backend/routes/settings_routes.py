@@ -35,19 +35,17 @@ def _get_provider_models(handler):
     context.verify_mode = ssl.CERT_NONE
 
     request = urllib.request.Request(url, headers=headers, method='GET')
-    opener = None
     if proxy_cfg.get('enabled'):
         proxy_host = str(proxy_cfg.get('ip') or state.ACTIVE_PROXY.get('ip') or '127.0.0.1')
         proxy_port = str(proxy_cfg.get('port') or state.ACTIVE_PROXY.get('port') or '7890')
         proxy_url = f'http://{proxy_host}:{proxy_port}'
         proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
-        opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=context))
+    else:
+        proxy_handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=context))
 
     try:
-        if opener:
-            response = opener.open(request, timeout=35.0)
-        else:
-            response = urllib.request.urlopen(request, context=context, timeout=35.0)
+        response = opener.open(request, timeout=35.0)
         with response:
             raw = response.read()
             status = getattr(response, 'status', 200)

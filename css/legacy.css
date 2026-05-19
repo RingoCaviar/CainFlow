@@ -81,6 +81,12 @@
     --app-chrome-top-offset: 0px;
     --app-chrome-left-offset: 0px;
     --app-chrome-gap: 8px;
+    --painter-board-bg: #050510;
+    --painter-board-check-a: rgba(255, 255, 255, 0.052);
+    --painter-board-check-b: rgba(0, 0, 0, 0.12);
+    --painter-board-glow: rgba(34, 211, 238, 0.08);
+    --painter-board-sheen: rgba(255, 255, 255, 0.035);
+    --painter-board-check-size: 28px;
     --node-select-bg: var(--bg-input);
     --node-select-border: var(--border-input);
     --node-select-text: var(--text-primary);
@@ -287,7 +293,7 @@ body {
     min-height: 48px;
     height: auto;
     flex-wrap: wrap;
-    z-index: 7150;
+    z-index: 7500;
     /* Above the left sidebar so the top menu is never covered; below notices and modals. */
     position: absolute;
     top: 0;
@@ -2968,12 +2974,24 @@ body.is-interacting #canvas-container * {
 }
 
 .painter-size-preview {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 24px;
+}
+
+.painter-size-preview::before {
+    content: "";
     width: 4px;
     height: 4px;
     border-radius: 50%;
     background: currentColor;
     color: var(--accent-cyan);
     box-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
+    transform: scale(var(--painter-size-preview-scale, 1));
+    transition: transform 0.12s ease;
 }
 
 .painter-size-slider {
@@ -3028,7 +3046,23 @@ body.is-interacting #canvas-container * {
     flex: 1;
     position: relative;
     overflow: hidden;
-    background: #050510;
+    background-color: var(--painter-board-bg);
+    background-image:
+        radial-gradient(circle at 50% 42%, var(--painter-board-glow), transparent 42%),
+        linear-gradient(180deg, var(--painter-board-sheen), transparent 38%),
+        conic-gradient(from 45deg,
+            var(--painter-board-check-a) 0 25%,
+            var(--painter-board-check-b) 0 50%,
+            var(--painter-board-check-a) 0 75%,
+            var(--painter-board-check-b) 0);
+    background-position:
+        center,
+        center,
+        0 0;
+    background-size:
+        100% 100%,
+        100% 100%,
+        var(--painter-board-check-size) var(--painter-board-check-size);
 }
 
 #painter-canvas {
@@ -4861,12 +4895,11 @@ input[type=number] {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     gap: 8px;
-    /* Move button back to the top as requested */
-    padding-top: 20px;
-    z-index: 7100;
-    /* Higher than drawers to ensure buttons are never blocked */
+    padding: 20px 0;
+    z-index: 7400;
+    /* Above left-side drawers so sidebar buttons stay clickable and visually on top. */
     backdrop-filter: blur(20px);
     transform: translateX(-100%);
     opacity: 0.86;
@@ -4914,7 +4947,7 @@ body.sidebar-peek-active #side-bar,
 body.sidebar-pinned #side-bar {
     transform: translateX(0);
     opacity: 1;
-    box-shadow: 12px 0 36px rgba(0, 0, 0, 0.16);
+    box-shadow: none;
 }
 
 #side-bar:hover::after,
@@ -4974,6 +5007,11 @@ body.sidebar-pinned #side-bar::after {
     color: var(--sidebar-btn-active-text);
 }
 
+#side-bar .help-btn {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
 @media (hover: none), (pointer: coarse) {
     #toolbar {
         transform: translateY(0);
@@ -5009,7 +5047,7 @@ body.sidebar-pinned #side-bar::after {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     box-shadow: var(--panel-shadow-strong);
-    z-index: 7050;
+    z-index: 7300;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -5118,15 +5156,18 @@ body.sidebar-pinned #side-bar::after {
 .drawer-left {
     left: -400px;
     right: auto;
-    top: 0;
-    bottom: 0;
+    top: auto;
+    bottom: 20px;
     width: 320px;
+    height: min(720px, calc(100% - 40px));
+    max-height: calc(100% - 40px);
     border-right: 1px solid var(--panel-border-strong);
+    border-radius: 0 16px 16px 0;
     background: var(--panel-bg-strong);
     backdrop-filter: blur(40px);
     box-shadow: var(--panel-shadow-strong);
     transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 7000;
+    z-index: 7300;
 }
 
 .drawer-left.active {
@@ -5675,15 +5716,18 @@ body.sidebar-pinned #side-bar::after {
 #floating-notices-container {
     position: absolute;
     top: 14px;
-    left: 76px; /* Space for sidebar (60px) + offset */
+    left: 14px;
     z-index: 7200; /* Above auto-hide toolbar/sidebar hot zones, below modals */
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
-    width: min(420px, calc(100% - 96px));
+    width: min(420px, calc(100% - 28px));
     pointer-events: none;
-    transition: top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+        top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        left 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        width 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 #toolbar:hover + #main-layout #floating-notices-container,
@@ -5693,6 +5737,15 @@ body.sidebar-pinned #side-bar::after {
 body.toolbar-peek-active #toolbar + #main-layout #floating-notices-container,
 body.toolbar-pinned #toolbar + #main-layout #floating-notices-container {
     top: calc(var(--toolbar-height, 48px) + 12px);
+}
+
+#toolbar + #main-layout #side-bar:hover ~ #floating-notices-container,
+#toolbar + #main-layout #side-bar:focus-within ~ #floating-notices-container,
+#toolbar + #main-layout #side-bar:has(.side-bar-btn.active) ~ #floating-notices-container,
+body.sidebar-peek-active #toolbar + #main-layout #floating-notices-container,
+body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
+    left: 76px;
+    width: min(420px, calc(100% - 90px));
 }
 
 .floating-notice {

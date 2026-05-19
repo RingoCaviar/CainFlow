@@ -44,6 +44,11 @@
     --node-concurrent-status-dot-success-glow: rgba(5, 150, 105, 0.28);
     --node-concurrent-status-dot-failed: var(--accent-red);
     --node-concurrent-status-dot-failed-glow: rgba(220, 38, 38, 0.26);
+    --painter-board-bg: #d8e2ec;
+    --painter-board-check-a: rgba(255, 255, 255, 0.46);
+    --painter-board-check-b: rgba(100, 116, 139, 0.1);
+    --painter-board-glow: rgba(14, 116, 144, 0.12);
+    --painter-board-sheen: rgba(255, 255, 255, 0.45);
     --node-select-bg: rgba(255, 255, 255, 0.96);
     --node-select-border: rgba(100, 116, 139, 0.28);
     --node-select-text: var(--text-primary);
@@ -746,13 +751,6 @@ html[data-app-theme="light"] .painter-size-value {
     background: rgba(255, 255, 255, 0.78);
     color: var(--text-secondary);
     box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
-}
-
-html[data-app-theme="light"] .painter-canvas-container {
-    background:
-        radial-gradient(circle, rgba(148, 163, 184, 0.28) 1px, transparent 1px),
-        #eef2f7;
-    background-size: 18px 18px;
 }
 
 html[data-app-theme="light"] #painter-canvas {

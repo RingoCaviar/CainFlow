@@ -69,6 +69,8 @@ def _open_github_url(url, timeout):
         proxy_port = str(state.ACTIVE_PROXY.get('port') or '7890')
         proxy_url = f'http://{proxy_host}:{proxy_port}'
         handlers.insert(0, urllib_request.ProxyHandler({'http': proxy_url, 'https': proxy_url}))
+    else:
+        handlers.insert(0, urllib_request.ProxyHandler({}))
 
     opener = urllib_request.build_opener(*handlers)
     request = urllib_request.Request(

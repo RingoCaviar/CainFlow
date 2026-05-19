@@ -44,6 +44,11 @@
     --node-concurrent-status-dot-success-glow: rgba(16, 185, 129, 0.28);
     --node-concurrent-status-dot-failed: var(--accent-red);
     --node-concurrent-status-dot-failed-glow: rgba(225, 29, 72, 0.3);
+    --painter-board-bg: #ffe5ef;
+    --painter-board-check-a: rgba(255, 255, 255, 0.52);
+    --painter-board-check-b: rgba(236, 72, 153, 0.09);
+    --painter-board-glow: rgba(236, 72, 153, 0.14);
+    --painter-board-sheen: rgba(255, 255, 255, 0.42);
     --node-select-bg: rgba(255, 252, 254, 0.96);
     --node-select-border: rgba(236, 72, 153, 0.24);
     --node-select-text: var(--text-primary);
