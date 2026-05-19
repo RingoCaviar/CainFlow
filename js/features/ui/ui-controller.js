@@ -25,6 +25,7 @@ export function createUiControllerApi({
     applyHistoryGridCols,
     applyTheme = () => {},
     applyGlobalAnimationSetting = () => {},
+    applyCanvasUiSetting = () => {},
     updateAllConnections = () => {},
     saveState,
     showToast,
@@ -56,6 +57,8 @@ export function createUiControllerApi({
                 imageAutoResizeEnabled: state.imageAutoResizeEnabled,
                 imageMaxPixels: state.imageMaxPixels,
                 connectionLineType: state.connectionLineType,
+                toolbarPinned: state.toolbarPinned === true,
+                sidebarPinned: state.sidebarPinned === true,
                 globalAnimationEnabled: state.globalAnimationEnabled,
                 connectionFlowAnimationEnabled: state.globalAnimationEnabled,
                 proxy: state.proxy ? { ...state.proxy } : null,
@@ -201,6 +204,16 @@ export function createUiControllerApi({
             state.connectionLineType = settings.connectionLineType === 'orthogonal' ? 'orthogonal' : 'bezier';
             updateAllConnections();
         }
+
+        if (settings.toolbarPinned !== undefined) {
+            state.toolbarPinned = settings.toolbarPinned === true;
+        }
+
+        if (settings.sidebarPinned !== undefined) {
+            state.sidebarPinned = settings.sidebarPinned === true;
+        }
+
+        applyCanvasUiSetting();
 
         if (settings.globalAnimationEnabled !== undefined || settings.connectionFlowAnimationEnabled !== undefined) {
             state.globalAnimationEnabled = settings.globalAnimationEnabled !== undefined

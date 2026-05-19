@@ -85,6 +85,7 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.customResolution = serialized.customWidth && serialized.customHeight
                         ? `${serialized.customWidth}x${serialized.customHeight}`
                         : '';
+                    serialized.quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                 } else {
@@ -162,6 +163,8 @@ export function createNodeSerializer({ state, documentRef }) {
             imageAutoResizeEnabled: state.imageAutoResizeEnabled,
             imageMaxPixels: state.imageMaxPixels,
             connectionLineType: state.connectionLineType,
+            toolbarPinned: state.toolbarPinned === true,
+            sidebarPinned: state.sidebarPinned === true,
             globalAnimationEnabled: state.globalAnimationEnabled,
             connectionFlowAnimationEnabled: state.globalAnimationEnabled,
             proxy: state.proxy,

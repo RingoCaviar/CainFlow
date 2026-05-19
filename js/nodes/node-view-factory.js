@@ -327,6 +327,9 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const isOpenAiModel = !!selectedModel && getEffectiveProtocol(selectedModel, selectedProvider) === 'openai';
     const showResolutionParamNote = isOpenAiModel;
     const showCustomResolution = rd.resolution === 'custom';
+    const imageQuality = ['low', 'medium', 'high'].includes(String(rd.quality || '').toLowerCase())
+        ? String(rd.quality).toLowerCase()
+        : 'auto';
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
     const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
     const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
@@ -368,6 +371,14 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             </select>
             <div class="image-resolution-param-note ${showResolutionParamNote ? '' : 'hidden'}" id="${id}-resolution-param-note">很多中转 API 并不支持 Size 参数，所以你设置分辨率是无效的</div>
         </div>
+        <div class="node-field ${isOpenAiModel ? '' : 'hidden'}" id="${id}-quality-field"><label>质量</label>
+            <select id="${id}-quality">
+                <option value="auto" ${imageQuality === 'auto' ? 'selected' : ''}>自动</option>
+                <option value="low" ${imageQuality === 'low' ? 'selected' : ''}>低</option>
+                <option value="medium" ${imageQuality === 'medium' ? 'selected' : ''}>中</option>
+                <option value="high" ${imageQuality === 'high' ? 'selected' : ''}>高</option>
+            </select>
+        </div>
         <div class="node-field ${showCustomResolution ? '' : 'hidden'}" id="${id}-custom-resolution-field">
             <label>自定义分辨率</label>
             <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;">
@@ -380,7 +391,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         <div class="node-field node-field-row"><label>启用搜索</label>
             <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         <div class="node-field" style="margin-top:-4px;">
-            <div style="font-size:11px;color:var(--text-dim);line-height:1.45;">提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词和 size。</div>
+            <div style="font-size:11px;color:var(--text-dim);line-height:1.45;">提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality。</div>
         </div>
         <div class="node-field node-field-expand"><label>提示词</label>
             <textarea id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>

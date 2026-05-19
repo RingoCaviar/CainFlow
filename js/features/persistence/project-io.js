@@ -26,7 +26,8 @@ export function createProjectIoApi({
     viewportApi,
     showToast,
     applyTheme = () => {},
-    applyGlobalAnimationSetting = () => {}
+    applyGlobalAnimationSetting = () => {},
+    applyCanvasUiSetting = () => {}
 }) {
     function normalizeStoredProvider(provider, index) {
         return {
@@ -130,6 +131,8 @@ export function createProjectIoApi({
                     imageAutoResizeEnabled: currentState.imageAutoResizeEnabled !== undefined ? currentState.imageAutoResizeEnabled : state.imageAutoResizeEnabled,
                     imageMaxPixels: currentState.imageMaxPixels !== undefined ? currentState.imageMaxPixels : state.imageMaxPixels,
                     connectionLineType: currentState.connectionLineType !== undefined ? currentState.connectionLineType : state.connectionLineType,
+                    toolbarPinned: currentState.toolbarPinned !== undefined ? currentState.toolbarPinned : state.toolbarPinned,
+                    sidebarPinned: currentState.sidebarPinned !== undefined ? currentState.sidebarPinned : state.sidebarPinned,
                     globalAnimationEnabled: currentState.globalAnimationEnabled !== undefined
                         ? currentState.globalAnimationEnabled
                         : (currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.globalAnimationEnabled),
@@ -234,6 +237,13 @@ export function createProjectIoApi({
             if (data.connectionLineType !== undefined) {
                 state.connectionLineType = data.connectionLineType === 'orthogonal' ? 'orthogonal' : 'bezier';
             }
+            if (data.toolbarPinned !== undefined) {
+                state.toolbarPinned = data.toolbarPinned === true;
+            }
+            if (data.sidebarPinned !== undefined) {
+                state.sidebarPinned = data.sidebarPinned === true;
+            }
+            applyCanvasUiSetting();
             if (data.globalAnimationEnabled !== undefined || data.connectionFlowAnimationEnabled !== undefined) {
                 state.globalAnimationEnabled = data.globalAnimationEnabled !== undefined
                     ? data.globalAnimationEnabled !== false

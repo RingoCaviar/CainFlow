@@ -57,6 +57,7 @@ import { createErrorModalControllerApi } from './js/features/ui/error-modal-cont
 import { createRuntimeControllerApi } from './js/features/ui/runtime-controller.js';
 import { createThemeControllerApi } from './js/features/ui/theme-controller.js';
 import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } from './js/features/ui/animation-controller.js';
+import { applyCanvasUiSetting as applyCanvasUiSettingService } from './js/features/ui/canvas-ui-controller.js';
 import { createToolbarControllerApi } from './js/features/ui/toolbar-controller.js';
 import { createToastControllerApi } from './js/features/ui/toast-controller.js';
 import { createFloatingNoticesController } from './js/features/ui/floating-notices-controller.js';
@@ -177,6 +178,10 @@ function applyGlobalAnimationSetting() {
     return applyGlobalAnimationSettingService({ state, documentRef: document });
 }
 
+function applyCanvasUiSetting() {
+    return applyCanvasUiSettingService({ state, documentRef: document });
+}
+
 async function renderHistoryList() {
     await getHistoryPanelApi().renderHistoryList();
     if (historyFullscreenApi?.isOpen()) {
@@ -194,6 +199,7 @@ const panelManager = createPanelManager(document, canvasContainer);
 // ===== 应用状态 =====
 const state = createInitialState();
 applyGlobalAnimationSettingService({ state, documentRef: document });
+applyCanvasUiSettingService({ state, documentRef: document });
 
 // Save 节点使用的目录句柄（不可序列化）
 const dirHandles = new Map();
@@ -593,7 +599,8 @@ function getProjectIoApi() {
             viewportApi,
             showToast,
             applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
-            applyGlobalAnimationSetting
+            applyGlobalAnimationSetting,
+            applyCanvasUiSetting
         });
     }
     return projectIoApi;
@@ -622,6 +629,7 @@ function getUiControllerApi() {
             applyHistoryGridCols,
             applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting,
+            applyCanvasUiSetting,
             updateAllConnections,
             saveState,
             showToast,
@@ -994,6 +1002,7 @@ settingsControllerApi = createSettingsControllerApi({
     cancelUpdateDownload: () => updateManager.cancelUpdateDownload(),
     updateAllConnections,
     applyGlobalAnimationSetting,
+    applyCanvasUiSetting,
     fitNodeToContent
 });
 historyPreviewApi = createHistoryPreviewApi({

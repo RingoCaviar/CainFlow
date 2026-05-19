@@ -44,6 +44,17 @@
     --node-concurrent-status-dot-success-glow: rgba(16, 185, 129, 0.28);
     --node-concurrent-status-dot-failed: var(--accent-red);
     --node-concurrent-status-dot-failed-glow: rgba(225, 29, 72, 0.3);
+    --node-select-bg: rgba(255, 252, 254, 0.96);
+    --node-select-border: rgba(236, 72, 153, 0.24);
+    --node-select-text: var(--text-primary);
+    --node-select-caret: #aa7d95;
+    --node-select-focus-border: rgba(236, 72, 153, 0.34);
+    --node-select-focus-shadow: 0 0 0 3px rgba(236, 72, 153, 0.12);
+    --node-select-panel-bg: rgba(255, 248, 252, 0.98);
+    --node-select-panel-border: rgba(244, 114, 182, 0.24);
+    --node-select-panel-shadow: 0 18px 42px rgba(190, 24, 93, 0.15);
+    --node-select-option-hover-bg: rgba(244, 114, 182, 0.1);
+    --node-select-option-selected-bg: rgba(236, 72, 153, 0.14);
     --overlay-backdrop: rgba(76, 5, 25, 0.22);
     --surface-soft: rgba(244, 114, 182, 0.05);
     --surface-muted: rgba(244, 114, 182, 0.08);

@@ -259,9 +259,6 @@ export function createNodeDomBindingsApi({
                 return;
             }
 
-            const dotRect = dot.getBoundingClientRect();
-            const containerRect = canvasContainer.getBoundingClientRect();
-            const { x: cx, y: cy, zoom } = state.canvas;
             const existingInputConnection = portEl.dataset.direction === 'input'
                 ? state.connections.find((connection) => (
                     connection.to.nodeId === portEl.dataset.nodeId &&
@@ -311,13 +308,18 @@ export function createNodeDomBindingsApi({
                 return;
             }
 
+            const startPosition = getPortPosition(
+                portEl.dataset.nodeId,
+                portEl.dataset.port,
+                portEl.dataset.direction
+            );
             state.connecting = {
                 nodeId: portEl.dataset.nodeId,
                 portName: portEl.dataset.port,
                 dataType: portEl.dataset.type,
                 isOutput: portEl.dataset.direction === 'output',
-                startX: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
-                startY: (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom,
+                startX: startPosition.x,
+                startY: startPosition.y,
                 screenX: e.clientX,
                 screenY: e.clientY,
                 dragged: false
@@ -1181,6 +1183,7 @@ export function createNodeDomBindingsApi({
         resolutionSelect.value = normalizedValue;
         const isOpenAiModel = getEffectiveProtocol(model, provider) === 'openai';
         updateImageGenerateAspectVisibility(id, isOpenAiModel);
+        updateImageGenerateQualityVisibility(id, isOpenAiModel);
         updateImageGenerateResolutionParamNote(id, isOpenAiModel);
         updateImageGenerateCustomResolutionVisibility(id);
     }
@@ -1189,6 +1192,12 @@ export function createNodeDomBindingsApi({
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
         if (!aspectField) return;
         aspectField.classList.toggle('hidden', isOpenAiModel);
+    }
+
+    function updateImageGenerateQualityVisibility(id, isOpenAiModel) {
+        const qualityField = documentRef.getElementById(`${id}-quality-field`);
+        if (!qualityField) return;
+        qualityField.classList.toggle('hidden', !isOpenAiModel);
     }
 
     function updateImageGenerateResolutionParamNote(id, isOpenAiModel) {

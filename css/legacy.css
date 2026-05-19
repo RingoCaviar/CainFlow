@@ -78,6 +78,17 @@
     --notice-action-hover-bg: rgba(168, 85, 247, 0.2);
     --notice-action-hover-border: rgba(168, 85, 247, 0.42);
     --notice-close-hover-bg: rgba(255, 255, 255, 0.06);
+    --node-select-bg: var(--bg-input);
+    --node-select-border: var(--border-input);
+    --node-select-text: var(--text-primary);
+    --node-select-caret: var(--text-dim);
+    --node-select-focus-border: var(--accent-primary);
+    --node-select-focus-shadow: none;
+    --node-select-panel-bg: rgba(22, 22, 42, 0.98);
+    --node-select-panel-border: rgba(255, 255, 255, 0.1);
+    --node-select-panel-shadow: 0 16px 44px rgba(0, 0, 0, 0.3);
+    --node-select-option-hover-bg: rgba(168, 85, 247, 0.14);
+    --node-select-option-selected-bg: rgba(168, 85, 247, 0.18);
     --workflow-card-bg: rgba(255, 255, 255, 0.03);
     --workflow-card-border: rgba(255, 255, 255, 0.06);
     --workflow-card-hover-bg: rgba(255, 255, 255, 0.07);
@@ -237,6 +248,8 @@ body {
     width: 100%;
     height: 100%;
     overflow: hidden;
+    position: relative;
+    --toolbar-peek-height: 14px;
 }
 
 #main-layout {
@@ -265,8 +278,70 @@ body {
     flex-wrap: wrap;
     z-index: 6001;
     /* Stay below drawers (7000) and modals (8000) to ensure content is never obscured */
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     flex-shrink: 0;
+    transform: translateY(-100%);
+    opacity: 0.9;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0);
+    transition:
+        transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.18s ease,
+        box-shadow 0.22s ease;
+    will-change: transform;
+}
+
+#toolbar::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(-1 * var(--toolbar-peek-height));
+    height: var(--toolbar-peek-height);
+    background: transparent;
+}
+
+#toolbar::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: calc(-1 * var(--toolbar-peek-height) + 2px);
+    width: 92px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--accent-purple);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--accent-purple) 40%, transparent);
+    opacity: 0.38;
+    transform: translateX(-50%);
+    pointer-events: none;
+    transition:
+        opacity 0.18s ease,
+        transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#toolbar:hover,
+#toolbar:focus-within,
+#toolbar:has(.btn.active),
+#toolbar:has([aria-expanded="true"]),
+body.toolbar-pinned #toolbar {
+    transform: translateY(0);
+    opacity: 1;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+}
+
+#toolbar:hover::after,
+#toolbar:focus-within::after,
+#toolbar:has(.btn.active)::after,
+#toolbar:has([aria-expanded="true"])::after,
+body.toolbar-pinned #toolbar::after {
+    opacity: 0;
+    transform: translateX(-50%) scaleX(0.72);
+}
+
+html[data-app-theme] body:not(.toolbar-pinned) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active)):not(:has([aria-expanded="true"])) {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0);
 }
 
 .toolbar-left,
@@ -1363,21 +1438,22 @@ body {
     justify-content: space-between;
     gap: 10px;
     padding: 7px 10px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-input);
+    background: var(--node-select-bg);
+    border: 1px solid var(--node-select-border);
     border-radius: var(--radius-xs);
-    color: var(--text-primary);
+    color: var(--node-select-text);
     font-family: var(--font);
     font-size: 12px;
     text-align: left;
     cursor: pointer;
-    transition: border-color var(--transition);
+    transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
 
 .node-select-trigger:hover,
 .node-select.open .node-select-trigger,
 .node-select-trigger[aria-expanded="true"] {
-    border-color: var(--accent-purple);
+    border-color: var(--node-select-focus-border);
+    box-shadow: var(--node-select-focus-shadow);
 }
 
 .node-select-trigger-label {
@@ -1389,7 +1465,7 @@ body {
 
 .node-select-trigger-caret {
     flex-shrink: 0;
-    color: var(--text-dim);
+    color: var(--node-select-caret);
     font-size: 12px;
 }
 
@@ -1402,10 +1478,10 @@ body {
     max-height: 220px;
     overflow: auto;
     padding: 6px;
-    background: rgba(22, 22, 42, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--node-select-panel-bg);
+    border: 1px solid var(--node-select-panel-border);
     border-radius: 8px;
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--node-select-panel-shadow);
     overscroll-behavior: contain;
 }
 
@@ -1429,7 +1505,11 @@ body {
 
 .node-select-option:hover,
 .node-select-option.selected {
-    background: rgba(168, 85, 247, 0.14);
+    background: var(--node-select-option-hover-bg);
+}
+
+.node-select-option.selected {
+    background: var(--node-select-option-selected-bg);
 }
 
 .node-select-option:disabled {
@@ -4718,6 +4798,7 @@ input[type=number] {
     top: 0;
     bottom: 0;
     width: 60px;
+    --side-bar-peek-width: 14px;
     background: var(--sidebar-bg);
     border-right: 1px solid var(--sidebar-border);
     display: flex;
@@ -4730,6 +4811,48 @@ input[type=number] {
     z-index: 7100;
     /* Higher than drawers to ensure buttons are never blocked */
     backdrop-filter: blur(20px);
+    transform: translateX(calc(-100% + var(--side-bar-peek-width)));
+    opacity: 0.86;
+    transition:
+        transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.18s ease,
+        box-shadow 0.22s ease;
+    will-change: transform;
+}
+
+#side-bar::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: -5px;
+    width: 10px;
+    height: 76px;
+    border-radius: 999px;
+    background: var(--sidebar-btn-active-text);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--sidebar-btn-active-text) 40%, transparent);
+    opacity: 0.38;
+    transform: translateY(-50%);
+    pointer-events: none;
+    transition:
+        opacity 0.18s ease,
+        transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#side-bar:hover,
+#side-bar:focus-within,
+#side-bar:has(.side-bar-btn.active),
+body.sidebar-pinned #side-bar {
+    transform: translateX(0);
+    opacity: 1;
+    box-shadow: 12px 0 36px rgba(0, 0, 0, 0.16);
+}
+
+#side-bar:hover::after,
+#side-bar:focus-within::after,
+#side-bar:has(.side-bar-btn.active)::after,
+body.sidebar-pinned #side-bar::after {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0.72);
 }
 
 .side-bar-btn {
@@ -4778,6 +4901,26 @@ input[type=number] {
 .side-bar-btn.active {
     background: var(--sidebar-btn-active-bg);
     color: var(--sidebar-btn-active-text);
+}
+
+@media (hover: none), (pointer: coarse) {
+    #toolbar {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    #toolbar::after {
+        display: none;
+    }
+
+    #side-bar {
+        transform: translateX(0);
+        opacity: 1;
+    }
+
+    #side-bar::after {
+        display: none;
+    }
 }
 
 /* Help Panel (Floating) */
@@ -5458,7 +5601,7 @@ input[type=number] {
 /* Floating Refresh / Update Notices */
 #floating-notices-container {
     position: absolute;
-    top: 16px;
+    top: calc(var(--toolbar-peek-height, 14px) + 14px);
     left: 76px; /* Space for sidebar (60px) + offset */
     z-index: 50; /* Inside canvas container context */
     display: flex;
@@ -5467,6 +5610,15 @@ input[type=number] {
     gap: 10px;
     width: min(420px, calc(100% - 96px));
     pointer-events: none;
+    transition: top 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#toolbar:hover + #main-layout #floating-notices-container,
+#toolbar:focus-within + #main-layout #floating-notices-container,
+#toolbar:has(.btn.active) + #main-layout #floating-notices-container,
+#toolbar:has([aria-expanded="true"]) + #main-layout #floating-notices-container,
+body.toolbar-pinned #toolbar + #main-layout #floating-notices-container {
+    top: calc(var(--toolbar-height, 48px) + 12px);
 }
 
 .floating-notice {

@@ -39,6 +39,7 @@ export function createSettingsControllerApi({
     cancelUpdateDownload = () => {},
     updateAllConnections = () => {},
     applyGlobalAnimationSetting = () => {},
+    applyCanvasUiSetting = () => {},
     fitNodeToContent = () => {},
     documentRef = document,
     windowRef = window,
@@ -1182,6 +1183,8 @@ export function createSettingsControllerApi({
         const currentSide = Math.round(Math.sqrt(state.imageMaxPixels || 4194304));
         const autoResizeEnabled = state.imageAutoResizeEnabled !== false;
         const connectionLineType = state.connectionLineType || 'bezier';
+        const toolbarPinned = state.toolbarPinned === true;
+        const sidebarPinned = state.sidebarPinned === true;
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
@@ -1398,7 +1401,7 @@ export function createSettingsControllerApi({
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求，并对失败项自动重试，全部成功后才继续下游节点。</p>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。</p>
                     </div>
                     <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
@@ -1418,7 +1421,7 @@ export function createSettingsControllerApi({
             </div>
             <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布连线</span>
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布UI</span>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
                     <div class="card-field">
@@ -1428,6 +1431,26 @@ export function createSettingsControllerApi({
                             <option value="orthogonal" ${connectionLineType === 'orthogonal' ? 'selected' : ''}>直角连线（圆角）</option>
                         </select>
                         <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height:1.4;">切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。</p>
+                    </div>
+                    <div class="card-field" style="margin-top:14px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                            <label style="margin:0;">顶部菜单栏固定显示</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-toolbar-pinned" ${toolbarPinned ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。</p>
+                    </div>
+                    <div class="card-field" style="margin-top:14px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                            <label style="margin:0;">左侧工具栏固定显示</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-sidebar-pinned" ${sidebarPinned ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。</p>
                     </div>
                     <div class="card-field" style="margin-top:14px;">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
@@ -1475,6 +1498,8 @@ export function createSettingsControllerApi({
         const timeoutSecondsInput = documentRef.getElementById('setting-timeout-seconds');
         const concurrentRequestModeInput = documentRef.getElementById('setting-concurrent-request-mode');
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
+        const toolbarPinnedInput = documentRef.getElementById('setting-toolbar-pinned');
+        const sidebarPinnedInput = documentRef.getElementById('setting-sidebar-pinned');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
@@ -1587,6 +1612,18 @@ export function createSettingsControllerApi({
             saveState();
         });
 
+        toolbarPinnedInput?.addEventListener('change', (e) => {
+            state.toolbarPinned = e.target.checked;
+            applyCanvasUiSetting();
+            saveState();
+        });
+
+        sidebarPinnedInput?.addEventListener('change', (e) => {
+            state.sidebarPinned = e.target.checked;
+            applyCanvasUiSetting();
+            saveState();
+        });
+
         globalAnimationInput?.addEventListener('change', (e) => {
             state.globalAnimationEnabled = e.target.checked;
             state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
@@ -1653,6 +1690,8 @@ export function createSettingsControllerApi({
         const isOpenAiModel = getEffectiveProtocol(model, provider) === 'openai';
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
         if (aspectField) aspectField.classList.toggle('hidden', isOpenAiModel);
+        const qualityField = documentRef.getElementById(`${id}-quality-field`);
+        if (qualityField) qualityField.classList.toggle('hidden', !isOpenAiModel);
         const note = documentRef.getElementById(`${id}-resolution-param-note`);
         if (note) note.classList.toggle('hidden', !isOpenAiModel);
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);

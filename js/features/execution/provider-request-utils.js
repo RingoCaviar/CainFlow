@@ -351,13 +351,18 @@ function normalizeOpenAiImageSize(resolution) {
     return /^\d{2,5}x\d{2,5}$/.test(value) ? value : '';
 }
 
+function normalizeOpenAiImageQuality(quality) {
+    const value = String(quality || '').trim().toLowerCase();
+    return value === 'low' || value === 'medium' || value === 'high' ? value : '';
+}
+
 function getOpenAiReferenceImages(inputs = {}) {
     return IMAGE_INPUT_KEYS
         .map((key) => inputs[key])
         .filter((value) => typeof value === 'string' && value.trim());
 }
 
-export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs = {} }) {
+export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs = {} }) {
     const requestBody = {
         model: modelCfg.modelId,
         prompt,
@@ -366,6 +371,9 @@ export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs =
 
     const size = normalizeOpenAiImageSize(resolution);
     if (size) requestBody.size = size;
+
+    const normalizedQuality = normalizeOpenAiImageQuality(quality);
+    if (normalizedQuality) requestBody.quality = normalizedQuality;
 
     const referenceImages = getOpenAiReferenceImages(inputs);
     if (referenceImages.length > 0) requestBody.reference_images = referenceImages;

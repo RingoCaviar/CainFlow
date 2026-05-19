@@ -36,6 +36,12 @@ export function createCanvasInteractionsApi({
     const SHAKE_MIN_REVERSALS = 4;
     const SHAKE_MIN_TRAVEL = 120;
     const SHAKE_REVERSE_DOT = -0.45;
+    const OUTPUT_PORT_TRANSITION = 28;
+    const INPUT_PORT_TURN_LEAD = 72;
+    const PAIR_LANE_GAP = 14;
+    const PORT_LANE_GAP = 6;
+    const NODE_LANE_GAP = 4;
+    const MAX_LANE_OFFSET = 42;
 
     function scheduleUIUpdate() {
         if (rafUpdate) return;
@@ -98,6 +104,64 @@ export function createCanvasInteractionsApi({
 
     function hasRunningEndpoint(connection) {
         return isNodeRunning(connection.from.nodeId) || isNodeRunning(connection.to.nodeId);
+    }
+
+    function clampLaneOffset(value) {
+        return Math.max(-MAX_LANE_OFFSET, Math.min(MAX_LANE_OFFSET, value));
+    }
+
+    function getPortOrder(nodeId, portName, direction) {
+        const node = state.nodes.get(nodeId);
+        const ports = Array.from(node?.el?.querySelectorAll?.(`.node-port[data-direction="${direction}"]`) || []);
+        const index = ports.findIndex((portEl) => portEl.dataset.port === portName);
+        return index >= 0 ? index : ports.length;
+    }
+
+    function compareConnectionsForLane(a, b) {
+        const fromA = state.nodes.get(a.from?.nodeId);
+        const fromB = state.nodes.get(b.from?.nodeId);
+        const toA = state.nodes.get(a.to?.nodeId);
+        const toB = state.nodes.get(b.to?.nodeId);
+        return ((fromA?.y ?? 0) - (fromB?.y ?? 0)) ||
+            ((toA?.y ?? 0) - (toB?.y ?? 0)) ||
+            (getPortOrder(a.from?.nodeId, a.from?.port, 'output') - getPortOrder(b.from?.nodeId, b.from?.port, 'output')) ||
+            (getPortOrder(a.to?.nodeId, a.to?.port, 'input') - getPortOrder(b.to?.nodeId, b.to?.port, 'input')) ||
+            String(a.id || '').localeCompare(String(b.id || ''));
+    }
+
+    function addCenteredLaneOffsets(laneById, group, gap, weight = 1) {
+        if (!Array.isArray(group) || group.length <= 1) return;
+        const sorted = group.slice().sort(compareConnectionsForLane);
+        const center = (sorted.length - 1) / 2;
+        sorted.forEach((connection, index) => {
+            const current = laneById.get(connection.id) || 0;
+            laneById.set(connection.id, clampLaneOffset(current + (index - center) * gap * weight));
+        });
+    }
+
+    function buildConnectionLaneMap() {
+        const laneById = new Map();
+        const pairGroups = new Map();
+        const outputGroups = new Map();
+        const targetGroups = new Map();
+
+        state.connections.forEach((connection) => {
+            if (!connection?.id || !state.nodes.has(connection.from?.nodeId) || !state.nodes.has(connection.to?.nodeId)) return;
+            const pairKey = `${connection.from.nodeId}->${connection.to.nodeId}`;
+            const outputKey = `${connection.from.nodeId}:${connection.from.port}`;
+            const targetKey = `${connection.to.nodeId}`;
+            if (!pairGroups.has(pairKey)) pairGroups.set(pairKey, []);
+            if (!outputGroups.has(outputKey)) outputGroups.set(outputKey, []);
+            if (!targetGroups.has(targetKey)) targetGroups.set(targetKey, []);
+            pairGroups.get(pairKey).push(connection);
+            outputGroups.get(outputKey).push(connection);
+            targetGroups.get(targetKey).push(connection);
+        });
+
+        pairGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PAIR_LANE_GAP, 1));
+        outputGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PORT_LANE_GAP, 0.7));
+        targetGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, NODE_LANE_GAP, 0.55));
+        return laneById;
     }
 
     function clearShakeDetachVisuals(draggingState) {
@@ -266,6 +330,7 @@ export function createCanvasInteractionsApi({
 
                 let changed = false;
                 const connectionsToRemove = new Set();
+                const laneById = buildConnectionLaneMap();
 
                 for (const conn of state.connections) {
                     if (hasRunningEndpoint(conn)) continue;
@@ -277,7 +342,12 @@ export function createCanvasInteractionsApi({
                         from.y,
                         to.x,
                         to.y,
-                        { type: state.connectionLineType || 'bezier' }
+                        {
+                            type: state.connectionLineType || 'bezier',
+                            outputTransition: OUTPUT_PORT_TRANSITION,
+                            inputTransition: INPUT_PORT_TURN_LEAD,
+                            laneOffset: laneById.get(conn.id) || 0
+                        }
                     );
 
                     for (let i = 1; i < samplePoints.length; i++) {

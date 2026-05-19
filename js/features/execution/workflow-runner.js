@@ -418,6 +418,7 @@ export function createWorkflowRunnerApi({
     }
 
     function getConcurrentRequestRetryLimit() {
+        if (state.autoRetry !== true) return 0;
         const retries = parseInt(state.maxRetries, 10);
         return Number.isFinite(retries) && retries > 0 ? retries : 0;
     }
@@ -675,7 +676,10 @@ export function createWorkflowRunnerApi({
             if (node.type === 'TextChat') resetNodeTextOutputsForBatch(node);
             delete node.apiGenerationProgress;
             prepareApiNodeGenerationProgress(node, batches.length);
-            addLog('info', `并发执行节点: ${getNodeDisplayTitle(node)}`, `检测到 ${batches.length} 组输入，将并发发起请求，并仅重试失败项。`, {
+            const retryEnabled = state.autoRetry === true && getConcurrentRequestRetryLimit() > 0;
+            addLog('info', `并发执行节点: ${getNodeDisplayTitle(node)}`, retryEnabled
+                ? `检测到 ${batches.length} 组输入，将并发发起请求，并仅在自动重试开启时重试失败项。`
+                : `检测到 ${batches.length} 组输入，将并发发起请求；失败项不会自动重试，成功结果会继续传递到下游。`, {
                 nodeId: node.id,
                 batchCount: batches.length
             });
@@ -687,11 +691,26 @@ export function createWorkflowRunnerApi({
             const settled = await Promise.allSettled(batches.map((batch, index) => (
                 executeConcurrentBatchRequest(node, batch, index, batches.length, signal, requestStatusTracker)
             )));
-            const rejected = settled.find((result) => result.status === 'rejected');
-            if (rejected) {
-                throw rejected.reason;
+            const rejected = settled.filter((result) => result.status === 'rejected');
+            const abortRejection = rejected.find((result) => isAbortLikeError(result.reason));
+            if (abortRejection) {
+                throw abortRejection.reason;
             }
-            const batchResults = settled.map((result) => result.value || {});
+            const batchResults = settled
+                .filter((result) => result.status === 'fulfilled')
+                .map((result) => result.value || {});
+            if (rejected.length > 0) {
+                addLog(batchResults.length > 0 ? 'warning' : 'error', `并发请求部分失败: ${getNodeDisplayTitle(node)}`, `${settled.length} 个请求中 ${rejected.length} 个失败，${batchResults.length} 个成功。${batchResults.length > 0 ? '将仅把成功结果传递到下游。' : '没有可传递的成功结果。'}`, {
+                    nodeId: node.id,
+                    batchCount: settled.length,
+                    successCount: batchResults.length,
+                    failedCount: rejected.length,
+                    errors: rejected.map((result) => result.reason?.message || String(result.reason))
+                });
+            }
+            if (batchResults.length === 0 && rejected.length > 0) {
+                throw rejected[0].reason;
+            }
             await commitConcurrentBatchResults(node, batchResults);
             return batches[batches.length - 1] || inputs;
         }

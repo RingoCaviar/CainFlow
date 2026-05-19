@@ -119,6 +119,7 @@ export function createExecutionCoreApi({
     }
 
     function getConcurrentRequestRetryLimit() {
+        if (state.autoRetry !== true) return 0;
         const retries = Number.parseInt(state.maxRetries, 10);
         return Number.isFinite(retries) && retries > 0 ? retries : 0;
     }
@@ -807,6 +808,7 @@ export function createExecutionCoreApi({
         formData.append('prompt', requestBody.prompt);
         if (requestBody.n !== undefined) formData.append('n', String(requestBody.n));
         if (requestBody.size) formData.append('size', requestBody.size);
+        if (requestBody.quality) formData.append('quality', requestBody.quality);
 
         for (let index = 0; index < referenceImages.length; index += 1) {
             const blob = await getReferenceImageBlob(referenceImages[index].value, signal);
@@ -825,6 +827,7 @@ export function createExecutionCoreApi({
             prompt: requestBody.prompt,
             n: requestBody.n,
             ...(requestBody.size ? { size: requestBody.size } : {}),
+            ...(requestBody.quality ? { quality: requestBody.quality } : {}),
             image: `[${referenceImages.length} reference image file(s)]`
         };
     }
@@ -898,6 +901,7 @@ export function createExecutionCoreApi({
                 const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
                 const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
                 const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
+                const quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
                 const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`).value;
                 const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
@@ -963,7 +967,7 @@ export function createExecutionCoreApi({
                     const runSingleGeneration = async (nextGenerationIndex) => {
                         const requestBody = isGoogle
                             ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                            : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
+                            : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs });
                         showToast(
                             generationCount > 1
                                 ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
@@ -1071,17 +1075,29 @@ export function createExecutionCoreApi({
                             throw error;
                         });
                     }));
-                    const rejectedRequest = requestResults.find((result) => result.status === 'rejected');
-                    if (rejectedRequest) {
+                    const rejectedRequests = requestResults.filter((result) => result.status === 'rejected');
+                    const abortRejection = rejectedRequests.find((result) => isAbortLikeError(result.reason, signal));
+                    if (abortRejection) {
+                        throw abortRejection.reason;
+                    }
+                    const completedImages = normalizeImageList(generatedImages);
+                    if (rejectedRequests.length > 0) {
                         if (!executionContext.concurrentExecution) {
-                            commitImageGenerateOutputs(node, generatedImages);
+                            commitImageGenerateOutputs(node, completedImages);
                             await refreshDependentImageResizePreviews(id);
                             updateAllConnections();
                         }
-                        throw rejectedRequest.reason;
+                        addLog(completedImages.length > 0 ? 'warning' : 'error', `图片生成部分失败: ${modelCfg.name}`, `${requestResults.length} 个请求中 ${rejectedRequests.length} 个失败，${completedImages.length} 个成功。${completedImages.length > 0 ? '将仅把成功图片传递到下游。' : '没有可传递的成功图片。'}`, {
+                            nodeId: id,
+                            successCount: completedImages.length,
+                            failedCount: rejectedRequests.length,
+                            errors: rejectedRequests.map((result) => result.reason?.message || String(result.reason))
+                        });
+                    }
+                    if (completedImages.length === 0 && rejectedRequests.length > 0) {
+                        throw rejectedRequests[0].reason;
                     }
 
-                    const completedImages = normalizeImageList(generatedImages);
                     if (!executionContext.concurrentExecution) {
                         commitImageGenerateOutputs(node, completedImages);
                         node.isSucceeded = true;
@@ -1103,7 +1119,7 @@ export function createExecutionCoreApi({
                     });
                     const requestBody = isGoogle
                         ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, inputs });
+                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs });
                     showToast(
                         generationCount > 1
                             ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`

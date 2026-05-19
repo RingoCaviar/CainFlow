@@ -25,6 +25,13 @@ export function createConnectionsApi({
     let flowAnimationFrame = null;
     const view = documentRef.defaultView || window;
     const INSERTION_PREVIEW_PADDING = 24;
+    const OUTPUT_PORT_TRANSITION = 28;
+    const INPUT_PORT_TURN_LEAD = 72;
+    const PORT_EDGE_GAP = 2;
+    const PAIR_LANE_GAP = 14;
+    const PORT_LANE_GAP = 6;
+    const NODE_LANE_GAP = 4;
+    const MAX_LANE_OFFSET = 42;
 
     function isGlobalAnimationEnabled() {
         return state.globalAnimationEnabled !== false;
@@ -36,6 +43,78 @@ export function createConnectionsApi({
 
     function hasRunningEndpoint(connection) {
         return isNodeRunning(connection.from.nodeId) || isNodeRunning(connection.to.nodeId);
+    }
+
+    function clampLaneOffset(value) {
+        return Math.max(-MAX_LANE_OFFSET, Math.min(MAX_LANE_OFFSET, value));
+    }
+
+    function getConnectionPathOptions(connection = null, laneById = null) {
+        const laneOffset = connection && laneById instanceof Map
+            ? (laneById.get(connection.id) || 0)
+            : 0;
+        return {
+            type: state.connectionLineType || 'bezier',
+            outputTransition: OUTPUT_PORT_TRANSITION,
+            inputTransition: INPUT_PORT_TURN_LEAD,
+            laneOffset
+        };
+    }
+
+    function getPortOrder(nodeId, portName, direction) {
+        const node = getNodeById(nodeId);
+        const ports = Array.from(node?.el?.querySelectorAll?.(`.node-port[data-direction="${direction}"]`) || []);
+        const index = ports.findIndex((portEl) => portEl.dataset.port === portName);
+        return index >= 0 ? index : ports.length;
+    }
+
+    function compareConnectionsForLane(a, b) {
+        const fromA = getNodeById(a.from?.nodeId);
+        const fromB = getNodeById(b.from?.nodeId);
+        const toA = getNodeById(a.to?.nodeId);
+        const toB = getNodeById(b.to?.nodeId);
+        return ((fromA?.y ?? 0) - (fromB?.y ?? 0)) ||
+            ((toA?.y ?? 0) - (toB?.y ?? 0)) ||
+            (getPortOrder(a.from?.nodeId, a.from?.port, 'output') - getPortOrder(b.from?.nodeId, b.from?.port, 'output')) ||
+            (getPortOrder(a.to?.nodeId, a.to?.port, 'input') - getPortOrder(b.to?.nodeId, b.to?.port, 'input')) ||
+            String(a.id || '').localeCompare(String(b.id || ''));
+    }
+
+    function addCenteredLaneOffsets(laneById, group, gap, weight = 1) {
+        if (!Array.isArray(group) || group.length <= 1) return;
+        const sorted = group.slice().sort(compareConnectionsForLane);
+        const center = (sorted.length - 1) / 2;
+        sorted.forEach((connection, index) => {
+            const current = laneById.get(connection.id) || 0;
+            const offset = (index - center) * gap * weight;
+            laneById.set(connection.id, clampLaneOffset(current + offset));
+        });
+    }
+
+    function buildConnectionLaneMap(connections = state.connections) {
+        const laneById = new Map();
+        const pairGroups = new Map();
+        const outputGroups = new Map();
+        const targetGroups = new Map();
+
+        connections.forEach((connection) => {
+            if (!connection?.id || !getNodeById(connection.from?.nodeId) || !getNodeById(connection.to?.nodeId)) return;
+
+            const pairKey = `${connection.from.nodeId}->${connection.to.nodeId}`;
+            const outputKey = `${connection.from.nodeId}:${connection.from.port}`;
+            const targetKey = `${connection.to.nodeId}`;
+            if (!pairGroups.has(pairKey)) pairGroups.set(pairKey, []);
+            if (!outputGroups.has(outputKey)) outputGroups.set(outputKey, []);
+            if (!targetGroups.has(targetKey)) targetGroups.set(targetKey, []);
+            pairGroups.get(pairKey).push(connection);
+            outputGroups.get(outputKey).push(connection);
+            targetGroups.get(targetKey).push(connection);
+        });
+
+        pairGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PAIR_LANE_GAP, 1));
+        outputGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PORT_LANE_GAP, 0.7));
+        targetGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, NODE_LANE_GAP, 0.55));
+        return laneById;
     }
 
     function createFlowArrowElement() {
@@ -185,9 +264,23 @@ export function createConnectionsApi({
         const dotRect = dot.getBoundingClientRect();
         const containerRect = containerRectOverride || canvasContainer.getBoundingClientRect();
         const { x: cx, y: cy, zoom } = state.canvas;
+        const bounds = getNodeBounds(node);
+        const y = (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom;
+        if (direction === 'input') {
+            return {
+                x: bounds.left - PORT_EDGE_GAP,
+                y
+            };
+        }
+        if (direction === 'output') {
+            return {
+                x: bounds.right + PORT_EDGE_GAP,
+                y
+            };
+        }
         return {
             x: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
-            y: (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom
+            y
         };
     }
 
@@ -364,16 +457,14 @@ export function createConnectionsApi({
         return finishConnection(source, target);
     }
 
-    function getConnectionInsertScore(conn, node, containerRect) {
+    function getConnectionInsertScore(conn, node, containerRect, laneById = null) {
         if (typeof getConnectionSamplePoints !== 'function') return null;
 
         const bounds = expandBounds(getNodeBounds(node), INSERTION_PREVIEW_PADDING);
         const center = getNodeCenter(node);
         const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
         const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-        const samplePoints = getConnectionSamplePoints(from.x, from.y, to.x, to.y, {
-            type: state.connectionLineType || 'bezier'
-        });
+        const samplePoints = getConnectionSamplePoints(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
 
         let bestScore = Infinity;
         for (let i = 1; i < samplePoints.length; i++) {
@@ -396,6 +487,7 @@ export function createConnectionsApi({
         if (!node || !isNodeIsolated(nodeId)) return null;
 
         const containerRect = canvasContainer.getBoundingClientRect();
+        const laneById = buildConnectionLaneMap(state.connections);
         let bestCandidate = null;
 
         for (const conn of state.connections) {
@@ -407,7 +499,7 @@ export function createConnectionsApi({
             const ports = getInsertionPorts(nodeId, dataType);
             if (!ports) continue;
 
-            const score = getConnectionInsertScore(conn, node, containerRect);
+            const score = getConnectionInsertScore(conn, node, containerRect, laneById);
             if (score === null) continue;
 
             if (!bestCandidate || score < bestCandidate.score) {
@@ -466,7 +558,7 @@ export function createConnectionsApi({
         const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
         const nodeInput = getPortPosition(preview.nodeId, preview.inputPort, 'input', containerRect);
         const nodeOutput = getPortPosition(preview.nodeId, preview.outputPort, 'output', containerRect);
-        const pathOptions = { type: state.connectionLineType || 'bezier' };
+        const pathOptions = getConnectionPathOptions(conn, buildConnectionLaneMap());
 
         const inboundPath = ensureInsertionPreviewPath(0);
         const outboundPath = ensureInsertionPreviewPath(1);
@@ -537,6 +629,7 @@ export function createConnectionsApi({
             bottom: (containerRect.height - y) / zoom
         };
         const padding = 100;
+        const laneById = buildConnectionLaneMap(state.connections);
 
         for (const conn of state.connections) {
             let path = pathById.get(conn.id);
@@ -555,9 +648,7 @@ export function createConnectionsApi({
 
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-            const pathStr = createBezierPath(from.x, from.y, to.x, to.y, {
-                type: state.connectionLineType || 'bezier'
-            });
+            const pathStr = createBezierPath(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
             const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
 
             if (!path) {
@@ -609,13 +700,12 @@ export function createConnectionsApi({
         connectionsGroup.classList.add('is-dragging');
 
         const containerRect = canvasContainer.getBoundingClientRect();
+        const laneById = buildConnectionLaneMap(state.connections);
         for (const { conn, pathEl } of draggingState.connectionsToUpdate) {
             if (!pathEl?.isConnected) continue;
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-            pathEl.setAttribute('d', createBezierPath(from.x, from.y, to.x, to.y, {
-                type: state.connectionLineType || 'bezier'
-            }));
+            pathEl.setAttribute('d', createBezierPath(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById)));
         }
 
         updateConnectionInsertPreview(draggingState);

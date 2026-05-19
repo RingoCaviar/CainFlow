@@ -100,6 +100,8 @@ export function createInitialState() {
         requestTimeoutEnabled: true,
         requestTimeoutSeconds: 600,
         connectionLineType: 'bezier',
+        toolbarPinned: false,
+        sidebarPinned: false,
         globalAnimationEnabled: true,
         connectionFlowAnimationEnabled: true,
         historyGridCols: 2,
