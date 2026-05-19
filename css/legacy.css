@@ -78,6 +78,9 @@
     --notice-action-hover-bg: rgba(168, 85, 247, 0.2);
     --notice-action-hover-border: rgba(168, 85, 247, 0.42);
     --notice-close-hover-bg: rgba(255, 255, 255, 0.06);
+    --app-chrome-top-offset: 0px;
+    --app-chrome-left-offset: 0px;
+    --app-chrome-gap: 8px;
     --node-select-bg: var(--bg-input);
     --node-select-border: var(--border-input);
     --node-select-text: var(--text-primary);
@@ -156,6 +159,14 @@
     --history-preview-border: rgba(255, 255, 255, 0.1);
     --history-preview-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     --history-preview-meta-border: rgba(255, 255, 255, 0.06);
+}
+
+body.toolbar-pinned {
+    --app-chrome-top-offset: calc(var(--toolbar-height, 48px) + var(--app-chrome-gap, 8px));
+}
+
+body.sidebar-pinned {
+    --app-chrome-left-offset: 60px;
 }
 
 html.animations-disabled,
@@ -249,7 +260,7 @@ body {
     height: 100%;
     overflow: hidden;
     position: relative;
-    --toolbar-peek-height: 14px;
+    --toolbar-peek-height: 100px;
 }
 
 #main-layout {
@@ -276,8 +287,8 @@ body {
     min-height: 48px;
     height: auto;
     flex-wrap: wrap;
-    z-index: 6001;
-    /* Stay below drawers (7000) and modals (8000) to ensure content is never obscured */
+    z-index: 7150;
+    /* Above the left sidebar so the top menu is never covered; below notices and modals. */
     position: absolute;
     top: 0;
     left: 0;
@@ -293,6 +304,15 @@ body {
     will-change: transform;
 }
 
+#toolbar:hover + #main-layout #side-bar,
+#toolbar:focus-within + #main-layout #side-bar,
+#toolbar:has(.btn.active) + #main-layout #side-bar,
+#toolbar:has([aria-expanded="true"]) + #main-layout #side-bar,
+body.toolbar-peek-active #toolbar + #main-layout #side-bar,
+body.toolbar-pinned #toolbar + #main-layout #side-bar {
+    top: calc(var(--toolbar-height, 48px) + 8px);
+}
+
 #toolbar::before {
     content: "";
     position: absolute;
@@ -301,13 +321,14 @@ body {
     bottom: calc(-1 * var(--toolbar-peek-height));
     height: var(--toolbar-peek-height);
     background: transparent;
+    pointer-events: none;
 }
 
 #toolbar::after {
     content: "";
     position: absolute;
     left: 50%;
-    bottom: calc(-1 * var(--toolbar-peek-height) + 2px);
+    bottom: -12px;
     width: 92px;
     height: 10px;
     border-radius: 999px;
@@ -325,6 +346,7 @@ body {
 #toolbar:focus-within,
 #toolbar:has(.btn.active),
 #toolbar:has([aria-expanded="true"]),
+body.toolbar-peek-active #toolbar,
 body.toolbar-pinned #toolbar {
     transform: translateY(0);
     opacity: 1;
@@ -335,12 +357,13 @@ body.toolbar-pinned #toolbar {
 #toolbar:focus-within::after,
 #toolbar:has(.btn.active)::after,
 #toolbar:has([aria-expanded="true"])::after,
+body.toolbar-peek-active #toolbar::after,
 body.toolbar-pinned #toolbar::after {
     opacity: 0;
     transform: translateX(-50%) scaleX(0.72);
 }
 
-html[data-app-theme] body:not(.toolbar-pinned) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active)):not(:has([aria-expanded="true"])) {
+html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active)):not(:has([aria-expanded="true"])) {
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0);
 }
 
@@ -2777,7 +2800,7 @@ body.is-interacting #canvas-container * {
 /* ===== Fullscreen Overlay ===== */
 .fullscreen-overlay {
     position: fixed;
-    inset: 0;
+    inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
     background: rgba(0, 0, 0, 0.88);
     backdrop-filter: blur(8px);
     z-index: 7000;
@@ -2845,10 +2868,10 @@ body.is-interacting #canvas-container * {
 /* ===== Image Painter ===== */
 .painter-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    top: var(--app-chrome-top-offset, 0px);
+    left: var(--app-chrome-left-offset, 0px);
+    width: calc(100vw - var(--app-chrome-left-offset, 0px));
+    height: calc(100vh - var(--app-chrome-top-offset, 0px));
     background: rgba(10, 10, 20, 0.98);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -3276,6 +3299,19 @@ body.is-interacting #canvas-container * {
 
 .modal-overlay.hidden {
     display: none;
+}
+
+.fullscreen-overlay.fullscreen-ignore-chrome {
+    inset: 0;
+}
+
+#history-preview-modal {
+    inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
+}
+
+#history-preview-modal.history-preview-from-fullscreen,
+#history-preview-modal.history-preview-ignore-chrome {
+    inset: 0;
 }
 
 @keyframes fade-in {
@@ -4200,6 +4236,27 @@ input[type=number] {
     background: #ef4444;
 }
 
+.history-card-duration {
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    z-index: 9;
+    max-width: calc(100% - 42px);
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0.01em;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+}
+
 /* Removed info-overlay styles for cleaner thumbnails */
 
 .preview-viewport {
@@ -4798,7 +4855,7 @@ input[type=number] {
     top: 0;
     bottom: 0;
     width: 60px;
-    --side-bar-peek-width: 14px;
+    --side-bar-peek-width: 100px;
     background: var(--sidebar-bg);
     border-right: 1px solid var(--sidebar-border);
     display: flex;
@@ -4811,13 +4868,25 @@ input[type=number] {
     z-index: 7100;
     /* Higher than drawers to ensure buttons are never blocked */
     backdrop-filter: blur(20px);
-    transform: translateX(calc(-100% + var(--side-bar-peek-width)));
+    transform: translateX(-100%);
     opacity: 0.86;
     transition:
         transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         opacity 0.18s ease,
         box-shadow 0.22s ease;
     will-change: transform;
+}
+
+#side-bar::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: calc(-1 * var(--side-bar-peek-width));
+    bottom: 0;
+    width: var(--side-bar-peek-width);
+    background: transparent;
+    pointer-events: none;
 }
 
 #side-bar::after {
@@ -4841,6 +4910,7 @@ input[type=number] {
 #side-bar:hover,
 #side-bar:focus-within,
 #side-bar:has(.side-bar-btn.active),
+body.sidebar-peek-active #side-bar,
 body.sidebar-pinned #side-bar {
     transform: translateX(0);
     opacity: 1;
@@ -4850,6 +4920,7 @@ body.sidebar-pinned #side-bar {
 #side-bar:hover::after,
 #side-bar:focus-within::after,
 #side-bar:has(.side-bar-btn.active)::after,
+body.sidebar-peek-active #side-bar::after,
 body.sidebar-pinned #side-bar::after {
     opacity: 0;
     transform: translateY(-50%) scaleY(0.72);
@@ -4909,6 +4980,7 @@ body.sidebar-pinned #side-bar::after {
         opacity: 1;
     }
 
+    #toolbar::before,
     #toolbar::after {
         display: none;
     }
@@ -4918,6 +4990,7 @@ body.sidebar-pinned #side-bar::after {
         opacity: 1;
     }
 
+    #side-bar::before,
     #side-bar::after {
         display: none;
     }
@@ -5601,9 +5674,9 @@ body.sidebar-pinned #side-bar::after {
 /* Floating Refresh / Update Notices */
 #floating-notices-container {
     position: absolute;
-    top: calc(var(--toolbar-peek-height, 14px) + 14px);
+    top: 14px;
     left: 76px; /* Space for sidebar (60px) + offset */
-    z-index: 50; /* Inside canvas container context */
+    z-index: 7200; /* Above auto-hide toolbar/sidebar hot zones, below modals */
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -5617,6 +5690,7 @@ body.sidebar-pinned #side-bar::after {
 #toolbar:focus-within + #main-layout #floating-notices-container,
 #toolbar:has(.btn.active) + #main-layout #floating-notices-container,
 #toolbar:has([aria-expanded="true"]) + #main-layout #floating-notices-container,
+body.toolbar-peek-active #toolbar + #main-layout #floating-notices-container,
 body.toolbar-pinned #toolbar + #main-layout #floating-notices-container {
     top: calc(var(--toolbar-height, 48px) + 12px);
 }
@@ -5763,6 +5837,8 @@ body.toolbar-pinned #toolbar + #main-layout #floating-notices-container {
 }
 
 .notice-close {
+    position: relative;
+    z-index: 1;
     background: transparent;
     border: none;
     color: var(--text-dim);

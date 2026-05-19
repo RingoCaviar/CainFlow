@@ -251,6 +251,55 @@ export function createContextMenuControllerApi({
         connectionCreatePopup.classList.remove('hidden');
     }
 
+    function isPointInsideRect(clientX, clientY, rect) {
+        if (!rect) return false;
+        return (
+            clientX >= rect.left &&
+            clientX <= rect.right &&
+            clientY >= rect.top &&
+            clientY <= rect.bottom
+        );
+    }
+
+    function getToolbarOrSidebarHoverZoneTarget(event) {
+        const target = event.target;
+        const chromeTarget = target?.closest?.('#toolbar, #side-bar');
+        if (!chromeTarget) return null;
+
+        const canvasRect = canvasContainer?.getBoundingClientRect?.();
+        if (!isPointInsideRect(event.clientX, event.clientY, canvasRect)) return null;
+
+        const chromeRect = chromeTarget.getBoundingClientRect();
+        if (isPointInsideRect(event.clientX, event.clientY, chromeRect)) return null;
+
+        return chromeTarget;
+    }
+
+    function openCanvasContextMenu(event, target = event.target) {
+        event.preventDefault();
+        if (state.justCut) return;
+
+        closeConnectionCreatePopup();
+        state.contextMenu = { x: event.clientX, y: event.clientY };
+
+        const nodeEl = target?.closest?.('.node');
+
+        if (nodeEl) {
+            state.contextMenuNodeId = nodeEl.id;
+            ensureNodeSelected(nodeEl);
+        } else {
+            state.contextMenuNodeId = null;
+        }
+
+        updateNodeActionVisibility({
+            hasNodeTarget: Boolean(state.contextMenuNodeId),
+            hasSelection: state.selectedNodes.size > 0
+        });
+        closeContextSubmenus();
+
+        positionFloatingMenu(contextMenu, event.clientX, event.clientY);
+    }
+
     function initConnectionCreatePopup() {
         connectionCreatePopup?.addEventListener('click', (e) => {
             const item = e.target.closest('[data-popup-node-type]');
@@ -269,28 +318,13 @@ export function createContextMenuControllerApi({
 
     function initContextMenu() {
         canvasContainer.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            if (state.justCut) return;
+            openCanvasContextMenu(e);
+        });
 
-            closeConnectionCreatePopup();
-            state.contextMenu = { x: e.clientX, y: e.clientY };
-
-            const nodeEl = e.target.closest('.node');
-
-            if (nodeEl) {
-                state.contextMenuNodeId = nodeEl.id;
-                ensureNodeSelected(nodeEl);
-            } else {
-                state.contextMenuNodeId = null;
-            }
-
-            updateNodeActionVisibility({
-                hasNodeTarget: Boolean(state.contextMenuNodeId),
-                hasSelection: state.selectedNodes.size > 0
-            });
-            closeContextSubmenus();
-
-            positionFloatingMenu(contextMenu, e.clientX, e.clientY);
+        documentRef.addEventListener('contextmenu', (e) => {
+            if (!getToolbarOrSidebarHoverZoneTarget(e)) return;
+            e.stopPropagation();
+            openCanvasContextMenu(e, canvasContainer);
         });
 
         documentRef.addEventListener('click', (e) => {

@@ -1873,9 +1873,32 @@ export function createMediaControllerApi({
         img.style.transformOrigin = 'center center';
     }
 
+    function isChromeElementExposed(element) {
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+
+        const x = Math.min(windowRef.innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
+        const y = Math.min(windowRef.innerHeight - 1, Math.max(0, rect.top + rect.height / 2));
+        const topElement = documentRef.elementFromPoint(x, y);
+        return topElement === element || element.contains(topElement);
+    }
+
+    function shouldIgnoreChromeOffsetForPreview() {
+        const body = documentRef.body;
+        if (!body) return false;
+
+        const toolbarCovered = body.classList.contains('toolbar-pinned')
+            && !isChromeElementExposed(documentRef.getElementById('toolbar'));
+        const sidebarCovered = body.classList.contains('sidebar-pinned')
+            && !isChromeElementExposed(documentRef.getElementById('side-bar'));
+
+        return toolbarCovered || sidebarCovered;
+    }
+
     function openFullscreenPreview(src, nodeId = null) {
         const overlay = documentRef.createElement('div');
-        overlay.className = 'fullscreen-overlay';
+        overlay.className = `fullscreen-overlay${shouldIgnoreChromeOffsetForPreview() ? ' fullscreen-ignore-chrome' : ''}`;
         overlay.innerHTML = `
         <div class="fullscreen-close" title="关闭 (Esc)">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>

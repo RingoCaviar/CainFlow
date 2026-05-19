@@ -18,7 +18,7 @@ export function createProxyHeadersGetter(getState) {
         const headers = {
             'x-target-url-b64': encodeTargetUrlHeader(url),
             'x-target-method': method,
-            'x-proxy-timeout': state.requestTimeoutEnabled ? state.requestTimeoutSeconds.toString() : '600',
+            'x-proxy-timeout': state.requestTimeoutEnabled ? state.requestTimeoutSeconds.toString() : '0',
             'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) CainFlow/${APP_VERSION}`,
             ...extraHeaders
         };

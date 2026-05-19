@@ -103,9 +103,10 @@ def handle_proxy_request(handler):
         ]:
             req_headers[key] = value
 
-    req_headers['Connection'] = 'close'
     if 'user-agent' not in [header.lower() for header in req_headers.keys()]:
         req_headers['User-Agent'] = get_app_user_agent()
+    if 'accept' not in [header.lower() for header in req_headers.keys()]:
+        req_headers['Accept'] = 'application/json'
 
     context = ssl.create_default_context()
     context.check_hostname = False
@@ -132,7 +133,8 @@ def handle_proxy_request(handler):
 
         try:
             raw_timeout = handler.headers.get('x-proxy-timeout', '300')
-            timeout_val = max(1.0, min(float(raw_timeout), 1800.0))
+            parsed_timeout = float(raw_timeout)
+            timeout_val = None if parsed_timeout <= 0 else max(1.0, min(parsed_timeout, 1800.0))
         except (ValueError, TypeError):
             timeout_val = 300.0
 

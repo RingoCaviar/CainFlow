@@ -1,6 +1,8 @@
 /**
  * 管理历史记录详情预览，包括图片查看、下载、复制与删除等交互。
  */
+import { escapeHistoryHtml, formatHistoryGenerationDuration } from './history-utils.js';
+
 export function createHistoryPreviewApi({
     getHistory,
     getHistoryMetadata = getHistory,
@@ -103,9 +105,11 @@ export function createHistoryPreviewApi({
     function updatePreviewMeta(item, resolution) {
         const metaText = documentRef.getElementById('preview-meta');
         if (!metaText) return;
+        const duration = formatHistoryGenerationDuration(item.generationDurationSeconds ?? item.generationDuration);
         metaText.innerHTML = `
-            <span>模型: ${item.model}</span>
+            <span>模型: ${escapeHistoryHtml(item.model)}</span>
             <span>分辨率: ${resolution || '未知'}</span>
+            ${duration ? `<span>耗时: ${escapeHistoryHtml(duration)}</span>` : ''}
             <span>时间: ${new Date(item.timestamp).toLocaleString()}</span>
             <span style="margin-left:auto; opacity:0.6; font-family:monospace;">${previewState.currentIndex + 1} / ${previewState.items.length}</span>
         `;
@@ -149,12 +153,14 @@ export function createHistoryPreviewApi({
         }
 
         promptText.textContent = item.prompt || '';
+        const duration = formatHistoryGenerationDuration(item.generationDurationSeconds ?? item.generationDuration);
         metaText.innerHTML = `
-        <span>模型: ${item.model}</span>
-        <span>分辨率: 读取中...</span>
-        <span>时间: ${new Date(item.timestamp).toLocaleString()}</span>
-        <span style="margin-left:auto; opacity:0.6; font-family:monospace;">${previewState.currentIndex + 1} / ${previewState.items.length}</span>
-    `;
+            <span>模型: ${escapeHistoryHtml(item.model)}</span>
+            <span>分辨率: 读取中...</span>
+            ${duration ? `<span>耗时: ${escapeHistoryHtml(duration)}</span>` : ''}
+            <span>时间: ${new Date(item.timestamp).toLocaleString()}</span>
+            <span style="margin-left:auto; opacity:0.6; font-family:monospace;">${previewState.currentIndex + 1} / ${previewState.items.length}</span>
+        `;
 
         btnDownload.onclick = async (e) => {
             e.stopPropagation();
@@ -189,15 +195,43 @@ export function createHistoryPreviewApi({
 
     function closeHistoryPreview() {
         const modal = documentRef.getElementById('history-preview-modal');
-        if (modal) modal.classList.add('hidden');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('history-preview-from-fullscreen', 'history-preview-ignore-chrome');
+        }
         previewState.loadToken += 1;
         documentRef.removeEventListener('keydown', onPreviewKeyDown);
     }
 
-    async function openHistoryPreview(item) {
+    function isChromeElementExposed(element) {
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+
+        const x = Math.min(windowRef.innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
+        const y = Math.min(windowRef.innerHeight - 1, Math.max(0, rect.top + rect.height / 2));
+        const topElement = documentRef.elementFromPoint(x, y);
+        return topElement === element || element.contains(topElement);
+    }
+
+    function shouldIgnoreChromeOffsetForPreview() {
+        const body = documentRef.body;
+        if (!body) return false;
+
+        const toolbarCovered = body.classList.contains('toolbar-pinned')
+            && !isChromeElementExposed(documentRef.getElementById('toolbar'));
+        const sidebarCovered = body.classList.contains('sidebar-pinned')
+            && !isChromeElementExposed(documentRef.getElementById('side-bar'));
+
+        return toolbarCovered || sidebarCovered;
+    }
+
+    async function openHistoryPreview(item, options = {}) {
         const modal = documentRef.getElementById('history-preview-modal');
         const viewport = documentRef.getElementById('preview-viewport');
         if (!modal) return;
+        modal.classList.toggle('history-preview-from-fullscreen', options.fromFullscreen === true);
+        modal.classList.toggle('history-preview-ignore-chrome', options.fromFullscreen !== true && shouldIgnoreChromeOffsetForPreview());
         modal.classList.remove('hidden');
         modal.onclick = (e) => {
             if (e.target === modal || e.target === viewport) {

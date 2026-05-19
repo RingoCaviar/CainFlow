@@ -582,6 +582,7 @@
 }
 
 .history-fullscreen-overlay {
+    inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
     z-index: 9000;
     align-items: stretch;
     justify-content: center;
@@ -605,10 +606,10 @@
 .history-fullscreen-header {
     flex: 0 0 auto;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 18px 22px 14px;
+    padding: 12px 20px;
     border-bottom: 1px solid var(--history-section-border);
 }
 
@@ -622,9 +623,9 @@
 
 .history-fullscreen-title-group {
     min-width: 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
 }
 
 .history-fullscreen-title-row {
@@ -657,6 +658,10 @@
     margin: 0;
     color: var(--text-secondary);
     font-size: 12px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .history-fullscreen-actions {
@@ -921,6 +926,20 @@
     .history-fullscreen-batch-toolbar {
         padding-left: 14px;
         padding-right: 14px;
+    }
+
+    .history-fullscreen-header {
+        align-items: flex-start;
+    }
+
+    .history-fullscreen-title-group {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .history-fullscreen-summary {
+        white-space: normal;
     }
 
     .history-fullscreen-body {

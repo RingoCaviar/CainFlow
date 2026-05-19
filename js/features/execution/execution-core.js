@@ -179,6 +179,32 @@ export function createExecutionCoreApi({
         node.generationCompletedCount = normalizedImages.length;
     }
 
+    async function saveImageGenerationHistoryEntry(entry) {
+        try {
+            const saved = await saveHistoryEntry(entry);
+            if (saved === false) {
+                addLog('warning', '生成历史保存失败', '图片已经生成成功，但写入历史记录失败。通常是图片过大、浏览器存储空间不足，或 IndexedDB 暂时不可用。', {
+                    nodeId: entry?.nodeId,
+                    model: entry?.model
+                });
+            }
+        } catch (error) {
+            addLog('warning', '生成历史保存异常', '图片已经生成成功，但保存历史记录时发生异常，不影响本次生成结果继续传递到下游。', {
+                nodeId: entry?.nodeId,
+                model: entry?.model,
+                error: error?.message || String(error)
+            });
+        }
+    }
+
+    function getNodeGenerationDurationSeconds(node) {
+        if (Number.isFinite(node?.runStartedAt) && node.runStartedAt > 0) {
+            return Number(((Date.now() - node.runStartedAt) / 1000).toFixed(2));
+        }
+        const duration = Number.parseFloat(node?.lastDuration);
+        return Number.isFinite(duration) && duration > 0 ? Number(duration.toFixed(2)) : null;
+    }
+
     function isAbortLikeError(err, signal) {
         if (!err) return Boolean(signal?.aborted);
         if (signal?.aborted) return true;
@@ -1062,11 +1088,12 @@ export function createExecutionCoreApi({
                                 current: nextGenerationIndex,
                                 total: progressTotal
                             });
-                            await saveHistoryEntry({
+                            await saveImageGenerationHistoryEntry({
                                 nodeId: id,
                                 image: imageData,
                                 prompt,
-                                model: modelCfg.name
+                                model: modelCfg.name,
+                                generationDurationSeconds: getNodeGenerationDurationSeconds(node)
                             });
                             if (getImageHistorySidebarActive()) renderHistoryList();
                             markConcurrentRequestStatus(index, 'success');
@@ -1200,11 +1227,12 @@ export function createExecutionCoreApi({
                     });
                     await refreshDependentImageResizePreviews(id);
 
-                    await saveHistoryEntry({
+                    await saveImageGenerationHistoryEntry({
                         nodeId: id,
                         image: imageData,
                         prompt,
-                        model: modelCfg.name
+                        model: modelCfg.name,
+                        generationDurationSeconds: getNodeGenerationDurationSeconds(node)
                     });
                     if (getImageHistorySidebarActive()) renderHistoryList();
                 }

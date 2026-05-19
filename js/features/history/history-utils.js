@@ -44,6 +44,16 @@ export function formatHistoryExactDate(timestamp) {
     return date.toLocaleString();
 }
 
+export function formatHistoryGenerationDuration(duration) {
+    const seconds = Number.parseFloat(duration);
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+
+    const minutes = Math.floor(seconds / 60);
+    const restSeconds = Math.round(seconds % 60);
+    return `${minutes}m${String(restSeconds).padStart(2, '0')}s`;
+}
+
 export function groupHistoryItems(items, now = Date.now()) {
     const groups = [];
     const map = new Map();
@@ -86,11 +96,13 @@ export function buildHistoryCardMarkup({
     const prompt = escapeHistoryHtml(item.prompt || '');
     const model = escapeHistoryHtml(item.model || '');
     const exactDate = escapeHistoryHtml(formatHistoryExactDate(item.timestamp));
+    const durationText = escapeHistoryHtml(formatHistoryGenerationDuration(item.generationDurationSeconds ?? item.generationDuration));
     const imageClass = thumb ? '' : 'history-card-img-pending';
 
     return `
         <article class="history-card ${selectedClass} ${multiClass} ${compactClass}" data-id="${item.id}" draggable="true">
             <img class="${imageClass}" src="${escapeHistoryHtml(thumb || TRANSPARENT_HISTORY_PIXEL)}" loading="lazy" decoding="async" alt="${prompt}" />
+            ${durationText ? `<span class="history-card-duration" title="生图耗时 ${durationText}">${durationText}</span>` : ''}
             <div class="selection-checkbox"></div>
             <button class="delete-btn" data-id="${item.id}" title="删除记录">×</button>
             ${compact ? '' : `

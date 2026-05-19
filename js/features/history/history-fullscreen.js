@@ -338,7 +338,7 @@ export function createHistoryFullscreenApi({
                 card.classList.toggle('selected', state.selectedHistoryIds.has(itemId));
                 syncSelectionCount();
             } else {
-                openHistoryPreview(item);
+                openHistoryPreview(item, { fromFullscreen: true });
             }
         });
 
@@ -434,6 +434,14 @@ export function createHistoryFullscreenApi({
         refresh();
     }
 
+    function syncBatchButton() {
+        const button = documentRef.getElementById('btn-history-fullscreen-batch');
+        if (!button) return;
+        button.classList.toggle('active', state.historySelectionMode === true);
+        button.textContent = state.historySelectionMode ? '退出批量' : '批量选择';
+        button.setAttribute('aria-pressed', state.historySelectionMode ? 'true' : 'false');
+    }
+
     function close() {
         const { modal, list, batchToolbar } = getEls();
         modal?.classList.add('hidden');
@@ -441,6 +449,7 @@ export function createHistoryFullscreenApi({
         state.historySelectionMode = false;
         state.selectedHistoryIds.clear();
         batchToolbar?.classList.add('hidden');
+        syncBatchButton();
         viewState.renderedRangeKey = '';
         if (list) {
             clearRenderedRows(list);
@@ -454,6 +463,7 @@ export function createHistoryFullscreenApi({
         state.selectedHistoryIds.clear();
         batchToolbar?.classList.remove('hidden');
         syncSelectionCount();
+        syncBatchButton();
         renderVirtualWindow({ force: true });
     }
 
@@ -463,7 +473,16 @@ export function createHistoryFullscreenApi({
         state.selectedHistoryIds.clear();
         batchToolbar?.classList.add('hidden');
         syncSelectionCount();
+        syncBatchButton();
         renderVirtualWindow({ force: true });
+    }
+
+    function toggleBatchMode() {
+        if (state.historySelectionMode) {
+            exitBatchMode();
+        } else {
+            enterBatchMode();
+        }
     }
 
     async function selectAll() {
@@ -513,7 +532,7 @@ export function createHistoryFullscreenApi({
         bindCardEvents();
 
         documentRef.getElementById('btn-close-history-fullscreen')?.addEventListener('click', close);
-        documentRef.getElementById('btn-history-fullscreen-batch')?.addEventListener('click', enterBatchMode);
+        documentRef.getElementById('btn-history-fullscreen-batch')?.addEventListener('click', toggleBatchMode);
         documentRef.getElementById('btn-history-fullscreen-cancel')?.addEventListener('click', exitBatchMode);
         documentRef.getElementById('btn-history-fullscreen-select-all')?.addEventListener('click', selectAll);
         documentRef.getElementById('btn-history-fullscreen-delete')?.addEventListener('click', deleteSelected);

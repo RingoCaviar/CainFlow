@@ -1153,6 +1153,7 @@ export function createWorkflowRunnerApi({
                                 const timeBadge = documentRef.getElementById(`${nid}-time`);
                                 const timeContainer = documentRef.getElementById(`${nid}-time-container`);
                                 const startTime = Date.now();
+                                node.runStartedAt = startTime;
                                 let timerId = null;
                                 if (timeBadge) {
                                     if (timeContainer) timeContainer.style.display = 'flex';
@@ -1178,6 +1179,7 @@ export function createWorkflowRunnerApi({
                                     const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
                                     node.isSucceeded = true;
                                     node.lastDuration = durationSec;
+                                    node.runStartedAt = null;
                                     clearNodeRunning(nid, node);
                                     node.el.classList.add('completed');
                                     if (timeBadge) {
@@ -1189,6 +1191,7 @@ export function createWorkflowRunnerApi({
                                     completedNodes.add(nid);
                                 } catch (err) {
                                     if (isAbortLikeError(err)) {
+                                        node.runStartedAt = null;
                                         clearNodeRunning(nid, node);
                                         clearAbortedNodeFeedback(nid);
                                         if (session.abortReason) state.abortReason = session.abortReason;
@@ -1198,6 +1201,7 @@ export function createWorkflowRunnerApi({
                                         return;
                                     }
                                     clearNodeRunning(nid, node);
+                                    node.runStartedAt = null;
                                     node.el.classList.add('error');
                                     const errorMsg = err.message || '未知错误';
                                     if (timeBadge) timeBadge.textContent = 'Err';

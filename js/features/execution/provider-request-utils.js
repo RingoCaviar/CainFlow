@@ -12,18 +12,13 @@ export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
 
 export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
     { value: '', label: '自动 (auto)' },
-    { value: '1024x1024', label: '1024×1024 · 1K · 1:1 方图' },
-    { value: '1024x576', label: '1024×576 · 1K · 16:9 横图' },
-    { value: '576x1024', label: '576×1024 · 1K · 9:16 竖图' },
-    { value: '1008x1344', label: '1008×1344 · 1K · 3:4 竖图' },
-    { value: '1024x768', label: '1024×768 · 1K · 4:3 横图' },
-    { value: '1152x2048', label: '1152×2048 · 2K · 9:16 竖图' },
-    { value: '1536x2048', label: '1536×2048 · 2K · 3:4 竖图' },
-    { value: '2048x1536', label: '2048×1536 · 2K · 4:3 横图' },
-    { value: '2048x2048', label: '2048×2048 · 2K · 1:1 方图' },
-    { value: '2048x1152', label: '2048×1152 · 2K · 16:9 横图' },
-    { value: '3840x2160', label: '3840×2160 · 4K · 16:9 横图' },
-    { value: '2160x3840', label: '2160×3840 · 4K · 9:16 竖图' },
+    { value: '1024x1024', label: '1024×1024 · 方图' },
+    { value: '1536x1024', label: '1536×1024 · 横图' },
+    { value: '1024x1536', label: '1024×1536 · 竖图' },
+    { value: '2048x2048', label: '2048×2048 · 2K 方图' },
+    { value: '2048x1152', label: '2048×1152 · 2K 横图' },
+    { value: '3840x2160', label: '3840×2160 · 4K 横图' },
+    { value: '2160x3840', label: '2160×3840 · 4K 竖图' },
     { value: 'custom', label: '自定义' }
 ];
 
@@ -222,6 +217,18 @@ export function validateOpenAiImageSize(widthValue, heightValue) {
         width,
         height
     };
+}
+
+function isOpenAiImageResolutionOptionValid(option) {
+    const value = String(option?.value || '').trim();
+    if (!value || value === 'custom') return true;
+    const match = value.match(/^(\d{2,5})x(\d{2,5})$/i);
+    if (!match) return false;
+    return validateOpenAiImageSize(match[1], match[2]).valid;
+}
+
+export function validateOpenAiImageResolutionOptions(options = OPENAI_IMAGE_RESOLUTION_OPTIONS) {
+    return options.every(isOpenAiImageResolutionOptionValid);
 }
 
 export function normalizeModelConfig(model = {}, index = 0, providers = null) {

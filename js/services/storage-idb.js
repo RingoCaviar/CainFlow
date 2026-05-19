@@ -194,6 +194,7 @@ export function createIndexedDbApi(getState) {
             prompt: entry.prompt || '',
             model: entry.model || '',
             timestamp: entry.timestamp || 0,
+            generationDurationSeconds: entry.generationDurationSeconds ?? entry.generationDuration ?? null,
             imageAssetKey: entry.imageAssetKey || (entry.id !== undefined ? getHistoryAssetKey(entry.id) : ''),
             hasImage: Boolean(entry.image || entry.imageAssetKey)
         };

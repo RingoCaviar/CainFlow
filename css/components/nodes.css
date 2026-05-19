@@ -366,7 +366,7 @@
 
 .camera-control-editor-overlay {
     position: fixed;
-    inset: 0;
+    inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
     z-index: 8200;
     display: flex;
     align-items: center;
@@ -379,7 +379,7 @@
 
 .camera-control-editor-panel {
     width: min(1040px, 100%);
-    max-height: min(780px, calc(100vh - 48px));
+    max-height: min(780px, calc(100vh - var(--app-chrome-top-offset, 0px) - 48px));
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -644,7 +644,7 @@
     }
 
     .camera-control-editor-panel {
-        max-height: calc(100vh - 32px);
+        max-height: calc(100vh - var(--app-chrome-top-offset, 0px) - 32px);
     }
 
     .camera-control-editor-content {
@@ -777,7 +777,7 @@
 
 .image-compare-advanced-overlay {
     position: fixed;
-    inset: 0;
+    inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
     z-index: 7600;
     display: flex;
     background: rgba(8, 10, 14, 0.94);

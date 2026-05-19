@@ -39,6 +39,49 @@ export function createRuntimeControllerApi({
         observer.observe(toolbar);
     }
 
+    function initCanvasChromePeek() {
+        const body = documentRef.body;
+        const toolbar = documentRef.getElementById('toolbar');
+        const sidebar = documentRef.getElementById('side-bar');
+        if (!body || !toolbar || !sidebar) return;
+
+        let lastToolbarPeek = false;
+        let lastSidebarPeek = false;
+
+        function getCssPx(element, propertyName, fallback) {
+            const raw = windowRef.getComputedStyle(element).getPropertyValue(propertyName);
+            const value = Number.parseFloat(raw);
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function updatePeekState(event) {
+            const toolbarDistance = getCssPx(documentRef.getElementById('app-container') || toolbar, '--toolbar-peek-height', 100);
+            const sidebarDistance = getCssPx(sidebar, '--side-bar-peek-width', 100);
+            const toolbarRect = toolbar.getBoundingClientRect();
+            const sidebarRect = sidebar.getBoundingClientRect();
+            const toolbarBottom = Math.max(toolbarRect.bottom, toolbarRect.top + toolbar.offsetHeight);
+            const sidebarRight = Math.max(sidebarRect.right, sidebarRect.left + sidebar.offsetWidth);
+            const toolbarPeek = !body.classList.contains('toolbar-pinned') && event.clientY <= toolbarBottom + toolbarDistance;
+            const sidebarPeek = !body.classList.contains('sidebar-pinned') && event.clientX <= sidebarRight + sidebarDistance;
+
+            if (toolbarPeek !== lastToolbarPeek) {
+                body.classList.toggle('toolbar-peek-active', toolbarPeek);
+                lastToolbarPeek = toolbarPeek;
+            }
+            if (sidebarPeek !== lastSidebarPeek) {
+                body.classList.toggle('sidebar-peek-active', sidebarPeek);
+                lastSidebarPeek = sidebarPeek;
+            }
+        }
+
+        windowRef.addEventListener('pointermove', updatePeekState, { passive: true });
+        windowRef.addEventListener('blur', () => {
+            body.classList.remove('toolbar-peek-active', 'sidebar-peek-active');
+            lastToolbarPeek = false;
+            lastSidebarPeek = false;
+        });
+    }
+
     function initKeyboardShortcuts() {
         documentRef.addEventListener('keydown', (e) => {
             const activeElement = documentRef.activeElement;
@@ -121,6 +164,7 @@ export function createRuntimeControllerApi({
         initKeyboardShortcuts();
         initWindowBindings();
         initModalBindings();
+        initCanvasChromePeek();
     }
 
     return {
