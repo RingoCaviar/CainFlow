@@ -963,9 +963,6 @@ export function createNodeDomBindingsApi({
                 : '<option value="">-- 暂无可用供应商 --</option>';
             providerSelect.value = resolvedProviderId;
         }
-        if (providerField) {
-            providerField.classList.toggle('hidden', modelProviders.length <= 1);
-        }
         if (node) {
             node.providerId = resolvedProviderId;
         }

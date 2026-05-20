@@ -337,7 +337,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
-        <div class="node-field ${modelProviders.length > 1 ? '' : 'hidden'}" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
+        <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
         <div class="node-field">
             <label>生成次数</label>
             <div class="generation-count-control">
@@ -449,7 +449,7 @@ function renderTextChatBody(id, restoreData, models, providers) {
 
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
-        <div class="node-field ${modelProviders.length > 1 ? '' : 'hidden'}" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
+        <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
         <div class="node-field"><label>系统提示语（可选）</label>
             <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="2"${getTextareaHeightStyle(rd, 'sysprompt')}>${rd.sysprompt || ''}</textarea></div>
         <div class="node-field node-field-row"><label>启用搜索</label>
