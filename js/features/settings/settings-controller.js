@@ -41,6 +41,7 @@ export function createSettingsControllerApi({
     applyGlobalAnimationSetting = () => {},
     applyCanvasUiSetting = () => {},
     fitNodeToContent = () => {},
+    floatingNoticesApi = null,
     documentRef = document,
     windowRef = window,
     localStorageRef = localStorage,
@@ -51,6 +52,7 @@ export function createSettingsControllerApi({
     const getProxyHeaders = createProxyHeadersGetter(() => state);
     const MODEL_FETCH_TIMEOUT_SECONDS = 30;
     const MODEL_FETCH_CLIENT_TIMEOUT_SECONDS = 35;
+    localStorageRef.removeItem('cainflow_network_proxy_mismatch_dismissed');
     const modelFetchDialogState = {
         providerId: '',
         models: [],
@@ -58,6 +60,19 @@ export function createSettingsControllerApi({
         loading: false,
         error: '',
         status: ''
+    };
+    const networkProxyNoticeId = 'network-proxy-mismatch';
+    const networkProxyDetectionCooldownMs = 10 * 60 * 1000;
+    const networkProxyDetectionStorageKey = 'cainflow_network_proxy_detection';
+    const networkProxyDetectionCacheVersion = 2;
+    const NETWORK_PROBE_TARGETS = [
+        { name: 'Google gstatic 204', url: 'https://www.gstatic.com/generate_204' },
+        { name: 'Google 204', url: 'https://www.google.com/generate_204' },
+        { name: 'Huawei HiCloud 204', url: 'http://connectivitycheck.platform.hicloud.com/generate_204' }
+    ];
+    const networkProxyStatusState = {
+        checking: false,
+        result: null
     };
     const HISTORY_ASSET_KEY_PREFIX = 'history:';
     let activeModelFetchRequestId = 0;
@@ -412,6 +427,15 @@ export function createSettingsControllerApi({
                         body: JSON.stringify(newConfig)
                     });
                     showToast(postRes.ok ? '代理设置已保存并立即生效' : '保存代理设置失败', postRes.ok ? 'success' : 'error');
+                    if (postRes.ok) {
+                        if (newConfig.enabled) {
+                            hideNetworkProxyMismatchNotice();
+                            networkProxyStatusState.result = null;
+                        } else {
+                            localStorageRef.removeItem(networkProxyDetectionStorageKey);
+                            checkNetworkProxyMismatch(true);
+                        }
+                    }
                 } catch (e) {
                     showToast('保存代理设置异常: ' + e, 'error');
                 }
@@ -592,6 +616,260 @@ export function createSettingsControllerApi({
 
     function closeApiSettingsHelpDialog() {
         getApiSettingsHelpDialog().classList.add('hidden');
+    }
+
+    function getNetworkProxyHintDialog() {
+        let dialog = documentRef.getElementById('network-proxy-hint-dialog');
+        if (dialog) return dialog;
+
+        dialog = documentRef.createElement('div');
+        dialog.id = 'network-proxy-hint-dialog';
+        dialog.className = 'api-settings-help-dialog hidden';
+        (documentRef.body || settingsModal).appendChild(dialog);
+        return dialog;
+    }
+
+    function closeNetworkProxyHintDialog() {
+        getNetworkProxyHintDialog().classList.add('hidden');
+    }
+
+    function openSettingsProxyTab() {
+        const settingsModalApi = windowRef.__cainflowSettingsModalApi;
+        settingsModalApi?.openSettingsModal();
+        const targetBtn = documentRef.querySelector('.modal-tab-btn[data-tab="proxy"]');
+        targetBtn?.click();
+    }
+
+    function getNetworkProxyAttemptSummary(attempts = []) {
+        if (!Array.isArray(attempts) || attempts.length === 0) return '';
+        return attempts.map((attempt) => {
+            const label = String(attempt?.name || attempt?.url || '检测目标').trim();
+            if (attempt?.success) {
+                const latencyText = Number.isFinite(attempt?.latency) && attempt.latency > 0 ? `，${attempt.latency}ms` : '';
+                return `• ${label}：可访问${latencyText}`;
+            }
+            return `• ${label}：${attempt?.detail || '访问失败'}`;
+        }).join('<br>');
+    }
+
+    function renderNetworkProxyHintDialog() {
+        const dialog = getNetworkProxyHintDialog();
+        const result = networkProxyStatusState.result || {};
+        const checkedTarget = result.checkedTarget || '国外站点';
+        const latencyText = Number.isFinite(result.latency) && result.latency > 0 ? `${result.latency}ms` : '未知';
+        const attemptsSummary = getNetworkProxyAttemptSummary(result.attempts);
+        const effectiveModeText = result.effectiveMode === 'proxy' ? '代理' : '直连';
+
+        dialog.innerHTML = `
+            <div class="api-settings-help-backdrop" data-close-network-proxy-hint="true"></div>
+            <div class="api-settings-help-panel network-proxy-hint-panel" role="dialog" aria-modal="true" aria-labelledby="network-proxy-hint-title">
+                <div class="api-settings-help-header">
+                    <div>
+                        <h3 id="network-proxy-hint-title">网络设置提醒</h3>
+                        <div class="api-settings-help-subtitle">当前检测结果显示，请求链路和设置中的代理开关状态可能并不一致。</div>
+                    </div>
+                    <button type="button" class="api-settings-help-close" data-close-network-proxy-hint="true" title="关闭">×</button>
+                </div>
+                <div class="api-settings-help-body">
+                    <section class="api-settings-help-section">
+                        <h4>详细说明</h4>
+                        <p>当前检测到后端发出的请求是走的代理，但是设置中的代理选项没有打开。你可能是开启了代理软件的 <code>TUN</code> 模式或者虚拟网卡模式，或者配置了软路由，也可能是其他原因导致的请求走了代理。</p>
+                        <p>此时向 API 供应商发出的请求，可能会被代理软件判定为需要走代理，从而导致链接不稳定。有些国内中转站会更容易出现这种情况。</p>
+                        <p>建议关闭 <code>TUN</code> 模式，或者在代理软件中添加规则解决此问题。</p>
+                    </section>
+                    ${attemptsSummary ? `
+                    <section class="api-settings-help-section">
+                        <h4>本次检测目标</h4>
+                        <p>${attemptsSummary}</p>
+                    </section>` : ''}
+                </div>
+                <div class="modal-footer network-proxy-hint-footer">
+                    <button type="button" class="btn btn-secondary" data-close-network-proxy-hint="true">我知道了</button>
+                    <button type="button" class="btn btn-primary" id="btn-open-proxy-settings-from-hint">打开代理设置</button>
+                </div>
+            </div>
+        `;
+
+        dialog.classList.remove('hidden');
+        dialog.querySelectorAll('[data-close-network-proxy-hint="true"]').forEach((element) => {
+            element.addEventListener('click', closeNetworkProxyHintDialog);
+        });
+        dialog.querySelector('#btn-open-proxy-settings-from-hint')?.addEventListener('click', () => {
+            closeNetworkProxyHintDialog();
+            openSettingsProxyTab();
+        });
+    }
+
+    function hideNetworkProxyMismatchNotice() {
+        floatingNoticesApi?.hideNotice(networkProxyNoticeId);
+    }
+
+    function showNetworkProxyMismatchNotice(result) {
+        if (!floatingNoticesApi) return;
+        const checkedTarget = result?.checkedTarget || '国外网络';
+        floatingNoticesApi.upsertNotice({
+            id: networkProxyNoticeId,
+            priority: 25,
+            className: 'update-canvas-notice network-proxy-notice',
+            role: 'alert',
+            icon: '!',
+            clickable: true,
+            onClick: () => renderNetworkProxyHintDialog(),
+            title: ['请注意网络设置'],
+            meta: ['检测到当前会以 ', { tag: 'span', text: result?.effectiveMode === 'proxy' ? '代理' : '直连' }, ' 模式访问 ', { tag: 'span', text: checkedTarget }, '。这条链路和真实 API 请求一致。点击查看说明。'],
+            actions: [
+                {
+                    id: 'btn-network-proxy-hint-details',
+                    label: '查看说明',
+                    onClick: () => renderNetworkProxyHintDialog()
+                },
+                {
+                    id: 'btn-network-proxy-open-settings',
+                    label: '代理设置',
+                    onClick: () => openSettingsProxyTab()
+                }
+            ],
+            dismissible: true,
+            closeLabel: '关闭网络设置提醒'
+        });
+    }
+
+    function saveNetworkProxyDetectionCache(result) {
+        try {
+            localStorageRef.setItem(networkProxyDetectionStorageKey, JSON.stringify({
+                version: networkProxyDetectionCacheVersion,
+                checkedAt: Date.now(),
+                result
+            }));
+        } catch {
+            // ignore
+        }
+    }
+
+    function readNetworkProxyDetectionCache() {
+        try {
+            const parsed = JSON.parse(localStorageRef.getItem(networkProxyDetectionStorageKey) || 'null');
+            if (!parsed || typeof parsed !== 'object') return null;
+            if (Number(parsed.version) !== networkProxyDetectionCacheVersion) return null;
+            const checkedAt = Number(parsed.checkedAt);
+            if (!Number.isFinite(checkedAt)) return null;
+            if (Date.now() - checkedAt > networkProxyDetectionCooldownMs) return null;
+            const result = parsed.result || null;
+            const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
+            const hasLegacyGithubTarget = attempts.some((attempt) => {
+                const name = String(attempt?.name || '').toLowerCase();
+                const url = String(attempt?.url || '').toLowerCase();
+                return name.includes('github') || url.includes('api.github.com');
+            });
+            if (hasLegacyGithubTarget) return null;
+            return result;
+        } catch {
+            return null;
+        }
+    }
+
+    function isReachableProbeStatus(status) {
+        const code = Number(status);
+        if (!Number.isFinite(code) || code <= 0) return false;
+        return code < 500;
+    }
+
+    async function probeNetworkTarget(target) {
+        const startedAt = Date.now();
+        try {
+            const response = await fetchWithTimeout('/proxy', {
+                method: 'POST',
+                headers: getProxyHeaders(target.url, 'HEAD', {
+                    Accept: '*/*',
+                    'Content-Type': null,
+                    'Cache-Control': 'no-cache',
+                    Pragma: 'no-cache'
+                })
+            }, 12, '网络探测超时');
+
+            const latency = Math.max(0, Date.now() - startedAt);
+            const reachable = isReachableProbeStatus(response.status);
+            return {
+                name: target.name,
+                url: target.url,
+                success: reachable,
+                status: response.status,
+                latency,
+                detail: reachable
+                    ? `请求成功返回 HTTP ${response.status}`
+                    : `请求失败，HTTP ${response.status}`
+            };
+        } catch (error) {
+            return {
+                name: target.name,
+                url: target.url,
+                success: false,
+                status: 0,
+                latency: Math.max(0, Date.now() - startedAt),
+                detail: error?.message || String(error)
+            };
+        }
+    }
+
+    async function checkNetworkProxyMismatch(force = false) {
+        if (state.proxy?.enabled) {
+            networkProxyStatusState.result = null;
+            hideNetworkProxyMismatchNotice();
+            return null;
+        }
+        if (networkProxyStatusState.checking) {
+            return networkProxyStatusState.result;
+        }
+
+        const cachedResult = !force ? readNetworkProxyDetectionCache() : null;
+        if (cachedResult) {
+            networkProxyStatusState.result = cachedResult;
+            if (cachedResult.shouldNotify) {
+                showNetworkProxyMismatchNotice(cachedResult);
+            } else {
+                hideNetworkProxyMismatchNotice();
+            }
+            return cachedResult;
+        }
+
+        networkProxyStatusState.checking = true;
+        try {
+            const attempts = [];
+            let reachableAttempt = null;
+
+            for (const target of NETWORK_PROBE_TARGETS) {
+                const attempt = await probeNetworkTarget(target);
+                attempts.push(attempt);
+                if (attempt.success && !reachableAttempt) {
+                    reachableAttempt = attempt;
+                    break;
+                }
+            }
+
+            const result = {
+                proxyEnabled: false,
+                effectiveMode: 'direct',
+                reachable: !!reachableAttempt,
+                latency: reachableAttempt?.latency || 0,
+                checkedTarget: reachableAttempt?.name || '',
+                detail: reachableAttempt?.detail || (attempts[0]?.detail || '网络探测失败'),
+                attempts,
+                shouldNotify: !!reachableAttempt
+            };
+            networkProxyStatusState.result = result;
+            saveNetworkProxyDetectionCache(result);
+            if (result?.shouldNotify) {
+                showNetworkProxyMismatchNotice(result);
+            } else {
+                hideNetworkProxyMismatchNotice();
+            }
+            return result;
+        } catch (error) {
+            console.error('Failed to detect network proxy mismatch', error);
+            return null;
+        } finally {
+            networkProxyStatusState.checking = false;
+        }
     }
 
     function renderApiSettingsHelpDialog() {
@@ -1896,18 +2174,21 @@ export function createSettingsControllerApi({
     }
 
     function initSettingsUI({ settingsModalApi }) {
+        windowRef.__cainflowSettingsModalApi = settingsModalApi;
         documentRef.getElementById('btn-settings').addEventListener('click', () => {
             settingsModalApi.openSettingsModal();
         });
         documentRef.getElementById('settings-close').addEventListener('click', () => {
             closeApiSettingsHelpDialog();
             closeProviderModelsDialog();
+            closeNetworkProxyHintDialog();
             settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
         });
         settingsModal.addEventListener('click', (e) => {
             if (e.target === settingsModal) {
                 closeApiSettingsHelpDialog();
                 closeProviderModelsDialog();
+                closeNetworkProxyHintDialog();
                 settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
             }
         });
@@ -1969,6 +2250,7 @@ export function createSettingsControllerApi({
 
     return {
         initProxyPanel,
+        checkNetworkProxyMismatch,
         syncProxyToServer,
         collapseAllConfigCards,
         renderProviders,

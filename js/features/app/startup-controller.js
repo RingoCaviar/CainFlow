@@ -8,14 +8,30 @@ export function createStartupControllerApi({
     loadState,
     showToast,
     syncProxyToServer,
+    checkNetworkProxyMismatch = async () => {},
     loadDefaultWorkflow,
     applyDefaultWorkflow,
     updateCanvasTransform,
     scheduleAutoUpdateCheck,
     checkRefreshNotice,
     documentRef = document,
+    performanceRef = typeof performance !== 'undefined' ? performance : null,
     consoleRef = console
 }) {
+    function isReloadNavigation() {
+        const navigationEntry = performanceRef?.getEntriesByType?.('navigation')?.[0];
+        if (navigationEntry?.type) {
+            return navigationEntry.type === 'reload';
+        }
+
+        const legacyNavigation = performanceRef?.navigation;
+        if (legacyNavigation && typeof legacyNavigation.type === 'number') {
+            return legacyNavigation.type === 1;
+        }
+
+        return false;
+    }
+
     async function bootstrapApp() {
         consoleRef.log('CainFlow Initializing...');
         try {
@@ -39,6 +55,9 @@ export function createStartupControllerApi({
 
             scheduleAutoUpdateCheck();
             checkRefreshNotice();
+            if (isReloadNavigation()) {
+                await checkNetworkProxyMismatch();
+            }
         } catch (error) {
             consoleRef.error('CainFlow Initialization Failed:', error);
             showToast('初始化失败，请查看控制台日志', 'error');

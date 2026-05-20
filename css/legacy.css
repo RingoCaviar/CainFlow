@@ -5838,6 +5838,20 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
     pointer-events: auto;
 }
 
+.floating-notice.clickable {
+    cursor: pointer;
+}
+
+.floating-notice.clickable:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+}
+
+.floating-notice.clickable:focus-visible {
+    outline: 2px solid var(--notice-action-hover-border);
+    outline-offset: 2px;
+}
+
 @keyframes notice-slide-in {
     from { opacity: 0; transform: translateY(-10px) translateX(-5px); }
     to { opacity: 1; transform: translateY(0) translateX(0); }
@@ -5886,6 +5900,11 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
     align-items: center;
     border-color: var(--notice-update-border);
     background: var(--notice-update-bg);
+}
+
+.network-proxy-notice .notice-icon {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
 }
 
 .update-canvas-notice .notice-icon {
@@ -5984,6 +6003,17 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
     opacity: 0;
     transform: translateY(-20px);
     pointer-events: none;
+}
+
+.network-proxy-hint-panel {
+    width: min(760px, calc(100vw - 32px));
+}
+
+.network-proxy-hint-footer {
+    padding: 16px 24px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 @keyframes glow-pulse {

@@ -24,9 +24,9 @@ COMMON_PROXY_CANDIDATES = [
 ]
 
 PROXY_HEALTHCHECK_TARGETS = [
-    {'name': 'GitHub API', 'url': 'https://api.github.com', 'method': 'HEAD'},
+    {'name': 'Google gstatic 204', 'url': 'https://www.gstatic.com/generate_204', 'method': 'HEAD'},
     {'name': 'Google 204', 'url': 'https://www.google.com/generate_204', 'method': 'HEAD'},
-    {'name': 'Bing', 'url': 'https://www.bing.com', 'method': 'HEAD'},
+    {'name': 'Huawei HiCloud 204', 'url': 'http://connectivitycheck.platform.hicloud.com/generate_204', 'method': 'HEAD'},
 ]
 
 
@@ -151,17 +151,29 @@ def _get_proxy_detection_candidates():
     return candidates
 
 
-def _build_proxy_opener(ip, port):
-    proxy_url = f'http://{ip}:{port}'
-    proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
+def build_upstream_opener(proxy_enabled=None, proxy_host=None, proxy_port=None):
+    resolved_enabled = bool(state.ACTIVE_PROXY.get('enabled')) if proxy_enabled is None else bool(proxy_enabled)
+    resolved_host = str(proxy_host if proxy_host is not None else state.ACTIVE_PROXY.get('ip') or '127.0.0.1').strip() or '127.0.0.1'
+    resolved_port = str(proxy_port if proxy_port is not None else state.ACTIVE_PROXY.get('port') or '7890').strip() or '7890'
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    return urllib.request.build_opener(
+    if resolved_enabled:
+        proxy_url = f'http://{resolved_host}:{resolved_port}'
+        proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
+    else:
+        proxy_handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(
         proxy_handler,
         urllib.request.HTTPHandler(),
         urllib.request.HTTPSHandler(context=context),
     )
+    return opener, {
+        'enabled': resolved_enabled,
+        'host': resolved_host,
+        'port': resolved_port,
+        'mode': 'proxy' if resolved_enabled else 'direct',
+    }
 
 
 def _summarize_proxy_exception(exc):
@@ -190,7 +202,7 @@ def _check_proxy_health_details(ip, port, request_timeout=6.0, connect_timeout=0
         return result
 
     result['reachable'] = True
-    opener = _build_proxy_opener(host, port_value)
+    opener, _ = build_upstream_opener(proxy_enabled=True, proxy_host=host, proxy_port=port_value)
 
     for target in PROXY_HEALTHCHECK_TARGETS:
         target_name = str(target.get('name') or target.get('url') or 'target')
@@ -266,8 +278,6 @@ def detect_available_proxy():
         'proxy': detected_proxy,
         'attempts': attempts,
     }
-
-
 def is_safe_url(url, allow_private_network_targets=False):
     try:
         parsed = urlparse(url)

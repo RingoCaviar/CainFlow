@@ -92,8 +92,31 @@ export function createFloatingNoticesController({
         if (config.elementId) notice.id = config.elementId;
         if (config.role) notice.setAttribute('role', config.role);
         else notice.removeAttribute('role');
+        if (config.clickable) {
+            notice.classList.add('clickable');
+            notice.tabIndex = 0;
+            notice.setAttribute('role', config.role || 'button');
+        } else {
+            notice.classList.remove('clickable');
+            notice.removeAttribute('tabindex');
+        }
+        notice.onclick = null;
+        notice.onkeydown = null;
         notice.style.order = Number.isFinite(config.priority) ? String(config.priority) : '100';
         notice.textContent = '';
+
+        if (config.clickable && typeof config.onClick === 'function') {
+            notice.onclick = (event) => {
+                if (event.target.closest('button, a, input, textarea, select, label')) return;
+                config.onClick(event);
+            };
+            notice.onkeydown = (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                if (event.target.closest('button, a, input, textarea, select, label')) return;
+                event.preventDefault();
+                config.onClick(event);
+            };
+        }
 
         if (config.icon) {
             const icon = documentRef.createElement('div');

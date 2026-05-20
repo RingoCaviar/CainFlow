@@ -871,6 +871,7 @@ function getStartupControllerApi() {
             loadState,
             showToast,
             syncProxyToServer: () => settingsControllerApi.syncProxyToServer(),
+            checkNetworkProxyMismatch: () => settingsControllerApi.checkNetworkProxyMismatch(),
             loadDefaultWorkflow: () => workflowManagerApi.loadWorkflowFromFile('Default'),
             applyDefaultWorkflow: (defaultData) => workflowManagerApi.applyWorkflowData(defaultData),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
@@ -1011,7 +1012,8 @@ settingsControllerApi = createSettingsControllerApi({
     updateAllConnections,
     applyGlobalAnimationSetting,
     applyCanvasUiSetting,
-    fitNodeToContent
+    fitNodeToContent,
+    floatingNoticesApi: getFloatingNoticesApi()
 });
 historyPreviewApi = createHistoryPreviewApi({
     getHistory,

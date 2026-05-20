@@ -18,7 +18,7 @@ from backend.services.log_service import (
     set_request_data,
     set_response_data,
 )
-from backend.services.security_service import is_safe_url
+from backend.services.security_service import build_upstream_opener, is_safe_url
 from backend.services.version_service import get_app_user_agent
 
 
@@ -125,12 +125,11 @@ def handle_proxy_request(handler):
             proxy_host = state.ACTIVE_PROXY.get('ip')
             proxy_port = state.ACTIVE_PROXY.get('port')
 
-        if proxy_enabled:
-            proxy_url = f'http://{proxy_host}:{proxy_port}'
-            proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
-        else:
-            proxy_handler = urllib.request.ProxyHandler({})
-        opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=context))
+        opener, resolved_proxy_info = build_upstream_opener(
+            proxy_enabled=proxy_enabled,
+            proxy_host=proxy_host,
+            proxy_port=proxy_port
+        )
 
         try:
             raw_timeout = handler.headers.get('x-proxy-timeout', '300')
@@ -143,9 +142,10 @@ def handle_proxy_request(handler):
             handler,
             upstreamRequestHeaders=sanitize_headers(req_headers),
             proxy={
-                'enabled': proxy_enabled,
-                'host': str(proxy_host),
-                'port': str(proxy_port),
+                'enabled': resolved_proxy_info.get('enabled'),
+                'host': resolved_proxy_info.get('host'),
+                'port': resolved_proxy_info.get('port'),
+                'mode': resolved_proxy_info.get('mode'),
             },
             timeoutSeconds=timeout_val,
         )
