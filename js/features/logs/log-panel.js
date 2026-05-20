@@ -6,10 +6,44 @@ import { sanitizeDetails, sanitizeRequestUrl } from '../../services/api-client.j
 const MAX_LOG_COUNT = 200;
 const DEFAULT_RETENTION_DAYS = 1;
 
-export function createLogPanelApi({ state, elements, renderErrorModal, saveState = () => {} }) {
+export function createLogPanelApi({
+    state,
+    elements,
+    renderErrorModal,
+    saveState = () => {},
+    localStorageRef = localStorage,
+    storageKey = 'cainflow_logs_state'
+}) {
     function normalizeRetentionDays(value) {
         const parsed = parseInt(value, 10);
         return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS;
+    }
+
+    function persistLogs() {
+        try {
+            localStorageRef.setItem(storageKey, JSON.stringify({
+                logs: Array.isArray(state.logs) ? state.logs : [],
+                logRetentionDays: normalizeRetentionDays(state.logRetentionDays)
+            }));
+        } catch (error) {
+            console.warn('Persist logs failed:', error);
+        }
+    }
+
+    function loadPersistedLogs() {
+        try {
+            const raw = localStorageRef.getItem(storageKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed?.logs)) {
+                state.logs = parsed.logs;
+            }
+            if (parsed?.logRetentionDays !== undefined) {
+                state.logRetentionDays = normalizeRetentionDays(parsed.logRetentionDays);
+            }
+        } catch (error) {
+            console.warn('Load persisted logs failed:', error);
+        }
     }
 
     function getLogCutoffTimestamp(retentionDays = state.logRetentionDays) {
@@ -24,7 +58,7 @@ export function createLogPanelApi({ state, elements, renderErrorModal, saveState
             return Number.isFinite(timestamp) && timestamp >= cutoff;
         }).slice(0, MAX_LOG_COUNT);
         const changed = state.logs.length !== beforeCount;
-        if (changed && options.save !== false) saveState();
+        if (changed && options.save !== false) persistLogs();
         return changed;
     }
 
@@ -35,9 +69,10 @@ export function createLogPanelApi({ state, elements, renderErrorModal, saveState
     }
 
     function initializeLogs() {
+        loadPersistedLogs();
         state.logRetentionDays = normalizeRetentionDays(state.logRetentionDays);
         state.logs = Array.isArray(state.logs) ? state.logs : [];
-        pruneExpiredLogs({ save: false, retentionDays: state.logRetentionDays });
+        pruneExpiredLogs({ save: true, retentionDays: state.logRetentionDays });
         syncRetentionControl();
     }
 
@@ -66,7 +101,7 @@ export function createLogPanelApi({ state, elements, renderErrorModal, saveState
         state.logs.unshift(log);
         pruneExpiredLogs({ save: false });
         renderLogs();
-        saveState();
+        persistLogs();
 
         if (type === 'error' && !state.autoRetry) {
             renderErrorModal(title, message, log.details, '执行错误', log);
@@ -115,15 +150,22 @@ export function createLogPanelApi({ state, elements, renderErrorModal, saveState
             return false;
         }
         state.logRetentionDays = nextDays;
-        pruneExpiredLogs({ save: false, retentionDays: nextDays });
+        pruneExpiredLogs({ save: true, retentionDays: nextDays });
         renderLogs();
-        saveState();
         syncRetentionControl();
         return true;
     }
 
+    function clearLogs() {
+        state.logs = [];
+        persistLogs();
+        renderLogs();
+        saveState();
+    }
+
     return {
         addLog,
+        clearLogs,
         initializeLogs,
         logRequestToPanel,
         renderLogs,

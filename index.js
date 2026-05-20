@@ -6,6 +6,7 @@ import {
     AUTO_UPDATE_CHECK_DISABLED,
     DB_NAME,
     GITHUB_REPO,
+    LOG_STORAGE_KEY,
     STORAGE_KEY,
     STORE_ASSETS,
     STORE_HANDLES,
@@ -282,7 +283,9 @@ function getLogPanelApi() {
             state,
             elements,
             renderErrorModal: showErrorModal,
-            saveState
+            saveState,
+            localStorageRef: localStorage,
+            storageKey: LOG_STORAGE_KEY
         });
     }
     return logPanelApi;

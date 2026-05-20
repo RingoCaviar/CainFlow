@@ -170,9 +170,7 @@ export function createNodeSerializer({ state, documentRef }) {
             proxy: state.proxy,
             requestTimeoutEnabled: state.requestTimeoutEnabled,
             requestTimeoutSeconds: state.requestTimeoutSeconds,
-            historyGridCols: state.historyGridCols,
-            logs: Array.isArray(state.logs) ? state.logs : [],
-            logRetentionDays: state.logRetentionDays
+            historyGridCols: state.historyGridCols
         };
     }
 

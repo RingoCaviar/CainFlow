@@ -355,9 +355,7 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-clear-logs')?.addEventListener('click', () => {
-            state.logs = [];
-            renderLogs();
-            saveState();
+            logPanelApi?.clearLogs?.();
             showToast('日志已清空', 'info');
         });
 

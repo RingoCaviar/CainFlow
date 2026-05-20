@@ -266,15 +266,6 @@ export function createProjectIoApi({
             if (data.historyGridCols !== undefined) {
                 applyHistoryGridCols(data.historyGridCols);
             }
-            if (Array.isArray(data.logs)) {
-                state.logs = data.logs;
-            }
-            if (data.logRetentionDays !== undefined) {
-                const retentionDays = parseInt(data.logRetentionDays, 10);
-                if (!Number.isNaN(retentionDays) && retentionDays >= 1) {
-                    state.logRetentionDays = retentionDays;
-                }
-            }
             if (data.canvas) {
                 state.canvas.x = data.canvas.x || 0;
                 state.canvas.y = data.canvas.y || 0;
