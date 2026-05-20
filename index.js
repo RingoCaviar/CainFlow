@@ -364,7 +364,7 @@ function initFloatingNotices() {
 const updateManager = createUpdateManager({
     appVersion: APP_VERSION,
     githubRepo: GITHUB_REPO,
-    autoUpdateCheckDisabled: AUTO_UPDATE_CHECK_DISABLED,
+    autoUpdateCheckDisabled: () => AUTO_UPDATE_CHECK_DISABLED || state.autoCheckUpdatesOnLoad === false,
     getProxyHeaders,
     showToast,
     renderGeneralSettings: () => settingsControllerApi?.renderGeneralSettings(),

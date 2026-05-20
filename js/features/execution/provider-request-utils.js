@@ -12,13 +12,19 @@ export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
 
 export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
     { value: '', label: '自动 (auto)' },
-    { value: '1024x1024', label: '1024×1024 · 方图' },
-    { value: '1536x1024', label: '1536×1024 · 横图' },
-    { value: '1024x1536', label: '1024×1536 · 竖图' },
-    { value: '2048x2048', label: '2048×2048 · 2K 方图' },
-    { value: '2048x1152', label: '2048×1152 · 2K 横图' },
-    { value: '3840x2160', label: '3840×2160 · 4K 横图' },
-    { value: '2160x3840', label: '2160×3840 · 4K 竖图' },
+    { value: '1024x1024', label: '1024×1024 · 1:1 方图' },
+    { value: '1024x768', label: '1024×768 · 4:3 1K 横图' },
+    { value: '768x1024', label: '768×1024 · 3:4 1K 竖图' },
+    { value: '1536x1024', label: '1536×1024 · 3:2 横图' },
+    { value: '1024x1536', label: '1024×1536 · 2:3 竖图' },
+    { value: '2048x2048', label: '2048×2048 · 1:1 2K 方图' },
+    { value: '2048x1536', label: '2048×1536 · 4:3 2K 横图' },
+    { value: '1536x2048', label: '1536×2048 · 3:4 2K 竖图' },
+    { value: '2048x1152', label: '2048×1152 · 16:9 2K 横图' },
+    { value: '3072x2304', label: '3072×2304 · 4:3 4K 横图' },
+    { value: '2304x3072', label: '2304×3072 · 3:4 4K 竖图' },
+    { value: '3840x2160', label: '3840×2160 · 16:9 4K 横图' },
+    { value: '2160x3840', label: '2160×3840 · 9:16 4K 竖图' },
     { value: 'custom', label: '自定义' }
 ];
 

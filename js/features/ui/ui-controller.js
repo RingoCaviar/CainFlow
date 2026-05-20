@@ -65,6 +65,7 @@ export function createUiControllerApi({
                 proxy: state.proxy ? { ...state.proxy } : null,
                 requestTimeoutEnabled: state.requestTimeoutEnabled,
                 requestTimeoutSeconds: state.requestTimeoutSeconds,
+                autoCheckUpdatesOnLoad: state.autoCheckUpdatesOnLoad !== false,
                 historyGridCols: state.historyGridCols
             }
         };
@@ -240,6 +241,10 @@ export function createUiControllerApi({
             if (!Number.isNaN(timeoutSeconds) && timeoutSeconds >= 1) {
                 state.requestTimeoutSeconds = timeoutSeconds;
             }
+        }
+
+        if (settings.autoCheckUpdatesOnLoad !== undefined) {
+            state.autoCheckUpdatesOnLoad = settings.autoCheckUpdatesOnLoad !== false;
         }
 
         if (settings.historyGridCols !== undefined) {

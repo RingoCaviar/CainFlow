@@ -142,6 +142,7 @@ export function createProjectIoApi({
                     proxy: currentState.proxy !== undefined ? currentState.proxy : state.proxy,
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
+                    autoCheckUpdatesOnLoad: currentState.autoCheckUpdatesOnLoad !== undefined ? currentState.autoCheckUpdatesOnLoad : state.autoCheckUpdatesOnLoad,
                     historyGridCols: currentState.historyGridCols !== undefined ? currentState.historyGridCols : state.historyGridCols
                 };
 
@@ -262,6 +263,9 @@ export function createProjectIoApi({
                 if (!Number.isNaN(timeoutSeconds) && timeoutSeconds >= 1) {
                     state.requestTimeoutSeconds = timeoutSeconds;
                 }
+            }
+            if (data.autoCheckUpdatesOnLoad !== undefined) {
+                state.autoCheckUpdatesOnLoad = data.autoCheckUpdatesOnLoad !== false;
             }
             if (data.historyGridCols !== undefined) {
                 applyHistoryGridCols(data.historyGridCols);

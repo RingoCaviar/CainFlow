@@ -100,6 +100,7 @@ export function createInitialState() {
         proxy: null,
         requestTimeoutEnabled: true,
         requestTimeoutSeconds: 600,
+        autoCheckUpdatesOnLoad: true,
         connectionLineType: 'bezier',
         toolbarPinned: false,
         sidebarPinned: false,

@@ -1186,6 +1186,7 @@ export function createSettingsControllerApi({
         const toolbarPinned = state.toolbarPinned === true;
         const sidebarPinned = state.sidebarPinned === true;
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
+        const autoCheckUpdatesOnLoad = state.autoCheckUpdatesOnLoad !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
@@ -1319,6 +1320,16 @@ export function createSettingsControllerApi({
                             <div class="general-settings-update-actions" style="display:flex; flex-direction:column; gap:8px; width:100%;">
                                 ${updateActionButtonHtml}
                                 <button id="btn-check-update" class="btn btn-secondary" style="width:100%;">检查更新</button>
+                            </div>
+                            <div class="card-field" style="margin-top:4px;">
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                                    <label style="margin:0;">加载页面时自动检查更新</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="setting-auto-check-updates-on-load" ${autoCheckUpdatesOnLoad ? 'checked' : ''}>
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。关闭后，页面加载时不会再自动倒计时检查更新，但仍可手动检查。</p>
                             </div>
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); margin-top:8px;">最后检查: ${timeStr}</p>
@@ -1501,6 +1512,7 @@ export function createSettingsControllerApi({
         const toolbarPinnedInput = documentRef.getElementById('setting-toolbar-pinned');
         const sidebarPinnedInput = documentRef.getElementById('setting-sidebar-pinned');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
+        const autoCheckUpdatesOnLoadInput = documentRef.getElementById('setting-auto-check-updates-on-load');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
         const updateVolumeSliderProgress = () => {
@@ -1629,6 +1641,11 @@ export function createSettingsControllerApi({
             state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
             applyGlobalAnimationSetting();
             updateAllConnections();
+            saveState();
+        });
+
+        autoCheckUpdatesOnLoadInput?.addEventListener('change', (e) => {
+            state.autoCheckUpdatesOnLoad = e.target.checked;
             saveState();
         });
 
