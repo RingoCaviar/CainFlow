@@ -16,10 +16,9 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     }
 
     def log_message(self, format, *args):
-        path = str(args[0]) if len(args) > 0 else ''
-        if state.is_noise_request(path):
-            return
-        super().log_message(format, *args)
+        # Keep the terminal focused on startup/errors; request details are
+        # already written to structured backend log files when needed.
+        return
 
     def do_GET(self):
         self._begin_request_log()
