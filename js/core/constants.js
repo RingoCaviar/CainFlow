@@ -12,7 +12,7 @@ export const LOG_STORAGE_KEY = 'cainflow_logs_state';
 export const AUTO_UPDATE_CHECK_DISABLED = false;
 
 // 改成 true 后会锁定 API 供应商：隐藏新增/删除入口，并禁止修改供应商 API 地址。
-export const API_PROVIDERS_LOCKED = false;
+export const API_PROVIDERS_LOCKED = AUTO_UPDATE_CHECK_DISABLED;
 
 export const DB_NAME = 'NodeFlowDB';
 export const DB_VERSION = 4;
