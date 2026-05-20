@@ -14,6 +14,7 @@ export function createUiControllerApi({
     storeAssetsName,
     clearHistory,
     clearImageAssets = null,
+    clearOrphanedHistoryAssets = null,
     getHistory,
     getHistoryMetadata = getHistory,
     getHistoryEntry = async (id) => (await getHistory()).find((item) => item.id === id) || null,
@@ -532,7 +533,12 @@ export function createUiControllerApi({
 
     async function clearCurrentNodeAssetsOnly() {
         if (clearImageAssets) {
-            return await clearImageAssets({ preserveHistory: true });
+            const cleared = await clearImageAssets({ preserveHistory: true });
+            if (!cleared) return false;
+            if (clearOrphanedHistoryAssets) {
+                await clearOrphanedHistoryAssets();
+            }
+            return true;
         }
 
         const db = await openDB();
@@ -545,7 +551,12 @@ export function createUiControllerApi({
             if (!isHistoryAssetKey(cursor.key)) store.delete(cursor.key);
             cursor.continue();
         };
-        return await waitForTransaction(tx);
+        const cleared = await waitForTransaction(tx);
+        if (!cleared) return false;
+        if (clearOrphanedHistoryAssets) {
+            await clearOrphanedHistoryAssets();
+        }
+        return true;
     }
 
     function initCache() {

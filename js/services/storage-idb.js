@@ -16,10 +16,61 @@ function getHistoryAssetKey(id) {
     return `${HISTORY_ASSET_KEY_PREFIX}${id}`;
 }
 
+function createHistoryEntryId() {
+    const base = Date.now() * 1000;
+    const offset = Math.floor(Math.random() * 1000);
+    return base + offset;
+}
+
 function stripHistoryImage(entry) {
     if (!entry) return entry;
     const { image, ...metadata } = entry;
     return metadata;
+}
+
+function dataUrlToBlob(dataUrl) {
+    const source = String(dataUrl || '').trim();
+    if (!source.startsWith('data:')) return null;
+    const commaIndex = source.indexOf(',');
+    if (commaIndex < 0) return null;
+
+    const header = source.slice(0, commaIndex);
+    const payload = source.slice(commaIndex + 1);
+    const mimeMatch = header.match(/^data:([^;]+)(;base64)?/i);
+    const mimeType = mimeMatch?.[1] || 'application/octet-stream';
+    const isBase64 = /;base64/i.test(header);
+
+    try {
+        if (isBase64) {
+            const binary = atob(payload);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                bytes[index] = binary.charCodeAt(index);
+            }
+            return new Blob([bytes], { type: mimeType });
+        }
+
+        return new Blob([decodeURIComponent(payload)], { type: mimeType });
+    } catch {
+        return null;
+    }
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve) => {
+        if (!(blob instanceof Blob)) {
+            resolve('');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+    });
+}
+
+function prepareHistoryAssetValue(image) {
+    return dataUrlToBlob(image) || image;
 }
 
 export function createIndexedDbApi(getState) {
@@ -84,7 +135,11 @@ export function createIndexedDbApi(getState) {
     async function getImageAsset(nodeId) {
         try {
             const db = await openDB();
-            return await requestToPromise(db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(nodeId));
+            const asset = await requestToPromise(db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(nodeId));
+            if (asset instanceof Blob) {
+                return await blobToDataUrl(asset);
+            }
+            return typeof asset === 'string' ? asset : null;
         } catch {
             return null;
         }
@@ -135,24 +190,31 @@ export function createIndexedDbApi(getState) {
     async function saveHistoryEntry(data) {
         try {
             const thumb = await createThumbnail(data.image, 256);
-            const entry = stripHistoryImage({ ...data, thumb, timestamp: Date.now() });
+            const id = createHistoryEntryId();
+            const imageAssetKey = getHistoryAssetKey(id);
+            const entry = stripHistoryImage({
+                ...data,
+                id,
+                thumb,
+                timestamp: Date.now(),
+                imageAssetKey
+            });
             const db = await openDB();
             const tx = db.transaction([STORE_HISTORY, STORE_ASSETS], 'readwrite');
             const historyStore = tx.objectStore(STORE_HISTORY);
             const assetStore = tx.objectStore(STORE_ASSETS);
-            const addReq = historyStore.add(entry);
-            addReq.onsuccess = () => {
-                const id = addReq.result;
-                const imageAssetKey = getHistoryAssetKey(id);
-                assetStore.put(data.image, imageAssetKey);
-                historyStore.put({ ...entry, id, imageAssetKey });
-            };
+            historyStore.put(entry);
+            assetStore.put(prepareHistoryAssetValue(data.image), imageAssetKey);
             const state = getState();
             state.cacheSizes[STORE_HISTORY] = null;
             state.cacheSizes[STORE_ASSETS] = null;
             return await waitForTransaction(tx);
         } catch (error) {
-            console.warn('IDB save history failed:', error);
+            console.warn('IDB save history failed:', {
+                name: error?.name || '',
+                message: error?.message || String(error),
+                imageLength: typeof data?.image === 'string' ? data.image.length : 0
+            });
             return false;
         }
     }
@@ -179,6 +241,41 @@ export function createIndexedDbApi(getState) {
             getState().cacheSizes[STORE_ASSETS] = null;
             return await waitForTransaction(tx);
         } catch {
+            return false;
+        }
+    }
+
+    async function clearOrphanedHistoryAssets() {
+        try {
+            const db = await openDB();
+            const historyEntries = await requestToPromise(db.transaction(STORE_HISTORY, 'readonly').objectStore(STORE_HISTORY).getAll());
+            const validHistoryAssetKeys = new Set(
+                (historyEntries || [])
+                    .map((entry) => entry?.imageAssetKey || (entry?.id !== undefined ? getHistoryAssetKey(entry.id) : ''))
+                    .filter((key) => typeof key === 'string' && key.startsWith(HISTORY_ASSET_KEY_PREFIX))
+            );
+
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            const store = tx.objectStore(STORE_ASSETS);
+            const req = store.openKeyCursor();
+            req.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) return;
+                const key = cursor.key;
+                if (
+                    typeof key === 'string' &&
+                    key.startsWith(HISTORY_ASSET_KEY_PREFIX) &&
+                    !validHistoryAssetKeys.has(key)
+                ) {
+                    store.delete(key);
+                }
+                cursor.continue();
+            };
+
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx);
+        } catch (error) {
+            console.warn('IDB clear orphaned history assets failed:', error);
             return false;
         }
     }
@@ -229,7 +326,7 @@ export function createIndexedDbApi(getState) {
                 const entry = req.result;
                 if (!entry?.image || entry.imageAssetKey) return;
                 const imageAssetKey = getHistoryAssetKey(id);
-                assetStore.put(entry.image, imageAssetKey);
+                assetStore.put(prepareHistoryAssetValue(entry.image), imageAssetKey);
                 historyStore.put({
                     ...stripHistoryImage(entry),
                     imageAssetKey
@@ -338,7 +435,7 @@ export function createIndexedDbApi(getState) {
                 const next = { ...entry, thumb };
                 if (next.image && !next.imageAssetKey) {
                     const imageAssetKey = getHistoryAssetKey(normalizedId);
-                    assetStore.put(next.image, imageAssetKey);
+                    assetStore.put(prepareHistoryAssetValue(next.image), imageAssetKey);
                     store.put({ ...stripHistoryImage(next), imageAssetKey });
                     return;
                 }
@@ -410,6 +507,7 @@ export function createIndexedDbApi(getState) {
         getImageAsset,
         deleteImageAsset,
         clearImageAssets,
+        clearOrphanedHistoryAssets,
         createThumbnail,
         saveHistoryEntry,
         getHistory,

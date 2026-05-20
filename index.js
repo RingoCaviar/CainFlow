@@ -223,6 +223,7 @@ const {
     getHistoryEntry,
     updateHistoryThumb,
     clearHistory,
+    clearOrphanedHistoryAssets,
     deleteHistoryEntry
 } = indexedDbApi;
 const mediaUtils = createMediaUtils({
@@ -622,6 +623,7 @@ function getUiControllerApi() {
             storeAssetsName: STORE_ASSETS,
             clearHistory,
             clearImageAssets,
+            clearOrphanedHistoryAssets,
             getHistory,
             getHistoryMetadata,
             getHistoryEntry,

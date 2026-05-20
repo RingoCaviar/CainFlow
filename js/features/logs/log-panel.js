@@ -5,6 +5,7 @@ import { sanitizeDetails, sanitizeRequestUrl } from '../../services/api-client.j
 
 const MAX_LOG_COUNT = 200;
 const DEFAULT_RETENTION_DAYS = 1;
+const DUPLICATE_LOG_WINDOW_MS = 2000;
 
 export function createLogPanelApi({
     state,
@@ -87,6 +88,17 @@ export function createLogPanelApi({
     function addLog(type, title, message, details = null, meta = {}) {
         const sanitized = sanitizeDetails(details);
         const now = Date.now();
+        const latestLog = Array.isArray(state.logs) ? state.logs[0] : null;
+        if (
+            latestLog &&
+            latestLog.type === type &&
+            latestLog.title === title &&
+            latestLog.message === message &&
+            JSON.stringify(latestLog.details ?? null) === JSON.stringify(sanitized ?? null) &&
+            now - Number(latestLog.timestamp || 0) <= DUPLICATE_LOG_WINDOW_MS
+        ) {
+            return latestLog;
+        }
         const log = {
             id: `log_${now}${Math.random().toString(36).substr(2, 5)}`,
             timestamp: now,
@@ -108,6 +120,7 @@ export function createLogPanelApi({
         } else if (type === 'error' && state.autoRetry && elements.btnLogs) {
             elements.btnLogs.classList.add('has-new-error');
         }
+        return log;
     }
 
     function renderLogs() {
