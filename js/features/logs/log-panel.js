@@ -15,6 +15,8 @@ export function createLogPanelApi({
     localStorageRef = localStorage,
     storageKey = 'cainflow_logs_state'
 }) {
+    let logsInitialized = false;
+
     function normalizeRetentionDays(value) {
         const parsed = parseInt(value, 10);
         return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS;
@@ -47,6 +49,14 @@ export function createLogPanelApi({
         }
     }
 
+    function ensureLogsInitialized() {
+        if (logsInitialized) return;
+        loadPersistedLogs();
+        state.logRetentionDays = normalizeRetentionDays(state.logRetentionDays);
+        state.logs = Array.isArray(state.logs) ? state.logs : [];
+        logsInitialized = true;
+    }
+
     function getLogCutoffTimestamp(retentionDays = state.logRetentionDays) {
         return Date.now() - normalizeRetentionDays(retentionDays) * 24 * 60 * 60 * 1000;
     }
@@ -70,9 +80,7 @@ export function createLogPanelApi({
     }
 
     function initializeLogs() {
-        loadPersistedLogs();
-        state.logRetentionDays = normalizeRetentionDays(state.logRetentionDays);
-        state.logs = Array.isArray(state.logs) ? state.logs : [];
+        ensureLogsInitialized();
         pruneExpiredLogs({ save: true, retentionDays: state.logRetentionDays });
         syncRetentionControl();
     }
@@ -86,6 +94,7 @@ export function createLogPanelApi({
     }
 
     function addLog(type, title, message, details = null, meta = {}) {
+        ensureLogsInitialized();
         const sanitized = sanitizeDetails(details);
         const now = Date.now();
         const latestLog = Array.isArray(state.logs) ? state.logs[0] : null;
@@ -124,6 +133,7 @@ export function createLogPanelApi({
     }
 
     function renderLogs() {
+        ensureLogsInitialized();
         const list = elements.logList;
         if (!list) return;
         pruneExpiredLogs({ save: false });
@@ -151,12 +161,14 @@ export function createLogPanelApi({
     }
 
     function showLogDetail(id) {
+        ensureLogsInitialized();
         const log = state.logs.find((entry) => entry.id === id);
         if (!log) return;
         renderErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
     }
 
     function setLogRetentionDays(value) {
+        ensureLogsInitialized();
         const nextDays = normalizeRetentionDays(value);
         if (state.logRetentionDays === nextDays) {
             syncRetentionControl();
@@ -170,6 +182,7 @@ export function createLogPanelApi({
     }
 
     function clearLogs() {
+        ensureLogsInitialized();
         state.logs = [];
         persistLogs();
         renderLogs();
