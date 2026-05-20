@@ -3,7 +3,44 @@
  */
 import { sanitizeDetails, sanitizeRequestUrl } from '../../services/api-client.js';
 
-export function createLogPanelApi({ state, elements, renderErrorModal }) {
+const MAX_LOG_COUNT = 200;
+const DEFAULT_RETENTION_DAYS = 1;
+
+export function createLogPanelApi({ state, elements, renderErrorModal, saveState = () => {} }) {
+    function normalizeRetentionDays(value) {
+        const parsed = parseInt(value, 10);
+        return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS;
+    }
+
+    function getLogCutoffTimestamp(retentionDays = state.logRetentionDays) {
+        return Date.now() - normalizeRetentionDays(retentionDays) * 24 * 60 * 60 * 1000;
+    }
+
+    function pruneExpiredLogs(options = {}) {
+        const cutoff = getLogCutoffTimestamp(options.retentionDays);
+        const beforeCount = Array.isArray(state.logs) ? state.logs.length : 0;
+        state.logs = (Array.isArray(state.logs) ? state.logs : []).filter((log) => {
+            const timestamp = Number(log?.timestamp);
+            return Number.isFinite(timestamp) && timestamp >= cutoff;
+        }).slice(0, MAX_LOG_COUNT);
+        const changed = state.logs.length !== beforeCount;
+        if (changed && options.save !== false) saveState();
+        return changed;
+    }
+
+    function syncRetentionControl() {
+        if (elements.logRetentionSelect) {
+            elements.logRetentionSelect.value = String(normalizeRetentionDays(state.logRetentionDays));
+        }
+    }
+
+    function initializeLogs() {
+        state.logRetentionDays = normalizeRetentionDays(state.logRetentionDays);
+        state.logs = Array.isArray(state.logs) ? state.logs : [];
+        pruneExpiredLogs({ save: false, retentionDays: state.logRetentionDays });
+        syncRetentionControl();
+    }
+
     function logRequestToPanel(title, url, requestBody, extra = {}) {
         addLog('info', title, `正在发送请求到 ${sanitizeRequestUrl(url)}`, {
             url,
@@ -14,8 +51,10 @@ export function createLogPanelApi({ state, elements, renderErrorModal }) {
 
     function addLog(type, title, message, details = null, meta = {}) {
         const sanitized = sanitizeDetails(details);
+        const now = Date.now();
         const log = {
-            id: `log_${Date.now()}${Math.random().toString(36).substr(2, 5)}`,
+            id: `log_${now}${Math.random().toString(36).substr(2, 5)}`,
+            timestamp: now,
             time: new Date().toLocaleTimeString(),
             type,
             title,
@@ -25,8 +64,9 @@ export function createLogPanelApi({ state, elements, renderErrorModal }) {
             userFacing: meta?.userFacing || null
         };
         state.logs.unshift(log);
-        if (state.logs.length > 50) state.logs.pop();
+        pruneExpiredLogs({ save: false });
         renderLogs();
+        saveState();
 
         if (type === 'error' && !state.autoRetry) {
             renderErrorModal(title, message, log.details, '执行错误', log);
@@ -38,6 +78,7 @@ export function createLogPanelApi({ state, elements, renderErrorModal }) {
     function renderLogs() {
         const list = elements.logList;
         if (!list) return;
+        pruneExpiredLogs({ save: false });
         if (state.logs.length === 0) {
             list.innerHTML = '<div class="log-empty">暂无执行记录</div>';
             return;
@@ -67,10 +108,28 @@ export function createLogPanelApi({ state, elements, renderErrorModal }) {
         renderErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
     }
 
+    function setLogRetentionDays(value) {
+        const nextDays = normalizeRetentionDays(value);
+        if (state.logRetentionDays === nextDays) {
+            syncRetentionControl();
+            return false;
+        }
+        state.logRetentionDays = nextDays;
+        pruneExpiredLogs({ save: false, retentionDays: nextDays });
+        renderLogs();
+        saveState();
+        syncRetentionControl();
+        return true;
+    }
+
     return {
         addLog,
+        initializeLogs,
         logRequestToPanel,
         renderLogs,
+        pruneExpiredLogs,
+        setLogRetentionDays,
+        syncRetentionControl,
         showLogDetail
     };
 }

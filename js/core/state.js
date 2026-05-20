@@ -81,6 +81,7 @@ export function createInitialState() {
         providers: DEFAULT_PROVIDERS.map((provider) => ({ ...provider })),
         models: DEFAULT_MODELS.map((model) => ({ ...model })),
         logs: [],
+        logRetentionDays: 1,
         globalSaveDirHandle: null,
         justDragged: false,
         isInteracting: false,

@@ -623,6 +623,15 @@
                 <h3>执行日志</h3>
             </div>
             <div class="header-right">
+                <label class="log-retention-control log-retention-control--inline" for="log-retention-days">
+                    <span>保留</span>
+                    <select id="log-retention-days">
+                        <option value="1">1 天</option>
+                        <option value="3">3 天</option>
+                        <option value="7">7 天</option>
+                        <option value="30">30 天</option>
+                    </select>
+                </label>
                 <button id="btn-clear-logs" class="icon-btn" title="清空日志">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round">

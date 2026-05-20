@@ -4146,6 +4146,22 @@ body:has(#toolbar [aria-expanded="true"]) .drawer {
     margin: 0;
 }
 
+#log-drawer .drawer-header {
+    padding: 10px 12px;
+    gap: 10px;
+}
+
+#log-drawer .drawer-header .header-left,
+#log-drawer .drawer-header .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#log-drawer .drawer-header h3 {
+    font-size: 14px;
+}
+
 .drawer-subheader {
     display: flex;
     align-items: center;

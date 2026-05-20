@@ -22,6 +22,7 @@ export function createUiControllerApi({
     historyPreviewApi,
     historyFullscreenApi,
     settingsControllerApi,
+    logPanelApi = null,
     applyHistoryGridCols,
     applyTheme = () => {},
     applyGlobalAnimationSetting = () => {},
@@ -356,7 +357,16 @@ export function createUiControllerApi({
         documentRef.getElementById('btn-clear-logs')?.addEventListener('click', () => {
             state.logs = [];
             renderLogs();
+            saveState();
             showToast('日志已清空', 'info');
+        });
+
+        documentRef.getElementById('log-retention-days')?.addEventListener('change', (e) => {
+            const retentionDays = parseInt(e.target.value, 10);
+            if (!Number.isNaN(retentionDays) && retentionDays >= 1) {
+                logPanelApi?.setLogRetentionDays?.(retentionDays);
+                showToast(`日志保留时长已更新为 ${retentionDays} 天`, 'success');
+            }
         });
 
         documentRef.getElementById('btn-copy-error')?.addEventListener('click', () => {

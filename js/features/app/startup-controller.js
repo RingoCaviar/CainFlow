@@ -4,6 +4,7 @@
 export function createStartupControllerApi({
     state,
     initUI,
+    initLogs = () => {},
     loadState,
     showToast,
     syncProxyToServer,
@@ -20,6 +21,7 @@ export function createStartupControllerApi({
         try {
             initUI();
             const restored = await loadState();
+            initLogs();
             await syncProxyToServer();
             if (restored) {
                 showToast('已从本地存储恢复工作状态', 'success');

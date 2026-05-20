@@ -281,7 +281,8 @@ function getLogPanelApi() {
         logPanelApi = createLogPanelApi({
             state,
             elements,
-            renderErrorModal: showErrorModal
+            renderErrorModal: showErrorModal,
+            saveState
         });
     }
     return logPanelApi;
@@ -626,6 +627,7 @@ function getUiControllerApi() {
             historyPreviewApi,
             historyFullscreenApi: getHistoryFullscreenApi(),
             settingsControllerApi,
+            logPanelApi: getLogPanelApi(),
             applyHistoryGridCols,
             applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting,
@@ -860,6 +862,7 @@ function getStartupControllerApi() {
         startupControllerApi = createStartupControllerApi({
             state,
             initUI,
+            initLogs: () => getLogPanelApi().initializeLogs(),
             loadState,
             showToast,
             syncProxyToServer: () => settingsControllerApi.syncProxyToServer(),

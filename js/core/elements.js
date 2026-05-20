@@ -13,6 +13,7 @@ export function createElements(doc = document) {
         connectionCreatePopup: doc.getElementById('connection-create-popup'),
         toastContainer: doc.getElementById('toast-container'),
         logList: doc.getElementById('log-list'),
+        logRetentionSelect: doc.getElementById('log-retention-days'),
         historyList: doc.getElementById('history-list'),
         workflowList: doc.getElementById('workflow-list'),
         zoomLevel: doc.getElementById('zoom-level'),
