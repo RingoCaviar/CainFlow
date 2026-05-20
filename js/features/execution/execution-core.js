@@ -1540,9 +1540,11 @@ export function createExecutionCoreApi({
             const text = hasIncomingText ? getPrimaryTextInput(inputs.text) : (node.data.text || '');
             const delimiter = delimiterInput?.value ?? node.data.delimiter ?? '';
             const parsedOutputCount = parseInt(outputCountInput?.value ?? node.data.outputCount ?? '1', 10);
-            const outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
             const removeEmptyLines = removeEmptyLinesInput?.checked === true;
             const mergeOutputEnabled = mergeOutputEnabledInput?.checked === true;
+            const outputCount = mergeOutputEnabled
+                ? 0
+                : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1);
             const rawParts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines });
             const parts = outputCount === 0 ? rawParts : rawParts.slice(0, outputCount);
             node.data.text = text;

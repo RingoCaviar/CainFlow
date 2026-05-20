@@ -83,6 +83,7 @@ function getTextSplitPartsFromRestoreData(restoreData = {}) {
 
 function getTextSplitOutputCountSettingValue(restoreData = {}) {
     const rd = restoreData || {};
+    if (getTextSplitMergeOutputEnabledValue(rd)) return 0;
     if (rd.outputCount !== undefined && rd.outputCount !== '') {
         return normalizeTextSplitOutputCountValue(rd.outputCount);
     }
@@ -663,9 +664,9 @@ function renderTextSplitBody(id, restoreData) {
         <div class="node-field">
             <label>输出数量</label>
             <div class="text-split-output-count-control">
-                <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="-1" title="减少输出数量">-</button>
-                <input type="text" id="${id}-output-count" class="text-split-output-count-input" inputmode="numeric" pattern="[0-9]*" value="${outputCount}" />
-                <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="1" title="增加输出数量">+</button>
+                <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="-1" title="减少输出数量" ${mergeOutputEnabled ? 'disabled' : ''}>-</button>
+                <input type="text" id="${id}-output-count" class="text-split-output-count-input" inputmode="numeric" pattern="[0-9]*" value="${outputCount}" ${mergeOutputEnabled ? 'disabled' : ''} />
+                <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="1" title="增加输出数量" ${mergeOutputEnabled ? 'disabled' : ''}>+</button>
             </div>
             <div class="text-split-output-hint">设为 0 时根据分割结果自动生成输出端口</div>
         </div>

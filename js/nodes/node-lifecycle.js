@@ -794,7 +794,9 @@ export function createNodeLifecycleApi({
                 effectiveRestoreData?.delimiter !== undefined ? effectiveRestoreData.delimiter : '\n\n',
                 { removeEmptyLines: effectiveRestoreData?.removeEmptyLines === true }
             ).length);
-            if (effectiveRestoreData?.outputCount !== undefined && effectiveRestoreData.outputCount !== '') {
+            if (effectiveRestoreData?.mergeOutputEnabled === true) {
+                nodeData.data.outputCount = 0;
+            } else if (effectiveRestoreData?.outputCount !== undefined && effectiveRestoreData.outputCount !== '') {
                 const parsedOutputCount = parseInt(effectiveRestoreData.outputCount, 10);
                 nodeData.data.outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
             } else {

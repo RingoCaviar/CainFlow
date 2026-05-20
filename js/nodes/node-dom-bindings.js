@@ -182,6 +182,20 @@ export function createNodeDomBindingsApi({
         return mergeOutputInput ? mergeOutputInput.checked === true : node?.data?.mergeOutputEnabled === true;
     }
 
+    function syncTextSplitOutputCountControlState(id, mergeOutputEnabled = isTextSplitMergeOutputEnabled(id)) {
+        const outputCountInput = documentRef.getElementById(`${id}-output-count`);
+        if (!outputCountInput) return;
+
+        if (mergeOutputEnabled) {
+            outputCountInput.value = '0';
+        }
+        outputCountInput.disabled = mergeOutputEnabled;
+        const container = outputCountInput.closest('.text-split-output-count-control');
+        container?.querySelectorAll('.text-split-output-count-btn').forEach((button) => {
+            button.disabled = mergeOutputEnabled;
+        });
+    }
+
     function limitTextSplitParts(parts, outputCount) {
         return outputCount === 0 ? parts : parts.slice(0, Math.max(1, outputCount));
     }
@@ -554,12 +568,15 @@ export function createNodeDomBindingsApi({
         if (cloneNode.type === 'TextSplit') {
             cloneNode.data = clonePlainValue(cloneNode.data || {});
             cloneNode.data.delimiter = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-delimiter`)?.value || '';
+            const mergeOutputEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-merge-output-enabled`)?.checked === true;
             cloneNode.data.outputCount = normalizeTextSplitOutputCountValue(
-                cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-output-count`)?.value ?? cloneNode.data.outputCount ?? 1
+                mergeOutputEnabled
+                    ? 0
+                    : (cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-output-count`)?.value ?? cloneNode.data.outputCount ?? 1)
             );
             cloneNode.data.removeEmptyLines = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-remove-empty-lines`)?.checked === true;
             cloneNode.data.previewEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-preview-enabled`)?.checked === true;
-            cloneNode.data.mergeOutputEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-merge-output-enabled`)?.checked === true;
+            cloneNode.data.mergeOutputEnabled = mergeOutputEnabled;
         }
 
         if (cloneNode.type === 'CameraControl') {
@@ -867,11 +884,16 @@ export function createNodeDomBindingsApi({
         const removeEmptyLines = removeEmptyLinesInput?.checked === true;
         const previewEnabled = previewEnabledInput?.checked === true;
         const mergeOutputEnabled = mergeOutputEnabledInput?.checked === true;
+        syncTextSplitOutputCountControlState(id, mergeOutputEnabled);
+        const effectiveOutputCount = mergeOutputEnabled ? 0 : outputCount;
+        if (outputCountInput) {
+            outputCountInput.value = String(effectiveOutputCount);
+        }
         const rawParts = splitTextForTextSplitNode(node.data?.text || '', delimiterInput.value, { removeEmptyLines });
-        const parts = limitTextSplitParts(rawParts, outputCount);
-        const renderedOutputCount = getTextSplitRenderedOutputCount(parts, outputCount);
+        const parts = limitTextSplitParts(rawParts, effectiveOutputCount);
+        const renderedOutputCount = getTextSplitRenderedOutputCount(parts, effectiveOutputCount);
         node.data.delimiter = delimiterInput.value;
-        node.data.outputCount = outputCount;
+        node.data.outputCount = effectiveOutputCount;
         node.data.removeEmptyLines = removeEmptyLines;
         node.data.previewEnabled = previewEnabled;
         node.data.mergeOutputEnabled = mergeOutputEnabled;
@@ -891,9 +913,9 @@ export function createNodeDomBindingsApi({
                 ? `按 ${JSON.stringify(delimiterInput.value)} 分割`
                 : '未设置分隔字符串，整段作为一个输出';
             const emptyLineText = removeEmptyLines ? '，已删除空行' : '';
-            const outputText = outputCount === 0
+            const outputText = effectiveOutputCount === 0
                 ? `，自动生成 ${renderedOutputCount} 个输出端口`
-                : `，当前配置 ${outputCount} 个输出端口`;
+                : `，当前配置 ${effectiveOutputCount} 个输出端口`;
             const mergeText = mergeOutputEnabled ? '，多合一输出为 1 个端口' : outputText;
             summary.textContent = `${delimiterText}${emptyLineText}${mergeText}`;
         }
@@ -1863,6 +1885,7 @@ export function createNodeDomBindingsApi({
             el.querySelectorAll('.text-split-output-count-btn').forEach((button) => {
                 button.addEventListener('click', () => {
                     if (!outputCountInput) return;
+                    if (button.disabled || outputCountInput.disabled) return;
                     const delta = parseInt(button.dataset.delta || '0', 10) || 0;
                     const currentValue = normalizeTextSplitOutputCountValue(outputCountInput.value);
                     outputCountInput.value = String(Math.max(0, currentValue + delta));
@@ -1870,6 +1893,7 @@ export function createNodeDomBindingsApi({
                     outputCountInput.dispatchEvent(new Event('change', { bubbles: true }));
                 });
             });
+            syncTextSplitOutputCountControlState(id);
             syncTextSplitNodeData(id);
         }
 
