@@ -33,9 +33,6 @@ export function createPromptLibraryApi({
             body: documentRef.querySelector('.prompt-library-body'),
             closeButton: documentRef.getElementById('btn-close-prompt-library'),
             newButton: documentRef.getElementById('btn-new-prompt'),
-            importButton: documentRef.getElementById('btn-import-prompts'),
-            exportButton: documentRef.getElementById('btn-export-prompts'),
-            importInput: documentRef.getElementById('input-import-prompts'),
             selectToggleButton: documentRef.getElementById('btn-toggle-prompt-select'),
             selectAllButton: documentRef.getElementById('btn-select-all-prompts'),
             deleteSelectedButton: documentRef.getElementById('btn-delete-selected-prompts'),
@@ -116,47 +113,6 @@ export function createPromptLibraryApi({
         };
     }
 
-    function downloadJsonFile(payload, filename) {
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = documentRef.createElement('a');
-        link.href = url;
-        link.download = filename;
-        documentRef.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    }
-
-    function getExportTargetPrompts() {
-        if (selectedPromptIds.size === 0) return prompts;
-        return prompts.filter((prompt) => selectedPromptIds.has(prompt.id));
-    }
-
-    function exportPrompts() {
-        if (prompts.length === 0) {
-            showToast('暂无提示词可导出', 'info');
-            return;
-        }
-
-        const targetPrompts = getExportTargetPrompts();
-        if (targetPrompts.length === 0) {
-            showToast('未找到选中的提示词，将导出全部预设', 'info');
-        }
-
-        const promptsToExport = targetPrompts.length > 0 ? targetPrompts : prompts;
-        const payload = {
-            type: 'cainflow-prompt-library',
-            version: 1,
-            exportedAt: new Date().toISOString(),
-            prompts: promptsToExport.map(toTransferPrompt)
-        };
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const scope = selectedPromptIds.size > 0 && targetPrompts.length > 0 ? 'selected' : 'all';
-        downloadJsonFile(payload, `cainflow_prompts_${scope}_${stamp}.json`);
-        showToast(`已导出 ${promptsToExport.length} 条提示词预设`, 'success');
-    }
-
     function normalizeImportedPrompt(raw, index) {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
             throw new Error(`第 ${index + 1} 条预设不是有效对象`);
@@ -176,40 +132,16 @@ export function createPromptLibraryApi({
 
         const now = new Date().toISOString();
         return {
-            importId: `import_${index}_${createId()}`,
-            prompt: {
-                id: typeof raw.id === 'string' && raw.id ? raw.id : createId(),
-                name: name || buildFallbackName(content),
-                content,
-                createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
-                updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now
-            }
+            id: typeof raw.id === 'string' && raw.id ? raw.id : createId(),
+            name: name || buildFallbackName(content),
+            content,
+            createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
+            updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now
         };
     }
 
-    function parseImportPayload(text) {
-        let payload;
-        try {
-            payload = JSON.parse(text);
-        } catch (error) {
-            throw new Error('文件不是有效的 JSON');
-        }
-
-        if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.type && payload.type !== 'cainflow-prompt-library') {
-            throw new Error('文件类型不是 CainFlow 提示词库');
-        }
-
-        const rawPrompts = Array.isArray(payload)
-            ? payload
-            : (payload && typeof payload === 'object' && Array.isArray(payload.prompts) ? payload.prompts : null);
-
-        if (!rawPrompts) {
-            throw new Error('文件缺少 prompts 数组');
-        }
-        if (rawPrompts.length === 0) {
-            throw new Error('文件中没有可导入的提示词预设');
-        }
-
+    function loadPromptsFromTransfer(rawPrompts) {
+        if (!Array.isArray(rawPrompts)) throw new Error('配置文件缺少 prompts 数组');
         return rawPrompts.map((item, index) => normalizeImportedPrompt(item, index));
     }
 
@@ -352,82 +284,6 @@ export function createPromptLibraryApi({
         }
     }
 
-    function openImportDialog(candidates) {
-        const { importDialog } = getEls();
-        importCandidates = candidates;
-        selectedImportIds.clear();
-        candidates.forEach((item) => selectedImportIds.add(item.importId));
-        closeEditor();
-        selectionMode = false;
-        selectedPromptIds.clear();
-        renderPromptGrid();
-        importDialog?.classList.remove('hidden');
-        renderImportDialog();
-    }
-
-    function closeImportDialog() {
-        const { importDialog } = getEls();
-        importDialog?.classList.add('hidden');
-        importCandidates = [];
-        selectedImportIds.clear();
-    }
-
-    function handleImportFile(file) {
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            try {
-                const candidates = parseImportPayload(String(reader.result || ''));
-                openImportDialog(candidates);
-            } catch (error) {
-                showToast(`导入失败：${error.message}`, 'error', 5000);
-            }
-        };
-        reader.onerror = () => {
-            showToast('读取导入文件失败', 'error');
-        };
-        reader.readAsText(file, 'utf-8');
-    }
-
-    function toggleImportSelection(importId) {
-        if (selectedImportIds.has(importId)) selectedImportIds.delete(importId);
-        else selectedImportIds.add(importId);
-        renderImportDialog();
-    }
-
-    function toggleSelectAllImportCandidates() {
-        if (selectedImportIds.size === importCandidates.length) {
-            selectedImportIds.clear();
-        } else {
-            importCandidates.forEach((item) => selectedImportIds.add(item.importId));
-        }
-        renderImportDialog();
-    }
-
-    function confirmImportPrompts() {
-        if (selectedImportIds.size === 0) {
-            showToast('请先选择要导入的预设', 'warning');
-            return;
-        }
-
-        const now = new Date().toISOString();
-        const selectedPrompts = importCandidates
-            .filter((item) => selectedImportIds.has(item.importId))
-            .map(({ prompt }) => ({
-                ...prompt,
-                id: createId(),
-                createdAt: prompt.createdAt || now,
-                updatedAt: now
-            }));
-
-        prompts = [...selectedPrompts, ...prompts];
-        persistPrompts();
-        renderPromptGrid();
-        closeImportDialog();
-        showToast(`已导入 ${selectedPrompts.length} 条提示词预设`, 'success');
-    }
-
     function closeEditor() {
         const { body, editor, nameInput, contentInput } = getEls();
         editingId = null;
@@ -442,7 +298,6 @@ export function createPromptLibraryApi({
         modal?.classList.add('hidden');
         button?.classList.remove('active');
         closeEditor();
-        closeImportDialog();
         selectionMode = false;
         selectedPromptIds.clear();
         updateSelectionControls();
@@ -601,21 +456,12 @@ export function createPromptLibraryApi({
         }
     }
 
-    function handleImportListClick(event) {
-        const item = event.target.closest('.prompt-import-item');
-        if (!item) return;
-        toggleImportSelection(item.dataset.id);
-    }
-
     function initPromptLibrary() {
         const {
             button,
             modal,
             closeButton,
             newButton,
-            importButton,
-            exportButton,
-            importInput,
             selectToggleButton,
             selectAllButton,
             deleteSelectedButton,
@@ -623,25 +469,13 @@ export function createPromptLibraryApi({
             grid,
             saveButton,
             cancelButton,
-            closeEditorButton,
-            importDialog,
-            importList,
-            importSelectAllButton,
-            confirmImportButton,
-            cancelImportButton,
-            closeImportButton
+            closeEditorButton
         } = getEls();
         if (!button || !modal) return;
 
         button.addEventListener('click', openLibrary);
         closeButton?.addEventListener('click', closeLibrary);
         newButton?.addEventListener('click', () => openEditor());
-        importButton?.addEventListener('click', () => importInput?.click());
-        exportButton?.addEventListener('click', exportPrompts);
-        importInput?.addEventListener('change', () => {
-            handleImportFile(importInput.files?.[0]);
-            importInput.value = '';
-        });
         selectToggleButton?.addEventListener('click', enterSelectionMode);
         selectAllButton?.addEventListener('click', toggleSelectAllPrompts);
         deleteSelectedButton?.addEventListener('click', deleteSelectedPrompts);
@@ -650,26 +484,13 @@ export function createPromptLibraryApi({
         cancelButton?.addEventListener('click', closeEditor);
         closeEditorButton?.addEventListener('click', closeEditor);
         grid?.addEventListener('click', handleGridClick);
-        importList?.addEventListener('click', handleImportListClick);
-        importSelectAllButton?.addEventListener('click', toggleSelectAllImportCandidates);
-        confirmImportButton?.addEventListener('click', confirmImportPrompts);
-        cancelImportButton?.addEventListener('click', closeImportDialog);
-        closeImportButton?.addEventListener('click', closeImportDialog);
 
         modal.addEventListener('click', (event) => {
             if (event.target === modal) closeLibrary();
         });
-        importDialog?.addEventListener('click', (event) => {
-            if (event.target === importDialog) closeImportDialog();
-        });
 
         documentRef.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
-                const { importDialog: activeImportDialog } = getEls();
-                if (activeImportDialog && !activeImportDialog.classList.contains('hidden')) {
-                    closeImportDialog();
-                    return;
-                }
                 closeLibrary();
             }
         });

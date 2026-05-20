@@ -3,6 +3,7 @@
  */
 import { getModelProviderIds, normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
 import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
+const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
 export function createUiControllerApi({
     state,
@@ -42,124 +43,162 @@ export function createUiControllerApi({
     confirmRef = confirm,
     alertRef = alert
 }) {
-    function buildConfigPayload() {
+    const CONFIG_SECTION_KEYS = ['providers', 'models', 'settings', 'prompts'];
+    const CONFIG_IMPORT_MODES = {
+        replace: 'replace',
+        append: 'append'
+    };
+    let pendingConfigImportFile = null;
+    let configModalMode = 'export';
+
+    function normalizeConfigSelection(raw = {}) {
         return {
-            type: 'cainflow-config',
-            version: '1.0',
-            exportedAt: new Date().toISOString(),
-            providers: state.providers.map((provider) => ({ ...provider })),
-            models: state.models.map((model) => ({ ...model })),
-            settings: {
-                themeId: state.themeId,
-                notificationsEnabled: state.notificationsEnabled,
-                notificationVolume: state.notificationVolume,
-                autoRetry: state.autoRetry,
-                maxRetries: state.maxRetries,
-                concurrentRequestMode: state.concurrentRequestMode,
-                imageAutoResizeEnabled: state.imageAutoResizeEnabled,
-                imageMaxPixels: state.imageMaxPixels,
-                connectionLineType: state.connectionLineType,
-                toolbarPinned: state.toolbarPinned === true,
-                sidebarPinned: state.sidebarPinned === true,
-                globalAnimationEnabled: state.globalAnimationEnabled,
-                connectionFlowAnimationEnabled: state.globalAnimationEnabled,
-                proxy: state.proxy ? { ...state.proxy } : null,
-                requestTimeoutEnabled: state.requestTimeoutEnabled,
-                requestTimeoutSeconds: state.requestTimeoutSeconds,
-                autoCheckUpdatesOnLoad: state.autoCheckUpdatesOnLoad !== false,
-                historyGridCols: state.historyGridCols
-            }
+            providers: raw.providers !== false,
+            models: raw.models !== false,
+            settings: raw.settings !== false
+            ,prompts: raw.prompts !== false
         };
     }
 
-    function normalizeProviders(providers) {
-        if (!Array.isArray(providers)) throw new Error('配置文件缺少 providers 数组');
-
-        return providers.map((provider, index) => ({
-            id: String(provider?.id || `prov_import_${index + 1}`),
-            name: typeof provider?.name === 'string' && provider.name.trim() ? provider.name.trim() : `导入供应商 ${index + 1}`,
-            type: normalizeProviderType(provider?.type, provider),
-            apikey: typeof provider?.apikey === 'string' ? provider.apikey : '',
-            endpoint: typeof provider?.endpoint === 'string' ? provider.endpoint : '',
-            autoComplete: provider?.autoComplete !== false
-        }));
+    function hasAnySelectedConfigSection(selection) {
+        return !!selection && CONFIG_SECTION_KEYS.some((key) => selection[key]);
     }
 
-    function getLockedProviders(importedProviders = []) {
-        const importedById = new Map((importedProviders || []).map((provider) => [provider.id, provider]));
-        return DEFAULT_PROVIDERS.map((provider) => {
-            const current = state.providers.find((candidate) => candidate.id === provider.id);
-            const imported = importedById.get(provider.id);
-            return {
-                ...provider,
-                name: current?.name || imported?.name || provider.name,
-                apikey: current?.apikey || imported?.apikey || provider.apikey
-            };
+    function getConfigSelectionFromUi() {
+        return normalizeConfigSelection({
+            providers: documentRef.getElementById('config-export-providers')?.checked,
+            models: documentRef.getElementById('config-export-models')?.checked,
+            settings: documentRef.getElementById('config-export-settings')?.checked,
+            prompts: documentRef.getElementById('config-export-prompts')?.checked
         });
     }
 
-    function bindModelToAvailableProviders(model, providers) {
-        const availableProviderIds = new Set((providers || []).map((provider) => provider.id));
-        const providerIds = getModelProviderIds(model).filter((providerId) => availableProviderIds.has(providerId));
-        const fallbackProviderId = providers?.[0]?.id || '';
-        const nextProviderIds = providerIds.length > 0
-            ? providerIds
-            : (fallbackProviderId ? [fallbackProviderId] : []);
+    function getConfigImportModeFromUi() {
+        return documentRef.querySelector('input[name="config-import-mode"]:checked')?.value === CONFIG_IMPORT_MODES.append
+            ? CONFIG_IMPORT_MODES.append
+            : CONFIG_IMPORT_MODES.replace;
+    }
+
+    function getConfigModalTitle(mode) {
+        return mode === 'import' ? '导入配置' : '导出配置';
+    }
+
+    function getConfigModalActionText(mode) {
+        return mode === 'import' ? '选择文件并导入' : '立即导出';
+    }
+
+    function getConfigModalHint(mode) {
+        return mode === 'import'
+            ? '可选择只导入供应商、模型、通用设置或提示词库，也可任意组合。'
+            : '可选择导出全部配置，或只导出供应商 / 模型 / 通用设置 / 提示词库中的任意组合。';
+    }
+
+    function getConfigModalFileHint(mode) {
+        return mode === 'import'
+            ? '导入时会按所选范围处理配置，支持替换或追加合并。'
+            : '导出的 JSON 只会包含你勾选的数据块。';
+    }
+
+    function setConfigModalMode(mode) {
+        configModalMode = mode;
+        const title = documentRef.getElementById('config-modal-title');
+        const actionBtn = documentRef.getElementById('config-modal-action');
+        const hint = documentRef.getElementById('config-modal-hint');
+        const fileHint = documentRef.getElementById('config-modal-file-hint');
+        const importModeGroup = documentRef.getElementById('config-import-mode-group');
+        const importModeReplace = documentRef.getElementById('config-import-mode-replace');
+        const importModeAppend = documentRef.getElementById('config-import-mode-append');
+        const fileInput = documentRef.getElementById('input-config-file');
+
+        title.textContent = getConfigModalTitle(mode);
+        actionBtn.textContent = getConfigModalActionText(mode);
+        hint.textContent = getConfigModalHint(mode);
+        fileHint.textContent = getConfigModalFileHint(mode);
+        importModeGroup.classList.toggle('hidden', mode !== 'import');
+        fileInput.value = '';
+
+        if (mode === 'import') {
+            importModeReplace.checked = true;
+        } else {
+            importModeReplace.checked = true;
+            importModeAppend.checked = false;
+        }
+    }
+
+    function openConfigModal(mode) {
+        const modal = documentRef.getElementById('config-modal');
+        if (!modal) return;
+        setConfigModalMode(mode);
+        modal.classList.remove('hidden');
+    }
+
+    function closeConfigModal() {
+        documentRef.getElementById('config-modal')?.classList.add('hidden');
+    }
+
+    function mergeItemsById(currentItems = [], importedItems = []) {
+        const merged = currentItems.map((item) => ({ ...item }));
+        const indexById = new Map(merged.map((item, index) => [item.id, index]));
+
+        importedItems.forEach((item) => {
+            const existingIndex = indexById.get(item.id);
+            if (existingIndex !== undefined) {
+                merged[existingIndex] = { ...merged[existingIndex], ...item };
+                return;
+            }
+            indexById.set(item.id, merged.length);
+            merged.push({ ...item });
+        });
+
+        return merged;
+    }
+
+    function getStoredPromptLibrary() {
+        try {
+            const parsed = JSON.parse(localStorageRef.getItem(PROMPT_LIBRARY_STORAGE_KEY) || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function setStoredPromptLibrary(prompts) {
+        localStorageRef.setItem(PROMPT_LIBRARY_STORAGE_KEY, JSON.stringify(prompts));
+    }
+
+    function normalizePromptRecord(raw, index) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            throw new Error(`第 ${index + 1} 条提示词不是有效对象`);
+        }
+        const content = typeof raw.content === 'string' ? raw.content : '';
+        const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+        if (!name && !content.trim()) {
+            throw new Error(`第 ${index + 1} 条提示词缺少名称和内容`);
+        }
+        const now = new Date().toISOString();
         return {
-            ...model,
-            providerIds: nextProviderIds,
-            providerId: nextProviderIds[0] || ''
+            id: typeof raw.id === 'string' && raw.id ? raw.id : `prompt_${Date.now().toString(36)}_${index}`,
+            name: name || '未命名提示词',
+            content,
+            createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
+            updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now
         };
     }
 
-    function normalizeModels(models, providers) {
-        if (!Array.isArray(models)) throw new Error('配置文件缺少 models 数组');
-
-        const providersById = new Map((providers || []).map((provider) => [provider.id, provider]));
-        return models
-            .map((model, index) => normalizeModelConfig(model, index, providersById))
-            .map((model) => API_PROVIDERS_LOCKED ? bindModelToAvailableProviders(model, providers) : model);
+    function normalizePromptLibrary(rawPrompts) {
+        if (!Array.isArray(rawPrompts)) throw new Error('配置文件缺少 prompts 数组');
+        return rawPrompts.map((item, index) => normalizePromptRecord(item, index));
     }
 
-    function ensureUniqueIds(items, label) {
-        const seen = new Set();
-        items.forEach((item) => {
-            if (seen.has(item.id)) {
-                throw new Error(`${label}存在重复 ID：${item.id}`);
-            }
-            seen.add(item.id);
-        });
+    function mergePromptsById(currentPrompts = [], importedPrompts = []) {
+        return mergeItemsById(currentPrompts, importedPrompts);
     }
 
-    function applyImportedConfig(configData) {
-        if (!configData || typeof configData !== 'object') {
-            throw new Error('配置文件格式无效');
-        }
-
-        const importedProviders = normalizeProviders(configData.providers);
-        const providers = API_PROVIDERS_LOCKED ? getLockedProviders(importedProviders) : importedProviders;
-        const models = normalizeModels(configData.models, providers);
-        const settings = configData.settings && typeof configData.settings === 'object'
-            ? configData.settings
-            : {};
-
-        ensureUniqueIds(providers, '供应商配置');
-        ensureUniqueIds(models, '模型配置');
-
-        const providerIds = new Set(providers.map((provider) => provider.id));
-        const invalidModel = models.find((model) => getModelProviderIds(model).some((providerId) => !providerIds.has(providerId)));
-        if (invalidModel) {
-            const invalidProviderId = getModelProviderIds(invalidModel).find((providerId) => !providerIds.has(providerId));
-            throw new Error(`模型 ${invalidModel.name} 绑定了不存在的供应商：${invalidProviderId}`);
-        }
-
-        state.providers = providers;
-        state.models = models;
+    function applyImportedSettings(settings) {
+        if (!settings || typeof settings !== 'object') return;
 
         if (settings.themeId !== undefined || settings.themeMode !== undefined) {
             applyTheme(settings.themeId !== undefined ? settings.themeId : settings.themeMode);
-        } else {
-            applyTheme(state.themeId);
         }
 
         if (settings.notificationsEnabled !== undefined) {
@@ -252,17 +291,190 @@ export function createUiControllerApi({
             applyHistoryGridCols(settings.historyGridCols);
         }
 
+        settingsControllerApi?.renderGeneralSettings();
+        settingsControllerApi?.syncProxyToServer();
+    }
+
+    function buildConfigPayload(selection = normalizeConfigSelection()) {
+        const payload = {
+            type: 'cainflow-config',
+            version: '1.0',
+            exportedAt: new Date().toISOString()
+        };
+
+        if (selection.providers) payload.providers = state.providers.map((provider) => ({ ...provider }));
+        if (selection.models) payload.models = state.models.map((model) => ({ ...model }));
+        if (selection.settings) {
+            payload.settings = {
+                themeId: state.themeId,
+                notificationsEnabled: state.notificationsEnabled,
+                notificationVolume: state.notificationVolume,
+                autoRetry: state.autoRetry,
+                maxRetries: state.maxRetries,
+                concurrentRequestMode: state.concurrentRequestMode,
+                imageAutoResizeEnabled: state.imageAutoResizeEnabled,
+                imageMaxPixels: state.imageMaxPixels,
+                connectionLineType: state.connectionLineType,
+                toolbarPinned: state.toolbarPinned === true,
+                sidebarPinned: state.sidebarPinned === true,
+                globalAnimationEnabled: state.globalAnimationEnabled,
+                connectionFlowAnimationEnabled: state.globalAnimationEnabled,
+                proxy: state.proxy ? { ...state.proxy } : null,
+                requestTimeoutEnabled: state.requestTimeoutEnabled,
+                requestTimeoutSeconds: state.requestTimeoutSeconds,
+                autoCheckUpdatesOnLoad: state.autoCheckUpdatesOnLoad !== false,
+                historyGridCols: state.historyGridCols
+            };
+        }
+
+        if (selection.prompts) {
+            payload.promptLibrary = {
+                storageKey: PROMPT_LIBRARY_STORAGE_KEY,
+                prompts: getStoredPromptLibrary()
+            };
+        }
+
+        return payload;
+    }
+
+    function normalizeProviders(providers) {
+        if (!Array.isArray(providers)) throw new Error('配置文件缺少 providers 数组');
+
+        return providers.map((provider, index) => ({
+            id: String(provider?.id || `prov_import_${index + 1}`),
+            name: typeof provider?.name === 'string' && provider.name.trim() ? provider.name.trim() : `导入供应商 ${index + 1}`,
+            type: normalizeProviderType(provider?.type, provider),
+            apikey: typeof provider?.apikey === 'string' ? provider.apikey : '',
+            endpoint: typeof provider?.endpoint === 'string' ? provider.endpoint : '',
+            autoComplete: provider?.autoComplete !== false
+        }));
+    }
+
+    function getLockedProviders(importedProviders = []) {
+        const importedById = new Map((importedProviders || []).map((provider) => [provider.id, provider]));
+        return DEFAULT_PROVIDERS.map((provider) => {
+            const current = state.providers.find((candidate) => candidate.id === provider.id);
+            const imported = importedById.get(provider.id);
+            return {
+                ...provider,
+                name: current?.name || imported?.name || provider.name,
+                apikey: current?.apikey || imported?.apikey || provider.apikey
+            };
+        });
+    }
+
+    function bindModelToAvailableProviders(model, providers) {
+        const availableProviderIds = new Set((providers || []).map((provider) => provider.id));
+        const providerIds = getModelProviderIds(model).filter((providerId) => availableProviderIds.has(providerId));
+        const fallbackProviderId = providers?.[0]?.id || '';
+        const nextProviderIds = providerIds.length > 0
+            ? providerIds
+            : (fallbackProviderId ? [fallbackProviderId] : []);
+        return {
+            ...model,
+            providerIds: nextProviderIds,
+            providerId: nextProviderIds[0] || ''
+        };
+    }
+
+    function normalizeModels(models, providers) {
+        if (!Array.isArray(models)) throw new Error('配置文件缺少 models 数组');
+
+        const providersById = new Map((providers || []).map((provider) => [provider.id, provider]));
+        return models
+            .map((model, index) => normalizeModelConfig(model, index, providersById))
+            .map((model) => API_PROVIDERS_LOCKED ? bindModelToAvailableProviders(model, providers) : model);
+    }
+
+    function ensureUniqueIds(items, label) {
+        const seen = new Set();
+        items.forEach((item) => {
+            if (seen.has(item.id)) {
+                throw new Error(`${label}存在重复 ID：${item.id}`);
+            }
+            seen.add(item.id);
+        });
+    }
+
+    function applyImportedConfig(configData, { selection, importMode } = {}) {
+        if (!configData || typeof configData !== 'object') {
+            throw new Error('配置文件格式无效');
+        }
+
+        const finalSelection = normalizeConfigSelection(selection);
+        if (!hasAnySelectedConfigSection(finalSelection)) {
+            throw new Error('请至少选择一个要导入的数据块');
+        }
+
+        const importedProvidersRaw = finalSelection.providers ? normalizeProviders(configData.providers) : [];
+        const importedProviders = finalSelection.providers
+            ? (API_PROVIDERS_LOCKED ? getLockedProviders(importedProvidersRaw) : importedProvidersRaw)
+            : [];
+        const nextProviders = finalSelection.providers
+            ? (importMode === CONFIG_IMPORT_MODES.append
+                ? mergeItemsById(state.providers, importedProviders)
+                : importedProviders)
+            : state.providers.map((provider) => ({ ...provider }));
+        const importedModels = finalSelection.models
+            ? normalizeModels(configData.models, finalSelection.providers && importMode === CONFIG_IMPORT_MODES.append ? nextProviders : state.providers)
+            : [];
+        const nextModels = finalSelection.models
+            ? (importMode === CONFIG_IMPORT_MODES.append
+                ? mergeItemsById(state.models, importedModels)
+                : importedModels)
+            : state.models.map((model) => ({ ...model }));
+        const settings = finalSelection.settings && configData.settings && typeof configData.settings === 'object'
+            ? configData.settings
+            : {};
+        const importedPromptLibrary = finalSelection.prompts
+            ? normalizePromptLibrary(configData.promptLibrary?.prompts || configData.prompts || [])
+            : [];
+
+        if (finalSelection.providers) {
+            ensureUniqueIds(importedProviders, '供应商配置');
+        }
+        if (finalSelection.models) {
+            ensureUniqueIds(importedModels, '模型配置');
+        }
+        if (finalSelection.prompts) {
+            ensureUniqueIds(importedPromptLibrary, '提示词预设');
+        }
+
+        if (finalSelection.models) {
+            const providerIds = new Set(nextProviders.map((provider) => provider.id));
+            const invalidModel = nextModels.find((model) => getModelProviderIds(model).some((providerId) => !providerIds.has(providerId)));
+            if (invalidModel) {
+                const invalidProviderId = getModelProviderIds(invalidModel).find((providerId) => !providerIds.has(providerId));
+                throw new Error(`模型 ${invalidModel.name} 绑定了不存在的供应商：${invalidProviderId}`);
+            }
+        }
+
+        if (finalSelection.providers) {
+            state.providers = nextProviders;
+        }
+        if (finalSelection.models) {
+            state.models = nextModels;
+        }
+        if (finalSelection.prompts) {
+            const nextPrompts = importMode === CONFIG_IMPORT_MODES.append
+                ? mergePromptsById(getStoredPromptLibrary(), importedPromptLibrary)
+                : importedPromptLibrary;
+            setStoredPromptLibrary(nextPrompts);
+        }
+        applyImportedSettings(settings);
+
         settingsControllerApi?.updateAllNodeModelDropdowns();
         settingsControllerApi?.renderProviders();
         settingsControllerApi?.renderModels();
-        settingsControllerApi?.renderGeneralSettings();
-        settingsControllerApi?.syncProxyToServer();
         saveState();
     }
 
-    function exportConfig() {
+    function exportConfig(selection = normalizeConfigSelection()) {
         try {
-            const payload = buildConfigPayload();
+            const payload = buildConfigPayload(selection);
+            if (!hasAnySelectedConfigSection(selection)) {
+                throw new Error('请至少选择一个要导出的数据块');
+            }
             const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const link = documentRef.createElement('a');
@@ -279,14 +491,14 @@ export function createUiControllerApi({
         }
     }
 
-    function importConfig(file) {
+    function importConfig(file, selection = normalizeConfigSelection(), importMode = CONFIG_IMPORT_MODES.replace) {
         if (!file) return;
 
         const reader = new FileReader();
         reader.onload = () => {
             try {
                 const data = JSON.parse(reader.result);
-                applyImportedConfig(data);
+                applyImportedConfig(data, { selection, importMode });
                 showToast('配置已导入并生效', 'success');
             } catch (error) {
                 showToast('导入配置失败: ' + error.message, 'error', 5000);
@@ -306,7 +518,7 @@ export function createUiControllerApi({
         const logDrawer = documentRef.getElementById('log-drawer');
         const btnImportConfig = documentRef.getElementById('btn-import-config');
         const btnExportConfig = documentRef.getElementById('btn-export-config');
-        const inputConfigImport = documentRef.getElementById('input-config-import');
+        const inputConfigFile = documentRef.getElementById('input-config-file');
 
         if (btnHistory && sidebar) {
             btnHistory.addEventListener('click', () => {
@@ -448,23 +660,45 @@ export function createUiControllerApi({
             showToast(`已成功删除 ${idsToDelete.length} 条记录`, 'success');
         });
 
-        btnExportConfig?.addEventListener('click', () => {
-            exportConfig();
-        });
+        documentRef.getElementById('btn-close-config-modal')?.addEventListener('click', closeConfigModal);
 
-        btnImportConfig?.addEventListener('click', () => {
-            const confirmed = confirmRef('导入将覆盖当前 API 供应商、模型和通用设置，但不会影响画布节点与历史记录，确定继续吗？');
-            if (!confirmed) return;
-
-            if (inputConfigImport) {
-                inputConfigImport.value = '';
-                inputConfigImport.click();
+        documentRef.getElementById('config-modal')?.addEventListener('click', (event) => {
+            if (event.target?.id === 'config-modal') {
+                closeConfigModal();
             }
         });
 
-        inputConfigImport?.addEventListener('change', (event) => {
+        btnExportConfig?.addEventListener('click', () => {
+            openConfigModal('export');
+        });
+
+        btnImportConfig?.addEventListener('click', () => {
+            openConfigModal('import');
+        });
+
+        documentRef.getElementById('config-modal-action')?.addEventListener('click', () => {
+            const selection = getConfigSelectionFromUi();
+            if (configModalMode === 'export') {
+                exportConfig(selection);
+                closeConfigModal();
+                return;
+            }
+
+            if (!hasAnySelectedConfigSection(selection)) {
+                showToast('请至少选择一个要导入的数据块', 'warn');
+                return;
+            }
+
+            pendingConfigImportFile = { selection, importMode: getConfigImportModeFromUi() };
+            inputConfigFile?.click();
+        });
+
+        inputConfigFile?.addEventListener('change', (event) => {
             const file = event.target.files?.[0];
-            importConfig(file);
+            if (!file || !pendingConfigImportFile) return;
+            importConfig(file, pendingConfigImportFile.selection, pendingConfigImportFile.importMode);
+            pendingConfigImportFile = null;
+            closeConfigModal();
         });
 
         documentRef.getElementById('btn-factory-reset')?.addEventListener('click', () => {

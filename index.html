@@ -405,9 +405,6 @@
                         </div>
                         <div class="prompt-library-actions">
                             <button id="btn-new-prompt" class="btn btn-primary" type="button">新建</button>
-                            <button id="btn-import-prompts" class="btn btn-secondary" type="button">导入</button>
-                            <button id="btn-export-prompts" class="btn btn-secondary" type="button">导出</button>
-                            <input id="input-import-prompts" type="file" accept="application/json,.json" class="hidden" />
                             <button id="btn-toggle-prompt-select" class="btn btn-secondary" type="button">多选</button>
                             <button id="btn-select-all-prompts" class="btn btn-secondary prompt-selection-action hidden" type="button">全选</button>
                             <button id="btn-delete-selected-prompts" class="btn btn-danger prompt-selection-action hidden" type="button" disabled>删除选中</button>
@@ -1078,6 +1075,53 @@
                     <button id="btn-export-config" class="btn btn-secondary btn-sm">导出配置</button>
                     <button id="btn-factory-reset" class="btn btn-danger btn-sm">恢复出厂设置</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="config-modal" class="modal-overlay hidden">
+        <div class="modal-panel config-modal-panel">
+            <div class="modal-header">
+                <h2 id="config-modal-title">导出配置</h2>
+                <button id="btn-close-config-modal" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="config-modal-intro" id="config-modal-hint">可选择导出全部配置，或只导出供应商 / 模型 / 通用设置中的任意组合。</div>
+                <div class="config-section">
+                    <div class="config-section-title">导出 / 导入范围</div>
+                    <label class="config-check">
+                        <input id="config-export-providers" type="checkbox" checked />
+                        <span>供应商数据</span>
+                    </label>
+                    <label class="config-check">
+                        <input id="config-export-models" type="checkbox" checked />
+                        <span>模型数据</span>
+                    </label>
+                    <label class="config-check">
+                        <input id="config-export-settings" type="checkbox" checked />
+                        <span>通用设置</span>
+                    </label>
+                    <label class="config-check">
+                        <input id="config-export-prompts" type="checkbox" checked />
+                        <span>提示词库</span>
+                    </label>
+                </div>
+                <div id="config-import-mode-group" class="config-section">
+                    <div class="config-section-title">导入模式</div>
+                    <label class="config-radio">
+                        <input id="config-import-mode-replace" type="radio" name="config-import-mode" value="replace" checked />
+                        <span>替换当前数据</span>
+                    </label>
+                    <label class="config-radio">
+                        <input id="config-import-mode-append" type="radio" name="config-import-mode" value="append" />
+                        <span>追加到当前数据</span>
+                    </label>
+                </div>
+                <div class="config-file-hint" id="config-modal-file-hint">导出的 JSON 只会包含你勾选的数据块。</div>
+                <input id="input-config-file" type="file" accept=".json,application/json" style="display:none;" />
+            </div>
+            <div class="modal-footer" style="padding: 16px 24px; display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="config-modal-action" class="btn btn-primary">立即导出</button>
             </div>
         </div>
     </div>

@@ -3494,6 +3494,52 @@ body.is-interacting #canvas-container * {
     gap: 10px;
 }
 
+.config-modal-panel {
+    width: 560px;
+    height: auto;
+}
+
+.config-modal-intro,
+.config-file-hint {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.config-section {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.config-section-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.config-check,
+.config-radio {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.config-check input,
+.config-radio input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
 .api-config-card {
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.06);
