@@ -4092,10 +4092,11 @@ input[type=number] {
 /* Drawer (Sidebar) System */
 .drawer {
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: var(--drawer-top-offset, 0px);
+    bottom: auto;
     right: -320px;
     width: 320px;
+    height: calc(100vh - var(--drawer-top-offset, 0px));
     background: var(--panel-bg);
     border-left: 1px solid var(--panel-border);
     box-shadow: var(--panel-shadow-soft);
@@ -4104,6 +4105,15 @@ input[type=number] {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+body.toolbar-pinned .drawer,
+body.toolbar-peek-active .drawer,
+body:has(#toolbar:hover) .drawer,
+body:has(#toolbar:focus-within) .drawer,
+body:has(#toolbar .btn.active) .drawer,
+body:has(#toolbar [aria-expanded="true"]) .drawer {
+    --drawer-top-offset: calc(var(--toolbar-height, 48px) + 8px);
 }
 
 .drawer.active {

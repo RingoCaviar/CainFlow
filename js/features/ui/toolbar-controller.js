@@ -30,6 +30,27 @@ export function createToolbarControllerApi({
         }, 120);
     }
 
+    function isChromeActive(element, activeClass) {
+        if (!element) return false;
+        const body = documentRef.body;
+        return body.classList.contains(activeClass)
+            || element.matches(':hover')
+            || element.matches(':focus-within')
+            || element.querySelector('.btn.active, [aria-expanded="true"]');
+    }
+
+    function getViewportSafeInsets() {
+        const toolbar = documentRef.getElementById('toolbar');
+        const sidebar = documentRef.getElementById('side-bar');
+        const topInset = isChromeActive(toolbar, 'toolbar-peek-active')
+            ? ((toolbar?.offsetHeight || 48) + 8)
+            : 0;
+        const leftInset = isChromeActive(sidebar, 'sidebar-peek-active')
+            ? (sidebar?.offsetWidth || 60)
+            : 0;
+        return { topInset, leftInset };
+    }
+
     function zoomToFit(targetNodes = null) {
         let nodesToFit = targetNodes;
         if (!nodesToFit) {
@@ -64,13 +85,18 @@ export function createToolbarControllerApi({
         const worldH = (maxY - minY) + padding * 2;
         const viewW = canvasContainer.clientWidth;
         const viewH = canvasContainer.clientHeight;
+        const { topInset, leftInset } = getViewportSafeInsets();
+        const safeViewW = Math.max(120, viewW - leftInset);
+        const safeViewH = Math.max(120, viewH - topInset);
 
-        const zoom = Math.min(viewW / worldW, viewH / worldH, 1.2);
+        const zoom = Math.min(safeViewW / worldW, safeViewH / worldH, 1.2);
         const finalZoom = Math.max(0.1, zoom);
+        const safeCenterX = leftInset + safeViewW / 2;
+        const safeCenterY = topInset + safeViewH / 2;
 
         state.canvas.zoom = finalZoom;
-        state.canvas.x = viewW / 2 - (minX + maxX) / 2 * finalZoom;
-        state.canvas.y = viewH / 2 - (minY + maxY) / 2 * finalZoom;
+        state.canvas.x = safeCenterX - (minX + maxX) / 2 * finalZoom;
+        state.canvas.y = safeCenterY - (minY + maxY) / 2 * finalZoom;
 
         viewportApi.updateCanvasTransform();
     }
