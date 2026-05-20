@@ -21,6 +21,8 @@ export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
     { value: '2048x1536', label: '2048×1536 · 4:3 2K 横图' },
     { value: '1536x2048', label: '1536×2048 · 3:4 2K 竖图' },
     { value: '2048x1152', label: '2048×1152 · 16:9 2K 横图' },
+    { value: '1152x2048', label: '1152×2048 · 9:16 2K 竖图' },
+    { value: '2880x2880', label: '2880×2880 · 1:1 4K 方图' },
     { value: '3072x2304', label: '3072×2304 · 4:3 4K 横图' },
     { value: '2304x3072', label: '2304×3072 · 3:4 4K 竖图' },
     { value: '3840x2160', label: '3840×2160 · 16:9 4K 横图' },
