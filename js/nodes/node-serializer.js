@@ -42,14 +42,14 @@ export function createNodeSerializer({ state, documentRef }) {
             if (includeImages && node.imageData) {
                 serialized.imageData = node.imageData;
             }
-            if (includeImages && (node.type === 'ImagePreview' || node.type === 'ImageSave')) {
-                const images = Array.isArray(node.data?.images)
-                    ? node.data.images.filter((item) => typeof item === 'string' && item.trim())
-                    : [];
-                if (images.length > 1) {
-                    serialized.images = images.slice();
-                    serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
-                }
+            const images = Array.isArray(node.data?.images)
+                ? node.data.images.filter((item) => typeof item === 'string' && item.trim())
+                : (Array.isArray(node.imageDataList) ? node.imageDataList.filter((item) => typeof item === 'string' && item.trim()) : []);
+            if (includeImages && images.length > 1) {
+                serialized.images = images.slice();
+            }
+            if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
+                serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
             }
 
             if (node.type === 'ImageImport') {

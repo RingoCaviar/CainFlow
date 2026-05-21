@@ -11,6 +11,7 @@ export function createNodeLifecycleApi({
     nodesLayer,
     generateId,
     getImageAsset,
+    getImageAssetList = async () => [],
     saveImageAsset,
     deleteImageAsset,
     showResolutionBadge,
@@ -757,22 +758,24 @@ export function createNodeLifecycleApi({
                 nodeData.textPreviewIndex = 0;
             }
         }
-        if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
-            const restoredImages = Array.isArray(effectiveRestoreData?.images)
-                ? effectiveRestoreData.images.filter((item) => typeof item === 'string' && item.trim())
-                : [];
-            if (restoredImages.length > 1) {
-                nodeData.data.images = restoredImages.slice();
-                nodeData.imageDataList = restoredImages.slice();
+        const restoredImages = Array.isArray(effectiveRestoreData?.images)
+            ? effectiveRestoreData.images.filter((item) => typeof item === 'string' && item.trim())
+            : [];
+        if (restoredImages.length > 1) {
+            nodeData.data.images = restoredImages.slice();
+            nodeData.imageDataList = restoredImages.slice();
+            if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
                 nodeData.imagePreviewIndex = Math.max(0, Math.min(
                     restoredImages.length - 1,
                     parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0
                 ));
                 nodeData.data.image = restoredImages[nodeData.imagePreviewIndex] || restoredImages[0];
-                nodeData.imageData = nodeData.data.image;
             } else {
-                nodeData.imagePreviewIndex = 0;
+                nodeData.data.image = restoredImages[restoredImages.length - 1];
             }
+            nodeData.imageData = nodeData.data.image;
+        } else if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
+            nodeData.imagePreviewIndex = 0;
         }
         if (normalizedType === 'CameraControl') {
             nodeData.data.pitch = Number.isFinite(Number(effectiveRestoreData?.pitch)) ? Number(effectiveRestoreData.pitch) : 12;
@@ -838,9 +841,25 @@ export function createNodeLifecycleApi({
             (async () => {
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
                 const hasInitialData = !!(effectiveRestoreData && effectiveRestoreData.imageData);
+                const storedImages = isImportUrlMode || hasInitialData ? [] : await getImageAssetList(id);
+                if (storedImages.length > 1) {
+                    nodeData.data.images = storedImages.slice();
+                    nodeData.imageDataList = storedImages.slice();
+                    if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
+                        nodeData.imagePreviewIndex = Math.max(0, Math.min(
+                            storedImages.length - 1,
+                            Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0
+                        ));
+                        nodeData.data.image = storedImages[storedImages.length - 1];
+                        nodeData.imageData = nodeData.data.image;
+                    } else {
+                        nodeData.data.image = storedImages[storedImages.length - 1];
+                        nodeData.imageData = nodeData.data.image;
+                    }
+                }
                 const data = isImportUrlMode
                     ? null
-                    : (hasInitialData ? effectiveRestoreData.imageData : await getImageAsset(id));
+                    : (hasInitialData ? effectiveRestoreData.imageData : (storedImages[0] || await getImageAsset(id)));
 
                 if (!state.nodes.has(id)) return;
 

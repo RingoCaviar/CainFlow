@@ -64,12 +64,16 @@ export function createSettingsControllerApi({
     const networkProxyNoticeId = 'network-proxy-mismatch';
     const networkProxyDetectionCooldownMs = 10 * 60 * 1000;
     const networkProxyDetectionStorageKey = 'cainflow_network_proxy_detection';
-    const networkProxyDetectionCacheVersion = 2;
+    const networkProxyDetectionCacheVersion = 3;
     const NETWORK_PROBE_TARGETS = [
-        { name: 'Google gstatic 204', url: 'https://www.gstatic.com/generate_204' },
-        { name: 'Google 204', url: 'https://www.google.com/generate_204' },
-        { name: 'Huawei HiCloud 204', url: 'http://connectivitycheck.platform.hicloud.com/generate_204' }
+        { name: 'Google 204', url: 'https://www.google.com/generate_204' }
     ];
+    const networkProxyDetectionTargetsSignature = JSON.stringify(
+        NETWORK_PROBE_TARGETS.map((target) => ({
+            name: String(target?.name || ''),
+            url: String(target?.url || '')
+        }))
+    );
     const networkProxyStatusState = {
         checking: false,
         result: null
@@ -738,6 +742,7 @@ export function createSettingsControllerApi({
         try {
             localStorageRef.setItem(networkProxyDetectionStorageKey, JSON.stringify({
                 version: networkProxyDetectionCacheVersion,
+                targetsSignature: networkProxyDetectionTargetsSignature,
                 checkedAt: Date.now(),
                 result
             }));
@@ -751,6 +756,7 @@ export function createSettingsControllerApi({
             const parsed = JSON.parse(localStorageRef.getItem(networkProxyDetectionStorageKey) || 'null');
             if (!parsed || typeof parsed !== 'object') return null;
             if (Number(parsed.version) !== networkProxyDetectionCacheVersion) return null;
+            if (String(parsed.targetsSignature || '') !== networkProxyDetectionTargetsSignature) return null;
             const checkedAt = Number(parsed.checkedAt);
             if (!Number.isFinite(checkedAt)) return null;
             if (Date.now() - checkedAt > networkProxyDetectionCooldownMs) return null;

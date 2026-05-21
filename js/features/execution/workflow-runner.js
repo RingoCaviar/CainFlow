@@ -21,6 +21,7 @@ export function createWorkflowRunnerApi({
     scheduleSave,
     updateAllConnections,
     updatePortStyles,
+    saveImageAssetList = async () => false,
     refreshDependentImageResizePreviews = () => {},
     getAbortMessage,
     playNotificationSound
@@ -384,6 +385,7 @@ export function createWorkflowRunnerApi({
             node.generatedImages = images.slice();
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
+            if (images.length > 1) await saveImageAssetList(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
             updateAllConnections();
             return;
@@ -812,6 +814,7 @@ export function createWorkflowRunnerApi({
                 node.generatedImages = aggregatedImages.slice();
                 node.generationCompletedCount = aggregatedImages.length;
             }
+            await saveImageAssetList(node.id, aggregatedImages);
         }
 
         if (shouldAggregateTexts) {

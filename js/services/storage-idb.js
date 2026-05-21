@@ -132,6 +132,26 @@ export function createIndexedDbApi(getState) {
         }
     }
 
+    async function saveImageAssetList(nodeId, images) {
+        const imageList = Array.isArray(images)
+            ? images.filter((item) => typeof item === 'string' && item.trim())
+            : [];
+        if (imageList.length === 0) return false;
+        try {
+            const db = await openDB();
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            tx.objectStore(STORE_ASSETS).put({
+                type: 'image-list',
+                images: imageList
+            }, nodeId);
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx);
+        } catch (error) {
+            console.warn('IDB save asset list failed:', error);
+            return false;
+        }
+    }
+
     async function getImageAsset(nodeId) {
         try {
             const db = await openDB();
@@ -142,6 +162,26 @@ export function createIndexedDbApi(getState) {
             return typeof asset === 'string' ? asset : null;
         } catch {
             return null;
+        }
+    }
+
+    async function getImageAssetList(nodeId) {
+        try {
+            const db = await openDB();
+            const asset = await requestToPromise(db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(nodeId));
+            if (Array.isArray(asset)) {
+                return asset.filter((item) => typeof item === 'string' && item.trim());
+            }
+            if (asset && typeof asset === 'object' && asset.type === 'image-list' && Array.isArray(asset.images)) {
+                return asset.images.filter((item) => typeof item === 'string' && item.trim());
+            }
+            if (asset instanceof Blob) {
+                const dataUrl = await blobToDataUrl(asset);
+                return dataUrl ? [dataUrl] : [];
+            }
+            return typeof asset === 'string' && asset.trim() ? [asset] : [];
+        } catch {
+            return [];
         }
     }
 
@@ -505,6 +545,8 @@ export function createIndexedDbApi(getState) {
         getHandle,
         saveImageAsset,
         getImageAsset,
+        saveImageAssetList,
+        getImageAssetList,
         deleteImageAsset,
         clearImageAssets,
         clearOrphanedHistoryAssets,

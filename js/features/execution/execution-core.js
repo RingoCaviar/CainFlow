@@ -33,6 +33,7 @@ export function createExecutionCoreApi({
     renderHistoryList,
     showResolutionBadge,
     saveImageAsset,
+    saveImageAssetList = async () => false,
     deleteImageAsset,
     dataURLtoBlob,
     blobToDataUrl,
@@ -177,6 +178,9 @@ export function createExecutionCoreApi({
         node.imageData = normalizedImages[normalizedImages.length - 1] || null;
         node.generatedImages = normalizedImages.slice();
         node.generationCompletedCount = normalizedImages.length;
+        if (normalizedImages.length > 1) {
+            void saveImageAssetList(node.id, normalizedImages);
+        }
     }
 
     async function saveImageGenerationHistoryEntry(entry) {
@@ -1458,6 +1462,7 @@ export function createExecutionCoreApi({
             node.data.image = images[images.length - 1];
             node.imageDataList = images.slice();
             node.imageData = node.data.image;
+            await saveImageAssetList(node.id, images);
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
             await refreshDependentImageResizePreviews(node.id);

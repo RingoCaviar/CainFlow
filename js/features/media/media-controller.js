@@ -5,6 +5,7 @@ export function createMediaControllerApi({
     state,
     getNodeById,
     saveImageAsset,
+    saveImageAssetList = async () => false,
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
@@ -369,9 +370,7 @@ export function createMediaControllerApi({
         const image = imageList[index];
         if (node) {
             node.imagePreviewIndex = index;
-            node.imageData = image;
             node.data = node.data || {};
-            node.data.image = image;
         }
         renderReusableMultiImagePreview(previewContainer, image, index, imageList.length, {
             altPrefix: '预览',
@@ -420,6 +419,124 @@ export function createMediaControllerApi({
         const images = getStoredImagePreviewList(node);
         if (images.length === 0) return null;
         return images[getImagePreviewIndex(node, images)] || images[0];
+    }
+
+    function getNodeFullscreenImageContext(nodeId, fallbackSrc = '') {
+        const node = getNodeById(nodeId);
+        const images = node?.type === 'ImageSave'
+            ? getStoredImageSaveList(node)
+            : getStoredImagePreviewList(node);
+        const normalizedFallback = typeof fallbackSrc === 'string' ? fallbackSrc.trim() : '';
+        const imageList = images.length > 0
+            ? images
+            : (normalizedFallback ? [normalizedFallback] : []);
+        const currentIndex = node?.type === 'ImageSave'
+            ? getImageSavePreviewIndex(node, imageList)
+            : getImagePreviewIndex(node, imageList);
+        return {
+            node,
+            images: imageList,
+            index: imageList.length > 0 ? Math.max(0, Math.min(imageList.length - 1, currentIndex)) : 0
+        };
+    }
+
+    function bindPreviewKeyboardNavigation(container, getImages, getIndex, onChange) {
+        if (!container || container.dataset.previewKeyboardBound === '1') return;
+        container.dataset.previewKeyboardBound = '1';
+        container.tabIndex = 0;
+
+        const handleStep = (delta, event) => {
+            const images = normalizeImageList(getImages());
+            if (images.length <= 1) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const currentIndex = Math.max(0, Math.min(images.length - 1, getIndex(images)));
+            const nextIndex = (currentIndex + delta + images.length) % images.length;
+            onChange(nextIndex, images, event);
+        };
+
+        container.addEventListener('pointerdown', () => {
+            container.focus({ preventScroll: true });
+        });
+        container.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                handleStep(-1, event);
+            } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                handleStep(1, event);
+            }
+        });
+    }
+
+    function isTypingIntoField() {
+        const activeElement = documentRef.activeElement;
+        return Boolean(activeElement && (
+            activeElement.tagName === 'INPUT'
+            || activeElement.tagName === 'TEXTAREA'
+            || activeElement.tagName === 'SELECT'
+            || activeElement.isContentEditable
+        ));
+    }
+
+    function hasBlockingImmersiveOverlay() {
+        if (documentRef.querySelector('.fullscreen-overlay')) return true;
+        const historyPreview = documentRef.getElementById('history-preview-modal');
+        return Boolean(historyPreview && !historyPreview.classList.contains('hidden'));
+    }
+
+    async function stepImagePreviewNodeByDelta(nodeId, delta) {
+        const node = getNodeById(nodeId);
+        const images = getStoredImagePreviewList(node);
+        if (!node || images.length <= 1) return false;
+        const currentIndex = getImagePreviewIndex(node, images);
+        const nextIndex = (currentIndex + delta + images.length) % images.length;
+        node.imagePreviewIndex = nextIndex;
+        node.previewZoom = 1;
+        renderImagePreviewImage(nodeId, images);
+        const image = images[nextIndex];
+        if (image) {
+            await showResolutionBadge(nodeId, image);
+        }
+        scheduleSave();
+        return true;
+    }
+
+    async function stepImageSaveNodeByDelta(nodeId, delta) {
+        const node = getNodeById(nodeId);
+        const images = getStoredImageSaveList(node);
+        if (!node || images.length <= 1) return false;
+        const currentIndex = getImageSavePreviewIndex(node, images);
+        node.imagePreviewIndex = (currentIndex + delta + images.length) % images.length;
+        renderImageSavePreview(nodeId, images);
+        await showResolutionBadge(nodeId, images[node.imagePreviewIndex]);
+        scheduleSave();
+        return true;
+    }
+
+    function bindSelectedNodeKeyboardNavigation() {
+        if (documentRef.__cainflowSelectedNodePreviewKeyboardBound === true) return;
+        documentRef.__cainflowSelectedNodePreviewKeyboardBound = true;
+
+        documentRef.addEventListener('keydown', (event) => {
+            if (event.defaultPrevented) return;
+            if (isTypingIntoField()) return;
+            if (hasBlockingImmersiveOverlay()) return;
+            if (!(event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return;
+            if (state.selectedNodes?.size !== 1) return;
+
+            const selectedNodeId = Array.from(state.selectedNodes)[0];
+            const node = getNodeById(selectedNodeId);
+            if (!node || (node.type !== 'ImagePreview' && node.type !== 'ImageSave')) return;
+
+            const delta = event.key === 'ArrowLeft' ? -1 : 1;
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (node.type === 'ImagePreview') {
+                void stepImagePreviewNodeByDelta(selectedNodeId, delta);
+            } else {
+                void stepImageSaveNodeByDelta(selectedNodeId, delta);
+            }
+        });
     }
 
     function escapeHtml(value) {
@@ -693,15 +810,17 @@ export function createMediaControllerApi({
         node.imageDataList = imageList;
         node.data = node.data || {};
         const currentImage = imageList[0] || null;
-        node.imageData = currentImage;
+        const outputImage = imageList[imageList.length - 1] || currentImage;
+        node.imageData = outputImage;
 
         if (currentImage) {
-            node.data.image = currentImage;
+            node.data.image = outputImage;
             if (imageList.length > 1) node.data.images = imageList.slice();
             else delete node.data.images;
             renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
-            if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
+            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
+            else if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
             else if (deleteImageAsset) await deleteImageAsset(nodeId);
             await showResolutionBadge(nodeId, currentImage);
         } else {
@@ -767,7 +886,8 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            await saveImageAsset(nodeId, primaryImage);
+            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
+            else await saveImageAsset(nodeId, primaryImage);
             await showResolutionBadge(nodeId, imageList[0] || primaryImage);
         } else {
             delete node.data.image;
@@ -1356,14 +1476,22 @@ export function createMediaControllerApi({
 
         const stepPreview = (delta, event) => {
             event?.stopPropagation();
-            const node = getNodeById(id);
-            const images = getStoredImageSaveList(node);
-            if (!node || images.length <= 1) return;
-            const currentIndex = getImageSavePreviewIndex(node, images);
-            node.imagePreviewIndex = (currentIndex + delta + images.length) % images.length;
-            renderImageSavePreview(id, images);
-            void showResolutionBadge(id, images[node.imagePreviewIndex]);
+            void stepImageSaveNodeByDelta(id, delta);
         };
+
+        bindPreviewKeyboardNavigation(
+            previewContainer,
+            () => getStoredImageSaveList(getNodeById(id)),
+            (images) => getImageSavePreviewIndex(getNodeById(id), images),
+            (nextIndex, images, event) => {
+                event?.stopPropagation();
+                const node = getNodeById(id);
+                if (!node) return;
+                node.imagePreviewIndex = nextIndex;
+                renderImageSavePreview(id, images);
+                void showResolutionBadge(id, images[nextIndex]);
+            }
+        );
 
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {
@@ -1482,22 +1610,30 @@ export function createMediaControllerApi({
 
         const stepPreview = async (delta, event) => {
             event?.stopPropagation();
-            const node = getNodeById(id);
-            const images = getStoredImagePreviewList(node);
-            if (!node || images.length <= 1) return;
-            const currentIndex = getImagePreviewIndex(node, images);
-            node.imagePreviewIndex = (currentIndex + delta + images.length) % images.length;
-            node.previewZoom = 1;
-            renderImagePreviewImage(id, images);
-            const image = getCurrentImagePreviewImage(node);
-            if (image) {
-                if (isInlineImageData(image)) await saveImageAsset(id, image);
-                else if (deleteImageAsset) await deleteImageAsset(id);
-                await showResolutionBadge(id, image);
-                await refreshDependentImageResizePreviews(id, { sourceImage: image });
-            }
-            scheduleSave();
+            await stepImagePreviewNodeByDelta(id, delta);
         };
+
+        bindPreviewKeyboardNavigation(
+            previewContainer,
+            () => getStoredImagePreviewList(getNodeById(id)),
+            (images) => getImagePreviewIndex(getNodeById(id), images),
+            (nextIndex, images, event) => {
+                event?.stopPropagation();
+                const node = getNodeById(id);
+                if (!node) return;
+                node.imagePreviewIndex = nextIndex;
+                node.previewZoom = 1;
+                renderImagePreviewImage(id, images);
+                const image = images[nextIndex];
+                if (image) {
+                    const syncPreview = async () => {
+                        await showResolutionBadge(id, image);
+                    };
+                    void syncPreview();
+                }
+                scheduleSave();
+            }
+        );
 
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {
@@ -1899,19 +2035,36 @@ export function createMediaControllerApi({
     function openFullscreenPreview(src, nodeId = null) {
         const overlay = documentRef.createElement('div');
         overlay.className = `fullscreen-overlay${shouldIgnoreChromeOffsetForPreview() ? ' fullscreen-ignore-chrome' : ''}`;
+        const context = nodeId ? getNodeFullscreenImageContext(nodeId, src) : {
+            node: null,
+            images: normalizeImageList(src),
+            index: 0
+        };
+        const images = context.images;
+        let currentIndex = images.findIndex((image) => image === src);
+        if (currentIndex < 0) currentIndex = context.index;
+        if (currentIndex < 0) currentIndex = 0;
         overlay.innerHTML = `
-        <div class="fullscreen-close" title="关闭 (Esc)">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </div>
-        ${nodeId ? `
-        <div class="fullscreen-paint-btn" title="绘制/编辑">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-        </div>` : ''}
-        <div class="fullscreen-img-wrapper">
-            <img src="${src}" alt="全屏预览" draggable="false" />
-        </div>`;
+            <div class="fullscreen-close" title="关闭 (Esc)">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            ${nodeId ? `
+            <div class="fullscreen-paint-btn" title="绘制/编辑">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </div>` : ''}
+            <div class="fullscreen-stage">
+                <div class="fullscreen-img-wrapper">
+                    <img src="${images[currentIndex] || src}" alt="全屏预览" draggable="false" />
+                </div>
+                ${images.length > 1 ? `
+                <aside class="fullscreen-thumb-rail" aria-label="图片列表">
+                    <div class="fullscreen-thumb-track"></div>
+                </aside>` : ''}
+            </div>`;
         documentRef.body.appendChild(overlay);
         const img = overlay.querySelector('img');
+        const iw = overlay.querySelector('.fullscreen-img-wrapper');
+        const thumbTrack = overlay.querySelector('.fullscreen-thumb-track');
         let fsZoom = 1;
         let fsX = 0;
         let fsY = 0;
@@ -1920,6 +2073,81 @@ export function createMediaControllerApi({
         const updateFsT = () => {
             img.style.transform = `translate(${fsX}px, ${fsY}px) scale(${fsZoom})`;
         };
+        const resetTransform = () => {
+            fsZoom = 1;
+            fsX = 0;
+            fsY = 0;
+            updateFsT();
+        };
+        const syncNodePreviewIndex = () => {
+            if (!nodeId || !context.node) return;
+            context.node.imagePreviewIndex = currentIndex;
+            if (context.node.type === 'ImagePreview') {
+                context.node.previewZoom = 1;
+                renderImagePreviewImage(nodeId, images);
+            } else if (context.node.type === 'ImageSave') {
+                renderImageSavePreview(nodeId, images);
+            }
+            scheduleSave();
+        };
+        const centerActiveThumbnail = () => {
+            if (!thumbTrack) return;
+            const active = thumbTrack.querySelector('.fullscreen-thumb-item.is-active');
+            if (!active) return;
+            const trackRect = thumbTrack.getBoundingClientRect();
+            const activeRect = active.getBoundingClientRect();
+            const delta = activeRect.top - trackRect.top - (trackRect.height / 2) + (activeRect.height / 2);
+            thumbTrack.scrollBy({ top: delta, behavior: 'smooth' });
+        };
+        const renderThumbnailRail = () => {
+            if (!thumbTrack) return;
+            thumbTrack.innerHTML = '';
+            images.forEach((imageSrc, index) => {
+                const button = documentRef.createElement('button');
+                button.type = 'button';
+                button.className = `fullscreen-thumb-item${index === currentIndex ? ' is-active' : ''}`;
+                button.title = `第 ${index + 1} 张`;
+                button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (index === currentIndex) return;
+                    currentIndex = index;
+                    renderCurrentImage();
+                });
+
+                const thumbImage = documentRef.createElement('img');
+                thumbImage.src = imageSrc;
+                thumbImage.alt = `缩略图 ${index + 1}`;
+                thumbImage.loading = 'lazy';
+                thumbImage.decoding = 'async';
+                thumbImage.draggable = false;
+                button.appendChild(thumbImage);
+
+                const label = documentRef.createElement('span');
+                label.className = 'fullscreen-thumb-label';
+                label.textContent = `${index + 1}/${images.length}`;
+                button.appendChild(label);
+                thumbTrack.appendChild(button);
+            });
+            windowRef.requestAnimationFrame(centerActiveThumbnail);
+        };
+        const renderCurrentImage = () => {
+            const nextSrc = images[currentIndex] || src;
+            if (img.getAttribute('src') !== nextSrc) {
+                img.src = nextSrc;
+            }
+            resetTransform();
+            syncNodePreviewIndex();
+            renderThumbnailRail();
+        };
+        const stepFullscreenImage = (delta) => {
+            if (images.length <= 1) return;
+            currentIndex = (currentIndex + delta + images.length) % images.length;
+            renderCurrentImage();
+        };
+
+        renderThumbnailRail();
+
         overlay.addEventListener('wheel', (e) => {
             e.preventDefault();
             const nz = Math.max(0.1, Math.min(20, fsZoom * (e.deltaY > 0 ? 0.9 : 1.1)));
@@ -1931,7 +2159,6 @@ export function createMediaControllerApi({
             fsZoom = nz;
             updateFsT();
         }, { passive: false });
-        const iw = overlay.querySelector('.fullscreen-img-wrapper');
         iw.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             e.preventDefault();
@@ -1962,18 +2189,28 @@ export function createMediaControllerApi({
             overlay.querySelector('.fullscreen-paint-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 cleanup();
-                openImagePainter(src, nodeId);
+                openImagePainter(images[currentIndex] || src, nodeId);
             });
         }
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay || e.target === iw) cleanup();
         });
         const onEsc = (e) => {
-            if (e.key === 'Escape') cleanup();
+            if (e.key === 'Escape') {
+                cleanup();
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                stepFullscreenImage(-1);
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                stepFullscreenImage(1);
+            }
         };
         documentRef.addEventListener('keydown', onEsc);
         requestAnimationFrame(() => overlay.classList.add('active'));
     }
+
+    bindSelectedNodeKeyboardNavigation();
 
     return {
         showResolutionBadge,

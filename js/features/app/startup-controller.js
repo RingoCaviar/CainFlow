@@ -18,6 +18,10 @@ export function createStartupControllerApi({
     performanceRef = typeof performance !== 'undefined' ? performance : null,
     consoleRef = console
 }) {
+    const reloadNetworkDetectionDelayMs = 2000;
+    let reloadNetworkDetectionTimer = null;
+    let reloadNetworkDetectionToast = null;
+
     function isReloadNavigation() {
         const navigationEntry = performanceRef?.getEntriesByType?.('navigation')?.[0];
         if (navigationEntry?.type) {
@@ -30,6 +34,79 @@ export function createStartupControllerApi({
         }
 
         return false;
+    }
+
+    function getToastContainer() {
+        return documentRef.getElementById('toast-container');
+    }
+
+    function renderReloadNetworkDetectionCountdownToast(secondsRemaining) {
+        const container = getToastContainer();
+        if (!container) return;
+
+        if (!reloadNetworkDetectionToast || !documentRef.body?.contains(reloadNetworkDetectionToast)) {
+            const toast = documentRef.createElement('div');
+            toast.className = 'toast info';
+
+            const icon = documentRef.createElement('span');
+            icon.textContent = '[i]';
+
+            const message = documentRef.createElement('span');
+            message.className = 'update-auto-check-countdown-message';
+
+            toast.appendChild(icon);
+            toast.appendChild(message);
+            container.appendChild(toast);
+            reloadNetworkDetectionToast = toast;
+        }
+
+        const message = reloadNetworkDetectionToast.querySelector('.update-auto-check-countdown-message');
+        if (message) {
+            message.textContent = `将在 ${secondsRemaining} 秒后检测网络环境是否正常`;
+        }
+    }
+
+    function dismissReloadNetworkDetectionToast(delay = 0) {
+        if (!reloadNetworkDetectionToast) return;
+
+        const toast = reloadNetworkDetectionToast;
+        reloadNetworkDetectionToast = null;
+
+        window.setTimeout(() => {
+            toast.style.animation = 'toast-out 0.3s ease-out forwards';
+            window.setTimeout(() => toast.remove(), 300);
+        }, delay);
+    }
+
+    function scheduleReloadNetworkDetection() {
+        if (reloadNetworkDetectionTimer !== null) {
+            window.clearTimeout(reloadNetworkDetectionTimer);
+            reloadNetworkDetectionTimer = null;
+        }
+        dismissReloadNetworkDetectionToast();
+
+        const targetTime = Date.now() + reloadNetworkDetectionDelayMs;
+
+        const tick = () => {
+            const remainingMs = targetTime - Date.now();
+            const secondsRemaining = Math.ceil(remainingMs / 1000);
+
+            if (secondsRemaining > 0) {
+                renderReloadNetworkDetectionCountdownToast(secondsRemaining);
+                reloadNetworkDetectionTimer = window.setTimeout(tick, Math.min(1000, Math.max(remainingMs, 0)));
+                return;
+            }
+
+            reloadNetworkDetectionTimer = null;
+            if (reloadNetworkDetectionToast) {
+                const message = reloadNetworkDetectionToast.querySelector('.update-auto-check-countdown-message');
+                if (message) message.textContent = '正在检测网络环境是否正常...';
+            }
+            dismissReloadNetworkDetectionToast(1200);
+            void checkNetworkProxyMismatch();
+        };
+
+        tick();
     }
 
     async function bootstrapApp() {
@@ -56,7 +133,7 @@ export function createStartupControllerApi({
             scheduleAutoUpdateCheck();
             checkRefreshNotice();
             if (isReloadNavigation()) {
-                await checkNetworkProxyMismatch();
+                scheduleReloadNetworkDetection();
             }
         } catch (error) {
             consoleRef.error('CainFlow Initialization Failed:', error);
