@@ -13,6 +13,7 @@ import { textMergeNode } from './types/text-merge.js';
 import { textNode } from './types/text.js';
 import { textSplitNode } from './types/text-split.js';
 import { cameraControlNode } from './types/camera-control.js';
+import { customParamsNode } from './types/custom-params.js';
 
 const nodeDefinitions = [
     imageImportNode,
@@ -21,6 +22,7 @@ const nodeDefinitions = [
     imageResizeNode,
     imageGenerateNode,
     cameraControlNode,
+    customParamsNode,
     textChatNode,
     textNode,
     textMergeNode,

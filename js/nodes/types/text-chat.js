@@ -12,7 +12,8 @@ export const textChatNode = {
         { name: 'image_2', type: 'image', label: '参考图 2' },
         { name: 'image_3', type: 'image', label: '参考图 3' },
         { name: 'image_4', type: 'image', label: '参考图 4' },
-        { name: 'image_5', type: 'image', label: '参考图 5' }
+        { name: 'image_5', type: 'image', label: '参考图 5' },
+        { name: 'params', type: 'params', label: '自定义参数' }
     ],
     outputs: [{ name: 'text', type: 'text', label: '回复文本' }],
     defaultWidth: 380,

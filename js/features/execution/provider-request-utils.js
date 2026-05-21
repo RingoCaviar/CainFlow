@@ -328,6 +328,19 @@ export function getOpenAiImageContents(inputs = {}) {
     return imageContents;
 }
 
+function getCustomRequestParams(inputs = {}) {
+    const params = inputs.params;
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return {};
+    return Object.entries(params).reduce((acc, [key, value]) => {
+        if (typeof key === 'string' && key.trim()) acc[key.trim()] = value;
+        return acc;
+    }, {});
+}
+
+function applyCustomRequestParams(requestBody, inputs = {}) {
+    return { ...requestBody, ...getCustomRequestParams(inputs) };
+}
+
 export function buildGoogleImageRequest({ prompt, inputs = {}, aspect, resolution, searchEnabled }) {
     const parts = [{ text: prompt }, ...getInputInlineParts(inputs)];
     const requestBody = { contents: [{ parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
@@ -336,7 +349,7 @@ export function buildGoogleImageRequest({ prompt, inputs = {}, aspect, resolutio
     if (resolution) imageConfig.imageSize = resolution;
     if (Object.keys(imageConfig).length > 0) requestBody.generationConfig.imageConfig = imageConfig;
     if (searchEnabled) requestBody.tools = [{ googleSearch: {} }];
-    return requestBody;
+    return applyCustomRequestParams(requestBody, inputs);
 }
 
 export function buildGoogleChatRequest({ prompt, inputs = {}, sysprompt, searchEnabled }) {
@@ -344,7 +357,7 @@ export function buildGoogleChatRequest({ prompt, inputs = {}, sysprompt, searchE
     const body = { contents: [{ parts }] };
     if (sysprompt) body.systemInstruction = { parts: [{ text: sysprompt }] };
     if (searchEnabled) body.tools = [{ googleSearch: {} }];
-    return body;
+    return applyCustomRequestParams(body, inputs);
 }
 
 export function buildOpenAiChatRequest({ modelCfg, prompt, inputs = {}, sysprompt }) {
@@ -357,7 +370,7 @@ export function buildOpenAiChatRequest({ modelCfg, prompt, inputs = {}, syspromp
         : prompt;
 
     messages.push({ role: 'user', content: userContent });
-    return { model: modelCfg.modelId, messages };
+    return applyCustomRequestParams({ model: modelCfg.modelId, messages }, inputs);
 }
 
 function normalizeOpenAiImageSize(resolution) {
@@ -393,7 +406,7 @@ export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality,
     const referenceImages = getOpenAiReferenceImages(inputs);
     if (referenceImages.length > 0) requestBody.reference_images = referenceImages;
 
-    return requestBody;
+    return applyCustomRequestParams(requestBody, inputs);
 }
 
 export function extractImageResult(apiCfg, result, modelCfg = null) {

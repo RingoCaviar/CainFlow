@@ -127,6 +127,14 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.mergeOutputEnabled = mergeOutputEnabled;
                 serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];
             }
+            if (node.type === 'CustomParams') {
+                serialized.params = Array.from(documentRef.querySelectorAll(`#${id}-params-list [data-param-row]`))
+                    .map((row) => ({
+                        key: row.querySelector('.custom-param-key')?.value?.trim() || '',
+                        value: row.querySelector('.custom-param-value')?.value || ''
+                    }))
+                    .filter((row) => row.key);
+            }
             if (node.type === 'CameraControl') {
                 serialized.pitch = Number(node.data?.pitch ?? 12);
                 serialized.yaw = Number(node.data?.yaw ?? 28);

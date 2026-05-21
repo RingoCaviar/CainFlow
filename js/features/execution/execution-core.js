@@ -589,6 +589,9 @@ export function createExecutionCoreApi({
 
     function getCachedOutputValue(node, portName) {
         if (!node || node.enabled === false) return undefined;
+        if (portName === 'params' && node.type === 'CustomParams') {
+            return getCustomParamsFromNode(node);
+        }
         if (portName === 'image' && node.type === 'ImageImport') {
             return getImageImportOutputValue(node);
         }
@@ -662,6 +665,34 @@ export function createExecutionCoreApi({
         }
 
         return undefined;
+    }
+
+    function coerceCustomParamValue(value) {
+        const text = String(value ?? '').trim();
+        if (!text) return '';
+        if (text === 'true') return true;
+        if (text === 'false') return false;
+        if (text === 'null') return null;
+        if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+        try {
+            return JSON.parse(text);
+        } catch {
+            return value;
+        }
+    }
+
+    function getCustomParamsFromNode(node) {
+        const rows = Array.from(documentRef.querySelectorAll(`#${node.id}-params-list [data-param-row]`));
+        const params = {};
+        rows.forEach((row) => {
+            const key = row.querySelector('.custom-param-key')?.value?.trim() || '';
+            if (!key) return;
+            const value = row.querySelector('.custom-param-value')?.value || '';
+            params[key] = coerceCustomParamValue(value);
+        });
+        node.data = node.data || {};
+        node.data.params = Object.entries(params).map(([key, value]) => ({ key, value }));
+        return params;
     }
 
     function isInlineImageData(value) {
@@ -1430,6 +1461,12 @@ export function createExecutionCoreApi({
                 responseArea.innerHTML = `<div class="chat-response-placeholder" style="color:var(--accent-red)">失败: ${err.message}</div>`;
                 throw err;
             }
+        },
+        CustomParams: async (node) => {
+            const params = getCustomParamsFromNode(node);
+            node.data = node.data || {};
+            node.data.params = Object.entries(params).map(([key, value]) => ({ key, value }));
+            return { params };
         },
         ImagePreview: async (node, inputs) => {
             const { id } = node;

@@ -818,6 +818,17 @@ export function createNodeLifecycleApi({
                 nodeData.data[`part_${index + 1}`] = part;
             });
         }
+        if (normalizedType === 'CustomParams') {
+            const restoredParams = Array.isArray(effectiveRestoreData?.params)
+                ? effectiveRestoreData.params
+                : (Array.isArray(effectiveRestoreData?.customParams) ? effectiveRestoreData.customParams : []);
+            nodeData.data.params = restoredParams
+                .map((row) => ({
+                    key: typeof row?.key === 'string' ? row.key.trim() : '',
+                    value: row?.value === undefined || row?.value === null ? '' : String(row.value)
+                }))
+                .filter((row) => row.key);
+        }
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
         if (nodeData.collapsed) el.classList.add('collapsed');

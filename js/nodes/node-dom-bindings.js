@@ -1839,6 +1839,51 @@ export function createNodeDomBindingsApi({
             fitNodeToContent(id);
         }
         else if (type === 'ImageCompare') setupImageCompare(id, el);
+        else if (type === 'CustomParams') {
+            const list = el.querySelector(`#${id}-params-list`);
+            const addButton = el.querySelector(`#${id}-add-param`);
+            const renumberRows = () => {
+                list?.querySelectorAll('[data-param-row]').forEach((row, index) => {
+                    const keyInput = row.querySelector('.custom-param-key');
+                    const valueInput = row.querySelector('.custom-param-value');
+                    if (keyInput) keyInput.id = `${id}-param-key-${index}`;
+                    if (valueInput) valueInput.id = `${id}-param-value-${index}`;
+                });
+            };
+            const bindRow = (row) => {
+                row.querySelector('.custom-param-remove')?.addEventListener('click', () => {
+                    if (!list) return;
+                    const rows = list.querySelectorAll('[data-param-row]');
+                    if (rows.length <= 1) {
+                        row.querySelector('.custom-param-key').value = '';
+                        row.querySelector('.custom-param-value').value = '';
+                    } else {
+                        row.remove();
+                    }
+                    renumberRows();
+                    fitNodeToContent(id);
+                });
+            };
+            list?.querySelectorAll('[data-param-row]').forEach(bindRow);
+            addButton?.addEventListener('click', () => {
+                if (!list) return;
+                const index = list.querySelectorAll('[data-param-row]').length;
+                const row = documentRef.createElement('div');
+                row.className = 'custom-param-row';
+                row.dataset.paramRow = '';
+                row.innerHTML = `
+                    <input type="text" class="custom-param-key" id="${id}-param-key-${index}" placeholder="参数名" />
+                    <span class="custom-param-separator">:</span>
+                    <input type="text" class="custom-param-value" id="${id}-param-value-${index}" placeholder="参数值" />
+                    <button type="button" class="custom-param-remove" title="删除这一行" aria-label="删除这一行">−</button>
+                `;
+                list.appendChild(row);
+                bindRow(row);
+                fitNodeToContent(id);
+                row.querySelector('.custom-param-key')?.focus();
+            });
+            fitNodeToContent(id);
+        }
         else if (type === 'CameraControl') {
             setupCameraControlNode?.(id, el);
             persistNodeModelSelection(id, type);

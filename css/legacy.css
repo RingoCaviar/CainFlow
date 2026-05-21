@@ -23,6 +23,7 @@
     /* Global primary accent for nodes and UI */
     --port-image: #a855f7;
     --port-text: #22d3ee;
+    --port-params: #f59e0b;
     --shadow-node: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
     --shadow-node-hover: 0 12px 48px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
     --bg-modal: #1e1e34;
@@ -1366,6 +1367,78 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
 }
 
+.custom-param-field {
+    gap: 8px;
+}
+
+.custom-param-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.custom-param-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 28px;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.custom-param-row input {
+    min-width: 0;
+    height: 30px;
+    padding: 6px 8px;
+}
+
+.custom-param-separator {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+}
+
+.custom-param-add,
+.custom-param-remove {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border-input);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.custom-param-add {
+    width: 100%;
+    height: 30px;
+    color: var(--accent-cyan);
+}
+
+.custom-param-add:hover,
+.custom-param-remove:hover {
+    background: rgba(34, 211, 238, 0.1);
+    border-color: rgba(34, 211, 238, 0.35);
+    color: var(--text-primary);
+}
+
+.custom-param-remove:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: var(--accent-red);
+}
+
 .generation-count-control,
 .text-split-output-count-control {
     display: grid;
@@ -1646,6 +1719,10 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     border-color: var(--port-text);
 }
 
+.port-dot.type-params {
+    border-color: var(--port-params);
+}
+
 .port-dot:hover {
     transform: scale(1.3);
     box-shadow: 0 0 12px currentColor;
@@ -1661,6 +1738,11 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     box-shadow: 0 0 12px rgba(34, 211, 238, 0.5);
 }
 
+.port-dot.type-params:hover {
+    background: var(--port-params);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
+}
+
 .port-dot.connected {
     background: currentColor;
 }
@@ -1673,6 +1755,11 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 .port-dot.type-text.connected {
     background: var(--port-text);
     border-color: var(--port-text);
+}
+
+.port-dot.type-params.connected {
+    background: var(--port-params);
+    border-color: var(--port-params);
 }
 
 .port-label {

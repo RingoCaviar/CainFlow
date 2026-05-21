@@ -728,6 +728,47 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
     `;
 }
 
+function normalizeCustomParamRows(restoreData = {}) {
+    const rd = restoreData || {};
+    const rows = Array.isArray(rd.params)
+        ? rd.params
+        : (Array.isArray(rd.customParams) ? rd.customParams : []);
+    return rows
+        .map((row) => ({
+            key: typeof row?.key === 'string' ? row.key : '',
+            value: row?.value === undefined || row?.value === null ? '' : String(row.value)
+        }))
+        .filter((row) => row.key || row.value);
+}
+
+function renderCustomParamRow(id, row, index) {
+    return `
+        <div class="custom-param-row" data-param-row>
+            <input type="text" class="custom-param-key" id="${id}-param-key-${index}" value="${escapeHtml(row.key)}" placeholder="参数名" />
+            <span class="custom-param-separator">:</span>
+            <input type="text" class="custom-param-value" id="${id}-param-value-${index}" value="${escapeHtml(row.value)}" placeholder="参数值" />
+            <button type="button" class="custom-param-remove" title="删除这一行" aria-label="删除这一行">−</button>
+        </div>
+    `;
+}
+
+function renderCustomParamsBody(id, restoreData = {}) {
+    const rows = normalizeCustomParamRows(restoreData);
+    const renderedRows = (rows.length > 0 ? rows : [{ key: '', value: '' }])
+        .map((row, index) => renderCustomParamRow(id, row, index))
+        .join('');
+
+    return `
+        <div class="node-field custom-param-field">
+            <label>请求参数</label>
+            <div class="custom-param-list" id="${id}-params-list">
+                ${renderedRows}
+            </div>
+            <button type="button" class="custom-param-add" id="${id}-add-param" title="添加参数" aria-label="添加参数">+</button>
+        </div>
+    `;
+}
+
 function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageImport') return renderImageImportBody(id, restoreData);
     if (type === 'ImageResize') return renderImageResizeBody(id, restoreData);
@@ -740,6 +781,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'Text') return renderTextBody(id, restoreData);
     if (type === 'TextMerge') return renderTextMergeBody(id);
     if (type === 'TextSplit') return renderTextSplitBody(id, restoreData);
+    if (type === 'CustomParams') return renderCustomParamsBody(id, restoreData);
     if (type === 'ImageSave') return renderImageSaveBody(id, restoreData, state.globalSaveDirHandle);
     return '';
 }
