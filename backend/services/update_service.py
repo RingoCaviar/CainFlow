@@ -10,9 +10,12 @@ import threading
 import time
 import uuid
 import zipfile
+import xml.etree.ElementTree as ET
+from html import unescape
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from urllib.parse import unquote
 
 from backend import config, state
 from backend.services.security_service import detect_available_proxy
@@ -20,7 +23,7 @@ from backend.services.version_service import get_app_user_agent
 
 
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
-GITHUB_RELEASE_API_TIMEOUT = 45.0
+GITHUB_RELEASE_API_TIMEOUT = 12.0
 GITHUB_DOWNLOAD_TIMEOUT = 600.0
 GITHUB_DOWNLOAD_READ_TIMEOUT = 1.0
 UPDATE_LOW_SPEED_BYTES_PER_SECOND = 500 * 1024
@@ -48,6 +51,16 @@ class UpdateProxySwitch(RuntimeError):
     def __init__(self, proxy):
         super().__init__('切换到代理下载更新')
         self.proxy = proxy
+
+
+class UpdateMetadataProxySwitch(RuntimeError):
+    def __init__(self, proxy):
+        super().__init__('切换到代理获取 Release 信息')
+        self.proxy = proxy
+
+
+class InvalidReleaseZip(RuntimeError):
+    pass
 
 
 def _delete_file_quietly(path):
@@ -110,7 +123,7 @@ def _get_update_proxy_info(proxy_override=None):
     return None
 
 
-def _open_github_url(url, timeout, proxy_override=None):
+def _open_github_url(url, timeout, proxy_override=None, accept='application/vnd.github+json, application/octet-stream'):
     context = _create_ssl_context()
     handlers = [urllib_request.HTTPSHandler(context=context)]
     proxy_info = _get_update_proxy_info(proxy_override)
@@ -127,7 +140,7 @@ def _open_github_url(url, timeout, proxy_override=None):
     request = urllib_request.Request(
         url,
         headers={
-            'Accept': 'application/vnd.github+json, application/octet-stream',
+            'Accept': accept,
             'User-Agent': get_app_user_agent(),
             'Connection': 'close',
         },
@@ -136,15 +149,93 @@ def _open_github_url(url, timeout, proxy_override=None):
     return opener.open(request, timeout=timeout)
 
 
-def _read_github_json(url, proxy_override=None):
+def _read_github_bytes(
+    url,
+    proxy_override=None,
+    accept='*/*',
+    timeout=GITHUB_RELEASE_API_TIMEOUT,
+    low_speed_callback=None,
+):
+    total_bytes = 0
+    last_speed_check_at = None
+    last_speed_check_bytes = 0
+    chunks = []
     try:
-        with _open_github_url(url, GITHUB_RELEASE_API_TIMEOUT, proxy_override=proxy_override) as response:
-            raw = response.read()
+        with _open_github_url(url, timeout, proxy_override=proxy_override, accept=accept) as response:
+            if low_speed_callback and not _get_update_proxy_info(proxy_override):
+                _set_response_read_timeout(response, GITHUB_DOWNLOAD_READ_TIMEOUT)
+
+            while True:
+                try:
+                    chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+                except socket.timeout:
+                    if low_speed_callback and not _get_update_proxy_info(proxy_override):
+                        if last_speed_check_at is not None:
+                            proxy = low_speed_callback(0, total_bytes, 0)
+                            if proxy:
+                                raise UpdateMetadataProxySwitch(proxy)
+                            low_speed_callback = None
+                            _set_response_read_timeout(response, timeout)
+                    last_speed_check_bytes = total_bytes
+                    continue
+
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total_bytes += len(chunk)
+
+                now = time.monotonic()
+                if last_speed_check_at is None:
+                    last_speed_check_at = now
+                    last_speed_check_bytes = total_bytes
+                    continue
+
+                interval = now - last_speed_check_at
+                if (
+                    low_speed_callback
+                    and interval >= UPDATE_LOW_SPEED_SECONDS
+                    and not _get_update_proxy_info(proxy_override)
+                ):
+                    interval_bytes = total_bytes - last_speed_check_bytes
+                    interval_speed = interval_bytes / max(interval, 0.001)
+                    if interval_speed < UPDATE_LOW_SPEED_BYTES_PER_SECOND:
+                        proxy = low_speed_callback(interval_speed, total_bytes, 0)
+                        if proxy:
+                            raise UpdateMetadataProxySwitch(proxy)
+                        low_speed_callback = None
+                        _set_response_read_timeout(response, timeout)
+                        last_speed_check_at = now
+                        last_speed_check_bytes = total_bytes
+                elif interval >= UPDATE_LOW_SPEED_SECONDS:
+                    last_speed_check_at = now
+                    last_speed_check_bytes = total_bytes
+
+            return b''.join(chunks)
     except urllib_error.HTTPError as error:
         body = error.read().decode('utf-8', errors='replace')
         raise RuntimeError(f'GitHub 返回 {error.code}: {body[:300]}') from error
+    except UpdateMetadataProxySwitch:
+        raise
     except Exception as error:
         raise RuntimeError(f'无法连接 GitHub: {error}') from error
+
+
+def _read_github_text(url, proxy_override=None, accept='*/*', low_speed_callback=None):
+    return _read_github_bytes(
+        url,
+        proxy_override=proxy_override,
+        accept=accept,
+        low_speed_callback=low_speed_callback,
+    ).decode('utf-8', errors='replace')
+
+
+def _read_github_json(url, proxy_override=None, low_speed_callback=None):
+    raw = _read_github_bytes(
+        url,
+        proxy_override=proxy_override,
+        accept='application/vnd.github+json',
+        low_speed_callback=low_speed_callback,
+    )
 
     try:
         return json.loads(raw.decode('utf-8'))
@@ -158,6 +249,27 @@ def _safe_zip_filename(name, tag_name):
     if not filename.lower().endswith('.zip'):
         filename = fallback
     return re.sub(r'[^A-Za-z0-9._-]+', '_', filename)
+
+
+def _is_github_release_zip_url(url):
+    normalized = str(url or '').strip()
+    return (
+        normalized.startswith('https://github.com/')
+        and '/releases/download/' in normalized
+        and normalized.lower().split('?', 1)[0].endswith('.zip')
+    )
+
+
+def _build_release_asset(asset_name, download_url, tag_name='', source=''):
+    name = os.path.basename(str(asset_name or '').strip()) or os.path.basename(str(download_url or '').split('?', 1)[0])
+    if not name:
+        name = _safe_zip_filename('', tag_name)
+    return {
+        'name': name,
+        'browser_download_url': str(download_url or '').strip(),
+        'size': 0,
+        'source': source,
+    }
 
 
 def _select_release_zip_asset(release_data):
@@ -185,6 +297,157 @@ def _select_release_zip_asset(release_data):
     return candidates[0]
 
 
+def _select_release_zip_asset_from_links(links, tag_name='', source=''):
+    candidates = []
+    for link in links:
+        url = str(link or '').strip()
+        if not _is_github_release_zip_url(url):
+            continue
+        candidates.append(_build_release_asset(os.path.basename(url.split('?', 1)[0]), url, tag_name=tag_name, source=source))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda asset: (
+        0 if str(asset.get('name') or '').lower().startswith('cainflow') else 1,
+        str(asset.get('name') or '').lower(),
+    ))
+    return candidates[0]
+
+
+def _parse_latest_release_from_feed(xml_text, repo_name):
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return None
+
+    namespace = {'atom': 'http://www.w3.org/2005/Atom'}
+    entries = root.findall('atom:entry', namespace) or root.findall('entry')
+    for entry in entries:
+        title = (entry.findtext('atom:title', default='', namespaces=namespace) or entry.findtext('title', default='')).strip()
+        entry_id = (entry.findtext('atom:id', default='', namespaces=namespace) or entry.findtext('id', default='')).strip()
+        href = ''
+        for link in entry.findall('atom:link', namespace) or entry.findall('link'):
+            href = str(link.attrib.get('href') or '').strip()
+            if href:
+                break
+        tag_match = re.search(r'/releases/tag/([^/?#]+)', href or entry_id)
+        tag_name = unquote(tag_match.group(1)) if tag_match else title
+        tag_name = str(tag_name or '').strip()
+        if tag_name:
+            return {
+                'tag_name': tag_name,
+                'html_url': href or f'https://github.com/{repo_name}/releases/tag/{tag_name}',
+                'source': 'github_releases_feed',
+            }
+    return None
+
+
+def _extract_release_zip_links_from_html(html_text, repo_name):
+    text = unescape(str(html_text or ''))
+    escaped_repo = re.escape(repo_name)
+    raw_links = []
+    patterns = [
+        rf'/{escaped_repo}/releases/download/[^\s"\'<>]+?\.zip(?:\?[^"\s\'<>]*)?',
+        rf'https://github\.com/{escaped_repo}/releases/download/[^\s"\'<>]+?\.zip(?:\?[^"\s\'<>]*)?',
+    ]
+    for pattern in patterns:
+        raw_links.extend(match.group(0) for match in re.finditer(pattern, text, flags=re.IGNORECASE))
+
+    links = []
+    for link in raw_links:
+        normalized = unquote(str(link or ''))
+        if normalized.startswith('/'):
+            normalized = f'https://github.com{normalized}'
+        normalized = normalized.split('?', 1)[0]
+        if normalized not in links:
+            links.append(normalized)
+    return links
+
+
+def _read_release_data_from_non_api_sources(repo_name, proxy_override=None, status_callback=None, low_speed_callback=None):
+    feed_url = f'https://github.com/{repo_name}/releases.atom'
+    if status_callback:
+        status_callback('resolving', '正在读取 GitHub Releases Feed...')
+    feed_text = _read_github_text(
+        feed_url,
+        proxy_override=proxy_override,
+        accept='application/atom+xml, application/xml, text/xml',
+        low_speed_callback=low_speed_callback,
+    )
+    release_data = _parse_latest_release_from_feed(feed_text, repo_name)
+    if not release_data:
+        raise RuntimeError('GitHub Releases Feed 响应解析失败')
+
+    tag_name = str(release_data.get('tag_name') or '').strip()
+    if not tag_name:
+        raise RuntimeError('GitHub Releases Feed 未包含版本号')
+
+    asset_links = []
+    expanded_assets_url = f'https://github.com/{repo_name}/releases/expanded_assets/{tag_name}'
+    try:
+        if status_callback:
+            status_callback('resolving', f'正在解析 {tag_name} 的更新文件列表...')
+        expanded_html = _read_github_text(
+            expanded_assets_url,
+            proxy_override=proxy_override,
+            accept='text/html,application/xhtml+xml',
+            low_speed_callback=low_speed_callback,
+        )
+        asset_links.extend(_extract_release_zip_links_from_html(expanded_html, repo_name))
+    except Exception:
+        pass
+
+    if not asset_links:
+        release_page_url = f'https://github.com/{repo_name}/releases/tag/{tag_name}'
+        if status_callback:
+            status_callback('resolving', f'正在解析 {tag_name} 的 Release 页面...')
+        release_html = _read_github_text(
+            release_page_url,
+            proxy_override=proxy_override,
+            accept='text/html,application/xhtml+xml',
+            low_speed_callback=low_speed_callback,
+        )
+        asset_links.extend(_extract_release_zip_links_from_html(release_html, repo_name))
+
+    asset = _select_release_zip_asset_from_links(asset_links, tag_name=tag_name, source='github_release_page')
+    if not asset:
+        raise RuntimeError('GitHub Release 页面中没有找到可下载的 CainFlow ZIP 资产')
+
+    return {
+        **release_data,
+        'assets': [asset],
+        'source': asset.get('source') or release_data.get('source') or 'github_release_page',
+    }
+
+
+def _read_latest_release_data(repo_name, proxy_override=None, status_callback=None, low_speed_callback=None):
+    non_api_error = None
+    try:
+        return _read_release_data_from_non_api_sources(
+            repo_name,
+            proxy_override=proxy_override,
+            status_callback=status_callback,
+            low_speed_callback=low_speed_callback,
+        )
+    except Exception as error:
+        non_api_error = error
+
+    try:
+        if status_callback:
+            status_callback('resolving', '非 API 更新源暂不可用，正在使用 GitHub API 备用方式...')
+        return _read_latest_release_data_from_api(repo_name, proxy_override=proxy_override, low_speed_callback=low_speed_callback)
+    except Exception as api_error:
+        raise RuntimeError(f'获取 GitHub Release 信息失败：{non_api_error}；API 兜底也失败：{api_error}') from api_error
+
+
+def _read_latest_release_data_from_api(repo_name, proxy_override=None, low_speed_callback=None):
+    release_url = f'https://api.github.com/repos/{repo_name}/releases/latest'
+    release_data = _read_github_json(release_url, proxy_override=proxy_override, low_speed_callback=low_speed_callback)
+    release_data['source'] = release_data.get('source') or 'github_api'
+    return release_data
+
+
 def _get_release_asset_size(asset):
     try:
         size = int(asset.get('size') or 0)
@@ -199,6 +462,16 @@ def _parse_positive_int(value):
         return number if number > 0 else 0
     except (TypeError, ValueError):
         return 0
+
+
+def _validate_downloaded_zip_file(zip_path):
+    try:
+        with open(zip_path, 'rb') as file:
+            header = file.read(4)
+    except OSError as error:
+        raise InvalidReleaseZip(f'下载文件读取失败：{error}') from error
+    if header != b'PK\x03\x04':
+        raise InvalidReleaseZip('下载到的更新文件不是有效 ZIP，正在尝试备用下载地址')
 
 
 def _describe_update_proxy(proxy):
@@ -291,7 +564,7 @@ def _download_release_zip(
 ):
     temp_destination = destination.with_name(f'.{destination.name}.download')
     total_bytes = 0
-    last_speed_check_at = time.monotonic()
+    last_speed_check_at = None
     last_speed_check_bytes = 0
     try:
         with _open_github_url(download_url, GITHUB_DOWNLOAD_TIMEOUT, proxy_override=proxy_override) as response:
@@ -313,13 +586,13 @@ def _download_release_zip(
                         if (
                             low_speed_callback
                             and not _get_update_proxy_info(proxy_override)
+                            and last_speed_check_at is not None
                         ):
                             proxy = low_speed_callback(0, total_bytes, expected_total)
                             if proxy:
                                 raise UpdateProxySwitch(proxy)
                             low_speed_callback = None
                             _set_response_read_timeout(response, GITHUB_DOWNLOAD_TIMEOUT)
-                        last_speed_check_at = time.monotonic()
                         last_speed_check_bytes = total_bytes
                         continue
                     if not chunk:
@@ -329,6 +602,13 @@ def _download_release_zip(
                     if progress_callback:
                         progress_callback(total_bytes, expected_total, started_at)
                     now = time.monotonic()
+                    if last_speed_check_at is None:
+                        last_speed_check_at = now
+                        last_speed_check_bytes = total_bytes
+                        if cancel_event and cancel_event.is_set():
+                            raise UpdateCancelled('用户已取消下载')
+                        continue
+
                     interval = now - last_speed_check_at
                     if (
                         low_speed_callback
@@ -353,6 +633,7 @@ def _download_release_zip(
         if progress_callback:
             progress_callback(total_bytes, total_bytes, started_at)
         os.replace(temp_destination, destination)
+        _validate_downloaded_zip_file(destination)
         return total_bytes
     except urllib_error.HTTPError as error:
         body = error.read().decode('utf-8', errors='replace')
@@ -360,6 +641,8 @@ def _download_release_zip(
     except UpdateCancelled:
         raise
     except UpdateProxySwitch:
+        raise
+    except InvalidReleaseZip:
         raise
     except Exception as error:
         if cancel_event and cancel_event.is_set():
@@ -508,19 +791,75 @@ def download_and_prepare_latest_update(
     if repo_name != config.GITHUB_REPO:
         raise RuntimeError('不允许从当前 CainFlow 官方仓库以外的位置下载更新')
 
-    release_url = f'https://api.github.com/repos/{repo_name}/releases/latest'
-    release_data = _read_github_json(release_url)
-    asset = _select_release_zip_asset(release_data)
+    proxy_override = None
+    metadata_proxy_switched = False
+
+    def metadata_low_speed_callback(interval_speed, downloaded_bytes, total_bytes):
+        nonlocal metadata_proxy_switched
+        if metadata_proxy_switched:
+            return None
+        metadata_proxy_switched = True
+        if status_callback:
+            status_callback(
+                'proxy_testing',
+                '获取 Release 信息速度过慢，正在测试代理连通性...',
+                downloaded_bytes,
+                total_bytes,
+            )
+        proxy = _resolve_update_download_proxy()
+        if not proxy:
+            if status_callback:
+                status_callback(
+                    'resolving',
+                    '未找到可用代理，继续使用当前连接获取 Release 信息...',
+                    downloaded_bytes,
+                    total_bytes,
+                )
+            return None
+        if status_callback:
+            status_callback(
+                'proxy_switching',
+                f'已找到可用代理（{_describe_update_proxy(proxy)}），正在切换代理获取 Release 信息...',
+                downloaded_bytes,
+                total_bytes,
+            )
+        return proxy
+
+    def resolve_release_download_info(active_proxy=None):
+        current_release_data = _read_latest_release_data(
+            repo_name,
+            proxy_override=active_proxy,
+            status_callback=status_callback,
+            low_speed_callback=metadata_low_speed_callback,
+        )
+        current_asset = _select_release_zip_asset(current_release_data)
+        current_tag_name = str(current_release_data.get('tag_name') or '').strip()
+        current_zip_filename = _safe_zip_filename(current_asset.get('name'), current_tag_name)
+        return current_release_data, current_asset, current_tag_name, current_zip_filename
+
+    try:
+        release_data, asset, tag_name, zip_filename = resolve_release_download_info()
+    except UpdateMetadataProxySwitch as switch:
+        proxy_override = switch.proxy
+        release_data, asset, tag_name, zip_filename = resolve_release_download_info(proxy_override)
+    except Exception as release_error:
+        if status_callback:
+            status_callback('proxy_testing', '获取 Release 信息超时或失败，正在尝试使用代理解析更新信息...')
+        proxy_override = _resolve_update_download_proxy()
+        if not proxy_override:
+            raise release_error
+        if status_callback:
+            status_callback('proxy_switching', f'已找到可用代理（{_describe_update_proxy(proxy_override)}），正在重新获取 Release 信息...')
+        release_data, asset, tag_name, zip_filename = resolve_release_download_info(proxy_override)
+
+    api_asset_fallback_used = release_data.get('source') == 'github_api'
     if cancel_event and cancel_event.is_set():
         raise UpdateCancelled('用户已取消下载')
 
     app_dir = Path(config.EXE_DIR).resolve()
     app_dir.mkdir(parents=True, exist_ok=True)
-    tag_name = str(release_data.get('tag_name') or '').strip()
-    zip_filename = _safe_zip_filename(asset.get('name'), tag_name)
     zip_path = app_dir / zip_filename
-    proxy_override = None
-    proxy_switched = False
+    proxy_switched = bool(proxy_override)
 
     def low_speed_callback(interval_speed, downloaded_bytes, total_bytes):
         nonlocal proxy_switched
@@ -572,6 +911,24 @@ def download_and_prepare_latest_update(
                 _delete_file_quietly(zip_path)
                 if cancel_event and cancel_event.is_set():
                     raise UpdateCancelled('用户已取消下载')
+                release_data, asset, tag_name, zip_filename = resolve_release_download_info(proxy_override)
+                api_asset_fallback_used = release_data.get('source') == 'github_api'
+                zip_path = app_dir / zip_filename
+            except InvalidReleaseZip:
+                _delete_file_quietly(zip_path)
+                if api_asset_fallback_used:
+                    raise
+                if status_callback:
+                    status_callback(
+                        'resolving',
+                        '页面解析到的更新文件不是有效 ZIP，正在使用 GitHub API 备用地址...',
+                    )
+                release_data = _read_latest_release_data_from_api(repo_name, proxy_override=proxy_override)
+                asset = _select_release_zip_asset(release_data)
+                tag_name = str(release_data.get('tag_name') or '').strip()
+                zip_filename = _safe_zip_filename(asset.get('name'), tag_name)
+                api_asset_fallback_used = True
+                zip_path = app_dir / zip_filename
 
         if cancel_event and cancel_event.is_set():
             raise UpdateCancelled('用户已取消下载')

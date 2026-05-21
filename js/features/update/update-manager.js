@@ -994,7 +994,8 @@ export function createUpdateManager({
             return '检查更新超时，请稍后重试';
         }
         if (response) {
-            return `检查更新失败：GitHub API 返回 ${response.status} ${response.statusText || '响应异常'}`;
+            const sourceName = response.updateSourceName || 'GitHub 更新源';
+            return `检查更新失败：${sourceName} 返回 ${response.status} ${response.statusText || '响应异常'}`;
         }
         if (error?.message) {
             return `检查更新失败：${error.message}`;
@@ -1020,7 +1021,8 @@ export function createUpdateManager({
         const { message, documentationUrl } = parseUpdateErrorBody(text);
         const normalized = `${message}\n${text}`.toLowerCase();
         const statusText = response?.statusText || '响应异常';
-        const prefix = `检查更新失败：GitHub API 返回 ${status} ${statusText}`;
+        const sourceName = response?.updateSourceName || 'GitHub 更新源';
+        const prefix = `检查更新失败：${sourceName} 返回 ${status} ${statusText}`;
 
         if (
             status === 429 ||
@@ -1083,6 +1085,43 @@ export function createUpdateManager({
         }).filter(Boolean);
 
         if (releases.length === 0) return null;
+        return {
+            ...releases[0],
+            releaseHistory: releases
+        };
+    }
+
+    function parseGithubReleasePage(htmlText) {
+        const text = String(htmlText || '');
+        if (!text) return null;
+
+        const releaseLinks = [];
+        const linkPattern = new RegExp(`href=["']/${githubRepo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/releases/tag/([^"'?#]+)`, 'gi');
+        let match;
+        while ((match = linkPattern.exec(text)) !== null) {
+            const tagName = decodeURIComponent(match[1] || '').trim();
+            if (tagName && !releaseLinks.includes(tagName)) {
+                releaseLinks.push(tagName);
+            }
+        }
+
+        if (releaseLinks.length === 0) {
+            const metaMatch = text.match(/<meta[^>]+property=["']og:url["'][^>]+content=["'][^"']+\/releases\/tag\/([^"'?#]+)["']/i);
+            const tagName = decodeURIComponent(metaMatch?.[1] || '').trim();
+            if (tagName) releaseLinks.push(tagName);
+        }
+
+        if (releaseLinks.length === 0) return null;
+
+        const releases = releaseLinks.map((tagName) => ({
+            tag_name: tagName,
+            name: tagName,
+            published_at: new Date().toISOString(),
+            body: '',
+            html_url: `https://github.com/${githubRepo}/releases/tag/${encodeURIComponent(tagName)}`,
+            source: 'github_releases_page'
+        }));
+
         return {
             ...releases[0],
             releaseHistory: releases
@@ -1158,7 +1197,7 @@ export function createUpdateManager({
         return message.includes('timeout') || message.includes('timed out') || message.includes('超时');
     }
 
-    async function fetchProxyText(url, signal, accept = '', proxyOverride = null) {
+    async function fetchProxyText(url, signal, accept = '', proxyOverride = null, sourceName = '') {
         const extraHeaders = accept ? { Accept: accept } : {};
         const response = await fetchImpl('/proxy', {
             method: 'POST',
@@ -1167,6 +1206,7 @@ export function createUpdateManager({
         });
         const text = await response.text();
         if (!response.ok) {
+            response.updateSourceName = sourceName;
             throw {
                 isUpdateHttpError: true,
                 status: response.status,
@@ -1179,7 +1219,7 @@ export function createUpdateManager({
 
     async function fetchLatestReleaseFromFeed(signal, proxyOverride = null) {
         const url = `https://github.com/${githubRepo}/releases.atom`;
-        const text = await fetchProxyText(url, signal, 'application/atom+xml, application/xml, text/xml', proxyOverride);
+        const text = await fetchProxyText(url, signal, 'application/atom+xml, application/xml, text/xml', proxyOverride, 'GitHub Releases Feed');
         const releaseData = parseGithubReleaseFeed(text);
         if (!releaseData) {
             throw new Error('GitHub Releases Feed 响应解析失败');
@@ -1187,26 +1227,55 @@ export function createUpdateManager({
         return releaseData;
     }
 
+    async function fetchLatestReleaseFromPage(signal, proxyOverride = null) {
+        const url = `https://github.com/${githubRepo}/releases`;
+        const text = await fetchProxyText(url, signal, 'text/html,application/xhtml+xml', proxyOverride, 'GitHub Releases 页面');
+        const releaseData = parseGithubReleasePage(text);
+        if (!releaseData) {
+            throw new Error('GitHub Releases 页面解析失败');
+        }
+        return releaseData;
+    }
+
     async function fetchLatestReleaseFromApi(signal, proxyOverride = null) {
         const url = `https://api.github.com/repos/${githubRepo}/releases?per_page=20`;
-        const text = await fetchProxyText(url, signal, 'application/vnd.github+json', proxyOverride);
+        const text = await fetchProxyText(url, signal, 'application/vnd.github+json', proxyOverride, 'GitHub API');
         const data = JSON.parse(text);
         if (Array.isArray(data)) {
             if (data.length === 0) throw new Error('GitHub Release 列表为空');
             return {
                 ...data[0],
-                releaseHistory: data
+                releaseHistory: data,
+                source: 'github_api'
             };
         }
-        return data;
+        return {
+            ...data,
+            source: data?.source || 'github_api'
+        };
     }
 
     async function fetchLatestRelease(signal, proxyOverride = null) {
+        const errors = [];
         try {
             return await fetchLatestReleaseFromFeed(signal, proxyOverride);
         } catch (feedError) {
-            console.warn('GitHub release feed check failed, falling back to API:', feedError);
-            return fetchLatestReleaseFromApi(signal, proxyOverride);
+            errors.push(feedError);
+            console.warn('GitHub release feed check failed, falling back to releases page:', feedError);
+        }
+
+        try {
+            return await fetchLatestReleaseFromPage(signal, proxyOverride);
+        } catch (pageError) {
+            errors.push(pageError);
+            console.warn('GitHub release page check failed, falling back to API:', pageError);
+        }
+
+        try {
+            return await fetchLatestReleaseFromApi(signal, proxyOverride);
+        } catch (apiError) {
+            apiError.updateCheckErrors = errors;
+            throw apiError;
         }
     }
 
