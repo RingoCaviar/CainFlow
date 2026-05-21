@@ -59,6 +59,130 @@ export function createUpdateManager({
         return 0;
     }
 
+    function escapeHtml(value = '') {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[char]);
+    }
+
+    function formatReleaseDate(value) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '未知日期';
+        return date.toLocaleDateString();
+    }
+
+    function getReleaseTagName(release = {}) {
+        return release.tag_name || release.tagName || release.name || '未知版本';
+    }
+
+    function normalizeReleaseList(releaseData = null) {
+        const rawList = Array.isArray(releaseData?.releaseHistory)
+            ? releaseData.releaseHistory
+            : (releaseData ? [releaseData] : []);
+        const seen = new Set();
+        const releases = [];
+
+        rawList.forEach((release) => {
+            if (!release) return;
+            const tagName = getReleaseTagName(release);
+            if (!tagName || seen.has(tagName)) return;
+            seen.add(tagName);
+            releases.push(release);
+        });
+
+        return releases.length > 0 ? releases : [];
+    }
+
+    function renderMarkdownLikeReleaseBody(body = '') {
+        const lines = String(body || '暂无更新日志详情').split(/\r?\n/);
+        const html = [];
+        let inList = false;
+
+        const closeList = () => {
+            if (inList) {
+                html.push('</ul>');
+                inList = false;
+            }
+        };
+
+        lines.forEach((line) => {
+            const trimmed = line.trim();
+            const heading = trimmed.match(/^(#{2,4})\s+(.+)$/);
+            const listItem = trimmed.match(/^[-*]\s+(.+)$/);
+
+            if (heading) {
+                closeList();
+                html.push(`<h4>${escapeHtml(heading[2])}</h4>`);
+                return;
+            }
+
+            if (listItem) {
+                if (!inList) {
+                    html.push('<ul>');
+                    inList = true;
+                }
+                html.push(`<li>${escapeHtml(listItem[1])}</li>`);
+                return;
+            }
+
+            closeList();
+            if (trimmed) html.push(`<p>${escapeHtml(trimmed)}</p>`);
+        });
+
+        closeList();
+        return html.join('');
+    }
+
+    function getReleaseBodyHtml(release = {}) {
+        const body = release.body || '暂无更新日志详情';
+        if (release.source === 'github_releases_feed' && /<\/?[a-z][\s\S]*>/i.test(body)) {
+            return body;
+        }
+        return renderMarkdownLikeReleaseBody(body);
+    }
+
+    function renderReleaseChangelogs(container, releaseData) {
+        const releases = normalizeReleaseList(releaseData);
+        container.textContent = '';
+
+        if (releases.length === 0) {
+            container.innerHTML = renderMarkdownLikeReleaseBody('暂无更新日志详情');
+            return;
+        }
+
+        releases.forEach((release, index) => {
+            const tagName = getReleaseTagName(release);
+            const item = documentRef.createElement('details');
+            item.className = 'update-release-item';
+            item.open = index === 0;
+
+            const summary = documentRef.createElement('summary');
+            summary.className = 'update-release-summary';
+
+            const title = documentRef.createElement('span');
+            title.className = 'update-release-title';
+            title.textContent = index === 0 ? `${tagName} 最新版本` : tagName;
+            summary.appendChild(title);
+
+            const meta = documentRef.createElement('span');
+            meta.className = 'update-release-date';
+            meta.textContent = formatReleaseDate(release.published_at);
+            summary.appendChild(meta);
+            item.appendChild(summary);
+
+            const body = documentRef.createElement('div');
+            body.className = 'update-release-body';
+            body.innerHTML = getReleaseBodyHtml(release);
+            item.appendChild(body);
+
+            container.appendChild(item);
+        });
+    }
+
     function showUpdateModal(releaseData) {
         if (releaseData) latestReleaseData = releaseData;
         const modal = documentRef.getElementById('modal-update');
@@ -66,18 +190,14 @@ export function createUpdateManager({
         const date = documentRef.getElementById('update-date');
         const changelog = documentRef.getElementById('update-changelog-content');
         const settingsBtn = documentRef.getElementById('btn-settings');
+        const releases = normalizeReleaseList(releaseData);
+        const latestRelease = releases[0] || releaseData;
 
-        if (tag) tag.textContent = releaseData.tag_name;
-        if (date) date.textContent = new Date(releaseData.published_at).toLocaleDateString();
+        if (tag) tag.textContent = getReleaseTagName(latestRelease);
+        if (date) date.textContent = formatReleaseDate(latestRelease?.published_at);
 
         if (changelog) {
-            let body = releaseData.body || '暂无更新日志详情';
-            body = body.replace(/### (.*)/g, '<h4>$1</h4>')
-                .replace(/\n- (.*)/g, '\n<li>$1</li>')
-                .replace(/<li>(.*)<\/li>/g, '<ul><li>$1</li></ul>')
-                .replace(/<\/ul>\n<ul>/g, '')
-                .replace(/\n/g, '<br>');
-            changelog.innerHTML = body;
+            renderReleaseChangelogs(changelog, releaseData);
         }
 
         if (settingsBtn) settingsBtn.classList.add('has-update');
@@ -933,25 +1053,33 @@ export function createUpdateManager({
         const doc = new windowRef.DOMParser().parseFromString(xmlText, 'application/xml');
         if (doc.querySelector('parsererror')) return null;
 
-        const entry = doc.querySelector('entry');
-        if (!entry) return null;
+        const entries = Array.from(doc.querySelectorAll('entry'));
+        if (entries.length === 0) return null;
 
-        const title = getXmlText(entry, 'title');
-        const id = getXmlText(entry, 'id');
-        const link = entry.querySelector('link[rel="alternate"]') || entry.querySelector('link[href]');
-        const href = link?.getAttribute('href') || '';
-        const tagFromUrl = href.match(/\/releases\/tag\/([^/?#]+)/)?.[1];
-        const tagFromId = id.match(/\/releases\/tag\/([^/?#]+)/)?.[1];
-        const tagName = decodeURIComponent(tagFromUrl || tagFromId || title || '').trim();
+        const releases = entries.map((entry) => {
+            const title = getXmlText(entry, 'title');
+            const id = getXmlText(entry, 'id');
+            const link = entry.querySelector('link[rel="alternate"]') || entry.querySelector('link[href]');
+            const href = link?.getAttribute('href') || '';
+            const tagFromUrl = href.match(/\/releases\/tag\/([^/?#]+)/)?.[1];
+            const tagFromId = id.match(/\/releases\/tag\/([^/?#]+)/)?.[1];
+            const tagName = decodeURIComponent(tagFromUrl || tagFromId || title || '').trim();
 
-        if (!tagName) return null;
+            if (!tagName) return null;
 
+            return {
+                tag_name: tagName,
+                published_at: getXmlText(entry, 'published') || getXmlText(entry, 'updated') || new Date().toISOString(),
+                body: getXmlText(entry, 'content') || getXmlText(entry, 'summary') || '',
+                html_url: href || `https://github.com/${githubRepo}/releases/tag/${encodeURIComponent(tagName)}`,
+                source: 'github_releases_feed'
+            };
+        }).filter(Boolean);
+
+        if (releases.length === 0) return null;
         return {
-            tag_name: tagName,
-            published_at: getXmlText(entry, 'published') || getXmlText(entry, 'updated') || new Date().toISOString(),
-            body: getXmlText(entry, 'content') || getXmlText(entry, 'summary') || '',
-            html_url: href || `https://github.com/${githubRepo}/releases/tag/${encodeURIComponent(tagName)}`,
-            source: 'github_releases_feed'
+            ...releases[0],
+            releaseHistory: releases
         };
     }
 
@@ -985,9 +1113,17 @@ export function createUpdateManager({
     }
 
     async function fetchLatestReleaseFromApi(signal) {
-        const url = `https://api.github.com/repos/${githubRepo}/releases/latest`;
+        const url = `https://api.github.com/repos/${githubRepo}/releases?per_page=20`;
         const text = await fetchProxyText(url, signal, 'application/vnd.github+json');
-        return JSON.parse(text);
+        const data = JSON.parse(text);
+        if (Array.isArray(data)) {
+            if (data.length === 0) throw new Error('GitHub Release 列表为空');
+            return {
+                ...data[0],
+                releaseHistory: data
+            };
+        }
+        return data;
     }
 
     async function fetchLatestRelease(signal) {

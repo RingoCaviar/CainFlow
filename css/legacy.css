@@ -5615,9 +5615,65 @@ body.sidebar-pinned #side-bar::after {
 }
 
 .update-changelog-body {
-    font-size: 20px;
+    font-size: 15px;
     line-height: 1.5;
     color: var(--text-secondary);
+}
+
+.update-release-item {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.035);
+    overflow: hidden;
+}
+
+.update-release-item + .update-release-item {
+    margin-top: 12px;
+}
+
+.update-release-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-weight: 700;
+    list-style: none;
+}
+
+.update-release-summary::-webkit-details-marker {
+    display: none;
+}
+
+.update-release-summary::before {
+    content: '›';
+    flex: 0 0 auto;
+    color: var(--accent-purple);
+    font-size: 20px;
+    line-height: 1;
+    transform: rotate(0deg);
+    transition: transform 0.16s ease;
+}
+
+.update-release-item[open] .update-release-summary::before {
+    transform: rotate(90deg);
+}
+
+.update-release-title {
+    flex: 1;
+}
+
+.update-release-date {
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.update-release-body {
+    padding: 0 16px 16px 38px;
 }
 
 .update-changelog-body br {
@@ -5635,6 +5691,10 @@ body.sidebar-pinned #side-bar::after {
     color: var(--text-primary);
     margin: 12px 0 6px 0;
     font-size: 15px;
+}
+
+.update-changelog-body p {
+    margin: 6px 0;
 }
 
 .update-changelog-body h4:first-child {
