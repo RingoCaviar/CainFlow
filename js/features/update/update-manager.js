@@ -27,7 +27,7 @@ export function createUpdateManager({
     let handledTerminalUpdateJobId = '';
     const updateDownloadTextKey = 'cainflow_update_download_text';
     const updateDownloadSnapshotKey = 'cainflow_update_download_snapshot';
-    const activeDownloadStatuses = new Set(['starting', 'resolving', 'downloading', 'extracting', 'replacing', 'canceling']);
+    const activeDownloadStatuses = new Set(['starting', 'resolving', 'downloading', 'proxy_testing', 'proxy_switching', 'extracting', 'replacing', 'canceling']);
     const updateDownloadPollIntervalMs = 250;
     const updateDownloadTerminalToastDelayMs = 1200;
     const updateDownloadCompletionPromptDelayMs = 450;
@@ -329,6 +329,14 @@ export function createUpdateManager({
         return message || '';
     }
 
+    function getDownloadProgressTitle(status, message = '') {
+        if (status === 'completed') return '下载完成';
+        if (status === 'downloading') return '正在下载更新';
+        if (status === 'proxy_testing') return '正在测试代理';
+        if (status === 'proxy_switching') return '正在切换代理';
+        return message || '正在准备更新';
+    }
+
     function setStoredDownloadText(message = '') {
         if (message) localStorageRef.setItem(updateDownloadTextKey, message);
         else localStorageRef.removeItem(updateDownloadTextKey);
@@ -351,9 +359,7 @@ export function createUpdateManager({
 
         const title = documentRef.createElement('span');
         title.className = 'update-download-progress__title';
-        title.textContent = status === 'completed'
-            ? '下载完成'
-            : (status === 'downloading' ? '正在下载更新' : (message || '正在准备更新'));
+        title.textContent = getDownloadProgressTitle(status, message);
         topRow.appendChild(title);
 
         const percent = getDownloadProgressPercent(snapshot);
@@ -1083,11 +1089,80 @@ export function createUpdateManager({
         };
     }
 
-    async function fetchProxyText(url, signal, accept = '') {
+    function applyProxyOverrideHeaders(headers, proxyOverride = null) {
+        if (!proxyOverride) return headers;
+        return {
+            ...headers,
+            'x-proxy-enabled': 'true',
+            'x-proxy-host': proxyOverride.ip || proxyOverride.host || '127.0.0.1',
+            'x-proxy-port': proxyOverride.port || '7890'
+        };
+    }
+
+    function getConfiguredProxyFromHeaders() {
+        const headers = getProxyHeaders('https://www.google.com/generate_204', 'HEAD');
+        const host = headers['x-proxy-host'] || '127.0.0.1';
+        const port = headers['x-proxy-port'] || '';
+        return port ? { ip: host, port, source: '当前代理设置' } : null;
+    }
+
+    async function testUpdateCheckProxy(proxy) {
+        if (!proxy?.port) return null;
+        try {
+            const response = await fetchImpl('/api/test_proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: proxy.ip || proxy.host || '127.0.0.1', port: proxy.port })
+            });
+            if (!response.ok) return null;
+            const data = await response.json().catch(() => ({}));
+            return {
+                ip: proxy.ip || proxy.host || '127.0.0.1',
+                port: proxy.port,
+                source: proxy.source || '代理',
+                latency: Number(data?.latency) || 0
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    async function resolveUpdateCheckProxy() {
+        const configuredProxy = await testUpdateCheckProxy(getConfiguredProxyFromHeaders());
+        if (configuredProxy) return configuredProxy;
+
+        try {
+            const response = await fetchImpl('/api/detect_proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data?.success || !data?.proxy) return null;
+            const detectedProxy = {
+                ip: data.proxy.ip || '127.0.0.1',
+                port: data.proxy.port || '',
+                source: data.source || '自动检测代理',
+                latency: Number(data.latency) || 0
+            };
+            return testUpdateCheckProxy(detectedProxy);
+        } catch {
+            return null;
+        }
+    }
+
+    function isUpdateCheckTimeoutError(error) {
+        if (error?.name === 'AbortError') return true;
+        if (error?.isUpdateHttpError && error.status === 504) return true;
+        const message = String(error?.message || error?.body || error || '').toLowerCase();
+        return message.includes('timeout') || message.includes('timed out') || message.includes('超时');
+    }
+
+    async function fetchProxyText(url, signal, accept = '', proxyOverride = null) {
         const extraHeaders = accept ? { Accept: accept } : {};
         const response = await fetchImpl('/proxy', {
             method: 'POST',
-            headers: getProxyHeaders(url, 'GET', extraHeaders),
+            headers: applyProxyOverrideHeaders(getProxyHeaders(url, 'GET', extraHeaders), proxyOverride),
             signal
         });
         const text = await response.text();
@@ -1102,9 +1177,9 @@ export function createUpdateManager({
         return text;
     }
 
-    async function fetchLatestReleaseFromFeed(signal) {
+    async function fetchLatestReleaseFromFeed(signal, proxyOverride = null) {
         const url = `https://github.com/${githubRepo}/releases.atom`;
-        const text = await fetchProxyText(url, signal, 'application/atom+xml, application/xml, text/xml');
+        const text = await fetchProxyText(url, signal, 'application/atom+xml, application/xml, text/xml', proxyOverride);
         const releaseData = parseGithubReleaseFeed(text);
         if (!releaseData) {
             throw new Error('GitHub Releases Feed 响应解析失败');
@@ -1112,9 +1187,9 @@ export function createUpdateManager({
         return releaseData;
     }
 
-    async function fetchLatestReleaseFromApi(signal) {
+    async function fetchLatestReleaseFromApi(signal, proxyOverride = null) {
         const url = `https://api.github.com/repos/${githubRepo}/releases?per_page=20`;
-        const text = await fetchProxyText(url, signal, 'application/vnd.github+json');
+        const text = await fetchProxyText(url, signal, 'application/vnd.github+json', proxyOverride);
         const data = JSON.parse(text);
         if (Array.isArray(data)) {
             if (data.length === 0) throw new Error('GitHub Release 列表为空');
@@ -1126,12 +1201,12 @@ export function createUpdateManager({
         return data;
     }
 
-    async function fetchLatestRelease(signal) {
+    async function fetchLatestRelease(signal, proxyOverride = null) {
         try {
-            return await fetchLatestReleaseFromFeed(signal);
+            return await fetchLatestReleaseFromFeed(signal, proxyOverride);
         } catch (feedError) {
             console.warn('GitHub release feed check failed, falling back to API:', feedError);
-            return fetchLatestReleaseFromApi(signal);
+            return fetchLatestReleaseFromApi(signal, proxyOverride);
         }
     }
 
@@ -1256,14 +1331,7 @@ export function createUpdateManager({
 
         localStorageRef.setItem('cainflow_last_update_check', now.toString());
 
-        let timeoutId = null;
-        try {
-            const controller = new AbortController();
-            timeoutId = setTimeoutImpl(() => controller.abort(), 10000);
-
-            const data = await fetchLatestRelease(controller.signal);
-            clearTimeoutImpl(timeoutId);
-            timeoutId = null;
+        const applyUpdateCheckResult = (data) => {
             latestReleaseData = data;
             const latestVersion = data.tag_name;
             localStorageRef.setItem('cainflow_update_version', latestVersion || '');
@@ -1283,8 +1351,41 @@ export function createUpdateManager({
             }
 
             renderGeneralSettings();
+        };
+
+        let timeoutId = null;
+        try {
+            const controller = new AbortController();
+            timeoutId = setTimeoutImpl(() => controller.abort(), 10000);
+
+            const data = await fetchLatestRelease(controller.signal);
+            clearTimeoutImpl(timeoutId);
+            timeoutId = null;
+            applyUpdateCheckResult(data);
         } catch (e) {
             if (timeoutId !== null) clearTimeoutImpl(timeoutId);
+            if (isUpdateCheckTimeoutError(e)) {
+                try {
+                    showToast('检查更新超时，正在尝试使用代理重新检查...', 'info', 5000);
+                    const proxyOverride = await resolveUpdateCheckProxy();
+                    if (proxyOverride) {
+                        const retryController = new AbortController();
+                        timeoutId = setTimeoutImpl(() => retryController.abort(), 15000);
+                        const retryData = await fetchLatestRelease(retryController.signal, proxyOverride);
+                        clearTimeoutImpl(timeoutId);
+                        timeoutId = null;
+                        applyUpdateCheckResult(retryData);
+                        return;
+                    }
+                    showToast('未找到可用代理，继续使用原检查结果。', 'warning', 5000);
+                } catch (retryError) {
+                    if (timeoutId !== null) {
+                        clearTimeoutImpl(timeoutId);
+                        timeoutId = null;
+                    }
+                    console.warn('Update proxy retry failed:', retryError);
+                }
+            }
             console.warn('Update check failed:', e);
             const msg = e?.isUpdateHttpError
                 ? formatGithubUpdateErrorMessage(e.status, e.body, e.response)

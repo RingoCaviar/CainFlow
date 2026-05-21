@@ -3,6 +3,7 @@ import os
 import posixpath
 import re
 import shutil
+import socket
 import ssl
 import subprocess
 import threading
@@ -14,13 +15,26 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from backend import config, state
+from backend.services.security_service import detect_available_proxy
 from backend.services.version_service import get_app_user_agent
 
 
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
 GITHUB_RELEASE_API_TIMEOUT = 45.0
 GITHUB_DOWNLOAD_TIMEOUT = 600.0
-ACTIVE_UPDATE_STATUSES = {'starting', 'resolving', 'downloading', 'extracting', 'replacing', 'canceling'}
+GITHUB_DOWNLOAD_READ_TIMEOUT = 1.0
+UPDATE_LOW_SPEED_BYTES_PER_SECOND = 500 * 1024
+UPDATE_LOW_SPEED_SECONDS = 1.0
+ACTIVE_UPDATE_STATUSES = {
+    'starting',
+    'resolving',
+    'downloading',
+    'proxy_testing',
+    'proxy_switching',
+    'extracting',
+    'replacing',
+    'canceling',
+}
 
 _UPDATE_LOCK = threading.Lock()
 _UPDATE_JOB = None
@@ -28,6 +42,12 @@ _UPDATE_JOB = None
 
 class UpdateCancelled(RuntimeError):
     pass
+
+
+class UpdateProxySwitch(RuntimeError):
+    def __init__(self, proxy):
+        super().__init__('切换到代理下载更新')
+        self.proxy = proxy
 
 
 def _delete_file_quietly(path):
@@ -60,13 +80,44 @@ def _create_ssl_context():
     return context
 
 
-def _open_github_url(url, timeout):
+def _normalize_update_proxy(proxy):
+    if not isinstance(proxy, dict):
+        return None
+    host = str(proxy.get('ip') or proxy.get('host') or '').strip() or '127.0.0.1'
+    port = str(proxy.get('port') or '').strip()
+    if not port:
+        return None
+    return {
+        'enabled': True,
+        'ip': host,
+        'port': port,
+        'source': str(proxy.get('source') or proxy.get('name') or 'Local proxy').strip() or 'Local proxy',
+        'latency': int(proxy.get('latency') or 0),
+        'checkedTarget': str(proxy.get('checkedTarget') or '').strip(),
+    }
+
+
+def _get_update_proxy_info(proxy_override=None):
+    forced_proxy = _normalize_update_proxy(proxy_override)
+    if forced_proxy:
+        return forced_proxy
+    if state.ACTIVE_PROXY.get('enabled'):
+        return _normalize_update_proxy({
+            'ip': state.ACTIVE_PROXY.get('ip'),
+            'port': state.ACTIVE_PROXY.get('port'),
+            'source': 'CainFlow proxy setting',
+        })
+    return None
+
+
+def _open_github_url(url, timeout, proxy_override=None):
     context = _create_ssl_context()
     handlers = [urllib_request.HTTPSHandler(context=context)]
+    proxy_info = _get_update_proxy_info(proxy_override)
 
-    if state.ACTIVE_PROXY.get('enabled'):
-        proxy_host = str(state.ACTIVE_PROXY.get('ip') or '127.0.0.1')
-        proxy_port = str(state.ACTIVE_PROXY.get('port') or '7890')
+    if proxy_info:
+        proxy_host = proxy_info['ip']
+        proxy_port = proxy_info['port']
         proxy_url = f'http://{proxy_host}:{proxy_port}'
         handlers.insert(0, urllib_request.ProxyHandler({'http': proxy_url, 'https': proxy_url}))
     else:
@@ -85,9 +136,9 @@ def _open_github_url(url, timeout):
     return opener.open(request, timeout=timeout)
 
 
-def _read_github_json(url):
+def _read_github_json(url, proxy_override=None):
     try:
-        with _open_github_url(url, GITHUB_RELEASE_API_TIMEOUT) as response:
+        with _open_github_url(url, GITHUB_RELEASE_API_TIMEOUT, proxy_override=proxy_override) as response:
             raw = response.read()
     except urllib_error.HTTPError as error:
         body = error.read().decode('utf-8', errors='replace')
@@ -150,11 +201,103 @@ def _parse_positive_int(value):
         return 0
 
 
-def _download_release_zip(download_url, destination, expected_total_hint=0, progress_callback=None, cancel_event=None):
+def _describe_update_proxy(proxy):
+    proxy_info = _normalize_update_proxy(proxy)
+    if not proxy_info:
+        return ''
+    source = proxy_info.get('source') or 'Local proxy'
+    latency = proxy_info.get('latency') or 0
+    suffix = f'，延迟 {latency}ms' if latency else ''
+    return f"{source} {proxy_info['ip']}:{proxy_info['port']}{suffix}"
+
+
+def _check_update_proxy_google_health(proxy):
+    proxy_info = _normalize_update_proxy(proxy)
+    if not proxy_info:
+        return False, 0
+
+    context = _create_ssl_context()
+    proxy_url = f"http://{proxy_info['ip']}:{proxy_info['port']}"
+    opener = urllib_request.build_opener(
+        urllib_request.ProxyHandler({'http': proxy_url, 'https': proxy_url}),
+        urllib_request.HTTPSHandler(context=context),
+    )
+    request = urllib_request.Request(
+        'https://www.google.com/generate_204',
+        headers={
+            'User-Agent': 'CainFlow Update Proxy Detector',
+            'Connection': 'close',
+        },
+        method='HEAD',
+    )
+    try:
+        start = time.perf_counter()
+        with opener.open(request, timeout=5.0):
+            pass
+        return True, int((time.perf_counter() - start) * 1000)
+    except urllib_error.HTTPError as error:
+        if error.code == 407:
+            return False, 0
+        return True, int((time.perf_counter() - start) * 1000)
+    except Exception:
+        return False, 0
+
+
+def _resolve_update_download_proxy():
+    configured_proxy = _normalize_update_proxy({
+        'ip': state.ACTIVE_PROXY.get('ip'),
+        'port': state.ACTIVE_PROXY.get('port'),
+        'source': 'CainFlow proxy setting',
+    })
+    if configured_proxy:
+        success, result = _check_update_proxy_google_health(configured_proxy)
+        if success:
+            configured_proxy['latency'] = int(result or 0)
+            configured_proxy['checkedTarget'] = 'Google 204'
+            return configured_proxy
+
+    detected = detect_available_proxy()
+    detected_proxy = _normalize_update_proxy(detected.get('proxy') if isinstance(detected, dict) else None)
+    if not detected_proxy:
+        return None
+
+    success, result = _check_update_proxy_google_health(detected_proxy)
+    if not success:
+        return None
+    detected_proxy['latency'] = int(result or 0)
+    detected_proxy['checkedTarget'] = 'Google 204'
+    return detected_proxy
+
+
+def _set_response_read_timeout(response, timeout):
+    try:
+        if hasattr(response, 'fp') and getattr(response.fp, 'raw', None):
+            sock = getattr(response.fp.raw, '_sock', None)
+            if sock:
+                sock.settimeout(timeout)
+    except Exception:
+        pass
+
+
+def _download_release_zip(
+    download_url,
+    destination,
+    expected_total_hint=0,
+    progress_callback=None,
+    cancel_event=None,
+    response_callback=None,
+    low_speed_callback=None,
+    proxy_override=None,
+):
     temp_destination = destination.with_name(f'.{destination.name}.download')
     total_bytes = 0
+    last_speed_check_at = time.monotonic()
+    last_speed_check_bytes = 0
     try:
-        with _open_github_url(download_url, GITHUB_DOWNLOAD_TIMEOUT) as response:
+        with _open_github_url(download_url, GITHUB_DOWNLOAD_TIMEOUT, proxy_override=proxy_override) as response:
+            _set_response_read_timeout(response, GITHUB_DOWNLOAD_READ_TIMEOUT)
+            if response_callback:
+                response_callback(response)
             content_length = _parse_positive_int(response.headers.get('Content-Length'))
             expected_total = expected_total_hint or content_length
             started_at = time.monotonic()
@@ -164,13 +307,47 @@ def _download_release_zip(download_url, destination, expected_total_hint=0, prog
                 while True:
                     if cancel_event and cancel_event.is_set():
                         raise UpdateCancelled('用户已取消下载')
-                    chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+                    try:
+                        chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+                    except socket.timeout:
+                        if (
+                            low_speed_callback
+                            and not _get_update_proxy_info(proxy_override)
+                        ):
+                            proxy = low_speed_callback(0, total_bytes, expected_total)
+                            if proxy:
+                                raise UpdateProxySwitch(proxy)
+                            low_speed_callback = None
+                            _set_response_read_timeout(response, GITHUB_DOWNLOAD_TIMEOUT)
+                        last_speed_check_at = time.monotonic()
+                        last_speed_check_bytes = total_bytes
+                        continue
                     if not chunk:
                         break
                     output.write(chunk)
                     total_bytes += len(chunk)
                     if progress_callback:
                         progress_callback(total_bytes, expected_total, started_at)
+                    now = time.monotonic()
+                    interval = now - last_speed_check_at
+                    if (
+                        low_speed_callback
+                        and interval >= UPDATE_LOW_SPEED_SECONDS
+                        and not _get_update_proxy_info(proxy_override)
+                    ):
+                        interval_bytes = total_bytes - last_speed_check_bytes
+                        interval_speed = interval_bytes / max(interval, 0.001)
+                        if interval_speed < UPDATE_LOW_SPEED_BYTES_PER_SECOND:
+                            proxy = low_speed_callback(interval_speed, total_bytes, expected_total)
+                            if proxy:
+                                raise UpdateProxySwitch(proxy)
+                            low_speed_callback = None
+                            _set_response_read_timeout(response, GITHUB_DOWNLOAD_TIMEOUT)
+                            last_speed_check_at = now
+                            last_speed_check_bytes = total_bytes
+                    elif interval >= UPDATE_LOW_SPEED_SECONDS:
+                        last_speed_check_at = now
+                        last_speed_check_bytes = total_bytes
                     if cancel_event and cancel_event.is_set():
                         raise UpdateCancelled('用户已取消下载')
         if progress_callback:
@@ -182,9 +359,15 @@ def _download_release_zip(download_url, destination, expected_total_hint=0, prog
         raise RuntimeError(f'下载 Release ZIP 失败，GitHub 返回 {error.code}: {body[:300]}') from error
     except UpdateCancelled:
         raise
+    except UpdateProxySwitch:
+        raise
     except Exception as error:
+        if cancel_event and cancel_event.is_set():
+            raise UpdateCancelled('用户已取消下载') from error
         raise RuntimeError(f'下载 Release ZIP 失败: {error}') from error
     finally:
+        if response_callback:
+            response_callback(None)
         _delete_file_quietly(temp_destination)
 
 
@@ -314,7 +497,13 @@ def _replace_main_program(temp_exe, target_path):
             ) from pending_error
 
 
-def download_and_prepare_latest_update(repo=None, progress_callback=None, cancel_event=None):
+def download_and_prepare_latest_update(
+    repo=None,
+    progress_callback=None,
+    cancel_event=None,
+    response_callback=None,
+    status_callback=None,
+):
     repo_name = str(repo or config.GITHUB_REPO).strip()
     if repo_name != config.GITHUB_REPO:
         raise RuntimeError('不允许从当前 CainFlow 官方仓库以外的位置下载更新')
@@ -330,14 +519,59 @@ def download_and_prepare_latest_update(repo=None, progress_callback=None, cancel
     tag_name = str(release_data.get('tag_name') or '').strip()
     zip_filename = _safe_zip_filename(asset.get('name'), tag_name)
     zip_path = app_dir / zip_filename
+    proxy_override = None
+    proxy_switched = False
+
+    def low_speed_callback(interval_speed, downloaded_bytes, total_bytes):
+        nonlocal proxy_switched
+        if proxy_switched:
+            return None
+        proxy_switched = True
+        if status_callback:
+            status_callback(
+                'proxy_testing',
+                f'下载速度持续低于 500KB/s，正在测试代理连通性...',
+                downloaded_bytes,
+                total_bytes,
+            )
+        proxy = _resolve_update_download_proxy()
+        if not proxy:
+            if status_callback:
+                status_callback(
+                    'downloading',
+                    '未找到可用代理，继续使用当前连接下载更新...',
+                    downloaded_bytes,
+                    total_bytes,
+                )
+            return None
+        if status_callback:
+            status_callback(
+                'proxy_switching',
+                f'已找到可用代理（{_describe_update_proxy(proxy)}），正在切换到代理重新下载更新...',
+                downloaded_bytes,
+                total_bytes,
+            )
+        return proxy
+
     try:
-        downloaded_bytes = _download_release_zip(
-            str(asset.get('browser_download_url')),
-            zip_path,
-            expected_total_hint=_get_release_asset_size(asset),
-            progress_callback=progress_callback,
-            cancel_event=cancel_event,
-        )
+        while True:
+            try:
+                downloaded_bytes = _download_release_zip(
+                    str(asset.get('browser_download_url')),
+                    zip_path,
+                    expected_total_hint=_get_release_asset_size(asset),
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event,
+                    response_callback=response_callback,
+                    low_speed_callback=low_speed_callback,
+                    proxy_override=proxy_override,
+                )
+                break
+            except UpdateProxySwitch as switch:
+                proxy_override = switch.proxy
+                _delete_file_quietly(zip_path)
+                if cancel_event and cancel_event.is_set():
+                    raise UpdateCancelled('用户已取消下载')
 
         if cancel_event and cancel_event.is_set():
             raise UpdateCancelled('用户已取消下载')
@@ -363,6 +597,7 @@ def download_and_prepare_latest_update(repo=None, progress_callback=None, cancel
             'extractedMember': member_name,
             'downloadedBytes': downloaded_bytes,
             'totalBytes': downloaded_bytes,
+            'proxy': _normalize_update_proxy(proxy_override),
             **replacement_result,
         }
     finally:
@@ -373,7 +608,7 @@ def _snapshot_job(job):
     if not job:
         return {'success': True, 'status': 'idle'}
 
-    hidden_keys = {'thread', 'cancelEvent'}
+    hidden_keys = {'thread', 'cancelEvent', 'downloadResponse'}
     snapshot = {key: value for key, value in job.items() if key not in hidden_keys}
     snapshot['success'] = snapshot.get('status') not in {'error'}
     return snapshot
@@ -387,6 +622,8 @@ def _set_job(job, **updates):
 
 
 def _set_download_progress(job, downloaded_bytes, total_bytes, started_at):
+    if job.get('cancelEvent') and job['cancelEvent'].is_set():
+        return
     elapsed = max(time.monotonic() - started_at, 0.001)
     speed = int(downloaded_bytes / elapsed)
     safe_total = max(int(total_bytes or 0), int(downloaded_bytes or 0))
@@ -409,10 +646,29 @@ def _run_update_job(job, repo):
         def progress_callback(downloaded_bytes, total_bytes, started_at):
             _set_download_progress(job, downloaded_bytes, total_bytes, started_at)
 
+        def response_callback(response):
+            with _UPDATE_LOCK:
+                if job is _UPDATE_JOB:
+                    job['downloadResponse'] = response
+
+        def status_callback(status, message, downloaded_bytes=None, total_bytes=None):
+            updates = {
+                'status': status,
+                'message': message,
+                'speedBytesPerSecond': 0,
+            }
+            if downloaded_bytes is not None:
+                updates['downloadedBytes'] = downloaded_bytes
+            if total_bytes is not None:
+                updates['totalBytes'] = total_bytes
+            _set_job(job, **updates)
+
         result = download_and_prepare_latest_update(
             repo,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
+            response_callback=response_callback,
+            status_callback=status_callback,
         )
         _set_job(
             job,
@@ -466,6 +722,7 @@ def start_update_download(repo=None):
             'startedAt': time.time(),
             'updatedAt': time.time(),
             'cancelEvent': threading.Event(),
+            'downloadResponse': None,
             'thread': None,
         }
         thread = threading.Thread(target=_run_update_job, args=(job, repo_name), daemon=True)
@@ -485,6 +742,7 @@ def get_update_download_status(job_id=None):
 
 
 def cancel_update_download(job_id=None):
+    download_response = None
     with _UPDATE_LOCK:
         if not _UPDATE_JOB or (job_id and _UPDATE_JOB.get('id') != job_id):
             return {'success': False, 'status': 'missing', 'error': '没有可取消的更新下载任务'}
@@ -494,4 +752,13 @@ def cancel_update_download(job_id=None):
         _UPDATE_JOB['message'] = '正在取消下载并清理临时文件...'
         _UPDATE_JOB['cancelEvent'].set()
         _UPDATE_JOB['updatedAt'] = time.time()
-        return _snapshot_job(_UPDATE_JOB)
+        download_response = _UPDATE_JOB.get('downloadResponse')
+        snapshot = _snapshot_job(_UPDATE_JOB)
+
+    if download_response:
+        try:
+            download_response.close()
+        except Exception:
+            pass
+
+    return snapshot
