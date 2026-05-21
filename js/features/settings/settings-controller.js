@@ -158,6 +158,7 @@ export function createSettingsControllerApi({
 
     function getModelFetchProtocol(provider) {
         if (is6789ApiEndpoint(provider?.endpoint)) return 'openai';
+        if (isVectorEngineEndpoint(provider?.endpoint)) return 'openai';
         return normalizeProviderType(provider?.type, provider, 'openai') || 'openai';
     }
 
@@ -207,18 +208,45 @@ export function createSettingsControllerApi({
         return `${base}/models`;
     }
 
+    function isVectorEngineEndpoint(endpoint) {
+        const host = getEndpointHost(endpoint);
+        return host === 'vectorengine.ai' || host === 'api.vectorengine.ai' || host.endsWith('.vectorengine.ai');
+    }
+
+    function shouldFetchVectorEnginePricing(provider, protocol) {
+        const fingerprint = `${provider?.endpoint || ''} ${provider?.name || ''}`.toLowerCase();
+        return isVectorEngineEndpoint(provider?.endpoint) || fingerprint.includes('vectorengine');
+    }
+
+    function getOpenAiProviderBaseUrl(provider, protocol) {
+        const endpoint = String(provider?.endpoint || '').trim().replace(/\/+$/, '');
+        if (!endpoint) return '';
+        let base = normalizeAutoCompleteBase(endpoint, protocol).replace(/\/models\/?$/i, '');
+        base = base.replace(/\/v\d+(?:beta)?$/i, '');
+        return base.replace(/\/+$/, '');
+    }
+
+    function getNewApiPricingUrl(provider, protocol) {
+        const base = getOpenAiProviderBaseUrl(provider, protocol);
+        return base ? `${base}/api/pricing` : '';
+    }
+
     function normalizeFetchedModelId(rawId) {
         return String(rawId || '').replace(/^models\//, '').trim();
     }
 
     function inferFetchedModelTaskType(modelId, sourceModel = {}) {
-        const fingerprint = `${modelId} ${sourceModel.displayName || ''} ${sourceModel.name || ''}`.toLowerCase();
+        const tags = Array.isArray(sourceModel.tags) ? sourceModel.tags.join(' ') : '';
+        const fingerprint = `${modelId} ${sourceModel.displayName || ''} ${sourceModel.name || ''} ${sourceModel.supplier || ''} ${tags}`.toLowerCase();
         if (
             fingerprint.includes('image') ||
             fingerprint.includes('banana') ||
             fingerprint.includes('dall-e') ||
             fingerprint.includes('gpt-image') ||
-            fingerprint.includes('imagen')
+            fingerprint.includes('imagen') ||
+            fingerprint.includes('绘画') ||
+            fingerprint.includes('生图') ||
+            fingerprint.includes('图像生成')
         ) {
             return 'image';
         }
@@ -252,7 +280,23 @@ export function createSettingsControllerApi({
     }
 
     function normalizeFetchedModelName(modelId, sourceModel = {}) {
-        return String(sourceModel.displayName || sourceModel.id || modelId || '').replace(/^models\//, '').trim() || modelId;
+        return String(sourceModel.displayName || sourceModel.name || sourceModel.id || modelId || '').replace(/^models\//, '').trim() || modelId;
+    }
+
+    function parseNewApiPricingModels(payload) {
+        const modelInfo = payload?.data?.model_info || payload?.model_info || null;
+        if (!modelInfo || typeof modelInfo !== 'object' || Array.isArray(modelInfo)) return [];
+        return Object.entries(modelInfo).map(([modelId, info]) => {
+            const item = info && typeof info === 'object' && !Array.isArray(info)
+                ? { ...info }
+                : {};
+            return {
+                id: modelId,
+                name: item.name || modelId,
+                ...item,
+                source: item.source || 'new-api-pricing'
+            };
+        });
     }
 
     function parseFetchedModels(payload, protocol) {
@@ -282,6 +326,58 @@ export function createSettingsControllerApi({
             })
             .filter(Boolean)
             .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
+    function mergeFetchedModels(...modelLists) {
+        const seen = new Set();
+        return modelLists
+            .flat()
+            .filter((model) => {
+                const modelId = String(model?.id || '').trim();
+                if (!modelId || seen.has(modelId)) return false;
+                seen.add(modelId);
+                return true;
+            })
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
+    async function fetchProviderModelPayload(url, protocol, provider, timeoutMessage) {
+        const response = await fetchWithTimeout('/api/provider_models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                url,
+                protocol,
+                apikey: provider?.apikey || '',
+                proxy: state.proxy || null
+            })
+        }, MODEL_FETCH_CLIENT_TIMEOUT_SECONDS, timeoutMessage);
+        const responseText = await readResponseTextWithTimeout(
+            response,
+            MODEL_FETCH_CLIENT_TIMEOUT_SECONDS,
+            `读取模型列表响应超时（${MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。供应商已经响应，但本地代理返回体没有正常结束，请重启 CainFlow 后重试`
+        );
+        if (!response.ok) {
+            throw new Error(responseText || `请求失败 (${response.status})`);
+        }
+        try {
+            return JSON.parse(responseText);
+        } catch {
+            throw new Error('供应商没有返回有效的 JSON 模型列表');
+        }
+    }
+
+    async function fetchVectorEnginePricingModels(provider, protocol) {
+        if (!shouldFetchVectorEnginePricing(provider, protocol)) return [];
+        const pricingUrl = getNewApiPricingUrl(provider, 'openai');
+        if (!pricingUrl) return [];
+        const payload = await fetchProviderModelPayload(
+            pricingUrl,
+            'new-api-pricing',
+            { ...provider, apikey: '' },
+            `获取 VectorEngine 完整模型价格表超时（${MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、代理设置或 /api/pricing 接口是否可用`
+        );
+        return parseFetchedModels(parseNewApiPricingModels(payload), 'openai');
     }
 
     function findMatchingModelConfig(modelId, protocol, taskType) {
@@ -951,6 +1047,13 @@ export function createSettingsControllerApi({
                 model.name.toLowerCase().includes(query)
             ))
             : modelFetchDialogState.models;
+        const totalCount = modelFetchDialogState.models.length;
+        const visibleCount = filteredModels.length;
+        const countText = modelFetchDialogState.loading
+            ? (totalCount ? `已获取 ${totalCount} 个模型` : (modelFetchDialogState.status || '正在获取模型列表...'))
+            : query
+                ? `匹配 ${visibleCount} 个 / 共 ${totalCount} 个模型`
+                : `共获取 ${totalCount} 个模型`;
         const modelRows = filteredModels.map((model) => {
             const modelProtocol = inferFetchedModelProtocol(provider, model);
             const exists = modelAlreadyExists(provider.id, model.id, modelProtocol);
@@ -988,6 +1091,7 @@ export function createSettingsControllerApi({
                     <input id="provider-models-search" type="search" value="${escapeHtml(modelFetchDialogState.query)}" placeholder="搜索模型 ID 或名称" autocomplete="off" />
                     <button type="button" class="btn btn-secondary btn-sm" id="provider-models-refresh" ${modelFetchDialogState.loading ? 'disabled' : ''}>重新获取</button>
                 </div>
+                <div class="provider-models-count">${escapeHtml(countText)}</div>
                 <div class="provider-models-list">
                     ${modelRows || `<div class="provider-models-empty">${escapeHtml(emptyText)}</div>`}
                 </div>
@@ -1047,36 +1151,37 @@ export function createSettingsControllerApi({
 
             modelFetchDialogState.status = '正在请求供应商模型列表...';
             renderProviderModelsDialog();
-            const response = await fetchWithTimeout('/api/provider_models', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            let primaryModels = [];
+            let primaryError = null;
+            try {
+                const payload = await fetchProviderModelPayload(
                     url,
                     protocol,
-                    apikey: provider.apikey || '',
-                    proxy: state.proxy || null
-                })
-            }, MODEL_FETCH_CLIENT_TIMEOUT_SECONDS, `获取模型列表超时（${MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、密钥、代理设置或该供应商的 /models 接口是否可用`);
+                    provider,
+                    `获取模型列表超时（${MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、密钥、代理设置或该供应商的 /models 接口是否可用`
+                );
+                if (requestId !== activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
+                modelFetchDialogState.status = '正在解析供应商返回...';
+                renderProviderModelsDialog();
+                primaryModels = parseFetchedModels(payload, protocol);
+            } catch (error) {
+                primaryError = error;
+            }
+
             if (requestId !== activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
-            modelFetchDialogState.status = '正在解析供应商返回...';
-            renderProviderModelsDialog();
-            const responseText = await readResponseTextWithTimeout(
-                response,
-                MODEL_FETCH_CLIENT_TIMEOUT_SECONDS,
-                `读取模型列表响应超时（${MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。供应商已经响应，但本地代理返回体没有正常结束，请重启 CainFlow 后重试`
-            );
-            if (!response.ok) {
-                throw new Error(responseText || `请求失败 (${response.status})`);
+            const extraStatus = primaryModels.length
+                ? '正在补充 VectorEngine 完整模型列表...'
+                : '正在尝试从 VectorEngine 完整模型表兜底...';
+            const shouldFetchPricing = shouldFetchVectorEnginePricing(provider, protocol);
+            if (shouldFetchPricing) {
+                modelFetchDialogState.status = extraStatus;
+                renderProviderModelsDialog();
             }
-
-            let payload = null;
-            try {
-                payload = JSON.parse(responseText);
-            } catch {
-                throw new Error('供应商没有返回有效的 JSON 模型列表');
-            }
-
-            const models = parseFetchedModels(payload, protocol);
+            const pricingModels = shouldFetchPricing
+                ? await fetchVectorEnginePricingModels(provider, protocol)
+                : [];
+            const models = mergeFetchedModels(primaryModels, pricingModels);
+            if (!models.length && primaryError) throw primaryError;
             if (requestId !== activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
             modelFetchDialogState.models = models;
             modelFetchDialogState.error = models.length ? '' : '供应商返回的模型列表为空';
