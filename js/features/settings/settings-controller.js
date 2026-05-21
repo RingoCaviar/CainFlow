@@ -64,7 +64,7 @@ export function createSettingsControllerApi({
     const networkProxyNoticeId = 'network-proxy-mismatch';
     const networkProxyDetectionCooldownMs = 10 * 60 * 1000;
     const networkProxyDetectionStorageKey = 'cainflow_network_proxy_detection';
-    const networkProxyDetectionCacheVersion = 3;
+    const networkProxyDetectionCacheVersion = 4;
     const NETWORK_PROBE_TARGETS = [
         { name: 'Google 204', url: 'https://www.google.com/generate_204' }
     ];
@@ -783,9 +783,10 @@ export function createSettingsControllerApi({
     async function probeNetworkTarget(target) {
         const startedAt = Date.now();
         try {
+            const probeUrl = `${target.url}${target.url.includes('?') ? '&' : '?'}_cf_network_probe=${Date.now()}`;
             const response = await fetchWithTimeout('/proxy', {
                 method: 'POST',
-                headers: getProxyHeaders(target.url, 'HEAD', {
+                headers: getProxyHeaders(probeUrl, 'GET', {
                     Accept: '*/*',
                     'Content-Type': null,
                     'Cache-Control': 'no-cache',

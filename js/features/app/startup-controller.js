@@ -103,7 +103,7 @@ export function createStartupControllerApi({
                 if (message) message.textContent = '正在检测网络环境是否正常...';
             }
             dismissReloadNetworkDetectionToast(1200);
-            void checkNetworkProxyMismatch();
+            void checkNetworkProxyMismatch(true);
         };
 
         tick();
