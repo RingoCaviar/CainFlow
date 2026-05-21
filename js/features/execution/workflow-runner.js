@@ -1,4 +1,6 @@
 import { getResolvedProviderForModel } from './provider-request-utils.js';
+import { normalizeImageList, normalizeTextList } from './execution-data-utils.js';
+import { escapeHtml } from '../../core/common-utils.js';
 
 /**
  * 负责整条工作流的运行编排，包括前置校验、逐节点执行、重试与状态收尾。
@@ -210,34 +212,6 @@ export function createWorkflowRunnerApi({
         return outputs.some((output) => output.name === connection.from.port && output.type === 'text');
     }
 
-    function normalizeImageList(value) {
-        if (typeof value === 'string') {
-            return value.trim() ? [value] : [];
-        }
-        if (Array.isArray(value)) {
-            return value.flatMap((item) => normalizeImageList(item));
-        }
-        if (value && typeof value === 'object') {
-            return normalizeImageList(
-                value.images ??
-                value.image ??
-                value.dataUrl ??
-                value.url ??
-                []
-            );
-        }
-        return [];
-    }
-
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
     function getNodeImageOutputList(node) {
         const images = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
         return images.length > 0 ? images : null;
@@ -325,13 +299,6 @@ export function createWorkflowRunnerApi({
 
     function isBatchInputValue(value) {
         return Array.isArray(value) && value.length > 0;
-    }
-
-    function normalizeTextList(value) {
-        if (Array.isArray(value)) {
-            return value.filter((item) => typeof item === 'string');
-        }
-        return typeof value === 'string' ? [value] : [];
     }
 
     function isFixedTextChatWithCachedResult(node) {

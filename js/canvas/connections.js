@@ -529,6 +529,7 @@ export function createConnectionsApi({
     }
 
     function clearConnectionInsertPreview() {
+        if (!state.connectionInsertPreview && insertionPreviewPaths.length === 0) return;
         pathById.forEach((path) => path.classList.remove('connection-insert-target'));
         state.nodes.forEach((node) => node.el?.classList.remove('connection-insert-candidate'));
         insertionPreviewPaths.forEach((path) => path?.remove());

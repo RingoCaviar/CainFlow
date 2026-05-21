@@ -13,6 +13,15 @@ export function debounce(fn, ms, setTimeoutRef = setTimeout, clearTimeoutRef = c
     };
 }
 
+export function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 export function splitTextForTextSplitNode(text, delimiter, options = {}) {
     const source = String(text || '');
     const separator = String(delimiter || '');

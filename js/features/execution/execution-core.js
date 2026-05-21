@@ -13,7 +13,14 @@ import {
     resolveProviderUrl,
     validateOpenAiImageSize
 } from './provider-request-utils.js';
-import { splitTextForTextSplitNode } from '../../core/common-utils.js';
+import {
+    getPrimaryImageInput,
+    getLastImageInput,
+    getPrimaryTextInput,
+    getTextInputList,
+    normalizeImageList
+} from './execution-data-utils.js';
+import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { generateCameraPrompt } from '../camera/camera-control-node.js';
 
 export function createExecutionCoreApi({
@@ -234,15 +241,6 @@ export function createExecutionCoreApi({
             providerId: apiCfg?.id || '',
             apiKeyShape: getApiKeyShape(apiCfg?.apikey)
         };
-    }
-
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
     }
 
     function applyUserFacingError(err, userFacing) {
@@ -703,63 +701,8 @@ export function createExecutionCoreApi({
         return typeof value === 'string' && /^https?:\/\//i.test(value);
     }
 
-    function normalizeImageList(value) {
-        if (typeof value === 'string') {
-            return value.trim() ? [value] : [];
-        }
-        if (Array.isArray(value)) {
-            return value.flatMap((item) => normalizeImageList(item));
-        }
-        if (value && typeof value === 'object') {
-            return normalizeImageList(
-                value.images ??
-                value.image ??
-                value.dataUrl ??
-                value.url ??
-                []
-            );
-        }
-        return [];
-    }
-
     function hasRemoteImageValue(value) {
         return normalizeImageList(value).some((image) => isRemoteImageUrl(image));
-    }
-
-    function normalizeTextList(value) {
-        if (typeof value === 'string') {
-            return value ? [value] : [];
-        }
-        if (Array.isArray(value)) {
-            return value.flatMap((item) => normalizeTextList(item));
-        }
-        if (value && typeof value === 'object') {
-            return normalizeTextList(
-                value.texts ??
-                value.text ??
-                value.content ??
-                value.message ??
-                []
-            );
-        }
-        return [];
-    }
-
-    function getPrimaryImageInput(value) {
-        return normalizeImageList(value)[0] || '';
-    }
-
-    function getLastImageInput(value) {
-        const images = normalizeImageList(value);
-        return images.length > 0 ? images[images.length - 1] : '';
-    }
-
-    function getPrimaryTextInput(value) {
-        return normalizeTextList(value)[0] || '';
-    }
-
-    function getTextInputList(value) {
-        return normalizeTextList(value);
     }
 
     function getStoredGeneratedImages(node, completedCount = 0) {

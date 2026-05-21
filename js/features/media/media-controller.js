@@ -20,6 +20,8 @@ export function createMediaControllerApi({
     syncClonesFromSource = () => {},
     openImagePainter,
     getHistory = async () => [],
+    getHistoryMetadata = null,
+    getHistoryEntry = null,
     fitNodeToContent = () => {},
     documentRef = document,
     windowRef = window
@@ -27,6 +29,7 @@ export function createMediaControllerApi({
     const pendingFitNodeIds = new Set();
     let fitRequestFrame = null;
     const resolutionCache = new Map();
+    const RESOLUTION_CACHE_LIMIT = 160;
 
     function requestNodeFit(nodeId) {
         if (!nodeId) return;
@@ -176,6 +179,10 @@ export function createMediaControllerApi({
         const pending = Promise.resolve(getImageResolution(cacheKey))
             .then((result) => {
                 const normalized = typeof result === 'string' ? result : '';
+                if (resolutionCache.size >= RESOLUTION_CACHE_LIMIT && !resolutionCache.has(cacheKey)) {
+                    const oldestKey = resolutionCache.keys().next().value;
+                    if (oldestKey !== undefined) resolutionCache.delete(oldestKey);
+                }
                 resolutionCache.set(cacheKey, normalized);
                 return normalized;
             })
@@ -183,6 +190,10 @@ export function createMediaControllerApi({
                 resolutionCache.delete(cacheKey);
                 return '';
             });
+        if (resolutionCache.size >= RESOLUTION_CACHE_LIMIT && !resolutionCache.has(cacheKey)) {
+            const oldestKey = resolutionCache.keys().next().value;
+            if (oldestKey !== undefined) resolutionCache.delete(oldestKey);
+        }
         resolutionCache.set(cacheKey, pending);
         return pending;
     }
@@ -1691,16 +1702,19 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         const items = [];
         const seen = new Set();
-        const addItem = ({ image, thumb = null, label, source = '' }) => {
-            if (typeof image !== 'string' || !image.trim()) return;
-            const key = image.trim();
+        const addItem = ({ image, thumb = null, label, source = '', historyId = null }) => {
+            const key = typeof image === 'string' && image.trim()
+                ? image.trim()
+                : (historyId !== null && historyId !== undefined ? `history:${historyId}` : '');
+            if (!key) return;
             if (seen.has(key)) return;
             seen.add(key);
             items.push({
-                image: key,
-                thumb: thumb || key,
+                image: typeof image === 'string' ? image.trim() : '',
+                thumb: thumb || image || '',
                 label: label || '图片',
-                source
+                source,
+                historyId
             });
         };
 
@@ -1717,13 +1731,16 @@ export function createMediaControllerApi({
         });
 
         try {
-            const historyItems = await getHistory();
+            const historyItems = typeof getHistoryMetadata === 'function'
+                ? await getHistoryMetadata()
+                : await getHistory();
             historyItems.forEach((item, index) => {
                 addItem({
-                    image: item.image,
-                    thumb: item.thumb || item.image,
+                    image: item.image || '',
+                    thumb: item.thumb || item.image || '',
                     label: '历史记录',
-                    source: item.timestamp ? new Date(item.timestamp).toLocaleString() : `第 ${index + 1} 张`
+                    source: item.timestamp ? new Date(item.timestamp).toLocaleString() : `第 ${index + 1} 张`,
+                    historyId: item.id ?? null
                 });
             });
         } catch (error) {
@@ -1872,18 +1889,34 @@ export function createMediaControllerApi({
             });
         };
 
-        const setSelectedImage = (role) => {
+        const resolveSelectedImage = async () => {
             const selected = items[selectedIndex];
-            if (!selected) return;
-            if (role === 'A') compareA = selected.image;
-            if (role === 'B') compareB = selected.image;
+            if (!selected) return '';
+            if (selected.image) return selected.image;
+            if (selected.historyId === null || selected.historyId === undefined || typeof getHistoryEntry !== 'function') {
+                return '';
+            }
+            const entry = await getHistoryEntry(selected.historyId);
+            const image = entry?.image || '';
+            if (image) selected.image = image;
+            return image;
+        };
+
+        const setSelectedImage = async (role) => {
+            const image = await resolveSelectedImage();
+            if (!image) {
+                showToast('读取原图失败', 'error', 3000);
+                return;
+            }
+            if (role === 'A') compareA = image;
+            if (role === 'B') compareB = image;
             renderStage();
         };
 
         setButtons.forEach((button) => {
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                setSelectedImage(button.dataset.role);
+                void setSelectedImage(button.dataset.role);
             });
         });
         expandButton?.addEventListener('click', (event) => {
@@ -1956,8 +1989,8 @@ export function createMediaControllerApi({
         renderStage();
         collectAdvancedCompareImages(nodeId).then((nextItems) => {
             items = nextItems;
-            if (!compareB && items[0]) compareB = items[0].image;
-            if (!compareA && items[1]) compareA = items[1].image;
+            if (!compareB && items[0]?.image) compareB = items[0].image;
+            if (!compareA && items[1]?.image) compareA = items[1].image;
             selectedIndex = items.length ? 0 : -1;
             renderStage();
             renderThumbs();

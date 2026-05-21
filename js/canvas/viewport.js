@@ -7,11 +7,13 @@ export function createViewportApi({
     updateAllConnections,
     requestAnimationFrameRef = requestAnimationFrame
 }) {
-    function updateCanvasTransform() {
+    function applyCanvasVisualTransform() {
         const { x, y, zoom } = state.canvas;
         elements.nodesLayer.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
         elements.nodesLayer.style.transformOrigin = '0 0';
         elements.nodesLayer.style.setProperty('--canvas-zoom', zoom);
+        elements.connectionsGroup?.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
+        elements.originAxes?.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
 
         const gridSize = 20 * zoom;
         elements.canvasContainer.style.backgroundSize = `${gridSize}px ${gridSize}px`;
@@ -19,7 +21,13 @@ export function createViewportApi({
         if (elements.zoomLevel) {
             elements.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
         }
-        updateAllConnections();
+    }
+
+    function updateCanvasTransform(options = {}) {
+        applyCanvasVisualTransform();
+        if (options.updateConnections !== false) {
+            updateAllConnections();
+        }
     }
 
     function screenToCanvas(sx, sy) {
@@ -50,6 +58,7 @@ export function createViewportApi({
     }
 
     return {
+        applyCanvasVisualTransform,
         updateCanvasTransform,
         screenToCanvas,
         refreshNodeTextRendering

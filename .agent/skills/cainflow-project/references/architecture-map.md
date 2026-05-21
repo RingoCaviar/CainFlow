@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.8.2.x
+> 当前版本：v2.8.6.x
 
 ## 近期约定
 
@@ -26,7 +26,7 @@
 
 ### 多值数据与备用输入口约定
 
-- 图片数组的规范载体是 `data.images`、`imageDataList`、`generatedImages`，文本数组的规范载体是 `data.texts`，动态文本端口也可以在 `data.part_N` 等端口字段上保存数组。`js/features/execution/execution-core.js` 负责节点 handler、数组输出写入与 `getCachedOutputValue` 的多值读取，`js/features/execution/workflow-runner.js` 负责把数组输入识别为批处理信号。
+- 图片数组的规范载体是 `data.images`、`imageDataList`、`generatedImages`，文本数组的规范载体是 `data.texts`，动态文本端口也可以在 `data.part_N` 等端口字段上保存数组。图片/文本输入归一化统一走 `js/features/execution/execution-data-utils.js`，`js/features/execution/execution-core.js` 负责节点 handler、数组输出写入与 `getCachedOutputValue` 的多值读取，`js/features/execution/workflow-runner.js` 负责把数组输入识别为批处理信号。
 - 普通节点接到数组输入时，下游应按所有数组输入的笛卡尔组合批量执行，而不是按索引拉链式配对；例如 2 张图片 × 3 段文本必须运行 6 次。批量执行后的图片结果聚合回 `data.images`，文本结果按真实输出端口分别聚合，主文本口同步到 `data.texts`。`TextChat` 接收多图数组或多文本数组时也属于普通批处理节点，应按组合逐次运行，而不是只运行一次或漏掉组合。
 - `TextChat` 勾选“固定结果”且已有缓存结果时，不再属于普通批处理节点：执行计划遇到它应停止向上追溯输入依赖，批量调度不得因上游数组展开它，缓存输出只返回 `node.data.text` 单条结果，不继续透出旧 `data.texts`。固定缓存命中时不检查模型/供应商/API Key，不发起请求。
 - `ImageMerge`、`TextMerge`、`ImagePreview`、`ImageSave`、`Text` 是收集/展示/保存/数组预览类节点，接到数组时一次性接收整组数据，不按数组拆批。`ImagePreview` / `ImageSave` 通过左右箭头和计数器切换多图；`Text` 节点接收 `data.texts` 后通过左右箭头切换多文本，并用 `textPreviewIndex` 记录当前项。
@@ -64,7 +64,7 @@
 - 代理设置的“自动检测代理端口”属于设置面板数据逻辑：按钮、自动填充和自动保存放 `js/features/settings/settings-controller.js`，检测接口在 `backend/routes/settings_routes.py`，常见本地代理端口探测和连通性校验放 `backend/services/security_service.py`。检测成功后再自动勾选代理并填入端口；不要把批量端口探测散到前端。
 - 代理配置是前端本地状态与后端全局代理状态的双端同步能力。设置页保存代理时立即同步到 `/api/proxy`；应用启动时 `js/features/app/startup-controller.js` 在 `loadState()` 结束后无论是否恢复出节点，都要调用 `syncProxyToServer()`，避免空画布启动后更新下载继续使用后端默认代理。
 - `/proxy` 的错误归类属于 `backend/services/proxy_service.py` 的职责边界：真正的浏览器断连（如 `BrokenPipeError`、`ConnectionResetError`）才记为 `client_disconnect`；`http.client.RemoteDisconnected` 代表上游在返回响应前关闭连接，应继续走上游断连分支并把错误回给前端，避免执行节点只得到 `Failed to fetch` 这种不可排查的表象。
-- 应用版本号的单一来源是 `js/core/constants.js` 的 `APP_VERSION_NUMBER`。前端展示、`APP_VERSION`、`APP_ASSET_VERSION` 和静态资源缓存参数由它派生；后端启动提示和 User-Agent 通过 `backend/services/version_service.py` 运行时读取同一值。不要再恢复 `package.json` 或 `css/base/variables.css` 这类第二份版本号。
+- 应用版本号的单一来源是 `js/core/constants.js` 的 `APP_VERSION_NUMBER`。前端展示、`APP_VERSION`、`APP_ASSET_VERSION` 和静态资源缓存参数由它派生；后端启动提示和 User-Agent 通过 `backend/services/version_service.py` 运行时读取同一值。不要再恢复 `package.json`、`css/base/variables.css` 或 ES module import 上的手写 `?v=...` 这类第二份版本号。
 
 ### 设置页视觉规范
 
@@ -147,6 +147,7 @@
 | --- | --- | --- |
 | **执行引擎** | | |
 | 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数与并发生成请求；TextChat 固定结果缓存命中时直接返回缓存，`getCachedOutputValue` 必须把禁用节点视为没有输出，并在固定 TextChat 下只返回单条缓存文本；Text 节点运行时同步单文本/多文本输入输出，不自动改变节点尺寸；处理 ImageMerge/TextMerge 数组输出并读取图片/文本数组缓存 |
+| 执行数据工具 | `js/features/execution/execution-data-utils.js` | 执行链路共享的图片/文本输入归一化、首项/末项读取 helper；`execution-core.js` 与 `workflow-runner.js` 共用这里的单值/数组约定 |
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
 | 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出，固定且有缓存的 TextChat 不向上追溯依赖、不按数组拆批；普通节点接到数组输入时按笛卡尔组合批量运行并聚合输出，动态文本输出按真实端口聚合，ImageMerge/TextMerge/ImagePreview/ImageSave/Text 不拆批；并发请求模式下并发执行 ImageGenerate/TextChat 的 batch 并在全部成功后统一提交 |
 | **帮助** | | |
@@ -392,11 +393,13 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 节点内自定义下拉的滚轮必须优先滚动下拉面板本身，而不是触发画布缩放；面板应拦截 `wheel` 并设置 `overscroll-behavior: contain`，避免滚动链传给外层画布。
 - 画布滚轮缩放“停下来后再变清晰”的体验由多处共同决定：滚轮结束延迟主要在 `js/canvas/canvas-interactions.js`，节点文字强制重绘在 `js/canvas/viewport.js` 的 `refreshNodeTextRendering()`，工具栏按钮缩放的收尾在 `js/features/ui/toolbar-controller.js`。要统一缩放手感时，这三处要一起看。
 - 优化缩放性能时，优先先调结束延迟、缩放曲线或文字重绘范围；不要轻易把 `viewport.js` 的视口更新和 `connections.js` 的 `updateAllConnections()` 拆开。现有连线渲染、初始化和工作流恢复流程依赖这条同步链路，拆错很容易造成已有连线不显示。
+- 当前视口更新已经分成轻量视觉 transform 和完整连线路径重算两层：平移/滚轮缩放期间使用 `viewportApi.updateCanvasTransform({ updateConnections: false })` 只同步节点层、连线层和网格；交互结束、节点移动、节点尺寸变化、连线结构变化、导入恢复时再完整 `updateAllConnections()`。后续优化画布性能时必须保持这条分层，不要把完整 path 重算重新放回滚轮或平移的每一帧。
 - 自动整理节点只属于 `js/canvas/node-auto-layout.js`：算法可在内部做连通组件拆分、拓扑分层、重心排序、按依赖中心线松弛和无连线节点网格排列，但不应修改节点结构、端口结构或连线契约。排序时要考虑连接端口的上下顺序：例如 `A -> B.input_1`、`C -> B.input_2` 时，若 `input_1` 在 `input_2` 上方，A 应排在 C 上方；同一上游节点多个输出口连接到不同下游节点时，也尽量按输出口顺序传递给下游排序。端口顺序优先从节点 DOM 的 `.node-port[data-direction]` 读取，动态端口也要自然生效。
 - `ImageGenerate` 当前节点内结果区是纯进度读数，只显示 `xx/xx`，不再显示节点内图片预览；运行态进度数字由 `js/features/execution/execution-core.js` 更新，生成图片数据仍保留给下游节点、历史记录和持久化链路使用。若后续再把节点内图片预览加回来，需要同步复查 `node-view-factory.js`、`node-dom-bindings.js`、`execution-core.js` 与媒体 helper 是否仍匹配。
 - ImageCompare 高级模式继续沿用图片类节点分层：入口按钮和节点内结构放 `js/nodes/node-view-factory.js`；全屏高级对比界面、A/B 选择状态、从当前输入/画布图片节点/历史记录汇总图片、鼠标位置切割、滚轮缩放、左键平移和缩略图选择区展开放 `js/features/media/media-controller.js`；历史图片读取通过 `index.js` 注入 `getHistory`，来源在 `js/services/storage-idb.js`；样式集中在 `css/components/nodes.css`。高级模式选图显示可用缩略图，但设置 A/B 必须使用原图数据。
 - 节点或卡片里新增按钮时，除了交互功能本身，还要检查对齐、留白和与邻近文字/端口/控件的距离；优先让按钮留在所属容器的正常布局流里，避免被全局 `.preview-controls`、绝对定位或通用按钮样式挤到不合理的位置。
 - 历史记录面板显示可以使用 `item.thumb` 缩略图，但列表/全屏渲染必须优先走 `js/services/storage-idb.js` 的 `getHistoryMetadata` / `getHistoryCount`，不要用 `getHistory()` 一次性读取所有原图。需要原图时再通过 `getHistoryEntry(id)` 按需读取，典型场景包括预览、下载、拖拽导入和高级图片对比。
+- 高级图片对比的图片选择器也属于“缩略图优先”链路：可以用 `getHistoryMetadata()` 列出历史缩略图，但设置 A/B 时才按需调用 `getHistoryEntry(id)` 读取原图，避免打开对比界面时把全部历史原图放进网页内存。
 - 历史原图存储分层在 `js/services/storage-idb.js`：新记录把原图放进 `STORE_ASSETS`，键名前缀为 `history:`，历史表只保留元数据、缩略图和 `imageAssetKey`；旧记录如果还内联 `image`，只做后台逐条迁移。清理节点资产时必须保留 `history:` 前缀资产，清空历史记录时才同时删除这些历史原图资产。
 - 历史拖拽源在 `js/features/history/history-panel.js` 和 `js/features/history/history-fullscreen.js`，画布 drop 与现有 ImageImport 节点更新在 `js/features/ui/global-interactions.js`，直接写入 data URL 的能力放 `js/features/media/media-controller.js`。当卡片只有元数据/缩略图时，可通过 `state.draggedHistoryImage.imagePromise` 延迟取原图；绝不能从卡片 `<img src>` 导入。
 - 超大量历史记录 UI 必须窗口化：侧栏保持有限条目，缺失缩略图在空闲时间补齐；全屏历史由 `history-fullscreen.js` 做虚拟滚动，只渲染视口附近卡片；预览由 `history-preview.js` 先显示缩略图/加载态，再异步解码原图和读取分辨率，避免 200+ 图片后闪屏、卡顿或黑屏。
@@ -405,7 +408,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - Workflow JSON 是画布文件，不是 API 配置快照：保存、导出和 `workflows/Default.json` 只包含 `canvas`、`nodes`、`connections`、`version`，节点通过 `apiConfigId` 保存所选模型 ID。默认供应商/默认模型只维护在 `js/core/constants.js`。导入旧 workflow 时可读取旧 `models/providers` 作为匹配线索，但不得把它们合并进当前 API 设置；缺失模型或供应商引用由 `js/features/persistence/workflow-model-resolver.js` 提示。
 - 后端按 route 与 service 分责，不要混写。
-- 版本号升级必须以 `js/core/constants.js` 的 `APP_VERSION_NUMBER` 为唯一来源：页面展示、静态资源缓存参数、后端启动提示、代理 User-Agent 与版本同步脚本都应从这条链路派生；不要再引入 `package.json`、`css/base/variables.css` 这类第二份版本号。若当前任务显式要求更新 skill 文档，也要同步改 `.agent/skills/cainflow-project/SKILL.md` 与本架构图中的版本标记和经验说明。
+- 版本号升级必须以 `js/core/constants.js` 的 `APP_VERSION_NUMBER` 为唯一来源：页面展示、静态资源缓存参数、后端启动提示、代理 User-Agent 与版本同步脚本都应从这条链路派生；不要再引入 `package.json`、`css/base/variables.css` 或 ES module import 手写 `?v=...` 这类第二份版本号。若当前任务显式要求更新 skill 文档，也要同步改 `.agent/skills/cainflow-project/SKILL.md` 与本架构图中的版本标记和经验说明。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
 - 主题相关改动优先落在 `css/themes/*` 与 `js/features/ui/theme-controller.js`。如果主题变更影响面板、节点、弹窗、菜单或预览区的视觉，必须同步补对应主题文件里的覆盖，而不是只改基础样式后假设所有区域都会自动正确继承。
 - 保留当前启动流程中已经对外暴露的兼容钩子。

@@ -371,7 +371,7 @@ export function createCanvasInteractionsApi({
             if (state.canvas.isPanning) {
                 state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
                 state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
-                viewportApi.updateCanvasTransform();
+                viewportApi.updateCanvasTransform({ updateConnections: false });
             }
             if (state.marquee) {
                 state.marquee.endX = e.clientX;
@@ -702,7 +702,7 @@ export function createCanvasInteractionsApi({
 
             if (!state._zoomRaf) {
                 state._zoomRaf = requestAnimationFrameRef(() => {
-                    viewportApi.updateCanvasTransform();
+                    viewportApi.updateCanvasTransform({ updateConnections: false });
                     state._zoomRaf = null;
                 });
             }
