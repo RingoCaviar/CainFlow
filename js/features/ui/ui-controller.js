@@ -727,8 +727,21 @@ export function createUiControllerApi({
 
         documentRef.getElementById('toggle-notifications')?.addEventListener('change', async (e) => {
             const enabled = e.target.checked;
-            if (enabled && notificationRef && notificationRef.permission !== 'granted') {
-                const permission = await notificationRef.requestPermission();
+            if (enabled && !notificationRef) {
+                e.target.checked = false;
+                state.notificationsEnabled = false;
+                showToast('当前浏览器环境不支持系统通知，无法开启运行通知', 'warning', 5000);
+                saveState();
+                return;
+            }
+            if (enabled && notificationRef.permission !== 'granted') {
+                let permission = notificationRef.permission;
+                try {
+                    permission = await notificationRef.requestPermission();
+                } catch (err) {
+                    console.warn('Notification permission request failed:', err);
+                    permission = 'denied';
+                }
                 if (permission !== 'granted') {
                     e.target.checked = false;
                     state.notificationsEnabled = false;

@@ -76,6 +76,50 @@ export function createWorkflowRunnerApi({
         return node.customTitle || nodeConfigs[node.type]?.title || node.type;
     }
 
+    function sendSystemNotification(title, options = {}) {
+        if (!state.notificationsEnabled) return false;
+        if (!notificationRef) {
+            addLog('warning', '系统通知不可用', '当前浏览器环境不支持系统通知，已改用页面内提示和声音提醒。');
+            return false;
+        }
+        if (notificationRef.permission !== 'granted') {
+            addLog('warning', '系统通知未发送', '通知权限尚未授予，请重新开启运行通知或在浏览器设置中允许此网站发送通知。');
+            return false;
+        }
+
+        try {
+            new notificationRef(title, {
+                ...options,
+                tag: options.tag || 'cainflow-workflow-run',
+                requireInteraction: options.requireInteraction ?? false
+            });
+            return true;
+        } catch (err) {
+            console.warn('System notification failed:', err);
+            addLog('warning', '系统通知发送失败', err?.message || String(err));
+            return false;
+        }
+    }
+
+    function dispatchWorkflowCompletionNotice({ toastMessage, toastType, notificationTitle, notificationBody, playSound = false }) {
+        showToast(toastMessage, toastType, 6000);
+
+        if (!state.notificationsEnabled) return;
+
+        sendSystemNotification(notificationTitle, {
+            body: notificationBody
+        });
+
+        if (playSound && typeof playNotificationSound === 'function') {
+            try {
+                playNotificationSound();
+            } catch (err) {
+                console.warn('Notification sound failed:', err);
+                addLog('warning', '通知音效播放失败', err?.message || String(err));
+            }
+        }
+    }
+
     function syncRunToolbarState() {
         const runBtn = documentRef.getElementById('btn-run');
         const stopBtn = documentRef.getElementById('btn-stop');
@@ -1312,35 +1356,46 @@ export function createWorkflowRunnerApi({
             const abortReason = session.abortReason || state.abortReason;
             finalizeWorkflow();
 
-            if (state.notificationsEnabled) {
-                const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
+            const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
 
-                if (terminatedByError) {
-                    showToast(`工作流运行停止，耗时 ${totalDuration}s`, 'error', 6000);
-                    if (notificationRef && notificationRef.permission === 'granted') {
-                        new notificationRef('CainFlow 运行出错', {
-                            body: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`,
-                            icon: 'data:image/svg+xml;base64,...'
-                        });
-                    }
-                    playNotificationSound();
-                } else if (completedRun) {
-                    showToast(`工作流运行完成，总耗时 ${totalDuration}s`, 'success', 6000);
-                    if (notificationRef && notificationRef.permission === 'granted') {
-                        new notificationRef('CainFlow 运行完毕', {
-                            body: `所有节点执行成功，总耗时 ${totalDuration}s`,
-                            icon: 'data:image/svg+xml;base64,...'
-                        });
-                    }
-                    playNotificationSound();
-                } else if (hasNodeBranchCancellation && isRunActive()) {
-                    showToast(`已跳过被取消节点的下游，其余节点已结束，耗时 ${totalDuration}s`, 'info', 6000);
-                    playNotificationSound();
-                } else if (abortReason === 'timeout') {
-                    showToast('请求超时，生成失败', 'error');
-                } else {
-                    showToast('已手动停止运行', 'info');
-                }
+            if (terminatedByError) {
+                dispatchWorkflowCompletionNotice({
+                    toastMessage: `工作流运行停止，耗时 ${totalDuration}s`,
+                    toastType: 'error',
+                    notificationTitle: 'CainFlow 运行出错',
+                    notificationBody: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`,
+                    playSound: true
+                });
+            } else if (completedRun) {
+                dispatchWorkflowCompletionNotice({
+                    toastMessage: `工作流运行完成，总耗时 ${totalDuration}s`,
+                    toastType: 'success',
+                    notificationTitle: 'CainFlow 运行完毕',
+                    notificationBody: `所有节点执行成功，总耗时 ${totalDuration}s`,
+                    playSound: true
+                });
+            } else if (hasNodeBranchCancellation && isRunActive()) {
+                dispatchWorkflowCompletionNotice({
+                    toastMessage: `已跳过被取消节点的下游，其余节点已结束，耗时 ${totalDuration}s`,
+                    toastType: 'info',
+                    notificationTitle: 'CainFlow 分支已取消',
+                    notificationBody: `已跳过被取消节点的下游，其余节点已结束。耗时 ${totalDuration}s`,
+                    playSound: true
+                });
+            } else if (abortReason === 'timeout') {
+                dispatchWorkflowCompletionNotice({
+                    toastMessage: '请求超时，生成失败',
+                    toastType: 'error',
+                    notificationTitle: 'CainFlow 请求超时',
+                    notificationBody: `工作流因请求超时停止，耗时 ${totalDuration}s`
+                });
+            } else {
+                dispatchWorkflowCompletionNotice({
+                    toastMessage: '已手动停止运行',
+                    toastType: 'info',
+                    notificationTitle: 'CainFlow 已停止',
+                    notificationBody: `工作流已手动停止，耗时 ${totalDuration}s`
+                });
             }
         }
     }
