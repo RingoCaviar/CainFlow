@@ -187,6 +187,10 @@ export function createExecutionCoreApi({
         node.generationCompletedCount = normalizedImages.length;
         if (normalizedImages.length > 1) {
             void saveImageAssetList(node.id, normalizedImages);
+        } else if (normalizedImages.length === 1) {
+            void saveImageAsset(node.id, normalizedImages[0]);
+        } else if (deleteImageAsset) {
+            void deleteImageAsset(node.id);
         }
     }
 

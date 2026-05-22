@@ -320,6 +320,36 @@ export function createIndexedDbApi(getState) {
         }
     }
 
+    async function clearOrphanedNodeAssets(activeNodeIds = []) {
+        try {
+            const keepNodeIds = new Set(
+                Array.from(activeNodeIds || [])
+                    .map((id) => String(id || '').trim())
+                    .filter(Boolean)
+            );
+            const db = await openDB();
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            const store = tx.objectStore(STORE_ASSETS);
+            const req = store.openKeyCursor();
+            req.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) return;
+                const key = cursor.key;
+                const isHistoryAsset = typeof key === 'string' && key.startsWith(HISTORY_ASSET_KEY_PREFIX);
+                if (!isHistoryAsset && !keepNodeIds.has(String(key))) {
+                    store.delete(key);
+                }
+                cursor.continue();
+            };
+
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx);
+        } catch (error) {
+            console.warn('IDB clear orphaned node assets failed:', error);
+            return false;
+        }
+    }
+
     function toHistoryMetadata(entry) {
         if (!entry) return null;
         if (entry.image && !entry.imageAssetKey && entry.id !== undefined) {
@@ -550,6 +580,7 @@ export function createIndexedDbApi(getState) {
         deleteImageAsset,
         clearImageAssets,
         clearOrphanedHistoryAssets,
+        clearOrphanedNodeAssets,
         createThumbnail,
         saveHistoryEntry,
         getHistory,

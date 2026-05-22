@@ -12,6 +12,7 @@ import {
     buildWorkflowModelWarningMessage,
     resolveWorkflowModelReferences
 } from '../persistence/workflow-model-resolver.js';
+import { cleanupElementResources } from '../../core/common-utils.js';
 
 export function createWorkflowManagerApi({
     state,
@@ -24,6 +25,9 @@ export function createWorkflowManagerApi({
     scheduleSave,
     showToast,
     panelManager,
+    clearImageAssets = null,
+    clearUndoStack = () => {},
+    updateCacheUsage = () => {},
     documentRef = document,
     windowRef = window
 }) {
@@ -138,7 +142,7 @@ export function createWorkflowManagerApi({
                 if (e.target.closest('.workflow-action-btn')) return;
                 const data = await loadWorkflowFromFile(name);
                 if (data && windowRef.confirm(`确定要加载工作流「${name}」吗？这将覆盖当前画布。`)) {
-                    if (applyWorkflowData(data)) {
+                    if (await applyWorkflowData(data)) {
                         showToast('已加载工作流: ' + name, 'success');
                     }
                 }
@@ -177,7 +181,7 @@ export function createWorkflowManagerApi({
         });
     }
 
-    function applyWorkflowData(data) {
+    async function applyWorkflowData(data) {
         if (state.runningNodeIds?.size > 0) {
             showToast('有节点正在运行，暂不能加载其他工作流', 'warning');
             return false;
@@ -192,9 +196,17 @@ export function createWorkflowManagerApi({
         }
 
         state.connections = [];
-        for (const [, node] of state.nodes) node.el.remove();
+        for (const [, node] of state.nodes) {
+            cleanupElementResources(node.el);
+            node.el.remove();
+        }
         state.nodes.clear();
         state.selectedNodes.clear();
+        clearUndoStack();
+        if (clearImageAssets) {
+            await clearImageAssets({ preserveHistory: true });
+            updateCacheUsage();
+        }
 
         if (data.canvas) {
             state.canvas.x = data.canvas.x || 0;

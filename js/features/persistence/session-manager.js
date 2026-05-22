@@ -1,6 +1,8 @@
 /**
  * 负责本地会话状态保存、撤销栈维护与自动保存调度。
  */
+import { cleanupElementResources } from '../../core/common-utils.js';
+
 export function createSessionManagerApi({
     state,
     storageKey,
@@ -11,7 +13,8 @@ export function createSessionManagerApi({
     addNode,
     updateAllConnections,
     updatePortStyles,
-    onConnectionsChanged = () => {}
+    onConnectionsChanged = () => {},
+    clearOrphanedNodeAssets = async () => true
 }) {
     let saveTimer = null;
 
@@ -38,13 +41,40 @@ export function createSessionManagerApi({
         if (btn) btn.disabled = state.undoStack.length === 0;
     }
 
+    function collectActiveNodeAssetIds() {
+        const ids = new Set(state.nodes.keys());
+        state.undoStack.forEach((raw) => {
+            try {
+                const snapshot = JSON.parse(raw);
+                if (!Array.isArray(snapshot?.nodes)) return;
+                snapshot.nodes.forEach((node) => {
+                    if (node?.id) ids.add(node.id);
+                });
+            } catch {
+                // Ignore invalid legacy undo entries.
+            }
+        });
+        return ids;
+    }
+
+    function cleanupOrphanedNodeAssetsSoon() {
+        setTimeout(() => {
+            clearOrphanedNodeAssets(collectActiveNodeAssetIds()).catch((error) => {
+                console.warn('Clear orphaned node assets failed:', error);
+            });
+        }, 0);
+    }
+
     function pushHistory() {
         const snapshot = {
-            nodes: nodeSerializer.serializeNodes(true),
+            nodes: nodeSerializer.serializeNodes(false),
             connections: state.connections.map((connection) => ({ ...connection }))
         };
         state.undoStack.push(JSON.stringify(snapshot));
-        if (state.undoStack.length > 5) state.undoStack.shift();
+        if (state.undoStack.length > 5) {
+            state.undoStack.shift();
+            cleanupOrphanedNodeAssetsSoon();
+        }
         updateUndoButton();
     }
 
@@ -59,7 +89,10 @@ export function createSessionManagerApi({
         const snapshot = JSON.parse(raw);
 
         state.selectedNodes.clear();
-        state.nodes.forEach((node) => node.el.remove());
+        state.nodes.forEach((node) => {
+            cleanupElementResources(node.el);
+            node.el.remove();
+        });
         state.nodes.clear();
         state.connections = [];
 
@@ -78,6 +111,7 @@ export function createSessionManagerApi({
         onConnectionsChanged();
         updateUndoButton();
         saveState();
+        cleanupOrphanedNodeAssetsSoon();
         showToast('已撤回上一步操作', 'info');
     }
 
@@ -86,6 +120,8 @@ export function createSessionManagerApi({
         saveState,
         pushHistory,
         updateUndoButton,
-        undo
+        undo,
+        collectActiveNodeAssetIds,
+        cleanupOrphanedNodeAssetsSoon
     };
 }

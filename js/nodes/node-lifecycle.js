@@ -2,7 +2,7 @@
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
  */
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
-import { splitTextForTextSplitNode } from '../core/common-utils.js';
+import { cleanupElementResources, splitTextForTextSplitNode } from '../core/common-utils.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -13,7 +13,6 @@ export function createNodeLifecycleApi({
     getImageAsset,
     getImageAssetList = async () => [],
     saveImageAsset,
-    deleteImageAsset,
     showResolutionBadge,
     restoreImageResizePreview,
     bindNodeInteractions,
@@ -1125,19 +1124,11 @@ export function createNodeLifecycleApi({
             const before = state.connections.length;
             state.connections = state.connections.filter((connection) => connection.from.nodeId !== nid && connection.to.nodeId !== nid);
             if (state.connections.length !== before) removedConnections = true;
-            [node.el, ...node.el.querySelectorAll('*')].forEach((element) => {
-                if (Array.isArray(element._cleanupFns)) {
-                    element._cleanupFns.forEach((cleanup) => {
-                        if (typeof cleanup === 'function') cleanup();
-                    });
-                    element._cleanupFns = [];
-                }
-            });
+            cleanupElementResources(node.el);
             disconnectNodeSizeObserver(node);
             node.el.remove();
             state.nodes.delete(nid);
             state.selectedNodes.delete(nid);
-            deleteImageAsset(nid);
         });
         const preservedConnectionCount = appendPreservedConnections(preservedConnectionCandidates);
         if (preservedConnectionCount > 0) removedConnections = true;

@@ -23,6 +23,8 @@ export function createWorkflowRunnerApi({
     scheduleSave,
     updateAllConnections,
     updatePortStyles,
+    saveImageAsset = async () => false,
+    deleteImageAsset = async () => false,
     saveImageAssetList = async () => false,
     refreshDependentImageResizePreviews = () => {},
     getAbortMessage,
@@ -353,6 +355,8 @@ export function createWorkflowRunnerApi({
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
             if (images.length > 1) await saveImageAssetList(node.id, images);
+            else if (images.length === 1) await saveImageAsset(node.id, images[0]);
+            else await deleteImageAsset(node.id);
             await refreshDependentImageResizePreviews(node.id);
             updateAllConnections();
             return;

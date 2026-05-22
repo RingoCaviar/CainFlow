@@ -4,6 +4,7 @@
 import { getModelProviderIds, normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
 import { normalizeNodeDefaults } from '../../core/state.js';
 import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
+import { cleanupElementResources } from '../../core/common-utils.js';
 import {
     buildWorkflowModelWarningMessage,
     resolveWorkflowModelReferences
@@ -27,7 +28,11 @@ export function createProjectIoApi({
     showToast,
     applyTheme = () => {},
     applyGlobalAnimationSetting = () => {},
-    applyCanvasUiSetting = () => {}
+    applyCanvasUiSetting = () => {},
+    clearImageAssets = null,
+    clearOrphanedNodeAssets = async () => true,
+    clearUndoStack = () => {},
+    updateCacheUsage = () => {}
 }) {
     function normalizeStoredProvider(provider, index) {
         return {
@@ -95,7 +100,7 @@ export function createProjectIoApi({
 
     function importWorkflow(file) {
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
             try {
                 const importedData = JSON.parse(event.target.result);
                 if (!importedData.nodes || !Array.isArray(importedData.nodes)) {
@@ -147,6 +152,20 @@ export function createProjectIoApi({
                 };
 
                 localStorageRef.setItem(storageKey, JSON.stringify(mergedData));
+
+                clearUndoStack();
+                if (clearImageAssets) {
+                    await clearImageAssets({ preserveHistory: true });
+                    updateCacheUsage();
+                }
+                state.connections = [];
+                for (const [, node] of state.nodes) {
+                    cleanupElementResources(node.el);
+                    node.el.remove();
+                }
+                state.nodes.clear();
+                state.selectedNodes.clear();
+
                 const remapText = modelResolution.remappedModels.length > 0
                     ? `，已自动匹配 ${modelResolution.remappedModels.length} 个模型引用`
                     : '';
@@ -298,6 +317,11 @@ export function createProjectIoApi({
                 onConnectionsChanged();
             }
             viewportApi.updateCanvasTransform();
+            setTimeout(() => {
+                clearOrphanedNodeAssets(new Set(state.nodes.keys())).catch((error) => {
+                    console.warn('Clear stale node assets after load failed:', error);
+                });
+            }, 0);
             return data.nodes?.length > 0;
         } catch (e) {
             console.warn('Load failed:', e);

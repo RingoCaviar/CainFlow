@@ -12,7 +12,11 @@ import {
     STORE_HANDLES,
     STORE_HISTORY
 } from './js/core/constants.js';
-import { generateId as generateIdService, debounce as debounceService } from './js/core/common-utils.js';
+import {
+    cleanupElementResources,
+    generateId as generateIdService,
+    debounce as debounceService
+} from './js/core/common-utils.js';
 import { createElements } from './js/core/elements.js';
 import { createInitialState } from './js/core/state.js';
 import {
@@ -217,6 +221,7 @@ const {
     getImageAssetList,
     deleteImageAsset,
     clearImageAssets,
+    clearOrphanedNodeAssets,
     createThumbnail,
     saveHistoryEntry,
     getHistory,
@@ -278,6 +283,12 @@ function handleNodeGraphChanged() {
     nodeDomBindingsApi?.syncImageMergeNodes?.();
     refreshAllImageResizePreviews();
     refreshAllCameraControlPreviews();
+}
+
+function cleanupNodeElement(node) {
+    if (!node?.el) return;
+    cleanupElementResources(node.el);
+    node.el.remove();
 }
 
 function getLogPanelApi() {
@@ -587,7 +598,8 @@ function getSessionManagerApi() {
             addNode,
             updateAllConnections,
             updatePortStyles,
-            onConnectionsChanged: () => handleNodeGraphChanged()
+            onConnectionsChanged: () => handleNodeGraphChanged(),
+            clearOrphanedNodeAssets
         });
     }
     return sessionManagerApi;
@@ -610,7 +622,14 @@ function getProjectIoApi() {
             showToast,
             applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting,
-            applyCanvasUiSetting
+            applyCanvasUiSetting,
+            clearImageAssets,
+            clearOrphanedNodeAssets,
+            clearUndoStack: () => {
+                state.undoStack = [];
+                updateUndoButton();
+            },
+            updateCacheUsage: () => settingsControllerApi?.updateCacheUsage()
         });
     }
     return projectIoApi;
@@ -732,7 +751,14 @@ function getToolbarControllerApi() {
             scheduleSave,
             updateAllConnections,
             autoArrangeNodes,
-            zoomToFitTarget: () => zoomToFit()
+            zoomToFitTarget: () => zoomToFit(),
+            cleanupNodeElement: (node) => node?.el && cleanupNodeElement(node),
+            clearUndoStack: () => {
+                state.undoStack = [];
+                updateUndoButton();
+            },
+            clearImageAssets,
+            updateCacheUsage: () => settingsControllerApi?.updateCacheUsage()
         });
     }
     return toolbarControllerApi;
@@ -828,7 +854,6 @@ function getNodeLifecycleApi() {
             getImageAsset,
             getImageAssetList,
             saveImageAsset,
-            deleteImageAsset,
             showResolutionBadge,
             restoreImageResizePreview,
             bindNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
@@ -941,6 +966,8 @@ function getWorkflowRunnerApi() {
             scheduleSave,
             updateAllConnections,
             updatePortStyles,
+            saveImageAsset,
+            deleteImageAsset,
             saveImageAssetList,
             refreshDependentImageResizePreviews,
             getAbortMessage: getAbortMessageService,
@@ -998,7 +1025,13 @@ const workflowManagerApi = createWorkflowManagerApi({
     onConnectionsChanged: () => handleNodeGraphChanged(),
     scheduleSave,
     showToast,
-    panelManager
+    panelManager,
+    clearImageAssets,
+    clearUndoStack: () => {
+        state.undoStack = [];
+        updateUndoButton();
+    },
+    updateCacheUsage: () => settingsControllerApi?.updateCacheUsage()
 });
 settingsControllerApi = createSettingsControllerApi({
     appVersion: APP_VERSION,

@@ -16,7 +16,11 @@ export function createToolbarControllerApi({
     scheduleSave,
     updateAllConnections,
     autoArrangeNodes = null,
-    zoomToFitTarget = null
+    zoomToFitTarget = null,
+    cleanupNodeElement = (node) => node?.el?.remove(),
+    clearUndoStack = () => {},
+    clearImageAssets = null,
+    updateCacheUsage = () => {}
 }) {
     function withZoomInteraction(callback) {
         documentRef.body.classList.add('is-interacting');
@@ -177,7 +181,7 @@ export function createToolbarControllerApi({
             }
         });
 
-        documentRef.getElementById('btn-clear')?.addEventListener('click', () => {
+        documentRef.getElementById('btn-clear')?.addEventListener('click', async () => {
             if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
             if (confirmRef('确定要清除所有节点和连接吗？')) {
                 if (state.runningNodeIds?.size > 0) {
@@ -185,9 +189,14 @@ export function createToolbarControllerApi({
                     return;
                 }
                 state.connections = [];
-                for (const [, node] of state.nodes) node.el.remove();
+                for (const [, node] of state.nodes) cleanupNodeElement(node);
                 state.nodes.clear();
                 state.selectedNodes.clear();
+                clearUndoStack();
+                if (clearImageAssets) {
+                    await clearImageAssets({ preserveHistory: true });
+                    updateCacheUsage();
+                }
                 updateAllConnections();
                 showToast('画布已清除', 'info');
                 scheduleSave();

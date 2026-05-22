@@ -39,3 +39,32 @@ export function splitTextForTextSplitNode(text, delimiter, options = {}) {
             .join('\n'))
         .filter((part) => part.trim().length > 0);
 }
+
+export function releaseElementImageSources(root) {
+    if (!root?.querySelectorAll) return;
+    const images = root.matches?.('img')
+        ? [root, ...Array.from(root.querySelectorAll('img'))]
+        : Array.from(root.querySelectorAll('img'));
+    images.forEach((img) => {
+        img.removeAttribute('src');
+        img.removeAttribute('srcset');
+        img.onload = null;
+        img.onerror = null;
+    });
+}
+
+export function cleanupElementResources(root) {
+    if (!root) return;
+    const elements = root.querySelectorAll
+        ? [root, ...Array.from(root.querySelectorAll('*'))]
+        : [root];
+    elements.forEach((element) => {
+        if (Array.isArray(element._cleanupFns)) {
+            element._cleanupFns.forEach((cleanup) => {
+                if (typeof cleanup === 'function') cleanup();
+            });
+            element._cleanupFns = [];
+        }
+    });
+    releaseElementImageSources(root);
+}

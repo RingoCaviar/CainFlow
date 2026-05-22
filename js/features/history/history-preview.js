@@ -195,11 +195,19 @@ export function createHistoryPreviewApi({
 
     function closeHistoryPreview() {
         const modal = documentRef.getElementById('history-preview-modal');
+        const img = documentRef.getElementById('history-preview-img');
         if (modal) {
             modal.classList.add('hidden');
             modal.classList.remove('history-preview-from-fullscreen', 'history-preview-ignore-chrome');
         }
+        if (img) {
+            img.onload = null;
+            img.removeAttribute('src');
+        }
         previewState.loadToken += 1;
+        previewState.items = [];
+        previewState.currentIndex = -1;
+        previewState.currentItem = null;
         documentRef.removeEventListener('keydown', onPreviewKeyDown);
     }
 

@@ -30,6 +30,7 @@ export function createMediaControllerApi({
     let fitRequestFrame = null;
     const resolutionCache = new Map();
     const RESOLUTION_CACHE_LIMIT = 160;
+    const DATA_URL_RESOLUTION_CACHE_LIMIT = 32;
 
     function requestNodeFit(nodeId) {
         if (!nodeId) return;
@@ -86,6 +87,58 @@ export function createMediaControllerApi({
 
     function isRemoteImageUrl(value) {
         return typeof value === 'string' && /^https?:\/\//i.test(value);
+    }
+
+    function hashString(value) {
+        let hash = 2166136261;
+        for (let index = 0; index < value.length; index += 1) {
+            hash ^= value.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(36);
+    }
+
+    function getResolutionCacheKey(value) {
+        const source = String(value || '').trim();
+        if (!source) return '';
+        if (!isInlineImageData(source)) return `url:${source}`;
+        const commaIndex = source.indexOf(',');
+        const header = commaIndex >= 0 ? source.slice(0, commaIndex) : source.slice(0, 64);
+        const payload = commaIndex >= 0 ? source.slice(commaIndex + 1) : source;
+        const midStart = Math.max(0, Math.floor(payload.length / 2) - 48);
+        const sample = [
+            payload.slice(0, 96),
+            payload.slice(midStart, midStart + 96),
+            payload.slice(Math.max(0, payload.length - 96))
+        ].join(':');
+        return `data:${header}:len=${source.length}:h=${hashString(sample)}`;
+    }
+
+    function trimResolutionCache(cacheKey) {
+        const isNewKey = !resolutionCache.has(cacheKey);
+        while (resolutionCache.size >= RESOLUTION_CACHE_LIMIT && isNewKey) {
+            const oldestKey = resolutionCache.keys().next().value;
+            if (oldestKey === undefined) break;
+            resolutionCache.delete(oldestKey);
+        }
+        if (!cacheKey.startsWith('data:') || !isNewKey) return;
+
+        let dataUrlCacheCount = 0;
+        for (const key of resolutionCache.keys()) {
+            if (key.startsWith('data:')) dataUrlCacheCount += 1;
+        }
+        while (dataUrlCacheCount >= DATA_URL_RESOLUTION_CACHE_LIMIT) {
+            let oldestDataKey;
+            for (const key of resolutionCache.keys()) {
+                if (key.startsWith('data:')) {
+                    oldestDataKey = key;
+                    break;
+                }
+            }
+            if (oldestDataKey === undefined) break;
+            resolutionCache.delete(oldestDataKey);
+            dataUrlCacheCount -= 1;
+        }
     }
 
     function getReloadableImageUrl(imageUrl) {
@@ -170,19 +223,17 @@ export function createMediaControllerApi({
 
     async function resolveImageResolution(value) {
         if (typeof value !== 'string' || !value.trim()) return '';
-        const cacheKey = value.trim();
+        const source = value.trim();
+        const cacheKey = getResolutionCacheKey(source);
         const cached = resolutionCache.get(cacheKey);
         if (cached !== undefined) {
             return cached instanceof Promise ? cached : Promise.resolve(cached);
         }
 
-        const pending = Promise.resolve(getImageResolution(cacheKey))
+        const pending = Promise.resolve(getImageResolution(source))
             .then((result) => {
                 const normalized = typeof result === 'string' ? result : '';
-                if (resolutionCache.size >= RESOLUTION_CACHE_LIMIT && !resolutionCache.has(cacheKey)) {
-                    const oldestKey = resolutionCache.keys().next().value;
-                    if (oldestKey !== undefined) resolutionCache.delete(oldestKey);
-                }
+                trimResolutionCache(cacheKey);
                 resolutionCache.set(cacheKey, normalized);
                 return normalized;
             })
@@ -190,10 +241,7 @@ export function createMediaControllerApi({
                 resolutionCache.delete(cacheKey);
                 return '';
             });
-        if (resolutionCache.size >= RESOLUTION_CACHE_LIMIT && !resolutionCache.has(cacheKey)) {
-            const oldestKey = resolutionCache.keys().next().value;
-            if (oldestKey !== undefined) resolutionCache.delete(oldestKey);
-        }
+        trimResolutionCache(cacheKey);
         resolutionCache.set(cacheKey, pending);
         return pending;
     }
