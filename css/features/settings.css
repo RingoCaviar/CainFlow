@@ -1,11 +1,46 @@
 /* Settings feature extensions */
+:root {
+    --settings-dialog-backdrop: var(--overlay-backdrop, rgba(0, 0, 0, 0.58));
+    --settings-dialog-panel-bg: var(--panel-bg, rgba(22, 22, 42, 0.98));
+    --settings-dialog-panel-border: var(--panel-border, rgba(255, 255, 255, 0.12));
+    --settings-dialog-panel-shadow: var(--panel-shadow-strong, 0 22px 70px rgba(0, 0, 0, 0.58));
+    --settings-dialog-divider: var(--panel-border, rgba(255, 255, 255, 0.08));
+    --settings-dialog-section-bg: var(--panel-bg-soft, rgba(255, 255, 255, 0.045));
+    --settings-dialog-section-border: var(--panel-border, rgba(255, 255, 255, 0.07));
+    --settings-dialog-text: var(--text-secondary);
+    --settings-dialog-muted-text: var(--text-dim);
+    --settings-dialog-code-bg: var(--panel-accent-bg, rgba(255, 255, 255, 0.08));
+    --settings-dialog-code-text: var(--panel-accent-text, var(--accent-cyan));
+    --settings-control-bg: var(--panel-control-bg, rgba(255, 255, 255, 0.04));
+    --settings-control-border: var(--panel-control-border, rgba(255, 255, 255, 0.1));
+    --settings-control-text: var(--panel-control-text, var(--text-secondary));
+    --settings-control-hover-bg: var(--panel-control-hover-bg, rgba(255, 255, 255, 0.08));
+    --settings-control-hover-border: var(--panel-control-hover-border, rgba(255, 255, 255, 0.16));
+    --settings-control-hover-text: var(--panel-control-hover-text, var(--text-primary));
+    --settings-primary-action-bg: var(--panel-accent-bg, rgba(6, 182, 212, 0.12));
+    --settings-primary-action-border: var(--panel-accent-border, rgba(6, 182, 212, 0.24));
+    --settings-primary-action-text: var(--panel-accent-text, var(--accent-cyan));
+    --settings-primary-action-hover-bg: var(--panel-active-bg, rgba(6, 182, 212, 0.2));
+    --settings-primary-action-hover-border: var(--panel-active-border, rgba(6, 182, 212, 0.42));
+    --settings-primary-action-hover-text: var(--panel-control-hover-text, var(--text-primary));
+    --settings-input-bg: var(--panel-input-bg, var(--bg-input));
+    --settings-input-border: var(--panel-input-border, var(--border-input));
+    --settings-input-focus-border: var(--panel-active-border, var(--accent-purple));
+    --settings-row-hover-bg: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
+    --settings-badge-bg: var(--panel-accent-bg, rgba(139, 92, 246, 0.14));
+    --settings-badge-text: var(--panel-accent-text, #c4b5fd);
+    --settings-disabled-bg: var(--surface-muted, rgba(255, 255, 255, 0.06));
+    --settings-disabled-border: var(--panel-border, rgba(255, 255, 255, 0.08));
+    --settings-disabled-text: var(--text-dim);
+}
+
 .card-btn-fetch-models {
     height: 29px;
     padding: 0 11px;
-    background: rgba(6, 182, 212, 0.12);
-    border: 1px solid rgba(6, 182, 212, 0.24);
+    background: var(--settings-primary-action-bg);
+    border: 1px solid var(--settings-primary-action-border);
     border-radius: 6px;
-    color: var(--accent-cyan);
+    color: var(--settings-primary-action-text);
     font-family: var(--font);
     font-size: 13px;
     font-weight: 600;
@@ -16,9 +51,9 @@
 }
 
 .card-btn-fetch-models:hover {
-    background: rgba(6, 182, 212, 0.2);
-    border-color: rgba(6, 182, 212, 0.42);
-    color: var(--text-primary);
+    background: var(--settings-primary-action-hover-bg);
+    border-color: var(--settings-primary-action-hover-border);
+    color: var(--settings-primary-action-hover-text);
 }
 
 .settings-toolbar-title {
@@ -63,7 +98,7 @@
 .api-settings-help-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.58);
+    background: var(--settings-dialog-backdrop);
     backdrop-filter: blur(4px);
 }
 
@@ -71,10 +106,10 @@
     position: relative;
     width: min(720px, calc(100vw - 32px));
     max-height: min(760px, calc(100vh - 48px));
-    background: rgba(22, 22, 42, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--settings-dialog-panel-bg);
+    border: 1px solid var(--settings-dialog-panel-border);
     border-radius: 10px;
-    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.58);
+    box-shadow: var(--settings-dialog-panel-shadow);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -86,7 +121,7 @@
     justify-content: space-between;
     gap: 12px;
     padding: 16px 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--settings-dialog-divider);
 }
 
 .api-settings-help-header h3 {
@@ -98,7 +133,7 @@
 
 .api-settings-help-subtitle {
     margin-top: 4px;
-    color: var(--text-dim);
+    color: var(--settings-dialog-muted-text);
     font-size: 12px;
     line-height: 1.5;
 }
@@ -112,14 +147,14 @@
     background: transparent;
     border: 0;
     border-radius: 6px;
-    color: var(--text-secondary);
+    color: var(--settings-control-text);
     font-size: 20px;
     cursor: pointer;
 }
 
 .api-settings-help-close:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
+    background: var(--settings-control-hover-bg);
+    color: var(--settings-control-hover-text);
 }
 
 .api-settings-help-body {
@@ -131,8 +166,8 @@
 
 .api-settings-help-section {
     padding: 14px;
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: var(--settings-dialog-section-bg);
+    border: 1px solid var(--settings-dialog-section-border);
     border-radius: 8px;
 }
 
@@ -145,7 +180,7 @@
 
 .api-settings-help-section p,
 .api-settings-help-section li {
-    color: var(--text-secondary);
+    color: var(--settings-dialog-text);
     font-size: 13px;
     line-height: 1.65;
 }
@@ -165,9 +200,9 @@
 
 .api-settings-help-section code {
     padding: 2px 5px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--settings-dialog-code-bg);
     border-radius: 4px;
-    color: var(--accent-cyan);
+    color: var(--settings-dialog-code-text);
     font-size: 12px;
 }
 
@@ -187,7 +222,7 @@
 .provider-models-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.58);
+    background: var(--settings-dialog-backdrop);
     backdrop-filter: blur(4px);
 }
 
@@ -195,10 +230,10 @@
     position: relative;
     width: min(680px, calc(100vw - 32px));
     max-height: min(680px, calc(100vh - 48px));
-    background: rgba(22, 22, 42, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--settings-dialog-panel-bg);
+    border: 1px solid var(--settings-dialog-panel-border);
     border-radius: 10px;
-    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.58);
+    box-shadow: var(--settings-dialog-panel-shadow);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -210,7 +245,7 @@
     justify-content: space-between;
     gap: 12px;
     padding: 16px 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--settings-dialog-divider);
 }
 
 .provider-models-header h3 {
@@ -222,7 +257,7 @@
 
 .provider-models-subtitle {
     margin-top: 4px;
-    color: var(--text-dim);
+    color: var(--settings-dialog-muted-text);
     font-size: 12px;
 }
 
@@ -235,14 +270,14 @@
     background: transparent;
     border: 0;
     border-radius: 6px;
-    color: var(--text-secondary);
+    color: var(--settings-control-text);
     font-size: 20px;
     cursor: pointer;
 }
 
 .provider-models-close:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
+    background: var(--settings-control-hover-bg);
+    color: var(--settings-control-hover-text);
 }
 
 .provider-models-search-row {
@@ -250,14 +285,14 @@
     grid-template-columns: 1fr auto;
     gap: 10px;
     padding: 14px 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--settings-dialog-divider);
 }
 
 .provider-models-search-row input {
     min-width: 0;
     padding: 8px 10px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-input);
+    background: var(--settings-input-bg);
+    border: 1px solid var(--settings-input-border);
     border-radius: var(--radius-xs);
     color: var(--text-primary);
     font-family: var(--font);
@@ -266,7 +301,7 @@
 }
 
 .provider-models-search-row input:focus {
-    border-color: var(--accent-purple);
+    border-color: var(--settings-input-focus-border);
 }
 
 .provider-models-count {
@@ -292,7 +327,7 @@
 }
 
 .provider-models-row:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--settings-row-hover-bg);
 }
 
 .provider-models-row-main {
@@ -310,7 +345,7 @@
 
 .provider-models-row-id {
     margin-top: 3px;
-    color: var(--text-dim);
+    color: var(--settings-dialog-muted-text);
     font-size: 11px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -320,8 +355,8 @@
 .provider-models-badge {
     padding: 3px 7px;
     border-radius: 999px;
-    background: rgba(139, 92, 246, 0.14);
-    color: #c4b5fd;
+    background: var(--settings-badge-bg);
+    color: var(--settings-badge-text);
     font-size: 11px;
     white-space: nowrap;
 }
@@ -332,10 +367,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(6, 182, 212, 0.28);
+    border: 1px solid var(--settings-primary-action-border);
     border-radius: 50%;
-    background: rgba(6, 182, 212, 0.12);
-    color: var(--accent-cyan);
+    background: var(--settings-primary-action-bg);
+    color: var(--settings-primary-action-text);
     font-size: 18px;
     font-weight: 700;
     cursor: pointer;
@@ -343,9 +378,9 @@
 }
 
 .provider-models-add:hover {
-    background: rgba(6, 182, 212, 0.22);
-    border-color: rgba(6, 182, 212, 0.48);
-    color: var(--text-primary);
+    background: var(--settings-primary-action-hover-bg);
+    border-color: var(--settings-primary-action-hover-border);
+    color: var(--settings-primary-action-hover-text);
 }
 
 .provider-models-add:disabled {
@@ -354,9 +389,9 @@
     padding: 0 8px;
     border-radius: 999px;
     cursor: default;
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.08);
-    color: var(--text-dim);
+    background: var(--settings-disabled-bg);
+    border-color: var(--settings-disabled-border);
+    color: var(--settings-disabled-text);
     font-size: 11px;
     font-weight: 600;
 }
@@ -381,8 +416,8 @@
     justify-content: space-between;
     gap: 10px;
     padding: 8px 10px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-input);
+    background: var(--settings-input-bg);
+    border: 1px solid var(--settings-input-border);
     border-radius: var(--radius-xs);
     color: var(--text-primary);
     font-family: var(--font);
@@ -394,8 +429,8 @@
 
 .provider-multiselect-trigger:hover,
 .provider-multiselect-trigger[aria-expanded="true"] {
-    border-color: var(--accent-purple);
-    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--settings-input-focus-border);
+    background: var(--settings-control-hover-bg);
 }
 
 .provider-multiselect-summary {
@@ -420,10 +455,10 @@
     max-height: 220px;
     overflow: auto;
     padding: 8px 10px;
-    background: rgba(22, 22, 42, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--settings-dialog-panel-bg);
+    border: 1px solid var(--settings-dialog-panel-border);
     border-radius: 8px;
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--settings-dialog-panel-shadow);
 }
 
 .provider-multiselect-panel.hidden {
@@ -677,12 +712,6 @@
     }
 }
 
-html[data-app-theme="light"] .card-btn-fetch-models {
-    background: rgba(15, 118, 110, 0.1);
-    border-color: rgba(15, 118, 110, 0.2);
-    color: #0f766e;
-}
-
 html[data-app-theme="light"] #settings-modal .toggle-slider {
     background: rgba(203, 213, 225, 0.9);
     box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.32);
@@ -702,114 +731,12 @@ html[data-app-theme="light"] #settings-modal .provider-toggle-label {
     color: #64748b;
 }
 
-html[data-app-theme="light"] .card-btn-fetch-models:hover {
-    background: rgba(15, 118, 110, 0.16);
-    border-color: rgba(15, 118, 110, 0.32);
-    color: #0f766e;
-}
-
 html[data-app-theme="light"] .settings-inline-help {
     color: #0f766e;
 }
 
 html[data-app-theme="light"] .settings-inline-help:hover {
     color: #134e4a;
-}
-
-html[data-app-theme="light"] .api-settings-help-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 247, 252, 0.98));
-    border-color: rgba(148, 163, 184, 0.28);
-    box-shadow: 0 24px 68px rgba(15, 23, 42, 0.18);
-}
-
-html[data-app-theme="light"] .api-settings-help-header {
-    border-color: rgba(148, 163, 184, 0.24);
-}
-
-html[data-app-theme="light"] .api-settings-help-subtitle {
-    color: #718096;
-}
-
-html[data-app-theme="light"] .api-settings-help-section {
-    background: rgba(255, 255, 255, 0.78);
-    border-color: rgba(148, 163, 184, 0.22);
-}
-
-html[data-app-theme="light"] .api-settings-help-section p,
-html[data-app-theme="light"] .api-settings-help-section li {
-    color: #4b5870;
-}
-
-html[data-app-theme="light"] .api-settings-help-section code {
-    background: rgba(15, 118, 110, 0.09);
-    color: #0f766e;
-}
-
-html[data-app-theme="light"] .provider-models-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 247, 252, 0.98));
-    border-color: rgba(148, 163, 184, 0.28);
-    box-shadow: 0 24px 68px rgba(15, 23, 42, 0.18);
-}
-
-html[data-app-theme="light"] .provider-multiselect-trigger {
-    background: rgba(255, 255, 255, 0.96);
-    border-color: rgba(148, 163, 184, 0.3);
-    color: #223047;
-}
-
-html[data-app-theme="light"] .provider-multiselect-trigger:hover,
-html[data-app-theme="light"] .provider-multiselect-trigger[aria-expanded="true"] {
-    border-color: rgba(15, 118, 110, 0.36);
-    background: rgba(241, 245, 249, 0.95);
-}
-
-html[data-app-theme="light"] .provider-multiselect-panel {
-    background: rgba(255, 255, 255, 0.99);
-    border-color: rgba(148, 163, 184, 0.24);
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
-}
-
-html[data-app-theme="light"] .provider-models-header,
-html[data-app-theme="light"] .provider-models-search-row {
-    border-color: rgba(148, 163, 184, 0.24);
-}
-
-html[data-app-theme="light"] .provider-models-subtitle,
-html[data-app-theme="light"] .provider-models-row-id {
-    color: #718096;
-}
-
-html[data-app-theme="light"] .provider-models-search-row input {
-    background: rgba(255, 255, 255, 0.96);
-    border-color: rgba(148, 163, 184, 0.3);
-    color: #223047;
-}
-
-html[data-app-theme="light"] .provider-models-row:hover {
-    background: rgba(59, 130, 246, 0.06);
-}
-
-html[data-app-theme="light"] .provider-models-badge {
-    background: rgba(15, 118, 110, 0.1);
-    color: #0f766e;
-}
-
-html[data-app-theme="light"] .provider-models-add {
-    background: rgba(15, 118, 110, 0.1);
-    border-color: rgba(15, 118, 110, 0.22);
-    color: #0f766e;
-}
-
-html[data-app-theme="light"] .provider-models-add:hover {
-    background: rgba(15, 118, 110, 0.16);
-    border-color: rgba(15, 118, 110, 0.36);
-    color: #0f766e;
-}
-
-html[data-app-theme="light"] .provider-models-add:disabled {
-    background: rgba(148, 163, 184, 0.12);
-    border-color: rgba(148, 163, 184, 0.18);
-    color: #718096;
 }
 
 @media (max-width: 640px) {
