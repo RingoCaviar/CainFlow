@@ -1241,7 +1241,7 @@ export function createExecutionCoreApi({
                     const runtimeProgressText = runtimeFailedTotal > 1
                         ? progressText.replace(`${completedCount}/${targetGenerationCount}`, `${runtimeCompletedCount}/${runtimeFailedTotal}`)
                         : '';
-                    errorEl.innerHTML = `<strong>生成失败</strong>${runtimeProgressText}${err.message}`;
+                    errorEl.innerHTML = `<strong>生成失败</strong>${runtimeProgressText}${escapeHtml(err.message || '未知错误')}`;
                     errorEl.style.display = 'block';
                     requestNodeFit(id);
                 }

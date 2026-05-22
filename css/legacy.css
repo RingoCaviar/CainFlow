@@ -6044,12 +6044,18 @@ body.sidebar-pinned #side-bar::after {
     display: none;
     margin-top: 10px;
     padding: 10px 12px;
+    box-sizing: border-box;
+    max-height: 120px;
     background: rgba(239, 68, 68, 0.08);
     border: 1px solid rgba(239, 68, 68, 0.2);
     border-radius: var(--radius-sm);
     color: #f87171;
     font-size: 12px;
     line-height: 1.5;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    white-space: pre-wrap;
     word-break: break-word;
 }
 

@@ -31,7 +31,7 @@ export function createNodeLifecycleApi({
     const view = documentRef.defaultView || window;
     let pendingNodeSizeConnectionRefresh = null;
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview';
-    const NODE_SCROLL_CONTENT_SELECTOR = '.chat-response-area, .text-display-box';
+    const NODE_SCROLL_CONTENT_SELECTOR = '.chat-response-area, .text-display-box, .node-error-msg';
     const NODE_SCROLLABLE_RESULT_SELECTOR = `${NODE_SCROLL_CONTENT_SELECTOR}, .text-split-preview`;
     const FALLBACK_DEFAULT_NODE_WIDTH = 180;
     const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
