@@ -164,6 +164,15 @@ export function createCanvasInteractionsApi({
         return laneById;
     }
 
+    function getConnectionPathOptions(connection, laneById) {
+        return {
+            type: state.connectionLineType || 'bezier',
+            outputTransition: OUTPUT_PORT_TRANSITION,
+            inputTransition: INPUT_PORT_TURN_LEAD,
+            laneOffset: laneById.get(connection.id) || 0
+        };
+    }
+
     function clearShakeDetachVisuals(draggingState) {
         const nodeId = draggingState?.nodes?.[0];
         const node = nodeId ? state.nodes.get(nodeId) : null;
@@ -342,12 +351,7 @@ export function createCanvasInteractionsApi({
                         from.y,
                         to.x,
                         to.y,
-                        {
-                            type: state.connectionLineType || 'bezier',
-                            outputTransition: OUTPUT_PORT_TRANSITION,
-                            inputTransition: INPUT_PORT_TURN_LEAD,
-                            laneOffset: laneById.get(conn.id) || 0
-                        }
+                        getConnectionPathOptions(conn, laneById)
                     );
 
                     for (let i = 1; i < samplePoints.length; i++) {

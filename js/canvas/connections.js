@@ -154,7 +154,8 @@ export function createConnectionsApi({
 
     function updateFlowDecoration(path, connId, isActive) {
         const decoration = ensureFlowDecoration(connId);
-        decoration.active = isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
+        const canShowFlowDecoration = (state.connectionLineType || 'bezier') !== 'orthogonal';
+        decoration.active = canShowFlowDecoration && isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
         decoration.group.classList.toggle('active', decoration.active);
         if (path.nextSibling !== decoration.group) {
             path.parentNode?.insertBefore(decoration.group, path.nextSibling);

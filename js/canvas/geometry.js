@@ -87,91 +87,33 @@ function pushWaypoint(points, point) {
     points.push(point);
 }
 
-function getOrthogonalRouteMetrics(start, end, laneOffset) {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const forwardGap = end.x - start.x;
-    const verticalSpan = Math.abs(dy);
-    const lateralShift = Math.abs(laneOffset);
-    return {
-        dx,
-        dy,
-        forwardGap,
-        verticalSpan,
-        lateralShift,
-        distance: Math.hypot(dx, dy)
-    };
-}
+const ORTHOGONAL_PORT_GUARD = 5;
+const ORTHOGONAL_CORNER_RADIUS = 8;
 
-function buildOrthogonalForwardRoute(start, end, laneOffset) {
+function buildOrthogonalWaypoints(x1, y1, x2, y2) {
     const points = [];
-    const channelYStart = start.y + laneOffset;
-    const channelYEnd = end.y + laneOffset;
-    const trunkX = start.x + (end.x - start.x) / 2;
+    const turnGuard = ORTHOGONAL_PORT_GUARD + ORTHOGONAL_CORNER_RADIUS;
+    const startGuard = { x: x1 + turnGuard, y: y1 };
+    const endGuard = { x: x2 - turnGuard, y: y2 };
 
-    pushWaypoint(points, start);
-    if (Math.abs(channelYStart - start.y) > 0.001) {
-        pushWaypoint(points, { x: start.x, y: channelYStart });
+    pushWaypoint(points, { x: x1, y: y1 });
+    pushWaypoint(points, startGuard);
+
+    if (startGuard.x > endGuard.x) {
+        const midY = y1 + (y2 - y1) / 2;
+        pushWaypoint(points, { x: startGuard.x, y: midY });
+        pushWaypoint(points, { x: endGuard.x, y: midY });
+        pushWaypoint(points, endGuard);
+        pushWaypoint(points, { x: x2, y: y2 });
+        return points;
     }
-    pushWaypoint(points, { x: trunkX, y: channelYStart });
-    pushWaypoint(points, { x: trunkX, y: channelYEnd });
-    if (Math.abs(channelYEnd - end.y) > 0.001) {
-        pushWaypoint(points, { x: end.x, y: channelYEnd });
-    }
-    pushWaypoint(points, end);
+
+    const midX = startGuard.x + (endGuard.x - startGuard.x) / 2;
+    pushWaypoint(points, { x: midX, y: startGuard.y });
+    pushWaypoint(points, { x: midX, y: endGuard.y });
+    pushWaypoint(points, endGuard);
+    pushWaypoint(points, { x: x2, y: y2 });
     return points;
-}
-
-function buildOrthogonalOuterRoute(start, end, laneOffset) {
-    const points = [];
-    const dy = end.y - start.y;
-    const spread = Math.max(24, Math.min(72, Math.abs(dy) * 0.4 + Math.abs(laneOffset) * 0.6 + 20));
-    const direction = Math.abs(laneOffset) > 0.001
-        ? Math.sign(laneOffset)
-        : (dy >= 0 ? 1 : -1);
-    const detourY = direction > 0
-        ? Math.max(start.y, end.y) + spread
-        : Math.min(start.y, end.y) - spread;
-
-    pushWaypoint(points, start);
-    pushWaypoint(points, { x: start.x, y: detourY });
-    pushWaypoint(points, { x: end.x, y: detourY });
-    pushWaypoint(points, end);
-    return points;
-}
-
-function buildOrthogonalWaypoints(x1, y1, x2, y2, options = {}) {
-    const transition = getPortTransitionPoints(x1, y1, x2, y2, options);
-    const start = transition.start;
-    const end = transition.end;
-    const laneOffset = getLaneOffset(options);
-    const waypoints = [];
-    const metrics = getOrthogonalRouteMetrics(start, end, laneOffset);
-    const minimumForwardGap = Math.max(20, Math.min(52, metrics.verticalSpan * 0.12 + metrics.lateralShift * 0.35 + 20));
-    const canUseForwardRoute = metrics.forwardGap >= minimumForwardGap;
-
-    pushWaypoint(waypoints, { x: x1, y: y1 });
-
-    if (metrics.distance < 24) {
-        pushWaypoint(waypoints, { x: x2, y: y2 });
-        return waypoints;
-    }
-
-    if (metrics.forwardGap >= 0 && metrics.verticalSpan < 0.001 && metrics.lateralShift < 0.001) {
-        pushWaypoint(waypoints, { x: x2, y: y2 });
-        return waypoints;
-    }
-
-    if (transition.outputDistance > 0) pushWaypoint(waypoints, start);
-
-    const route = canUseForwardRoute
-        ? buildOrthogonalForwardRoute(start, end, laneOffset)
-        : buildOrthogonalOuterRoute(start, end, laneOffset);
-
-    route.slice(1).forEach((point) => pushWaypoint(waypoints, point));
-    if (transition.inputDistance > 0) pushWaypoint(waypoints, end);
-    pushWaypoint(waypoints, { x: x2, y: y2 });
-    return waypoints;
 }
 
 function createRoundedPolylinePath(points, radiusLimit = 18) {
@@ -243,8 +185,8 @@ function sampleBezierPoints(x1, y1, x2, y2, steps = 18, options = {}) {
     return points;
 }
 
-function sampleOrthogonalPoints(x1, y1, x2, y2, options = {}) {
-    const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2, options);
+function sampleOrthogonalPoints(x1, y1, x2, y2) {
+    const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2);
     const points = [waypoints[0]];
 
     for (let i = 1; i < waypoints.length; i++) {
@@ -268,7 +210,7 @@ function sampleOrthogonalPoints(x1, y1, x2, y2, options = {}) {
 export function getConnectionSamplePoints(x1, y1, x2, y2, options = {}) {
     const { type = 'bezier' } = normalizeConnectionPathOptions(options);
     return type === 'orthogonal'
-        ? sampleOrthogonalPoints(x1, y1, x2, y2, options)
+        ? sampleOrthogonalPoints(x1, y1, x2, y2)
         : sampleBezierPoints(x1, y1, x2, y2, 18, options);
 }
 
@@ -276,11 +218,8 @@ export function createBezierPath(x1, y1, x2, y2, options = {}) {
     const { type = 'bezier' } = normalizeConnectionPathOptions(options);
 
     if (type === 'orthogonal') {
-        const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2, options);
-        const dx = Math.abs(x2 - x1);
-        const dy = Math.abs(y2 - y1);
-        const radius = Math.min(18, Math.max(6, Math.min(dx, dy) * 0.22));
-        return createRoundedPolylinePath(waypoints, radius);
+        const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2);
+        return createRoundedPolylinePath(waypoints, ORTHOGONAL_CORNER_RADIUS);
     }
 
     const { start, control1, control2, end } = getBezierCurveGeometry(x1, y1, x2, y2, options);
