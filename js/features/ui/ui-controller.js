@@ -40,6 +40,7 @@ export function createUiControllerApi({
     indexedDbRef = indexedDB,
     locationRef = location,
     notificationRef = typeof Notification !== 'undefined' ? Notification : null,
+    systemNotificationApi = null,
     confirmRef = confirm,
     alertRef = alert
 }) {
@@ -727,17 +728,23 @@ export function createUiControllerApi({
 
         documentRef.getElementById('toggle-notifications')?.addEventListener('change', async (e) => {
             const enabled = e.target.checked;
-            if (enabled && !notificationRef) {
+            const notificationApi = systemNotificationApi || {
+                isSupported: () => !!notificationRef,
+                getPermission: () => notificationRef?.permission || 'unsupported',
+                requestPermission: () => notificationRef?.requestPermission?.() || 'unsupported',
+                ensureReady: async () => true
+            };
+            if (enabled && !notificationApi.isSupported()) {
                 e.target.checked = false;
                 state.notificationsEnabled = false;
                 showToast('当前浏览器环境不支持系统通知，无法开启运行通知', 'warning', 5000);
                 saveState();
                 return;
             }
-            if (enabled && notificationRef.permission !== 'granted') {
-                let permission = notificationRef.permission;
+            if (enabled && notificationApi.getPermission() !== 'granted') {
+                let permission = notificationApi.getPermission();
                 try {
-                    permission = await notificationRef.requestPermission();
+                    permission = await notificationApi.requestPermission();
                 } catch (err) {
                     console.warn('Notification permission request failed:', err);
                     permission = 'denied';
@@ -751,6 +758,9 @@ export function createUiControllerApi({
                 }
             }
             state.notificationsEnabled = enabled;
+            if (enabled) {
+                await notificationApi.ensureReady?.();
+            }
 
             if (!enabled && state.notificationAudio) {
                 state.notificationAudio.pause();

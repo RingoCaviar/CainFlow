@@ -17,6 +17,7 @@ export function createHelpPanelApi({
             <div class="help-item"><span class="help-desc">导出工作流文件</span><span class="help-key">Ctrl + E</span></div>
             <div class="help-item"><span class="help-desc">撤销上一步</span><span class="help-key">Ctrl + Z</span></div>
             <div class="help-item"><span class="help-desc">复制选中节点</span><span class="help-key">Ctrl + C</span></div>
+            <div class="help-item"><span class="help-desc">带外部连线粘贴</span><span class="help-key">Ctrl + Shift + V</span></div>
             <div class="help-item"><span class="help-desc">全选画布节点</span><span class="help-key">Ctrl + A</span></div>
             <div class="help-item"><span class="help-desc">删除选中节点</span><span class="help-key">Delete</span></div>
             <div class="help-item"><span class="help-desc">自适应查看全部节点</span><span class="help-key">F</span></div>

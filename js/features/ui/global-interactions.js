@@ -124,6 +124,11 @@ export function createGlobalInteractionsApi({
 
         documentRef.addEventListener('paste', (e) => {
             const now = Date.now();
+            if (state.skipNextClipboardPasteUntil && now < state.skipNextClipboardPasteUntil) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
             if (now - lastExternalPasteTime < 500) return;
             lastExternalPasteTime = now;
 

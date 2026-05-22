@@ -10,6 +10,7 @@ import {
     normalizeImageResolutionForModel,
     validateOpenAiImageSize
 } from '../features/execution/provider-request-utils.js';
+import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 export function createNodeDomBindingsApi({
@@ -1662,6 +1663,10 @@ export function createNodeDomBindingsApi({
 
             const portOffsets = new Map();
             const connectionsToUpdate = [];
+            const {
+                internalConnections,
+                externalConnections
+            } = collectConnectionSnapshotsForNodes(state, nodesToDrag);
 
             for (const conn of state.connections) {
                 const isFromDragged = draggedNodeIds.has(conn.from.nodeId);
@@ -1690,7 +1695,9 @@ export function createNodeDomBindingsApi({
                 portOffsets,
                 connectionsToUpdate,
                 isCloneDrag: e.ctrlKey || e.metaKey,
-                cloned: false
+                cloned: false,
+                internalConnections,
+                externalConnections
             };
 
             pushHistory();

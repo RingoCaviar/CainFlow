@@ -1,6 +1,8 @@
 /**
  * 负责画布层级的交互事件，包括拖拽、框选、平移辅助与连线过程中的交互同步。
  */
+import { appendMappedConnectionSnapshots } from './connection-copy-utils.js';
+
 export function createCanvasInteractionsApi({
     state,
     canvasContainer,
@@ -415,6 +417,7 @@ export function createCanvasInteractionsApi({
                 if (state.dragging.isCloneDrag && !state.dragging.cloned) {
                     state.dragging.cloned = true;
                     const newDraggedIds = [];
+                    const idMap = new Map();
 
                     for (const nodeId of state.dragging.nodes) {
                         const origNode = state.nodes.get(nodeId);
@@ -422,20 +425,31 @@ export function createCanvasInteractionsApi({
                             const data = serializeOneNode(nodeId);
                             data.id = null;
                             const newId = addNode(origNode.type, origNode.x, origNode.y, data, true);
-                            if (newId) newDraggedIds.push(newId);
+                            if (newId) {
+                                newDraggedIds.push(newId);
+                                idMap.set(nodeId, newId);
+                            }
                         }
                     }
 
                     if (newDraggedIds.length > 0) {
+                        const connectionResult = appendMappedConnectionSnapshots({
+                            state,
+                            idMap,
+                            internalConnections: state.dragging.internalConnections || [],
+                            externalConnections: state.dragging.externalConnections || [],
+                            includeExternalConnections: false
+                        });
                         const newStartPositions = new Map();
-                        newDraggedIds.forEach((newId, index) => {
-                            const origId = state.dragging.nodes[index];
+                        idMap.forEach((newId, origId) => {
                             const startPos = state.dragging.startPositions.get(origId);
                             if (startPos) newStartPositions.set(newId, { x: startPos.x, y: startPos.y });
                         });
 
                         state.dragging.nodes = newDraggedIds;
                         state.dragging.startPositions = newStartPositions;
+                        state.dragging.connectionsToUpdate = [];
+                        state.dragging.portOffsets = new Map();
 
                         state.selectedNodes.forEach((nid) => {
                             const node = state.nodes.get(nid);
@@ -450,6 +464,10 @@ export function createCanvasInteractionsApi({
                         });
 
                         updateAllConnections();
+                        if (connectionResult.added > 0) {
+                            updatePortStyles();
+                        }
+                        onConnectionsChanged();
                     }
                 }
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);

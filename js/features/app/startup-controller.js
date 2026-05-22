@@ -14,6 +14,7 @@ export function createStartupControllerApi({
     updateCanvasTransform,
     scheduleAutoUpdateCheck,
     checkRefreshNotice,
+    systemNotificationApi = null,
     documentRef = document,
     performanceRef = typeof performance !== 'undefined' ? performance : null,
     consoleRef = console
@@ -130,6 +131,7 @@ export function createStartupControllerApi({
             }
             consoleRef.log('CainFlow Initialized successfully.');
 
+            systemNotificationApi?.ensureReady?.();
             scheduleAutoUpdateCheck();
             checkRefreshNotice();
             if (isReloadNavigation()) {

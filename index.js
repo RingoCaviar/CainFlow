@@ -25,6 +25,7 @@ import {
     formatProxyErrorMessage as formatProxyErrorMessageService,
     getAbortMessage as getAbortMessageService
 } from './js/services/api-client.js';
+import { createSystemNotificationService } from './js/services/system-notification-service.js';
 import { createIndexedDbApi } from './js/services/storage-idb.js';
 import {
     createBezierPath as createBezierPathService,
@@ -272,6 +273,7 @@ let startupControllerApi = null;
 let errorModalControllerApi = null;
 let toastControllerApi = null;
 let floatingNoticesApi = null;
+let systemNotificationApi = null;
 let themeControllerApi = null;
 let promptLibraryApi = null;
 
@@ -349,6 +351,13 @@ function getFloatingNoticesApi() {
         });
     }
     return floatingNoticesApi;
+}
+
+function getSystemNotificationApi() {
+    if (!systemNotificationApi) {
+        systemNotificationApi = createSystemNotificationService();
+    }
+    return systemNotificationApi;
 }
 
 function initFloatingNotices() {
@@ -666,7 +675,8 @@ function getUiControllerApi() {
             showToast,
             copyToClipboard,
             downloadImage,
-            initFeatureModules
+            initFeatureModules,
+            systemNotificationApi: getSystemNotificationApi()
         });
     }
     return uiControllerApi;
@@ -884,6 +894,7 @@ function getRuntimeControllerApi() {
             exportWorkflow,
             undo,
             copySelectedNode,
+            pasteNode,
             removeNode,
             zoomToFit,
             scheduleSave,
@@ -907,7 +918,8 @@ function getStartupControllerApi() {
             applyDefaultWorkflow: (defaultData) => workflowManagerApi.applyWorkflowData(defaultData),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
             scheduleAutoUpdateCheck: () => updateManager.scheduleAutoUpdateCheck({ delayMs: 5000, force: true, showModal: false, showCanvasNotification: true }),
-            checkRefreshNotice: () => updateManager.checkRefreshNotice()
+            checkRefreshNotice: () => updateManager.checkRefreshNotice(),
+            systemNotificationApi: getSystemNotificationApi()
         });
     }
     return startupControllerApi;
@@ -971,7 +983,8 @@ function getWorkflowRunnerApi() {
             saveImageAssetList,
             refreshDependentImageResizePreviews,
             getAbortMessage: getAbortMessageService,
-            playNotificationSound: () => settingsControllerApi.playNotificationSound()
+            playNotificationSound: () => settingsControllerApi.playNotificationSound(),
+            systemNotificationApi: getSystemNotificationApi()
         });
     }
     return workflowRunnerApi;
@@ -1008,8 +1021,8 @@ function copySelectedNode() {
     return getClipboardControllerApi().copySelectedNode();
 }
 
-function pasteNode() {
-    return getClipboardControllerApi().pasteNode();
+function pasteNode(options) {
+    return getClipboardControllerApi().pasteNode(options);
 }
 
 // ===== 快捷键 =====

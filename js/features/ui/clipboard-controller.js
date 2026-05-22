@@ -1,6 +1,11 @@
 /**
  * 负责节点复制、剪切板缓存与粘贴还原逻辑，支持多节点批量复制。
  */
+import {
+    appendMappedConnectionSnapshots,
+    collectConnectionSnapshotsForNodes
+} from '../../canvas/connection-copy-utils.js';
+
 export function createClipboardControllerApi({
     state,
     documentRef = document,
@@ -153,13 +158,15 @@ export function createClipboardControllerApi({
             maxY = Math.max(maxY, node.y + (node.height || 100));
         });
 
-        const internalConnections = state.connections.filter((connection) =>
-            selectedIds.includes(connection.from.nodeId) && selectedIds.includes(connection.to.nodeId)
-        );
+        const {
+            internalConnections,
+            externalConnections
+        } = collectConnectionSnapshotsForNodes(state, selectedIds);
 
         state.clipboard = {
             nodes,
             connections: internalConnections,
+            externalConnections,
             center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
         };
         state.clipboardTimestamp = Date.now();
@@ -167,11 +174,12 @@ export function createClipboardControllerApi({
         showToast(`已复制 ${nodes.length} 个节点`, 'success');
     }
 
-    function pasteNode() {
+    function pasteNode(options = {}) {
         if (!state.clipboard || !state.clipboard.nodes.length) {
             return showToast('剪贴板为空', 'warning');
         }
 
+        const includeExternalConnections = options.includeExternalConnections === true;
         const mousePos = state.mouseCanvas;
         const clip = state.clipboard;
         const idMap = new Map();
@@ -193,23 +201,27 @@ export function createClipboardControllerApi({
             }
         });
 
-        clip.connections.forEach((connection) => {
-            const newFromId = idMap.get(connection.from.nodeId);
-            const newToId = idMap.get(connection.to.nodeId);
-            if (newFromId && newToId) {
-                state.connections.push({
-                    id: 'c_' + Math.random().toString(36).substr(2, 9),
-                    from: { nodeId: newFromId, port: connection.from.port },
-                    to: { nodeId: newToId, port: connection.to.port },
-                    type: connection.type
-                });
-            }
+        const connectionResult = appendMappedConnectionSnapshots({
+            state,
+            idMap,
+            internalConnections: clip.connections || [],
+            externalConnections: clip.externalConnections || [],
+            includeExternalConnections
         });
 
         updateAllConnections();
         updatePortStyles();
         onConnectionsChanged();
         scheduleSave();
+
+        if (includeExternalConnections && (connectionResult.externalAdded > 0 || connectionResult.externalSkipped > 0)) {
+            const suffix = connectionResult.externalSkipped > 0
+                ? `，${connectionResult.externalSkipped} 条外部连线因端口不可用已跳过`
+                : '';
+            showToast(`已粘贴 ${idMap.size} 个节点，并恢复 ${connectionResult.externalAdded} 条外部连线${suffix}`, 'success');
+            return;
+        }
+
         showToast(`已粘贴 ${idMap.size} 个节点`, 'success');
     }
 

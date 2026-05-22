@@ -12,6 +12,7 @@ export function createRuntimeControllerApi({
     exportWorkflow,
     undo,
     copySelectedNode,
+    pasteNode,
     removeNode,
     zoomToFit,
     scheduleSave,
@@ -124,6 +125,12 @@ export function createRuntimeControllerApi({
             if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); documentRef.getElementById('import-file')?.click(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V') && !inInput) {
+                e.preventDefault();
+                e.stopPropagation();
+                state.skipNextClipboardPasteUntil = Date.now() + 300;
+                pasteNode({ includeExternalConnections: true });
+            }
             if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
                 e.preventDefault();
                 undo();

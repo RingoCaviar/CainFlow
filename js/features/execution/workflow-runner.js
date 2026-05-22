@@ -11,6 +11,7 @@ export function createWorkflowRunnerApi({
     documentRef = document,
     confirmRef = confirm,
     notificationRef = typeof Notification !== 'undefined' ? Notification : null,
+    systemNotificationApi = null,
     audioFactory = () => new Audio(),
     resolveExecutionPlan,
     normalizeRunOptions,
@@ -76,24 +77,35 @@ export function createWorkflowRunnerApi({
         return node.customTitle || nodeConfigs[node.type]?.title || node.type;
     }
 
-    function sendSystemNotification(title, options = {}) {
+    async function sendSystemNotification(title, options = {}) {
         if (!state.notificationsEnabled) return false;
-        if (!notificationRef) {
+        const notificationApi = systemNotificationApi || {
+            isSupported: () => !!notificationRef,
+            getPermission: () => notificationRef?.permission || 'unsupported',
+            showNotification: async (notificationTitle, notificationOptions) => {
+                new notificationRef(notificationTitle, notificationOptions);
+                return true;
+            }
+        };
+        if (!notificationApi.isSupported()) {
             addLog('warning', '系统通知不可用', '当前浏览器环境不支持系统通知，已改用页面内提示和声音提醒。');
             return false;
         }
-        if (notificationRef.permission !== 'granted') {
+        if (notificationApi.getPermission() !== 'granted') {
             addLog('warning', '系统通知未发送', '通知权限尚未授予，请重新开启运行通知或在浏览器设置中允许此网站发送通知。');
             return false;
         }
 
         try {
-            new notificationRef(title, {
+            const sent = await notificationApi.showNotification(title, {
                 ...options,
                 tag: options.tag || 'cainflow-workflow-run',
                 requireInteraction: options.requireInteraction ?? false
             });
-            return true;
+            if (!sent) {
+                addLog('warning', '系统通知未发送', '浏览器未接受本次系统通知请求。');
+            }
+            return sent;
         } catch (err) {
             console.warn('System notification failed:', err);
             addLog('warning', '系统通知发送失败', err?.message || String(err));
@@ -106,7 +118,7 @@ export function createWorkflowRunnerApi({
 
         if (!state.notificationsEnabled) return;
 
-        sendSystemNotification(notificationTitle, {
+        void sendSystemNotification(notificationTitle, {
             body: notificationBody
         });
 
