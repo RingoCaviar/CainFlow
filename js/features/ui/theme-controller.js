@@ -12,6 +12,7 @@ export function createThemeControllerApi({
         DARK: 'dark',
         PRO: 'pro',
         LIGHT: 'light',
+        GLASS_LIGHT: 'glass-light',
         PINK: 'pink'
     });
     const THEMES = Object.freeze([
@@ -28,6 +29,11 @@ export function createThemeControllerApi({
         {
             id: THEME_IDS.LIGHT,
             label: '\u6d45\u8272',
+            colorScheme: 'light'
+        },
+        {
+            id: THEME_IDS.GLASS_LIGHT,
+            label: 'Glass Light',
             colorScheme: 'light'
         },
         {

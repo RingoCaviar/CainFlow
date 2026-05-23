@@ -393,21 +393,23 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     background: rgba(255, 255, 255, 0.03);
 }
 
-.toolbar-toggle-group .toggle-switch {
-    width: 28px;
-    height: 16px;
+#toolbar .toolbar-toggle-group .toggle-switch {
+    width: 30px;
+    height: 18px;
     margin-left: 0;
 }
 
-.toolbar-toggle-group .toggle-slider:before {
-    height: 10px;
-    width: 10px;
+#toolbar .toolbar-toggle-group .toggle-slider::before {
+    width: 12px;
+    height: 12px;
     left: 3px;
-    bottom: 3px;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
 }
 
-.toolbar-toggle-group input:checked+.toggle-slider:before {
-    transform: translateX(12px);
+#toolbar .toolbar-toggle-group input:checked + .toggle-slider::before {
+    transform: translate(12px, -50%);
 }
 
 .logo {
@@ -3652,15 +3654,29 @@ body.is-interacting #canvas-container * {
 }
 
 .modal-tab-btn {
-    padding: 12px 4px;
+    position: relative;
+    padding: 12px 4px 14px;
     background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
+    border: 0;
     color: var(--text-dim);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all var(--transition);
+}
+
+.modal-tab-btn::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 5px;
+    width: 0;
+    height: 3px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0;
+    transform: translateX(-50%);
+    transition: width var(--transition), opacity var(--transition);
 }
 
 .modal-tab-btn:hover {
@@ -3669,7 +3685,11 @@ body.is-interacting #canvas-container * {
 
 .modal-tab-btn.active {
     color: var(--accent-cyan);
-    border-bottom-color: var(--accent-cyan);
+}
+
+.modal-tab-btn.active::after {
+    width: 26px;
+    opacity: 1;
 }
 
 .settings-tab-pane {
@@ -4374,6 +4394,15 @@ body:has(#toolbar:hover) .drawer,
 body:has(#toolbar:focus-within) .drawer,
 body:has(#toolbar .btn.active) .drawer,
 body:has(#toolbar [aria-expanded="true"]) .drawer {
+    --drawer-top-offset: calc(var(--toolbar-height, 48px) + 8px);
+}
+
+body.toolbar-pinned .help-panel,
+body.toolbar-peek-active .help-panel,
+body:has(#toolbar:hover) .help-panel,
+body:has(#toolbar:focus-within) .help-panel,
+body:has(#toolbar .btn.active) .help-panel,
+body:has(#toolbar [aria-expanded="true"]) .help-panel {
     --drawer-top-offset: calc(var(--toolbar-height, 48px) + 8px);
 }
 
@@ -5319,32 +5348,42 @@ body.sidebar-pinned #side-bar::after {
     #side-bar::after {
         display: none;
     }
+
+    .drawer,
+    .help-panel {
+        --drawer-top-offset: calc(var(--toolbar-height, 48px) + 8px);
+    }
 }
 
-/* Help Panel (Floating) */
+/* Help Panel */
 .help-panel {
     position: absolute;
-    left: 70px;
-    bottom: 20px;
+    left: 60px;
+    top: calc(var(--drawer-top-offset, 0px) + var(--drawer-edge-gap, 0px));
+    bottom: var(--drawer-edge-gap, 0px);
     width: 320px;
-    max-height: calc(100vh - var(--toolbar-height, 48px) - 40px);
+    max-height: none;
     background: var(--panel-bg-strong);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
+    border-left: 0;
+    border-radius: 0 16px 16px 0;
     box-shadow: var(--panel-shadow-strong);
     z-index: 7300;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     font-family: var(--font, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-    animation: help-panel-appear 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: help-panel-appear 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+        top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        bottom 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes help-panel-appear {
-    from { opacity: 0; transform: translateX(-20px) scale(0.95); }
-    to { opacity: 1; transform: translateX(0) scale(1); }
+    from { opacity: 0; transform: translateX(-24px); }
+    to { opacity: 1; transform: translateX(0); }
 }
 
 .help-panel.hidden {
@@ -5443,17 +5482,20 @@ body.sidebar-pinned #side-bar::after {
 .drawer-left {
     left: -400px;
     right: auto;
-    top: auto;
-    bottom: 20px;
+    top: calc(var(--drawer-top-offset, 0px) + var(--drawer-edge-gap, 0px));
+    bottom: var(--drawer-edge-gap, 0px);
     width: 320px;
-    height: min(720px, calc(100% - 40px));
-    max-height: calc(100% - 40px);
+    height: auto;
+    max-height: none;
     border-right: 1px solid var(--panel-border-strong);
     border-radius: 0 16px 16px 0;
     background: var(--panel-bg-strong);
     backdrop-filter: blur(40px);
     box-shadow: var(--panel-shadow-strong);
-    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+        left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+        bottom 0.22s cubic-bezier(0.22, 1, 0.36, 1);
     z-index: 7300;
 }
 

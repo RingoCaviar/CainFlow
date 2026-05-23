@@ -36,7 +36,7 @@
                     : parsed?.connectionFlowAnimationEnabled !== false;
 
                 document.documentElement.setAttribute(themeAttribute, themeId);
-                document.documentElement.style.colorScheme = ['light', 'pink'].includes(themeId) ? 'light' : 'dark';
+                document.documentElement.style.colorScheme = ['light', 'pink', 'glass-light'].includes(themeId) ? 'light' : 'dark';
                 document.documentElement.classList.toggle(animationsDisabledClass, !globalAnimationEnabled);
             } catch (error) {
                 document.documentElement.setAttribute(themeAttribute, fallbackTheme);

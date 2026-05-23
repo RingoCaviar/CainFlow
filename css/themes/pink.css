@@ -1047,13 +1047,10 @@ html[data-app-theme="pink"] #settings-modal .modal-tab-btn {
 }
 
 html[data-app-theme="pink"] #settings-modal .modal-tab-btn:hover {
-    background: rgba(244, 114, 182, 0.08);
     color: var(--text-primary);
 }
 
 html[data-app-theme="pink"] #settings-modal .modal-tab-btn.active {
-    background: rgba(236, 72, 153, 0.12);
-    border-color: rgba(236, 72, 153, 0.22);
     color: #9d174d;
 }
 

@@ -1097,7 +1097,6 @@ html[data-app-theme="light"] #settings-modal .modal-tab-btn:hover {
 
 html[data-app-theme="light"] #settings-modal .modal-tab-btn.active {
     color: #0f766e;
-    border-bottom-color: #0f766e;
 }
 
 html[data-app-theme="light"] #settings-modal .settings-toolbar h3 {

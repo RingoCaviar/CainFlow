@@ -399,13 +399,10 @@ html[data-app-theme="pro"] #settings-modal .modal-tab-btn {
 }
 
 html[data-app-theme="pro"] #settings-modal .modal-tab-btn:hover {
-    background: rgba(93, 124, 255, 0.08);
     color: var(--text-primary);
 }
 
 html[data-app-theme="pro"] #settings-modal .modal-tab-btn.active {
-    background: rgba(93, 124, 255, 0.12);
-    border-color: rgba(93, 124, 255, 0.24);
     color: #c7d7ff;
 }
 

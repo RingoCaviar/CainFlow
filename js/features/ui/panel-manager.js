@@ -13,8 +13,12 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
     function close(panelKey) {
         const target = panels[panelKey];
         if (!target) return;
+        const button = documentRef.getElementById(target.btn);
         documentRef.getElementById(target.id)?.classList.remove('active');
-        documentRef.getElementById(target.btn)?.classList.remove('active');
+        button?.classList.remove('active');
+        if (button && documentRef.activeElement === button) {
+            button.blur();
+        }
     }
 
     function toggle(panelKey, onOpen = null) {

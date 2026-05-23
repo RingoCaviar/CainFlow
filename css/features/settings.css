@@ -657,13 +657,38 @@
 }
 
 #general-settings .general-settings-volume-row {
+    --volume-slider-accent: var(--accent-purple);
+    --volume-slider-accent-soft: rgba(168, 85, 247, 0.22);
+    --volume-slider-track: rgba(255, 255, 255, 0.14);
+    --volume-slider-track-border: rgba(255, 255, 255, 0.12);
+    --volume-slider-thumb-bg: var(--bg-panel);
+    --volume-slider-thumb-border: rgba(255, 255, 255, 0.88);
+    --volume-slider-thumb-shadow: 0 6px 16px rgba(168, 85, 247, 0.28), 0 0 0 1px rgba(168, 85, 247, 0.34);
+    --volume-slider-badge-bg: rgba(255, 255, 255, 0.07);
+    --volume-slider-badge-border: rgba(255, 255, 255, 0.12);
+    --volume-slider-badge-text: var(--text-secondary);
     align-items: center !important;
     flex-wrap: wrap;
+    gap: 12px;
 }
 
 #general-settings #volume-hint {
-    min-width: 48px !important;
-    text-align: right;
+    min-width: 56px !important;
+    height: 28px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border: 1px solid var(--volume-slider-badge-border);
+    border-radius: 999px;
+    background: var(--volume-slider-badge-bg);
+    color: var(--volume-slider-badge-text) !important;
+    font-size: 12px !important;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 #general-settings .general-settings-status-row {
@@ -702,8 +727,92 @@
     font-size: 14px;
 }
 
-#general-settings .notification-volume-slider {
+#general-settings .general-settings-card input.notification-volume-slider {
+    --notify-volume-progress: 100%;
+    flex: 1 1 190px !important;
     min-width: 160px;
+    width: 100%;
+    min-height: 28px;
+    height: 28px;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 999px;
+    background: transparent !important;
+    box-shadow: none !important;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+#general-settings .general-settings-card input.notification-volume-slider:focus-visible {
+    outline: none;
+}
+
+#general-settings .general-settings-card input.notification-volume-slider::-webkit-slider-runnable-track {
+    height: 10px;
+    border: 1px solid var(--volume-slider-track-border);
+    border-radius: 999px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
+        linear-gradient(
+            90deg,
+            var(--volume-slider-accent) 0%,
+            var(--volume-slider-accent) var(--notify-volume-progress),
+            var(--volume-slider-track) var(--notify-volume-progress),
+            var(--volume-slider-track) 100%
+        );
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+#general-settings .general-settings-card input.notification-volume-slider::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+    margin-top: -7px;
+    border: 2px solid var(--volume-slider-thumb-border);
+    border-radius: 50%;
+    background: var(--volume-slider-thumb-bg);
+    box-sizing: border-box;
+    box-shadow: var(--volume-slider-thumb-shadow);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+#general-settings .general-settings-card input.notification-volume-slider:hover::-webkit-slider-thumb,
+#general-settings .general-settings-card input.notification-volume-slider:focus-visible::-webkit-slider-thumb {
+    transform: scale(1.06);
+    box-shadow: 0 8px 20px var(--volume-slider-accent-soft), var(--volume-slider-thumb-shadow);
+}
+
+#general-settings .general-settings-card input.notification-volume-slider::-moz-range-track {
+    height: 10px;
+    border: 1px solid var(--volume-slider-track-border);
+    border-radius: 999px;
+    background: var(--volume-slider-track);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+#general-settings .general-settings-card input.notification-volume-slider::-moz-range-progress {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--volume-slider-accent);
+}
+
+#general-settings .general-settings-card input.notification-volume-slider::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--volume-slider-thumb-border);
+    border-radius: 50%;
+    background: var(--volume-slider-thumb-bg);
+    box-sizing: border-box;
+    box-shadow: var(--volume-slider-thumb-shadow);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+#general-settings .general-settings-card input.notification-volume-slider:hover::-moz-range-thumb,
+#general-settings .general-settings-card input.notification-volume-slider:focus-visible::-moz-range-thumb {
+    transform: scale(1.06);
+    box-shadow: 0 8px 20px var(--volume-slider-accent-soft), var(--volume-slider-thumb-shadow);
 }
 
 @media (max-width: 900px) {

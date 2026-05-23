@@ -1404,7 +1404,6 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:#a855f7;width:200px" />
                     <div class="card-header-actions">
-                        <button class="card-btn-collapse" data-id="${mod.id}" data-target="model" title="${isCollapsed ? '展开此模型' : '折叠此模型'}" aria-expanded="${isCollapsed ? 'false' : 'true'}">${isCollapsed ? '▸' : '▾'}</button>
                         ${mod.id !== 'default' ? `<button class="card-btn-delete" data-id="${mod.id}" data-target="model" title="删除此模型">×</button>` : ''}
                     </div>
                 </div>
@@ -1517,17 +1516,10 @@ export function createSettingsControllerApi({
             });
         });
 
-        modelsList.querySelectorAll('.card-btn-collapse').forEach((btn) => {
-            btn.addEventListener('click', (e) => {
-                const { id } = e.currentTarget.dataset;
-                toggleConfigCard(modelCollapseState, id, renderModels);
-            });
-        });
-
         modelsList.querySelectorAll('.api-config-card .card-header').forEach((header) => {
             header.addEventListener('click', (e) => {
                 if (isCardHeaderControlClick(e)) return;
-                const id = header.querySelector('.card-btn-collapse')?.dataset.id;
+                const id = header.querySelector('.card-name')?.dataset.id;
                 if (!id) return;
                 toggleConfigCard(modelCollapseState, id, renderModels);
             });

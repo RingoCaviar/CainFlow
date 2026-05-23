@@ -32,6 +32,11 @@
     transform: rotate(12deg);
 }
 
+#btn-theme-toggle[data-theme-id="glass-light"] .icon-sm {
+    color: var(--accent-cyan);
+    transform: rotate(8deg) scale(1.04);
+}
+
 #btn-theme-toggle[data-theme-id="pink"] .icon-sm {
     color: var(--accent-pink);
     transform: rotate(-8deg) scale(1.05);
@@ -119,6 +124,25 @@ html[data-app-theme="light"] .theme-menu-item:focus-visible {
 html[data-app-theme="light"] .theme-menu-item.is-active {
     background: rgba(37, 99, 235, 0.1);
     border-color: rgba(37, 99, 235, 0.2);
+}
+
+html[data-app-theme="glass-light"] .theme-menu-panel {
+    background: rgba(255, 255, 255, 0.64);
+    border-color: rgba(255, 255, 255, 0.7);
+    box-shadow: 0 20px 54px rgba(30, 64, 92, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(28px) saturate(1.35);
+    -webkit-backdrop-filter: blur(28px) saturate(1.35);
+}
+
+html[data-app-theme="glass-light"] .theme-menu-item:hover,
+html[data-app-theme="glass-light"] .theme-menu-item:focus-visible {
+    background: rgba(14, 165, 233, 0.1);
+    border-color: rgba(14, 165, 233, 0.22);
+}
+
+html[data-app-theme="glass-light"] .theme-menu-item.is-active {
+    background: rgba(37, 99, 235, 0.11);
+    border-color: rgba(37, 99, 235, 0.22);
 }
 
 html[data-app-theme="pink"] .theme-menu-panel {

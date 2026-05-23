@@ -81,6 +81,9 @@ export function createHelpPanelApi({
         const btnHelp = documentRef.getElementById('btn-help');
         panel?.classList.add('hidden');
         btnHelp?.classList.remove('active');
+        if (btnHelp && documentRef.activeElement === btnHelp) {
+            btnHelp.blur();
+        }
     }
 
     function toggleHelpPanel() {

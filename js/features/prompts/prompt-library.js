@@ -297,6 +297,9 @@ export function createPromptLibraryApi({
         const { modal, button } = getEls();
         modal?.classList.add('hidden');
         button?.classList.remove('active');
+        if (button && documentRef.activeElement === button) {
+            button.blur();
+        }
         closeEditor();
         selectionMode = false;
         selectedPromptIds.clear();
