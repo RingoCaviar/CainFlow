@@ -913,7 +913,7 @@ function getStartupControllerApi() {
             loadState,
             showToast,
             syncProxyToServer: () => settingsControllerApi.syncProxyToServer(),
-            checkNetworkProxyMismatch: () => settingsControllerApi.checkNetworkProxyMismatch(),
+            checkNetworkProxyMismatch: (force = false) => settingsControllerApi.checkNetworkProxyMismatch(force),
             loadDefaultWorkflow: () => workflowManagerApi.loadWorkflowFromFile('Default'),
             applyDefaultWorkflow: (defaultData) => workflowManagerApi.applyWorkflowData(defaultData),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),

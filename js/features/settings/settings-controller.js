@@ -64,9 +64,11 @@ export function createSettingsControllerApi({
     const networkProxyNoticeId = 'network-proxy-mismatch';
     const networkProxyDetectionCooldownMs = 10 * 60 * 1000;
     const networkProxyDetectionStorageKey = 'cainflow_network_proxy_detection';
-    const networkProxyDetectionCacheVersion = 4;
+    const networkProxyDetectionCacheVersion = 5;
     const NETWORK_PROBE_TARGETS = [
-        { name: 'Google 204', url: 'https://www.google.com/generate_204' }
+        { name: 'Google gstatic 204', url: 'https://www.gstatic.com/generate_204' },
+        { name: 'Google 204', url: 'https://www.google.com/generate_204' },
+        { name: 'Cloudflare trace', url: 'https://www.cloudflare.com/cdn-cgi/trace' }
     ];
     const networkProxyDetectionTargetsSignature = JSON.stringify(
         NETWORK_PROBE_TARGETS.map((target) => ({
@@ -758,7 +760,7 @@ export function createSettingsControllerApi({
         const checkedTarget = result.checkedTarget || '国外站点';
         const latencyText = Number.isFinite(result.latency) && result.latency > 0 ? `${result.latency}ms` : '未知';
         const attemptsSummary = getNetworkProxyAttemptSummary(result.attempts);
-        const effectiveModeText = result.effectiveMode === 'proxy' ? '代理' : '直连';
+        const effectiveModeText = result.effectiveMode === 'proxy' ? '代理/透明代理' : '直连';
 
         dialog.innerHTML = `
             <div class="api-settings-help-backdrop" data-close-network-proxy-hint="true"></div>
@@ -773,7 +775,7 @@ export function createSettingsControllerApi({
                 <div class="api-settings-help-body">
                     <section class="api-settings-help-section">
                         <h4>详细说明</h4>
-                        <p>当前检测到后端发出的请求是走的代理，但是设置中的代理选项没有打开。你可能是开启了代理软件的 <code>TUN</code> 模式或者虚拟网卡模式，或者配置了软路由，也可能是其他原因导致的请求走了代理。</p>
+                        <p>当前检测到后端发出的请求可以访问常见境外探测目标，但是设置中的代理选项没有打开。你可能是开启了代理软件的 <code>TUN</code> 模式或者虚拟网卡模式，或者配置了软路由，也可能是其他透明代理规则让请求实际走了代理链路。</p>
                         <p>此时向 API 供应商发出的请求，可能会被代理软件判定为需要走代理，从而导致链接不稳定。有些国内中转站会更容易出现这种情况。</p>
                         <p>建议关闭 <code>TUN</code> 模式，或者在代理软件中添加规则解决此问题。</p>
                     </section>
@@ -816,7 +818,7 @@ export function createSettingsControllerApi({
             clickable: true,
             onClick: () => renderNetworkProxyHintDialog(),
             title: ['请注意网络设置'],
-            meta: ['检测到当前会以 ', { tag: 'span', text: result?.effectiveMode === 'proxy' ? '代理' : '直连' }, ' 模式访问 ', { tag: 'span', text: checkedTarget }, '。这条链路和真实 API 请求一致。点击查看说明。'],
+            meta: ['检测到当前会以 ', { tag: 'span', text: result?.effectiveMode === 'proxy' ? '代理/透明代理' : '直连' }, ' 模式访问 ', { tag: 'span', text: checkedTarget }, '。这条链路和真实 API 请求一致。点击查看说明。'],
             actions: [
                 {
                     id: 'btn-network-proxy-hint-details',
@@ -870,55 +872,42 @@ export function createSettingsControllerApi({
         }
     }
 
-    function isReachableProbeStatus(status) {
-        const code = Number(status);
-        if (!Number.isFinite(code) || code <= 0) return false;
-        return code < 500;
-    }
-
-    async function probeNetworkTarget(target) {
-        const startedAt = Date.now();
-        try {
-            const probeUrl = `${target.url}${target.url.includes('?') ? '&' : '?'}_cf_network_probe=${Date.now()}`;
-            const response = await fetchWithTimeout('/proxy', {
-                method: 'POST',
-                headers: getProxyHeaders(probeUrl, 'GET', {
-                    Accept: '*/*',
-                    'Content-Type': null,
-                    'Cache-Control': 'no-cache',
-                    Pragma: 'no-cache'
-                })
-            }, 12, '网络探测超时');
-
-            const latency = Math.max(0, Date.now() - startedAt);
-            const reachable = isReachableProbeStatus(response.status);
-            return {
-                name: target.name,
-                url: target.url,
-                success: reachable,
-                status: response.status,
-                latency,
-                detail: reachable
-                    ? `请求成功返回 HTTP ${response.status}`
-                    : `请求失败，HTTP ${response.status}`
-            };
-        } catch (error) {
-            return {
-                name: target.name,
-                url: target.url,
-                success: false,
-                status: 0,
-                latency: Math.max(0, Date.now() - startedAt),
-                detail: error?.message || String(error)
-            };
+    function showNetworkProxyDetectionResultToast(result) {
+        if (result?.skippedBecauseProxyEnabled) {
+            showToast('已开启应用内代理，跳过网络环境检测', 'info', 5000);
+            return;
         }
+        if (result?.shouldNotify) {
+            showToast('检测到网络环境可能经过代理/透明代理，请查看右侧提醒', 'warning', 7000);
+            return;
+        }
+        if (result?.reachable) {
+            const targetText = result.checkedTarget ? `（${result.checkedTarget}）` : '';
+            const latencyText = Number.isFinite(result.latency) && result.latency > 0 ? `，${result.latency}ms` : '';
+            showToast(`网络环境检测正常${targetText}${latencyText}`, 'success', 5000);
+            return;
+        }
+        showToast('网络环境检测完成，未检测到代理/透明代理异常', 'success', 5000);
     }
 
     async function checkNetworkProxyMismatch(force = false) {
         if (state.proxy?.enabled) {
-            networkProxyStatusState.result = null;
+            const result = {
+                proxyEnabled: true,
+                effectiveMode: 'proxy',
+                reachable: null,
+                latency: 0,
+                checkedTarget: '',
+                detail: '已开启应用内代理，跳过网络环境检测',
+                attempts: [],
+                proxyAttempts: [],
+                shouldNotify: false,
+                skippedBecauseProxyEnabled: true
+            };
+            networkProxyStatusState.result = result;
             hideNetworkProxyMismatchNotice();
-            return null;
+            showNetworkProxyDetectionResultToast(result);
+            return result;
         }
         if (networkProxyStatusState.checking) {
             return networkProxyStatusState.result;
@@ -932,32 +921,34 @@ export function createSettingsControllerApi({
             } else {
                 hideNetworkProxyMismatchNotice();
             }
+            showNetworkProxyDetectionResultToast(cachedResult);
             return cachedResult;
         }
 
         networkProxyStatusState.checking = true;
         try {
-            const attempts = [];
-            let reachableAttempt = null;
-
-            for (const target of NETWORK_PROBE_TARGETS) {
-                const attempt = await probeNetworkTarget(target);
-                attempts.push(attempt);
-                if (attempt.success && !reachableAttempt) {
-                    reachableAttempt = attempt;
-                    break;
-                }
+            const response = await fetchWithTimeout('/api/detect_network_path', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proxyEnabled: !!state.proxy?.enabled })
+            }, 2, '网络环境检测超时');
+            if (!response.ok) {
+                throw new Error(`网络环境检测失败，HTTP ${response.status}`);
             }
-
+            const data = await response.json();
             const result = {
-                proxyEnabled: false,
-                effectiveMode: 'direct',
-                reachable: !!reachableAttempt,
-                latency: reachableAttempt?.latency || 0,
-                checkedTarget: reachableAttempt?.name || '',
-                detail: reachableAttempt?.detail || (attempts[0]?.detail || '网络探测失败'),
-                attempts,
-                shouldNotify: !!reachableAttempt
+                proxyEnabled: !!data?.proxyEnabled,
+                effectiveMode: data?.effectiveMode === 'proxy' ? 'proxy' : 'direct',
+                reachable: !!data?.reachable,
+                transparentProxyLikely: !!data?.transparentProxyLikely,
+                localProxyDetected: !!data?.localProxyDetected,
+                localProxy: data?.localProxy || null,
+                latency: Number(data?.latency) || 0,
+                checkedTarget: data?.checkedTarget || '',
+                detail: data?.detail || '网络探测失败',
+                attempts: Array.isArray(data?.attempts) ? data.attempts : [],
+                proxyAttempts: Array.isArray(data?.proxyAttempts) ? data.proxyAttempts : [],
+                shouldNotify: !!data?.transparentProxyLikely
             };
             networkProxyStatusState.result = result;
             saveNetworkProxyDetectionCache(result);
@@ -966,9 +957,32 @@ export function createSettingsControllerApi({
             } else {
                 hideNetworkProxyMismatchNotice();
             }
+            showNetworkProxyDetectionResultToast(result);
             return result;
         } catch (error) {
             console.error('Failed to detect network proxy mismatch', error);
+            hideNetworkProxyMismatchNotice();
+            const isDetectionTimeout = String(error?.message || error || '').includes('网络环境检测超时');
+            if (isDetectionTimeout) {
+                const result = {
+                    proxyEnabled: false,
+                    effectiveMode: 'direct',
+                    reachable: false,
+                    transparentProxyLikely: false,
+                    localProxyDetected: false,
+                    localProxy: null,
+                    latency: 0,
+                    checkedTarget: '',
+                    detail: '检测超时，未检测到代理/透明代理异常',
+                    attempts: [],
+                    proxyAttempts: [],
+                    shouldNotify: false
+                };
+                networkProxyStatusState.result = result;
+                showNetworkProxyDetectionResultToast(result);
+                return result;
+            }
+            showToast(error?.message || '网络环境检测失败', 'warning', 7000);
             return null;
         } finally {
             networkProxyStatusState.checking = false;

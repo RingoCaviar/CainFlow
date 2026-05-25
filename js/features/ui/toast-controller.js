@@ -19,10 +19,32 @@ export function createToastControllerApi({
         content.textContent = String(message || '');
         toast.appendChild(content);
         container.appendChild(toast);
-        setTimeoutRef(() => {
+        let dismissed = false;
+        let timeoutId = null;
+        const dismiss = (delay = 0) => {
+            if (dismissed || !toast.parentNode) return;
+            dismissed = true;
             toast.style.animation = 'toast-out 0.3s ease-out forwards';
-            setTimeoutRef(() => toast.remove(), 300);
-        }, duration);
+            setTimeoutRef(() => toast.remove(), delay > 0 ? delay : 300);
+        };
+        if (Number.isFinite(duration) && duration > 0) {
+            timeoutId = setTimeoutRef(() => dismiss(), duration);
+        }
+        return {
+            element: toast,
+            dismiss,
+            update(nextMessage, nextType = type) {
+                toast.className = `toast ${nextType}`;
+                icon.textContent = icons[nextType] || '';
+                content.textContent = String(nextMessage || '');
+            },
+            clearTimer() {
+                if (timeoutId !== null && typeof clearTimeout === 'function') {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+            }
+        };
     }
 
     return {

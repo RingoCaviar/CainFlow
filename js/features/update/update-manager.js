@@ -23,6 +23,7 @@ export function createUpdateManager({
     let updateDownloadInProgress = false;
     let updateDownloadPollTimer = null;
     let updateDownloadToast = null;
+    let updateCheckProgressToast = null;
     let activeUpdateJobId = '';
     let handledTerminalUpdateJobId = '';
     const updateDownloadTextKey = 'cainflow_update_download_text';
@@ -37,6 +38,13 @@ export function createUpdateManager({
             return autoUpdateCheckDisabled() === true;
         }
         return autoUpdateCheckDisabled === true;
+    }
+
+    function dismissUpdateCheckProgressToast() {
+        if (!updateCheckProgressToast) return;
+        const toast = updateCheckProgressToast;
+        updateCheckProgressToast = null;
+        toast.dismiss?.();
     }
 
     function compareVersions(v1, v2) {
@@ -1362,13 +1370,12 @@ export function createUpdateManager({
                 const message = autoCheckCountdownToast.querySelector('.update-auto-check-countdown-message');
                 if (message) message.textContent = '正在自动检查更新...';
             }
-            dismissAutoCheckCountdownToast(1200);
-            checkUpdate(false, {
+            Promise.resolve(checkUpdate(false, {
                 force,
                 showModal,
                 showCanvasNotification,
                 showProgressToast: false
-            });
+            })).finally(() => dismissAutoCheckCountdownToast(1200));
         };
 
         tick();
@@ -1391,8 +1398,9 @@ export function createUpdateManager({
             return;
         }
 
+        dismissUpdateCheckProgressToast();
         if (showProgressToast) {
-            showToast(isManual ? '正在检查更新...' : '系统正在自动检查更新...', 'info', isManual ? 3000 : 4500);
+            updateCheckProgressToast = showToast(isManual ? '正在检查更新...' : '系统正在自动检查更新...', 'info', 0) || null;
         }
         localStorageRef.setItem('cainflow_update_status', 'checking');
         clearUpdateError();
@@ -1411,11 +1419,13 @@ export function createUpdateManager({
                 clearUpdateError();
                 if (showCanvasNotification) showUpdateCanvasNotice(data);
                 if (showModal) showUpdateModal(data);
+                dismissUpdateCheckProgressToast();
                 showToast(`发现新版本 ${latestVersion || ''}`, 'success', 6000);
             } else {
                 localStorageRef.setItem('cainflow_update_status', 'latest');
                 clearUpdateError();
                 hideUpdateCanvasNotice();
+                dismissUpdateCheckProgressToast();
                 showToast(`当前已是最新版本 (${appVersion})`, 'success', isManual ? 3000 : 4500);
             }
 
@@ -1435,7 +1445,11 @@ export function createUpdateManager({
             if (timeoutId !== null) clearTimeoutImpl(timeoutId);
             if (isUpdateCheckTimeoutError(e)) {
                 try {
-                    showToast('检查更新超时，正在尝试使用代理重新检查...', 'info', 5000);
+                    if (updateCheckProgressToast) {
+                        updateCheckProgressToast.update('检查更新超时，正在尝试使用代理重新检查...', 'info');
+                    } else {
+                        updateCheckProgressToast = showToast('检查更新超时，正在尝试使用代理重新检查...', 'info', 0) || null;
+                    }
                     const proxyOverride = await resolveUpdateCheckProxy();
                     if (proxyOverride) {
                         const retryController = new AbortController();
@@ -1446,6 +1460,7 @@ export function createUpdateManager({
                         applyUpdateCheckResult(retryData);
                         return;
                     }
+                    dismissUpdateCheckProgressToast();
                     showToast('未找到可用代理，继续使用原检查结果。', 'warning', 5000);
                 } catch (retryError) {
                     if (timeoutId !== null) {
@@ -1460,6 +1475,7 @@ export function createUpdateManager({
                 ? formatGithubUpdateErrorMessage(e.status, e.body, e.response)
                 : getUpdateFailureMessage(e);
             setUpdateError(msg);
+            dismissUpdateCheckProgressToast();
             showToast(msg, 'error', 6000);
             renderGeneralSettings();
         }

@@ -29,6 +29,12 @@ PROXY_HEALTHCHECK_TARGETS = [
     {'name': 'Huawei HiCloud 204', 'url': 'http://connectivitycheck.platform.hicloud.com/generate_204', 'method': 'HEAD'},
 ]
 
+NETWORK_PATH_PROBE_TARGETS = [
+    {'name': 'Google gstatic 204', 'url': 'https://www.gstatic.com/generate_204', 'method': 'HEAD'},
+    {'name': 'Google 204', 'url': 'https://www.google.com/generate_204', 'method': 'HEAD'},
+    {'name': 'Cloudflare trace', 'url': 'https://www.cloudflare.com/cdn-cgi/trace', 'method': 'GET'},
+]
+
 
 def _can_open_proxy_socket(ip, port, timeout):
     try:
@@ -249,7 +255,7 @@ def check_proxy_health(ip, port, request_timeout=5.0, connect_timeout=0.8):
     return False, details['detail'] or 'Proxy port is not reachable'
 
 
-def detect_available_proxy():
+def detect_available_proxy(request_timeout=6.0, connect_timeout=0.6, stop_after_first_available=False):
     attempts = []
     detected_proxy = None
 
@@ -257,8 +263,8 @@ def detect_available_proxy():
         details = _check_proxy_health_details(
             candidate.get('ip', '127.0.0.1'),
             candidate.get('port', ''),
-            request_timeout=6.0,
-            connect_timeout=0.6,
+            request_timeout=request_timeout,
+            connect_timeout=connect_timeout,
         )
         attempt = {
             'ip': details.get('ip', candidate.get('ip', '127.0.0.1')),
@@ -273,11 +279,104 @@ def detect_available_proxy():
         attempts.append(attempt)
         if attempt['available'] and detected_proxy is None:
             detected_proxy = attempt
+            if stop_after_first_available:
+                break
 
     return {
         'proxy': detected_proxy,
         'attempts': attempts,
     }
+
+
+def _is_reachable_probe_status(status):
+    try:
+        code = int(status)
+    except (TypeError, ValueError):
+        return False
+    return code > 0 and code < 500
+
+
+def _probe_direct_network_target(target, request_timeout=2.0):
+    target_name = str(target.get('name') or target.get('url') or 'target')
+    result = {
+        'name': target_name,
+        'url': target.get('url', ''),
+        'success': False,
+        'status': 0,
+        'latency': 0,
+        'detail': '',
+    }
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPHandler(),
+        urllib.request.HTTPSHandler(context=context),
+    )
+    try:
+        start = time.perf_counter()
+        request = urllib.request.Request(
+            target.get('url'),
+            method=target.get('method', 'HEAD'),
+            headers={
+                'User-Agent': 'CainFlow Network Detector',
+                'Connection': 'close',
+                'Cache-Control': 'no-cache',
+            },
+        )
+        with opener.open(request, timeout=request_timeout) as response:
+            status = getattr(response, 'status', 200)
+        result['status'] = int(status)
+        result['success'] = _is_reachable_probe_status(status)
+        result['latency'] = int((time.perf_counter() - start) * 1000)
+        result['detail'] = f'HTTP {status}'
+    except urllib.error.HTTPError as exc:
+        result['status'] = int(exc.code)
+        result['success'] = _is_reachable_probe_status(exc.code)
+        result['latency'] = int((time.perf_counter() - start) * 1000) if 'start' in locals() else 0
+        result['detail'] = f'HTTP {exc.code}'
+    except Exception as exc:
+        result['latency'] = int((time.perf_counter() - start) * 1000) if 'start' in locals() else 0
+        result['detail'] = _summarize_proxy_exception(exc)
+    return result
+
+
+def detect_network_path(proxy_enabled=False):
+    direct_attempts = []
+    reachable_attempt = None
+
+    for target in NETWORK_PATH_PROBE_TARGETS:
+        attempt = _probe_direct_network_target(target, request_timeout=2.0)
+        direct_attempts.append(attempt)
+        if attempt.get('success') and reachable_attempt is None:
+            reachable_attempt = attempt
+            break
+
+    local_proxy_detection = detect_available_proxy(
+        request_timeout=2.0,
+        connect_timeout=0.2,
+        stop_after_first_available=True,
+    )
+    local_proxy = local_proxy_detection.get('proxy')
+    transparent_proxy_likely = bool(reachable_attempt) and not proxy_enabled
+    effective_mode = 'proxy' if proxy_enabled or transparent_proxy_likely else 'direct'
+
+    return {
+        'proxyEnabled': bool(proxy_enabled),
+        'effectiveMode': effective_mode,
+        'reachable': bool(reachable_attempt),
+        'transparentProxyLikely': transparent_proxy_likely,
+        'localProxyDetected': bool(local_proxy),
+        'localProxy': local_proxy,
+        'latency': int(reachable_attempt.get('latency', 0) or 0) if reachable_attempt else 0,
+        'checkedTarget': reachable_attempt.get('name', '') if reachable_attempt else '',
+        'detail': reachable_attempt.get('detail', '') if reachable_attempt else (direct_attempts[0].get('detail', '网络探测失败') if direct_attempts else '网络探测失败'),
+        'attempts': direct_attempts,
+        'proxyAttempts': local_proxy_detection.get('attempts', []),
+    }
+
+
 def is_safe_url(url, allow_private_network_targets=False):
     try:
         parsed = urlparse(url)

@@ -4,7 +4,7 @@ import urllib.request
 
 from backend import state
 from backend.services.http_helpers import read_json_body, write_bytes, write_error, write_json, write_text
-from backend.services.security_service import check_proxy_health, detect_available_proxy, is_safe_url
+from backend.services.security_service import check_proxy_health, detect_available_proxy, detect_network_path, is_safe_url
 from backend.services.version_service import get_app_user_agent
 
 
@@ -103,6 +103,11 @@ def handle_post(handler):
                 'message': '未检测到可用代理，请确认代理软件已启动，或手动填写代理地址与端口。',
                 'attempts': attempts,
             })
+        return True
+
+    if handler.path == '/api/detect_network_path':
+        data = read_json_body(handler)
+        write_json(handler, detect_network_path(proxy_enabled=bool(data.get('proxyEnabled'))))
         return True
 
     if handler.path == '/api/proxy':
