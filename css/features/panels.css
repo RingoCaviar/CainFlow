@@ -20,6 +20,139 @@
     transition: opacity 0.2s ease;
 }
 
+.reference-image-count-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 9100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reference-image-count-dialog.hidden {
+    display: none;
+}
+
+.reference-image-count-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--settings-dialog-backdrop, rgba(0, 0, 0, 0.58));
+}
+
+.reference-image-count-panel {
+    position: relative;
+    width: min(420px, calc(100vw - 32px));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--settings-dialog-panel-bg, var(--panel-bg, rgba(22, 22, 42, 0.92))) 86%, transparent);
+    border: 1px solid color-mix(in srgb, var(--settings-dialog-panel-border, rgba(255, 255, 255, 0.14)) 72%, rgba(255, 255, 255, 0.28));
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    overflow: hidden;
+    backdrop-filter: blur(18px) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.reference-image-count-header,
+.reference-image-count-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+}
+
+.reference-image-count-header {
+    border-bottom: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.08));
+}
+
+.reference-image-count-header h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.reference-image-count-close {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font-size: 22px;
+    cursor: pointer;
+}
+
+.reference-image-count-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.reference-image-count-body {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+}
+
+.reference-image-count-body label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.reference-image-count-body input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--input-border, rgba(255, 255, 255, 0.16));
+    background: var(--input-bg, rgba(255, 255, 255, 0.08));
+    color: var(--text-primary);
+}
+
+.reference-image-count-stepper {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    align-items: stretch;
+    width: 100%;
+}
+
+.reference-image-count-stepper input {
+    border-radius: 0;
+    text-align: center;
+    border-left-color: rgba(255, 255, 255, 0.24);
+    border-right-color: rgba(255, 255, 255, 0.24);
+}
+
+.reference-image-count-step {
+    border: 1px solid color-mix(in srgb, var(--input-border, rgba(255, 255, 255, 0.18)) 62%, rgba(255, 255, 255, 0.36));
+    background: color-mix(in srgb, var(--input-bg, rgba(255, 255, 255, 0.08)) 78%, rgba(255, 255, 255, 0.14));
+    color: var(--text-primary);
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.reference-image-count-step:first-child {
+    border-radius: 6px 0 0 6px;
+}
+
+.reference-image-count-step:last-child {
+    border-radius: 0 6px 6px 0;
+}
+
+.reference-image-count-step:hover {
+    border-color: rgba(255, 255, 255, 0.42);
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.reference-image-count-body p {
+    margin: 0;
+    line-height: 1.6;
+    font-size: 12px;
+    color: var(--settings-dialog-muted-text, var(--text-dim));
+}
+
+.reference-image-count-footer {
+    justify-content: flex-end;
+    border-top: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.08));
+}
+
 .log-retention-control {
     display: inline-flex;
     align-items: center;

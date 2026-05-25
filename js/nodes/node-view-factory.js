@@ -11,6 +11,7 @@ import {
     normalizeImageResolutionForModel
 } from '../features/execution/provider-request-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
+import { applyReferenceImagePorts } from './reference-image-ports.js';
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -794,6 +795,8 @@ export function createNodeMarkup({ type, id, config, restoreData, state }) {
         effectiveConfig = { ...config, inputs: getTextMergeInputPorts(restoreData) };
     } else if (type === 'ImageMerge') {
         effectiveConfig = { ...config, inputs: getImageMergeInputPorts(restoreData) };
+    } else if (type === 'ImageGenerate' || type === 'TextChat') {
+        effectiveConfig = applyReferenceImagePorts(config, restoreData);
     }
     const isCollapsed = restoreData?.collapsed === true;
     const isClone = restoreData?.isClone === true && typeof restoreData?.cloneSourceId === 'string' && restoreData.cloneSourceId;

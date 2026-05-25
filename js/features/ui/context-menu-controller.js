@@ -14,9 +14,14 @@ export function createContextMenuControllerApi({
     runWorkflow,
     createNodeFromConnectionCandidate,
     updateAllConnections,
+    scheduleSave = () => {},
     showToast = null,
     documentRef = document
 }) {
+    const referenceImageNodeTypes = new Set(['ImageGenerate', 'TextChat']);
+    const defaultReferenceImageCount = 5;
+    const maxReferenceImageCount = 64;
+
     function setElementVisible(element, visible) {
         if (!element) return;
         element.style.display = visible ? 'flex' : 'none';
@@ -42,6 +47,7 @@ export function createContextMenuControllerApi({
         const runToHereItem = documentRef.getElementById('context-menu-run-to-here');
         const runSelectedItem = documentRef.getElementById('context-menu-run-selected');
         const renameNodeItem = documentRef.getElementById('context-menu-rename-node');
+        const referenceImageCountItem = documentRef.getElementById('context-menu-reference-image-count');
         const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
         const detachCloneNodeItem = documentRef.getElementById('context-menu-detach-clone-node');
         const divider = documentRef.getElementById('context-menu-node-divider');
@@ -51,6 +57,7 @@ export function createContextMenuControllerApi({
         setElementVisible(runToHereItem, hasNodeTarget);
         setElementVisible(runSelectedItem, hasSelection);
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
+        setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));
         setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(detachCloneNodeItem, hasNodeTarget && isCloneTarget);
 
@@ -66,6 +73,180 @@ export function createContextMenuControllerApi({
     let ignoreNextDocumentClickForConnectionPopup = false;
     let ignoreNextContextMenuClick = false;
     let closeSubmenuTimer = null;
+
+    function normalizeReferenceImageCount(value, fallback = defaultReferenceImageCount) {
+        const parsed = parseInt(value ?? fallback, 10);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.max(0, Math.min(maxReferenceImageCount, parsed));
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function renderReferenceImagePort(nodeId, index) {
+        return `<div class="node-port input" data-node-id="${nodeId}" data-port="image_${index + 1}" data-type="image" data-direction="input">
+                <div class="port-dot type-image"></div>
+                <span class="port-label">参考图 ${index + 1}</span>
+            </div>`;
+    }
+
+    function refreshReferenceImagePorts(nodeId, count) {
+        const node = state.nodes.get(nodeId);
+        if (!node || !referenceImageNodeTypes.has(node.type)) return;
+        const inputsSection = node.el?.querySelector('.node-inputs-section');
+        if (!inputsSection) return;
+
+        inputsSection.querySelectorAll('.node-port[data-direction="input"][data-type="image"][data-port^="image_"]').forEach((port) => port.remove());
+        const paramsPort = inputsSection.querySelector('.node-port[data-direction="input"][data-port="params"]');
+        const fragment = documentRef.createDocumentFragment();
+        for (let index = 0; index < count; index += 1) {
+            const wrapper = documentRef.createElement('div');
+            wrapper.innerHTML = renderReferenceImagePort(nodeId, index).trim();
+            fragment.appendChild(wrapper.firstElementChild);
+        }
+        if (paramsPort) {
+            inputsSection.insertBefore(fragment, paramsPort);
+        } else {
+            inputsSection.appendChild(fragment);
+        }
+
+        const validPorts = new Set(Array.from({ length: count }, (_, index) => `image_${index + 1}`));
+        state.connections = state.connections.filter((connection) => (
+            connection.to.nodeId !== nodeId ||
+            !/^image_\d+$/.test(String(connection.to.port || '')) ||
+            validPorts.has(connection.to.port)
+        ));
+        node.referenceImageCount = count;
+        node.data = node.data || {};
+        node.data.referenceImageCount = count;
+        updateAllConnections();
+        scheduleSave();
+    }
+
+    function getReferenceImageCountDialog() {
+        let dialog = documentRef.getElementById('reference-image-count-dialog');
+        if (dialog) return dialog;
+        dialog = documentRef.createElement('div');
+        dialog.id = 'reference-image-count-dialog';
+        dialog.className = 'reference-image-count-dialog hidden';
+        (documentRef.body || canvasContainer).appendChild(dialog);
+        return dialog;
+    }
+
+    function closeReferenceImageCountDialog() {
+        getReferenceImageCountDialog().classList.add('hidden');
+    }
+
+    function getNodeRenameDialog() {
+        let dialog = documentRef.getElementById('node-rename-dialog');
+        if (dialog) return dialog;
+        dialog = documentRef.createElement('div');
+        dialog.id = 'node-rename-dialog';
+        dialog.className = 'reference-image-count-dialog node-rename-dialog hidden';
+        (documentRef.body || canvasContainer).appendChild(dialog);
+        return dialog;
+    }
+
+    function closeNodeRenameDialog() {
+        getNodeRenameDialog().classList.add('hidden');
+    }
+
+    function openNodeRenameDialog(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node || typeof renameNode !== 'function') return;
+        const currentTitle = node.customTitle || node.defaultTitle || node.el?.querySelector('.node-title')?.textContent || '';
+        const dialog = getNodeRenameDialog();
+        dialog.innerHTML = `
+            <div class="reference-image-count-backdrop" data-close-node-rename="true"></div>
+            <div class="reference-image-count-panel" role="dialog" aria-modal="true" aria-labelledby="node-rename-title">
+                <div class="reference-image-count-header">
+                    <h3 id="node-rename-title">重命名节点</h3>
+                    <button type="button" class="reference-image-count-close" data-close-node-rename="true" title="关闭">×</button>
+                </div>
+                <div class="reference-image-count-body">
+                    <label for="node-rename-input">节点名称</label>
+                    <input id="node-rename-input" type="text" value="${escapeHtml(currentTitle)}" />
+                    <p>留空后点击确定，将还原节点原本的名字。</p>
+                </div>
+                <div class="reference-image-count-footer">
+                    <button type="button" class="btn btn-secondary" data-close-node-rename="true">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-confirm-node-rename">确定</button>
+                </div>
+            </div>
+        `;
+        dialog.classList.remove('hidden');
+        const input = dialog.querySelector('#node-rename-input');
+        input?.focus();
+        input?.select();
+        dialog.querySelectorAll('[data-close-node-rename="true"]').forEach((element) => {
+            element.addEventListener('click', closeNodeRenameDialog);
+        });
+        dialog.querySelector('#btn-confirm-node-rename')?.addEventListener('click', () => {
+            renameNode(nodeId, input?.value ?? '');
+            closeNodeRenameDialog();
+        });
+        input?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') dialog.querySelector('#btn-confirm-node-rename')?.click();
+        });
+    }
+
+    function openReferenceImageCountDialog(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node || !referenceImageNodeTypes.has(node.type)) return;
+        const currentCount = normalizeReferenceImageCount(node.referenceImageCount ?? node.data?.referenceImageCount);
+        const dialog = getReferenceImageCountDialog();
+        dialog.innerHTML = `
+            <div class="reference-image-count-backdrop" data-close-reference-image-count="true"></div>
+            <div class="reference-image-count-panel" role="dialog" aria-modal="true" aria-labelledby="reference-image-count-title">
+                <div class="reference-image-count-header">
+                    <h3 id="reference-image-count-title">修改参考图数量</h3>
+                    <button type="button" class="reference-image-count-close" data-close-reference-image-count="true" title="关闭">×</button>
+                </div>
+                <div class="reference-image-count-body">
+                    <label for="reference-image-count-input">参考图数量</label>
+                    <div class="reference-image-count-stepper">
+                        <button type="button" class="reference-image-count-step" data-reference-image-count-delta="-1" title="减少" aria-label="减少参考图数量">−</button>
+                        <input id="reference-image-count-input" type="number" min="0" max="${maxReferenceImageCount}" step="1" value="${currentCount}" />
+                        <button type="button" class="reference-image-count-step" data-reference-image-count-delta="1" title="增加" aria-label="增加参考图数量">+</button>
+                    </div>
+                    <p>默认数字是 5，不建议设置超过 16 个参考图，参考图太多会导致稳定性下降，具体支持多少参考图需要看 API 供应商，设置过多可能会被忽略</p>
+                </div>
+                <div class="reference-image-count-footer">
+                    <button type="button" class="btn btn-secondary" data-close-reference-image-count="true">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-confirm-reference-image-count">确定</button>
+                </div>
+            </div>
+        `;
+        dialog.classList.remove('hidden');
+        const input = dialog.querySelector('#reference-image-count-input');
+        input?.focus();
+        input?.select();
+        dialog.querySelectorAll('[data-close-reference-image-count="true"]').forEach((element) => {
+            element.addEventListener('click', closeReferenceImageCountDialog);
+        });
+        dialog.querySelector('#btn-confirm-reference-image-count')?.addEventListener('click', () => {
+            const nextCount = normalizeReferenceImageCount(input?.value, currentCount);
+            refreshReferenceImagePorts(nodeId, nextCount);
+            closeReferenceImageCountDialog();
+            showToast?.(`参考图数量已设置为 ${nextCount}`, 'success');
+        });
+        dialog.querySelectorAll('[data-reference-image-count-delta]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const delta = parseInt(button.dataset.referenceImageCountDelta || '0', 10) || 0;
+                const nextCount = normalizeReferenceImageCount((parseInt(input?.value || '0', 10) || 0) + delta, currentCount);
+                if (input) input.value = String(nextCount);
+            });
+        });
+        input?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') dialog.querySelector('#btn-confirm-reference-image-count')?.click();
+        });
+    }
 
     function getContextSubmenus() {
         return Array.from(documentRef.querySelectorAll('[data-context-submenu]'));
@@ -133,15 +314,13 @@ export function createContextMenuControllerApi({
 
             if (item.id === 'context-menu-rename-node') {
                 const nodeId = state.contextMenuNodeId;
-                const node = nodeId ? state.nodes.get(nodeId) : null;
-                if (!node || typeof renameNode !== 'function') return;
-                const currentTitle = node.customTitle || node.defaultTitle || node.el?.querySelector('.node-title')?.textContent || '';
-                const promptRef = documentRef.defaultView?.prompt || (typeof prompt !== 'undefined' ? prompt : null);
-                if (!promptRef) return;
-                const nextTitle = promptRef('请输入新的节点名称；留空将还原节点原本的名字', currentTitle);
-                if (nextTitle !== null) {
-                    renameNode(nodeId, nextTitle);
-                }
+                if (nodeId) openNodeRenameDialog(nodeId);
+                return;
+            }
+
+            if (item.id === 'context-menu-reference-image-count') {
+                const nodeId = state.contextMenuNodeId;
+                if (nodeId) openReferenceImageCountDialog(nodeId);
                 return;
             }
 
@@ -346,6 +525,8 @@ export function createContextMenuControllerApi({
             if (e.key === 'Escape') {
                 closeContextMenu();
                 closeConnectionCreatePopup();
+                closeReferenceImageCountDialog();
+                closeNodeRenameDialog();
             }
         });
 

@@ -3,6 +3,7 @@
  */
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
 import { cleanupElementResources, splitTextForTextSplitNode } from '../core/common-utils.js';
+import { getReferenceImageCount } from './reference-image-ports.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -729,6 +730,10 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        if (normalizedType === 'ImageGenerate' || normalizedType === 'TextChat') {
+            nodeData.referenceImageCount = getReferenceImageCount(effectiveRestoreData);
+            nodeData.data.referenceImageCount = nodeData.referenceImageCount;
+        }
         if (!nodeData.isClone) {
             nodeData.cloneSourceId = '';
         }

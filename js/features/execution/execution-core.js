@@ -792,7 +792,13 @@ export function createExecutionCoreApi({
     }
 
     function getReferenceImageInputs(inputs = {}) {
-        return ['image_1', 'image_2', 'image_3', 'image_4', 'image_5']
+        return Object.keys(inputs)
+            .filter((key) => /^image_\d+$/.test(key))
+            .sort((a, b) => {
+                const numA = parseInt(a.slice('image_'.length), 10) || 0;
+                const numB = parseInt(b.slice('image_'.length), 10) || 0;
+                return numA - numB;
+            })
             .map((key) => ({ key, value: getPrimaryImageInput(inputs[key]) }))
             .filter((entry) => entry.value);
     }

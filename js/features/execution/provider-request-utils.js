@@ -1,8 +1,17 @@
 /**
  * 统一封装供应商请求协议、模型能力与图片响应解析逻辑。
  */
-const IMAGE_INPUT_KEYS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5'];
 const VALID_PROTOCOLS = new Set(['google', 'openai']);
+
+function getImageInputKeys(inputs = {}) {
+    return Object.keys(inputs)
+        .filter((key) => /^image_\d+$/.test(key))
+        .sort((a, b) => {
+            const numA = parseInt(a.slice('image_'.length), 10) || 0;
+            const numB = parseInt(b.slice('image_'.length), 10) || 0;
+            return numA - numB;
+        });
+}
 
 export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
     { value: '', label: '默认 (1K)' },
@@ -287,7 +296,7 @@ function appendOpenAiPath(base, path) {
 }
 
 function hasOpenAiReferenceImages(inputs = {}) {
-    return IMAGE_INPUT_KEYS.some((key) => typeof inputs[key] === 'string' && inputs[key].trim());
+    return getImageInputKeys(inputs).some((key) => typeof inputs[key] === 'string' && inputs[key].trim());
 }
 
 export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
@@ -309,22 +318,22 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
 
 export function getInputInlineParts(inputs = {}) {
     const parts = [];
-    for (const key of IMAGE_INPUT_KEYS) {
+    getImageInputKeys(inputs).forEach((key) => {
         const value = inputs[key];
-        if (!value) continue;
+        if (!value) return;
         const match = value.match(/^data:(.+?);base64,(.+)$/);
         if (match) {
             parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
         }
-    }
+    });
     return parts;
 }
 
 export function getOpenAiImageContents(inputs = {}) {
     const imageContents = [];
-    for (const key of IMAGE_INPUT_KEYS) {
+    getImageInputKeys(inputs).forEach((key) => {
         if (inputs[key]) imageContents.push({ type: 'image_url', image_url: { url: inputs[key] } });
-    }
+    });
     return imageContents;
 }
 
@@ -385,7 +394,7 @@ function normalizeOpenAiImageQuality(quality) {
 }
 
 function getOpenAiReferenceImages(inputs = {}) {
-    return IMAGE_INPUT_KEYS
+    return getImageInputKeys(inputs)
         .map((key) => inputs[key])
         .filter((value) => typeof value === 'string' && value.trim());
 }

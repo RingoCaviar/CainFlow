@@ -878,7 +878,7 @@ export function createSettingsControllerApi({
             return;
         }
         if (result?.shouldNotify) {
-            showToast('检测到网络环境可能经过代理/透明代理，请查看右侧提醒', 'warning', 7000);
+            showToast('检测到网络环境可能经过代理/透明代理，请查看左侧通知', 'warning', 7000);
             return;
         }
         if (result?.reachable) {

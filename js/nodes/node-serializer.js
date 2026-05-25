@@ -74,6 +74,7 @@ export function createNodeSerializer({ state, documentRef }) {
             }
 
             if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
+                serialized.referenceImageCount = Math.max(0, parseInt(node.referenceImageCount ?? node.data?.referenceImageCount ?? '5', 10) || 0);
                 serialized.apiConfigId = documentRef.getElementById(`${id}-apiconfig`)?.value || 'default';
                 serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';

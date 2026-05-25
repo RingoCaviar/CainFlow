@@ -817,6 +817,7 @@ function getContextMenuControllerApi() {
             runWorkflow,
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             updateAllConnections,
+            scheduleSave,
             showToast
         });
     }
