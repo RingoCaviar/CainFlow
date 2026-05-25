@@ -172,6 +172,7 @@ export function createNodeSerializer({ state, documentRef }) {
             maxRetries: state.maxRetries,
             concurrentRequestMode: state.concurrentRequestMode,
             imageAutoResizeEnabled: state.imageAutoResizeEnabled,
+            imageSaveUsePromptFilename: state.imageSaveUsePromptFilename === true,
             imageMaxPixels: state.imageMaxPixels,
             connectionLineType: state.connectionLineType,
             toolbarPinned: state.toolbarPinned === true,

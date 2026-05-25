@@ -134,6 +134,7 @@ export function createProjectIoApi({
                     maxRetries: currentState.maxRetries !== undefined ? currentState.maxRetries : state.maxRetries,
                     concurrentRequestMode: currentState.concurrentRequestMode !== undefined ? currentState.concurrentRequestMode : state.concurrentRequestMode,
                     imageAutoResizeEnabled: currentState.imageAutoResizeEnabled !== undefined ? currentState.imageAutoResizeEnabled : state.imageAutoResizeEnabled,
+                    imageSaveUsePromptFilename: currentState.imageSaveUsePromptFilename !== undefined ? currentState.imageSaveUsePromptFilename : state.imageSaveUsePromptFilename,
                     imageMaxPixels: currentState.imageMaxPixels !== undefined ? currentState.imageMaxPixels : state.imageMaxPixels,
                     connectionLineType: currentState.connectionLineType !== undefined ? currentState.connectionLineType : state.connectionLineType,
                     toolbarPinned: currentState.toolbarPinned !== undefined ? currentState.toolbarPinned : state.toolbarPinned,
@@ -250,6 +251,9 @@ export function createProjectIoApi({
             }
             if (data.imageAutoResizeEnabled !== undefined) {
                 state.imageAutoResizeEnabled = !!data.imageAutoResizeEnabled;
+            }
+            if (data.imageSaveUsePromptFilename !== undefined) {
+                state.imageSaveUsePromptFilename = data.imageSaveUsePromptFilename === true;
             }
             if (data.imageMaxPixels !== undefined) {
                 state.imageMaxPixels = data.imageMaxPixels;

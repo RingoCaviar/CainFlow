@@ -1570,6 +1570,7 @@ export function createSettingsControllerApi({
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
         const autoCheckUpdatesOnLoad = state.autoCheckUpdatesOnLoad !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
+        const imageSaveUsePromptFilename = state.imageSaveUsePromptFilename === true;
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
         const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
@@ -1766,6 +1767,16 @@ export function createSettingsControllerApi({
                         <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">⚠️ 注意：受浏览器安全限制，无法读取完整路径，请自行记住所使用的文件夹位置。</p>
                         <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">局域网其他设备访问时无法使用自动保存功能。</p>
                     </div>
+                    <div class="card-field" style="margin-top:14px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                            <label style="margin:0;">保存图片时使用提示词命名</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-image-save-use-prompt-filename" ${imageSaveUsePromptFilename ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">开启后，保存节点会用生成该图片时的提示词加时间作为文件名。⚠️但如果提示词过长可能导致一些未知问题。</p>
+                    </div>
                 </div>
             </div>
 
@@ -1895,6 +1906,7 @@ export function createSettingsControllerApi({
         const sidebarPinnedInput = documentRef.getElementById('setting-sidebar-pinned');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
         const autoCheckUpdatesOnLoadInput = documentRef.getElementById('setting-auto-check-updates-on-load');
+        const imageSaveUsePromptFilenameInput = documentRef.getElementById('setting-image-save-use-prompt-filename');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
         const updateVolumeSliderProgress = () => {
@@ -2028,6 +2040,11 @@ export function createSettingsControllerApi({
 
         autoCheckUpdatesOnLoadInput?.addEventListener('change', (e) => {
             state.autoCheckUpdatesOnLoad = e.target.checked;
+            saveState();
+        });
+
+        imageSaveUsePromptFilenameInput?.addEventListener('change', (e) => {
+            state.imageSaveUsePromptFilename = e.target.checked;
             saveState();
         });
 

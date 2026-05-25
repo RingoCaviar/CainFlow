@@ -84,6 +84,7 @@ export function createInitialState() {
         logs: [],
         logRetentionDays: 1,
         globalSaveDirHandle: null,
+        imageSaveUsePromptFilename: false,
         justDragged: false,
         isInteracting: false,
         zoomTimer: null,

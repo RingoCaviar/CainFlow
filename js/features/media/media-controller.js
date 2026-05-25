@@ -98,6 +98,116 @@ export function createMediaControllerApi({
         return (hash >>> 0).toString(36);
     }
 
+    function sanitizeFilenamePart(value, fallback = 'image') {
+        const cleaned = String(value || '')
+            .replace(/[\\/:*?"<>|]/g, ' ')
+            .replace(/[\u0000-\u001f]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/[. ]+$/g, '');
+        const limited = cleaned.slice(0, 80).trim();
+        return limited || fallback;
+    }
+
+    function formatFilenameTimestamp(date = new Date()) {
+        const pad = (value) => String(value).padStart(2, '0');
+        return [
+            date.getFullYear(),
+            pad(date.getMonth() + 1),
+            pad(date.getDate())
+        ].join('-') + '_' + [
+            pad(date.getHours()),
+            pad(date.getMinutes()),
+            pad(date.getSeconds())
+        ].join('-');
+    }
+
+    function getImagePromptsFromNode(node, images) {
+        const imageList = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages || node?.data?.image || node?.imageData);
+        const promptList = Array.isArray(node?.data?.imagePromptList)
+            ? node.data.imagePromptList
+            : (Array.isArray(node?.imagePromptList) ? node.imagePromptList : []);
+        const promptByImage = new Map();
+        imageList.forEach((image, index) => {
+            const prompt = promptList[index];
+            if (image && typeof prompt === 'string' && prompt.trim()) promptByImage.set(image, prompt.trim());
+        });
+        return images.map((image, index) => {
+            if (promptByImage.has(image)) return promptByImage.get(image);
+            const prompt = promptList[index] || promptList[0] || node?.data?.prompt || node?.prompt || '';
+            return typeof prompt === 'string' ? prompt.trim() : '';
+        });
+    }
+
+    function getImagePromptsForNode(nodeId, images, visited = new Set()) {
+        if (!nodeId || visited.has(nodeId) || !Array.isArray(state.connections)) return images.map(() => '');
+        visited.add(nodeId);
+        const node = getNodeById(nodeId);
+        const directPrompts = getImagePromptsFromNode(node, images);
+        if (directPrompts.some((prompt) => prompt)) return directPrompts;
+        const incomingImageConnections = state.connections.filter((connection) =>
+            connection?.to?.nodeId === nodeId && connection?.to?.port === 'image'
+        );
+        for (const connection of incomingImageConnections) {
+            const prompts = getImagePromptsForNode(connection?.from?.nodeId, images, visited);
+            if (prompts.some((prompt) => prompt)) return prompts;
+        }
+        return images.map(() => '');
+    }
+
+    function getImageSavePrompts(nodeId, images) {
+        const node = getNodeById(nodeId);
+        if (!node || !Array.isArray(state.connections)) return images.map(() => '');
+        const incomingImageConnections = state.connections.filter((connection) =>
+            connection?.to?.nodeId === nodeId && connection?.to?.port === 'image'
+        );
+        for (const connection of incomingImageConnections) {
+            const prompts = getImagePromptsForNode(connection?.from?.nodeId, images);
+            if (prompts.some((prompt) => prompt)) return prompts;
+        }
+        return images.map(() => '');
+    }
+
+    function buildImageSaveFilenameBases(nodeId, images, fallbackPrefix, options = {}) {
+        const usePromptFilename = state.imageSaveUsePromptFilename === true;
+        const timestamp = formatFilenameTimestamp();
+        if (!usePromptFilename) {
+            return images.map((_, index) => {
+                const suffix = images.length > 1 ? `_${String(index + 1).padStart(2, '0')}` : '';
+                const prefix = sanitizeFilenamePart(fallbackPrefix);
+                return options.includeTimestamp ? `${prefix}_${timestamp}${suffix}` : `${prefix}${suffix}`;
+            });
+        }
+
+        const prompts = getImageSavePrompts(nodeId, images);
+        const promptCounts = new Map();
+        return images.map((_, index) => {
+            const promptBase = sanitizeFilenamePart(prompts[index], sanitizeFilenamePart(fallbackPrefix));
+            const key = promptBase.toLowerCase();
+            const count = (promptCounts.get(key) || 0) + 1;
+            promptCounts.set(key, count);
+            const duplicateSuffix = count > 1 ? `_${String(count).padStart(2, '0')}` : '';
+            return `${promptBase}_${timestamp}${duplicateSuffix}`;
+        });
+    }
+
+    async function getAvailableFileHandle(directoryHandle, baseName, extension = '.png') {
+        let counter = 0;
+        while (counter < 1000) {
+            const suffix = counter === 0 ? '' : `_${String(counter + 1).padStart(2, '0')}`;
+            const filename = `${baseName}${suffix}${extension}`;
+            try {
+                await directoryHandle.getFileHandle(filename, { create: false });
+                counter += 1;
+            } catch (error) {
+                if (error?.name !== 'NotFoundError') throw error;
+                const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+                return { fileHandle, filename };
+            }
+        }
+        throw new Error('无法生成不重复的文件名');
+    }
+
     function getResolutionCacheKey(value) {
         const source = String(value || '').trim();
         if (!source) return '';
@@ -1569,15 +1679,15 @@ export function createMediaControllerApi({
             const images = getStoredImageSaveList(node);
             if (!node || images.length === 0) return showToast('没有可保存的图片', 'warning');
             const filename = el.querySelector(`#${id}-filename`).value || 'image';
+            const filenameBases = buildImageSaveFilenameBases(id, images, filename);
             try {
                 images.forEach((image, index) => {
                     const blob = dataURLtoBlob(image);
                     const pngBlob = new Blob([blob], { type: 'image/png' });
                     const url = URL.createObjectURL(pngBlob);
                     const link = documentRef.createElement('a');
-                    const suffix = images.length > 1 ? `_${String(index + 1).padStart(2, '0')}` : '';
                     link.href = url;
-                    link.download = `${filename}${suffix}.png`;
+                    link.download = `${filenameBases[index]}.png`;
                     documentRef.body.appendChild(link);
                     link.click();
                     setTimeout(() => {
@@ -1637,13 +1747,11 @@ export function createMediaControllerApi({
                 }
             }
             const prefix = documentRef.getElementById(`${nodeId}-filename`)?.value || 'image';
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const filenameBases = buildImageSaveFilenameBases(nodeId, images, prefix, { includeTimestamp: true });
             const savedFilenames = [];
             for (let index = 0; index < images.length; index += 1) {
-                const suffix = images.length > 1 ? `_${String(index + 1).padStart(2, '0')}` : '';
-                const filename = `${prefix}_${timestamp}${suffix}.png`;
                 const blob = dataURLtoBlob(images[index]);
-                const fileHandle = await handle.getFileHandle(filename, { create: true });
+                const { fileHandle, filename } = await getAvailableFileHandle(handle, filenameBases[index]);
                 if (!fileHandle) throw new Error('无法创建文件');
                 const writable = await fileHandle.createWritable();
                 await writable.write(blob);

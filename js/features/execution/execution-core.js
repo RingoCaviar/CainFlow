@@ -171,19 +171,22 @@ export function createExecutionCoreApi({
         }
     }
 
-    function commitImageGenerateOutputs(node, images = []) {
+    function commitImageGenerateOutputs(node, images = [], prompt = '') {
         const normalizedImages = normalizeImageList(images);
         node.data = node.data || {};
         if (normalizedImages.length > 0) {
             node.data.images = normalizedImages.slice();
             node.data.image = normalizedImages[normalizedImages.length - 1];
+            node.data.imagePromptList = normalizedImages.map(() => prompt || '');
         } else {
             delete node.data.images;
             delete node.data.image;
+            delete node.data.imagePromptList;
         }
         node.imageDataList = normalizedImages.slice();
         node.imageData = normalizedImages[normalizedImages.length - 1] || null;
         node.generatedImages = normalizedImages.slice();
+        node.imagePromptList = normalizedImages.map(() => prompt || '');
         node.generationCompletedCount = normalizedImages.length;
         if (normalizedImages.length > 1) {
             void saveImageAssetList(node.id, normalizedImages);
@@ -940,7 +943,7 @@ export function createExecutionCoreApi({
                 );
                 const storedGeneratedImages = getStoredGeneratedImages(node, storedCompletedCount).slice(0, generationCount);
                 if (!executionContext.concurrentExecution) {
-                    commitImageGenerateOutputs(node, storedGeneratedImages);
+                    commitImageGenerateOutputs(node, storedGeneratedImages, prompt);
                 }
                 renderNodeApiGenerationProgress(node, {
                     current: executionContext.concurrentExecution ? 0 : node.generationCompletedCount,
@@ -961,7 +964,7 @@ export function createExecutionCoreApi({
                     if (completedBefore >= generationCount) {
                         const completedImages = normalizeImageList(generatedImages);
                         if (!executionContext.concurrentExecution) {
-                            commitImageGenerateOutputs(node, completedImages);
+                            commitImageGenerateOutputs(node, completedImages, prompt);
                             node.isSucceeded = true;
                             await refreshDependentImageResizePreviews(id);
                             updateAllConnections();
@@ -1092,7 +1095,7 @@ export function createExecutionCoreApi({
                     const completedImages = normalizeImageList(generatedImages);
                     if (rejectedRequests.length > 0) {
                         if (!executionContext.concurrentExecution) {
-                            commitImageGenerateOutputs(node, completedImages);
+                            commitImageGenerateOutputs(node, completedImages, prompt);
                             await refreshDependentImageResizePreviews(id);
                             updateAllConnections();
                         }
@@ -1108,7 +1111,7 @@ export function createExecutionCoreApi({
                     }
 
                     if (!executionContext.concurrentExecution) {
-                        commitImageGenerateOutputs(node, completedImages);
+                        commitImageGenerateOutputs(node, completedImages, prompt);
                         node.isSucceeded = true;
                         await refreshDependentImageResizePreviews(id);
                         updateAllConnections();
@@ -1202,7 +1205,7 @@ export function createExecutionCoreApi({
 
                     node.generatedImages = normalizeImageList(node.generatedImages);
                     node.generatedImages[nextGenerationIndex - 1] = imageData;
-                    commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex));
+                    commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
                         total: generationCount

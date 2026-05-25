@@ -236,6 +236,10 @@ export function createUiControllerApi({
             state.imageAutoResizeEnabled = !!settings.imageAutoResizeEnabled;
         }
 
+        if (settings.imageSaveUsePromptFilename !== undefined) {
+            state.imageSaveUsePromptFilename = settings.imageSaveUsePromptFilename === true;
+        }
+
         if (settings.imageMaxPixels !== undefined) {
             const imageMaxPixels = parseInt(settings.imageMaxPixels, 10);
             if (!Number.isNaN(imageMaxPixels) && imageMaxPixels > 0) {
@@ -314,6 +318,7 @@ export function createUiControllerApi({
                 maxRetries: state.maxRetries,
                 concurrentRequestMode: state.concurrentRequestMode,
                 imageAutoResizeEnabled: state.imageAutoResizeEnabled,
+                imageSaveUsePromptFilename: state.imageSaveUsePromptFilename === true,
                 imageMaxPixels: state.imageMaxPixels,
                 connectionLineType: state.connectionLineType,
                 toolbarPinned: state.toolbarPinned === true,
