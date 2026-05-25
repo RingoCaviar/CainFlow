@@ -570,17 +570,52 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
-    gap: 16px;
+    gap: 0;
 }
 
 #general-settings .general-settings-card .card-field {
+    flex: 0 0 auto;
     gap: 8px;
     min-width: 0;
 }
 
+#general-settings .general-settings-field-divider {
+    flex: 0 0 auto;
+    width: calc(100% - 48px);
+    height: 1px;
+    margin: 10px auto;
+    background: rgba(100, 116, 139, 0.18);
+}
+
+#general-settings .general-settings-field-divider + .card-field {
+    margin-top: 0 !important;
+}
+
 #general-settings .general-settings-card .card-field label {
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.4;
+}
+
+#general-settings .general-settings-card .card-field .general-settings-toggle-title {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding-left: 10px;
+    color: var(--text-primary) !important;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+#general-settings .general-settings-card .card-field .general-settings-toggle-title::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    width: 3px;
+    height: 1.1em;
+    border-radius: 999px;
+    background: var(--settings-primary-action-text);
+    opacity: 0.9;
 }
 
 #general-settings .general-settings-card .card-field p {

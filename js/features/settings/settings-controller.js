@@ -1685,7 +1685,7 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">系统版本与更新</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <label>当前版本与检查结果</label>
                         <div style="display:flex; flex-direction:column; gap:12px; width:100%;">
@@ -1704,9 +1704,10 @@ export function createSettingsControllerApi({
                                 ${updateActionButtonHtml}
                                 <button id="btn-check-update" class="btn btn-secondary" style="width:100%;">检查更新</button>
                             </div>
-                            <div class="card-field" style="margin-top:4px;">
+                            <div class="general-settings-field-divider" aria-hidden="true"></div>
+                            <div class="card-field">
                                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                                    <label style="margin:0;">加载页面时自动检查更新</label>
+                                    <label class="general-settings-toggle-title" style="margin:0;">加载页面时自动检查更新</label>
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="setting-auto-check-updates-on-load" ${autoCheckUpdatesOnLoad ? 'checked' : ''}>
                                         <span class="toggle-slider"></span>
@@ -1727,10 +1728,10 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">图片处理设置</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
-                    <div class="card-field" style="margin-bottom: 14px;">
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                    <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">导入时自动缩放</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">导入时自动缩放</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-auto-resize-enabled" ${autoResizeEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1738,6 +1739,7 @@ export function createSettingsControllerApi({
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); line-height: 1.4;">开启后，超出阈值的大图会在导入时自动缩小；关闭后将保留原图。</p>
                     </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <label>图片导入自适应缩放阈值 (边长)</label>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${autoResizeEnabled ? '1' : '0.55'};">
@@ -1753,7 +1755,7 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">存储设置</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <label>全局图片保存目录</label>
                         <div class="general-settings-dir-row" style="display:flex; align-items:center; gap:8px;">
@@ -1767,9 +1769,10 @@ export function createSettingsControllerApi({
                         <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">⚠️ 注意：受浏览器安全限制，无法读取完整路径，请自行记住所使用的文件夹位置。</p>
                         <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">局域网其他设备访问时无法使用自动保存功能。</p>
                     </div>
-                    <div class="card-field" style="margin-top:14px;">
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">保存图片时使用提示词命名</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">保存图片时使用提示词命名</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-image-save-use-prompt-filename" ${imageSaveUsePromptFilename ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1784,7 +1787,7 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">自动化与重试</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px;">
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <label>最大自动重试次数</label>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px;">
@@ -1797,9 +1800,10 @@ export function createSettingsControllerApi({
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：初始失败后，最多允许再尝试执行多少轮。</p>
                     </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">并发请求模式</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">并发请求模式</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-concurrent-request-mode" ${concurrentRequestMode ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1807,9 +1811,10 @@ export function createSettingsControllerApi({
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。</p>
                     </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">请求超时设置</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">请求超时设置</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-timeout-enabled" ${state.requestTimeoutEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1827,7 +1832,7 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布UI</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <label>连线类型</label>
                         <select id="setting-connection-line-type" style="width:100%;">
@@ -1836,9 +1841,10 @@ export function createSettingsControllerApi({
                         </select>
                         <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height:1.4;">切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。</p>
                     </div>
-                    <div class="card-field" style="margin-top:14px;">
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">顶部菜单栏固定显示</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">顶部菜单栏固定显示</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-toolbar-pinned" ${toolbarPinned ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1846,9 +1852,10 @@ export function createSettingsControllerApi({
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。</p>
                     </div>
-                    <div class="card-field" style="margin-top:14px;">
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">左侧工具栏固定显示</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">左侧工具栏固定显示</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-sidebar-pinned" ${sidebarPinned ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1856,9 +1863,10 @@ export function createSettingsControllerApi({
                         </div>
                         <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。</p>
                     </div>
-                    <div class="card-field" style="margin-top:14px;">
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label style="margin:0;">全局动画开关</label>
+                            <label class="general-settings-toggle-title" style="margin:0;">全局动画开关</label>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-global-animation-enabled" ${globalAnimationEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -1872,7 +1880,7 @@ export function createSettingsControllerApi({
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <label>完成音效音量</label>
                         <div class="general-settings-volume-row" style="display:flex; align-items:center; gap:12px;">
