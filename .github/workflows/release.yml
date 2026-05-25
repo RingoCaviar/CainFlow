@@ -36,52 +36,9 @@ jobs:
           python --version
           python -m PyInstaller --version
 
-      - name: Ensure directories exist
+      - name: Build Release Zip
         shell: pwsh
         run: |
-          if (!(Test-Path "css")) { New-Item -ItemType Directory -Path "css" }
-          if (!(Test-Path "js")) { New-Item -ItemType Directory -Path "js" }
-          if (!(Test-Path "sounds")) { New-Item -ItemType Directory -Path "sounds" }
-
-      - name: Build Launcher EXE
-        shell: pwsh
-        run: |
-          if (Test-Path "build") { Remove-Item "build" -Recurse -Force }
-          if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
-          if (Test-Path "CainFlow_Launcher.spec") { Remove-Item "CainFlow_Launcher.spec" -Force }
-
-          # Build with bundled static assets
-          python -m PyInstaller --clean --noconfirm --log-level INFO --onefile --name "CainFlow_Launcher" --icon "cainflow.ico" `
-            --add-data "index.html;." `
-            --add-data "index.js;." `
-            --add-data "index.css;." `
-            --add-data "cainflow.ico;." `
-            --add-data "css;css" `
-            --add-data "js;js" `
-            --add-data "sounds;sounds" `
-            server.py
-
-      - name: Prepare Distribution Folder
-        shell: pwsh
-        run: |
-          # Create a staging directory
-          if (Test-Path "release_staging") { Remove-Item "release_staging" -Recurse -Force }
-          New-Item -ItemType Directory -Path "release_staging"
-          
-          # Move the compiled EXE to the staging folder
-          Copy-Item "dist/CainFlow_Launcher.exe" "release_staging/CainFlow.exe"
-          
-          # Copy external runtime data directories to the distribution
-          if (Test-Path "workflows") {
-            Copy-Item "workflows" -Destination "release_staging" -Recurse
-          } else {
-            New-Item -ItemType Directory -Path "release_staging/workflows"
-          }
-
-      - name: Create Zip Archive
-        shell: pwsh
-        run: |
-          # Use tag name if triggered by a tag, otherwise use branch+short SHA
           $REF = "${{ github.ref }}"
           if ($REF -like 'refs/tags/*') {
             $TAG_NAME = "${{ github.ref_name }}"
@@ -89,8 +46,7 @@ jobs:
             $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
             $TAG_NAME = "${{ github.ref_name }}-$SHORT_SHA"
           }
-          # Create a zip named Cainflow_vX.Y.Z.zip
-          Compress-Archive -Path "release_staging/*" -DestinationPath "Cainflow_$TAG_NAME.zip"
+          ./scripts/build-release-local.ps1 -TagName $TAG_NAME -Python python -SkipDependencyInstall
 
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v2
@@ -102,3 +58,10 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Workflow Artifact
+        uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: CainFlow-${{ github.run_number }}
+          path: Cainflow_*.zip

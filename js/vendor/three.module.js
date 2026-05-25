@@ -3,6 +3,15 @@
  * Copyright 2010-2024 Three.js Authors
  * SPDX-License-Identifier: MIT
  */
+/**
+ * Third-party dependency notice:
+ * This file is a vendored copy of Three.js r167, distributed under the MIT License.
+ * Original project: https://github.com/mrdoob/three.js
+ *
+ * CainFlow is distributed under GPL-3.0, but this file remains under the
+ * Three.js MIT License. Keep the original copyright and license notices intact.
+ * See the project NOTICE file for the full third-party license text.
+ */
 const REVISION = '167';
 
 const MOUSE = { LEFT: 0, MIDDLE: 1, RIGHT: 2, ROTATE: 0, DOLLY: 1, PAN: 2 };

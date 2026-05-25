@@ -101,15 +101,33 @@ $zipName = "Cainflow_$releaseName.zip"
 Remove-PathIfExists $zipName
 
 Write-Step "Building CainFlow_Launcher.exe with PyInstaller"
-& pyinstaller --onefile --name "CainFlow_Launcher" --icon "cainflow.ico" `
-  --add-data "index.html;." `
-  --add-data "index.js;." `
-  --add-data "index.css;." `
-  --add-data "cainflow.ico;." `
-  --add-data "css;css" `
-  --add-data "js;js" `
-  --add-data "sounds;sounds" `
-  server.py
+$pyInstallerArgs = @(
+  "-m", "PyInstaller",
+  "--clean",
+  "--noconfirm",
+  "--log-level", "INFO",
+  "--onefile",
+  "--optimize", "2",
+  "--exclude-module", "asyncio",
+  "--exclude-module", "doctest",
+  "--exclude-module", "multiprocessing",
+  "--exclude-module", "pdb",
+  "--exclude-module", "sqlite3",
+  "--exclude-module", "test",
+  "--exclude-module", "tkinter",
+  "--exclude-module", "unittest",
+  "--name", "CainFlow_Launcher",
+  "--icon", "cainflow.ico",
+  "--add-data", "index.html;.",
+  "--add-data", "index.js;.",
+  "--add-data", "index.css;.",
+  "--add-data", "cainflow.ico;.",
+  "--add-data", "css;css",
+  "--add-data", "js;js",
+  "--add-data", "sounds;sounds",
+  "server.py"
+)
+& $Python @pyInstallerArgs
 
 if (!(Test-Path -LiteralPath "dist/CainFlow_Launcher.exe")) {
   throw "PyInstaller completed, but dist/CainFlow_Launcher.exe was not found."
@@ -118,6 +136,12 @@ if (!(Test-Path -LiteralPath "dist/CainFlow_Launcher.exe")) {
 Write-Step "Preparing release_staging"
 New-Item -ItemType Directory -Path "release_staging" | Out-Null
 Copy-Item -LiteralPath "dist/CainFlow_Launcher.exe" -Destination "release_staging/CainFlow.exe"
+
+foreach ($noticeFile in @("LICENSE", "NOTICE")) {
+  if (Test-Path -LiteralPath $noticeFile) {
+    Copy-Item -LiteralPath $noticeFile -Destination "release_staging/$noticeFile"
+  }
+}
 
 if (Test-Path -LiteralPath "workflows") {
   Copy-Item -LiteralPath "workflows" -Destination "release_staging" -Recurse
