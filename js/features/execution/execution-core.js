@@ -78,6 +78,26 @@ export function createExecutionCoreApi({
         requestNodeFit(nodeId);
     }
 
+    function classifyVideoUrlForLog(videoUrl = '') {
+        const value = String(videoUrl || '').trim();
+        if (!value) return { kind: 'empty', label: '空链接' };
+        try {
+            const parsed = new URL(value, windowRef.location?.href || 'http://localhost');
+            const host = String(parsed.hostname || '').toLowerCase();
+            const query = String(parsed.search || '');
+            const isSigned = query.includes('Signature=') || query.includes('Expires=')
+                || query.includes('response-content-disposition=')
+                || host.includes('flow-content.google')
+                || host.includes('storage.googleapis.com');
+            return {
+                kind: isSigned ? 'signed-video-direct' : 'normal-video-url',
+                label: isSigned ? '签名视频直链' : '普通视频链接'
+            };
+        } catch (_) {
+            return { kind: 'unknown-video-url', label: '未知视频链接' };
+        }
+    }
+
     function renderApiGenerationProgressState(nodeId, {
         current = 0,
         total = 1
@@ -520,7 +540,7 @@ export function createExecutionCoreApi({
         prompt
     }) {
         const maxAttempts = 180;
-        const intervalMs = 5000;
+        const intervalMs = 10000;
         const max404Retries = 5;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -615,9 +635,18 @@ export function createExecutionCoreApi({
             });
             const status = extractVideoStatus(result, protocol);
             const extracted = extractVideoResult(result, protocol);
+            const videoUrlMeta = classifyVideoUrlForLog(extracted.url);
 
             if (status === 'completed' || status === 'succeeded' || status === 'success' || extracted.url) {
                 let finalUrl = extracted.url;
+                if (finalUrl) {
+                    addLog('info', `视频结果链接: ${modelCfg.name} (${attempt}/${maxAttempts})`, `已识别为${videoUrlMeta.label}`, {
+                        videoId,
+                        videoUrl: finalUrl,
+                        videoUrlType: videoUrlMeta.kind,
+                        videoUrlLabel: videoUrlMeta.label
+                    });
+                }
                 if (protocol === 'veo-openai' && !finalUrl) {
                     const downloadUrl = resolveProviderUrl(apiCfg, modelCfg, 'video', {
                         action: 'download',

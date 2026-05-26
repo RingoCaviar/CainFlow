@@ -2,8 +2,10 @@ import os
 import socket
 import ssl
 import threading
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.client import RemoteDisconnected
 from urllib.parse import quote, urlparse
 
@@ -11,6 +13,12 @@ from backend import config
 from backend.services.log_service import finalize_request_log, set_error_data, set_request_data, set_response_data
 from backend.services.security_service import build_upstream_opener, is_safe_url
 from backend.services.version_service import get_app_user_agent
+
+
+MULTIPART_MIN_BYTES = 8 * 1024 * 1024
+MULTIPART_CHUNK_BYTES = 4 * 1024 * 1024
+MULTIPART_MAX_WORKERS = 4
+MULTIPART_SLOW_SPEED_BYTES_PER_SECOND = 768 * 1024
 
 
 def _is_client_disconnect_error(error):
@@ -54,6 +62,26 @@ def _guess_extension_from_content_type(content_type):
 def _is_video_content_type(content_type):
     lowered = str(content_type or '').lower()
     return lowered.startswith('video/')
+
+
+def _looks_like_downloadable_video_url(target_url):
+    parsed = urlparse(str(target_url or ''))
+    if parsed.scheme not in ('http', 'https'):
+        return False
+
+    path = str(parsed.path or '').lower()
+    if any(path.endswith(ext) for ext in ('.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v')):
+        return True
+
+    query_text = str(parsed.query or '')
+    if any(token in query_text for token in ('Signature=', 'Expires=', 'response-content-disposition=', 'download=')):
+        return True
+
+    host = str(parsed.netloc or '').lower()
+    if 'flow-content.google' in host or 'storage.googleapis.com' in host:
+        return True
+
+    return False
 
 
 def _looks_like_video_bytes(sample, content_type=''):
@@ -104,6 +132,142 @@ def _build_content_disposition(filename):
         ascii_name = f'video{ext or ".mp4"}'
     encoded_name = quote(safe_name, safe='')
     return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
+
+
+def _get_header(headers, name, default=''):
+    target = str(name or '').lower()
+    for key, value in headers or []:
+        if str(key).lower() == target:
+            return value
+    return default
+
+
+def _parse_content_length(value):
+    try:
+        parsed = int(str(value or '').strip())
+        return parsed if parsed > 0 else None
+    except Exception:
+        return None
+
+
+def _supports_range_download(headers, content_length):
+    if not content_length or content_length < MULTIPART_MIN_BYTES:
+        return False
+    accept_ranges = str(_get_header(headers, 'accept-ranges') or '').lower()
+    content_range = str(_get_header(headers, 'content-range') or '').lower()
+    return accept_ranges == 'bytes' or content_range.startswith('bytes ')
+
+
+def _download_range(opener, target_url, base_headers, start, end):
+    range_headers = dict(base_headers or {})
+    range_headers['Range'] = f'bytes={start}-{end}'
+    range_headers['Connection'] = 'close'
+    request = urllib.request.Request(target_url, headers=range_headers, method='GET')
+    response = opener.open(request, timeout=300.0)
+    try:
+        status = int(getattr(response, 'status', 0) or 0)
+        if status != 206:
+            raise ValueError(f'远程源不支持分段下载：Range {start}-{end} 返回 HTTP {status}')
+        data = response.read()
+        expected = end - start + 1
+        if len(data) != expected:
+            raise ValueError(f'分段下载长度不匹配：Range {start}-{end} 期望 {expected} B，实际 {len(data)} B')
+        return start, data
+    finally:
+        response.close()
+
+
+def _stream_multipart_download(handler, opener, target_url, base_headers, total_size, response_headers_to_send, content_type):
+    handler.send_response(200)
+    for key, value in response_headers_to_send:
+        handler.send_header(key, value)
+    handler.end_headers()
+    handler.close_connection = True
+
+    ranges = []
+    start = 0
+    while start < total_size:
+        end = min(total_size - 1, start + MULTIPART_CHUNK_BYTES - 1)
+        ranges.append((start, end))
+        start = end + 1
+
+    preview = bytearray()
+    total_bytes = 0
+    pending = {}
+    next_index = 0
+    next_to_write = 0
+
+    set_request_data(
+        handler,
+        multipartDownload={
+            'enabled': True,
+            'workers': MULTIPART_MAX_WORKERS,
+            'chunkBytes': MULTIPART_CHUNK_BYTES,
+            'totalBytes': total_size,
+            'chunkCount': len(ranges),
+        },
+    )
+
+    try:
+        with ThreadPoolExecutor(max_workers=MULTIPART_MAX_WORKERS) as executor:
+            futures = {}
+
+            def submit_more():
+                nonlocal next_index
+                while next_index < len(ranges) and len(futures) < MULTIPART_MAX_WORKERS:
+                    start_pos, end_pos = ranges[next_index]
+                    future = executor.submit(_download_range, opener, target_url, base_headers, start_pos, end_pos)
+                    futures[future] = start_pos
+                    next_index += 1
+
+            submit_more()
+            while futures:
+                for future in as_completed(list(futures.keys())):
+                    futures.pop(future)
+                    range_start, data = future.result()
+                    pending[range_start] = data
+                    submit_more()
+
+                    while next_to_write in pending:
+                        chunk = pending.pop(next_to_write)
+                        total_bytes += len(chunk)
+                        remaining = config.LOG_BODY_PREVIEW_BYTES - len(preview)
+                        if remaining > 0:
+                            preview.extend(chunk[:remaining])
+                        handler.wfile.write(chunk)
+                        handler.wfile.flush()
+                        next_to_write += len(chunk)
+                    break
+    except Exception as error:
+        if _is_client_disconnect_error(error):
+            set_response_data(
+                handler,
+                status=200,
+                headers=response_headers_to_send,
+                body=bytes(preview),
+                content_type=content_type,
+                total_bytes=total_bytes,
+                partial=total_bytes > len(preview),
+                bytesSent=total_bytes,
+                multipartDownload=True,
+            )
+            set_error_data(handler, 'Client disconnected during multipart media download', detail=error, exception=error, category='client_disconnect')
+            finalize_request_log(handler)
+            return
+        raise
+
+    set_response_data(
+        handler,
+        status=200,
+        headers=response_headers_to_send,
+        body=bytes(preview),
+        content_type=content_type,
+        total_bytes=total_bytes,
+        partial=total_bytes > len(preview),
+        bytesSent=total_bytes,
+        multipartDownload=True,
+    )
+    finalize_request_log(handler)
 
 
 def stream_remote_download(handler, target_url, filename=''):
@@ -185,7 +349,7 @@ def stream_remote_download(handler, target_url, filename=''):
             f'{error_preview.decode("utf-8", errors="replace")[:400]}'
         )
 
-    if not _is_video_content_type(content_type):
+    if not _is_video_content_type(content_type) and not _looks_like_downloadable_video_url(target_url):
         try:
             error_preview = response_handle.read(config.LOG_BODY_PREVIEW_BYTES)
         finally:
@@ -197,7 +361,10 @@ def stream_remote_download(handler, target_url, filename=''):
         )
 
     download_name = _build_download_filename(target_url, filename=filename, content_type=content_type)
+    first_read_started_at = time.time()
     first_chunk = response_handle.read(config.PROXY_STREAM_CHUNK_SIZE)
+    first_read_elapsed = max(0.001, time.time() - first_read_started_at)
+    first_read_speed = len(first_chunk or b'') / first_read_elapsed
     if not _looks_like_video_bytes(first_chunk, content_type):
         try:
             remainder_preview = response_handle.read(config.LOG_BODY_PREVIEW_BYTES)
@@ -210,13 +377,73 @@ def stream_remote_download(handler, target_url, filename=''):
             f'{preview_bytes.decode("utf-8", errors="replace")[:400]}'
         )
 
+    normalized_content_type = content_type or ''
+    if not _is_video_content_type(normalized_content_type):
+        guessed_ext = _guess_extension_from_content_type(normalized_content_type)
+        if guessed_ext == '.webm':
+            normalized_content_type = 'video/webm'
+        elif guessed_ext == '.mov':
+            normalized_content_type = 'video/quicktime'
+        elif guessed_ext == '.avi':
+            normalized_content_type = 'video/x-msvideo'
+        elif guessed_ext == '.mkv':
+            normalized_content_type = 'video/x-matroska'
+        else:
+            normalized_content_type = 'video/mp4'
+
     response_headers_to_send = [
-        ('Content-Type', content_type or 'application/octet-stream'),
+        ('Content-Type', normalized_content_type),
         ('Content-Disposition', _build_content_disposition(download_name)),
         ('Connection', 'close'),
     ]
     if content_length:
         response_headers_to_send.append(('Content-Length', str(content_length)))
+
+    parsed_content_length = _parse_content_length(content_length)
+    can_use_multipart = (
+        _supports_range_download(upstream_headers, parsed_content_length)
+        and first_read_speed > 0
+        and first_read_speed < MULTIPART_SLOW_SPEED_BYTES_PER_SECOND
+    )
+    if can_use_multipart:
+        try:
+            if response_handle:
+                response_handle.close()
+            set_request_data(
+                handler,
+                multipartDecision={
+                    'enabled': True,
+                    'reason': 'slow_initial_stream',
+                    'initialSpeedBytesPerSecond': int(first_read_speed),
+                    'thresholdBytesPerSecond': MULTIPART_SLOW_SPEED_BYTES_PER_SECOND,
+                    'contentLength': parsed_content_length,
+                },
+            )
+            _stream_multipart_download(
+                handler,
+                opener,
+                target_url,
+                headers,
+                parsed_content_length,
+                response_headers_to_send,
+                normalized_content_type,
+            )
+            return
+        except Exception as error:
+            set_error_data(handler, 'Multipart media download failed', detail=error, exception=error, category='multipart_download')
+            raise
+
+    set_request_data(
+        handler,
+        multipartDecision={
+            'enabled': False,
+            'reason': 'fast_enough_or_unsupported',
+            'initialSpeedBytesPerSecond': int(first_read_speed),
+            'thresholdBytesPerSecond': MULTIPART_SLOW_SPEED_BYTES_PER_SECOND,
+            'contentLength': parsed_content_length,
+            'rangeSupported': _supports_range_download(upstream_headers, parsed_content_length),
+        },
+    )
 
     handler.send_response(upstream['status'])
     for key, value in response_headers_to_send:
@@ -253,7 +480,7 @@ def stream_remote_download(handler, target_url, filename=''):
                 status=upstream['status'],
                 headers=response_headers_to_send,
                 body=bytes(preview),
-                content_type=content_type,
+                content_type=normalized_content_type,
                 total_bytes=total_bytes,
                 partial=total_bytes > len(preview),
                 bytesSent=total_bytes,
@@ -271,7 +498,7 @@ def stream_remote_download(handler, target_url, filename=''):
         status=upstream['status'],
         headers=response_headers_to_send,
         body=bytes(preview),
-        content_type=content_type,
+        content_type=normalized_content_type,
         total_bytes=total_bytes,
         partial=total_bytes > len(preview),
         bytesSent=total_bytes,

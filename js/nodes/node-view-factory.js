@@ -475,7 +475,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormField({
             label: '提示词',
             fieldClass: 'node-field-expand',
-            content: `<textarea id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
+            content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
         })}
         ${renderNodeFormField({
             label: '生成进度',

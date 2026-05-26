@@ -17,8 +17,17 @@ export function getReferenceImageCount(restoreData = {}) {
     );
 }
 
-export function getReferenceImageInputPorts(restoreData = {}) {
+export function getReferenceImageInputPorts(restoreData = {}, nodeType = '') {
     const count = getReferenceImageCount(restoreData);
+    const normalizedNodeType = String(nodeType || restoreData?.type || restoreData?.nodeType || '').trim();
+    if (normalizedNodeType === 'VideoGenerate') {
+        const labels = ['首帧', '尾帧', '参考图 1', '参考图 2', '参考图 3'];
+        return Array.from({ length: count }, (_, index) => ({
+            name: `image_${index + 1}`,
+            type: 'image',
+            label: labels[index] || `参考图 ${Math.max(1, index - 1)}`
+        }));
+    }
     return Array.from({ length: count }, (_, index) => ({
         name: `image_${index + 1}`,
         type: 'image',
@@ -32,7 +41,7 @@ export function applyReferenceImagePorts(config, restoreData = {}) {
         ? config.inputs.filter((port) => !(port?.type === 'image' && /^image_\d+$/.test(String(port?.name || ''))))
         : [];
     const paramsIndex = baseInputs.findIndex((port) => port?.name === 'params');
-    const referencePorts = getReferenceImageInputPorts(restoreData);
+    const referencePorts = getReferenceImageInputPorts(restoreData, config?.type || '');
     const inputs = paramsIndex >= 0
         ? [
             ...baseInputs.slice(0, paramsIndex),

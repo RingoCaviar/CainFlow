@@ -1288,11 +1288,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 
 .node-form-note {
     margin-top: 2px;
-    font-size: 11px;
-    line-height: 1.5;
     color: var(--text-dim);
-    white-space: normal;
-    word-break: break-word;
 }
 
 .node-field-expand {
@@ -1502,15 +1498,11 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     display: none;
     margin-top: 6px;
     color: #f87171;
-    font-size: 11px;
-    line-height: 1.45;
 }
 
 .image-resolution-param-note {
     margin-top: 6px;
     color: var(--text-dim);
-    font-size: 11px;
-    line-height: 1.45;
 }
 
 .node-field input::placeholder,
@@ -2054,6 +2046,16 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     gap: 6px;
     padding: 20px 18px;
     line-height: 1.5;
+}
+
+.node-image-generate textarea.image-generate-prompt {
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.node-image-generate textarea.image-generate-prompt::placeholder {
+    font-size: 11px;
+    line-height: 1.45;
 }
 
 .image-generation-progress {
@@ -2952,11 +2954,7 @@ body.is-interacting #canvas-container * {
     display: block;
     width: 100%;
     margin-top: 2px;
-    font-size: 11px;
-    line-height: 1.5;
     color: var(--text-dim);
-    white-space: normal;
-    word-break: break-word;
 }
 
 .node-video-generate .node-field textarea {

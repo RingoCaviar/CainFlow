@@ -515,6 +515,23 @@ function getOpenAiReferenceImages(inputs = {}) {
         .filter((value) => typeof value === 'string' && value.trim());
 }
 
+function getImageInputUrl(inputs = {}, key = '') {
+    const value = inputs[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function getUnifiedVideoFrameImages(inputs = {}) {
+    return ['image_1', 'image_2']
+        .map((key) => getImageInputUrl(inputs, key))
+        .filter(Boolean);
+}
+
+function getUnifiedVideoIngredientImages(inputs = {}) {
+    return ['image_3', 'image_4', 'image_5']
+        .map((key) => getImageInputUrl(inputs, key))
+        .filter(Boolean);
+}
+
 export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs = {} }) {
     const requestBody = {
         model: modelCfg.modelId,
@@ -544,11 +561,11 @@ export function buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio, enhanc
     requestBody.enhance_prompt = enhancePrompt === true;
     requestBody.enable_upsample = enableUpsample === true;
 
-    const referenceImages = getOpenAiReferenceImages(inputs);
-    if (referenceImages.length > 0) {
-        requestBody.image = referenceImages[0];
-        requestBody.images = referenceImages;
-    }
+    const frameImages = getUnifiedVideoFrameImages(inputs);
+    if (frameImages.length > 0) requestBody.images = frameImages;
+
+    const ingredientImages = getUnifiedVideoIngredientImages(inputs);
+    if (ingredientImages.length > 0) requestBody.Ingredients_images = ingredientImages;
 
     return applyCustomRequestParams(requestBody, inputs);
 }
@@ -561,11 +578,11 @@ export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, inputs 
 
     if (aspectRatio) requestBody.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
 
-    const referenceImages = getOpenAiReferenceImages(inputs);
-    if (referenceImages.length > 0) {
-        requestBody.image = referenceImages[0];
-        requestBody.reference_images = referenceImages;
-    }
+    const frameImages = getUnifiedVideoFrameImages(inputs);
+    if (frameImages.length > 0) requestBody.images = frameImages;
+
+    const ingredientImages = getUnifiedVideoIngredientImages(inputs);
+    if (ingredientImages.length > 0) requestBody.Ingredients_images = ingredientImages;
 
     return applyCustomRequestParams(requestBody, inputs);
 }
@@ -682,19 +699,30 @@ export function extractVideoStatus(result, protocol = '') {
 }
 
 export function extractVideoResult(result, protocol = '') {
+    const pickVideoUrl = (data = {}) => {
+        const candidates = [
+            data?.content_url,
+            data?.video_url,
+            data?.url,
+            Array.isArray(data?.result_urls) ? data.result_urls[0] : '',
+            Array.isArray(data?.video_urls) ? data.video_urls[0] : '',
+            Array.isArray(data?.metadata?.result_urls) ? data.metadata.result_urls[0] : '',
+            Array.isArray(data?.metadata?.video_urls) ? data.metadata.video_urls[0] : ''
+        ];
+        const matched = candidates.find((value) => typeof value === 'string' && value.trim());
+        return typeof matched === 'string' ? matched.trim() : '';
+    };
+
     if (protocol === 'veo-openai') {
         return {
-            url: typeof result?.content_url === 'string' ? result.content_url.trim() : '',
+            url: pickVideoUrl(result),
             revisedPrompt: typeof result?.prompt === 'string' ? result.prompt : ''
         };
     }
     if (protocol === 'doubao-video') {
         const data = result?.data && typeof result.data === 'object' ? result.data : result;
-        const videoUrl = typeof data?.video_url === 'string'
-            ? data.video_url.trim()
-            : (typeof data?.url === 'string' ? data.url.trim() : '');
         return {
-            url: videoUrl,
+            url: pickVideoUrl(data),
             revisedPrompt: typeof data?.prompt === 'string'
                 ? data.prompt
                 : (typeof data?.text === 'string' ? data.text : '')
@@ -703,9 +731,7 @@ export function extractVideoResult(result, protocol = '') {
 
     const data = result?.data && typeof result.data === 'object' ? result.data : result;
     return {
-        url: typeof data?.url === 'string'
-            ? data.url.trim()
-            : (typeof data?.video_url === 'string' ? data.video_url.trim() : ''),
+        url: pickVideoUrl(data),
         revisedPrompt: typeof data?.prompt === 'string' ? data.prompt : ''
     };
 }

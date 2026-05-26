@@ -238,6 +238,11 @@ export function createMediaControllerApi({
         return `${Math.round(bytes)} B`;
     }
 
+    function formatProgressSpeed(bytesPerSecond) {
+        const speed = Number(bytesPerSecond) || 0;
+        return speed > 0 ? `${formatProgressBytes(speed)}/s` : '等待数据';
+    }
+
     async function blobLooksLikeVideo(blob) {
         if (!blob || typeof blob.slice !== 'function') return false;
         const headerBlob = blob.slice(0, 64);
@@ -269,6 +274,37 @@ export function createMediaControllerApi({
             return true;
         }
         return false;
+    }
+
+    function isLikelyDownloadableVideoUrl(videoUrl = '') {
+        const value = String(videoUrl || '').trim();
+        if (!value) return false;
+        try {
+            const parsed = new URL(value, windowRef.location?.href || 'http://localhost');
+            const pathname = String(parsed.pathname || '').toLowerCase();
+            if (['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'].some((ext) => pathname.endsWith(ext))) {
+                return true;
+            }
+            const query = String(parsed.search || '');
+            if (query.includes('Signature=') || query.includes('Expires=') || query.includes('response-content-disposition=')) {
+                return true;
+            }
+            const host = String(parsed.hostname || '').toLowerCase();
+            if (host.includes('flow-content.google') || host.includes('storage.googleapis.com')) {
+                return true;
+            }
+        } catch (_) {
+            return false;
+        }
+        return false;
+    }
+
+    function classifyVideoUrlForLog(videoUrl = '') {
+        const value = String(videoUrl || '').trim();
+        if (!value) return { kind: 'empty', label: '空链接' };
+        return isLikelyDownloadableVideoUrl(value)
+            ? { kind: 'signed-video-direct', label: '签名视频直链' }
+            : { kind: 'normal-video-url', label: '普通视频链接' };
     }
 
     function getVideoAutoSaveToastRecord(nodeId) {
@@ -349,6 +385,10 @@ export function createMediaControllerApi({
         const statusText = documentRef.createElement('span');
         statusText.textContent = '准备中';
         detail.appendChild(statusText);
+
+        const speedText = documentRef.createElement('span');
+        speedText.textContent = '速度：等待数据';
+        detail.appendChild(speedText);
         progress.appendChild(detail);
 
         toastEl.appendChild(progress);
@@ -362,7 +402,8 @@ export function createMediaControllerApi({
             track,
             bar,
             sizeText,
-            statusText
+            statusText,
+            speedText
         };
         videoAutoSaveToasts.set(nodeId, record);
         return record;
@@ -373,7 +414,8 @@ export function createMediaControllerApi({
         stage = '后端下载中',
         loaded = 0,
         total = 0,
-        status = '下载中'
+        status = '下载中',
+        speedBytesPerSecond = 0
     } = {}) {
         const record = ensureVideoAutoSaveToast(nodeId, subtitle);
         if (!record) return;
@@ -393,6 +435,9 @@ export function createMediaControllerApi({
             ? `${formatProgressBytes(safeLoaded)} / ${formatProgressBytes(total)}`
             : `${formatProgressBytes(safeLoaded)} / 未知大小`;
         record.statusText.textContent = status;
+        record.speedText.textContent = status === '已完成'
+            ? '速度：完成'
+            : `速度：${formatProgressSpeed(speedBytesPerSecond)}`;
     }
 
     function completeVideoAutoSaveToast(nodeId, message = '视频已自动保存到目录') {
@@ -405,6 +450,7 @@ export function createMediaControllerApi({
         record.track.classList.remove('is-indeterminate');
         record.bar.style.width = '100%';
         record.statusText.textContent = '已完成';
+        record.speedText.textContent = '速度：完成';
         windowRef.setTimeout(() => removeVideoAutoSaveToast(nodeId), 2600);
     }
 
@@ -415,6 +461,7 @@ export function createMediaControllerApi({
         record.subtitle.textContent = message;
         record.rowTitle.textContent = '保存失败';
         record.statusText.textContent = '失败';
+        record.speedText.textContent = '速度：失败';
         windowRef.setTimeout(() => removeVideoAutoSaveToast(nodeId), 4000);
     }
 
@@ -424,8 +471,16 @@ export function createMediaControllerApi({
             onProgress = null
         } = options;
         const backendUrl = buildBackendVideoDownloadUrl(videoUrl, filenameBase);
+        const videoUrlMeta = classifyVideoUrlForLog(videoUrl);
         let response = null;
         let postErrorMessage = '';
+
+        addLog('info', '后端视频下载开始', `准备下载${videoUrlMeta.label}`, {
+            sourceVideoUrl: videoUrl,
+            videoUrlType: videoUrlMeta.kind,
+            videoUrlLabel: videoUrlMeta.label,
+            filenameBase
+        });
 
         try {
             response = await fetchRef('/api/media/download', {
@@ -448,6 +503,8 @@ export function createMediaControllerApi({
                     method: 'POST',
                     url: '/api/media/download',
                     sourceVideoUrl: videoUrl,
+                    videoUrlType: videoUrlMeta.kind,
+                    videoUrlLabel: videoUrlMeta.label,
                     filenameBase
                 });
                 response = null;
@@ -458,6 +515,8 @@ export function createMediaControllerApi({
                 method: 'POST',
                 url: '/api/media/download',
                 sourceVideoUrl: videoUrl,
+                videoUrlType: videoUrlMeta.kind,
+                videoUrlLabel: videoUrlMeta.label,
                 filenameBase
             });
             response = null;
@@ -479,6 +538,8 @@ export function createMediaControllerApi({
                     method: 'GET',
                     url: backendUrl,
                     sourceVideoUrl: videoUrl,
+                    videoUrlType: videoUrlMeta.kind,
+                    videoUrlLabel: videoUrlMeta.label,
                     previousError: postErrorMessage
                 });
                 throw new Error(postErrorMessage
@@ -488,10 +549,13 @@ export function createMediaControllerApi({
         }
 
         const responseContentType = String(response.headers.get('Content-Type') || '').toLowerCase();
-        if (!responseContentType.startsWith('video/')) {
+        const allowNonStandardVideoContentType = isLikelyDownloadableVideoUrl(videoUrl);
+        if (!responseContentType.startsWith('video/') && !allowNonStandardVideoContentType) {
             const invalidBody = await response.text();
             addLog('warning', '后端视频下载返回了非视频内容', '后端返回的不是视频文件，已阻止写入保存目录。', {
                 sourceVideoUrl: videoUrl,
+                videoUrlType: videoUrlMeta.kind,
+                videoUrlLabel: videoUrlMeta.label,
                 contentType: responseContentType || 'unknown',
                 body: invalidBody
             });
@@ -499,9 +563,14 @@ export function createMediaControllerApi({
         }
 
         const total = Number(response.headers.get('Content-Length') || 0);
+        const downloadStartedAt = Date.now();
+        const getAverageSpeed = (loadedBytes) => {
+            const elapsedSeconds = Math.max(0.001, (Date.now() - downloadStartedAt) / 1000);
+            return Math.round((Number(loadedBytes) || 0) / elapsedSeconds);
+        };
         if (!response.body || typeof response.body.getReader !== 'function') {
             const blob = await response.blob();
-            if (!String(blob.type || '').toLowerCase().startsWith('video/')) {
+            if (!String(blob.type || '').toLowerCase().startsWith('video/') && !allowNonStandardVideoContentType) {
                 throw new Error(`下载结果不是视频文件 (${blob.type || 'unknown'})`);
             }
             if (blob.size < 1024) {
@@ -514,6 +583,7 @@ export function createMediaControllerApi({
                 onProgress({
                     loaded: blob.size || total || 0,
                     total: total || blob.size || 0,
+                    speedBytesPerSecond: getAverageSpeed(blob.size || total || 0),
                     done: true
                 });
             }
@@ -533,6 +603,7 @@ export function createMediaControllerApi({
                     onProgress({
                         loaded,
                         total,
+                        speedBytesPerSecond: getAverageSpeed(loaded),
                         done: false
                     });
                 }
@@ -542,13 +613,14 @@ export function createMediaControllerApi({
             onProgress({
                 loaded,
                 total: total || loaded,
+                speedBytesPerSecond: getAverageSpeed(loaded),
                 done: true
             });
         }
         const blob = new Blob(chunks, {
             type: response.headers.get('Content-Type') || 'application/octet-stream'
         });
-        if (!String(blob.type || '').toLowerCase().startsWith('video/')) {
+        if (!String(blob.type || '').toLowerCase().startsWith('video/') && !allowNonStandardVideoContentType) {
             throw new Error(`下载结果不是视频文件 (${blob.type || 'unknown'})`);
         }
         if (blob.size < 1024) {
@@ -2230,17 +2302,19 @@ export function createMediaControllerApi({
                     stage: '后端下载中',
                     loaded: 0,
                     total: 0,
-                    status: '准备中'
+                    status: '准备中',
+                    speedBytesPerSecond: 0
                 });
                 const blob = await downloadGeneratedVideo(video.url, {
                     filenameBase,
-                    onProgress: ({ loaded, total, done }) => {
+                    onProgress: ({ loaded, total, speedBytesPerSecond, done }) => {
                         updateVideoAutoSaveToast(nodeId, {
                             subtitle: '正在通过后端下载视频并保存到目录...',
                             stage: done ? '正在写入目录' : '后端下载中',
                             loaded,
                             total,
-                            status: done ? '即将写入文件' : '下载中'
+                            status: done ? '即将写入文件' : '下载中',
+                            speedBytesPerSecond
                         });
                     }
                 });
@@ -2256,7 +2330,8 @@ export function createMediaControllerApi({
                     stage: '写入目录中',
                     loaded: blob.size || 0,
                     total: blob.size || 0,
-                    status: '写入中'
+                    status: '写入中',
+                    speedBytesPerSecond: 0
                 });
                 const writable = await fileHandle.createWritable();
                 await writable.write(blob);

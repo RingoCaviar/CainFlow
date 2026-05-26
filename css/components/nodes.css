@@ -286,6 +286,23 @@
     --camera-control-field-gap: 6px;
 }
 
+.node-form-note,
+.video-generate-note,
+.image-resolution-param-note,
+.custom-resolution-hint {
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.45;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.node-form-note,
+.video-generate-note,
+.image-resolution-param-note {
+    color: var(--text-dim);
+}
+
 .node-camera-control .node-body {
     gap: var(--camera-control-section-gap);
 }
