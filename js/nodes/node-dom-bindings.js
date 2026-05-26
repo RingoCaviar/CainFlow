@@ -31,6 +31,7 @@ export function createNodeDomBindingsApi({
     cancelRunningNode = null,
     finishConnection,
     resumeVideoGeneration = async () => {},
+    resumeImageGeneration = async () => {},
     setupImageImport,
     setupImageResize,
     setupImageSave,
@@ -1320,29 +1321,45 @@ export function createNodeDomBindingsApi({
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = normalizedValue;
-        const isOpenAiModel = getEffectiveProtocol(model, provider) === 'openai';
-        updateImageGenerateAspectVisibility(id, isOpenAiModel);
-        updateImageGenerateQualityVisibility(id, isOpenAiModel);
+        const protocol = getEffectiveProtocol(model, provider);
+        const isOpenAiModel = protocol === 'openai';
+        const isNewApiAsyncImage = protocol === 'newapi-image-async';
+        updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage);
+        updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage);
         updateImageGenerateResolutionParamNote(id, isOpenAiModel);
+        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage);
         updateImageGenerateCustomResolutionVisibility(id);
     }
 
-    function updateImageGenerateAspectVisibility(id, isOpenAiModel) {
+    function updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
         if (!aspectField) return;
-        aspectField.classList.toggle('hidden', isOpenAiModel);
+        aspectField.classList.toggle('hidden', isOpenAiModel && !isNewApiAsyncImage);
     }
 
-    function updateImageGenerateQualityVisibility(id, isOpenAiModel) {
+    function updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
         const qualityField = documentRef.getElementById(`${id}-quality-field`);
         if (!qualityField) return;
-        qualityField.classList.toggle('hidden', !isOpenAiModel);
+        qualityField.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
     }
 
     function updateImageGenerateResolutionParamNote(id, isOpenAiModel) {
         const note = documentRef.getElementById(`${id}-resolution-param-note`);
         if (!note) return;
         note.classList.toggle('hidden', !isOpenAiModel);
+    }
+
+    function updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage) {
+        [
+            `${id}-image-async-result-field`,
+            `${id}-resume-image-id-field`,
+            `${id}-resume-image-field`
+        ].forEach((fieldId) => {
+            const field = documentRef.getElementById(fieldId);
+            if (field) field.classList.toggle('hidden', !isNewApiAsyncImage);
+        });
+        const searchField = documentRef.getElementById(`${id}-search-field`);
+        if (searchField) searchField.classList.toggle('hidden', isNewApiAsyncImage);
     }
 
     function updateImageGenerateCustomResolutionVisibility(id) {
@@ -1829,6 +1846,51 @@ export function createNodeDomBindingsApi({
                     generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
                 });
             });
+            const resumeIdInput = el.querySelector(`#${id}-resume-image-id`);
+            const resumeBtn = el.querySelector(`#${id}-resume-image`);
+            const syncResumeButtonState = () => {
+                if (!resumeBtn) return;
+                const value = String(resumeIdInput?.value || '').trim();
+                resumeBtn.disabled = !value;
+            };
+            resumeIdInput?.addEventListener('input', () => {
+                const node = state.nodes.get(id);
+                if (node) {
+                    node.data = node.data || {};
+                    node.data.imageTaskId = String(resumeIdInput.value || '').trim();
+                }
+                syncResumeButtonState();
+            });
+            resumeIdInput?.addEventListener('change', () => {
+                const node = state.nodes.get(id);
+                if (node) {
+                    node.data = node.data || {};
+                    node.data.imageTaskId = String(resumeIdInput.value || '').trim();
+                }
+                syncResumeButtonState();
+                scheduleSave();
+            });
+            resumeBtn?.addEventListener('click', async () => {
+                const node = state.nodes.get(id);
+                const imageTaskId = String(resumeIdInput?.value || node?.data?.imageTaskId || '').trim();
+                if (!imageTaskId) {
+                    showToast('当前节点没有可恢复的任务 ID', 'warning');
+                    return;
+                }
+                if (node) {
+                    node.data = node.data || {};
+                    node.data.imageTaskId = imageTaskId;
+                }
+                try {
+                    resumeBtn.disabled = true;
+                    await resumeImageGeneration(id);
+                } catch (error) {
+                    showToast(error?.message || '恢复图片进度失败', 'error');
+                } finally {
+                    syncResumeButtonState();
+                }
+            });
+            syncResumeButtonState();
             syncImageGenerateCount(id);
             fitNodeToContent(id);
         }

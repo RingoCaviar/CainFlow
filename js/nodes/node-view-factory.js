@@ -379,7 +379,9 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         .join('');
     const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, rd.resolution);
     const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
-    const isOpenAiModel = !!selectedModel && getEffectiveProtocol(selectedModel, selectedProvider) === 'openai';
+    const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
+    const isOpenAiModel = !!selectedModel && protocol === 'openai';
+    const isNewApiAsyncImage = !!selectedModel && protocol === 'newapi-image-async';
     const showResolutionParamNote = isOpenAiModel;
     const showCustomResolution = rd.resolution === 'custom';
     const imageQuality = ['low', 'medium', 'high'].includes(String(rd.quality || '').toLowerCase())
@@ -444,7 +446,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '质量',
-            fieldClass: isOpenAiModel ? '' : 'hidden',
+            fieldClass: isOpenAiModel && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-quality-field`,
             content: `<select id="${id}-quality">
                 <option value="auto" ${imageQuality === 'auto' ? 'selected' : ''}>自动</option>
@@ -469,18 +471,39 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormToggleField({
             label: '启用搜索',
             inputId: `${id}-search`,
-            checked: rd.search === true
+            checked: rd.search === true,
+            hidden: isNewApiAsyncImage,
+            fieldId: `${id}-search-field`
         })}
-        ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality。')}
+        ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality；NEW API 原生异步模式会走 /v1/videos 并通过任务 ID 轮询。')}
         ${renderNodeFormField({
             label: '提示词',
             fieldClass: 'node-field-expand',
             content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
         })}
+        <div class="node-field ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-image-async-result-field">
+            <label>异步任务</label>
+            <div class="chat-response-wrapper" id="${id}-image-async-wrapper">
+                <div class="video-generation-status video-generation-status-${rd.imageTaskStatus === 'completed' ? 'success' : (rd.imageTaskId ? 'progress' : 'idle')}" id="${id}-image-async-status" aria-live="polite">${escapeHtml(rd.imageTaskStatusText || '异步模式：运行后显示任务状态')}</div>
+                <div class="chat-response-area" id="${id}-image-async-response">${rd.imageTaskUrl
+                    ? `<div><strong>图片异步任务</strong></div><div>任务 ID：${escapeHtml(rd.imageTaskId || '')}</div><div style="margin-top:6px;"><a href="${escapeHtml(rd.imageTaskUrl)}" target="_blank" rel="noreferrer">打开图片结果</a></div>`
+                    : `<div class="chat-response-placeholder">${escapeHtml(rd.imageTaskStatusText || '创建任务后会自动轮询 /v1/videos/{id}')}</div>`}</div>
+            </div>
+        </div>
         ${renderNodeFormField({
             label: '生成进度',
             content: `<div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>`
         })}
+        <div class="node-field ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-resume-image-id-field">
+            <label>恢复任务 ID</label>
+            <input type="text" id="${id}-resume-image-id" value="${escapeHtml(rd.imageTaskId || '')}" placeholder="输入或粘贴任务 ID" />
+        </div>
+        <div class="node-field node-field-row ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-resume-image-field">
+            <button type="button" class="save-btn-secondary" id="${id}-resume-image" ${rd.imageTaskId ? '' : 'disabled'} style="width:100%;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3.16-6.84"/><polyline points="21 3 21 9 15 9"/></svg>
+                恢复进度
+            </button>
+        </div>
         <div class="node-error-msg" id="${id}-error"></div>
     `;
 }

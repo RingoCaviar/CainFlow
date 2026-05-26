@@ -46,6 +46,13 @@ export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
     { value: 'custom', label: '自定义' }
 ];
 
+export const NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS = [
+    { value: '', label: '默认' },
+    { value: '1k', label: '1K' },
+    { value: '2k', label: '2K' },
+    { value: '4k', label: '4K' }
+];
+
 export const VIDEO_ASPECT_OPTIONS = [
     { value: '16:9', label: '16:9 横屏' },
     { value: '9:16', label: '9:16 竖屏' }
@@ -84,6 +91,7 @@ function getFingerprintProtocol(model = {}) {
         fingerprint.includes('dall-e') ||
         fingerprint.includes('gpt image') ||
         fingerprint.includes('gpt-image') ||
+        fingerprint.includes('nana-banana') ||
         fingerprint.includes('openai')
     ) {
         return 'openai';
@@ -238,9 +246,9 @@ export function getEffectiveProtocol(modelCfg = {}, apiCfg = null) {
 
 export function getImageResolutionOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
-    return getEffectiveProtocol(model, provider) === 'openai'
-        ? OPENAI_IMAGE_RESOLUTION_OPTIONS
-        : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
+    const protocol = getEffectiveProtocol(model, provider);
+    if (protocol === 'newapi-image-async') return NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS;
+    return protocol === 'openai' ? OPENAI_IMAGE_RESOLUTION_OPTIONS : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
 }
 
 export function normalizeImageResolutionForModel(resolution, model = {}, providers = null, preferredProviderId = '') {
@@ -345,7 +353,7 @@ export function normalizeAutoCompleteBase(endpoint, protocol = '') {
     const base = getBaseEndpoint(endpoint);
     if (!base) return '';
     if (protocol === 'google') return normalizeGoogleAutoCompleteBase(base);
-    if (protocol === 'openai' || protocol === 'veo-openai') return normalizeOpenAiAutoCompleteBase(base);
+    if (protocol === 'openai' || protocol === 'veo-openai' || protocol === 'newapi-image-async') return normalizeOpenAiAutoCompleteBase(base);
     if (protocol === 'veo-unified') return normalizeUnifiedVideoBase(base);
     if (protocol === 'doubao-video') return normalizeDoubaoVideoBase(base);
     return base;
@@ -385,6 +393,11 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     if (apiCfg?.autoComplete === false) {
         const endpoint = apiCfg?.endpoint || '';
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+        if (taskType === 'image' && protocol === 'newapi-image-async') {
+            const action = options.action || 'create';
+            if (action === 'query') return appendOpenAiPath(normalizeOpenAiAutoCompleteBase(endpoint), `/videos/${encodeURIComponent(options.imageTaskId || options.taskId || '')}`);
+            return endpoint;
+        }
         if (taskType === 'video') {
             const action = options.action || 'create';
             if (protocol === 'doubao-video') {
@@ -412,6 +425,11 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     }
 
     if (taskType === 'image') {
+        if (protocol === 'newapi-image-async') {
+            const action = options.action || 'create';
+            if (action === 'query') return appendOpenAiPath(base, `/videos/${encodeURIComponent(options.imageTaskId || options.taskId || '')}`);
+            return appendOpenAiPath(base, '/videos');
+        }
         const imagePath = hasOpenAiReferenceImages(options.inputs) ? '/images/edits' : '/images/generations';
         return appendOpenAiPath(base, imagePath);
     }
@@ -574,6 +592,29 @@ export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality,
 
     const referenceImages = getOpenAiReferenceImages(inputs);
     if (referenceImages.length > 0) requestBody.reference_images = referenceImages;
+
+    return applyCustomRequestParams(requestBody, inputs);
+}
+
+function normalizeNewApiAsyncImageResolution(resolution) {
+    const value = String(resolution || '').trim().toLowerCase();
+    if (value === '1k' || value === '2k' || value === '4k') return value;
+    return '';
+}
+
+export function buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolution, inputs = {} }) {
+    const requestBody = {
+        model: modelCfg.modelId,
+        prompt
+    };
+
+    if (aspect) requestBody.aspect_ratio = aspect;
+
+    const normalizedResolution = normalizeNewApiAsyncImageResolution(resolution);
+    if (normalizedResolution) requestBody.resolution = normalizedResolution;
+
+    const imageUrls = getOpenAiReferenceImages(inputs);
+    if (imageUrls.length > 0) requestBody.image_urls = imageUrls;
 
     return applyCustomRequestParams(requestBody, inputs);
 }
@@ -741,6 +782,52 @@ export function extractVideoResult(result, protocol = '') {
     const data = result?.data && typeof result.data === 'object' ? result.data : result;
     return {
         url: pickVideoUrl(data),
+        revisedPrompt: typeof data?.prompt === 'string' ? data.prompt : ''
+    };
+}
+
+export function extractAsyncImageTaskId(result) {
+    return String(
+        result?.id ||
+        result?.task_id ||
+        result?.taskId ||
+        result?.data?.id ||
+        result?.data?.task_id ||
+        result?.metadata?.task_id ||
+        ''
+    ).trim();
+}
+
+export function extractAsyncImageStatus(result) {
+    return String(
+        result?.status ||
+        result?.state ||
+        result?.task_status ||
+        result?.data?.status ||
+        result?.data?.state ||
+        result?.data?.task_status ||
+        ''
+    ).trim().toLowerCase();
+}
+
+export function extractAsyncImageResult(result) {
+    const pickImageUrl = (data = {}) => {
+        const candidates = [
+            data?.image_url,
+            data?.url,
+            data?.video_url,
+            data?.content_url,
+            Array.isArray(data?.image_urls) ? data.image_urls[0] : '',
+            Array.isArray(data?.result_urls) ? data.result_urls[0] : '',
+            Array.isArray(data?.metadata?.result_urls) ? data.metadata.result_urls[0] : '',
+            Array.isArray(data?.metadata?.image_urls) ? data.metadata.image_urls[0] : ''
+        ];
+        const matched = candidates.find((value) => typeof value === 'string' && value.trim());
+        return typeof matched === 'string' ? matched.trim() : '';
+    };
+    const data = result?.data && typeof result.data === 'object' ? result.data : result;
+    return {
+        url: pickImageUrl(data),
         revisedPrompt: typeof data?.prompt === 'string' ? data.prompt : ''
     };
 }

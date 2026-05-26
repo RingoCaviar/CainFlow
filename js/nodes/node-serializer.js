@@ -89,6 +89,13 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+                    serialized.imageTaskId = node.data?.imageTaskId || '';
+                    serialized.imageTaskStatus = node.data?.imageTaskStatus || '';
+                    serialized.imageTaskStatusText = node.data?.imageTaskStatusText || '';
+                    serialized.imageTaskUrl = node.data?.imageTaskUrl || '';
+                    serialized.imageTaskCreateHttpStatus = node.data?.imageTaskCreateHttpStatus || '';
+                    serialized.imageTaskCreateStatus = node.data?.imageTaskCreateStatus || '';
+                    serialized.imageTaskProgress = node.data?.imageTaskProgress || '';
                 } else if (node.type === 'VideoGenerate') {
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
                     serialized.enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;

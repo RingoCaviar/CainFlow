@@ -853,6 +853,17 @@ export function createNodeLifecycleApi({
                 };
             }
         }
+        if (normalizedType === 'ImageGenerate') {
+            nodeData.generationCount = Math.max(1, parseInt(effectiveRestoreData?.generationCount || '1', 10) || 1);
+            nodeData.data.generationCount = nodeData.generationCount;
+            nodeData.data.imageTaskId = effectiveRestoreData?.imageTaskId || '';
+            nodeData.data.imageTaskStatus = effectiveRestoreData?.imageTaskStatus || '';
+            nodeData.data.imageTaskStatusText = effectiveRestoreData?.imageTaskStatusText || '';
+            nodeData.data.imageTaskUrl = effectiveRestoreData?.imageTaskUrl || '';
+            nodeData.data.imageTaskCreateHttpStatus = effectiveRestoreData?.imageTaskCreateHttpStatus || '';
+            nodeData.data.imageTaskCreateStatus = effectiveRestoreData?.imageTaskCreateStatus || '';
+            nodeData.data.imageTaskProgress = effectiveRestoreData?.imageTaskProgress || '';
+        }
         if (normalizedType === 'TextSplit') {
             nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';
             nodeData.data.delimiter = effectiveRestoreData?.delimiter || '';

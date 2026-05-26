@@ -14,6 +14,12 @@ export const MODEL_PROTOCOLS = Object.freeze({
         defaultTaskTypes: ['chat', 'image'],
         helpText: 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations；生图节点有参考图输入时自动改走 /images/edits。'
     }),
+    'newapi-image-async': Object.freeze({
+        id: 'newapi-image-async',
+        label: 'NEW API 原生异步模式',
+        defaultTaskTypes: ['image'],
+        helpText: 'NEW API 原生异步图片模式会提交到 /v1/videos，并通过 /v1/videos/{id} 轮询任务；最终图片会从 image_url、url 或兼容字段 video_url 中读取。'
+    }),
     'veo-unified': Object.freeze({
         id: 'veo-unified',
         label: 'VEO 视频 · 统一格式',

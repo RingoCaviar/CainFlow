@@ -4,11 +4,15 @@
 import {
     buildGoogleChatRequest,
     buildGoogleImageRequest,
+    buildNewApiAsyncImageRequest,
     buildOpenAiChatRequest,
     buildOpenAiImageRequest,
     buildDoubaoVideoRequest,
     buildOpenAiVideoRequest,
     buildUnifiedVideoRequest,
+    extractAsyncImageResult,
+    extractAsyncImageStatus,
+    extractAsyncImageTaskId,
     extractImageResult,
     extractVideoResult,
     extractVideoStatus,
@@ -72,6 +76,14 @@ export function createExecutionCoreApi({
 
     function updateVideoGenerationStatus(nodeId, text, state = 'progress') {
         const statusEl = documentRef.getElementById(`${nodeId}-video-status`);
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.className = `video-generation-status video-generation-status-${state}`;
+        requestNodeFit(nodeId);
+    }
+
+    function updateAsyncImageGenerationStatus(nodeId, text, state = 'progress') {
+        const statusEl = documentRef.getElementById(`${nodeId}-image-async-status`);
         if (!statusEl) return;
         statusEl.textContent = text;
         statusEl.className = `video-generation-status video-generation-status-${state}`;
@@ -540,7 +552,7 @@ export function createExecutionCoreApi({
         prompt
     }) {
         const maxAttempts = 180;
-        const intervalMs = 10000;
+        const intervalMs = 5000;
         const max404Retries = 5;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -685,6 +697,226 @@ export function createExecutionCoreApi({
         throw new Error('视频生成轮询超时，请稍后在供应商后台确认任务状态');
     }
 
+    async function pollAsyncImageGeneration({
+        apiCfg,
+        modelCfg,
+        imageTaskId,
+        signal,
+        prompt
+    }) {
+        const maxAttempts = 180;
+        const intervalMs = 10000;
+        const protocol = 'newapi-image-async';
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            if (signal?.aborted) {
+                const abortError = new Error('Node run aborted');
+                abortError.name = 'AbortError';
+                throw abortError;
+            }
+
+            const url = resolveProviderUrl(apiCfg, modelCfg, 'image', {
+                action: 'query',
+                imageTaskId
+            });
+            const headers = getProxyHeaders(url, 'GET', {
+                Authorization: `Bearer ${apiCfg.apikey}`,
+                Accept: 'application/json',
+                'Content-Type': 'application/json'
+            });
+
+            logRequestToPanel(
+                `图片异步轮询请求: ${modelCfg.name} (${attempt}/${maxAttempts})`,
+                url,
+                {
+                    method: 'GET',
+                    taskId: imageTaskId,
+                    pollAttempt: attempt,
+                    pollIntervalMs: intervalMs
+                },
+                {
+                    nodeType: 'ImageGenerate',
+                    providerType: protocol,
+                    imageTaskId,
+                    pollAttempt: attempt
+                }
+            );
+
+            const response = await fetchRef('/proxy', {
+                method: 'POST',
+                headers,
+                signal
+            });
+
+            if (!response.ok) {
+                const t = await response.text();
+                addLog('warning', `图片异步轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, `服务器返回错误状态 ${response.status}`, {
+                    url,
+                    method: 'GET',
+                    status: response.status,
+                    imageTaskId,
+                    pollAttempt: attempt,
+                    body: t
+                });
+                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步状态查询失败', errorContext));
+                err.serverResponse = {
+                    url,
+                    requestBody: null,
+                    status: response.status,
+                    body: t
+                };
+                throw err;
+            }
+
+            const result = await parseJsonResponseOrThrow(response, {
+                apiCfg,
+                modelCfg,
+                url,
+                requestBody: null
+            });
+            addLog('info', `图片异步轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, '已收到服务器返回', {
+                url,
+                method: 'GET',
+                status: response.status,
+                imageTaskId,
+                pollAttempt: attempt,
+                responseBody: result
+            });
+
+            const status = extractAsyncImageStatus(result);
+            const extracted = extractAsyncImageResult(result);
+            const progress = result?.progress ?? result?.data?.progress ?? '';
+
+            if (status === 'completed' || status === 'succeeded' || status === 'success' || extracted.url) {
+                if (!extracted.url) {
+                    throw new Error('图片异步任务已完成，但接口没有返回图片链接');
+                }
+                addLog('info', `图片异步结果链接: ${modelCfg.name}`, '已获取图片直链', {
+                    imageTaskId,
+                    imageUrl: extracted.url,
+                    status
+                });
+                return {
+                    imageTaskId,
+                    imageUrl: extracted.url,
+                    status: status || 'completed',
+                    progress,
+                    statusText: `图片生成完成（任务 ${imageTaskId}）`,
+                    prompt
+                };
+            }
+
+            if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled') {
+                const message = result?.error?.message || result?.error || result?.data?.error?.message || '';
+                throw new Error(`图片异步生成失败，当前状态：${status || 'unknown'}${message ? `，原因：${message}` : ''}`);
+            }
+
+            await new Promise((resolve, reject) => {
+                const timer = windowRef.setTimeout(resolve, intervalMs);
+                if (signal) {
+                    signal.addEventListener('abort', () => {
+                        windowRef.clearTimeout(timer);
+                        const abortError = new Error('Node run aborted');
+                        abortError.name = 'AbortError';
+                        reject(abortError);
+                    }, { once: true });
+                }
+            });
+        }
+
+        throw new Error('图片异步生成轮询超时，请稍后使用任务 ID 恢复进度');
+    }
+
+    async function finalizeAsyncImageGeneration(node, finalResult, signal) {
+        const imageBlob = await downloadGeneratedImage(finalResult.imageUrl, signal);
+        const imageData = await blobToDataUrl(imageBlob);
+        commitImageGenerateOutputs(node, [imageData], finalResult.prompt || node.data?.prompt || '');
+        commitAsyncImageTaskState(node, {
+            imageTaskId: finalResult.imageTaskId,
+            imageTaskStatus: finalResult.status || 'completed',
+            imageTaskStatusText: finalResult.statusText || `图片生成完成（任务 ${finalResult.imageTaskId}）`,
+            imageTaskUrl: finalResult.imageUrl,
+            prompt: finalResult.prompt || node.data?.prompt || '',
+            progress: finalResult.progress
+        });
+        await refreshDependentImageResizePreviews(node.id);
+        await saveImageGenerationHistoryEntry({
+            nodeId: node.id,
+            image: imageData,
+            prompt: finalResult.prompt || node.data?.prompt || '',
+            model: finalResult.modelName || '',
+            generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+        });
+        if (getImageHistorySidebarActive()) renderHistoryList();
+        updateAllConnections();
+        return imageData;
+    }
+
+    async function resumeAsyncImageGeneration(nodeId, signal = null) {
+        const node = state.nodes.get(nodeId);
+        if (!node || node.type !== 'ImageGenerate') {
+            throw new Error('未找到可恢复的图片生成节点');
+        }
+
+        const configId = documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '';
+        const modelCfg = state.models.find((model) => model.id === configId);
+        if (!modelCfg) throw new Error('未找到选定的图片模型配置');
+
+        const selectedProviderId = documentRef.getElementById(`${nodeId}-provider`)?.value || node.providerId || '';
+        const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
+        const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
+        if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
+        node.providerId = resolvedProviderId;
+
+        const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+        if (protocol !== 'newapi-image-async') {
+            throw new Error('当前模型没有选择 NEW API 原生异步模式');
+        }
+
+        const imageTaskId = String(node.data?.imageTaskId || documentRef.getElementById(`${nodeId}-resume-image-id`)?.value || '').trim();
+        if (!imageTaskId) throw new Error('当前节点没有可恢复的任务 ID');
+
+        const prompt = String(node.data?.prompt || documentRef.getElementById(`${nodeId}-prompt`)?.value || '').trim();
+        const responseArea = documentRef.getElementById(`${nodeId}-image-async-response`);
+        const resumeBtn = documentRef.getElementById(`${nodeId}-resume-image`);
+        const resumeIdInput = documentRef.getElementById(`${nodeId}-resume-image-id`);
+        if (resumeIdInput) resumeIdInput.value = imageTaskId;
+
+        renderNodeApiGenerationProgress(node, { current: 0, total: 1 });
+        updateAsyncImageGenerationStatus(nodeId, `轮询中：正在恢复任务 ${imageTaskId} 的状态...`, 'progress');
+        if (responseArea) {
+            responseArea.innerHTML = `<div class="chat-response-placeholder">正在恢复任务 ${escapeHtml(imageTaskId)} 的进度...</div>`;
+        }
+        if (resumeBtn) resumeBtn.disabled = true;
+
+        try {
+            const finalResult = await pollAsyncImageGeneration({
+                apiCfg,
+                modelCfg,
+                imageTaskId,
+                signal,
+                prompt
+            });
+            const imageData = await finalizeAsyncImageGeneration(node, {
+                ...finalResult,
+                modelName: modelCfg.name
+            }, signal);
+            if (responseArea) {
+                responseArea.innerHTML = `<div><strong>图片异步任务完成</strong></div><div>任务 ID：${escapeHtml(imageTaskId)}</div><div style="margin-top:6px;"><a href="${escapeHtml(finalResult.imageUrl)}" target="_blank" rel="noreferrer">打开图片结果</a></div>`;
+            }
+            updateAsyncImageGenerationStatus(nodeId, finalResult.statusText || `已完成：任务 ${imageTaskId} 已恢复`, 'success');
+            completeNodeApiGenerationProgress(node, { current: 1, total: 1 });
+            scheduleSave();
+            return {
+                image: imageData,
+                images: [imageData]
+            };
+        } finally {
+            if (resumeBtn) resumeBtn.disabled = false;
+        }
+    }
+
     async function resumeVideoGeneration(nodeId, signal = null) {
         const node = state.nodes.get(nodeId);
         if (!node || node.type !== 'VideoGenerate') {
@@ -756,6 +988,24 @@ export function createExecutionCoreApi({
         } finally {
             if (resumeBtn) resumeBtn.disabled = false;
         }
+    }
+
+    function commitAsyncImageTaskState(node, payload = {}) {
+        node.data = node.data || {};
+        if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskId')) node.data.imageTaskId = payload.imageTaskId || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskStatus')) node.data.imageTaskStatus = payload.imageTaskStatus || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskStatusText')) node.data.imageTaskStatusText = payload.imageTaskStatusText || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskUrl')) node.data.imageTaskUrl = payload.imageTaskUrl || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'prompt')) node.data.prompt = payload.prompt || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'createHttpStatus')) node.data.imageTaskCreateHttpStatus = payload.createHttpStatus || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'createStatus')) node.data.imageTaskCreateStatus = payload.createStatus || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'progress')) node.data.imageTaskProgress = payload.progress === undefined || payload.progress === null ? '' : String(payload.progress);
+
+        const taskId = node.data.imageTaskId || '';
+        const resumeIdInput = documentRef.getElementById(`${node.id}-resume-image-id`);
+        if (resumeIdInput) resumeIdInput.value = taskId;
+        const resumeBtn = documentRef.getElementById(`${node.id}-resume-image`);
+        if (resumeBtn) resumeBtn.disabled = !String(taskId || '').trim();
     }
 
     function getImageGenerationError(apiCfg, result, modelCfg) {
@@ -1299,6 +1549,166 @@ export function createExecutionCoreApi({
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
                 const isGoogle = protocol === 'google';
+                const isNewApiAsyncImage = protocol === 'newapi-image-async';
+                const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+                targetGenerationCount = generationCount;
+
+                if (isNewApiAsyncImage) {
+                    const responseArea = documentRef.getElementById(`${id}-image-async-response`);
+                    const results = [];
+                    renderNodeApiGenerationProgress(node, { current: 0, total: generationCount });
+                    updateAsyncImageGenerationStatus(id, '创建中：正在提交图片异步任务...', 'progress');
+                    if (responseArea) {
+                        responseArea.innerHTML = '<div class="chat-response-placeholder">正在提交图片异步任务...</div>';
+                    }
+
+                    for (let index = 0; index < generationCount; index += 1) {
+                        const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { action: 'create', inputs });
+                        const requestBody = buildNewApiAsyncImageRequest({
+                            modelCfg,
+                            prompt,
+                            aspect,
+                            resolution,
+                            inputs
+                        });
+                        const headers = getProxyHeaders(url, 'POST', {
+                            Authorization: `Bearer ${apiCfg.apikey}`,
+                            'Content-Type': 'application/json',
+                            Accept: 'application/json'
+                        });
+
+                        logRequestToPanel(
+                            generationCount > 1 ? `图片异步请求发送: ${modelCfg.name} (${index + 1}/${generationCount})` : `图片异步请求发送: ${modelCfg.name}`,
+                            url,
+                            requestBody,
+                            {
+                                nodeId: id,
+                                nodeType: 'TextToImage',
+                                providerType: protocol
+                            }
+                        );
+
+                        const response = await fetchRef('/proxy', {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(requestBody),
+                            signal
+                        });
+
+                        if (!response.ok) {
+                            const t = await response.text();
+                            const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                            const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步任务创建失败', errorContext));
+                            err.serverResponse = {
+                                url,
+                                requestBody,
+                                status: response.status,
+                                body: t
+                            };
+                            applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                            throw err;
+                        }
+
+                        const createResponseContext = {
+                            apiCfg,
+                            modelCfg,
+                            url,
+                            requestBody
+                        };
+                        const createResult = await parseJsonResponseOrThrow(response, createResponseContext);
+                        addLog('info', generationCount > 1 ? `图片异步创建响应: ${modelCfg.name} (${index + 1}/${generationCount})` : `图片异步创建响应: ${modelCfg.name}`, '已收到创建任务返回', {
+                            url,
+                            method: 'POST',
+                            status: response.status,
+                            providerType: protocol,
+                            contentType: createResponseContext.__responseContentType || '',
+                            rawResponseBody: createResponseContext.__rawResponseText || '',
+                            responseBody: createResult
+                        });
+
+                        const imageTaskId = extractAsyncImageTaskId(createResult);
+                        if (!imageTaskId) throw new Error('图片异步任务创建成功，但接口没有返回任务 ID');
+                        const createStatus = extractAsyncImageStatus(createResult) || 'submitted';
+                        const createProgress = createResult?.progress ?? createResult?.data?.progress ?? '';
+                        commitAsyncImageTaskState(node, {
+                            imageTaskId,
+                            imageTaskStatus: createStatus,
+                            imageTaskStatusText: `创建中：任务 ${imageTaskId} 已创建，等待轮询`,
+                            imageTaskUrl: '',
+                            prompt,
+                            createHttpStatus: response.status,
+                            createStatus,
+                            progress: createProgress
+                        });
+
+                        if (responseArea) {
+                            responseArea.innerHTML = `
+                                <div><strong>图片异步创建响应</strong></div>
+                                <div>HTTP 状态：${escapeHtml(String(response.status))}</div>
+                                <div>任务 ID：${escapeHtml(imageTaskId)}</div>
+                                <div>创建状态：${escapeHtml(createStatus)}</div>
+                                ${createProgress !== '' ? `<div>进度：${escapeHtml(String(createProgress))}</div>` : ''}
+                                <div style="margin-top:6px;color:var(--text-dim);">创建完成后将继续自动轮询图片状态。</div>
+                            `;
+                        }
+                        scheduleSave();
+                        updateAsyncImageGenerationStatus(
+                            id,
+                            generationCount > 1
+                                ? `轮询中：第 ${index + 1}/${generationCount} 个任务已创建，正在检查状态`
+                                : `轮询中：任务 ${imageTaskId} 已创建，正在检查状态`,
+                            'progress'
+                        );
+
+                        const finalResult = await pollAsyncImageGeneration({
+                            apiCfg,
+                            modelCfg,
+                            imageTaskId,
+                            signal,
+                            prompt
+                        });
+                        const imageData = await finalizeAsyncImageGeneration(node, {
+                            ...finalResult,
+                            modelName: modelCfg.name
+                        }, signal);
+                        results.push({
+                            imageData,
+                            imageUrl: finalResult.imageUrl,
+                            imageTaskId,
+                            status: finalResult.status
+                        });
+                        incrementNodeApiGenerationProgress(node, 1, { current: index + 1, total: generationCount });
+                    }
+
+                    const completedImages = results.map((result) => result.imageData).filter(Boolean);
+                    commitImageGenerateOutputs(node, completedImages, prompt);
+                    const lastResult = results[results.length - 1] || {};
+                    commitAsyncImageTaskState(node, {
+                        imageTaskId: lastResult.imageTaskId || node.data?.imageTaskId || '',
+                        imageTaskStatus: lastResult.status || 'completed',
+                        imageTaskStatusText: generationCount > 1 ? `已完成：${generationCount} 张图片都已生成完成` : '已完成：图片生成成功',
+                        imageTaskUrl: lastResult.imageUrl || '',
+                        prompt
+                    });
+                    node.isSucceeded = true;
+                    completeNodeApiGenerationProgress(node, { current: generationCount, total: generationCount });
+                    updateAsyncImageGenerationStatus(id, generationCount > 1 ? `已完成：${generationCount} 张图片都已生成完成` : '已完成：图片生成成功', 'success');
+                    if (responseArea) {
+                        responseArea.innerHTML = results.map((result, index) => {
+                            const linkHtml = result.imageUrl
+                                ? `<a href="${escapeHtml(result.imageUrl)}" target="_blank" rel="noreferrer">打开图片 ${index + 1}</a>`
+                                : '图片地址待供应商提供';
+                            return `<div><strong>第 ${index + 1} 个结果</strong></div><div>${linkHtml}</div><div style="margin-top:4px;color:var(--text-dim);">任务 ID：${escapeHtml(result.imageTaskId || '')}</div>`;
+                        }).join('<hr />');
+                    }
+                    await refreshDependentImageResizePreviews(id);
+                    updateAllConnections();
+                    return {
+                        image: completedImages[completedImages.length - 1] || '',
+                        images: completedImages.slice()
+                    };
+                }
+
                 if (!isGoogle && selectedResolution === 'custom') {
                     const validation = validateOpenAiImageSize(customWidth, customHeight);
                     if (!validation.valid) throw new Error(`自定义分辨率不符合 OpenAI 规范：${validation.errors.join(' ')}`);
@@ -1311,8 +1721,6 @@ export function createExecutionCoreApi({
                         Authorization: `Bearer ${apiCfg.apikey}`,
                         'Content-Type': isOpenAiImageEdit ? null : 'application/json'
                     });
-                const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
-                targetGenerationCount = generationCount;
                 const storedCompletedCount = Math.min(
                     generationCount,
                     Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0)
@@ -2195,6 +2603,7 @@ export function createExecutionCoreApi({
         topologicalSort,
         getCachedOutputValue,
         resumeVideoGeneration,
+        resumeAsyncImageGeneration,
         executeNode,
         nodeHandlers
     };

@@ -330,6 +330,9 @@ export function createSettingsControllerApi({
         if (fingerprint.includes('veo') || fingerprint.includes('sora') || fingerprint.includes('video')) {
             return 'veo-openai';
         }
+        if (fingerprint.includes('nana-banana') || fingerprint.includes('banana')) {
+            return 'newapi-image-async';
+        }
         if (supportedEndpointTypes.length === 1) {
             if (supportedEndpointTypes[0] === 'gemini') return 'google';
             if (supportedEndpointTypes[0] === 'openai') return 'openai';

@@ -18,6 +18,7 @@ export function createWorkflowRunnerApi({
     getCachedOutputValue,
     executeNode,
     resumeVideoGeneration = async () => {},
+    resumeAsyncImageGeneration = async () => {},
     addNode,
     generateId,
     showToast,
@@ -947,10 +948,10 @@ export function createWorkflowRunnerApi({
         return true;
     }
 
-    async function resumeVideoNodeBranch(nodeId) {
+    async function resumeMediaNodeBranch(nodeId, expectedType, resumeTaskFn, taskKind) {
         const node = state.nodes.get(nodeId);
-        if (!node || node.type !== 'VideoGenerate') {
-            throw new Error('未找到可恢复的视频生成节点');
+        if (!node || node.type !== expectedType) {
+            throw new Error(`未找到可恢复的${taskKind}生成节点`);
         }
 
         const runOptions = normalizeRunOptions({
@@ -1072,7 +1073,8 @@ export function createWorkflowRunnerApi({
                     nodeId: nid,
                     inputs: loggedInputs,
                     data: currentNode.data,
-                    resumedFromVideoTask: nid === nodeId ? String(node.data?.videoId || '') : undefined
+                    resumedFromVideoTask: nid === nodeId && expectedType === 'VideoGenerate' ? String(node.data?.videoId || '') : undefined,
+                    resumedFromImageTask: nid === nodeId && expectedType === 'ImageGenerate' ? String(node.data?.imageTaskId || '') : undefined
                 });
                 scheduleSave();
                 completedNodes.add(nid);
@@ -1103,19 +1105,22 @@ export function createWorkflowRunnerApi({
         };
 
         try {
-            const videoTitle = getNodeDisplayTitle(node);
-            addLog('info', '恢复视频任务', `开始恢复「${videoTitle}」并续跑下游节点`, {
+            const nodeTitle = getNodeDisplayTitle(node);
+            const taskId = expectedType === 'VideoGenerate'
+                ? String(node.data?.videoId || '').trim()
+                : String(node.data?.imageTaskId || '').trim();
+            addLog('info', `恢复${taskKind}任务`, `开始恢复「${nodeTitle}」并续跑下游节点`, {
                 nodeId,
-                videoId: String(node.data?.videoId || '').trim(),
+                taskId,
                 downstreamNodeCount: Math.max(0, downstreamNodes.size - 1)
             });
 
-            const videoNodeController = new AbortController();
+            const mediaNodeController = new AbortController();
             const linkedResumeAbort = createLinkedAbortSignal([
                 session.controller.signal,
-                videoNodeController.signal
+                mediaNodeController.signal
             ]);
-            session.nodeAbortControllers.set(nodeId, videoNodeController);
+            session.nodeAbortControllers.set(nodeId, mediaNodeController);
             getRunningNodeCancelHandlers().set(nodeId, () => {
                 session.canceledBranchNodeIds.add(nodeId);
                 session.controller.abort();
@@ -1124,7 +1129,7 @@ export function createWorkflowRunnerApi({
             runningNodes.add(nodeId);
             markNodeRunning(nodeId, node);
             try {
-                await resumeVideoGeneration(nodeId, linkedResumeAbort.signal);
+                await resumeTaskFn(nodeId, linkedResumeAbort.signal);
                 node.isSucceeded = true;
                 node.el.classList.add('completed');
                 scheduleSave();
@@ -1153,10 +1158,10 @@ export function createWorkflowRunnerApi({
             updateAllConnections();
             updatePortStyles();
             dispatchWorkflowCompletionNotice({
-                toastMessage: '视频任务恢复完成，后续节点已继续执行',
+                toastMessage: `${taskKind}任务恢复完成，后续节点已继续执行`,
                 toastType: 'success',
                 notificationTitle: 'CainFlow 恢复完成',
-                notificationBody: `视频节点及其下游已继续执行完成`
+                notificationBody: `${taskKind}节点及其下游已继续执行完成`
             });
         } catch (error) {
             if (isAbortLikeError(error)) {
@@ -1168,6 +1173,14 @@ export function createWorkflowRunnerApi({
         } finally {
             finalizeResumeRun();
         }
+    }
+
+    async function resumeVideoNodeBranch(nodeId) {
+        return resumeMediaNodeBranch(nodeId, 'VideoGenerate', resumeVideoGeneration, '视频');
+    }
+
+    async function resumeImageNodeBranch(nodeId) {
+        return resumeMediaNodeBranch(nodeId, 'ImageGenerate', resumeAsyncImageGeneration, '图片');
     }
 
     async function runWorkflow(runInput = null) {
@@ -1700,6 +1713,7 @@ export function createWorkflowRunnerApi({
     return {
         runWorkflow,
         cancelRunningNode,
-        resumeVideoNodeBranch
+        resumeVideoNodeBranch,
+        resumeImageNodeBranch
     };
 }
