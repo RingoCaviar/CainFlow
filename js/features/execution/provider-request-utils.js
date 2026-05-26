@@ -535,6 +535,30 @@ function getUnifiedVideoIngredientImages(inputs = {}) {
         .filter(Boolean);
 }
 
+function getDoubaoVideoFrameImage(inputs = {}, key = '') {
+    return getImageInputUrl(inputs, key);
+}
+
+function getDoubaoVideoReferenceImages(inputs = {}) {
+    return getImageInputKeys(inputs)
+        .filter((key) => {
+            const index = parseInt(key.slice('image_'.length), 10) || 0;
+            return index >= 3;
+        })
+        .map((key) => getImageInputUrl(inputs, key))
+        .filter(Boolean);
+}
+
+function addDoubaoImageContent(content, url, role) {
+    if (!url) return;
+    const item = {
+        type: 'image_url',
+        image_url: { url }
+    };
+    if (role) item.role = role;
+    content.push(item);
+}
+
 export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs = {} }) {
     const requestBody = {
         model: modelCfg.modelId,
@@ -602,7 +626,6 @@ export function buildDoubaoVideoRequest({
     seed = '',
     inputs = {}
 }) {
-    const suffixParts = [];
     const normalizedResolution = String(resolution || '').trim();
     const normalizedRatio = String(aspectRatio || '').trim();
     const normalizedDuration = parseInt(duration, 10);
@@ -610,46 +633,29 @@ export function buildDoubaoVideoRequest({
         ? null
         : parseInt(seed, 10);
 
-    if (normalizedResolution) suffixParts.push(`--resolution ${normalizedResolution}`);
-    if (normalizedRatio) suffixParts.push(`--ratio ${normalizedRatio}`);
-    if (Number.isFinite(normalizedDuration) && normalizedDuration > 0) suffixParts.push(`--duration ${normalizedDuration}`);
-    suffixParts.push(`--camera_fixed ${cameraFixed === true ? 'true' : 'false'}`);
-    suffixParts.push(`--watermark ${watermark === true ? 'true' : 'false'}`);
-    if (Number.isFinite(normalizedSeed) && normalizedSeed >= 0) suffixParts.push(`--seed ${normalizedSeed}`);
-    const finalPrompt = suffixParts.length > 0 ? `${prompt} ${suffixParts.join(' ')}` : prompt;
-
     const requestBody = {
         model: modelCfg.modelId,
         content: [
             {
                 type: 'text',
-                text: finalPrompt
+                text: prompt
             }
         ]
     };
 
-    if (generateAudio === true) {
-        requestBody.generate_audio = true;
-    }
+    if (normalizedResolution) requestBody.resolution = normalizedResolution;
+    if (normalizedRatio) requestBody.ratio = normalizedRatio;
+    if (Number.isFinite(normalizedDuration) && normalizedDuration > 0) requestBody.duration = normalizedDuration;
+    requestBody.camera_fixed = cameraFixed === true;
+    requestBody.watermark = watermark === true;
+    if (generateAudio === true) requestBody.generate_audio = true;
+    if (Number.isFinite(normalizedSeed) && normalizedSeed >= 0) requestBody.seed = normalizedSeed;
 
-    const referenceImages = getOpenAiReferenceImages(inputs);
-    referenceImages.forEach((url) => {
-        requestBody.content.push({
-            type: 'image_url',
-            image_url: { url }
-        });
+    addDoubaoImageContent(requestBody.content, getDoubaoVideoFrameImage(inputs, 'image_1'), 'first_frame');
+    addDoubaoImageContent(requestBody.content, getDoubaoVideoFrameImage(inputs, 'image_2'), 'last_frame');
+    getDoubaoVideoReferenceImages(inputs).forEach((url) => {
+        addDoubaoImageContent(requestBody.content, url, 'reference_image');
     });
-
-    if (referenceImages.length === 2) {
-        requestBody.content[1].role = 'first_frame';
-        requestBody.content[referenceImages.length].role = 'last_frame';
-    } else if (referenceImages.length === 1) {
-        delete requestBody.content[1].role;
-    } else if (referenceImages.length >= 3) {
-        for (let index = 1; index <= referenceImages.length; index += 1) {
-            requestBody.content[index].role = 'reference_image';
-        }
-    }
 
     return applyCustomRequestParams(requestBody, inputs);
 }

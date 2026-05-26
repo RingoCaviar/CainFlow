@@ -42,12 +42,12 @@ export const MODEL_PROTOCOLS = Object.freeze({
         id: 'doubao-video',
         label: '豆包视频生成',
         defaultTaskTypes: ['video'],
-        helpText: '豆包视频生成会创建到 /volc/v1/contents/generations/tasks，并通过 /volc/v1/contents/generations/tasks/{id} 轮询任务状态。参数需要按文档通过 -- 形式附加到文本提示词中。',
+        helpText: '豆包视频生成会创建到 /volc/v1/contents/generations/tasks，并通过 /volc/v1/contents/generations/tasks/{id} 轮询任务状态。参数按文档作为顶层字段发送，图片通过 content 中的 role 区分首帧、尾帧与参考图。',
         videoMeta: Object.freeze({
             statusText: '豆包视频生成',
             supportsEnhancePrompt: false,
             supportsUpsample: false,
-            note: '豆包视频生成会走 /volc/v1/contents/generations/tasks 创建任务，再通过 /volc/v1/contents/generations/tasks/{id} 查询状态；分辨率、宽高比、时长等参数按文档追加到提示词中。'
+            note: '豆包视频生成会走 /volc/v1/contents/generations/tasks 创建任务，再通过 /volc/v1/contents/generations/tasks/{id} 查询状态；分辨率、宽高比、时长等参数按文档作为顶层字段发送。'
         })
     })
 });

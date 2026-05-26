@@ -629,7 +629,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             fieldId: `${id}-doubao-seed-field`,
             content: `<input type="number" id="${id}-doubao-seed" min="0" step="1" placeholder="留空为随机" value="${escapeHtml(doubaoSeed)}" />`
         })}
-        ${renderNodeFormNote('豆包文档要求将 resolution、ratio、duration、camera_fixed、watermark、seed 以 --参数 值 的形式追加到提示词里。当前节点会按该规则自动拼接。', {
+        ${renderNodeFormNote('豆包格式会按文档把 resolution、ratio、duration、camera_fixed、watermark、seed 等作为顶层字段发送；图片输入会按首帧、尾帧、参考图写入 content 的 role。', {
             fieldClass: isDoubaoProtocol ? '' : 'hidden',
             fieldId: `${id}-doubao-note-field`
         })}

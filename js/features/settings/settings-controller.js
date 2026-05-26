@@ -284,6 +284,13 @@ export function createSettingsControllerApi({
         const fingerprint = `${modelId} ${sourceModel.displayName || ''} ${sourceModel.name || ''} ${sourceModel.supplier || ''} ${tags}`.toLowerCase();
         if (
             fingerprint.includes('veo') ||
+            fingerprint.includes('seedance') ||
+            fingerprint.includes('sora') ||
+            fingerprint.includes('kling') ||
+            fingerprint.includes('hailuo') ||
+            fingerprint.includes('runway') ||
+            fingerprint.includes('wanx') ||
+            fingerprint.includes('wan-') ||
             fingerprint.includes('video') ||
             fingerprint.includes('视频')
         ) {
@@ -304,6 +311,12 @@ export function createSettingsControllerApi({
         return 'chat';
     }
 
+    function getFetchedModelTaskTypeLabel(taskType) {
+        if (taskType === 'image') return '生图';
+        if (taskType === 'video') return '视频';
+        return '对话';
+    }
+
     function inferFetchedModelProtocol(provider, fetchedModel = {}) {
         const fingerprint = `${fetchedModel.id || ''} ${fetchedModel.name || ''}`.toLowerCase();
         const supportedEndpointTypes = Array.isArray(fetchedModel.raw?.supported_endpoint_types)
@@ -314,7 +327,7 @@ export function createSettingsControllerApi({
         if (fingerprint.includes('doubao') || fingerprint.includes('seedance')) {
             return 'doubao-video';
         }
-        if (fingerprint.includes('veo') || fingerprint.includes('video')) {
+        if (fingerprint.includes('veo') || fingerprint.includes('sora') || fingerprint.includes('video')) {
             return 'veo-openai';
         }
         if (supportedEndpointTypes.length === 1) {
@@ -1130,7 +1143,7 @@ export function createSettingsControllerApi({
                         <div class="provider-models-row-name">${escapeHtml(model.name)}</div>
                         <div class="provider-models-row-id">${escapeHtml(model.id)}</div>
                     </div>
-                    <span class="provider-models-badge">${model.taskType === 'image' ? '生图' : '对话'} · ${modelProtocol === 'openai' ? 'OpenAI' : 'Gemini'}</span>
+                    <span class="provider-models-badge">${escapeHtml(getFetchedModelTaskTypeLabel(model.taskType))} · ${modelProtocol === 'openai' ? 'OpenAI' : 'Gemini'}</span>
                     <button type="button" class="provider-models-add" data-model-id="${escapeHtml(model.id)}" ${exists ? 'disabled' : ''} title="${exists ? '模型已添加' : '添加到模型列表'}">${exists ? '已添加' : '+'}</button>
                 </div>
             `;
