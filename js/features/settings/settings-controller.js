@@ -70,9 +70,9 @@ export function createSettingsControllerApi({
     const networkProxyDetectionStorageKey = 'cainflow_network_proxy_detection';
     const networkProxyDetectionCacheVersion = 5;
     const NETWORK_PROBE_TARGETS = [
-        { name: 'Google gstatic 204', url: 'https://www.gstatic.com/generate_204' },
-        { name: 'Google 204', url: 'https://www.google.com/generate_204' },
-        { name: 'Cloudflare trace', url: 'https://www.cloudflare.com/cdn-cgi/trace' }
+        { name: 'Google gstatic 204', url: 'https://www.gstatic.com/generate_204', method: 'HEAD' },
+        { name: 'Google 204', url: 'https://www.google.com/generate_204', method: 'HEAD' },
+        { name: 'YouTube', url: 'https://www.youtube.com/', method: 'GET' }
     ];
     const networkProxyDetectionTargetsSignature = JSON.stringify(
         NETWORK_PROBE_TARGETS.map((target) => ({
@@ -151,6 +151,72 @@ export function createSettingsControllerApi({
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    async function probeNetworkTargetFromBackend(target, timeoutSeconds = 5) {
+        const start = Date.now();
+        const result = {
+            name: String(target?.name || target?.url || 'target'),
+            url: String(target?.url || ''),
+            success: false,
+            status: 0,
+            latency: 0,
+            detail: ''
+        };
+        if (!result.url) {
+            result.detail = '探测地址为空';
+            return result;
+        }
+
+        try {
+            const response = await fetchWithTimeout('/api/probe_network_target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: result.name,
+                    url: result.url,
+                    method: target?.method || 'HEAD'
+                })
+            }, timeoutSeconds, '网络环境检测超时');
+            if (!response.ok) {
+                throw new Error(`网络环境检测失败，HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            result.success = !!data?.success;
+            result.status = Number(data?.status) || 0;
+            result.latency = Number(data?.latency) || (Date.now() - start);
+            result.detail = data?.detail || (result.success ? '后端探测成功' : '后端探测失败');
+        } catch (error) {
+            result.latency = Date.now() - start;
+            result.detail = createAbortErrorMessage(error, '网络环境检测超时');
+        }
+        return result;
+    }
+
+    async function detectNetworkPathFromBrowser() {
+        const attempts = [];
+        for (const target of NETWORK_PROBE_TARGETS) {
+            attempts.push(await probeNetworkTargetFromBackend(target, 5));
+        }
+
+        const successfulAttempts = attempts.filter((attempt) => attempt.success);
+        const allTargetsReachable = attempts.length > 0 && successfulAttempts.length === attempts.length;
+        const firstReachable = successfulAttempts[0] || null;
+        const detailAttempt = firstReachable || attempts[0] || {};
+        return {
+            proxyEnabled: false,
+            effectiveMode: allTargetsReachable ? 'proxy' : 'direct',
+            reachable: successfulAttempts.length > 0,
+            transparentProxyLikely: allTargetsReachable,
+            localProxyDetected: false,
+            localProxy: null,
+            latency: Number(firstReachable?.latency) || 0,
+            checkedTarget: successfulAttempts.map((attempt) => attempt.name).join(' / '),
+            detail: detailAttempt.detail || '网络探测失败',
+            attempts,
+            proxyAttempts: [],
+            shouldNotify: allTargetsReachable
+        };
     }
 
     function sanitizeProviderEndpointInput(value) {
@@ -995,29 +1061,7 @@ export function createSettingsControllerApi({
 
         networkProxyStatusState.checking = true;
         try {
-            const response = await fetchWithTimeout('/api/detect_network_path', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ proxyEnabled: !!state.proxy?.enabled })
-            }, 2, '网络环境检测超时');
-            if (!response.ok) {
-                throw new Error(`网络环境检测失败，HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            const result = {
-                proxyEnabled: !!data?.proxyEnabled,
-                effectiveMode: data?.effectiveMode === 'proxy' ? 'proxy' : 'direct',
-                reachable: !!data?.reachable,
-                transparentProxyLikely: !!data?.transparentProxyLikely,
-                localProxyDetected: !!data?.localProxyDetected,
-                localProxy: data?.localProxy || null,
-                latency: Number(data?.latency) || 0,
-                checkedTarget: data?.checkedTarget || '',
-                detail: data?.detail || '网络探测失败',
-                attempts: Array.isArray(data?.attempts) ? data.attempts : [],
-                proxyAttempts: Array.isArray(data?.proxyAttempts) ? data.proxyAttempts : [],
-                shouldNotify: !!data?.transparentProxyLikely
-            };
+            const result = await detectNetworkPathFromBrowser();
             networkProxyStatusState.result = result;
             saveNetworkProxyDetectionCache(result);
             if (result?.shouldNotify) {
