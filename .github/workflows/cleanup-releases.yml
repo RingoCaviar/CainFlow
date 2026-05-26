@@ -1,0 +1,90 @@
+name: Cleanup Old Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_latest:
+        description: 'Number of newest releases to keep'
+        required: true
+        default: '5'
+      dry_run:
+        description: 'Preview only. Set to false to delete releases and tags.'
+        required: true
+        type: choice
+        default: 'true'
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Cleanup releases and tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          KEEP_LATEST: ${{ inputs.keep_latest }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$KEEP_LATEST" =~ ^[0-9]+$ ]] || [ "$KEEP_LATEST" -lt 1 ]; then
+            echo "keep_latest must be a positive integer."
+            exit 1
+          fi
+
+          echo "Repository: $REPO"
+          echo "Keep latest releases: $KEEP_LATEST"
+          echo "Dry run: $DRY_RUN"
+
+          mapfile -t releases < <(
+            gh release list \
+              --repo "$REPO" \
+              --limit 1000 \
+              --json tagName,createdAt,isDraft,isPrerelease,name \
+              --jq 'sort_by(.createdAt) | .[] | @base64'
+          )
+
+          total="${#releases[@]}"
+          echo "Found $total releases."
+
+          if [ "$total" -le "$KEEP_LATEST" ]; then
+            echo "Nothing to delete."
+            exit 0
+          fi
+
+          delete_count=$((total - KEEP_LATEST))
+
+          for index in "${!releases[@]}"; do
+            release_json="$(echo "${releases[$index]}" | base64 --decode)"
+            tag="$(echo "$release_json" | jq -r '.tagName')"
+            name="$(echo "$release_json" | jq -r '.name // ""')"
+            created_at="$(echo "$release_json" | jq -r '.createdAt')"
+
+            if [ "$index" -ge "$delete_count" ]; then
+              echo "KEEP   [$((index + 1))/$total] $tag ($created_at) $name"
+              continue
+            fi
+
+            echo "DELETE [$((index + 1))/$total] $tag ($created_at) $name"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              continue
+            fi
+
+            gh release delete "$tag" --repo "$REPO" --yes
+
+            if gh api "repos/$REPO/git/ref/tags/$tag" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/$REPO/git/refs/tags/$tag"
+              echo "Deleted tag: $tag"
+            else
+              echo "Tag not found or already deleted: $tag"
+            fi
+          done
