@@ -10,11 +10,7 @@ on:
       dry_run:
         description: 'true = preview only, false = actually delete releases and tags'
         required: true
-        type: choice
         default: 'true'
-        options:
-          - 'true'
-          - 'false'
 
 permissions:
   contents: write
@@ -29,8 +25,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          KEEP_LATEST: ${{ inputs.keep_latest }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          KEEP_LATEST: ${{ github.event.inputs.keep_latest }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         shell: bash
         run: |
           set -euo pipefail
