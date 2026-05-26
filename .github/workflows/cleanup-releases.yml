@@ -8,7 +8,7 @@ on:
         required: true
         default: '5'
       dry_run:
-        description: 'Preview only. Set to false to delete releases and tags.'
+        description: 'true = preview only, false = actually delete releases and tags'
         required: true
         type: choice
         default: 'true'
@@ -43,13 +43,13 @@ jobs:
           echo "Repository: $REPO"
           echo "Keep latest releases: $KEEP_LATEST"
           echo "Dry run: $DRY_RUN"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::warning::DRY RUN is enabled. This run will only print what would be deleted. Set dry_run=false to actually delete releases and tags."
+          fi
 
           mapfile -t releases < <(
-            gh release list \
-              --repo "$REPO" \
-              --limit 1000 \
-              --json tagName,createdAt,isDraft,isPrerelease,name \
-              --jq 'sort_by(.createdAt) | .[] | @base64'
+            gh api --paginate "repos/$REPO/releases?per_page=100" \
+              --jq 'sort_by(.created_at) | .[] | {id, tagName: .tag_name, createdAt: .created_at, name: .name, draft: .draft, prerelease: .prerelease} | @base64'
           )
 
           total="${#releases[@]}"
@@ -64,6 +64,7 @@ jobs:
 
           for index in "${!releases[@]}"; do
             release_json="$(echo "${releases[$index]}" | base64 --decode)"
+            release_id="$(echo "$release_json" | jq -r '.id')"
             tag="$(echo "$release_json" | jq -r '.tagName')"
             name="$(echo "$release_json" | jq -r '.name // ""')"
             created_at="$(echo "$release_json" | jq -r '.createdAt')"
@@ -79,7 +80,8 @@ jobs:
               continue
             fi
 
-            gh release delete "$tag" --repo "$REPO" --yes
+            gh api --method DELETE "repos/$REPO/releases/$release_id"
+            echo "Deleted release: $tag"
 
             if gh api "repos/$REPO/git/ref/tags/$tag" >/dev/null 2>&1; then
               gh api --method DELETE "repos/$REPO/git/refs/tags/$tag"
