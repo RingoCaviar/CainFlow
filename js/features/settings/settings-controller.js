@@ -17,6 +17,10 @@ import {
     resolveProviderUrl,
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
+import {
+    getModelProtocolHelpText,
+    getProtocolSelectOptions
+} from '../execution/model-protocol-registry.js';
 import { createProxyHeadersGetter } from '../../services/api-client.js';
 import { API_PROVIDERS_LOCKED, AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
 
@@ -149,6 +153,44 @@ export function createSettingsControllerApi({
             .replace(/'/g, '&#39;');
     }
 
+    function sanitizeProviderEndpointInput(value) {
+        return String(value || '')
+            .replace(/[\r\n\t]+/g, ' ')
+            .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function validateProviderEndpoint(value) {
+        const endpoint = sanitizeProviderEndpointInput(value);
+        if (!endpoint) {
+            return { valid: false, sanitized: endpoint, message: 'API 地址不能为空' };
+        }
+        if (endpoint.length > 2048) {
+            return { valid: false, sanitized: endpoint.slice(0, 2048), message: 'API 地址过长，最多允许 2048 个字符' };
+        }
+        if (/\s/.test(endpoint)) {
+            return { valid: false, sanitized: endpoint, message: 'API 地址不能包含空格、换行或制表符' };
+        }
+
+        let parsedUrl = null;
+        try {
+            parsedUrl = new URL(endpoint);
+        } catch {
+            return { valid: false, sanitized: endpoint, message: 'API 地址不是合法的 URL，请填写完整的 http(s) 地址' };
+        }
+
+        const protocol = String(parsedUrl.protocol || '').toLowerCase();
+        if (protocol !== 'http:' && protocol !== 'https:') {
+            return { valid: false, sanitized: endpoint, message: 'API 地址只支持 http:// 或 https:// 开头' };
+        }
+        if (!parsedUrl.hostname || parsedUrl.hostname.length > 253) {
+            return { valid: false, sanitized: endpoint, message: 'API 地址缺少有效主机名' };
+        }
+
+        return { valid: true, sanitized: endpoint, message: '' };
+    }
+
     function getSafeProviderName(provider) {
         return String(provider?.name || '').trim() || '未命名供应商';
     }
@@ -241,6 +283,13 @@ export function createSettingsControllerApi({
         const tags = Array.isArray(sourceModel.tags) ? sourceModel.tags.join(' ') : '';
         const fingerprint = `${modelId} ${sourceModel.displayName || ''} ${sourceModel.name || ''} ${sourceModel.supplier || ''} ${tags}`.toLowerCase();
         if (
+            fingerprint.includes('veo') ||
+            fingerprint.includes('video') ||
+            fingerprint.includes('视频')
+        ) {
+            return 'video';
+        }
+        if (
             fingerprint.includes('image') ||
             fingerprint.includes('banana') ||
             fingerprint.includes('dall-e') ||
@@ -262,6 +311,12 @@ export function createSettingsControllerApi({
             : Array.isArray(fetchedModel.supported_endpoint_types)
                 ? fetchedModel.supported_endpoint_types.map((type) => String(type || '').toLowerCase())
                 : [];
+        if (fingerprint.includes('doubao') || fingerprint.includes('seedance')) {
+            return 'doubao-video';
+        }
+        if (fingerprint.includes('veo') || fingerprint.includes('video')) {
+            return 'veo-openai';
+        }
         if (supportedEndpointTypes.length === 1) {
             if (supportedEndpointTypes[0] === 'gemini') return 'google';
             if (supportedEndpointTypes[0] === 'openai') return 'openai';
@@ -677,10 +732,7 @@ export function createSettingsControllerApi({
     function getModelProtocolHelp(model) {
         const provider = getResolvedModelProvider(model);
         const protocol = getEffectiveProtocol(model, provider);
-        if (protocol === 'google') {
-            return 'Google / Gemini 格式会走 generateContent，请求体按 Gemini 协议构造。';
-        }
-        return 'OpenAI 兼容格式会按模型用途，分别走 /chat/completions 或 /images/generations；生图节点有参考图输入时自动改走 /images/edits。';
+        return getModelProtocolHelpText(protocol, '当前兼容格式说明暂未配置。');
     }
 
     function getProviderModelsDialog() {
@@ -1022,6 +1074,7 @@ export function createSettingsControllerApi({
                         <ul>
                             <li>对话模型选择“对话”，用于 TextChat 等文本生成节点。</li>
                             <li>图片模型选择“生图”，用于 ImageGenerate 等图片生成节点。</li>
+                            <li>视频模型选择“视频”，用于 VideoGenerate 等视频生成节点。</li>
                             <li>OpenAI 兼容服务通常选 OpenAI 协议；Gemini 官方接口选 Gemini / Google 协议。</li>
                         </ul>
                     </section>
@@ -1289,11 +1342,12 @@ export function createSettingsControllerApi({
         });
 
         providersList.querySelectorAll('input').forEach((input) => {
-            const updatePreview = (id) => {
+            const updatePreview = (id, endpointOverride = null) => {
                 const prov = state.providers.find((candidate) => candidate.id === id);
                 const previewEl = documentRef.getElementById(`ep-preview-${id}`);
                 if (prov && previewEl) {
-                    previewEl.textContent = '连接说明：' + getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov));
+                    const previewEndpoint = endpointOverride === null ? prov.endpoint : endpointOverride;
+                    previewEl.textContent = '连接说明：' + getProviderEndpointPreview(previewEndpoint, prov.autoComplete, normalizeProviderType(prov.type, prov));
                 }
             };
 
@@ -1312,6 +1366,16 @@ export function createSettingsControllerApi({
                 if (field === 'autoComplete') {
                     prov.autoComplete = e.target.checked;
                     updatePreview(id);
+                } else if (field === 'endpoint') {
+                    const validation = validateProviderEndpoint(e.target.value);
+                    if (!validation.valid) {
+                        e.target.value = prov.endpoint || '';
+                        updatePreview(id);
+                        showToast(validation.message, 'error');
+                        return;
+                    }
+                    prov.endpoint = validation.sanitized;
+                    e.target.value = validation.sanitized;
                 } else {
                     prov[field] = e.target.value;
                 }
@@ -1331,8 +1395,11 @@ export function createSettingsControllerApi({
                         updatePreview(id);
                         return;
                     }
-                    prov.endpoint = e.target.value;
-                    updatePreview(id);
+                    const sanitized = sanitizeProviderEndpointInput(e.target.value);
+                    if (sanitized !== e.target.value) {
+                        e.target.value = sanitized;
+                    }
+                    updatePreview(id, sanitized);
                 });
             }
         });
@@ -1394,6 +1461,11 @@ export function createSettingsControllerApi({
             const taskType = normalizeModelTaskType(mod.taskType, mod);
             const provider = getResolvedModelProvider(mod);
             const protocol = getEffectiveProtocol(mod, provider);
+            const protocolOptions = getProtocolSelectOptions(taskType)
+                .map((option) => `
+                    <option value="${option.value}" ${protocol === option.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>
+                `)
+                .join('');
             const boundProviderIds = getModelProviderIds(mod);
             const isProviderPanelOpen = openModelProviderPanelId === mod.id;
             const providerDropdown = state.providers.length > 0
@@ -1434,14 +1506,12 @@ export function createSettingsControllerApi({
                             <select data-id="${mod.id}" data-field="taskType">
                                 <option value="chat" ${taskType === 'chat' ? 'selected' : ''}>对话</option>
                                 <option value="image" ${taskType === 'image' ? 'selected' : ''}>生图</option>
+                                <option value="video" ${taskType === 'video' ? 'selected' : ''}>视频</option>
                             </select>
                         </div>
                         <div class="card-field">
                             <label>兼容格式</label>
-                            <select data-id="${mod.id}" data-field="protocol">
-                                <option value="google" ${protocol === 'google' ? 'selected' : ''}>Google / Gemini</option>
-                                <option value="openai" ${protocol === 'openai' ? 'selected' : ''}>OpenAI 兼容</option>
-                            </select>
+                            <select data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
                         </div>
                     </div>
                     <div class="card-row">
@@ -2150,7 +2220,7 @@ export function createSettingsControllerApi({
 
     function updateAllNodeModelDropdowns() {
         for (const [id, node] of state.nodes) {
-            if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
+                if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
                 const providerSelect = documentRef.getElementById(`${id}-provider`);
                 const providerField = documentRef.getElementById(`${id}-provider-field`);
@@ -2158,7 +2228,9 @@ export function createSettingsControllerApi({
 
                 const currentModelId = modelSelect.value;
                 const currentProviderId = providerSelect?.value || node.providerId || '';
-                const taskType = node.type === 'ImageGenerate' ? 'image' : 'chat';
+                const taskType = node.type === 'ImageGenerate'
+                    ? 'image'
+                    : (node.type === 'VideoGenerate' ? 'video' : 'chat');
                 const models = getModelsForTask(state.models, taskType);
                 if (models.length === 0) {
                     modelSelect.innerHTML = '<option value="">-- 暂无可用模型 --</option>';

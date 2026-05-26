@@ -17,6 +17,7 @@ export function createWorkflowRunnerApi({
     normalizeRunOptions,
     getCachedOutputValue,
     executeNode,
+    resumeVideoGeneration = async () => {},
     addNode,
     generateId,
     showToast,
@@ -136,14 +137,15 @@ export function createWorkflowRunnerApi({
         const runBtn = documentRef.getElementById('btn-run');
         const stopBtn = documentRef.getElementById('btn-stop');
         const hasActiveRuns = (state.activeRunCount || 0) > 0;
+        const isRunStarting = state.isRunStarting === true;
 
         if (runBtn) {
-            runBtn.classList.toggle('running', hasActiveRuns);
-            runBtn.disabled = hasActiveRuns;
+            runBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
+            runBtn.disabled = hasActiveRuns || isRunStarting;
         }
         if (stopBtn) {
-            stopBtn.classList.toggle('running', hasActiveRuns);
-            stopBtn.disabled = !hasActiveRuns;
+            stopBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
+            stopBtn.disabled = !hasActiveRuns && !isRunStarting;
         }
     }
 
@@ -247,7 +249,14 @@ export function createWorkflowRunnerApi({
                 node.generationCompletedCount = 0;
                 node.generatedImages = [];
             }
-            if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
+            if (node.type === 'VideoGenerate') {
+                delete node.data.video;
+                delete node.data.videoUrl;
+                delete node.data.videoStatus;
+                delete node.data.videoStatusText;
+                delete node.data.videos;
+            }
+            if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 delete node.apiGenerationProgress;
             }
         }
@@ -523,7 +532,7 @@ export function createWorkflowRunnerApi({
     function getApiNodeRunCount(node, batchCount) {
         if (!node) return 0;
         const safeBatchCount = Math.max(1, parseInt(batchCount, 10) || 1);
-        if (node.type === 'ImageGenerate') return safeBatchCount * getConfiguredImageGenerationCount(node);
+        if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate') return safeBatchCount * getConfiguredImageGenerationCount(node);
         if (node.type === 'TextChat') return safeBatchCount;
         return 0;
     }
@@ -745,10 +754,18 @@ export function createWorkflowRunnerApi({
         }
 
         const shouldRunConcurrentBatches = isConcurrentRequestModeEnabled() &&
-            (node?.type === 'ImageGenerate' || node?.type === 'TextChat') &&
+            (node?.type === 'ImageGenerate' || node?.type === 'VideoGenerate' || node?.type === 'TextChat') &&
             batches.length > 1;
         if (shouldRunConcurrentBatches) {
             if (node.type === 'ImageGenerate') resetNodeImageOutputsForBatch(node);
+            if (node.type === 'VideoGenerate') {
+                node.data = node.data || {};
+                delete node.data.video;
+                delete node.data.videoUrl;
+                delete node.data.videoStatus;
+                delete node.data.videoStatusText;
+                delete node.data.videos;
+            }
             if (node.type === 'TextChat') resetNodeTextOutputsForBatch(node);
             delete node.apiGenerationProgress;
             prepareApiNodeGenerationProgress(node, batches.length);
@@ -930,97 +947,340 @@ export function createWorkflowRunnerApi({
         return true;
     }
 
-    async function runWorkflow(runInput = null) {
-        if (state.nodes.size === 0) {
-            showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
-            return;
+    async function resumeVideoNodeBranch(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node || node.type !== 'VideoGenerate') {
+            throw new Error('未找到可恢复的视频生成节点');
         }
-        let runOptions = normalizeRunOptions(runInput);
-        let plan = resolveExecutionPlan(runOptions);
-        if (!plan) return;
-        plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
+
+        const runOptions = normalizeRunOptions({
+            mode: 'target-node',
+            targetNodeId: nodeId,
+            selectedNodeIds: []
+        });
+        const plan = resolveExecutionPlan(runOptions);
+        if (!plan) {
+            throw new Error('无法建立恢复执行计划');
+        }
 
         const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
         if (alreadyRunningNodeIds.length > 0) {
-            showToast(`当前运行范围内有 ${alreadyRunningNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
-            return;
+            throw new Error('当前恢复范围内仍有节点在运行，请等待完成后再试');
         }
 
-        const missingKeysProviders = new Set();
-        for (const id of plan.nodeIds) {
-            const node = state.nodes.get(id);
-            if (!node) continue;
-            if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
-                const configSelect = documentRef.getElementById(`${id}-apiconfig`);
-                if (configSelect) {
-                    const modelCfg = state.models.find((model) => model.id === configSelect.value);
-                    if (modelCfg) {
-                        const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || state.nodes.get(id)?.providerId || '';
-                        const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, selectedProviderId);
-                        if (apiCfg && !apiCfg.apikey.trim()) {
-                            missingKeysProviders.add(apiCfg.name);
-                        }
-                    }
-                }
-            }
-        }
-
-        if (missingKeysProviders.size > 0) {
-            const names = Array.from(missingKeysProviders).join(', ');
-            const msg = `场景中存在未配置 API 密钥的模型（涉及供应商: ${names}），可能会导致执行报错。\n\n您确定要强制继续运行吗？`;
-            if (!confirmRef(msg)) {
-                return;
-            }
+        plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
+        const order = (plan.executionOrder || []).filter((nid) => plan.scopeNodeSet.has(nid));
+        if (!order.includes(nodeId)) {
+            throw new Error('当前恢复节点不在执行计划内');
         }
 
         const session = {
             controller: new AbortController(),
-            timeoutId: null,
-            stopped: false,
-            abortReason: null,
-            finalized: false,
+            nodeAbortControllers: new Map(),
             canceledBranchNodeIds: new Set(),
-            nodeAbortControllers: new Map()
+            stopped: false,
+            timeoutId: null,
+            finalized: false,
+            abortReason: null
         };
-        getRunAbortControllers().add(session.controller);
+        const controllers = getRunAbortControllers();
+        controllers.add(session.controller);
         state.activeRunCount = (state.activeRunCount || 0) + 1;
         state.isRunning = true;
-        state.abortReason = null;
         state.abortController = session.controller;
         syncRunToolbarState();
-        if (state.requestTimeoutEnabled) {
-            const timeoutMs = Math.max(1, parseInt(state.requestTimeoutSeconds, 10) || 60) * 1000;
-            session.timeoutId = setTimeout(() => {
-                if (session.finalized || session.controller.signal.aborted) return;
-                session.abortReason = 'timeout';
-                state.abortReason = 'timeout';
-                session.stopped = true;
-                session.controller.abort();
-            }, timeoutMs);
-        }
 
-        if (state.notificationsEnabled) {
-            if (!state.notificationAudio) {
-                state.notificationAudio = audioFactory();
-                state.notificationAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-                state.notificationAudio.loop = true;
+        function finalizeResumeRun() {
+            if (session.finalized) return;
+            session.finalized = true;
+            if (session.timeoutId) {
+                clearTimeout(session.timeoutId);
+                session.timeoutId = null;
             }
-            state.notificationAudio.muted = false;
-            state.notificationAudio.volume = 0.001;
-            state.notificationAudio.play().catch((e) => {
-                console.warn('Audio warm-up blocked:', e);
-                addLog('warning', '音频保活受限', '浏览器禁用了后台音频，通知音效可能在非活动状态下失效，请确保已与页面交互。');
+            controllers.delete(session.controller);
+            for (const currentNodeId of Array.from(session.nodeAbortControllers.keys())) {
+                unregisterNodeCancelHandler(session, currentNodeId);
+            }
+            state.activeRunCount = Math.max(0, (state.activeRunCount || 0) - 1);
+            state.isRunning = state.activeRunCount > 0;
+            state.abortController = Array.from(controllers).at(-1) || null;
+            if (!state.isRunning) {
+                state.abortReason = null;
+            }
+            syncRunToolbarState();
+        }
+
+        const completedNodes = new Set();
+        const runningNodes = new Set();
+        const downstreamNodes = collectDownstreamNodeIds(plan, nodeId);
+        order.forEach((nid) => {
+            if (!downstreamNodes.has(nid)) {
+                completedNodes.add(nid);
+            }
+        });
+        completedNodes.add(nodeId);
+
+        const executeSingleNodeForResume = async (nid, signal) => {
+            const currentNode = state.nodes.get(nid);
+            if (!currentNode) {
+                completedNodes.add(nid);
+                return;
+            }
+            if (currentNode.enabled === false) {
+                completedNodes.add(nid);
+                return;
+            }
+
+            const nodeTitle = getNodeDisplayTitle(currentNode);
+            runningNodes.add(nid);
+            markNodeRunning(nid, currentNode);
+            const timeBadge = documentRef.getElementById(`${nid}-time`);
+            const timeContainer = documentRef.getElementById(`${nid}-time-container`);
+            const startTime = Date.now();
+            currentNode.runStartedAt = startTime;
+            let timerId = null;
+            if (timeBadge) {
+                if (timeContainer) timeContainer.style.display = 'flex';
+                timerId = setInterval(() => {
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                    timeBadge.textContent = `${elapsed}s`;
+                    if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
+                    else timeBadge.style.color = '';
+                }, 100);
+            }
+
+            try {
+                const inputs = collectInputsForNode(plan, nid);
+                const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, signal);
+                if (signal?.aborted) {
+                    const abortError = new Error('Node run aborted');
+                    abortError.name = 'AbortError';
+                    throw abortError;
+                }
+                if (timerId) clearInterval(timerId);
+                const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+                currentNode.isSucceeded = true;
+                currentNode.lastDuration = durationSec;
+                currentNode.runStartedAt = null;
+                clearNodeRunning(nid, currentNode);
+                currentNode.el.classList.add('completed');
+                if (timeBadge) {
+                    timeBadge.textContent = `${durationSec}s`;
+                    timeBadge.style.color = '';
+                }
+                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, {
+                    nodeId: nid,
+                    inputs: loggedInputs,
+                    data: currentNode.data,
+                    resumedFromVideoTask: nid === nodeId ? String(node.data?.videoId || '') : undefined
+                });
+                scheduleSave();
+                completedNodes.add(nid);
+            } catch (err) {
+                if (isAbortLikeError(err)) {
+                    currentNode.runStartedAt = null;
+                    clearNodeRunning(nid, currentNode);
+                    clearAbortedNodeFeedback(nid);
+                    if (session.abortReason) state.abortReason = session.abortReason;
+                    throw err;
+                }
+                clearNodeRunning(nid, currentNode);
+                currentNode.runStartedAt = null;
+                currentNode.el.classList.add('error');
+                const errorMsg = err.message || '未知错误';
+                if (timeBadge) timeBadge.textContent = 'Err';
+                const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
+                addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
+                    userFacing: err.userFacing || null
+                });
+                throw err;
+            } finally {
+                if (timerId) clearInterval(timerId);
+                clearNodeRunning(nid, currentNode);
+                currentNode.runStartedAt = null;
+                runningNodes.delete(nid);
+            }
+        };
+
+        try {
+            const videoTitle = getNodeDisplayTitle(node);
+            addLog('info', '恢复视频任务', `开始恢复「${videoTitle}」并续跑下游节点`, {
+                nodeId,
+                videoId: String(node.data?.videoId || '').trim(),
+                downstreamNodeCount: Math.max(0, downstreamNodes.size - 1)
             });
+
+            const videoNodeController = new AbortController();
+            const linkedResumeAbort = createLinkedAbortSignal([
+                session.controller.signal,
+                videoNodeController.signal
+            ]);
+            session.nodeAbortControllers.set(nodeId, videoNodeController);
+            getRunningNodeCancelHandlers().set(nodeId, () => {
+                session.canceledBranchNodeIds.add(nodeId);
+                session.controller.abort();
+            });
+
+            runningNodes.add(nodeId);
+            markNodeRunning(nodeId, node);
+            try {
+                await resumeVideoGeneration(nodeId, linkedResumeAbort.signal);
+                node.isSucceeded = true;
+                node.el.classList.add('completed');
+                scheduleSave();
+            } finally {
+                linkedResumeAbort.cleanup();
+                clearNodeRunning(nodeId, node);
+                runningNodes.delete(nodeId);
+                unregisterNodeCancelHandler(session, nodeId);
+            }
+
+            for (const nid of order) {
+                if (nid === nodeId) continue;
+                if (!downstreamNodes.has(nid)) continue;
+                if (session.controller.signal.aborted) {
+                    const abortError = new Error('Node run aborted');
+                    abortError.name = 'AbortError';
+                    throw abortError;
+                }
+                const deps = (plan.incomingConnectionsByNode[nid] || []).map((c) => c.from.nodeId);
+                if (!deps.every((depNodeId) => completedNodes.has(depNodeId))) {
+                    continue;
+                }
+                await executeSingleNodeForResume(nid, session.controller.signal);
+            }
+
+            updateAllConnections();
+            updatePortStyles();
+            dispatchWorkflowCompletionNotice({
+                toastMessage: '视频任务恢复完成，后续节点已继续执行',
+                toastType: 'success',
+                notificationTitle: 'CainFlow 恢复完成',
+                notificationBody: `视频节点及其下游已继续执行完成`
+            });
+        } catch (error) {
+            if (isAbortLikeError(error)) {
+                if (session.abortReason) state.abortReason = session.abortReason;
+                addLog('info', '恢复执行已停止', getAbortMessage(state));
+                throw error;
+            }
+            throw error;
+        } finally {
+            finalizeResumeRun();
         }
+    }
 
-        const forceResetNodeIds = new Set();
-        if (runOptions.mode === 'target-node' && runOptions.targetNodeId) {
-            forceResetNodeIds.add(runOptions.targetNodeId);
+    async function runWorkflow(runInput = null) {
+        if (state.isRunStarting) {
+            return;
         }
+        state.isRunStarting = true;
+        syncRunToolbarState();
+        let startSucceeded = false;
+        try {
+            await new Promise((resolve) => {
+                const requestFrame = documentRef.defaultView?.requestAnimationFrame;
+                if (typeof requestFrame === 'function') {
+                    requestFrame(() => resolve());
+                } else {
+                    setTimeout(resolve, 16);
+                }
+            });
 
-        resetNodesForPlan(plan, { forceResetNodeIds });
+            if (state.nodes.size === 0) {
+                showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
+                return;
+            }
+            let runOptions = normalizeRunOptions(runInput);
+            let plan = resolveExecutionPlan(runOptions);
+            if (!plan) {
+                return;
+            }
+            plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
 
-        let order = plan.executionOrder.slice();
+            const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
+            if (alreadyRunningNodeIds.length > 0) {
+                showToast(`当前运行范围内有 ${alreadyRunningNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
+                return;
+            }
+
+            const missingKeysProviders = new Set();
+            for (const id of plan.nodeIds) {
+                const node = state.nodes.get(id);
+                if (!node) continue;
+                if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
+                    const configSelect = documentRef.getElementById(`${id}-apiconfig`);
+                    if (configSelect) {
+                        const modelCfg = state.models.find((model) => model.id === configSelect.value);
+                        if (modelCfg) {
+                            const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || state.nodes.get(id)?.providerId || '';
+                            const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, selectedProviderId);
+                            if (apiCfg && !apiCfg.apikey.trim()) {
+                                missingKeysProviders.add(apiCfg.name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (missingKeysProviders.size > 0) {
+                const names = Array.from(missingKeysProviders).join(', ');
+                const msg = `场景中存在未配置 API 密钥的模型（涉及供应商: ${names}），可能会导致执行报错。\n\n您确定要强制继续运行吗？`;
+                if (!confirmRef(msg)) {
+                    return;
+                }
+            }
+
+            const session = {
+                controller: new AbortController(),
+                timeoutId: null,
+                stopped: false,
+                abortReason: null,
+                finalized: false,
+                canceledBranchNodeIds: new Set(),
+                nodeAbortControllers: new Map()
+            };
+            getRunAbortControllers().add(session.controller);
+            state.activeRunCount = (state.activeRunCount || 0) + 1;
+            state.isRunning = true;
+            state.isRunStarting = false;
+            state.abortReason = null;
+            state.abortController = session.controller;
+            syncRunToolbarState();
+            startSucceeded = true;
+            if (state.requestTimeoutEnabled) {
+                const timeoutMs = Math.max(1, parseInt(state.requestTimeoutSeconds, 10) || 60) * 1000;
+                session.timeoutId = setTimeout(() => {
+                    if (session.finalized || session.controller.signal.aborted) return;
+                    session.abortReason = 'timeout';
+                    state.abortReason = 'timeout';
+                    session.stopped = true;
+                    session.controller.abort();
+                }, timeoutMs);
+            }
+
+            if (state.notificationsEnabled) {
+                if (!state.notificationAudio) {
+                    state.notificationAudio = audioFactory();
+                    state.notificationAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+                    state.notificationAudio.loop = true;
+                }
+                state.notificationAudio.muted = false;
+                state.notificationAudio.volume = 0.001;
+                state.notificationAudio.play().catch((e) => {
+                    console.warn('Audio warm-up blocked:', e);
+                    addLog('warning', '音频保活受限', '浏览器禁用了后台音频，通知音效可能在非活动状态下失效，请确保已与页面交互。');
+                });
+            }
+
+            const forceResetNodeIds = new Set();
+            if (runOptions.mode === 'target-node' && runOptions.targetNodeId) {
+                forceResetNodeIds.add(runOptions.targetNodeId);
+            }
+
+            resetNodesForPlan(plan, { forceResetNodeIds });
+
+            let order = plan.executionOrder.slice();
 
         const emptyImageNodes = [];
         for (const nid of order) {
@@ -1046,9 +1306,9 @@ export function createWorkflowRunnerApi({
         const emptyPromptNodes = [];
         for (const nid of order) {
             const node = state.nodes.get(nid);
-            if (node && node.enabled !== false && node.type === 'TextChat') {
+            if (node && node.enabled !== false && (node.type === 'TextChat' || node.type === 'VideoGenerate')) {
                 const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
-                if (fixedToggle && fixedToggle.checked && node.isSucceeded) continue;
+                if (node.type === 'TextChat' && fixedToggle && fixedToggle.checked && node.isSucceeded) continue;
 
                 const textareaValue = documentRef.getElementById(`${nid}-prompt`)?.value || '';
                 const hasPromptInput = hasPromptInputValue(plan, nid);
@@ -1106,6 +1366,7 @@ export function createWorkflowRunnerApi({
             }
             state.activeRunCount = Math.max(0, (state.activeRunCount || 0) - 1);
             state.isRunning = state.activeRunCount > 0;
+            state.isRunStarting = false;
             state.abortController = Array.from(controllers).at(-1) || null;
             if (!state.isRunning) {
                 state.abortReason = null;
@@ -1131,7 +1392,25 @@ export function createWorkflowRunnerApi({
                                 type: 'image'
                             });
                             injected = true;
-                            addLog('info', '自动注入节点', `为「${getNodeDisplayTitle(node)}」自动添加了图片保存节点`);
+                            addLog('info', '自动注入节点', `为「${getNodeDisplayTitle(node)}」自动添加了保存节点`);
+                        }
+                    }
+                }
+                if (node && node.type === 'VideoGenerate') {
+                    const hasConnection = state.connections.some((c) => c.from.nodeId === nid && c.from.port === 'video');
+                    if (!hasConnection) {
+                        const rect = node.el.getBoundingClientRect();
+                        const nodeWidth = rect.width || 240;
+                        const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
+                        if (saveId) {
+                            state.connections.push({
+                                id: 'conn_' + generateId(),
+                                from: { nodeId: nid, port: 'video', type: 'video' },
+                                to: { nodeId: saveId, port: 'video', type: 'video' },
+                                type: 'video'
+                            });
+                            injected = true;
+                            addLog('info', '自动注入节点', `为「${getNodeDisplayTitle(node)}」自动添加了保存节点`);
                         }
                     }
                 }
@@ -1355,11 +1634,11 @@ export function createWorkflowRunnerApi({
             }
 
             for (const [id, node] of state.nodes) {
-                if (node.type === 'ImageSave' && node.data.image) {
+                if (node.type === 'ImageSave' && (node.data.image || node.data.video?.url)) {
                     const btnSave = node.el.querySelector(`#${id}-manual-save`);
                     const btnView = node.el.querySelector(`#${id}-view-full`);
                     if (btnSave) btnSave.disabled = false;
-                    if (btnView) btnView.disabled = false;
+                    if (btnView) btnView.disabled = !node.data.image;
                 }
             }
 
@@ -1410,10 +1689,17 @@ export function createWorkflowRunnerApi({
                 });
             }
         }
+        } finally {
+            if (!startSucceeded) {
+                state.isRunStarting = false;
+                syncRunToolbarState();
+            }
+        }
     }
 
     return {
         runWorkflow,
-        cancelRunningNode
+        cancelRunningNode,
+        resumeVideoNodeBranch
     };
 }

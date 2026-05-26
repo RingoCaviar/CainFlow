@@ -7,6 +7,7 @@ import {
 
 const MODEL_NODE_TASK_TYPES = {
     ImageGenerate: 'image',
+    VideoGenerate: 'video',
     TextChat: 'chat'
 };
 

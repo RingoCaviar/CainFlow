@@ -439,7 +439,7 @@ export function createNodeLifecycleApi({
             body.style.display = 'none';
         }
         const bodySize = body && !isCollapsed ? getElementMinimumSize(body) : { width: 0, height: 0 };
-        const bodyRenderedHeight = body && !isCollapsed && !hasScrollableResultContent(body)
+        const bodyRenderedHeight = body && !isCollapsed
             ? Math.max(body.offsetHeight || 0, body.scrollHeight || 0)
             : 0;
 
@@ -453,7 +453,11 @@ export function createNodeLifecycleApi({
             body.style.display = originalBodyDisplay;
         }
 
-        const contentMinHeight = Math.ceil(headerHeight + portsRowSize.height + Math.max(bodySize.height, bodyRenderedHeight));
+        const contentMinHeight = Math.ceil(
+            headerHeight +
+            portsRowSize.height +
+            Math.max(bodySize.height, bodyRenderedHeight)
+        );
         return {
             minWidth: Math.max(getDefaultNodeWidth(config), headerWidth, portsRowSize.width, bodySize.width),
             minHeight: isCollapsed
@@ -567,6 +571,23 @@ export function createNodeLifecycleApi({
             Math.max(currentHeight, minimum.minHeight),
             options
         );
+    }
+
+    function enforceNodeContentMinimum(nodeId, options = {}) {
+        const node = state.nodes.get(nodeId);
+        if (!node || !node.el) return null;
+        const minimum = getNodeMinimumSize(node);
+        const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
+        const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
+        const nextWidth = Math.max(currentWidth, minimum.minWidth);
+        const nextHeight = Math.max(currentHeight, minimum.minHeight);
+        applyNodeSize(node, nextWidth, nextHeight, options);
+        return {
+            minWidth: minimum.minWidth,
+            minHeight: minimum.minHeight,
+            width: nextWidth,
+            height: nextHeight
+        };
     }
 
     function scheduleEnsureNodeContentVisible(nodeId, options = {}) {
@@ -730,7 +751,7 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
-        if (normalizedType === 'ImageGenerate' || normalizedType === 'TextChat') {
+        if (normalizedType === 'ImageGenerate' || normalizedType === 'VideoGenerate' || normalizedType === 'TextChat') {
             nodeData.referenceImageCount = getReferenceImageCount(effectiveRestoreData);
             nodeData.data.referenceImageCount = nodeData.referenceImageCount;
         }
@@ -781,6 +802,14 @@ export function createNodeLifecycleApi({
         } else if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
             nodeData.imagePreviewIndex = 0;
         }
+        if (normalizedType === 'ImageSave' && effectiveRestoreData?.video && typeof effectiveRestoreData.video === 'object') {
+            nodeData.data.video = {
+                id: effectiveRestoreData.video.id || '',
+                url: effectiveRestoreData.video.url || '',
+                status: effectiveRestoreData.video.status || '',
+                prompt: effectiveRestoreData.video.prompt || ''
+            };
+        }
         if (normalizedType === 'CameraControl') {
             nodeData.data.pitch = Number.isFinite(Number(effectiveRestoreData?.pitch)) ? Number(effectiveRestoreData.pitch) : 12;
             nodeData.data.yaw = Number.isFinite(Number(effectiveRestoreData?.yaw)) ? Number(effectiveRestoreData.yaw) : 28;
@@ -791,6 +820,28 @@ export function createNodeLifecycleApi({
             nodeData.data.text = effectiveRestoreData?.cameraPrompt || effectiveRestoreData?.text || '';
             nodeData.data.cameraPrompt = nodeData.data.text;
             nodeData.data.cameraPreviewImage = effectiveRestoreData?.cameraPreviewImage || '';
+        }
+        if (normalizedType === 'VideoGenerate') {
+            nodeData.generationCount = Math.max(1, parseInt(effectiveRestoreData?.generationCount || '1', 10) || 1);
+            nodeData.data.generationCount = nodeData.generationCount;
+            nodeData.data.enhancePrompt = effectiveRestoreData?.enhancePrompt === true;
+            nodeData.data.enableUpsample = effectiveRestoreData?.enableUpsample === true;
+            nodeData.data.videoId = effectiveRestoreData?.videoId || '';
+            nodeData.data.videoUrl = effectiveRestoreData?.videoUrl || '';
+            nodeData.data.videoStatus = effectiveRestoreData?.videoStatus || '';
+            nodeData.data.videoStatusText = effectiveRestoreData?.videoStatusText || '';
+            nodeData.data.videoCreateHttpStatus = effectiveRestoreData?.videoCreateHttpStatus || '';
+            nodeData.data.videoCreateStatus = effectiveRestoreData?.videoCreateStatus || '';
+            nodeData.data.videoStatusUpdateTime = effectiveRestoreData?.videoStatusUpdateTime || '';
+            nodeData.data.videoEnhancedPrompt = effectiveRestoreData?.videoEnhancedPrompt || '';
+            if (nodeData.data.videoUrl) {
+                nodeData.data.video = {
+                    id: nodeData.data.videoId,
+                    url: nodeData.data.videoUrl,
+                    status: nodeData.data.videoStatus,
+                    prompt: effectiveRestoreData?.prompt || ''
+                };
+            }
         }
         if (normalizedType === 'TextSplit') {
             nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';
@@ -930,6 +981,18 @@ export function createNodeLifecycleApi({
                         const controls = el.querySelector(`#${id}-controls`);
                         if (controls) controls.style.display = 'flex';
                         showResolutionBadge(id, data);
+                        onConnectionsChanged();
+                    } else if (normalizedType === 'ImageSave' && nodeData.data.video?.url && !data) {
+                        const savePreview = el.querySelector(`#${id}-save-preview`);
+                        if (savePreview) {
+                            savePreview.classList.remove('has-multiple-images');
+                            savePreview.dataset.saveMode = 'video';
+                            savePreview.innerHTML = `<video src="${nodeData.data.video.url}" controls preload="metadata" playsinline style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"></video>`;
+                        }
+                        const manualSaveBtn = el.querySelector(`#${id}-manual-save`);
+                        const viewFullBtn = el.querySelector(`#${id}-view-full`);
+                        if (manualSaveBtn) manualSaveBtn.disabled = false;
+                        if (viewFullBtn) viewFullBtn.disabled = false;
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageSave') {
                         const savePreview = el.querySelector(`#${id}-save-preview`);
@@ -1314,6 +1377,7 @@ export function createNodeLifecycleApi({
     return {
         fitNodeToContent,
         getNodeMinimumSize,
+        enforceNodeContentMinimum,
         addNode,
         removeNode,
         detachNodesFromConnections,

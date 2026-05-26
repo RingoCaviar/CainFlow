@@ -1,7 +1,14 @@
 /**
  * 统一封装供应商请求协议、模型能力与图片响应解析逻辑。
  */
-const VALID_PROTOCOLS = new Set(['google', 'openai']);
+import {
+    getVideoProtocolOptionMeta as getRegisteredVideoProtocolOptionMeta,
+    getProtocolSelectOptions,
+    isKnownModelProtocol,
+    MODEL_PROTOCOL_IDS
+} from './model-protocol-registry.js';
+
+const VALID_PROTOCOLS = new Set(MODEL_PROTOCOL_IDS);
 
 function getImageInputKeys(inputs = {}) {
     return Object.keys(inputs)
@@ -39,8 +46,34 @@ export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
     { value: 'custom', label: '自定义' }
 ];
 
+export const VIDEO_ASPECT_OPTIONS = [
+    { value: '16:9', label: '16:9 横屏' },
+    { value: '9:16', label: '9:16 竖屏' }
+];
+
+export const DOUBAO_VIDEO_RATIO_OPTIONS = [
+    { value: '16:9', label: '16:9 横屏' },
+    { value: '4:3', label: '4:3' },
+    { value: '1:1', label: '1:1 方屏' },
+    { value: '3:4', label: '3:4' },
+    { value: '9:16', label: '9:16 竖屏' },
+    { value: '21:9', label: '21:9 宽银幕' }
+];
+
+export const DOUBAO_VIDEO_RESOLUTION_OPTIONS = [
+    { value: '480p', label: '480p' },
+    { value: '720p', label: '720p' },
+    { value: '1080p', label: '1080p' }
+];
+
+export const VIDEO_PROTOCOL_OPTIONS = getProtocolSelectOptions('video');
+
+export function getVideoProtocolOptionMeta(protocol = '') {
+    return getRegisteredVideoProtocolOptionMeta(protocol);
+}
+
 function getProtocolValue(protocol) {
-    return VALID_PROTOCOLS.has(protocol) ? protocol : '';
+    return isKnownModelProtocol(protocol) && VALID_PROTOCOLS.has(protocol) ? protocol : '';
 }
 
 function getFingerprintProtocol(model = {}) {
@@ -134,7 +167,7 @@ export function getModelOptionLabel(model = {}, providers = null) {
 }
 
 export function normalizeModelTaskType(taskType, model = {}) {
-    if (taskType === 'image' || taskType === 'chat') return taskType;
+    if (taskType === 'image' || taskType === 'chat' || taskType === 'video') return taskType;
 
     const fingerprint = `${model?.name || ''} ${model?.modelId || ''}`.toLowerCase();
     if (
@@ -147,6 +180,14 @@ export function normalizeModelTaskType(taskType, model = {}) {
         fingerprint.includes('生图')
     ) {
         return 'image';
+    }
+
+    if (
+        fingerprint.includes('veo') ||
+        fingerprint.includes('video') ||
+        fingerprint.includes('视频')
+    ) {
+        return 'video';
     }
 
     return 'chat';
@@ -178,6 +219,9 @@ export function normalizeProviderType(type, provider = {}, fallbackProtocol = ''
 }
 
 export function normalizeModelProtocol(protocol, model = {}, provider = null) {
+    if (isKnownModelProtocol(protocol)) {
+        return protocol;
+    }
     return getProtocolValue(protocol)
         || getProtocolValue(provider?.type)
         || inferProtocolFromEndpoint(provider?.endpoint)
@@ -275,17 +319,32 @@ function normalizeGoogleAutoCompleteBase(base) {
 }
 
 function normalizeOpenAiAutoCompleteBase(base) {
-    const cleaned = String(base || '').replace(/\/(?:chat\/completions|images\/(?:generations|edits)|responses)\/?$/i, '');
+    const cleaned = String(base || '').replace(/\/(?:chat\/completions|images\/(?:generations|edits)|responses|video\/(?:create|query)|videos(?:\/[^/?#]+(?:\/content)?)?)\/?$/i, '');
     if (!cleaned) return '';
     if (/\/v\d+$/i.test(cleaned)) return cleaned;
     return `${cleaned}/v1`;
+}
+
+function normalizeUnifiedVideoBase(base) {
+    const cleaned = String(base || '')
+        .replace(/\/(?:v\d+\/video\/(?:create|query)|video\/(?:create|query))\/?$/i, '')
+        .replace(/\/+$/, '');
+    return cleaned;
+}
+
+function normalizeDoubaoVideoBase(base) {
+    return String(base || '')
+        .replace(/\/(?:volc\/v1\/contents\/generations\/tasks(?:\/[^/?#]+)?|api\/v3\/contents\/generations\/tasks(?:\/[^/?#]+)?|v1\/video\/(?:create|query)|v1\/videos(?:\/[^/?#]+(?:\/content)?)?)\/?$/i, '')
+        .replace(/\/+$/, '');
 }
 
 export function normalizeAutoCompleteBase(endpoint, protocol = '') {
     const base = getBaseEndpoint(endpoint);
     if (!base) return '';
     if (protocol === 'google') return normalizeGoogleAutoCompleteBase(base);
-    if (protocol === 'openai') return normalizeOpenAiAutoCompleteBase(base);
+    if (protocol === 'openai' || protocol === 'veo-openai') return normalizeOpenAiAutoCompleteBase(base);
+    if (protocol === 'veo-unified') return normalizeUnifiedVideoBase(base);
+    if (protocol === 'doubao-video') return normalizeDoubaoVideoBase(base);
     return base;
 }
 
@@ -295,12 +354,53 @@ function appendOpenAiPath(base, path) {
     return `${base}${path}`;
 }
 
+function appendUnifiedVideoPath(base, path) {
+    const normalizedBase = normalizeUnifiedVideoBase(base);
+    if (!normalizedBase) return `/v1${path}`;
+    if (normalizedBase.toLowerCase().endsWith(`/v1${path}`)) return normalizedBase;
+    if (/\/v1$/i.test(normalizedBase)) return `${normalizedBase}${path}`;
+    return `${normalizedBase}/v1${path}`;
+}
+
+function replaceVideoEndpointPath(endpoint, nextPath) {
+    const base = String(endpoint || '').replace(/\/+$/, '');
+    if (!base) return nextPath;
+    return base.replace(/\/video\/(?:create|query)$/i, nextPath);
+}
+
+function appendQueryParam(url, key, value) {
+    if (!url || value === undefined || value === null || value === '') return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
+}
+
 function hasOpenAiReferenceImages(inputs = {}) {
     return getImageInputKeys(inputs).some((key) => typeof inputs[key] === 'string' && inputs[key].trim());
 }
 
 export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
-    if (apiCfg?.autoComplete === false) return apiCfg?.endpoint || '';
+    if (apiCfg?.autoComplete === false) {
+        const endpoint = apiCfg?.endpoint || '';
+        const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+        if (taskType === 'video') {
+            const action = options.action || 'create';
+            if (protocol === 'doubao-video') {
+                const doubaoBase = normalizeDoubaoVideoBase(endpoint);
+                if (action === 'query') return `${doubaoBase}/volc/v1/contents/generations/tasks/${encodeURIComponent(options.videoId || '')}`;
+                return `${doubaoBase}/volc/v1/contents/generations/tasks`;
+            }
+            if (protocol === 'veo-openai') {
+                if (action === 'create') return endpoint;
+                if (action === 'query') return appendOpenAiPath(normalizeOpenAiAutoCompleteBase(endpoint), `/videos/${encodeURIComponent(options.videoId || '')}`);
+                if (action === 'download') return appendOpenAiPath(normalizeOpenAiAutoCompleteBase(endpoint), `/videos/${encodeURIComponent(options.videoId || '')}/content`);
+            }
+            if (action === 'query') {
+                return appendQueryParam(replaceVideoEndpointPath(endpoint, '/video/query'), 'id', options.videoId || '');
+            }
+            return replaceVideoEndpointPath(endpoint, '/video/create');
+        }
+        return endpoint;
+    }
 
     const protocol = getEffectiveProtocol(modelCfg, apiCfg);
     const base = normalizeAutoCompleteBase(apiCfg?.endpoint, protocol);
@@ -311,6 +411,22 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     if (taskType === 'image') {
         const imagePath = hasOpenAiReferenceImages(options.inputs) ? '/images/edits' : '/images/generations';
         return appendOpenAiPath(base, imagePath);
+    }
+
+    if (taskType === 'video') {
+        const action = options.action || 'create';
+        if (protocol === 'doubao-video') {
+            const doubaoBase = normalizeDoubaoVideoBase(apiCfg?.endpoint || base);
+            if (action === 'query') return `${doubaoBase}/volc/v1/contents/generations/tasks/${encodeURIComponent(options.videoId || '')}`;
+            return `${doubaoBase}/volc/v1/contents/generations/tasks`;
+        }
+        if (protocol === 'veo-openai') {
+            if (action === 'create') return appendOpenAiPath(base, '/videos');
+            if (action === 'query') return appendOpenAiPath(base, `/videos/${encodeURIComponent(options.videoId || '')}`);
+            if (action === 'download') return appendOpenAiPath(base, `/videos/${encodeURIComponent(options.videoId || '')}/content`);
+        }
+        if (action === 'query') return appendQueryParam(appendUnifiedVideoPath(base, '/video/query'), 'id', options.videoId || '');
+        return appendUnifiedVideoPath(base, '/video/create');
     }
 
     return appendOpenAiPath(base, '/chat/completions');
@@ -416,6 +532,182 @@ export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality,
     if (referenceImages.length > 0) requestBody.reference_images = referenceImages;
 
     return applyCustomRequestParams(requestBody, inputs);
+}
+
+export function buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio, enhancePrompt = false, enableUpsample = false, inputs = {} }) {
+    const requestBody = {
+        model: modelCfg.modelId,
+        prompt
+    };
+
+    if (aspectRatio) requestBody.aspect_ratio = aspectRatio;
+    requestBody.enhance_prompt = enhancePrompt === true;
+    requestBody.enable_upsample = enableUpsample === true;
+
+    const referenceImages = getOpenAiReferenceImages(inputs);
+    if (referenceImages.length > 0) {
+        requestBody.image = referenceImages[0];
+        requestBody.images = referenceImages;
+    }
+
+    return applyCustomRequestParams(requestBody, inputs);
+}
+
+export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, inputs = {} }) {
+    const requestBody = {
+        model: modelCfg.modelId,
+        prompt
+    };
+
+    if (aspectRatio) requestBody.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
+
+    const referenceImages = getOpenAiReferenceImages(inputs);
+    if (referenceImages.length > 0) {
+        requestBody.image = referenceImages[0];
+        requestBody.reference_images = referenceImages;
+    }
+
+    return applyCustomRequestParams(requestBody, inputs);
+}
+
+export function buildDoubaoVideoRequest({
+    modelCfg,
+    prompt,
+    aspectRatio,
+    resolution = '',
+    duration = '',
+    cameraFixed = false,
+    generateAudio = false,
+    watermark = false,
+    seed = '',
+    inputs = {}
+}) {
+    const suffixParts = [];
+    const normalizedResolution = String(resolution || '').trim();
+    const normalizedRatio = String(aspectRatio || '').trim();
+    const normalizedDuration = parseInt(duration, 10);
+    const normalizedSeed = seed === '' || seed === null || seed === undefined
+        ? null
+        : parseInt(seed, 10);
+
+    if (normalizedResolution) suffixParts.push(`--resolution ${normalizedResolution}`);
+    if (normalizedRatio) suffixParts.push(`--ratio ${normalizedRatio}`);
+    if (Number.isFinite(normalizedDuration) && normalizedDuration > 0) suffixParts.push(`--duration ${normalizedDuration}`);
+    suffixParts.push(`--camera_fixed ${cameraFixed === true ? 'true' : 'false'}`);
+    suffixParts.push(`--watermark ${watermark === true ? 'true' : 'false'}`);
+    if (Number.isFinite(normalizedSeed) && normalizedSeed >= 0) suffixParts.push(`--seed ${normalizedSeed}`);
+    const finalPrompt = suffixParts.length > 0 ? `${prompt} ${suffixParts.join(' ')}` : prompt;
+
+    const requestBody = {
+        model: modelCfg.modelId,
+        content: [
+            {
+                type: 'text',
+                text: finalPrompt
+            }
+        ]
+    };
+
+    if (generateAudio === true) {
+        requestBody.generate_audio = true;
+    }
+
+    const referenceImages = getOpenAiReferenceImages(inputs);
+    referenceImages.forEach((url) => {
+        requestBody.content.push({
+            type: 'image_url',
+            image_url: { url }
+        });
+    });
+
+    if (referenceImages.length === 2) {
+        requestBody.content[1].role = 'first_frame';
+        requestBody.content[referenceImages.length].role = 'last_frame';
+    } else if (referenceImages.length === 1) {
+        delete requestBody.content[1].role;
+    } else if (referenceImages.length >= 3) {
+        for (let index = 1; index <= referenceImages.length; index += 1) {
+            requestBody.content[index].role = 'reference_image';
+        }
+    }
+
+    return applyCustomRequestParams(requestBody, inputs);
+}
+
+export function extractVideoTaskId(result, protocol = '') {
+    if (protocol === 'veo-openai') {
+        return String(result?.id || '').trim();
+    }
+    if (protocol === 'doubao-video') {
+        return String(
+            result?.id ||
+            result?.task_id ||
+            result?.data?.id ||
+            result?.data?.task_id ||
+            result?.task?.id ||
+            ''
+        ).trim();
+    }
+    if (protocol === 'veo-unified') {
+        return String(
+            result?.id ||
+            result?.task_id ||
+            result?.taskId ||
+            result?.data?.id ||
+            result?.data?.task_id ||
+            result?.detail?.id ||
+            result?.detail?.task_id ||
+            ''
+        ).trim();
+    }
+    return String(
+        result?.id ||
+        result?.task_id ||
+        result?.taskId ||
+        result?.data?.id ||
+        result?.data?.task_id ||
+        ''
+    ).trim();
+}
+
+export function extractVideoStatus(result, protocol = '') {
+    if (protocol === 'doubao-video') {
+        const rawStatus = result?.status || result?.state || result?.data?.status || result?.data?.state || result?.task?.status || '';
+        return String(rawStatus || '').trim().toLowerCase();
+    }
+    const rawStatus = protocol === 'veo-openai'
+        ? (result?.status || result?.state || '')
+        : (result?.status || result?.state || result?.data?.status || result?.data?.state || '');
+    return String(rawStatus || '').trim().toLowerCase();
+}
+
+export function extractVideoResult(result, protocol = '') {
+    if (protocol === 'veo-openai') {
+        return {
+            url: typeof result?.content_url === 'string' ? result.content_url.trim() : '',
+            revisedPrompt: typeof result?.prompt === 'string' ? result.prompt : ''
+        };
+    }
+    if (protocol === 'doubao-video') {
+        const data = result?.data && typeof result.data === 'object' ? result.data : result;
+        const videoUrl = typeof data?.video_url === 'string'
+            ? data.video_url.trim()
+            : (typeof data?.url === 'string' ? data.url.trim() : '');
+        return {
+            url: videoUrl,
+            revisedPrompt: typeof data?.prompt === 'string'
+                ? data.prompt
+                : (typeof data?.text === 'string' ? data.text : '')
+        };
+    }
+
+    const data = result?.data && typeof result.data === 'object' ? result.data : result;
+    return {
+        url: typeof data?.url === 'string'
+            ? data.url.trim()
+            : (typeof data?.video_url === 'string' ? data.video_url.trim() : ''),
+        revisedPrompt: typeof data?.prompt === 'string' ? data.prompt : ''
+    };
 }
 
 export function extractImageResult(apiCfg, result, modelCfg = null) {

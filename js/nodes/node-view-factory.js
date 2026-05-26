@@ -2,13 +2,17 @@
  * 根据节点类型与恢复数据生成节点的 HTML 结构。
  */
 import {
+    DOUBAO_VIDEO_RATIO_OPTIONS,
+    DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     getModelsForTask,
-    normalizeImageResolutionForModel
+    getVideoProtocolOptionMeta,
+    normalizeImageResolutionForModel,
+    VIDEO_ASPECT_OPTIONS
 } from '../features/execution/provider-request-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
@@ -251,6 +255,55 @@ function getTextareaHeightStyle(restoreData = {}, key) {
     return Number.isFinite(height) && height > 0 ? ` style="height:${Math.round(height)}px"` : '';
 }
 
+function renderNodeFormField({
+    label = '',
+    content = '',
+    fieldClass = '',
+    fieldId = '',
+    note = ''
+} = {}) {
+    const classes = ['node-field', 'node-form-field'];
+    if (fieldClass) classes.push(fieldClass);
+    const idAttr = fieldId ? ` id="${fieldId}"` : '';
+    return `
+        <div class="${classes.join(' ')}"${idAttr}>
+            ${label ? `<label>${label}</label>` : ''}
+            ${content}
+            ${note ? `<div class="node-form-note">${note}</div>` : ''}
+        </div>
+    `;
+}
+
+function renderNodeFormToggleField({
+    label = '',
+    inputId = '',
+    checked = false,
+    hidden = false,
+    fieldId = '',
+    note = ''
+} = {}) {
+    return renderNodeFormField({
+        fieldClass: `node-field-row node-field-row-compact${hidden ? ' hidden' : ''}`,
+        fieldId,
+        content: `
+            <label class="node-field-inline-label" for="${inputId}">${label}</label>
+            <label class="toggle-switch">
+                <input type="checkbox" id="${inputId}" ${checked ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+            </label>
+        `,
+        note
+    });
+}
+
+function renderNodeFormNote(note, options = {}) {
+    return renderNodeFormField({
+        fieldClass: `${options.fieldClass || ''} node-field-note`.trim(),
+        fieldId: options.fieldId || '',
+        content: note ? `<div class="video-generate-note">${note}</div>` : ''
+    });
+}
+
 function renderImageImportUrlPreviewContent(imageUrl, message = '') {
     const safeUrl = escapeHtml(imageUrl || '');
     const fallbackMessage = imageUrl ? '请输入有效的图片 URL' : '输入 URL 后自动显示预览';
@@ -338,18 +391,30 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
 
     return `
-        <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
-        <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
-        <div class="node-field">
-            <label>生成次数</label>
-            <div class="generation-count-control">
-                <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
-                <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
-                <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
-            </div>
-        </div>
-        <div class="node-field ${isOpenAiModel ? 'hidden' : ''}" id="${id}-aspect-field"><label>宽高比</label>
-            <select id="${id}-aspect">
+        ${renderNodeFormField({
+            label: 'API 配置',
+            content: `<select id="${id}-apiconfig">${opts}</select>`
+        })}
+        ${renderNodeFormField({
+            label: '供应商',
+            fieldId: `${id}-provider-field`,
+            content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
+        })}
+        ${renderNodeFormField({
+            label: '生成次数',
+            content: `
+                <div class="generation-count-control">
+                    <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
+                    <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
+                    <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
+                </div>
+            `
+        })}
+        ${renderNodeFormField({
+            label: '宽高比',
+            fieldClass: isOpenAiModel ? 'hidden' : '',
+            fieldId: `${id}-aspect-field`,
+            content: `<select id="${id}-aspect">
                 <option value="" ${!rd.aspect ? 'selected' : ''}>自动</option>
                 <option value="1:1" ${rd.aspect === '1:1' ? 'selected' : ''}>1:1</option>
                 <option value="1:4" ${rd.aspect === '1:4' ? 'selected' : ''}>1:4</option>
@@ -365,41 +430,244 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <option value="9:16" ${rd.aspect === '9:16' ? 'selected' : ''}>9:16</option>
                 <option value="16:9" ${rd.aspect === '16:9' ? 'selected' : ''}>16:9</option>
                 <option value="21:9" ${rd.aspect === '21:9' ? 'selected' : ''}>21:9</option>
-            </select>
-        </div>
-        <div class="node-field"><label>分辨率</label>
-            <select id="${id}-resolution">
-                ${resolutionOptions}
-            </select>
-            <div class="image-resolution-param-note ${showResolutionParamNote ? '' : 'hidden'}" id="${id}-resolution-param-note">很多中转 API 并不支持 Size 参数，所以你设置分辨率是无效的</div>
-        </div>
-        <div class="node-field ${isOpenAiModel ? '' : 'hidden'}" id="${id}-quality-field"><label>质量</label>
-            <select id="${id}-quality">
+            </select>`,
+            note: showResolutionParamNote ? '' : ''
+        })}
+        ${renderNodeFormField({
+            label: '分辨率',
+            content: `
+                <select id="${id}-resolution">
+                    ${resolutionOptions}
+                </select>
+                <div class="image-resolution-param-note ${showResolutionParamNote ? '' : 'hidden'}" id="${id}-resolution-param-note">很多中转 API 并不支持 Size 参数，所以你设置分辨率是无效的</div>
+            `
+        })}
+        ${renderNodeFormField({
+            label: '质量',
+            fieldClass: isOpenAiModel ? '' : 'hidden',
+            fieldId: `${id}-quality-field`,
+            content: `<select id="${id}-quality">
                 <option value="auto" ${imageQuality === 'auto' ? 'selected' : ''}>自动</option>
                 <option value="low" ${imageQuality === 'low' ? 'selected' : ''}>低</option>
                 <option value="medium" ${imageQuality === 'medium' ? 'selected' : ''}>中</option>
                 <option value="high" ${imageQuality === 'high' ? 'selected' : ''}>高</option>
-            </select>
-        </div>
-        <div class="node-field ${showCustomResolution ? '' : 'hidden'}" id="${id}-custom-resolution-field">
-            <label>自定义分辨率</label>
-            <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;">
-                <input type="number" id="${id}-custom-resolution-width" value="${customWidth}" placeholder="宽度" min="1" max="99999" />
-                <span style="color:var(--text-dim);font-size:12px;">x</span>
-                <input type="number" id="${id}-custom-resolution-height" value="${customHeight}" placeholder="高度" min="1" max="99999" />
+            </select>`
+        })}
+        ${renderNodeFormField({
+            label: '自定义分辨率',
+            fieldClass: showCustomResolution ? '' : 'hidden',
+            fieldId: `${id}-custom-resolution-field`,
+            content: `
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;">
+                    <input type="number" id="${id}-custom-resolution-width" value="${customWidth}" placeholder="宽度" min="1" max="99999" />
+                    <span style="color:var(--text-dim);font-size:12px;">x</span>
+                    <input type="number" id="${id}-custom-resolution-height" value="${customHeight}" placeholder="高度" min="1" max="99999" />
+                </div>
+                <div class="custom-resolution-hint" id="${id}-custom-resolution-hint" aria-live="polite"></div>
+            `
+        })}
+        ${renderNodeFormToggleField({
+            label: '启用搜索',
+            inputId: `${id}-search`,
+            checked: rd.search === true
+        })}
+        ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality。')}
+        ${renderNodeFormField({
+            label: '提示词',
+            fieldClass: 'node-field-expand',
+            content: `<textarea id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
+        })}
+        ${renderNodeFormField({
+            label: '生成进度',
+            content: `<div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>`
+        })}
+        <div class="node-error-msg" id="${id}-error"></div>
+    `;
+}
+
+function renderVideoGenerateBody(id, restoreData, models, providers) {
+    const rd = restoreData || {};
+    const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'video');
+    const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'video');
+    const selectedProviderId = getResolvedProviderIdForModel(selectedModel, providers, rd.providerId || '');
+    const modelProviders = getModelProviders(selectedModel, providers);
+    const providerOptions = modelProviders
+        .map((provider) => `<option value="${provider.id}" ${selectedProviderId === provider.id ? 'selected' : ''}>${provider.name || provider.id}</option>`)
+        .join('');
+    const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
+    const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
+    const protocolMeta = getVideoProtocolOptionMeta(protocol);
+    const doubaoRatioOptions = DOUBAO_VIDEO_RATIO_OPTIONS;
+    const doubaoResolutionOptions = DOUBAO_VIDEO_RESOLUTION_OPTIONS;
+    const aspectOptions = protocol === 'doubao-video' ? doubaoRatioOptions : VIDEO_ASPECT_OPTIONS;
+    const defaultAspect = protocol === 'doubao-video' ? '16:9' : '16:9';
+    const aspect = aspectOptions.some((option) => option.value === rd.aspect) ? rd.aspect : defaultAspect;
+    const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
+    const enhancePrompt = rd.enhancePrompt === true;
+    const enableUpsample = rd.enableUpsample === true;
+    const doubaoResolution = doubaoResolutionOptions.some((option) => option.value === rd.doubaoResolution) ? rd.doubaoResolution : '720p';
+    const doubaoDuration = Math.max(1, parseInt(rd.doubaoDuration || '5', 10) || 5);
+    const doubaoCameraFixed = rd.doubaoCameraFixed === true;
+    const doubaoGenerateAudio = rd.doubaoGenerateAudio === true;
+    const doubaoWatermark = rd.doubaoWatermark === true;
+    const doubaoSeed = rd.doubaoSeed === '' || rd.doubaoSeed === undefined || rd.doubaoSeed === null ? '' : String(rd.doubaoSeed);
+    const isDoubaoProtocol = protocol === 'doubao-video';
+    const statusText = typeof rd.videoStatusText === 'string' && rd.videoStatusText.trim()
+        ? rd.videoStatusText.trim()
+        : '运行后显示视频结果';
+    const videoUrl = typeof rd.videoUrl === 'string' ? rd.videoUrl.trim() : '';
+    const createHttpStatus = rd.videoCreateHttpStatus !== undefined && rd.videoCreateHttpStatus !== null
+        ? String(rd.videoCreateHttpStatus).trim()
+        : '';
+    const createStatus = typeof rd.videoCreateStatus === 'string' ? rd.videoCreateStatus.trim() : '';
+    const statusUpdateTime = typeof rd.videoStatusUpdateTime === 'string' ? rd.videoStatusUpdateTime.trim() : '';
+    const enhancedPromptText = typeof rd.videoEnhancedPrompt === 'string' ? rd.videoEnhancedPrompt.trim() : '';
+    const createSummaryLines = [
+        createHttpStatus ? `<div><strong>HTTP 状态：</strong>${escapeHtml(createHttpStatus)}</div>` : '',
+        rd.videoId ? `<div><strong>任务 ID：</strong>${escapeHtml(rd.videoId)}</div>` : '',
+        createStatus ? `<div><strong>创建状态：</strong>${escapeHtml(createStatus)}</div>` : '',
+        statusUpdateTime ? `<div><strong>状态更新时间：</strong>${escapeHtml(statusUpdateTime)}</div>` : '',
+        enhancedPromptText ? `<div><strong>增强提示词：</strong>${escapeHtml(enhancedPromptText)}</div>` : ''
+    ].filter(Boolean).join('');
+    const statusState = videoUrl
+        ? 'success'
+        : ((rd.videoStatus === 'processing' || rd.videoStatus === 'queued' || rd.videoStatus === 'submitted')
+            ? 'progress'
+            : 'idle');
+    const protocolNoteHtml = escapeHtml(protocolMeta.note || '');
+    const doubaoDurationHint = escapeHtml(protocol === 'doubao-video'
+        ? (String(selectedModel?.modelId || '').toLowerCase().includes('seedance-1-5-pro')
+            ? '当前模型时长限制：4-12 秒'
+            : '当前模型时长限制：2-12 秒')
+        : '');
+
+    return `
+        ${renderNodeFormField({
+            label: 'API 配置',
+            content: `<select id="${id}-apiconfig">${opts}</select>`
+        })}
+        ${renderNodeFormField({
+            label: '供应商',
+            fieldId: `${id}-provider-field`,
+            content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
+        })}
+        ${renderNodeFormField({
+            label: '生成次数',
+            content: `
+                <div class="generation-count-control">
+                    <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
+                    <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
+                    <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
+                </div>
+            `
+        })}
+        ${renderNodeFormField({
+            label: '视频比例',
+            content: `
+                <select id="${id}-aspect">
+                    ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
+                </select>
+            `
+        })}
+        ${renderNodeFormNote(protocolNoteHtml, { fieldId: `${id}-video-protocol-note-wrap` })}
+        ${renderNodeFormToggleField({
+            label: '增强提示词',
+            inputId: `${id}-enhance-prompt`,
+            checked: enhancePrompt,
+            hidden: !protocolMeta.supportsEnhancePrompt,
+            fieldId: `${id}-enhance-prompt-field`
+        })}
+        ${renderNodeFormToggleField({
+            label: '启用超分',
+            inputId: `${id}-enable-upsample`,
+            checked: enableUpsample,
+            hidden: !protocolMeta.supportsUpsample,
+            fieldId: `${id}-enable-upsample-field`
+        })}
+        ${renderNodeFormField({
+            label: '分辨率',
+            fieldClass: isDoubaoProtocol ? '' : 'hidden',
+            fieldId: `${id}-doubao-resolution-field`,
+            content: `
+                <select id="${id}-doubao-resolution">
+                    ${doubaoResolutionOptions.map((option) => `<option value="${option.value}" ${option.value === doubaoResolution ? 'selected' : ''}>${option.label}</option>`).join('')}
+                </select>
+            `,
+            note: `<div class="video-generate-note" id="${id}-doubao-resolution-hint">参考图场景不支持 1080p</div>`
+        })}
+        ${renderNodeFormField({
+            label: '视频时长',
+            fieldClass: isDoubaoProtocol ? '' : 'hidden',
+            fieldId: `${id}-doubao-duration-field`,
+            content: `<input type="number" id="${id}-doubao-duration" min="2" max="12" step="1" value="${doubaoDuration}" />`,
+            note: `<div class="video-generate-note" id="${id}-doubao-duration-hint">${doubaoDurationHint}</div>`
+        })}
+        ${renderNodeFormToggleField({
+            label: '固定镜头',
+            inputId: `${id}-doubao-camera-fixed`,
+            checked: doubaoCameraFixed,
+            hidden: !isDoubaoProtocol,
+            fieldId: `${id}-doubao-camera-fixed-field`
+        })}
+        ${renderNodeFormToggleField({
+            label: '生成音频',
+            inputId: `${id}-doubao-generate-audio`,
+            checked: doubaoGenerateAudio,
+            hidden: !isDoubaoProtocol,
+            fieldId: `${id}-doubao-generate-audio-field`
+        })}
+        ${renderNodeFormToggleField({
+            label: '添加水印',
+            inputId: `${id}-doubao-watermark`,
+            checked: doubaoWatermark,
+            hidden: !isDoubaoProtocol,
+            fieldId: `${id}-doubao-watermark-field`
+        })}
+        ${renderNodeFormField({
+            label: '种子',
+            fieldClass: isDoubaoProtocol ? '' : 'hidden',
+            fieldId: `${id}-doubao-seed-field`,
+            content: `<input type="number" id="${id}-doubao-seed" min="0" step="1" placeholder="留空为随机" value="${escapeHtml(doubaoSeed)}" />`
+        })}
+        ${renderNodeFormNote('豆包文档要求将 resolution、ratio、duration、camera_fixed、watermark、seed 以 --参数 值 的形式追加到提示词里。当前节点会按该规则自动拼接。', {
+            fieldClass: isDoubaoProtocol ? '' : 'hidden',
+            fieldId: `${id}-doubao-note-field`
+        })}
+        ${renderNodeFormField({
+            label: '提示词',
+            fieldClass: 'node-video-prompt-field',
+            content: `<textarea class="video-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的视频..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
+        })}
+        <div class="node-field node-video-result-field">
+            <label>视频结果</label>
+            <div class="chat-response-wrapper" id="${id}-wrapper">
+                <div class="video-generation-status video-generation-status-${statusState}" id="${id}-video-status" aria-live="polite">${escapeHtml(statusText)}</div>
+                <div class="chat-response-area" id="${id}-response">${videoUrl
+                    ? `${createSummaryLines ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:8px;"></div>` : ''}<div><a href="${escapeHtml(videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">${escapeHtml(statusText)}</div>`
+                    : (createSummaryLines
+                        ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:6px;color:var(--text-dim);">${escapeHtml(statusText)}</div>`
+                        : `<div class="chat-response-placeholder">${escapeHtml(statusText)}</div>`)}</div>
             </div>
-            <div class="custom-resolution-hint" id="${id}-custom-resolution-hint" aria-live="polite"></div>
         </div>
-        <div class="node-field node-field-row"><label>启用搜索</label>
-            <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
-        <div class="node-field" style="margin-top:-4px;">
-            <div style="font-size:11px;color:var(--text-dim);line-height:1.45;">提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality。</div>
-        </div>
-        <div class="node-field node-field-expand"><label>提示词</label>
-            <textarea id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>
         <div class="node-field">
             <label>生成进度</label>
             <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
+        </div>
+        <div class="node-field node-field-row">
+            <button type="button" class="save-btn-secondary" id="${id}-download-video" ${videoUrl ? '' : 'disabled'} style="width:100%;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                下载视频
+            </button>
+        </div>
+        <div class="node-field">
+            <label>恢复任务 ID</label>
+            <input type="text" id="${id}-resume-video-id" value="${escapeHtml(rd.videoId || '')}" placeholder="输入或粘贴任务 ID" />
+        </div>
+        <div class="node-field node-field-row">
+            <button type="button" class="save-btn-secondary" id="${id}-resume-video" ${rd.videoId ? '' : 'disabled'} style="width:100%;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3.16-6.84"/><polyline points="21 3 21 9 15 9"/></svg>
+                恢复进度
+            </button>
         </div>
         <div class="node-error-msg" id="${id}-error"></div>
     `;
@@ -703,25 +971,31 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
     const imageList = normalizeRestoreImageList(rd.images || rd.imageData);
     const previewIndex = Math.max(0, parseInt(rd.imagePreviewIndex || '0', 10) || 0);
     const hasMultipleImages = imageList.length > 1;
+    const videoData = rd.video && typeof rd.video === 'object' ? rd.video : null;
+    const hasVideo = imageList.length === 0 && !!videoData?.url;
+    const defaultFilename = hasVideo ? 'generated_video' : 'generated_image';
+    const previewActionLabel = hasVideo ? '查看视频' : '查看图片';
 
     return `
         <div class="save-no-path-warning" id="${id}-path-warning" style="color:#ef4444; font-size:11px; margin-bottom:10px; display:${showWarning ? 'block' : 'none'}; font-weight:500;">
-            ⚠️ 未设置全局保存目录，图片无法自动落盘
+            ⚠️ 未设置全局保存目录，保存节点无法自动落盘
         </div>
-        <div class="save-preview-container ${hasMultipleImages ? 'has-multiple-images' : ''}" id="${id}-save-preview">
+        <div class="save-preview-container ${hasMultipleImages ? 'has-multiple-images' : ''}" id="${id}-save-preview" data-save-mode="${hasVideo ? 'video' : 'image'}">
             ${imageList.length > 0
                 ? renderRestoredMultiImagePreview(imageList, previewIndex, '待保存', 'save-preview-placeholder', '运行后显示图片')
-                : '<div class="save-preview-placeholder">运行后显示图片</div>'}
+                : (hasVideo
+                    ? `<video src="${escapeHtml(videoData.url || '')}" controls preload="metadata" playsinline style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"></video>`
+                    : '<div class="save-preview-placeholder">运行后显示图片或视频</div>')}
         </div>
         <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
         <div class="node-field"><label>文件名前缀/文件名</label>
-            <input type="text" id="${id}-filename" value="${rd.filename || 'generated_image'}" placeholder="不填则默认生成" /></div>
+            <input type="text" id="${id}-filename" value="${rd.filename || defaultFilename}" placeholder="不填则默认生成" /></div>
         <div class="save-btn-group">
-            <button class="save-btn-secondary" id="${id}-view-full" ${imageList.length > 0 ? '' : 'disabled'}>
+            <button class="save-btn-secondary" id="${id}-view-full" ${(imageList.length > 0 || hasVideo) ? '' : 'disabled'}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                查看图片
+                ${previewActionLabel}
             </button>
-            <button class="save-btn" id="${id}-manual-save" ${imageList.length > 0 ? '' : 'disabled'}>
+            <button class="save-btn" id="${id}-manual-save" ${(imageList.length > 0 || hasVideo) ? '' : 'disabled'}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 保存
             </button>
@@ -774,6 +1048,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageImport') return renderImageImportBody(id, restoreData);
     if (type === 'ImageResize') return renderImageResizeBody(id, restoreData);
     if (type === 'ImageGenerate') return renderImageGenerateBody(id, restoreData, state.models, state.providers);
+    if (type === 'VideoGenerate') return renderVideoGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'CameraControl') return renderCameraControlBody(id, restoreData);
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);
     if (type === 'ImagePreview') return renderImagePreviewBody(id, restoreData);
@@ -795,7 +1070,7 @@ export function createNodeMarkup({ type, id, config, restoreData, state }) {
         effectiveConfig = { ...config, inputs: getTextMergeInputPorts(restoreData) };
     } else if (type === 'ImageMerge') {
         effectiveConfig = { ...config, inputs: getImageMergeInputPorts(restoreData) };
-    } else if (type === 'ImageGenerate' || type === 'TextChat') {
+    } else if (type === 'ImageGenerate' || type === 'VideoGenerate' || type === 'TextChat') {
         effectiveConfig = applyReferenceImagePorts(config, restoreData);
     }
     const isCollapsed = restoreData?.collapsed === true;

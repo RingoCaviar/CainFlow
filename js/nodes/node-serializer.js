@@ -73,7 +73,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.estimatedBytes = node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null;
             }
 
-            if (node.type === 'ImageGenerate' || node.type === 'TextChat') {
+            if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 serialized.referenceImageCount = Math.max(0, parseInt(node.referenceImageCount ?? node.data?.referenceImageCount ?? '5', 10) || 0);
                 serialized.apiConfigId = documentRef.getElementById(`${id}-apiconfig`)?.value || 'default';
                 serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
@@ -89,6 +89,25 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+                } else if (node.type === 'VideoGenerate') {
+                    serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
+                    serialized.enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;
+                    serialized.enableUpsample = documentRef.getElementById(`${id}-enable-upsample`)?.checked === true;
+                    serialized.doubaoResolution = documentRef.getElementById(`${id}-doubao-resolution`)?.value || '720p';
+                    serialized.doubaoDuration = documentRef.getElementById(`${id}-doubao-duration`)?.value || '5';
+                    serialized.doubaoCameraFixed = documentRef.getElementById(`${id}-doubao-camera-fixed`)?.checked === true;
+                    serialized.doubaoGenerateAudio = documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true;
+                    serialized.doubaoWatermark = documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true;
+                    serialized.doubaoSeed = documentRef.getElementById(`${id}-doubao-seed`)?.value || '';
+                    serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+                    serialized.videoId = node.data?.videoId || '';
+                    serialized.videoUrl = node.data?.videoUrl || '';
+                    serialized.videoStatus = node.data?.videoStatus || '';
+                    serialized.videoStatusText = node.data?.videoStatusText || '';
+                    serialized.videoCreateHttpStatus = node.data?.videoCreateHttpStatus || '';
+                    serialized.videoCreateStatus = node.data?.videoCreateStatus || '';
+                    serialized.videoStatusUpdateTime = node.data?.videoStatusUpdateTime || '';
+                    serialized.videoEnhancedPrompt = node.data?.videoEnhancedPrompt || '';
                 } else {
                     serialized.sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
@@ -101,6 +120,14 @@ export function createNodeSerializer({ state, documentRef }) {
 
             if (node.type === 'ImageSave') {
                 serialized.filename = documentRef.getElementById(`${id}-filename`)?.value || 'generated_image';
+                if (node.data?.video && typeof node.data.video === 'object') {
+                    serialized.video = {
+                        id: node.data.video.id || '',
+                        url: node.data.video.url || '',
+                        status: node.data.video.status || '',
+                        prompt: node.data.video.prompt || ''
+                    };
+                }
             }
             if (node.type === 'ImageMerge') {
                 serialized.inputCount = Math.max(1, parseInt(node.data?.inputCount || '1', 10) || 1);

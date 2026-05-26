@@ -23,6 +23,9 @@ export function createMediaControllerApi({
     getHistoryMetadata = null,
     getHistoryEntry = null,
     fitNodeToContent = () => {},
+    fetchRef = fetch,
+    getProxyHeaders = null,
+    formatProxyErrorMessage = null,
     documentRef = document,
     windowRef = window
 }) {
@@ -31,6 +34,7 @@ export function createMediaControllerApi({
     const resolutionCache = new Map();
     const RESOLUTION_CACHE_LIMIT = 160;
     const DATA_URL_RESOLUTION_CACHE_LIMIT = 32;
+    const videoAutoSaveToasts = new Map();
 
     function requestNodeFit(nodeId) {
         if (!nodeId) return;
@@ -191,6 +195,371 @@ export function createMediaControllerApi({
         });
     }
 
+    function detectVideoExtensionFromSource(video = {}, blob = null) {
+        const blobType = String(blob?.type || '').toLowerCase();
+        if (blobType.includes('webm')) return '.webm';
+        if (blobType.includes('mov') || blobType.includes('quicktime')) return '.mov';
+        if (blobType.includes('avi')) return '.avi';
+        if (blobType.includes('mkv')) return '.mkv';
+        if (blobType.includes('mp4')) return '.mp4';
+
+        const videoUrl = String(video?.url || '').trim().toLowerCase();
+        const cleanUrl = videoUrl.split('?')[0].split('#')[0];
+        if (cleanUrl.endsWith('.webm')) return '.webm';
+        if (cleanUrl.endsWith('.mov')) return '.mov';
+        if (cleanUrl.endsWith('.avi')) return '.avi';
+        if (cleanUrl.endsWith('.mkv')) return '.mkv';
+        return '.mp4';
+    }
+
+    function buildVideoSaveFilenameBase(nodeId, video, fallbackPrefix, options = {}) {
+        const usePromptFilename = state.imageSaveUsePromptFilename === true;
+        const timestamp = formatFilenameTimestamp();
+        const fallbackBase = sanitizeFilenamePart(fallbackPrefix || 'video', 'video');
+        const prompt = typeof video?.prompt === 'string' ? video.prompt.trim() : '';
+        const base = usePromptFilename
+            ? sanitizeFilenamePart(prompt, fallbackBase)
+            : fallbackBase;
+        return options.includeTimestamp ? `${base}_${timestamp}` : base;
+    }
+
+    function buildBackendVideoDownloadUrl(videoUrl, filenameBase) {
+        const params = new URLSearchParams();
+        params.set('url', String(videoUrl || '').trim());
+        if (filenameBase) params.set('filename', filenameBase);
+        return `/api/media/download?${params.toString()}`;
+    }
+
+    function formatProgressBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+        if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${Math.round(bytes)} B`;
+    }
+
+    async function blobLooksLikeVideo(blob) {
+        if (!blob || typeof blob.slice !== 'function') return false;
+        const headerBlob = blob.slice(0, 64);
+        const buffer = await headerBlob.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        if (bytes.length >= 8 &&
+            bytes[4] === 0x66 &&
+            bytes[5] === 0x74 &&
+            bytes[6] === 0x79 &&
+            bytes[7] === 0x70) {
+            return true;
+        }
+        if (bytes.length >= 4 &&
+            bytes[0] === 0x1a &&
+            bytes[1] === 0x45 &&
+            bytes[2] === 0xdf &&
+            bytes[3] === 0xa3) {
+            return true;
+        }
+        if (bytes.length >= 12 &&
+            bytes[0] === 0x52 &&
+            bytes[1] === 0x49 &&
+            bytes[2] === 0x46 &&
+            bytes[3] === 0x46 &&
+            bytes[8] === 0x41 &&
+            bytes[9] === 0x56 &&
+            bytes[10] === 0x49 &&
+            bytes[11] === 0x20) {
+            return true;
+        }
+        return false;
+    }
+
+    function getVideoAutoSaveToastRecord(nodeId) {
+        return videoAutoSaveToasts.get(nodeId) || null;
+    }
+
+    function removeVideoAutoSaveToast(nodeId) {
+        const record = getVideoAutoSaveToastRecord(nodeId);
+        if (!record) return;
+        record.toastHandle?.dismiss?.(0);
+        videoAutoSaveToasts.delete(nodeId);
+    }
+
+    function ensureVideoAutoSaveToast(nodeId, subtitleText = '正在自动保存视频...') {
+        const existing = getVideoAutoSaveToastRecord(nodeId);
+        if (existing?.toastHandle?.element?.isConnected) return existing;
+
+        const toastHandle = showToast('正在自动保存视频...', 'info', 0);
+        const toastEl = toastHandle?.element;
+        if (!toastEl) return null;
+
+        toastHandle.clearTimer?.();
+        toastEl.className = 'toast info update-download-toast';
+        toastEl.setAttribute('role', 'status');
+        toastEl.setAttribute('aria-live', 'polite');
+        toastEl.innerHTML = '';
+
+        const header = documentRef.createElement('div');
+        header.className = 'update-download-toast__header';
+
+        const titleWrap = documentRef.createElement('div');
+        titleWrap.className = 'update-download-toast__title-wrap';
+
+        const title = documentRef.createElement('div');
+        title.className = 'update-download-toast__title';
+        title.textContent = '视频自动保存';
+        titleWrap.appendChild(title);
+
+        const subtitle = documentRef.createElement('div');
+        subtitle.className = 'update-download-toast__subtitle';
+        subtitle.textContent = subtitleText;
+        titleWrap.appendChild(subtitle);
+        header.appendChild(titleWrap);
+        toastEl.appendChild(header);
+
+        const progress = documentRef.createElement('div');
+        progress.className = 'update-download-progress update-download-progress--toast';
+
+        const row = documentRef.createElement('div');
+        row.className = 'update-download-progress__row';
+
+        const rowTitle = documentRef.createElement('span');
+        rowTitle.className = 'update-download-progress__title';
+        rowTitle.textContent = '后端下载中';
+        row.appendChild(rowTitle);
+
+        const percentText = documentRef.createElement('span');
+        percentText.className = 'update-download-progress__percent';
+        percentText.textContent = '计算中';
+        row.appendChild(percentText);
+        progress.appendChild(row);
+
+        const track = documentRef.createElement('div');
+        track.className = 'update-download-progress__track is-indeterminate';
+
+        const bar = documentRef.createElement('div');
+        bar.className = 'update-download-progress__bar';
+        track.appendChild(bar);
+        progress.appendChild(track);
+
+        const detail = documentRef.createElement('div');
+        detail.className = 'update-download-progress__detail';
+
+        const sizeText = documentRef.createElement('span');
+        sizeText.textContent = '等待服务器返回大小...';
+        detail.appendChild(sizeText);
+
+        const statusText = documentRef.createElement('span');
+        statusText.textContent = '准备中';
+        detail.appendChild(statusText);
+        progress.appendChild(detail);
+
+        toastEl.appendChild(progress);
+
+        const record = {
+            toastHandle,
+            toastEl,
+            subtitle,
+            rowTitle,
+            percentText,
+            track,
+            bar,
+            sizeText,
+            statusText
+        };
+        videoAutoSaveToasts.set(nodeId, record);
+        return record;
+    }
+
+    function updateVideoAutoSaveToast(nodeId, {
+        subtitle = '正在自动保存视频...',
+        stage = '后端下载中',
+        loaded = 0,
+        total = 0,
+        status = '下载中'
+    } = {}) {
+        const record = ensureVideoAutoSaveToast(nodeId, subtitle);
+        if (!record) return;
+
+        const hasTotal = Number.isFinite(total) && total > 0;
+        const safeLoaded = Math.max(0, Number(loaded) || 0);
+        const percent = hasTotal ? Math.max(0, Math.min(100, (safeLoaded / total) * 100)) : null;
+
+        record.subtitle.textContent = subtitle;
+        record.rowTitle.textContent = stage;
+        record.percentText.textContent = percent === null
+            ? '计算中'
+            : `${percent.toFixed(percent >= 10 || percent === 0 ? 0 : 1)}%`;
+        record.track.classList.toggle('is-indeterminate', percent === null);
+        record.bar.style.width = percent === null ? '' : `${percent}%`;
+        record.sizeText.textContent = hasTotal
+            ? `${formatProgressBytes(safeLoaded)} / ${formatProgressBytes(total)}`
+            : `${formatProgressBytes(safeLoaded)} / 未知大小`;
+        record.statusText.textContent = status;
+    }
+
+    function completeVideoAutoSaveToast(nodeId, message = '视频已自动保存到目录') {
+        const record = ensureVideoAutoSaveToast(nodeId, message);
+        if (!record) return;
+        record.toastEl.className = 'toast success update-download-toast is-completed';
+        record.subtitle.textContent = message;
+        record.rowTitle.textContent = '保存完成';
+        record.percentText.textContent = '100%';
+        record.track.classList.remove('is-indeterminate');
+        record.bar.style.width = '100%';
+        record.statusText.textContent = '已完成';
+        windowRef.setTimeout(() => removeVideoAutoSaveToast(nodeId), 2600);
+    }
+
+    function failVideoAutoSaveToast(nodeId, message = '视频自动保存失败') {
+        const record = ensureVideoAutoSaveToast(nodeId, message);
+        if (!record) return;
+        record.toastEl.className = 'toast error update-download-toast';
+        record.subtitle.textContent = message;
+        record.rowTitle.textContent = '保存失败';
+        record.statusText.textContent = '失败';
+        windowRef.setTimeout(() => removeVideoAutoSaveToast(nodeId), 4000);
+    }
+
+    async function downloadGeneratedVideo(videoUrl, options = {}) {
+        const {
+            filenameBase = '',
+            onProgress = null
+        } = options;
+        const backendUrl = buildBackendVideoDownloadUrl(videoUrl, filenameBase);
+        let response = null;
+        let postErrorMessage = '';
+
+        try {
+            response = await fetchRef('/api/media/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'video/*,application/octet-stream'
+                },
+                body: JSON.stringify({
+                    url: String(videoUrl || '').trim(),
+                    filename: filenameBase || ''
+                })
+            });
+            if (!response.ok) {
+                const bodyText = await response.text();
+                postErrorMessage = typeof formatProxyErrorMessage === 'function'
+                    ? formatProxyErrorMessage(response.status, bodyText, '后端视频下载失败')
+                    : `后端视频下载失败 (${response.status})`;
+                addLog('warning', '后端视频下载失败', postErrorMessage, {
+                    method: 'POST',
+                    url: '/api/media/download',
+                    sourceVideoUrl: videoUrl,
+                    filenameBase
+                });
+                response = null;
+            }
+        } catch (error) {
+            postErrorMessage = error?.message || String(error);
+            addLog('warning', '后端视频下载异常', postErrorMessage, {
+                method: 'POST',
+                url: '/api/media/download',
+                sourceVideoUrl: videoUrl,
+                filenameBase
+            });
+            response = null;
+        }
+
+        if (!response) {
+            response = await fetchRef(backendUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'video/*,application/octet-stream'
+                }
+            });
+            if (!response.ok) {
+                const bodyText = await response.text();
+                const getErrorMessage = typeof formatProxyErrorMessage === 'function'
+                    ? formatProxyErrorMessage(response.status, bodyText, '后端视频下载失败')
+                    : `后端视频下载失败 (${response.status})`;
+                addLog('warning', '后端视频下载回退失败', getErrorMessage, {
+                    method: 'GET',
+                    url: backendUrl,
+                    sourceVideoUrl: videoUrl,
+                    previousError: postErrorMessage
+                });
+                throw new Error(postErrorMessage
+                    ? `${postErrorMessage}；GET 回退也失败：${getErrorMessage}`
+                    : getErrorMessage);
+            }
+        }
+
+        const responseContentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+        if (!responseContentType.startsWith('video/')) {
+            const invalidBody = await response.text();
+            addLog('warning', '后端视频下载返回了非视频内容', '后端返回的不是视频文件，已阻止写入保存目录。', {
+                sourceVideoUrl: videoUrl,
+                contentType: responseContentType || 'unknown',
+                body: invalidBody
+            });
+            throw new Error(`后端返回的不是视频文件 (${responseContentType || 'unknown'})`);
+        }
+
+        const total = Number(response.headers.get('Content-Length') || 0);
+        if (!response.body || typeof response.body.getReader !== 'function') {
+            const blob = await response.blob();
+            if (!String(blob.type || '').toLowerCase().startsWith('video/')) {
+                throw new Error(`下载结果不是视频文件 (${blob.type || 'unknown'})`);
+            }
+            if (blob.size < 1024) {
+                throw new Error(`下载结果大小异常 (${blob.size} B)，已阻止保存`);
+            }
+            if (!(await blobLooksLikeVideo(blob))) {
+                throw new Error('下载结果文件头不是有效视频，已阻止保存');
+            }
+            if (typeof onProgress === 'function') {
+                onProgress({
+                    loaded: blob.size || total || 0,
+                    total: total || blob.size || 0,
+                    done: true
+                });
+            }
+            return blob;
+        }
+
+        const reader = response.body.getReader();
+        const chunks = [];
+        let loaded = 0;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+                chunks.push(value);
+                loaded += value.byteLength || value.length || 0;
+                if (typeof onProgress === 'function') {
+                    onProgress({
+                        loaded,
+                        total,
+                        done: false
+                    });
+                }
+            }
+        }
+        if (typeof onProgress === 'function') {
+            onProgress({
+                loaded,
+                total: total || loaded,
+                done: true
+            });
+        }
+        const blob = new Blob(chunks, {
+            type: response.headers.get('Content-Type') || 'application/octet-stream'
+        });
+        if (!String(blob.type || '').toLowerCase().startsWith('video/')) {
+            throw new Error(`下载结果不是视频文件 (${blob.type || 'unknown'})`);
+        }
+        if (blob.size < 1024) {
+            throw new Error(`下载结果大小异常 (${blob.size} B)，已阻止保存`);
+        }
+        if (!(await blobLooksLikeVideo(blob))) {
+            throw new Error('下载结果文件头不是有效视频，已阻止保存');
+        }
+        return blob;
+    }
+
     async function getAvailableFileHandle(directoryHandle, baseName, extension = '.png') {
         let counter = 0;
         while (counter < 1000) {
@@ -284,6 +653,13 @@ export function createMediaControllerApi({
 
     function getStoredImageSaveList(node) {
         return normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
+    }
+
+    function getStoredSaveVideo(node) {
+        const video = node?.data?.video;
+        return video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim()
+            ? video
+            : null;
     }
 
     function getStoredImagePreviewList(node) {
@@ -576,6 +952,32 @@ export function createMediaControllerApi({
             emptyMessage,
             placeholderWithIcon: false
         });
+    }
+
+    function renderVideoSavePreview(nodeId, video, emptyMessage = '无输入视频') {
+        const previewContainer = documentRef.getElementById(`${nodeId}-save-preview`);
+        const node = getNodeById(nodeId);
+        if (!previewContainer) return;
+
+        previewContainer.classList.remove('has-multiple-images');
+        previewContainer.dataset.saveMode = video?.url ? 'video' : 'image';
+        if (node) node.imagePreviewIndex = 0;
+
+        if (!video?.url) {
+            previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
+            return;
+        }
+
+        previewContainer.innerHTML = `
+            <video
+                src="${escapeHtml(video.url)}"
+                controls
+                preload="metadata"
+                playsinline
+                style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"
+                title="${escapeHtml(video.status || video.id || '可保存视频文件')}"
+            ></video>
+        `;
     }
 
     function getCurrentImageSavePreviewImage(node) {
@@ -1021,18 +1423,30 @@ export function createMediaControllerApi({
         const viewFullBtn = documentRef.getElementById(`${nodeId}-view-full`);
         const resolutionBadge = documentRef.getElementById(`${nodeId}-res`);
 
-        const imageList = normalizeImageList(imageData);
+        const imageList = normalizeImageList(imageData?.images ?? imageData);
+        const videoData = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
         const primaryImage = imageList.length > 0 ? imageList[imageList.length - 1] : null;
 
         node.imageDataList = imageList;
         node.imageData = primaryImage || null;
         node.data = node.data || {};
+        if (videoData?.url) {
+            node.data.video = {
+                id: videoData.id || '',
+                url: videoData.url,
+                status: videoData.status || '',
+                prompt: videoData.prompt || ''
+            };
+        } else {
+            delete node.data.video;
+        }
 
         if (imageList.some((image) => isRemoteImageUrl(image))) {
             node.imageData = null;
             node.imageDataList = [];
             delete node.data.image;
             delete node.data.images;
+            delete node.data.video;
             renderImageSavePreview(nodeId, [], 'URL 图片不支持保存节点');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
@@ -1052,16 +1466,29 @@ export function createMediaControllerApi({
             if (imageList.length > 1) node.data.images = imageList.slice();
             else delete node.data.images;
             node.imagePreviewIndex = 0;
+            delete node.data.video;
             renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
             if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
             else await saveImageAsset(nodeId, primaryImage);
             await showResolutionBadge(nodeId, imageList[0] || primaryImage);
+        } else if (videoData?.url) {
+            delete node.data.image;
+            delete node.data.images;
+            renderVideoSavePreview(nodeId, videoData);
+            if (manualSaveBtn) manualSaveBtn.disabled = false;
+            if (viewFullBtn) viewFullBtn.disabled = true;
+            if (deleteImageAsset) await deleteImageAsset(nodeId);
+            if (resolutionBadge) {
+                resolutionBadge.textContent = '';
+                resolutionBadge.style.display = 'none';
+            }
         } else {
             delete node.data.image;
             delete node.data.images;
-            renderImageSavePreview(nodeId, [], '无输入图片');
+            delete node.data.video;
+            renderImageSavePreview(nodeId, [], '无输入图片或视频');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
             if (deleteImageAsset) await deleteImageAsset(nodeId);
@@ -1677,8 +2104,33 @@ export function createMediaControllerApi({
         manualSaveBtn.addEventListener('click', () => {
             const node = getNodeById(id);
             const images = getStoredImageSaveList(node);
-            if (!node || images.length === 0) return showToast('没有可保存的图片', 'warning');
+            const video = getStoredSaveVideo(node);
+            if (!node || (images.length === 0 && !video?.url)) return showToast('没有可保存的内容', 'warning');
             const filename = el.querySelector(`#${id}-filename`).value || 'image';
+            if (images.length === 0 && video?.url) {
+                try {
+                    const filenameBase = buildVideoSaveFilenameBase(id, video, filename || 'video');
+                    const link = documentRef.createElement('a');
+                    link.href = video.url;
+                    link.download = `${filenameBase}${detectVideoExtensionFromSource(video)}`;
+                    link.rel = 'noopener noreferrer';
+                    link.target = '_blank';
+                    documentRef.body.appendChild(link);
+                    link.click();
+                    setTimeout(() => {
+                        if (link.parentNode) documentRef.body.removeChild(link);
+                    }, 100);
+                    addLog('info', '视频手动下载已发起', '浏览器已直接发起视频下载请求。', {
+                        sourceVideoUrl: video.url,
+                        filenameBase
+                    });
+                    showToast('已发起视频下载', 'success');
+                } catch (err) {
+                    console.error('Manual save video error:', err);
+                    showToast('保存失败: ' + (err?.message || String(err)), 'error');
+                }
+                return;
+            }
             const filenameBases = buildImageSaveFilenameBases(id, images, filename);
             try {
                 images.forEach((image, index) => {
@@ -1707,6 +2159,12 @@ export function createMediaControllerApi({
             if (state.justDragged) return;
             const node = getNodeById(id);
             if (e.target.closest('.image-save-preview-nav')) return;
+            const video = getStoredSaveVideo(node);
+            if (video?.url) {
+                if (e.target.closest('video')) return;
+                windowRef.open(video.url, '_blank', 'noopener,noreferrer');
+                return;
+            }
             const image = getCurrentImageSavePreviewImage(node);
             if (image) openFullscreenPreview(image, id);
         });
@@ -1714,6 +2172,11 @@ export function createMediaControllerApi({
         el.querySelector(`#${id}-view-full`).addEventListener('click', (e) => {
             e.stopPropagation();
             const node = getNodeById(id);
+            const video = getStoredSaveVideo(node);
+            if (video?.url) {
+                windowRef.open(video.url, '_blank', 'noopener,noreferrer');
+                return;
+            }
             const image = getCurrentImageSavePreviewImage(node);
             if (image) openFullscreenPreview(image, id);
         });
@@ -1722,11 +2185,12 @@ export function createMediaControllerApi({
     async function autoSaveToDir(nodeId, dataUrl) {
         const node = getNodeById(nodeId);
         if (!node) return;
-        const images = normalizeImageList(dataUrl);
-        if (images.length === 0) return;
+        const images = normalizeImageList(dataUrl?.images ?? dataUrl);
+        const video = dataUrl?.video && typeof dataUrl.video === 'object' ? dataUrl.video : null;
+        if (images.length === 0 && !video?.url) return;
         const handle = state.globalSaveDirHandle;
         if (!handle) {
-            showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，图片仅保存在节点内', 'warning', 5000);
+            showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
             addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId });
             return;
         }
@@ -1746,21 +2210,69 @@ export function createMediaControllerApi({
                     return;
                 }
             }
-            const prefix = documentRef.getElementById(`${nodeId}-filename`)?.value || 'image';
-            const filenameBases = buildImageSaveFilenameBases(nodeId, images, prefix, { includeTimestamp: true });
+            const prefix = documentRef.getElementById(`${nodeId}-filename`)?.value || (video?.url ? 'video' : 'image');
             const savedFilenames = [];
-            for (let index = 0; index < images.length; index += 1) {
-                const blob = dataURLtoBlob(images[index]);
-                const { fileHandle, filename } = await getAvailableFileHandle(handle, filenameBases[index]);
+            if (images.length > 0) {
+                const filenameBases = buildImageSaveFilenameBases(nodeId, images, prefix, { includeTimestamp: true });
+                for (let index = 0; index < images.length; index += 1) {
+                    const blob = dataURLtoBlob(images[index]);
+                    const { fileHandle, filename } = await getAvailableFileHandle(handle, filenameBases[index]);
+                    if (!fileHandle) throw new Error('无法创建文件');
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    savedFilenames.push(filename);
+                }
+            } else if (video?.url) {
+                const filenameBase = buildVideoSaveFilenameBase(nodeId, video, prefix, { includeTimestamp: true });
+                updateVideoAutoSaveToast(nodeId, {
+                    subtitle: '正在通过后端下载视频并保存到目录...',
+                    stage: '后端下载中',
+                    loaded: 0,
+                    total: 0,
+                    status: '准备中'
+                });
+                const blob = await downloadGeneratedVideo(video.url, {
+                    filenameBase,
+                    onProgress: ({ loaded, total, done }) => {
+                        updateVideoAutoSaveToast(nodeId, {
+                            subtitle: '正在通过后端下载视频并保存到目录...',
+                            stage: done ? '正在写入目录' : '后端下载中',
+                            loaded,
+                            total,
+                            status: done ? '即将写入文件' : '下载中'
+                        });
+                    }
+                });
+                const extension = detectVideoExtensionFromSource(video, blob);
+                const { fileHandle, filename } = await getAvailableFileHandle(
+                    handle,
+                    filenameBase,
+                    extension
+                );
                 if (!fileHandle) throw new Error('无法创建文件');
+                updateVideoAutoSaveToast(nodeId, {
+                    subtitle: '正在把视频写入你设置的目录...',
+                    stage: '写入目录中',
+                    loaded: blob.size || 0,
+                    total: blob.size || 0,
+                    status: '写入中'
+                });
                 const writable = await fileHandle.createWritable();
                 await writable.write(blob);
                 await writable.close();
                 savedFilenames.push(filename);
+                completeVideoAutoSaveToast(nodeId, `视频已自动保存：${filename}`);
             }
-            showToast(images.length > 1 ? `已自动保存 ${images.length} 张图片` : `图片已自动保存: ${savedFilenames[0]}`, 'success');
+            showToast(
+                images.length > 1
+                    ? `已自动保存 ${images.length} 张图片`
+                    : (images.length === 1 ? `图片已自动保存: ${savedFilenames[0]}` : `视频已自动保存: ${savedFilenames[0]}`),
+                'success'
+            );
             addLog('success', '自动保存成功', `已保存至: ${handle.name}/${savedFilenames.join(', ')}`);
         } catch (err) {
+            if (video?.url) failVideoAutoSaveToast(nodeId, `视频自动保存失败：${err.message}`);
             console.error('Auto-save error:', err);
             showToast('自动保存出错: ' + err.message, 'error', 5000);
             addLog('error', '自动保存异常', err.message, { nodeId, error: err.stack || err });
@@ -1849,7 +2361,7 @@ export function createMediaControllerApi({
         if (node.type === 'ImageGenerate') return '生成结果';
         if (node.type === 'ImageResize') return '缩放结果';
         if (node.type === 'ImagePreview') return '预览图片';
-        if (node.type === 'ImageSave') return '保存图片';
+        if (node.type === 'ImageSave') return '保存节点';
         if (node.type === 'ImageCompare') return '对比输出';
         return '节点图片';
     }

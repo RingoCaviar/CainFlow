@@ -3,7 +3,7 @@
  */
 import { DEFAULT_MODELS, DEFAULT_PROVIDERS } from './constants.js';
 
-export const NODE_DEFAULT_TYPES = ['ImageGenerate', 'TextChat', 'CameraControl'];
+export const NODE_DEFAULT_TYPES = ['ImageGenerate', 'VideoGenerate', 'TextChat', 'CameraControl'];
 
 export function createInitialNodeDefaults() {
     return NODE_DEFAULT_TYPES.reduce((defaults, type) => {
@@ -74,6 +74,7 @@ export function createInitialState() {
         runningNodeIds: new Set(),
         runningNodeCancelHandlers: new Map(),
         activeRunCount: 0,
+        isRunStarting: false,
         runAbortControllers: new Set(),
         nodeDefaults: createInitialNodeDefaults(),
         historySelectionMode: false,

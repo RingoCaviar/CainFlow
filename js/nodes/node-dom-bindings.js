@@ -2,11 +2,15 @@
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
  */
 import {
+    VIDEO_ASPECT_OPTIONS,
+    DOUBAO_VIDEO_RATIO_OPTIONS,
+    DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
+    getVideoProtocolOptionMeta,
     normalizeImageResolutionForModel,
     validateOpenAiImageSize
 } from '../features/execution/provider-request-utils.js';
@@ -26,6 +30,7 @@ export function createNodeDomBindingsApi({
     toggleNodesEnabled,
     cancelRunningNode = null,
     finishConnection,
+    resumeVideoGeneration = async () => {},
     setupImageImport,
     setupImageResize,
     setupImageSave,
@@ -37,6 +42,7 @@ export function createNodeDomBindingsApi({
     scheduleSave,
     debounce,
     fitNodeToContent = () => {},
+    enforceNodeContentMinimum = () => null,
     getNodeMinimumSizeFromLifecycle = null,
     updateAllConnections = () => {},
     updatePortStyles = () => {},
@@ -44,8 +50,6 @@ export function createNodeDomBindingsApi({
     documentRef = document
 }) {
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container';
-    const FALLBACK_DEFAULT_NODE_WIDTH = 180;
-    const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
     const ZOOM_SETTLE_GUARD_MS = 220;
     const NODE_CANCEL_HOLD_MS = 2000;
     const NODE_CANCEL_DRAG_THRESHOLD = 8;
@@ -376,6 +380,115 @@ export function createNodeDomBindingsApi({
                 tempConnection.setAttribute('d', '');
             }
         });
+    }
+
+    function syncVideoGenerateProtocolFields(id) {
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
+        const aspectSelect = documentRef.getElementById(`${id}-aspect`);
+        const note = documentRef.getElementById(`${id}-video-protocol-note`);
+        const enhanceField = documentRef.getElementById(`${id}-enhance-prompt-field`);
+        const upsampleField = documentRef.getElementById(`${id}-enable-upsample-field`);
+        const enhanceInput = documentRef.getElementById(`${id}-enhance-prompt`);
+        const upsampleInput = documentRef.getElementById(`${id}-enable-upsample`);
+        const doubaoResolutionField = documentRef.getElementById(`${id}-doubao-resolution-field`);
+        const doubaoResolutionHint = documentRef.getElementById(`${id}-doubao-resolution-hint`);
+        const doubaoDurationField = documentRef.getElementById(`${id}-doubao-duration-field`);
+        const doubaoCameraFixedField = documentRef.getElementById(`${id}-doubao-camera-fixed-field`);
+        const doubaoGenerateAudioField = documentRef.getElementById(`${id}-doubao-generate-audio-field`);
+        const doubaoWatermarkField = documentRef.getElementById(`${id}-doubao-watermark-field`);
+        const doubaoSeedField = documentRef.getElementById(`${id}-doubao-seed-field`);
+        const doubaoNoteField = documentRef.getElementById(`${id}-doubao-note-field`);
+        const doubaoResolutionInput = documentRef.getElementById(`${id}-doubao-resolution`);
+        const doubaoDurationInput = documentRef.getElementById(`${id}-doubao-duration`);
+        const doubaoDurationHint = documentRef.getElementById(`${id}-doubao-duration-hint`);
+        const doubaoCameraFixedInput = documentRef.getElementById(`${id}-doubao-camera-fixed`);
+        const doubaoGenerateAudioInput = documentRef.getElementById(`${id}-doubao-generate-audio`);
+        const doubaoWatermarkInput = documentRef.getElementById(`${id}-doubao-watermark`);
+        const doubaoSeedInput = documentRef.getElementById(`${id}-doubao-seed`);
+        if (!modelSelect) return;
+        const model = state.models.find((item) => item.id === modelSelect.value);
+        const provider = model ? getResolvedProviderForModel(model, state.providers, providerSelect?.value || '') : null;
+        const protocol = getEffectiveProtocol(model, provider);
+        const meta = getVideoProtocolOptionMeta(protocol);
+        const isDoubaoProtocol = protocol === 'doubao-video';
+        const modelId = String(model?.modelId || '').toLowerCase();
+        const supportsGenerateAudio = modelId.includes('seedance-1-5-pro');
+        const referenceImageCount = state.connections.filter((item) => (
+            item.to.nodeId === id && /^image_\d+$/.test(item.to.port)
+        )).length;
+        const isReferenceMode = referenceImageCount >= 1 || /^image_/i.test(modelId) || modelId.includes('i2v');
+        const durationMin = modelId.includes('seedance-1-5-pro') ? 4 : 2;
+        const durationMax = 12;
+
+        if (note) note.textContent = meta.note;
+        if (enhanceField) enhanceField.classList.toggle('hidden', !meta.supportsEnhancePrompt);
+        if (upsampleField) upsampleField.classList.toggle('hidden', !meta.supportsUpsample);
+        if (doubaoResolutionField) doubaoResolutionField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (doubaoDurationField) doubaoDurationField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (doubaoCameraFixedField) doubaoCameraFixedField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (doubaoGenerateAudioField) doubaoGenerateAudioField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (doubaoWatermarkField) doubaoWatermarkField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (doubaoSeedField) doubaoSeedField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (doubaoNoteField) doubaoNoteField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (!meta.supportsEnhancePrompt && enhanceInput) enhanceInput.checked = false;
+        if (!meta.supportsUpsample && upsampleInput) upsampleInput.checked = false;
+        if (isDoubaoProtocol && aspectSelect) {
+            const ratioOptions = DOUBAO_VIDEO_RATIO_OPTIONS.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+            const currentAspect = aspectSelect.value;
+            aspectSelect.innerHTML = ratioOptions;
+            aspectSelect.value = DOUBAO_VIDEO_RATIO_OPTIONS.some((option) => option.value === currentAspect) ? currentAspect : '16:9';
+        } else if (aspectSelect) {
+            const defaultOptions = VIDEO_ASPECT_OPTIONS.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+            const currentAspect = aspectSelect.value;
+            aspectSelect.innerHTML = defaultOptions;
+            aspectSelect.value = VIDEO_ASPECT_OPTIONS.some((option) => option.value === currentAspect) ? currentAspect : '16:9';
+        }
+        if (isDoubaoProtocol && doubaoResolutionInput) {
+            doubaoResolutionInput.innerHTML = DOUBAO_VIDEO_RESOLUTION_OPTIONS
+                .map((option) => `<option value="${option.value}">${option.label}</option>`)
+                .join('');
+            const currentResolution = doubaoResolutionInput.value;
+            if (!DOUBAO_VIDEO_RESOLUTION_OPTIONS.some((option) => option.value === currentResolution)) {
+                doubaoResolutionInput.value = modelId.includes('seedance-1-0-pro') || modelId.includes('seedance-1-0-pro-fast')
+                    ? '1080p'
+                    : '720p';
+            }
+            if (isReferenceMode && doubaoResolutionInput.value === '1080p') {
+                doubaoResolutionInput.value = '720p';
+            }
+            if (doubaoResolutionHint) {
+                doubaoResolutionHint.textContent = isReferenceMode
+                    ? '当前是参考图场景，1080p 不可用，已限制为 480p / 720p'
+                    : '当前模型可选 480p / 720p / 1080p';
+            }
+        } else if (doubaoResolutionHint) {
+            doubaoResolutionHint.textContent = '';
+        }
+        if (isDoubaoProtocol && doubaoDurationInput) {
+            doubaoDurationInput.min = String(durationMin);
+            doubaoDurationInput.max = String(durationMax);
+            let duration = parseInt(doubaoDurationInput.value || '5', 10);
+            if (!Number.isFinite(duration)) duration = 5;
+            duration = Math.max(durationMin, Math.min(durationMax, duration));
+            doubaoDurationInput.value = String(duration);
+            if (doubaoDurationHint) {
+                doubaoDurationHint.textContent = `当前模型时长限制：${durationMin}-${durationMax} 秒`;
+            }
+        } else if (doubaoDurationHint) {
+            doubaoDurationHint.textContent = '';
+        }
+        if (doubaoGenerateAudioInput) {
+            doubaoGenerateAudioInput.disabled = !isDoubaoProtocol || !supportsGenerateAudio;
+            if (isDoubaoProtocol && supportsGenerateAudio && !doubaoGenerateAudioInput.dataset.userTouched) {
+                doubaoGenerateAudioInput.checked = true;
+            }
+            if (!supportsGenerateAudio) doubaoGenerateAudioInput.checked = false;
+        }
+        if (!isDoubaoProtocol && doubaoCameraFixedInput) doubaoCameraFixedInput.checked = false;
+        if (!isDoubaoProtocol && doubaoGenerateAudioInput) doubaoGenerateAudioInput.checked = false;
+        if (!isDoubaoProtocol && doubaoWatermarkInput) doubaoWatermarkInput.checked = false;
+        if (!isDoubaoProtocol && doubaoSeedInput) doubaoSeedInput.value = '';
     }
 
     function bindNodePorts(container) {
@@ -847,7 +960,10 @@ export function createNodeDomBindingsApi({
 
         const minimum = typeof getNodeMinimumSizeFromLifecycle === 'function'
             ? getNodeMinimumSizeFromLifecycle(node)
-            : getConfiguredDefaultSize(node, node.el, 180);
+            : {
+                minWidth: Number(node?.defaultWidth) || 180,
+                minHeight: Number(node?.defaultHeight) || 120
+            };
         const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
         const currentMeasuredHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
         const nextHeight = nextCollapsed
@@ -954,7 +1070,7 @@ export function createNodeDomBindingsApi({
     }
 
     function getRememberedNodeDefault(type) {
-        if (type !== 'ImageGenerate' && type !== 'TextChat' && type !== 'CameraControl') return null;
+        if (type !== 'ImageGenerate' && type !== 'VideoGenerate' && type !== 'TextChat' && type !== 'CameraControl') return null;
         if (!state.nodeDefaults || typeof state.nodeDefaults !== 'object') {
             state.nodeDefaults = {};
         }
@@ -1172,6 +1288,9 @@ export function createNodeDomBindingsApi({
             if (frameId !== null) return;
             frameId = requestAnimationFrame(() => {
                 frameId = null;
+                const nodeEl = element.closest('.node');
+                const nodeId = nodeEl?.dataset?.id;
+                if (nodeId) fitNodeToContent(nodeId, { reason: 'textarea-resize' });
                 scheduleSave();
             });
         });
@@ -1481,135 +1600,6 @@ export function createNodeDomBindingsApi({
         );
     }
 
-    function getNodeMinimumSize(el, headerFallbackWidth) {
-        const header = el.querySelector('.node-header');
-        const portsRow = el.querySelector('.node-ports-row');
-        const body = el.querySelector('.node-body');
-        const bodyStyle = body ? getComputedStyle(body) : null;
-        const bodyPaddingX = bodyStyle ? getPx(bodyStyle, 'padding-left') + getPx(bodyStyle, 'padding-right') : 0;
-        const bodyPaddingY = bodyStyle ? getPx(bodyStyle, 'padding-top') + getPx(bodyStyle, 'padding-bottom') : 0;
-        const headerWidth = getHeaderMinimumWidth(header, headerFallbackWidth);
-        const headerHeight = getHeaderMeasuredHeight(header);
-        const portsRowHeight = portsRow && isVisibleElement(portsRow) ? getElementMinimumHeight(portsRow) : 0;
-        const isCompactTextNode = el.classList.contains('node-text');
-        const baseMinWidth = isCompactTextNode ? 120 : 180;
-        const baseMinHeight = isCompactTextNode ? 88 : 120;
-        let minContentWidth = 0;
-        let minBodyHeight = bodyPaddingY;
-        let minBodyViewportHeight = 0;
-
-        el.querySelectorAll('.node-port .port-label').forEach((label) => {
-            const port = label.closest('.node-port');
-            const dot = port?.querySelector('.port-dot');
-            const portStyle = port ? getComputedStyle(port) : null;
-            const gap = portStyle ? getPx(portStyle, 'column-gap') || getPx(portStyle, 'gap') : 6;
-            minContentWidth = Math.max(
-                minContentWidth,
-                Math.ceil(label.scrollWidth + (dot?.offsetWidth || 14) + gap)
-            );
-        });
-
-        el.querySelectorAll('.node-field').forEach((field) => {
-            const fieldStyle = getComputedStyle(field);
-            const fieldGap = getPx(fieldStyle, 'row-gap') || getPx(fieldStyle, 'gap');
-            let fieldMinWidth = 0;
-            let fieldMinHeight = 0;
-
-            field.querySelectorAll(':scope > label').forEach((label) => {
-                fieldMinWidth = Math.max(fieldMinWidth, label.scrollWidth);
-                fieldMinHeight += label.offsetHeight;
-            });
-
-            field.querySelectorAll('input, select, textarea, .toggle-switch, .generation-count-control, .text-split-output-count-control, .chat-response-wrapper, .text-display-box, .api-generation-progress').forEach((control) => {
-                if (control.closest('.node-field') !== field) return;
-                if (control.matches('input, select, textarea')) {
-                    fieldMinWidth = Math.max(fieldMinWidth, getControlContentWidth(control));
-                } else {
-                    fieldMinWidth = Math.max(fieldMinWidth, control.scrollWidth || control.offsetWidth);
-                }
-
-                const controlStyle = getComputedStyle(control);
-                const minHeight = getPx(controlStyle, 'min-height');
-                fieldMinHeight += field.classList.contains('node-field-expand')
-                    ? minHeight
-                    : Math.max(minHeight, control.offsetHeight || 0);
-            });
-
-            if (field.classList.contains('node-field-row')) {
-                const label = field.querySelector(':scope > label');
-                const switchEl = field.querySelector('.toggle-switch');
-                const gap = getPx(fieldStyle, 'column-gap') || getPx(fieldStyle, 'gap') || 12;
-                fieldMinWidth = Math.max(fieldMinWidth, (label?.scrollWidth || 0) + (switchEl?.offsetWidth || 0) + gap);
-                fieldMinHeight = Math.max(label?.offsetHeight || 0, switchEl?.offsetHeight || 0);
-            }
-
-            if (fieldMinWidth > 0) minContentWidth = Math.max(minContentWidth, Math.ceil(fieldMinWidth));
-        });
-
-        if (body) {
-            Array.from(body.children).forEach((child) => {
-                if (!isVisibleElement(child)) return;
-                minContentWidth = Math.max(minContentWidth, getElementMinimumWidth(child));
-
-                if (child.classList.contains('text-split-preview')) {
-                    return;
-                }
-
-                if (child.classList.contains('node-field')) {
-                    const childStyle = getComputedStyle(child);
-                    const label = child.querySelector(':scope > label');
-                    const control = child.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .generation-count-control, :scope > .text-split-output-count-control, :scope > .chat-response-wrapper, :scope > .text-display-box, :scope > .api-generation-progress');
-                    const fieldGap = getPx(childStyle, 'row-gap') || getPx(childStyle, 'gap');
-                    const controlStyle = control ? getComputedStyle(control) : null;
-                    const controlMinHeight = controlStyle ? getPx(controlStyle, 'min-height') : 0;
-                    const controlHeight = control
-                        ? child.classList.contains('node-field-expand')
-                            ? controlMinHeight
-                            : Math.max(controlMinHeight, control.offsetHeight || 0)
-                        : 0;
-                    minBodyViewportHeight = Math.max(
-                        minBodyViewportHeight,
-                        (label?.offsetHeight || 0) + (label && control ? fieldGap : 0) + controlHeight
-                    );
-                    return;
-                }
-
-                minBodyViewportHeight = Math.max(minBodyViewportHeight, getElementMinimumHeight(child));
-            });
-
-            minBodyHeight += minBodyViewportHeight;
-        }
-
-        return {
-            minWidth: Math.max(baseMinWidth, Math.ceil(headerWidth), Math.ceil(minContentWidth + bodyPaddingX)),
-            minHeight: Math.max(baseMinHeight, Math.ceil(headerHeight + portsRowHeight + minBodyHeight))
-        };
-    }
-
-    function getConfiguredDefaultSize(node, el, headerFallbackWidth) {
-        const defaultWidth = Number(node?.defaultWidth);
-        const defaultHeight = Number(node?.defaultHeight);
-        const hasDefaultWidth = Number.isFinite(defaultWidth) && defaultWidth > 0;
-        const hasDefaultHeight = Number.isFinite(defaultHeight) && defaultHeight > 0;
-
-        if (hasDefaultWidth && hasDefaultHeight) {
-            return {
-                minWidth: defaultWidth,
-                minHeight: defaultHeight
-            };
-        }
-
-        const measuredMinimum = getNodeMinimumSize(el, headerFallbackWidth);
-        return {
-            minWidth: hasDefaultWidth
-                ? defaultWidth
-                : Math.max(FALLBACK_DEFAULT_NODE_WIDTH, measuredMinimum.minWidth),
-            minHeight: hasDefaultHeight
-                ? defaultHeight
-                : Math.max(FALLBACK_DEFAULT_NODE_HEIGHT, measuredMinimum.minHeight)
-        };
-    }
-
     function bindNodeInteractions({ id, type, el }) {
         el.addEventListener('mousedown', (e) => {
             const target = e.target;
@@ -1746,7 +1736,10 @@ export function createNodeDomBindingsApi({
             const node = state.nodes.get(id);
             const defaultMinimum = typeof getNodeMinimumSizeFromLifecycle === 'function'
                 ? getNodeMinimumSizeFromLifecycle(node)
-                : getConfiguredDefaultSize(node, el, 180);
+                : {
+                    minWidth: Number(node?.defaultWidth) || 180,
+                    minHeight: Number(node?.defaultHeight) || 120
+                };
             const currentWidth = el.offsetWidth || Number(node?.width) || defaultMinimum.minWidth;
             const currentHeight = el.offsetHeight || Number(node?.height) || defaultMinimum.minHeight;
 
@@ -1765,6 +1758,11 @@ export function createNodeDomBindingsApi({
             el.classList.add('is-interacting');
             documentRef.body.classList.add('is-interacting');
             documentRef.getElementById('connections-group').classList.add('is-interacting');
+        });
+
+        el.querySelector('.node-resize-handle').addEventListener('mouseup', () => {
+            if (state.resizing?.nodeId === id) return;
+            enforceNodeContentMinimum(id, { save: false, updateConnections: true });
         });
 
         bindNodeRunCancelButton(id, el);
@@ -1831,6 +1829,126 @@ export function createNodeDomBindingsApi({
                     generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
                 });
             });
+            syncImageGenerateCount(id);
+            fitNodeToContent(id);
+        }
+        else if (type === 'VideoGenerate') {
+            syncNodeProviderOptions(id, type);
+            syncVideoGenerateProtocolFields(id);
+            const modelSelect = el.querySelector(`#${id}-apiconfig`);
+            modelSelect?.addEventListener('change', () => {
+                syncNodeProviderOptions(id, type);
+                syncVideoGenerateProtocolFields(id);
+                persistNodeModelSelection(id, type);
+                fitNodeToContent(id);
+            });
+            const providerSelect = el.querySelector(`#${id}-provider`);
+            providerSelect?.addEventListener('change', () => {
+                syncNodeProviderOptions(id, type);
+                syncVideoGenerateProtocolFields(id);
+                persistNodeModelSelection(id, type);
+                fitNodeToContent(id);
+            });
+            const generationCountInput = el.querySelector(`#${id}-generation-count`);
+            const doubaoDurationInput = el.querySelector(`#${id}-doubao-duration`);
+            const doubaoGenerateAudioInput = el.querySelector(`#${id}-doubao-generate-audio`);
+            const doubaoResolutionInput = el.querySelector(`#${id}-doubao-resolution`);
+            const syncGenerationCount = () => syncImageGenerateCount(id);
+            generationCountInput?.addEventListener('input', () => {
+                if (generationCountInput.value !== '' && normalizeImageGenerateCountValue(generationCountInput.value) !== Number(generationCountInput.value)) {
+                    syncImageGenerateCount(id);
+                }
+            });
+            generationCountInput?.addEventListener('change', syncGenerationCount);
+            generationCountInput?.addEventListener('blur', syncGenerationCount);
+            const normalizeDoubaoDuration = () => {
+                if (!doubaoDurationInput) return;
+                const min = parseInt(doubaoDurationInput.min || '2', 10) || 2;
+                const max = parseInt(doubaoDurationInput.max || '12', 10) || 12;
+                if (doubaoDurationInput.value === '') {
+                    doubaoDurationInput.value = String(min);
+                } else {
+                    const value = parseInt(doubaoDurationInput.value, 10);
+                    const normalizedValue = Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : min;
+                    doubaoDurationInput.value = String(normalizedValue);
+                }
+                syncVideoGenerateProtocolFields(id);
+                fitNodeToContent(id);
+            };
+            doubaoDurationInput?.addEventListener('change', normalizeDoubaoDuration);
+            doubaoDurationInput?.addEventListener('blur', normalizeDoubaoDuration);
+            doubaoGenerateAudioInput?.addEventListener('change', () => {
+                doubaoGenerateAudioInput.dataset.userTouched = '1';
+            });
+            doubaoResolutionInput?.addEventListener('change', () => {
+                syncVideoGenerateProtocolFields(id);
+                fitNodeToContent(id);
+            });
+            el.querySelectorAll('.generation-count-btn').forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (!generationCountInput) return;
+                    const delta = parseInt(button.dataset.delta || '0', 10) || 0;
+                    const nextValue = normalizeImageGenerateCountValue(generationCountInput.value) + delta;
+                    generationCountInput.value = String(Math.max(1, nextValue));
+                    generationCountInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            });
+            const downloadBtn = el.querySelector(`#${id}-download-video`);
+            const resumeIdInput = el.querySelector(`#${id}-resume-video-id`);
+            const resumeBtn = el.querySelector(`#${id}-resume-video`);
+            const syncResumeButtonState = () => {
+                if (!resumeBtn) return;
+                const value = String(resumeIdInput?.value || '').trim();
+                resumeBtn.disabled = !value;
+            };
+            downloadBtn?.addEventListener('click', () => {
+                const node = state.nodes.get(id);
+                const url = node?.data?.videoUrl || '';
+                if (!url) {
+                    showToast('当前还没有可下载的视频结果', 'warning');
+                    return;
+                }
+                documentRef.defaultView?.open(url, '_blank', 'noopener,noreferrer');
+            });
+            resumeIdInput?.addEventListener('input', () => {
+                const node = state.nodes.get(id);
+                if (node) {
+                    node.data = node.data || {};
+                    node.data.videoId = String(resumeIdInput.value || '').trim();
+                }
+                syncResumeButtonState();
+            });
+            resumeIdInput?.addEventListener('change', () => {
+                const node = state.nodes.get(id);
+                if (node) {
+                    node.data = node.data || {};
+                    node.data.videoId = String(resumeIdInput.value || '').trim();
+                }
+                syncResumeButtonState();
+                scheduleSave();
+            });
+            resumeBtn?.addEventListener('click', async () => {
+                const node = state.nodes.get(id);
+                const videoId = String(resumeIdInput?.value || node?.data?.videoId || '').trim();
+                if (!videoId) {
+                    showToast('当前节点没有可恢复的任务 ID', 'warning');
+                    return;
+                }
+                if (node) {
+                    node.data = node.data || {};
+                    node.data.videoId = videoId;
+                }
+                try {
+                    resumeBtn.disabled = true;
+                    await resumeVideoGeneration(id);
+                } catch (error) {
+                    showToast(error?.message || '恢复视频进度失败', 'error');
+                } finally {
+                    syncResumeButtonState();
+                }
+            });
+            syncResumeButtonState();
             syncImageGenerateCount(id);
             fitNodeToContent(id);
         }

@@ -18,7 +18,7 @@ export function createContextMenuControllerApi({
     showToast = null,
     documentRef = document
 }) {
-    const referenceImageNodeTypes = new Set(['ImageGenerate', 'TextChat']);
+    const referenceImageNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const defaultReferenceImageCount = 5;
     const maxReferenceImageCount = 64;
 

@@ -432,7 +432,10 @@ const mediaControllerApi = createMediaControllerApi({
     getHistory,
     getHistoryMetadata,
     getHistoryEntry,
-    fitNodeToContent
+    fitNodeToContent,
+    fetchRef: fetch,
+    getProxyHeaders,
+    formatProxyErrorMessage: formatProxyErrorMessageService
 });
 const connectionsApi = createConnectionsApi({
     state,
@@ -489,6 +492,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     toggleNodesEnabled: (nodeIds, referenceNodeId) => toggleNodesEnabled(nodeIds, referenceNodeId),
     cancelRunningNode: (nodeId) => cancelRunningNode(nodeId),
     finishConnection: (src, tgt) => finishConnection(src, tgt),
+    resumeVideoGeneration: (nodeId) => getWorkflowRunnerApi().resumeVideoNodeBranch(nodeId),
     setupImageImport,
     setupImageResize,
     setupImageSave,
@@ -500,6 +504,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     scheduleSave,
     debounce,
     fitNodeToContent,
+    enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
     getNodeMinimumSizeFromLifecycle: (nodeOrId) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId),
     updateAllConnections: () => updateAllConnections(),
     updatePortStyles: () => updatePortStyles(),
@@ -739,6 +744,7 @@ function getCanvasInteractionsApi() {
             serializeOneNode,
             addNode,
             getNodeMinimumSize: (nodeOrId, options) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId, options),
+            enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
             checkLineIntersection: checkLineIntersectionService,
             getConnectionSamplePoints: getConnectionSamplePointsService
         });
@@ -948,17 +954,18 @@ function getExecutionCoreApi() {
             blobToDataUrl,
             resizeImageData,
             autoSaveToDir,
-            restoreImageResizePreview,
-            refreshDependentImageResizePreviews,
-            syncImagePreviewNode: (nodeId, imageValue) => mediaControllerApi.syncImagePreviewNode(nodeId, imageValue),
-            syncImageSaveNode: (nodeId, imageValue) => mediaControllerApi.syncImageSaveNode(nodeId, imageValue),
-            syncImageCompareNode,
-            syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
-            fitNodeToContent,
-            getAbortMessage: getAbortMessageService,
-            updateAllConnections,
-            getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')
-        });
+    restoreImageResizePreview,
+    refreshDependentImageResizePreviews,
+    syncImagePreviewNode: (nodeId, imageValue) => mediaControllerApi.syncImagePreviewNode(nodeId, imageValue),
+    syncImageSaveNode: (nodeId, imageValue) => mediaControllerApi.syncImageSaveNode(nodeId, imageValue),
+    syncImageCompareNode,
+    syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
+    fitNodeToContent,
+    scheduleSave,
+    getAbortMessage: getAbortMessageService,
+    updateAllConnections,
+    getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')
+});
     }
     return executionCoreApi;
 }
@@ -972,6 +979,7 @@ function getWorkflowRunnerApi() {
             normalizeRunOptions: (runInput) => getExecutionCoreApi().normalizeRunOptions(runInput),
             getCachedOutputValue: (node, portName) => getExecutionCoreApi().getCachedOutputValue(node, portName),
             executeNode: (node, inputs, signal, executionContext) => getExecutionCoreApi().executeNode(node, inputs, signal, executionContext),
+            resumeVideoGeneration: (nodeId, signal) => getExecutionCoreApi().resumeVideoGeneration(nodeId, signal),
             addNode,
             generateId,
             showToast,

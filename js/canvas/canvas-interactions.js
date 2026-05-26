@@ -21,6 +21,7 @@ export function createCanvasInteractionsApi({
     serializeOneNode,
     addNode,
     getNodeMinimumSize = null,
+    enforceNodeContentMinimum = null,
     checkLineIntersection,
     getConnectionSamplePoints,
     onConnectionsChanged = () => {},
@@ -642,6 +643,19 @@ export function createCanvasInteractionsApi({
                     node.observedWidth = node.width;
                     node.observedHeight = node.height;
                     node.userResized = true;
+
+                    if (typeof enforceNodeContentMinimum === 'function') {
+                        const enforced = enforceNodeContentMinimum(r.nodeId, {
+                            save: false,
+                            updateConnections: false
+                        });
+                        if (enforced) {
+                            node.width = Math.round(enforced.width);
+                            node.height = Math.round(enforced.height);
+                            node.observedWidth = node.width;
+                            node.observedHeight = node.height;
+                        }
+                    }
 
                     node.el.classList.remove('is-interacting');
                     updateAllConnections();

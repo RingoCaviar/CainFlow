@@ -86,8 +86,10 @@ export function createLogPanelApi({
     }
 
     function logRequestToPanel(title, url, requestBody, extra = {}) {
-        addLog('info', title, `正在发送请求到 ${sanitizeRequestUrl(url)}`, {
+        const finalUrl = sanitizeRequestUrl(url);
+        addLog('info', title, `最终请求 URL: ${finalUrl}`, {
             url,
+            finalUrl,
             ...extra,
             requestBody
         });
@@ -155,6 +157,7 @@ export function createLogPanelApi({
                     <span class="log-type-tag">${typeLabels[log.type] || '日志'}</span>
                     <span class="log-summary-text">${log.title}</span>
                 </div>
+                ${log.details?.finalUrl ? `<div class="log-request-url" title="${log.details.finalUrl}">URL: ${log.details.finalUrl}</div>` : ''}
                 <span class="log-time-hint">${log.time}</span>
             </div>
         `).join('');

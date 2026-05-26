@@ -1,7 +1,7 @@
 export const DEFAULT_REFERENCE_IMAGE_COUNT = 5;
 export const MIN_REFERENCE_IMAGE_COUNT = 0;
 export const MAX_REFERENCE_IMAGE_COUNT = 64;
-export const REFERENCE_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'TextChat']);
+export const REFERENCE_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
 
 export function normalizeReferenceImageCount(value, fallback = DEFAULT_REFERENCE_IMAGE_COUNT) {
     const parsed = parseInt(value ?? fallback, 10);
