@@ -134,6 +134,10 @@ export function createNodeLifecycleApi({
         return Number.isFinite(height) && height > 0 ? height : getDefaultNodeHeight(config);
     }
 
+    function isImageImportUrlMode(node) {
+        return node?.type === 'ImageImport' && node.importMode === 'url';
+    }
+
     function clampNodeWidthToDefault(width, config) {
         const defaultWidth = getDefaultNodeWidth(config);
         const numericWidth = Number(width);
@@ -475,6 +479,12 @@ export function createNodeLifecycleApi({
             };
         }
         const config = nodeConfigs[node.type] || null;
+        if (isImageImportUrlMode(node)) {
+            return {
+                minWidth: getDefaultNodeWidth(config),
+                minHeight: getConfiguredMinimumHeight(config)
+            };
+        }
         const measureWidth = Number(options.width);
         const shouldMeasureAtWidth = node.el && Number.isFinite(measureWidth) && measureWidth > 0;
         const originalWidth = shouldMeasureAtWidth ? node.el.style.width : '';
@@ -898,6 +908,7 @@ export function createNodeLifecycleApi({
         }
         el.addEventListener('load', (event) => {
             if (event.target?.tagName === 'IMG') {
+                if (normalizedType === 'ImageImport' && nodeData.importMode === 'url') return;
                 scheduleEnsureNodeContentVisible(id);
             }
         }, true);

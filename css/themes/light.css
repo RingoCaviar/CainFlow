@@ -31,6 +31,7 @@
     --shadow-drawer: -8px 0 32px rgba(15, 23, 42, 0.16);
     --conn-color: 109, 40, 217;
     --connection-flow-color: rgba(109, 40, 217, 0.9);
+    --settings-model-provider-accent: var(--accent-purple);
     --bg-card: rgba(249, 251, 255, 0.98);
     --border-color: rgba(148, 163, 184, 0.3);
     --text-main: #172033;
@@ -1156,7 +1157,7 @@ html[data-app-theme="light"] #settings-modal #providers-list .card-name {
 }
 
 html[data-app-theme="light"] #settings-modal #models-list .card-name {
-    color: #7c3aed !important;
+    color: var(--settings-model-provider-accent) !important;
 }
 
 html[data-app-theme="light"] #settings-modal .card-type.google {

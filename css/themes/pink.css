@@ -31,6 +31,7 @@
     --shadow-drawer: -10px 0 34px rgba(190, 24, 93, 0.12);
     --conn-color: 236, 72, 153;
     --connection-flow-color: rgba(236, 72, 153, 0.9);
+    --settings-model-provider-accent: #be185d;
     --bg-card: rgba(255, 249, 252, 0.98);
     --border-color: rgba(244, 114, 182, 0.24);
     --text-main: #4a1d35;
@@ -1056,7 +1057,6 @@ html[data-app-theme="pink"] #settings-modal .modal-tab-btn.active {
 
 html[data-app-theme="pink"] #settings-modal .settings-toolbar h3,
 html[data-app-theme="pink"] #settings-modal #providers-list .card-name,
-html[data-app-theme="pink"] #settings-modal #models-list .card-name,
 html[data-app-theme="pink"] .provider-models-row-name,
 html[data-app-theme="pink"] .api-settings-help-header h3,
 html[data-app-theme="pink"] .api-settings-help-section h4 {
@@ -1068,7 +1068,7 @@ html[data-app-theme="pink"] #settings-modal .settings-toolbar h3 {
 }
 
 html[data-app-theme="pink"] #settings-modal .api-config-card .card-header .card-name {
-    color: #be185d;
+    color: var(--settings-model-provider-accent);
 }
 
 html[data-app-theme="pink"] #settings-modal .api-config-card .card-field label,

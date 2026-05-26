@@ -1222,7 +1222,7 @@ export function createMediaControllerApi({
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
 
-        requestNodeFit(nodeId);
+        if (mode !== 'url') requestNodeFit(nodeId);
     }
 
     async function clearImageImportBadge(nodeId) {
@@ -1249,7 +1249,6 @@ export function createMediaControllerApi({
             }
         }
         clearImageImportBadge(nodeId);
-        requestNodeFit(nodeId);
         bindImageImportUrlPreviewEvents(nodeId);
     }
 

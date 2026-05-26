@@ -23,6 +23,7 @@
     --settings-primary-action-hover-bg: var(--panel-active-bg, rgba(6, 182, 212, 0.2));
     --settings-primary-action-hover-border: var(--panel-active-border, rgba(6, 182, 212, 0.42));
     --settings-primary-action-hover-text: var(--panel-control-hover-text, var(--text-primary));
+    --settings-model-provider-accent: var(--settings-primary-action-text, var(--accent-primary, var(--accent-purple)));
     --settings-input-bg: var(--panel-input-bg, var(--bg-input));
     --settings-input-border: var(--panel-input-border, var(--border-input));
     --settings-input-focus-border: var(--panel-active-border, var(--accent-purple));
@@ -408,6 +409,18 @@
     position: relative;
 }
 
+#settings-modal #models-list .api-config-card .card-header .card-name {
+    color: var(--settings-model-provider-accent) !important;
+}
+
+#models-list .api-config-card {
+    z-index: 0;
+}
+
+#models-list .api-config-card:has(.provider-multiselect-trigger[aria-expanded="true"]) {
+    z-index: 90;
+}
+
 .provider-multiselect-trigger {
     width: 100%;
     min-height: 36px;
@@ -451,14 +464,19 @@
     top: calc(100% + 6px);
     left: 0;
     right: 0;
-    z-index: 20;
-    max-height: 220px;
-    overflow: auto;
-    padding: 8px 10px;
+    z-index: 100;
+    max-height: min(280px, 42vh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px;
     background: var(--settings-dialog-panel-bg);
     border: 1px solid var(--settings-dialog-panel-border);
     border-radius: 8px;
     box-shadow: var(--settings-dialog-panel-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .provider-multiselect-panel.hidden {
@@ -469,14 +487,93 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 0;
+    position: relative;
+    min-height: 34px;
+    padding: 7px 9px;
+    border: 1px solid var(--settings-input-border);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.025);
     color: var(--text-primary);
+    font-family: var(--font);
     font-size: 12px;
+    font-weight: 400;
+    line-height: 1.35;
     cursor: pointer;
+    user-select: none;
+    transition: border-color var(--transition), background var(--transition);
 }
 
-.provider-multiselect-option input {
-    accent-color: var(--accent-purple);
+.provider-multiselect-option::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 17px;
+    height: 17px;
+    border: 1px solid var(--settings-input-border);
+    border-radius: 5px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+        var(--settings-input-bg);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 1px 2px rgba(0, 0, 0, 0.12);
+    transition:
+        background var(--transition),
+        border-color var(--transition),
+        box-shadow var(--transition),
+        transform var(--transition);
+}
+
+.provider-multiselect-option[aria-selected="true"]::before,
+.provider-multiselect-option:has(input[type="checkbox"]:checked)::before {
+    border-color: var(--settings-model-provider-accent);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
+        var(--settings-model-provider-accent);
+    box-shadow:
+        0 0 0 3px var(--settings-primary-action-bg, rgba(139, 92, 246, 0.18)),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.provider-multiselect-option:hover {
+    border-color: var(--settings-input-focus-border);
+    background: var(--settings-control-hover-bg);
+}
+
+.provider-multiselect-option:hover::before {
+    border-color: var(--settings-input-focus-border);
+    transform: translateY(-1px);
+}
+
+.provider-multiselect-option span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#settings-modal .provider-multiselect-option input[type="checkbox"] {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    border: 0 !important;
+}
+
+#settings-modal .provider-multiselect-option input[type="checkbox"]::after {
+    content: none;
+}
+
+#settings-modal .provider-multiselect-option:hover input[type="checkbox"] {
+    transform: none;
+}
+
+#settings-modal .provider-multiselect-option input[type="checkbox"]:checked::after,
+#settings-modal .provider-multiselect-option[aria-selected="true"] input[type="checkbox"]::after {
+    content: none;
 }
 
 .settings-toggle-row {

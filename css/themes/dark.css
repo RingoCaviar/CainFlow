@@ -20,6 +20,7 @@
     --painter-board-glow: rgba(34, 211, 238, 0.08);
     --painter-board-sheen: rgba(255, 255, 255, 0.035);
     --connection-flow-color: rgba(168, 85, 247, 0.95);
+    --settings-model-provider-accent: var(--accent-cyan);
     --overlay-backdrop: rgba(0, 0, 0, 0.7);
     --surface-soft: rgba(255, 255, 255, 0.03);
     --surface-muted: rgba(255, 255, 255, 0.05);

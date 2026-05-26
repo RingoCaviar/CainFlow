@@ -1477,10 +1477,10 @@ export function createSettingsControllerApi({
                         </button>
                         <div class="provider-multiselect-panel ${isProviderPanelOpen ? '' : 'hidden'}" data-id="${mod.id}">
                             ${state.providers.map((providerItem) => `
-                                <label class="provider-multiselect-option">
-                                    <input type="checkbox" data-id="${mod.id}" data-field="providerIds" value="${providerItem.id}" ${boundProviderIds.includes(providerItem.id) ? 'checked' : ''} />
+                                <div class="provider-multiselect-option" role="option" aria-selected="${boundProviderIds.includes(providerItem.id) ? 'true' : 'false'}" data-id="${mod.id}" data-provider-id="${providerItem.id}">
+                                    <input type="checkbox" tabindex="-1" aria-hidden="true" data-id="${mod.id}" data-field="providerIds" value="${providerItem.id}" ${boundProviderIds.includes(providerItem.id) ? 'checked' : ''} />
                                     <span>${escapeHtml(providerItem.name || providerItem.id)}</span>
-                                </label>
+                                </div>
                             `).join('')}
                         </div>
                     </div>
@@ -1529,31 +1529,50 @@ export function createSettingsControllerApi({
             modelsList.appendChild(el);
         });
 
-        modelsList.querySelectorAll('input, select').forEach((input) => {
+        modelsList.querySelectorAll('input:not([data-field="providerIds"]), select').forEach((input) => {
             input.addEventListener('change', (e) => {
                 const id = e.target.dataset.id;
                 const field = e.target.dataset.field;
                 const mod = state.models.find((candidate) => candidate.id === id);
                 if (!mod) return;
-                if (field === 'providerIds') {
-                    openModelProviderPanelId = id;
-                    const panel = modelsList.querySelector(`.provider-multiselect-panel[data-id="${id}"]`);
-                    const checkedValues = panel
-                        ? Array.from(panel.querySelectorAll('input[data-field="providerIds"]:checked')).map((inputEl) => inputEl.value)
-                        : [];
-                    mod.providerIds = checkedValues;
-                    syncModelProviderBindings(mod);
-                } else {
-                    const provider = getResolvedModelProvider(mod);
-                    mod[field] = field === 'taskType'
-                        ? normalizeModelTaskType(e.target.value, mod)
-                        : field === 'protocol'
-                            ? normalizeModelProtocol(e.target.value, mod, provider)
-                            : e.target.value;
-                }
+                const provider = getResolvedModelProvider(mod);
+                mod[field] = field === 'taskType'
+                    ? normalizeModelTaskType(e.target.value, mod)
+                    : field === 'protocol'
+                        ? normalizeModelProtocol(e.target.value, mod, provider)
+                        : e.target.value;
                 saveState();
                 renderModels();
                 updateAllNodeModelDropdowns();
+            });
+        });
+
+        const toggleModelProviderSelection = (modelId, providerId) => {
+            const mod = state.models.find((candidate) => candidate.id === modelId);
+            if (!mod) return;
+            const validProviderIds = new Set(state.providers.map((provider) => provider.id));
+            if (!validProviderIds.has(providerId)) return;
+            openModelProviderPanelId = modelId;
+            const current = new Set(getModelProviderIds(mod).filter((id) => validProviderIds.has(id)));
+            if (current.has(providerId)) {
+                current.delete(providerId);
+            } else {
+                current.add(providerId);
+            }
+            mod.providerIds = state.providers
+                .map((provider) => provider.id)
+                .filter((id) => current.has(id));
+            syncModelProviderBindings(mod);
+            saveState();
+            renderModels();
+            updateAllNodeModelDropdowns();
+        };
+
+        modelsList.querySelectorAll('.provider-multiselect-option').forEach((option) => {
+            option.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleModelProviderSelection(option.dataset.id, option.dataset.providerId);
             });
         });
 

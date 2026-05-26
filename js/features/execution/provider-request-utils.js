@@ -112,7 +112,10 @@ export function getProviderFromLookup(providerId, providers) {
 }
 
 export function getModelProviderIds(model = {}) {
-    const providerIds = Array.isArray(model?.providerIds) ? model.providerIds : [];
+    if (Array.isArray(model?.providerIds)) {
+        return normalizeUniqueStringList(model.providerIds);
+    }
+    const providerIds = [];
     const fallbackProviderId = typeof model?.providerId === 'string' ? model.providerId : '';
     return normalizeUniqueStringList([
         ...providerIds,
