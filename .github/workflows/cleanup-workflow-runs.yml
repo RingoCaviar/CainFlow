@@ -1,0 +1,133 @@
+name: Cleanup Workflow Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_latest:
+        description: 'Number of newest workflow runs to keep'
+        required: true
+        default: '20'
+        type: number
+      workflow:
+        description: 'Workflow file name or ID to clean. Use all for every workflow.'
+        required: true
+        default: 'all'
+        type: string
+      include_active_runs:
+        description: 'Delete active runs too. Recommended: false'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      dry_run:
+        description: 'true = preview only, false = actually delete workflow runs'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Cleanup workflow run history
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          KEEP_LATEST: ${{ github.event.inputs.keep_latest }}
+          WORKFLOW_FILTER: ${{ github.event.inputs.workflow }}
+          INCLUDE_ACTIVE_RUNS: ${{ github.event.inputs.include_active_runs }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$KEEP_LATEST" =~ ^[0-9]+$ ]]; then
+            echo "keep_latest must be a non-negative integer."
+            exit 1
+          fi
+
+          echo "Repository: $REPO"
+          echo "Workflow filter: $WORKFLOW_FILTER"
+          echo "Keep latest runs: $KEEP_LATEST"
+          echo "Include active runs: $INCLUDE_ACTIVE_RUNS"
+          echo "Dry run: $DRY_RUN"
+          echo "Current run ID: $CURRENT_RUN_ID"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::warning::DRY RUN is enabled. This run will only print what would be deleted. Set dry_run=false to actually delete workflow runs."
+          fi
+
+          if [ "$WORKFLOW_FILTER" = "all" ]; then
+            runs_endpoint="repos/$REPO/actions/runs?per_page=100"
+            jq_filter='.workflow_runs[]'
+          else
+            runs_endpoint="repos/$REPO/actions/workflows/$WORKFLOW_FILTER/runs?per_page=100"
+            jq_filter='.workflow_runs[]'
+          fi
+
+          mapfile -t runs < <(
+            gh api --paginate "$runs_endpoint" \
+              --jq "$jq_filter | {id, name: (.name // \"\"), workflowName: (.display_title // .name // \"\"), status, conclusion: (.conclusion // \"\"), event, createdAt: .created_at, runNumber: .run_number, htmlUrl: .html_url}" \
+              | jq -s 'sort_by(.createdAt) | .[] | @base64' \
+              | tr -d '"'
+          )
+
+          total="${#runs[@]}"
+          echo "Found $total workflow runs."
+
+          if [ "$total" -le "$KEEP_LATEST" ]; then
+            echo "Nothing to delete."
+            exit 0
+          fi
+
+          delete_count=$((total - KEEP_LATEST))
+
+          for index in "${!runs[@]}"; do
+            run_json="$(echo "${runs[$index]}" | base64 --decode)"
+            run_id="$(echo "$run_json" | jq -r '.id')"
+            name="$(echo "$run_json" | jq -r '.name // ""')"
+            workflow_name="$(echo "$run_json" | jq -r '.workflowName // ""')"
+            status="$(echo "$run_json" | jq -r '.status // ""')"
+            conclusion="$(echo "$run_json" | jq -r '.conclusion // ""')"
+            event="$(echo "$run_json" | jq -r '.event // ""')"
+            created_at="$(echo "$run_json" | jq -r '.createdAt')"
+            run_number="$(echo "$run_json" | jq -r '.runNumber')"
+
+            label="#$run_number $workflow_name / $name [$status/$conclusion] $event ($created_at)"
+
+            if [ "$index" -ge "$delete_count" ]; then
+              echo "KEEP   [$((index + 1))/$total] $label"
+              continue
+            fi
+
+            if [ "$run_id" = "$CURRENT_RUN_ID" ]; then
+              echo "SKIP   [$((index + 1))/$total] current run: $label"
+              continue
+            fi
+
+            if [ "$INCLUDE_ACTIVE_RUNS" != "true" ] && [ "$status" != "completed" ]; then
+              echo "SKIP   [$((index + 1))/$total] active run: $label"
+              continue
+            fi
+
+            echo "DELETE [$((index + 1))/$total] $label"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              continue
+            fi
+
+            gh api --method DELETE "repos/$REPO/actions/runs/$run_id"
+            echo "Deleted workflow run: $run_id"
+          done
