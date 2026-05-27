@@ -98,6 +98,7 @@ export function createClipboardControllerApi({
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
             } else if (node.type === 'VideoGenerate') {
                 serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
+                serialized.useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
                 serialized.enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;
                 serialized.enableUpsample = documentRef.getElementById(`${id}-enable-upsample`)?.checked === true;
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);

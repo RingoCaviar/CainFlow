@@ -31,6 +31,7 @@ export function createProjectIoApi({
     applyCanvasUiSetting = () => {},
     clearImageAssets = null,
     clearOrphanedNodeAssets = async () => true,
+    cleanupRecoverableNodeAssetCache = null,
     clearUndoStack = () => {},
     updateCacheUsage = () => {}
 }) {
@@ -322,10 +323,15 @@ export function createProjectIoApi({
             }
             viewportApi.updateCanvasTransform();
             setTimeout(() => {
-                clearOrphanedNodeAssets(new Set(state.nodes.keys())).catch((error) => {
+                const cleanup = typeof cleanupRecoverableNodeAssetCache === 'function'
+                    ? cleanupRecoverableNodeAssetCache
+                    : () => clearOrphanedNodeAssets(new Set(state.nodes.keys()));
+                cleanup({ refresh: true }).catch((error) => {
                     console.warn('Clear stale node assets after load failed:', error);
+                }).finally(() => {
+                    updateCacheUsage();
                 });
-            }, 0);
+            }, 1000);
             return data.nodes?.length > 0;
         } catch (e) {
             console.warn('Load failed:', e);

@@ -83,28 +83,40 @@
 }
 
 .node-run-cancel-btn {
+    --node-run-cancel-bg: rgba(63, 16, 22, 0.94);
+    --node-run-cancel-bg-hover: rgba(95, 20, 28, 0.98);
+    --node-run-cancel-bg-active: rgba(127, 29, 29, 0.98);
+    --node-run-cancel-border: rgba(248, 113, 113, 0.42);
+    --node-run-cancel-border-hover: rgba(248, 113, 113, 0.72);
+    --node-run-cancel-border-active: rgba(248, 113, 113, 0.82);
+    --node-run-cancel-text: #fecaca;
+    --node-run-cancel-text-active: #ffffff;
+    --node-run-cancel-progress-track: rgba(255, 255, 255, 0.18);
+    --node-run-cancel-progress-fill: #fb7185;
+    --node-run-cancel-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
     position: absolute;
     left: 50%;
-    bottom: -38px;
+    bottom: -74px;
     transform: translateX(-50%) translateY(4px) scale(0.96);
     z-index: 60;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    height: 30px;
-    min-width: 74px;
-    padding: 0 12px;
-    border: 1px solid rgba(248, 113, 113, 0.42);
-    border-radius: 999px;
-    background:
-        rgba(63, 16, 22, 0.94);
-    color: #fecaca;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.32);
+    gap: 10px;
+    height: 60px;
+    min-width: 148px;
+    box-sizing: border-box;
+    padding: 0 24px 8px;
+    border: 1px solid var(--node-run-cancel-border);
+    border-radius: 16px;
+    background: var(--node-run-cancel-bg);
+    color: var(--node-run-cancel-text);
+    box-shadow: var(--node-run-cancel-shadow);
     font: inherit;
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 700;
     line-height: 1;
+    text-align: center;
     cursor: pointer;
     opacity: 0;
     pointer-events: none;
@@ -124,19 +136,19 @@
 }
 
 .node-run-cancel-btn:hover {
-    border-color: rgba(248, 113, 113, 0.72);
-    background: rgba(95, 20, 28, 0.98);
+    border-color: var(--node-run-cancel-border-hover);
+    background: var(--node-run-cancel-bg-hover);
 }
 
 .node-run-cancel-btn.is-holding {
-    background: rgba(95, 20, 28, 0.98);
+    background: var(--node-run-cancel-bg-hover);
     transform: translateX(-50%) translateY(0) scale(0.98);
 }
 
 .node-run-cancel-btn.is-canceling {
-    border-color: rgba(248, 113, 113, 0.82);
-    background: rgba(127, 29, 29, 0.98);
-    color: #ffffff;
+    border-color: var(--node-run-cancel-border-active);
+    background: var(--node-run-cancel-bg-active);
+    color: var(--node-run-cancel-text-active);
 }
 
 .node-run-cancel-btn__icon,
@@ -145,19 +157,35 @@
     z-index: 1;
 }
 
+.node-run-cancel-btn__label {
+    display: block;
+    width: 100%;
+    text-align: center;
+}
+
+.node-run-cancel-btn::before,
 .node-run-cancel-btn::after {
     content: '';
     position: absolute;
-    left: 4px;
-    right: 4px;
-    bottom: 4px;
-    height: 2px;
+    left: 12px;
+    right: 12px;
+    bottom: 9px;
+    height: 6px;
     border-radius: 999px;
-    background: rgba(248, 113, 113, 0.96);
+    pointer-events: none;
+}
+
+.node-run-cancel-btn::before {
+    background: var(--node-run-cancel-progress-track);
+    opacity: 1;
+}
+
+.node-run-cancel-btn::after {
+    background: var(--node-run-cancel-progress-fill);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--node-run-cancel-progress-fill) 72%, transparent);
     transform: scaleX(0);
     transform-origin: left center;
     opacity: 0;
-    pointer-events: none;
 }
 
 .node-run-cancel-btn.is-holding::after {
@@ -166,14 +194,19 @@
 }
 
 .node-run-cancel-btn__icon {
+    position: absolute;
+    left: 22px;
+    top: 50%;
+    transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
 }
 
 .node-run-cancel-btn svg {
-    width: 14px;
-    height: 14px;
+    width: 22px;
+    height: 22px;
     display: block;
 }
 
@@ -301,6 +334,51 @@
 .video-generate-note,
 .image-resolution-param-note {
     color: var(--text-dim);
+}
+
+.video-ratio-param-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+}
+
+.video-ratio-param-row select {
+    width: 100%;
+    min-width: 0;
+}
+
+.video-size-param-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    min-height: 32px;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-xs);
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.video-size-param-toggle-text {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-transform: none;
+}
+
+.video-size-param-toggle .toggle-switch {
+    flex: 0 0 auto;
 }
 
 .node-camera-control .node-body {

@@ -4,8 +4,12 @@
 import {
     buildGoogleChatRequest,
     buildGoogleImageRequest,
+    buildDoubaoVideoRequest,
     buildOpenAiChatRequest,
     buildOpenAiImageRequest,
+    buildNewApiAsyncImageRequest,
+    buildOpenAiVideoRequest,
+    buildUnifiedVideoRequest,
     extractImageResult,
     getEffectiveProtocol,
     getResolvedProviderForModel,
@@ -770,6 +774,155 @@ export function createExecutionCoreApi({
         node.data = node.data || {};
         node.data.params = Object.entries(params).map(([key, value]) => ({ key, value }));
         return params;
+    }
+
+    function collectCachedInputsForNode(nodeId) {
+        const inputs = {};
+        state.connections
+            .filter((connection) => connection.to.nodeId === nodeId)
+            .forEach((connection) => {
+                const fromNode = state.nodes.get(connection.from.nodeId);
+                const value = getCachedOutputValue(fromNode, connection.from.port);
+                if (value !== undefined) inputs[connection.to.port] = value;
+            });
+        return inputs;
+    }
+
+    function resolveRequestNodeConfig(node, taskType) {
+        const configId = documentRef.getElementById(`${node.id}-apiconfig`)?.value || '';
+        const modelCfg = state.models.find((model) => model.id === configId);
+        if (!modelCfg) throw new Error('未找到选定的模型配置');
+        const selectedProviderId = documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || '';
+        const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
+        const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
+        if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
+        const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+        return {
+            modelCfg,
+            apiCfg,
+            protocol,
+            url: resolveProviderUrl(apiCfg, modelCfg, taskType, { action: 'create', inputs: collectCachedInputsForNode(node.id) })
+        };
+    }
+
+    function buildImageGenerateRequestPreview(node, inputs) {
+        const { id } = node;
+        const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
+        const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
+        const selectedResolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
+        const customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';
+        const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
+        const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
+        const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
+        const quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
+        const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
+        const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
+        const prompt = [cameraPrompt, userPrompt].filter((part) => typeof part === 'string' && part.trim()).join(', ');
+        const isGoogle = protocol === 'google';
+        const isNewApiAsyncImage = protocol === 'newapi-image-async';
+        const url = resolveProviderUrl(apiCfg, modelCfg, 'image', {
+            action: isNewApiAsyncImage ? 'create' : undefined,
+            inputs
+        });
+        const requestBody = isNewApiAsyncImage
+            ? buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolution, inputs })
+            : (isGoogle
+                ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs }));
+        const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
+        return {
+            nodeId: id,
+            nodeType: node.type,
+            model: modelCfg.name || modelCfg.modelId,
+            provider: apiCfg.name || apiCfg.id || '',
+            protocol,
+            method: 'POST',
+            url,
+            contentType: isOpenAiImageEdit ? 'multipart/form-data' : 'application/json',
+            note: isOpenAiImageEdit ? '该节点实际发送时会把参考图转换为 multipart/form-data 文件字段。' : '',
+            requestBody
+        };
+    }
+
+    function buildVideoGenerateRequestPreview(node, inputs) {
+        const { id } = node;
+        const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'video');
+        const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
+        const useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
+        const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
+        const requestBody = protocol === 'veo-openai'
+            ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, inputs })
+            : (protocol === 'doubao-video'
+                ? buildDoubaoVideoRequest({
+                    modelCfg,
+                    prompt,
+                    aspectRatio: aspect,
+                    resolution: documentRef.getElementById(`${id}-doubao-resolution`)?.value || '',
+                    duration: documentRef.getElementById(`${id}-doubao-duration`)?.value || '',
+                    cameraFixed: documentRef.getElementById(`${id}-doubao-camera-fixed`)?.checked === true,
+                    generateAudio: documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true,
+                    watermark: documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true,
+                    seed: documentRef.getElementById(`${id}-doubao-seed`)?.value || '',
+                    inputs
+                })
+                : buildUnifiedVideoRequest({
+                    modelCfg,
+                    prompt,
+                    aspectRatio: aspect,
+                    useSizeParam,
+                    enhancePrompt: documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true,
+                    enableUpsample: documentRef.getElementById(`${id}-enable-upsample`)?.checked === true,
+                    inputs
+                }));
+        return {
+            nodeId: id,
+            nodeType: node.type,
+            model: modelCfg.name || modelCfg.modelId,
+            provider: apiCfg.name || apiCfg.id || '',
+            protocol,
+            method: 'POST',
+            url: resolveProviderUrl(apiCfg, modelCfg, 'video', { action: 'create' }),
+            contentType: 'application/json',
+            requestBody
+        };
+    }
+
+    function buildTextChatRequestPreview(node, inputs) {
+        const { id } = node;
+        const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'chat');
+        const sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
+        const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const requestBody = protocol === 'google'
+            ? buildGoogleChatRequest({
+                prompt,
+                inputs,
+                sysprompt,
+                searchEnabled: documentRef.getElementById(`${id}-search`)?.checked === true
+            })
+            : buildOpenAiChatRequest({ modelCfg, prompt, inputs, sysprompt });
+        return {
+            nodeId: id,
+            nodeType: node.type,
+            model: modelCfg.name || modelCfg.modelId,
+            provider: apiCfg.name || apiCfg.id || '',
+            protocol,
+            method: 'POST',
+            url: resolveProviderUrl(apiCfg, modelCfg, 'chat'),
+            contentType: 'application/json',
+            requestBody
+        };
+    }
+
+    function buildNodeRequestPreview(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node) throw new Error('节点不存在');
+        const inputs = collectCachedInputsForNode(nodeId);
+        if (node.type === 'ImageGenerate') return buildImageGenerateRequestPreview(node, inputs);
+        if (node.type === 'VideoGenerate') return buildVideoGenerateRequestPreview(node, inputs);
+        if (node.type === 'TextChat') return buildTextChatRequestPreview(node, inputs);
+        throw new Error('该节点没有可预览的 API 请求体');
     }
 
     function isInlineImageData(value) {
@@ -1746,6 +1899,7 @@ export function createExecutionCoreApi({
         resolveExecutionPlan,
         topologicalSort,
         getCachedOutputValue,
+        buildNodeRequestPreview,
         resumeVideoGeneration: asyncMediaExecution.resumeVideoGeneration,
         resumeAsyncImageGeneration: asyncMediaExecution.resumeAsyncImageGeneration,
         executeNode,

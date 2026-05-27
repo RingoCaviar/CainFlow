@@ -36,6 +36,21 @@ export function createMediaControllerApi({
     const DATA_URL_RESOLUTION_CACHE_LIMIT = 32;
     const videoAutoSaveToasts = new Map();
 
+    function hasIncomingImageConnection(nodeId) {
+        return state.connections.some((conn) => (
+            conn.to.nodeId === nodeId
+            && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+        ));
+    }
+
+    async function clearRecoverableDisplayAsset(nodeId) {
+        if (deleteImageAsset && hasIncomingImageConnection(nodeId)) {
+            await deleteImageAsset(nodeId);
+            return true;
+        }
+        return false;
+    }
+
     function requestNodeFit(nodeId) {
         if (!nodeId) return;
         pendingFitNodeIds.add(nodeId);
@@ -1464,9 +1479,11 @@ export function createMediaControllerApi({
             else delete node.data.images;
             renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
-            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-            else if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
-            else if (deleteImageAsset) await deleteImageAsset(nodeId);
+            if (!(await clearRecoverableDisplayAsset(nodeId))) {
+                if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
+                else if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
+                else if (deleteImageAsset) await deleteImageAsset(nodeId);
+            }
             await showResolutionBadge(nodeId, currentImage);
         } else {
             delete node.data.image;
@@ -1544,8 +1561,10 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-            else await saveImageAsset(nodeId, primaryImage);
+            if (!(await clearRecoverableDisplayAsset(nodeId))) {
+                if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
+                else await saveImageAsset(nodeId, primaryImage);
+            }
             await showResolutionBadge(nodeId, imageList[0] || primaryImage);
         } else if (videoData?.url) {
             delete node.data.image;
@@ -1629,8 +1648,10 @@ export function createMediaControllerApi({
 
         node.data.image = nextImageB;
         node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
-        if (node.imageData) await saveImageAsset(nodeId, node.imageData);
-        else if (deleteImageAsset) await deleteImageAsset(nodeId);
+        if (!(await clearRecoverableDisplayAsset(nodeId))) {
+            if (node.imageData) await saveImageAsset(nodeId, node.imageData);
+            else if (deleteImageAsset) await deleteImageAsset(nodeId);
+        }
 
         if (container) {
             container.classList.add('has-images');
@@ -1728,6 +1749,20 @@ export function createMediaControllerApi({
         }
         for (const nodeId of rest) {
             if (!refreshed.has(nodeId)) await refreshImageResizePreview(nodeId, options);
+        }
+    }
+
+    async function refreshAllRecoverableMediaNodes(options = {}) {
+        const sourceNodeIds = Array.from(state.nodes.values())
+            .filter((node) => (
+                node?.enabled !== false
+                && ['ImageImport', 'ImageGenerate', 'ImageResize', 'ImagePreview', 'ImageSave', 'ImageCompare'].includes(node.type)
+                && getNodeOutputImageList(node).length > 0
+            ))
+            .map((node) => node.id);
+
+        for (const nodeId of sourceNodeIds) {
+            await refreshDependentImageResizePreviews(nodeId, options);
         }
     }
 
@@ -3000,6 +3035,7 @@ export function createMediaControllerApi({
         refreshImageResizePreview,
         refreshDependentImageResizePreviews,
         refreshAllImageResizePreviews,
+        refreshAllRecoverableMediaNodes,
         restoreImageResizePreview,
         syncImagePreviewNode,
         syncImageSaveNode,

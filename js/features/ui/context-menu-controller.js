@@ -12,6 +12,7 @@ export function createContextMenuControllerApi({
     detachCloneNode = null,
     renameNode = null,
     runWorkflow,
+    buildNodeRequestPreview = null,
     createNodeFromConnectionCandidate,
     updateAllConnections,
     scheduleSave = () => {},
@@ -19,6 +20,7 @@ export function createContextMenuControllerApi({
     documentRef = document
 }) {
     const referenceImageNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
+    const requestPreviewNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const defaultReferenceImageCount = 5;
     const maxReferenceImageCount = 64;
 
@@ -46,6 +48,7 @@ export function createContextMenuControllerApi({
         const nodeActions = documentRef.getElementById('context-menu-node-actions');
         const runToHereItem = documentRef.getElementById('context-menu-run-to-here');
         const runSelectedItem = documentRef.getElementById('context-menu-run-selected');
+        const requestBodyItem = documentRef.getElementById('context-menu-preview-request-body');
         const renameNodeItem = documentRef.getElementById('context-menu-rename-node');
         const referenceImageCountItem = documentRef.getElementById('context-menu-reference-image-count');
         const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
@@ -56,6 +59,7 @@ export function createContextMenuControllerApi({
 
         setElementVisible(runToHereItem, hasNodeTarget);
         setElementVisible(runSelectedItem, hasSelection);
+        setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));
         setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
@@ -155,6 +159,103 @@ export function createContextMenuControllerApi({
 
     function closeNodeRenameDialog() {
         getNodeRenameDialog().classList.add('hidden');
+    }
+
+    function getRequestBodyPreviewDialog() {
+        let dialog = documentRef.getElementById('node-request-body-preview-dialog');
+        if (dialog) return dialog;
+        dialog = documentRef.createElement('div');
+        dialog.id = 'node-request-body-preview-dialog';
+        dialog.className = 'reference-image-count-dialog node-request-body-preview-dialog hidden';
+        (documentRef.body || canvasContainer).appendChild(dialog);
+        return dialog;
+    }
+
+    function closeRequestBodyPreviewDialog() {
+        getRequestBodyPreviewDialog().classList.add('hidden');
+    }
+
+    function redactLongRequestValue(value, path = '') {
+        if (typeof value === 'string') {
+            const isDataUrl = /^data:[^,]+;base64,/i.test(value);
+            const looksLikeBase64 = value.length > 600 && /^[A-Za-z0-9+/=\r\n]+$/.test(value.slice(0, 600));
+            const isImagePath = /image|images|content\.\d+\.image_url\.url|reference/i.test(path);
+            if (isDataUrl || looksLikeBase64 || (isImagePath && value.length > 240) || value.length > 1200) {
+                return `[已省略 ${value.length} 字符，点击“显示完整请求体”查看]`;
+            }
+            return value;
+        }
+        if (Array.isArray(value)) return value.map((item, index) => redactLongRequestValue(item, `${path}.${index}`));
+        if (value && typeof value === 'object') {
+            return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+                key,
+                redactLongRequestValue(item, path ? `${path}.${key}` : key)
+            ]));
+        }
+        return value;
+    }
+
+    function stringifyRequestBodyPreview(preview, showFull = false) {
+        const payload = showFull ? preview : {
+            ...preview,
+            requestBody: redactLongRequestValue(preview.requestBody, 'requestBody')
+        };
+        return JSON.stringify(payload, null, 2);
+    }
+
+    function openRequestBodyPreviewDialog(nodeId) {
+        if (typeof buildNodeRequestPreview !== 'function') {
+            showToast?.('当前版本未接入请求体预览能力', 'warning');
+            return;
+        }
+        let preview = null;
+        try {
+            preview = buildNodeRequestPreview(nodeId);
+        } catch (error) {
+            showToast?.(`请求体预览失败：${error.message || error}`, 'error', 5000);
+            return;
+        }
+
+        const dialog = getRequestBodyPreviewDialog();
+        dialog.innerHTML = `
+            <div class="reference-image-count-backdrop" data-close-request-body-preview="true"></div>
+            <div class="reference-image-count-panel node-request-body-preview-panel" role="dialog" aria-modal="true" aria-labelledby="node-request-body-preview-title">
+                <div class="reference-image-count-header">
+                    <h3 id="node-request-body-preview-title">查看请求体</h3>
+                    <button type="button" class="reference-image-count-close" data-close-request-body-preview="true" title="关闭">×</button>
+                </div>
+                <div class="reference-image-count-body node-request-body-preview-body">
+                    <div class="node-request-body-preview-meta">
+                        <span>${escapeHtml(preview.method || 'POST')}</span>
+                        <span>${escapeHtml(preview.protocol || '')}</span>
+                        <span>${escapeHtml(preview.contentType || 'application/json')}</span>
+                    </div>
+                    <div class="node-request-body-preview-url">${escapeHtml(preview.url || '')}</div>
+                    ${preview.note ? `<p>${escapeHtml(preview.note)}</p>` : ''}
+                    <pre class="node-request-body-preview-code"><code></code></pre>
+                </div>
+                <div class="reference-image-count-footer">
+                    <button type="button" class="btn btn-secondary" data-close-request-body-preview="true">关闭</button>
+                    <button type="button" class="btn btn-primary" id="btn-toggle-full-request-body">显示完整请求体</button>
+                </div>
+            </div>
+        `;
+        const code = dialog.querySelector('.node-request-body-preview-code code');
+        const toggle = dialog.querySelector('#btn-toggle-full-request-body');
+        let showFull = false;
+        const render = () => {
+            if (code) code.textContent = stringifyRequestBodyPreview(preview, showFull);
+            if (toggle) toggle.textContent = showFull ? '隐藏过长数据' : '显示完整请求体';
+        };
+        render();
+        dialog.classList.remove('hidden');
+        dialog.querySelectorAll('[data-close-request-body-preview="true"]').forEach((element) => {
+            element.addEventListener('click', closeRequestBodyPreviewDialog);
+        });
+        toggle?.addEventListener('click', () => {
+            showFull = !showFull;
+            render();
+        });
     }
 
     function openNodeRenameDialog(nodeId) {
@@ -309,6 +410,12 @@ export function createContextMenuControllerApi({
                         selectedNodeIds: Array.from(state.selectedNodes)
                     });
                 }
+                return;
+            }
+
+            if (item.id === 'context-menu-preview-request-body') {
+                const nodeId = state.contextMenuNodeId;
+                if (nodeId) openRequestBodyPreviewDialog(nodeId);
                 return;
             }
 
@@ -527,6 +634,7 @@ export function createContextMenuControllerApi({
                 closeConnectionCreatePopup();
                 closeReferenceImageCountDialog();
                 closeNodeRenameDialog();
+                closeRequestBodyPreviewDialog();
             }
         });
 

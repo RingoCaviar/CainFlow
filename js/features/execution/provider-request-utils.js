@@ -619,13 +619,27 @@ export function buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolut
     return applyCustomRequestParams(requestBody, inputs);
 }
 
-export function buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio, enhancePrompt = false, enableUpsample = false, inputs = {} }) {
+function applyVideoRatioParam(requestBody, aspectRatio, useSizeParam = false) {
+    if (!aspectRatio) return;
+    if (useSizeParam) requestBody.size = aspectRatio;
+    else requestBody.aspect_ratio = aspectRatio;
+}
+
+export function buildUnifiedVideoRequest({
+    modelCfg,
+    prompt,
+    aspectRatio,
+    useSizeParam = false,
+    enhancePrompt = false,
+    enableUpsample = false,
+    inputs = {}
+}) {
     const requestBody = {
         model: modelCfg.modelId,
         prompt
     };
 
-    if (aspectRatio) requestBody.aspect_ratio = aspectRatio;
+    applyVideoRatioParam(requestBody, aspectRatio, useSizeParam);
     requestBody.enhance_prompt = enhancePrompt === true;
     requestBody.enable_upsample = enableUpsample === true;
 
@@ -638,13 +652,13 @@ export function buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio, enhanc
     return applyCustomRequestParams(requestBody, inputs);
 }
 
-export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, inputs = {} }) {
+export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, useSizeParam = false, inputs = {} }) {
     const requestBody = {
         model: modelCfg.modelId,
         prompt
     };
 
-    if (aspectRatio) requestBody.size = aspectRatio === '9:16' ? '720x1280' : '1280x720';
+    applyVideoRatioParam(requestBody, aspectRatio, useSizeParam);
 
     const frameImages = getUnifiedVideoFrameImages(inputs);
     if (frameImages.length > 0) requestBody.images = frameImages;

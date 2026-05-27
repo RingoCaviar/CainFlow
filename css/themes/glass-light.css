@@ -804,23 +804,28 @@ html[data-app-theme="glass-light"] .settings-inline-help:hover {
 }
 
 html[data-app-theme="glass-light"] .node-run-cancel-btn {
-    background: rgba(255, 241, 242, 0.76);
-    border-color: rgba(220, 38, 38, 0.32);
-    color: #991b1b;
-    box-shadow: 0 10px 22px rgba(127, 29, 29, 0.12);
+    --node-run-cancel-bg: rgba(255, 241, 242, 0.78);
+    --node-run-cancel-bg-hover: rgba(254, 226, 226, 0.88);
+    --node-run-cancel-bg-active: #dc2626;
+    --node-run-cancel-border: rgba(220, 38, 38, 0.32);
+    --node-run-cancel-border-hover: rgba(220, 38, 38, 0.46);
+    --node-run-cancel-text: #991b1b;
+    --node-run-cancel-progress-track: rgba(127, 29, 29, 0.16);
+    --node-run-cancel-progress-fill: #dc2626;
+    --node-run-cancel-shadow: 0 16px 34px rgba(127, 29, 29, 0.14);
     backdrop-filter: blur(18px) saturate(1.2);
     -webkit-backdrop-filter: blur(18px) saturate(1.2);
 }
 
 html[data-app-theme="glass-light"] .node-run-cancel-btn:hover,
 html[data-app-theme="glass-light"] .node-run-cancel-btn.is-holding {
-    background: rgba(254, 226, 226, 0.86);
-    border-color: rgba(220, 38, 38, 0.46);
+    background: var(--node-run-cancel-bg-hover);
+    border-color: var(--node-run-cancel-border-hover);
 }
 
 html[data-app-theme="glass-light"] .node-run-cancel-btn.is-canceling {
-    background: #dc2626;
-    color: #ffffff;
+    background: var(--node-run-cancel-bg-active);
+    color: var(--node-run-cancel-text-active);
 }
 
 html[data-app-theme="glass-light"] .node-clone-badge {

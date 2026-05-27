@@ -148,6 +148,61 @@
     color: var(--settings-dialog-muted-text, var(--text-dim));
 }
 
+.node-request-body-preview-panel {
+    width: min(760px, calc(100vw - 32px));
+}
+
+.node-request-body-preview-body {
+    gap: 12px;
+}
+
+.node-request-body-preview-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.node-request-body-preview-meta span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.12));
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.node-request-body-preview-url {
+    padding: 8px 10px;
+    border: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.16);
+    color: var(--text-primary);
+    font-family: var(--font-mono, Consolas, "Courier New", monospace);
+    font-size: 11px;
+    line-height: 1.45;
+    word-break: break-all;
+}
+
+.node-request-body-preview-code {
+    box-sizing: border-box;
+    max-height: min(56vh, 520px);
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    border: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    background: rgba(3, 7, 18, 0.62);
+    color: #dbeafe;
+    font-family: var(--font-mono, Consolas, "Courier New", monospace);
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre;
+}
+
 .reference-image-count-footer {
     justify-content: flex-end;
     border-top: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.08));

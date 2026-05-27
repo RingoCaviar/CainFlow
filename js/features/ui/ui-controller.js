@@ -16,6 +16,9 @@ export function createUiControllerApi({
     clearHistory,
     clearImageAssets = null,
     clearOrphanedHistoryAssets = null,
+    clearOrphanedNodeAssets = null,
+    collectRetainedNodeAssetIds = () => new Set(),
+    refreshRecoverableMediaNodes = async () => {},
     getHistory,
     getHistoryMetadata = getHistory,
     getHistoryEntry = async (id) => (await getHistory()).find((item) => item.id === id) || null,
@@ -794,23 +797,23 @@ export function createUiControllerApi({
     }
 
     async function clearCurrentNodeAssetsOnly() {
-        if (clearImageAssets) {
-            const cleared = await clearImageAssets({ preserveHistory: true });
+        if (clearOrphanedNodeAssets) {
+            await refreshRecoverableMediaNodes();
+            const cleared = await clearOrphanedNodeAssets(collectRetainedNodeAssetIds());
             if (!cleared) return false;
-            if (clearOrphanedHistoryAssets) {
-                await clearOrphanedHistoryAssets();
-            }
+            if (clearOrphanedHistoryAssets) await clearOrphanedHistoryAssets();
             return true;
         }
 
         const db = await openDB();
         const tx = db.transaction(storeAssetsName, 'readwrite');
         const store = tx.objectStore(storeAssetsName);
+        const retainedNodeIds = collectRetainedNodeAssetIds();
         const req = store.openKeyCursor();
         req.onsuccess = (event) => {
             const cursor = event.target.result;
             if (!cursor) return;
-            if (!isHistoryAssetKey(cursor.key)) store.delete(cursor.key);
+            if (!isHistoryAssetKey(cursor.key) && !retainedNodeIds.has(String(cursor.key))) store.delete(cursor.key);
             cursor.continue();
         };
         const cleared = await waitForTransaction(tx);
@@ -858,13 +861,13 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-clear-assets')?.addEventListener('click', async () => {
-            if (!confirmRef('确定要清理所有节点资产吗？\n\n这会删除画布上当前正在显示的所有图片缓存。清理后刷新页面，图片将变成占位符！')) return;
+            if (!confirmRef('确定要清理可删除的节点缓存吗？\n\n这只会删除旧节点遗留资产和可由上游重新恢复的重复预览缓存，当前节点中的源图片和生成结果会被保留。')) return;
 
             try {
                 const ok = await clearCurrentNodeAssetsOnly();
                 if (!ok) throw new Error('IndexedDB 节点资产清理未完成');
 
-                showToast('当前画布资产已清理', 'success');
+                showToast('可删除节点缓存已清理，当前节点图片已保留', 'success');
                 settingsControllerApi?.updateCacheUsage();
             } catch (e) {
                 showToast('资产清理失败: ' + e.message, 'error');

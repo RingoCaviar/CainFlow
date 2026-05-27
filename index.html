@@ -738,7 +738,7 @@
                         <path d="M21 8v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8M21 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2" />
                         <path d="M3 12h18" />
                     </svg>
-                    清理节点资产 (慎点)
+                    清理可删除节点缓存
                 </button>
                 <button id="btn-clear-cache" class="btn btn-secondary cache-action-btn cache-action-btn-danger">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -749,7 +749,7 @@
                     清理历史记录 (清除历史库)
                 </button>
                 <p class="cache-action-note">
-                    节点资产清理后，画布上的实时预览图将全部恢复为占位符状态（刷新即刻生效）。建议在重新开始工作流之前操作。
+                    只清理旧节点遗留资产和可由上游重新恢复的重复预览缓存；当前节点中的源图片和生成结果会保留。
                 </p>
             </div>
         </div>
@@ -779,6 +779,16 @@
                     <polygon points="15 15 21 12 15 9 15 15"></polygon>
                 </svg>
                 只运行选中的节点
+            </div>
+            <div class="context-menu-item" id="context-menu-preview-request-body">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path>
+                    <path d="M14 2v6h6"></path>
+                    <path d="M8 13h8"></path>
+                    <path d="M8 17h5"></path>
+                </svg>
+                查看请求体
             </div>
             <div class="context-menu-item" id="context-menu-rename-node">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

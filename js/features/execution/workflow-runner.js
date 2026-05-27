@@ -1033,6 +1033,18 @@ export function createWorkflowRunnerApi({
             }
 
             const nodeTitle = getNodeDisplayTitle(currentNode);
+            const nodeController = new AbortController();
+            const linkedAbort = createLinkedAbortSignal([
+                signal,
+                nodeController.signal
+            ]);
+            session.nodeAbortControllers.set(nid, nodeController);
+            getRunningNodeCancelHandlers().set(nid, () => {
+                session.canceledBranchNodeIds.add(nid);
+                session.controller.abort();
+                if (!nodeController.signal.aborted) nodeController.abort();
+            });
+
             runningNodes.add(nid);
             markNodeRunning(nid, currentNode);
             const timeBadge = documentRef.getElementById(`${nid}-time`);
@@ -1052,8 +1064,8 @@ export function createWorkflowRunnerApi({
 
             try {
                 const inputs = collectInputsForNode(plan, nid);
-                const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, signal);
-                if (signal?.aborted) {
+                const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, linkedAbort.signal);
+                if (linkedAbort.signal?.aborted) {
                     const abortError = new Error('Node run aborted');
                     abortError.name = 'AbortError';
                     throw abortError;
@@ -1098,8 +1110,10 @@ export function createWorkflowRunnerApi({
                 throw err;
             } finally {
                 if (timerId) clearInterval(timerId);
+                linkedAbort.cleanup();
                 clearNodeRunning(nid, currentNode);
                 currentNode.runStartedAt = null;
+                unregisterNodeCancelHandler(session, nid);
                 runningNodes.delete(nid);
             }
         };
@@ -1454,7 +1468,9 @@ export function createWorkflowRunnerApi({
         const isRunActive = () => !session.stopped && !session.controller.signal.aborted;
 
         const markNodeBranchCanceled = (nodeId) => {
-            if (!runningNodes.has(nodeId)) return false;
+            const nodeController = session.nodeAbortControllers.get(nodeId);
+            const isNodeMarkedRunning = runningNodes.has(nodeId) || getRunningNodeIds().has(nodeId);
+            if (!isNodeMarkedRunning && !nodeController) return false;
 
             const branchNodeIds = collectDownstreamNodeIds(plan, nodeId);
             let newlyCanceledCount = 0;
@@ -1466,7 +1482,6 @@ export function createWorkflowRunnerApi({
                 }
             });
 
-            const nodeController = session.nodeAbortControllers.get(nodeId);
             if (nodeController && !nodeController.signal.aborted) {
                 nodeController.abort();
             }

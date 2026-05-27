@@ -387,7 +387,7 @@ export function createNodeDomBindingsApi({
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
         const providerSelect = documentRef.getElementById(`${id}-provider`);
         const aspectSelect = documentRef.getElementById(`${id}-aspect`);
-        const note = documentRef.getElementById(`${id}-video-protocol-note`);
+        const sizeParamToggle = documentRef.getElementById(`${id}-use-size-param-toggle`);
         const enhanceField = documentRef.getElementById(`${id}-enhance-prompt-field`);
         const upsampleField = documentRef.getElementById(`${id}-enable-upsample-field`);
         const enhanceInput = documentRef.getElementById(`${id}-enhance-prompt`);
@@ -413,6 +413,7 @@ export function createNodeDomBindingsApi({
         const protocol = getEffectiveProtocol(model, provider);
         const meta = getVideoProtocolOptionMeta(protocol);
         const isDoubaoProtocol = protocol === 'doubao-video';
+        const supportsSizeParamToggle = protocol === 'veo-unified' || protocol === 'veo-openai';
         const modelId = String(model?.modelId || '').toLowerCase();
         const supportsGenerateAudio = modelId.includes('seedance-1-5-pro');
         const referenceImageCount = state.connections.filter((item) => (
@@ -422,7 +423,7 @@ export function createNodeDomBindingsApi({
         const durationMin = modelId.includes('seedance-1-5-pro') ? 4 : 2;
         const durationMax = 12;
 
-        if (note) note.textContent = meta.note;
+        if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', !supportsSizeParamToggle);
         if (enhanceField) enhanceField.classList.toggle('hidden', !meta.supportsEnhancePrompt);
         if (upsampleField) upsampleField.classList.toggle('hidden', !meta.supportsUpsample);
         if (doubaoResolutionField) doubaoResolutionField.classList.toggle('hidden', !isDoubaoProtocol);
@@ -1102,6 +1103,9 @@ export function createNodeDomBindingsApi({
                 ? modelProviders.map((provider) => `<option value="${provider.id}">${provider.name || provider.id}</option>`).join('')
                 : '<option value="">-- 暂无可用供应商 --</option>';
             providerSelect.value = resolvedProviderId;
+        }
+        if (providerField) {
+            providerField.classList.toggle('hidden', modelProviders.length === 0);
         }
         if (node) {
             node.providerId = resolvedProviderId;

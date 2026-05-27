@@ -875,6 +875,7 @@ export function createAsyncMediaExecutionApi({
 
         const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
         const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
+        const useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
         const enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;
         const enableUpsample = documentRef.getElementById(`${id}-enable-upsample`)?.checked === true;
         const doubaoResolution = documentRef.getElementById(`${id}-doubao-resolution`)?.value || '';
@@ -913,8 +914,9 @@ export function createAsyncMediaExecutionApi({
 
         for (let index = 0; index < generationCount; index += 1) {
             const url = resolveProviderUrl(apiCfg, modelCfg, 'video', { action: 'create' });
+            const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
             const requestBody = protocol === 'veo-openai'
-                ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, inputs })
+                ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, inputs })
                 : (protocol === 'doubao-video'
                     ? buildDoubaoVideoRequest({
                         modelCfg,
@@ -928,7 +930,7 @@ export function createAsyncMediaExecutionApi({
                         seed: doubaoSeed,
                         inputs
                     })
-                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, enhancePrompt, enableUpsample, inputs }));
+                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, enhancePrompt, enableUpsample, inputs }));
             const headers = getProxyHeaders(url, 'POST', {
                 Authorization: `Bearer ${apiCfg.apikey}`
             });

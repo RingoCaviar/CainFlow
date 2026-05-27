@@ -1443,6 +1443,7 @@ export function createSettingsControllerApi({
 
                 saveState();
                 renderModels();
+                updateAllNodeModelDropdowns();
                 updatePreview(id);
             });
 
@@ -2313,7 +2314,7 @@ export function createSettingsControllerApi({
 
     function updateAllNodeModelDropdowns() {
         for (const [id, node] of state.nodes) {
-                if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
+            if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
                 const providerSelect = documentRef.getElementById(`${id}-provider`);
                 const providerField = documentRef.getElementById(`${id}-provider-field`);
@@ -2340,16 +2341,14 @@ export function createSettingsControllerApi({
 
                 if (providerSelect && providerField) {
                     const boundProviders = getModelBoundProviders(selectedModel);
-                    if (boundProviders.length > 1) {
+                    if (boundProviders.length > 0) {
                         providerSelect.innerHTML = boundProviders
                             .map((provider) => `<option value="${provider.id}">${escapeHtml(provider.name || provider.id)}</option>`)
                             .join('');
                         providerSelect.value = getResolvedModelProviderId(selectedModel, currentProviderId);
                         providerField.classList.remove('hidden');
                     } else {
-                        providerSelect.innerHTML = boundProviders.length === 1
-                            ? `<option value="${boundProviders[0].id}">${escapeHtml(boundProviders[0].name || boundProviders[0].id)}</option>`
-                            : '<option value="">-- 暂无可用供应商 --</option>';
+                        providerSelect.innerHTML = '<option value="">-- 暂无可用供应商 --</option>';
                         providerSelect.value = getResolvedModelProviderId(selectedModel, currentProviderId);
                         providerField.classList.add('hidden');
                     }
@@ -2357,6 +2356,9 @@ export function createSettingsControllerApi({
 
                 node.providerId = getResolvedModelProviderId(selectedModel, providerSelect?.value || currentProviderId);
                 if (node.type === 'ImageGenerate') syncImageGenerateResolutionOptions(id);
+                if (node.type === 'VideoGenerate' || node.type === 'TextChat') {
+                    providerSelect?.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
         }
     }
@@ -2531,6 +2533,7 @@ export function createSettingsControllerApi({
             providerCollapseState.set(newProviderId, false);
             renderProviders();
             renderModels();
+            updateAllNodeModelDropdowns();
             saveState();
         });
 

@@ -525,6 +525,8 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
     const aspectOptions = protocol === 'doubao-video' ? doubaoRatioOptions : VIDEO_ASPECT_OPTIONS;
     const defaultAspect = protocol === 'doubao-video' ? '16:9' : '16:9';
     const aspect = aspectOptions.some((option) => option.value === rd.aspect) ? rd.aspect : defaultAspect;
+    const useVideoSizeParam = rd.useVideoSizeParam === true;
+    const showSizeParamToggle = protocol === 'veo-unified' || protocol === 'veo-openai';
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
     const enhancePrompt = rd.enhancePrompt === true;
     const enableUpsample = rd.enableUpsample === true;
@@ -557,7 +559,6 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         : ((rd.videoStatus === 'processing' || rd.videoStatus === 'queued' || rd.videoStatus === 'submitted')
             ? 'progress'
             : 'idle');
-    const protocolNoteHtml = escapeHtml(protocolMeta.note || '');
     const doubaoDurationHint = escapeHtml(protocol === 'doubao-video'
         ? (String(selectedModel?.modelId || '').toLowerCase().includes('seedance-1-5-pro')
             ? '当前模型时长限制：4-12 秒'
@@ -587,12 +588,20 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormField({
             label: '视频比例',
             content: `
-                <select id="${id}-aspect">
-                    ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
-                </select>
+                <div class="video-ratio-param-row">
+                    <select id="${id}-aspect">
+                        ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
+                    </select>
+                    <label class="video-size-param-toggle ${showSizeParamToggle ? '' : 'hidden'}" id="${id}-use-size-param-toggle" title="打开后请求体使用 size，关闭后使用 aspect_ratio">
+                        <span class="video-size-param-toggle-text">使用size代替aspect_ratio</span>
+                        <span class="toggle-switch">
+                            <input type="checkbox" id="${id}-use-size-param" ${useVideoSizeParam ? 'checked' : ''} />
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
+                </div>
             `
         })}
-        ${renderNodeFormNote(protocolNoteHtml, { fieldId: `${id}-video-protocol-note-wrap` })}
         ${renderNodeFormToggleField({
             label: '增强提示词',
             inputId: `${id}-enhance-prompt`,

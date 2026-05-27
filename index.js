@@ -287,6 +287,30 @@ function handleNodeGraphChanged() {
     refreshAllCameraControlPreviews();
 }
 
+function hasIncomingImageConnection(nodeId) {
+    return state.connections.some((conn) => (
+        conn.to.nodeId === nodeId
+        && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+    ));
+}
+
+function collectRetainedNodeAssetIds() {
+    const recoverableDisplayTypes = new Set(['ImagePreview', 'ImageSave', 'ImageCompare']);
+    return new Set(Array.from(state.nodes.values())
+        .filter((node) => {
+            if (!node?.id) return false;
+            return !(recoverableDisplayTypes.has(node.type) && hasIncomingImageConnection(node.id));
+        })
+        .map((node) => node.id));
+}
+
+async function cleanupRecoverableNodeAssetCache({ refresh = true } = {}) {
+    if (refresh) {
+        await mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true });
+    }
+    return clearOrphanedNodeAssets(collectRetainedNodeAssetIds());
+}
+
 function cleanupNodeElement(node) {
     if (!node?.el) return;
     cleanupElementResources(node.el);
@@ -640,6 +664,7 @@ function getProjectIoApi() {
             applyCanvasUiSetting,
             clearImageAssets,
             clearOrphanedNodeAssets,
+            cleanupRecoverableNodeAssetCache,
             clearUndoStack: () => {
                 state.undoStack = [];
                 updateUndoButton();
@@ -663,6 +688,9 @@ function getUiControllerApi() {
             clearHistory,
             clearImageAssets,
             clearOrphanedHistoryAssets,
+            clearOrphanedNodeAssets,
+            collectRetainedNodeAssetIds,
+            refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
             getHistory,
             getHistoryMetadata,
             getHistoryEntry,
@@ -822,6 +850,7 @@ function getContextMenuControllerApi() {
             detachCloneNode: (nodeId) => getNodeLifecycleApi().detachCloneNode(nodeId),
             renameNode,
             runWorkflow,
+            buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             updateAllConnections,
             scheduleSave,
