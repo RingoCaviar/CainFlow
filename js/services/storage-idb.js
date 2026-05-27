@@ -24,7 +24,7 @@ function createHistoryEntryId() {
 
 function stripHistoryImage(entry) {
     if (!entry) return entry;
-    const { image, ...metadata } = entry;
+    const { image, video, videoBlob, ...metadata } = entry;
     return metadata;
 }
 
@@ -71,6 +71,42 @@ function blobToDataUrl(blob) {
 
 function prepareHistoryAssetValue(image) {
     return dataUrlToBlob(image) || image;
+}
+
+function prepareVideoAssetValue(video) {
+    if (video instanceof Blob) return video;
+    if (video?.blob instanceof Blob) return video.blob;
+    if (video?.videoBlob instanceof Blob) return video.videoBlob;
+    if (typeof video === 'string' && video.startsWith('data:')) return dataUrlToBlob(video) || video;
+    return video || null;
+}
+
+function formatVideoObjectUrl(blob) {
+    return URL.createObjectURL(blob);
+}
+
+function createMediaPlaceholderThumbnail(label = 'IMG', size = 256) {
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return '';
+        const gradient = ctx.createLinearGradient(0, 0, size, size);
+        gradient.addColorStop(0, '#111827');
+        gradient.addColorStop(0.55, '#2563eb');
+        gradient.addColorStop(1, '#22d3ee');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = 'rgba(255,255,255,0.86)';
+        ctx.font = `800 ${Math.round(size * 0.16)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, size / 2, size / 2);
+        return canvas.toDataURL('image/webp', 0.82);
+    } catch {
+        return '';
+    }
 }
 
 export function createIndexedDbApi(getState) {
@@ -180,7 +216,8 @@ export function createIndexedDbApi(getState) {
                 return dataUrl ? [dataUrl] : [];
             }
             return typeof asset === 'string' && asset.trim() ? [asset] : [];
-        } catch {
+        } catch (error) {
+            console.warn('IDB get image asset list failed:', error);
             return [];
         }
     }
@@ -199,52 +236,179 @@ export function createIndexedDbApi(getState) {
 
     function createThumbnail(dataUrl, size = 256) {
         return new Promise((resolve) => {
+            const source = typeof dataUrl === 'string' ? dataUrl.trim() : '';
+            let settled = false;
+            let timer = null;
+            const fallbackThumb = () => createMediaPlaceholderThumbnail('IMG', size);
+            const finish = (thumb) => {
+                if (settled) return;
+                settled = true;
+                if (timer) clearTimeout(timer);
+                resolve(thumb || fallbackThumb());
+            };
+            if (!source) {
+                finish('');
+                return;
+            }
             const img = new Image();
             img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = size;
-                canvas.height = size;
-                const ctx = canvas.getContext('2d');
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        finish(fallbackThumb());
+                        return;
+                    }
 
-                let sx = 0;
-                let sy = 0;
-                let sw = img.width;
-                let sh = img.height;
+                    let sx = 0;
+                    let sy = 0;
+                    let sw = img.width;
+                    let sh = img.height;
 
-                if (sw > sh) {
-                    sx = (sw - sh) / 2;
-                    sw = sh;
-                } else if (sh > sw) {
-                    sy = (sh - sw) / 2;
-                    sh = sw;
+                    if (sw > sh) {
+                        sx = (sw - sh) / 2;
+                        sw = sh;
+                    } else if (sh > sw) {
+                        sy = (sh - sw) / 2;
+                        sh = sw;
+                    }
+
+                    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+                    finish(canvas.toDataURL('image/webp', 0.8));
+                } catch (error) {
+                    console.warn('Create history thumbnail failed, using placeholder fallback:', error);
+                    finish(fallbackThumb());
                 }
-
-                ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
-                resolve(canvas.toDataURL('image/webp', 0.8));
             };
-            img.onerror = () => resolve(dataUrl);
-            img.src = dataUrl;
+            img.onerror = () => finish(fallbackThumb());
+            img.src = source;
+            timer = setTimeout(() => finish(fallbackThumb()), 5000);
+        });
+    }
+
+    function createVideoPlaceholderThumbnail(size = 256) {
+        return createMediaPlaceholderThumbnail('VIDEO', size);
+    }
+
+    function createVideoThumbnail(videoSource, size = 256) {
+        return new Promise((resolve) => {
+            const video = document.createElement('video');
+            let objectUrl = '';
+            let settled = false;
+
+            const cleanup = () => {
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+            };
+
+            const finish = (thumb = '') => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve(thumb);
+            };
+
+            const draw = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext('2d');
+                    const vw = video.videoWidth || size;
+                    const vh = video.videoHeight || size;
+                    let sx = 0;
+                    let sy = 0;
+                    let sw = vw;
+                    let sh = vh;
+
+                    if (sw > sh) {
+                        sx = (sw - sh) / 2;
+                        sw = sh;
+                    } else if (sh > sw) {
+                        sy = (sh - sw) / 2;
+                        sh = sw;
+                    }
+
+                    ctx.fillStyle = '#111827';
+                    ctx.fillRect(0, 0, size, size);
+                    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, size, size);
+                    finish(canvas.toDataURL('image/webp', 0.8));
+                } catch {
+                    finish(createVideoPlaceholderThumbnail(size));
+                }
+            };
+
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.crossOrigin = 'anonymous';
+            video.onerror = () => finish(createVideoPlaceholderThumbnail(size));
+            video.onloadeddata = () => {
+                try {
+                    const duration = Number(video.duration);
+                    if (Number.isFinite(duration) && duration > 1) {
+                        video.currentTime = Math.min(1, Math.max(0, duration * 0.05));
+                    } else {
+                        draw();
+                    }
+                } catch {
+                    draw();
+                }
+            };
+            video.onseeked = draw;
+
+            if (videoSource instanceof Blob) {
+                objectUrl = formatVideoObjectUrl(videoSource);
+                video.src = objectUrl;
+            } else {
+                video.src = String(videoSource || '');
+            }
+
+            window.setTimeout(() => finish(createVideoPlaceholderThumbnail(size)), 5000);
         });
     }
 
     async function saveHistoryEntry(data) {
         try {
-            const thumb = await createThumbnail(data.image, 256);
+            const mediaType = data?.mediaType === 'video' || data?.video || data?.videoBlob ? 'video' : 'image';
             const id = createHistoryEntryId();
-            const imageAssetKey = getHistoryAssetKey(id);
+            const mediaAssetKey = getHistoryAssetKey(id);
+            const imageAsset = mediaType === 'image' ? prepareHistoryAssetValue(data.image) : null;
+            if (mediaType === 'image' && !imageAsset) {
+                throw new Error('Image history entry requires image data');
+            }
+            const videoAsset = mediaType === 'video' ? prepareVideoAssetValue(data.videoBlob || data.video) : null;
+            if (mediaType === 'video' && !(videoAsset instanceof Blob)) {
+                throw new Error('Video history entry requires a cached video Blob');
+            }
+            const videoSizeBytes = mediaType === 'video'
+                ? Number(data.videoSizeBytes || videoAsset?.size || 0) || 0
+                : 0;
+            const thumb = mediaType === 'video'
+                ? (data.thumb || await createVideoThumbnail(videoAsset || data.videoUrl || data.video, 256) || createVideoPlaceholderThumbnail(256))
+                : await createThumbnail(data.image, 256);
             const entry = stripHistoryImage({
                 ...data,
                 id,
+                mediaType,
                 thumb,
                 timestamp: Date.now(),
-                imageAssetKey
+                imageAssetKey: mediaType === 'image' ? mediaAssetKey : '',
+                videoAssetKey: mediaType === 'video' ? mediaAssetKey : '',
+                videoUrl: mediaType === 'video' ? String(data.videoUrl || data.url || '') : '',
+                videoMimeType: mediaType === 'video' ? String(data.videoMimeType || videoAsset?.type || 'video/mp4') : '',
+                videoSizeBytes
             });
             const db = await openDB();
             const tx = db.transaction([STORE_HISTORY, STORE_ASSETS], 'readwrite');
             const historyStore = tx.objectStore(STORE_HISTORY);
             const assetStore = tx.objectStore(STORE_ASSETS);
             historyStore.put(entry);
-            assetStore.put(prepareHistoryAssetValue(data.image), imageAssetKey);
+            assetStore.put(mediaType === 'video' ? videoAsset : imageAsset, mediaAssetKey);
             const state = getState();
             state.cacheSizes[STORE_HISTORY] = null;
             state.cacheSizes[STORE_ASSETS] = null;
@@ -253,7 +417,8 @@ export function createIndexedDbApi(getState) {
             console.warn('IDB save history failed:', {
                 name: error?.name || '',
                 message: error?.message || String(error),
-                imageLength: typeof data?.image === 'string' ? data.image.length : 0
+                imageLength: typeof data?.image === 'string' ? data.image.length : 0,
+                videoSize: data?.videoBlob?.size || data?.video?.size || 0
             });
             return false;
         }
@@ -291,7 +456,7 @@ export function createIndexedDbApi(getState) {
             const historyEntries = await requestToPromise(db.transaction(STORE_HISTORY, 'readonly').objectStore(STORE_HISTORY).getAll());
             const validHistoryAssetKeys = new Set(
                 (historyEntries || [])
-                    .map((entry) => entry?.imageAssetKey || (entry?.id !== undefined ? getHistoryAssetKey(entry.id) : ''))
+                    .map((entry) => entry?.imageAssetKey || entry?.videoAssetKey || (entry?.id !== undefined ? getHistoryAssetKey(entry.id) : ''))
                     .filter((key) => typeof key === 'string' && key.startsWith(HISTORY_ASSET_KEY_PREFIX))
             );
 
@@ -355,15 +520,22 @@ export function createIndexedDbApi(getState) {
         if (entry.image && !entry.imageAssetKey && entry.id !== undefined) {
             scheduleHistoryAssetMigration(entry);
         }
+        const mediaType = entry.mediaType === 'video' || entry.videoAssetKey ? 'video' : 'image';
         return {
             id: entry.id,
+            mediaType,
             thumb: entry.thumb || '',
             prompt: entry.prompt || '',
             model: entry.model || '',
             timestamp: entry.timestamp || 0,
             generationDurationSeconds: entry.generationDurationSeconds ?? entry.generationDuration ?? null,
             imageAssetKey: entry.imageAssetKey || (entry.id !== undefined ? getHistoryAssetKey(entry.id) : ''),
-            hasImage: Boolean(entry.image || entry.imageAssetKey)
+            videoAssetKey: entry.videoAssetKey || '',
+            videoUrl: entry.videoUrl || '',
+            videoMimeType: entry.videoMimeType || '',
+            videoSizeBytes: Number(entry.videoSizeBytes || 0) || 0,
+            hasImage: mediaType === 'image' && Boolean(entry.image || entry.imageAssetKey),
+            hasVideo: mediaType === 'video' && Boolean(entry.videoAssetKey || entry.videoUrl)
         };
     }
 
@@ -412,6 +584,18 @@ export function createIndexedDbApi(getState) {
 
     async function hydrateHistoryEntry(entry) {
         if (!entry) return null;
+        if (entry.mediaType === 'video' || entry.videoAssetKey) {
+            const videoAssetKey = entry.videoAssetKey || getHistoryAssetKey(entry.id);
+            const video = await getVideoAsset(videoAssetKey);
+            return {
+                ...entry,
+                mediaType: 'video',
+                video,
+                videoBlob: video instanceof Blob ? video : null,
+                videoSizeBytes: Number(entry.videoSizeBytes || video?.size || 0) || 0,
+                videoMimeType: entry.videoMimeType || video?.type || ''
+            };
+        }
         if (entry.image) {
             if (!entry.imageAssetKey && entry.id !== undefined) scheduleHistoryAssetMigration(entry);
             return entry;
@@ -421,13 +605,24 @@ export function createIndexedDbApi(getState) {
         return { ...entry, image: image || '' };
     }
 
+    async function getVideoAsset(nodeId) {
+        try {
+            const db = await openDB();
+            const asset = await requestToPromise(db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(nodeId));
+            return asset instanceof Blob ? asset : null;
+        } catch {
+            return null;
+        }
+    }
+
     async function getHistory() {
         try {
             const db = await openDB();
             const result = await requestToPromise(db.transaction(STORE_HISTORY).objectStore(STORE_HISTORY).getAll());
             const sorted = (result || []).sort((a, b) => b.timestamp - a.timestamp);
             return await Promise.all(sorted.map((entry) => hydrateHistoryEntry(entry)));
-        } catch {
+        } catch (error) {
+            console.warn('IDB get history failed:', error);
             return [];
         }
     }
@@ -465,7 +660,8 @@ export function createIndexedDbApi(getState) {
             return options.preserveCursorOrder
                 ? items
                 : items.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
-        } catch {
+        } catch (error) {
+            console.warn('IDB get history metadata failed:', error);
             return [];
         }
     }
@@ -582,6 +778,7 @@ export function createIndexedDbApi(getState) {
         clearOrphanedHistoryAssets,
         clearOrphanedNodeAssets,
         createThumbnail,
+        createVideoThumbnail,
         saveHistoryEntry,
         getHistory,
         getHistoryMetadata,

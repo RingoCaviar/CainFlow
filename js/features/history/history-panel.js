@@ -75,12 +75,16 @@ export function createHistoryPanelApi({
 
     function bindHistoryListEvents(list, itemsById) {
         list.querySelectorAll('.history-card').forEach((card) => {
-            card.draggable = true;
+            card.draggable = card.dataset.mediaType !== 'video';
         });
 
         list.ondragstart = (event) => {
             const card = event.target.closest('.history-card');
             if (!card) return;
+            if (card.dataset.mediaType === 'video') {
+                event.preventDefault();
+                return;
+            }
 
             const itemId = Number(card.dataset.id);
             const imagePromise = hydrateHistoryItem(itemId).then((item) => item?.image || '');
@@ -147,7 +151,7 @@ export function createHistoryPanelApi({
             return;
         }
 
-        if (countBadge) countBadge.textContent = `共 ${totalCount} 张`;
+        if (countBadge) countBadge.textContent = `共 ${totalCount} 条`;
 
         const displayItems = items;
         const hasMore = totalCount > SIDEBAR_LIMIT;

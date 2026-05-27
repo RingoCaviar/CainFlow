@@ -54,6 +54,12 @@ export function formatHistoryGenerationDuration(duration) {
     return `${minutes}m${String(restSeconds).padStart(2, '0')}s`;
 }
 
+export function formatHistoryVideoSize(sizeBytes) {
+    const bytes = Number(sizeBytes);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '';
+    return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 1 : 2)} MB`;
+}
+
 export function groupHistoryItems(items, now = Date.now()) {
     const groups = [];
     const map = new Map();
@@ -97,12 +103,15 @@ export function buildHistoryCardMarkup({
     const model = escapeHistoryHtml(item.model || '');
     const exactDate = escapeHistoryHtml(formatHistoryExactDate(item.timestamp));
     const durationText = escapeHistoryHtml(formatHistoryGenerationDuration(item.generationDurationSeconds ?? item.generationDuration));
+    const isVideo = item.mediaType === 'video' || item.hasVideo;
+    const videoSizeText = escapeHistoryHtml(formatHistoryVideoSize(item.videoSizeBytes));
     const imageClass = thumb ? '' : 'history-card-img-pending';
 
     return `
-        <article class="history-card ${selectedClass} ${multiClass} ${compactClass}" data-id="${item.id}" draggable="true">
+        <article class="history-card ${selectedClass} ${multiClass} ${compactClass} ${isVideo ? 'history-card-video' : ''}" data-id="${item.id}" draggable="${isVideo ? 'false' : 'true'}" data-media-type="${isVideo ? 'video' : 'image'}">
             <img class="${imageClass}" src="${escapeHistoryHtml(thumb || TRANSPARENT_HISTORY_PIXEL)}" loading="lazy" decoding="async" alt="${prompt}" />
-            ${durationText ? `<span class="history-card-duration" title="生图耗时 ${durationText}">${durationText}</span>` : ''}
+            ${isVideo ? '<span class="history-card-video-badge" title="视频">VIDEO</span>' : ''}
+            ${durationText ? `<span class="history-card-duration" title="${isVideo ? '视频生成耗时' : '生图耗时'} ${durationText}">${durationText}</span>` : ''}
             <div class="selection-checkbox"></div>
             <button class="delete-btn" data-id="${item.id}" title="删除记录">×</button>
             ${compact ? '' : `
@@ -111,9 +120,11 @@ export function buildHistoryCardMarkup({
                     <div class="history-card-meta-sub">
                         <span>${model || '未知模型'}</span>
                         <span>${exactDate}</span>
+                        ${isVideo && videoSizeText ? `<span>${videoSizeText}</span>` : ''}
                     </div>
                 </div>
             `}
+            ${compact && isVideo ? `<span class="history-card-video-size">${videoSizeText || '视频'}</span>` : ''}
         </article>
     `;
 }

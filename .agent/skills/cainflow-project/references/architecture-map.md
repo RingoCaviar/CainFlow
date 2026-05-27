@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.8.6.x
+> 当前版本：v2.9.4.x
 
 ## 近期约定
 
@@ -32,6 +32,16 @@
 - `ImageMerge`、`TextMerge`、`ImagePreview`、`ImageSave`、`Text` 是收集/展示/保存/数组预览类节点，接到数组时一次性接收整组数据，不按数组拆批。`ImagePreview` / `ImageSave` 通过左右箭头和计数器切换多图；`Text` 节点接收 `data.texts` 后通过左右箭头切换多文本，并用 `textPreviewIndex` 记录当前项。
 - 备用输入口（Spare Input Port）指动态输入端口始终保持“已连接端口最大序号 + 1”，保证末尾总有 1 个空输入口可继续连接。`ImageMerge` / `TextMerge` 使用该端口规则：端口同步和失效连线清理在 `js/nodes/node-dom-bindings.js`，初始端口恢复在 `js/nodes/node-view-factory.js`，`inputCount` 保存/复制在 `js/nodes/node-serializer.js` 与 `js/features/ui/clipboard-controller.js`。
 
+### 异步媒体与模型协议约定
+
+- 模型卡片里的兼容格式、模型用途、协议选项、帮助文案与分组选项统一收口在 `js/features/execution/model-protocol-registry.js`。后续新增厂家或协议时，先扩展注册表，再让设置页和节点 UI 消费注册表，不要把兼容格式散写在模型卡片模板或执行核心里。
+- 供应商 URL、模型协议归一化、模型用途识别、分辨率选项、OpenAI/Gemini/视频兼容格式请求差异等共享判断放 `js/features/execution/provider-request-utils.js`。模型名称中 `veo`、`seedance`、`sora` 等视频关键字应识别为视频用途。
+- 图片/视频异步创建、轮询、恢复任务 ID、状态文案、轮询日志、结果 URL 提取和后续节点续跑等流程集中在 `js/features/execution/async-media-execution.js`。`execution-core.js` 只负责节点 handler 接入、读取节点参数、把异步模块返回值写回节点数据和交给运行器继续下游。
+- 异步图片默认轮询间隔为 5 秒；视频轮询间隔为 10 秒。轮询日志要记录每次请求信息和服务器返回信息；视频任务返回签名 URL 时，日志中应标识为“签名视频直链”。
+- 恢复任务 ID 不要求节点之前保存过该任务；用户手动输入任务 ID 后，恢复成功应让节点进入运行中状态，任务完成后继续运行后续节点。
+- 视频输出数据要兼容 `videoUrl`、`video`、`videos` 等结构；保存节点和媒体预览链路必须能识别视频 URL、预览视频并保存视频文件。
+- VEO 统一格式的首帧/尾帧通过 `images` 传递，参考图通过 `Ingredients_images` 传递；OpenAI 视频格式也遵循节点端口上的首帧/尾帧/参考图语义，由协议层映射成对应请求体。豆包视频模型的首帧、首尾帧、参考图、比例、时长等参数必须严格按对应文档映射，不要复用 VEO 字段名。
+
 ### 并发请求模式约定
 
 - 并发请求模式是通用设置里的全局开关，状态字段为 `concurrentRequestMode`，默认开启。修改该能力时同步 `js/core/state.js`、`js/features/settings/settings-controller.js`、`js/features/ui/ui-controller.js`、`js/features/persistence/project-io.js`、`js/nodes/node-serializer.js` 与 `index.js` 注入链，避免刷新、导入导出或会话恢复后设置丢失。
@@ -56,12 +66,19 @@
 
 - GitHub Release 构建入口是 `.github/workflows/release.yml`，本地等价构建入口是 `scripts/build-release-local.ps1`；修改 PyInstaller 参数、随包资源或 ZIP 结构时要同步检查这两处，避免本地包和 Actions 包不一致。
 - PyInstaller 的程序入口保持为 `server.py`，它会导入 `backend.main` 并让 PyInstaller 自动收集 `backend` Python 模块；不要再额外使用 `--add-data "backend;backend"`，否则会把后端源码和 `__pycache__` 作为静态资源重复塞进 exe。
-- Release ZIP 只应外置运行时会被用户改写或在线更新需要保留的内容，例如 `CainFlow.exe`、`allowed_hosts.json`、`workflows/`；前端静态资源、图标、声音和后端模块随 exe 内置，避免整包更新时误覆盖运行时配置。
+- Release ZIP 只应外置运行时会被用户改写或在线更新需要保留的内容：`CainFlow.exe`、`LICENSE` / `NOTICE`、`workflows/`。前端静态资源、`notification-sw.js`、图标、声音和后端模块随 exe 内置，避免整包更新时误覆盖运行时配置。
+- `API_DOC`、`.agent`、`.github`、`scripts`、README/USER_GUIDE、临时 Apifox 文件、构建目录和源码文档不应进入 Release ZIP。
+- 当前仓库 GitHub Actions 策略限制外部 action，workflow 默认不能使用 `actions/checkout`、`actions/setup-python`、`actions/upload-artifact`、`softprops/action-gh-release` 或其他第三方 `uses:`；发布、Release 清理和运行记录清理都应使用纯 `run` 脚本和 GitHub runner 自带的 `git` / `python` / `gh` CLI。
+- `.github/workflows/release.yml` 支持手动 `workflow_dispatch` 和推送 `v*` tag 自动发布。手动运行可填写 `release_tag`，不填则生成 `manual-<run_number>-<short_sha>` 并创建 prerelease；tag 触发默认创建正式 Release。
+- `.github/workflows/cleanup-releases.yml` 用于删除旧 Release 并同步删除对应 tag，默认保留最新 5 个，先 `dry_run=true` 预览，确认后再 `dry_run=false` 真删。
+- `.github/workflows/cleanup-workflow-runs.yml` 用于删除 Actions 运行记录，默认保留最新 20 条，支持 `workflow=all` 或指定 workflow 文件名/ID，默认跳过当前运行和未完成运行。
 - Windows Actions 中涉及 PowerShell 续行、文件清理和压缩的步骤要显式使用 `shell: pwsh`；构建前清理 `build`、`dist`、`release_staging` 和生成的 `.spec`，并保留 PyInstaller 版本输出，方便排查卡在打包阶段的问题。
 
 ### 代理设置与版本号约定
 
 - 代理设置的“自动检测代理端口”属于设置面板数据逻辑：按钮、自动填充和自动保存放 `js/features/settings/settings-controller.js`，检测接口在 `backend/routes/settings_routes.py`，常见本地代理端口探测和连通性校验放 `backend/services/security_service.py`。检测成功后再自动勾选代理并填入端口；不要把批量端口探测散到前端。
+- 左上角“请注意网络设置”提醒由前端 `js/features/settings/settings-controller.js` 编排目标列表和弹出条件；当前条件是 Google gstatic 204、Google 204、YouTube 三个探测目标全部通过才提示。前端逐个调用后端 `/api/probe_network_target`，后端只做单个 URL 探测，不保存目标列表，也不决定是否弹窗。
+- 不要恢复旧的 `/api/detect_network_path` 整体后端判断链路；如果要改探测目标或“三个都通”的规则，优先改前端目标列表和判断逻辑，后端 `probe_network_target` 只保持通用代探测能力。
 - 代理配置是前端本地状态与后端全局代理状态的双端同步能力。设置页保存代理时立即同步到 `/api/proxy`；应用启动时 `js/features/app/startup-controller.js` 在 `loadState()` 结束后无论是否恢复出节点，都要调用 `syncProxyToServer()`，避免空画布启动后更新下载继续使用后端默认代理。
 - `/proxy` 的错误归类属于 `backend/services/proxy_service.py` 的职责边界：真正的浏览器断连（如 `BrokenPipeError`、`ConnectionResetError`）才记为 `client_disconnect`；`http.client.RemoteDisconnected` 代表上游在返回响应前关闭连接，应继续走上游断连分支并把错误回给前端，避免执行节点只得到 `Failed to fetch` 这种不可排查的表象。
 - 应用版本号的单一来源是 `js/core/constants.js` 的 `APP_VERSION_NUMBER`。前端展示、`APP_VERSION`、`APP_ASSET_VERSION` 和静态资源缓存参数由它派生；后端启动提示和 User-Agent 通过 `backend/services/version_service.py` 运行时读取同一值。不要再恢复 `package.json`、`css/base/variables.css` 或 ES module import 上的手写 `?v=...` 这类第二份版本号。
@@ -147,8 +164,10 @@
 | --- | --- | --- |
 | **执行引擎** | | |
 | 执行核心 | `js/features/execution/execution-core.js` | 单节点执行处理、API 请求发起、图片类节点输出分发、ImageGenerate 多次生成成功计数与并发生成请求；TextChat 固定结果缓存命中时直接返回缓存，`getCachedOutputValue` 必须把禁用节点视为没有输出，并在固定 TextChat 下只返回单条缓存文本；Text 节点运行时同步单文本/多文本输入输出，不自动改变节点尺寸；处理 ImageMerge/TextMerge 数组输出并读取图片/文本数组缓存 |
+| 异步媒体执行 | `js/features/execution/async-media-execution.js` | 图片/视频异步任务创建、轮询、恢复任务 ID、状态文案、轮询日志、结果 URL 提取和恢复后继续下游；避免把 NEW API 异步、VEO、豆包等轮询逻辑继续堆进 `execution-core.js` |
 | 执行数据工具 | `js/features/execution/execution-data-utils.js` | 执行链路共享的图片/文本输入归一化、首项/末项读取 helper；`execution-core.js` 与 `workflow-runner.js` 共用这里的单值/数组约定 |
-| 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择 |
+| 模型协议注册表 | `js/features/execution/model-protocol-registry.js` | 模型兼容格式、用途、协议选项、帮助文案和设置页下拉选项；新增厂家/协议时优先扩展这里 |
+| 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择、视频模型用途识别与协议辅助 |
 | 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出，固定且有缓存的 TextChat 不向上追溯依赖、不按数组拆批；普通节点接到数组输入时按笛卡尔组合批量运行并聚合输出，动态文本输出按真实端口聚合，ImageMerge/TextMerge/ImagePreview/ImageSave/Text 不拆批；并发请求模式下并发执行 ImageGenerate/TextChat 的 batch 并在全部成功后统一提交 |
 | **帮助** | | |
 | 帮助面板 | `js/features/help/help-panel.js` | 操作帮助文档内容、帮助面板打开关闭与交互；新增画布/节点交互时同步补充对应说明 |
@@ -163,7 +182,7 @@
 | 日志面板 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
 | **媒体** | | |
 | 图片绘制 | `js/features/media/image-painter.js` | Canvas 图片绘制与合成 |
-| 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片预览/保存/缩放/对比节点的运行态同步与交互；`ImageSave` 多图预览切换、当前预览图全屏、手动/自动批量保存与编号文件名；图片对比高级模式的全屏界面、A/B 选图、历史图片汇总、缩略图选择区展开、鼠标切割、滚轮缩放与左键平移；提供文件导入与 data URL 直接写入入口；图片预览源和下游级联刷新必须跳过禁用节点并向下游传递空输入 |
+| 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片/视频预览与保存、缩放/对比节点的运行态同步与交互；保存节点多图预览切换、视频预览、手动下载、自动保存、下载进度/速度通知与编号文件名；图片对比高级模式的全屏界面、A/B 选图、历史图片汇总、缩略图选择区展开、鼠标切割、滚轮缩放与左键平移；提供文件导入与 data URL 直接写入入口；图片预览源和下游级联刷新必须跳过禁用节点并向下游传递空输入 |
 | 媒体工具 | `js/features/media/media-utils.js` | 图片格式转换、Blob 处理等工具函数 |
 | **相机** | | |
 | 视角控制 | `js/features/camera/camera-control-node.js` | `CameraControl` 节点的编辑器壳、3D 预览初始化、世界中心坐标轴、第一人称/第三人称预览切换、受控相机与观察相机交互、重置为正视视角、滑块与手动数值输入的统一状态链，以及相机参数到英文摄影提示词的映射 |
@@ -172,7 +191,7 @@
 | 工作流模型引用解析 | `js/features/persistence/workflow-model-resolver.js` | 旧工作流模型 ID 到当前模型配置的自动匹配；缺失模型或供应商引用提示 |
 | 会话管理 | `js/features/persistence/session-manager.js` | 自动保存、页面关闭前恢复等会话持久化 |
 | **设置** | | |
-| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、自动检测本地代理端口、版本更新、画布连线设置、通用设置卡片布局、安全开关与并发请求模式开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
+| 设置控制器 | `js/features/settings/settings-controller.js` | 设置数据逻辑、API 供应商与模型管理、供应商模型列表获取弹窗、API 设置帮助弹窗、搜索与添加模型、持久化、代理检测、自动检测本地代理端口、前端编排网络路径提醒检测、版本更新、画布连线设置、通用设置卡片布局、安全开关与并发请求模式开关；供应商锁定时负责隐藏新增/删除入口并把供应商 URL 渲染为只读 |
 | 设置弹窗 | `js/features/settings/settings-modal.js` | 设置弹窗开关与标签页 UI 行为 |
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
@@ -184,7 +203,7 @@
 | 主题切换 | `js/features/ui/theme-controller.js` | 明暗主题切换与持久化 |
 | 全局动画 | `js/features/ui/animation-controller.js` | 将 `globalAnimationEnabled` 应用到根节点 CSS 类，并同步旧的连线动画兼容字段 |
 | Toast 通知 | `js/features/ui/toast-controller.js` | Toast 消息弹出与自动消失 |
-| 左上角悬浮通知 | `js/features/ui/floating-notices-controller.js`, `index.js`, `js/features/update/update-manager.js` | 画布左上角通知条；固定启动通知在 `index.js` 的 `initFloatingNotices()`，更新提醒在 `showUpdateCanvasNotice()` |
+| 左上角悬浮通知 | `js/features/ui/floating-notices-controller.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js` | 画布左上角通知条；固定启动通知在 `index.js` 的 `initFloatingNotices()`，更新提醒在 `showUpdateCanvasNotice()`，网络设置提醒由设置控制器检测结果驱动 |
 | 工具栏 | `js/features/ui/toolbar-controller.js` | 顶部工具栏按钮绑定与状态同步 |
 | UI 总控 | `js/features/ui/ui-controller.js` | UI 层模块统一初始化与依赖注入；配置导入时如果启用了供应商锁定，需要保留锁定的默认供应商并把导入模型重新绑定到当前可用供应商 |
 | UI 工具 | `js/features/ui/ui-utils.js` | UI 层通用辅助函数 |
@@ -211,6 +230,7 @@
 | 图片预览节点 | `js/nodes/types/image-preview.js` | ImagePreview 节点定义 |
 | 图片缩放节点 | `js/nodes/types/image-resize.js` | ImageResize 节点定义 |
 | 图片保存节点 | `js/nodes/types/image-save.js` | ImageSave 节点定义、默认尺寸与固定结构节点的基础高度约束 |
+| 视频生成节点 | `js/nodes/types/video-generate.js` | VideoGenerate 节点定义、模型/供应商选择、提示词、比例、时长、首帧/尾帧/参考图端口、恢复任务 ID 与状态反馈；参数和端口语义应按模型兼容格式映射 |
 | 对话节点 | `js/nodes/types/text-chat.js` | TextChat 节点定义；回复文本框内部左上角放小复制按钮，长回复在框内滚动，不应撑高节点；默认高度可保持便于阅读，手动缩小时通过独立 `minHeight` 控制下限 |
 | 文本节点 | `js/nodes/types/text.js` | Text 节点正式定义，包含 1 个文本输入口和 1 个文本输出口 |
 | 多文本合一节点 | `js/nodes/types/text-merge.js` | TextMerge 节点定义，多个 `text_N` 输入按端口顺序展平成一个文本数组，由单个 `text` 输出口输出；输入端口遵守备用输入口规则 |
@@ -236,7 +256,7 @@
 | HTTP 工具 | `backend/services/http_helpers.py` | JSON 请求体解析与 JSON / 错误响应 |
 | 日志服务 | `backend/services/log_service.py` | 服务端日志收集与管理 |
 | 代理服务 | `backend/services/proxy_service.py` | 上游代理与请求转发 |
-| 安全服务 | `backend/services/security_service.py` | 允许主机列表、代理检测、安全路径与 URL 校验 |
+| 安全服务 | `backend/services/security_service.py` | 允许主机列表、代理检测、安全路径与 URL 校验；`probe_network_target` 只负责前端网络提醒的单 URL 代探测，不负责整体提醒判断 |
 | 工作流服务 | `backend/services/workflow_service.py` | 工作流列表、读取、保存、重命名、删除；重命名时禁止静默覆盖已有工作流 |
 | 更新服务 | `backend/services/update_service.py` | GitHub Release ZIP 下载任务、进度/速度/百分比、Release asset size 总量、完成态 100%、取消清理、只提取 `CainFlow.exe`、覆盖 `MAIN_EXE_PATH`、Windows 待替换脚本 |
 
@@ -262,9 +282,12 @@
 | 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
 | 修改 workflow JSON 契约、导入旧工作流模型匹配或缺失模型提示 | `js/nodes/node-serializer.js`, `js/features/workflow/workflow-manager.js`, `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `workflows/Default.json` |
 | 修复工作流执行、节点调度 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` |
+| 修改图片/视频异步任务、轮询、恢复任务 ID 或继续下游 | `js/features/execution/async-media-execution.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/nodes/types/video-generate.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js` |
+| 新增模型兼容格式、协议选项、模型用途或模型卡片协议展示 | `js/features/execution/model-protocol-registry.js`, `js/features/execution/provider-request-utils.js`, `js/features/settings/settings-controller.js` |
 | 修改运行中节点取消、下游跳过或单节点 abort 行为 | `js/features/execution/workflow-runner.js`, `js/core/state.js`, `index.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `css/components/nodes.css`, `css/themes.css`, `js/features/help/help-panel.js` |
 | 修复代理请求拼装或 API 调用 | `js/services/api-client.js`, `backend/handler.py`, `backend/services/proxy_service.py` |
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
+| 修改 VEO / OpenAI 视频格式 / 豆包视频请求体、首尾帧或参考图字段 | `js/features/execution/model-protocol-registry.js`, `js/features/execution/provider-request-utils.js`, `js/features/execution/async-media-execution.js`, `js/features/execution/execution-core.js`, `js/nodes/types/video-generate.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js` |
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
 | 修复禁用节点仍影响下游、缓存输出穿透或禁用后预览未断流 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/media/media-controller.js`, `js/nodes/node-lifecycle.js` |
@@ -274,6 +297,7 @@
 | 修改节点端口位置、输入/输出端口顶部对齐或端口行结构 | `js/nodes/node-view-factory.js`, `css/legacy.css`, `js/canvas/connections.js` |
 | 修改 ImageMerge/TextMerge 合一节点或备用输入口动态端口 | `js/nodes/types/image-merge.js`, `js/nodes/types/text-merge.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `index.html` |
 | 修复设置面板或代理设置交互 | `js/features/settings/settings-modal.js`, `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py` |
+| 修改左上角网络设置提醒、探测目标或透明代理提醒条件 | `js/features/settings/settings-controller.js`, `backend/routes/settings_routes.py`, `backend/services/security_service.py`, `js/features/ui/floating-notices-controller.js` |
 | 修改 API 供应商卡片、API 设置帮助入口、获取模型列表弹窗、模型搜索或添加模型到模型管理 | `index.html`, `js/features/settings/settings-controller.js`, `js/services/api-client.js`, `js/features/execution/provider-request-utils.js`, `css/features/settings.css`, `index.css` |
 | 调整通用设置卡片布局、字号、留白、对齐或统一开关样式 | `js/features/settings/settings-controller.js`, `css/features/settings.css`, `css/themes.css` |
 | 调整代理白名单、私网访问开关、`Target URL is not allowed` 类提示 | `backend/services/security_service.py`, `backend/services/proxy_service.py`, `js/services/api-client.js`, `js/features/settings/settings-controller.js`, `js/features/update/update-manager.js` |
@@ -285,6 +309,7 @@
 | 修复固定结构节点缩放后内容裁剪、文本框显示不全或控件重叠 | `js/nodes/types/*.js`, `js/nodes/node-lifecycle.js`, `js/canvas/canvas-interactions.js`, `js/nodes/node-view-factory.js`, `css/components/nodes.css` |
 | 新增或修改 `CameraControl` 视角控制节点 | `js/nodes/types/camera-control.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/features/camera/camera-control-node.js`, `js/nodes/node-lifecycle.js`, `js/canvas/canvas-interactions.js`, `css/components/nodes.css`, `css/themes.css`, `js/features/execution/execution-core.js`, `js/features/ui/clipboard-controller.js`, `js/features/persistence/project-io.js` |
 | 修改 `ImagePreview` / `ImageSave` 多图预览、批量保存或自动保存编号文件名 | `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/features/media/media-controller.js`, `js/nodes/node-view-factory.js`, `js/nodes/types/image-preview.js`, `js/nodes/types/image-save.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/legacy.css` |
+| 修改保存节点保存视频、视频预览、下载进度或后端视频下载 | `js/features/media/media-controller.js`, `backend/routes/media_routes.py`, `backend/services/download_service.py`, `js/nodes/types/image-save.js`, `js/nodes/node-view-factory.js` |
 | 修改文本节点输入/输出/尺寸行为 | `js/nodes/types/text.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/ui/global-interactions.js`, `index.html`, `css/legacy.css` |
 | 修改 TextSplit 输出数量、自动端口、多合一输出、节点内预览或输出字段序列化 | `js/nodes/types/text-split.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `css/legacy.css` |
 | 修改文本框高度缓存、TextSplit 预览区滚动或 TextChat 回复框布局 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/legacy.css` |
@@ -325,6 +350,7 @@
 | 添加功能专属样式 | `css/features/panels.css` 或 `css/features/` 下新增文件，并接入 `index.css` |
 | 服务端日志 | `backend/services/log_service.py`, `backend/routes/` |
 | 修改 GitHub Actions 发布打包或 Release ZIP 内容 | `.github/workflows/release.yml`, `scripts/build-release-local.ps1`, `server.py`, `backend/config.py` |
+| 修改 Release 清理或 workflow run 清理维护脚本 | `.github/workflows/cleanup-releases.yml`, `.github/workflows/cleanup-workflow-runs.yml` |
 
 ---
 
@@ -355,7 +381,8 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 执行逻辑放 `js/features/execution/`，不要混入 UI 控制器。
 - 运行中节点锁定由 `state.runningNodeIds` 驱动：正在运行的节点不能编辑、移动、缩放、删除、禁用或改连线，但允许复制/克隆；右键运行其他未运行节点时只阻止运行范围与 `runningNodeIds` 重叠，不再用全局 `state.isRunning` 阻止所有运行入口。
 - 运行中单节点取消和顶部停止工作流是两条不同链路：顶部停止按钮继续 abort `state.runAbortControllers` 里的所有 active sessions；节点底部浮动取消按钮只调用当前节点在 `state.runningNodeCancelHandlers` 中注册的 handler。执行器必须只 abort 该节点自己的 signal，并把本次 execution plan 内从该节点可达的下游加入跳过集合，不得影响其他已在运行或即将调度的无关分支。按钮结构在 `node-view-factory.js`，长按 2 秒和拖动阈值判断在 `node-dom-bindings.js`，样式在 `css/components/nodes.css` / `css/themes.css`，新增交互要同步 `help-panel.js`。
-- 供应商协议、模型能力、模型用途/协议归一化、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
+- 供应商协议、模型能力、模型用途/协议归一化、OpenAI/Gemini 生图请求路径、请求体和分辨率预设优先放 `js/features/execution/provider-request-utils.js`；模型兼容格式注册和设置页选项优先放 `js/features/execution/model-protocol-registry.js`；实际执行时的取 DOM 值、选择 JSON 或 multipart、调用 `/proxy` 放 `js/features/execution/execution-core.js`。
+- 图片/视频异步任务、轮询、恢复任务 ID 和继续下游优先放 `js/features/execution/async-media-execution.js`；不要把 NEW API 异步、VEO、豆包、Sora、Seedance 等协议的轮询状态机重新塞回 `execution-core.js`。
 - 设置面板里的 API 供应商/模型管理继续放 `js/features/settings/settings-controller.js`：供应商卡片操作、获取模型列表按钮、模型列表弹窗、搜索、滚动位置保留、调用 `/proxy` 获取 OpenAI 兼容 `/v1/models` 或 Google `/v1beta/models`、添加条目到 `state.models` 都属于这里。调用代理请求头时复用 `js/services/api-client.js`；添加模型时要同步遵守 `provider-request-utils.js` 的用途与协议归一化，GPT/DALL-E/OpenAI 类模型用 OpenAI 兼容格式，Gemini 用 Google 格式，banana/imagen/image 类模型归为生图。
 - API 设置帮助属于设置面板内的轻量弹窗能力：标题旁入口只在 `index.html` 放静态按钮，弹窗内容和事件由 `settings-controller.js` 渲染管理，关闭按钮、遮罩关闭和设置弹窗关闭时的清理都应在同一控制器中处理；样式集中到 `css/features/settings.css` 并补浅色主题覆盖。
 - 通用设置是设置面板里的独立视觉区域：卡片结构继续由 `js/features/settings/settings-controller.js` 渲染，布局和视觉收敛到 `css/features/settings.css`。优先使用统一 grid（例如 `general-settings-grid` / `general-settings-card`）和统一的滑动开关 `toggle-switch` / `toggle-slider`，不要在通用设置里继续堆内联布局、混用 checkbox 外观或把样式加回 `css/legacy.css`。
@@ -366,7 +393,8 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 启动冲突提示需要同时照顾源码运行和打包运行：`start_cainflow.bat` 是源码双击入口，`backend/main.py` 是后端真实启动入口。端口占用时不要自动 `taskkill`，应识别占用进程并在黑色窗口中停留提示，区分 CainFlow 已运行和其他程序占用；测试冲突分支时可临时监听 `0.0.0.0:8767` 或模拟 CainFlow 命令行，结束后必须释放端口并清理临时缓存。
 - 在线更新的前端状态、通知、下载进度/速度/百分比、取消按钮、关闭窗口确认和关闭后自动取消都收在 `js/features/update/update-manager.js`；设置页只展示入口和状态，不另写下载逻辑。右下角常驻下载进度通知挂到 `#toast-container`，样式在 `css/legacy.css` / `css/themes.css`，普通 Toast 可以自动消失，但更新下载进度卡片在完成、取消或失败前必须常驻。后端更新路由只做接口分发，下载、取消、临时文件清理、Release ZIP 选择、`CainFlow.exe` 提取和主程序替换都放 `backend/services/update_service.py`。更新服务必须只提取并校验 Windows 主程序文件，不允许整包解压；目标路径使用 `backend/config.py` 的 `MAIN_EXE_PATH`，打包后应指向 `sys.executable`。下载进度总量优先用 GitHub Release asset 的 `size`，完成态要在顶层状态写入 `downloadedBytes`、`totalBytes` 和 `percent=100`；前端收到完成态后先渲染 100% 进度，再延迟弹出重启提示，避免 `alert()` 阻塞 100% 进度帧。取消、失败、完成和下次启动都要清理未完成下载与 ZIP 临时文件；运行中的 EXE 被锁住时，使用待替换文件加重试脚本完成覆盖，并提示用户重启 CainFlow 主程序。
 - 更新能力的全局关闭参数是 `js/core/constants.js` 的 `AUTO_UPDATE_CHECK_DISABLED`。为 `true` 时，`index.js` 把 `autoUpdateCheckDisabled` 注入 `js/features/update/update-manager.js`，启动自动检测不再排队、不显示倒计时、不请求 GitHub；`js/features/settings/settings-controller.js` 也不渲染“系统版本与更新”卡片。调整自动检测、手动检查按钮或设置页更新模块显隐时，要同步检查这条常量链，避免只关一半。
-- 发布包构建链路分为 GitHub Actions 与本地脚本两份入口：`.github/workflows/release.yml` 负责 tag/manual 触发的 Release ZIP，`scripts/build-release-local.ps1` 负责本地复现。两者的 PyInstaller 资源列表要保持一致；`server.py` 导入的 `backend` 会作为 Python 模块自动进入 exe，不要再把 `backend` 当 `--add-data` 静态目录重复打包，尤其不要把 `__pycache__` 带进发布包。
+- 发布包构建链路分为 GitHub Actions 与本地脚本两份入口：`.github/workflows/release.yml` 负责 tag/manual 触发的 Release ZIP，`scripts/build-release-local.ps1` 负责本地复现。两者的 PyInstaller 资源列表要保持一致；`server.py` 导入的 `backend` 会作为 Python 模块自动进入 exe，不要再把 `backend` 当 `--add-data` 静态目录重复打包，尤其不要把 `__pycache__` 带进发布包。当前仓库不允许外部 action，workflow 维护时优先纯 `run` + `gh` CLI。
+- `.github/workflows/cleanup-releases.yml` 和 `.github/workflows/cleanup-workflow-runs.yml` 是维护脚本：前者按创建时间从旧到新删 Release 并同步删 tag，后者删 Actions 运行记录；两者默认 dry-run，正式删除前要让用户确认参数。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
 - ImageGenerate 生成次数使用 `generationCount`：模板在 `js/nodes/node-view-factory.js`，最小值归一化和 +/- 事件在 `js/nodes/node-dom-bindings.js`，保存/导出在 `js/nodes/node-serializer.js`，复制粘贴在 `js/features/ui/clipboard-controller.js`，执行循环在 `js/features/execution/execution-core.js`。失败不计入次数；自动重试时通过运行时字段 `generationCompletedCount` 保留本轮已成功次数，`js/features/execution/workflow-runner.js` 负责新一轮运行前重置。

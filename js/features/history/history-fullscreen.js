@@ -345,6 +345,10 @@ export function createHistoryFullscreenApi({
         list.addEventListener('dragstart', (event) => {
             const card = event.target.closest('.history-card');
             if (!card) return;
+            if (card.dataset.mediaType === 'video') {
+                event.preventDefault();
+                return;
+            }
             const itemId = Number(card.dataset.id);
             const imagePromise = getHistoryEntry(itemId).then((entry) => entry?.image || '');
             state.draggedHistoryImage = { id: itemId, image: null, imagePromise };
@@ -512,7 +516,25 @@ export function createHistoryFullscreenApi({
         const selected = viewState.items.filter((item) => state.selectedHistoryIds.has(item.id));
         for (const item of selected) {
             const entry = await getHistoryEntry(item.id);
-            if (entry?.image) downloadImage(entry.image, `cainflow_${entry.id}.png`);
+            if (entry?.mediaType === 'video' || entry?.videoBlob) {
+                const blob = entry.videoBlob || entry.video;
+                if (blob instanceof Blob) {
+                    const url = URL.createObjectURL(blob);
+                    const link = documentRef.createElement('a');
+                    const mime = String(entry.videoMimeType || blob.type || '').toLowerCase();
+                    const ext = mime.includes('webm') ? '.webm' : mime.includes('quicktime') ? '.mov' : '.mp4';
+                    link.href = url;
+                    link.download = `cainflow_${entry.id}${ext}`;
+                    documentRef.body.appendChild(link);
+                    link.click();
+                    documentRef.body.removeChild(link);
+                    windowRef.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } else if (entry.videoUrl) {
+                    windowRef.open(entry.videoUrl, '_blank', 'noopener,noreferrer');
+                }
+            } else if (entry?.image) {
+                downloadImage(entry.image, `cainflow_${entry.id}.png`);
+            }
             await new Promise((resolve) => setTimeout(resolve, 180));
         }
         showToast(`已开始下载 ${selected.length} 条历史记录`, 'success');

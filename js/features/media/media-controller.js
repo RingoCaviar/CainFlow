@@ -468,7 +468,8 @@ export function createMediaControllerApi({
     async function downloadGeneratedVideo(videoUrl, options = {}) {
         const {
             filenameBase = '',
-            onProgress = null
+            onProgress = null,
+            signal = null
         } = options;
         const backendUrl = buildBackendVideoDownloadUrl(videoUrl, filenameBase);
         const videoUrlMeta = classifyVideoUrlForLog(videoUrl);
@@ -489,6 +490,7 @@ export function createMediaControllerApi({
                     'Content-Type': 'application/json',
                     Accept: 'video/*,application/octet-stream'
                 },
+                signal,
                 body: JSON.stringify({
                     url: String(videoUrl || '').trim(),
                     filename: filenameBase || ''
@@ -527,7 +529,8 @@ export function createMediaControllerApi({
                 method: 'GET',
                 headers: {
                     Accept: 'video/*,application/octet-stream'
-                }
+                },
+                signal
             });
             if (!response.ok) {
                 const bodyText = await response.text();

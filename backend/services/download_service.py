@@ -15,8 +15,8 @@ from backend.services.security_service import build_upstream_opener, is_safe_url
 from backend.services.version_service import get_app_user_agent
 
 
-MULTIPART_MIN_BYTES = 8 * 1024 * 1024
-MULTIPART_CHUNK_BYTES = 4 * 1024 * 1024
+MULTIPART_MIN_BYTES = 2 * 1024 * 1024
+MULTIPART_CHUNK_BYTES = 1 * 1024 * 1024
 MULTIPART_MAX_WORKERS = 4
 MULTIPART_SLOW_SPEED_BYTES_PER_SECOND = 768 * 1024
 

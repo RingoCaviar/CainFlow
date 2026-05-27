@@ -4721,6 +4721,57 @@ body:has(#toolbar [aria-expanded="true"]) .help-panel {
     object-fit: contain;
 }
 
+.history-card-video::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at center, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.08) 45%, rgba(15, 23, 42, 0.42) 100%);
+    z-index: 2;
+}
+
+.history-card-video-badge {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    z-index: 9;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    line-height: 1.15;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+}
+
+.history-card-video-size {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    z-index: 9;
+    max-width: calc(100% - 12px);
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+}
+
 .history-card .delete-btn {
     position: absolute;
     top: 6px;
@@ -4805,6 +4856,18 @@ body:has(#toolbar [aria-expanded="true"]) .help-panel {
 #history-preview-img.history-preview-img-loading {
     opacity: 0.72;
     filter: blur(1px);
+}
+
+.history-preview-video {
+    display: block;
+    max-width: none;
+    max-height: none;
+    transform-origin: center center;
+    transition: transform 0.1s ease-out;
+    will-change: transform;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+    background: #020617;
+    border-radius: 14px;
 }
 
 .preview-nav-btn {

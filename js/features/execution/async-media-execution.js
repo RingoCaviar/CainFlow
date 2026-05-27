@@ -44,6 +44,7 @@ export function createAsyncMediaExecutionApi({
     incrementNodeApiGenerationProgress,
     completeNodeApiGenerationProgress,
     saveImageGenerationHistoryEntry,
+    saveVideoGenerationHistoryEntry = async () => {},
     getNodeGenerationDurationSeconds,
     getImageHistorySidebarActive = () => false,
     renderHistoryList,
@@ -119,6 +120,50 @@ export function createAsyncMediaExecutionApi({
         if (resumeIdInput) resumeIdInput.value = videoId;
         const resumeBtn = documentRef.getElementById(`${node.id}-resume-video`);
         if (resumeBtn) resumeBtn.disabled = !String(videoId || '').trim();
+    }
+
+    function stripVideoHistoryPayload(result = {}) {
+        const { videoBlob, ...safeResult } = result || {};
+        return safeResult;
+    }
+
+    async function saveVideoGenerationToHistory(node, result, modelCfg, signal) {
+        if (!result?.videoUrl) return null;
+        try {
+            const videoBlob = result.videoBlob instanceof Blob
+                ? result.videoBlob
+                : await downloadGeneratedVideo(result.videoUrl, { signal });
+            await saveVideoGenerationHistoryEntry({
+                nodeId: node.id,
+                video: videoBlob,
+                videoBlob,
+                videoUrl: result.videoUrl,
+                videoId: result.videoId || '',
+                videoMimeType: videoBlob?.type || 'video/mp4',
+                videoSizeBytes: videoBlob?.size || 0,
+                prompt: result.prompt || node.data?.prompt || '',
+                model: modelCfg?.name || '',
+                generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+            });
+            addLog('info', '视频历史缓存完成', '视频结果已下载并写入历史记录缓存。', {
+                nodeId: node.id,
+                model: modelCfg?.name || '',
+                videoId: result.videoId || '',
+                videoUrl: result.videoUrl,
+                videoSizeBytes: videoBlob?.size || 0
+            });
+            if (getImageHistorySidebarActive()) renderHistoryList();
+            return videoBlob;
+        } catch (error) {
+            addLog('warning', '视频历史缓存失败', '视频已经生成成功并会继续传递给下游，但保存到历史记录时下载/写入失败。', {
+                nodeId: node.id,
+                model: modelCfg?.name || '',
+                videoId: result?.videoId || '',
+                videoUrl: result?.videoUrl || '',
+                error: error?.message || String(error)
+            });
+            return null;
+        }
     }
 
     function commitAsyncImageTaskState(node, payload = {}) {
@@ -296,8 +341,17 @@ export function createAsyncMediaExecutionApi({
                         action: 'download',
                         videoId
                     });
-                    const blob = await downloadGeneratedVideo(downloadUrl, signal);
+                    const blob = await downloadGeneratedVideo(downloadUrl, { signal });
                     finalUrl = URL.createObjectURL(blob);
+                    return {
+                        videoId,
+                        videoUrl: finalUrl,
+                        videoBlob: blob,
+                        status,
+                        statusText: `视频生成完成（任务 ${videoId}）`,
+                        prompt,
+                        statusUpdateTime: String(result?.status_update_time || result?.data?.status_update_time || '').trim()
+                    };
                 }
                 return {
                     videoId,
@@ -741,30 +795,59 @@ export function createAsyncMediaExecutionApi({
                 signal,
                 prompt
             });
-            commitVideoGenerateOutputs(node, finalResult);
+            if (finalResult.videoUrl) {
+                updateVideoGenerationStatus(nodeId, `下载中：任务 ${videoId} 已完成，正在缓存视频...`, 'progress');
+                if (responseArea) {
+                    responseArea.innerHTML = `${buildVideoCreateResponseHtml({
+                        httpStatus: node.data?.videoCreateHttpStatus || '',
+                        videoId: node.data?.videoId || videoId,
+                        status: finalResult.status || node.data?.videoCreateStatus || '',
+                        statusUpdateTime: finalResult.statusUpdateTime || node.data?.videoStatusUpdateTime || '',
+                        enhancedPrompt: node.data?.videoEnhancedPrompt || ''
+                    })}<div style="margin-top:8px;"><a href="${escapeHtml(finalResult.videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">正在下载并缓存视频，完成后会继续运行下游节点...</div>`;
+                }
+            }
+            const cachedVideoBlob = await saveVideoGenerationToHistory(node, finalResult, modelCfg, signal);
+            if (cachedVideoBlob instanceof Blob && !(finalResult.videoBlob instanceof Blob)) {
+                finalResult.videoBlob = cachedVideoBlob;
+            }
+            const safeFinalResult = stripVideoHistoryPayload(finalResult);
+            commitVideoGenerateOutputs(node, safeFinalResult);
+            if (safeFinalResult.videoUrl) {
+                node.data.videos = [{
+                    videoId: safeFinalResult.videoId || videoId,
+                    videoUrl: safeFinalResult.videoUrl,
+                    status: safeFinalResult.status || 'completed',
+                    statusText: safeFinalResult.statusText || '',
+                    prompt,
+                    statusUpdateTime: safeFinalResult.statusUpdateTime || ''
+                }];
+            } else {
+                delete node.data.videos;
+            }
             if (responseArea) {
-                responseArea.innerHTML = finalResult.videoUrl
+                responseArea.innerHTML = safeFinalResult.videoUrl
                     ? `${buildVideoCreateResponseHtml({
                         httpStatus: node.data?.videoCreateHttpStatus || '',
                         videoId: node.data?.videoId || videoId,
-                        status: node.data?.videoCreateStatus || finalResult.status || '',
-                        statusUpdateTime: finalResult.statusUpdateTime || node.data?.videoStatusUpdateTime || '',
+                        status: node.data?.videoCreateStatus || safeFinalResult.status || '',
+                        statusUpdateTime: safeFinalResult.statusUpdateTime || node.data?.videoStatusUpdateTime || '',
                         enhancedPrompt: node.data?.videoEnhancedPrompt || ''
-                    })}<div style="margin-top:8px;"><a href="${escapeHtml(finalResult.videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">${escapeHtml(finalResult.statusText || '')}</div>`
+                    })}<div style="margin-top:8px;"><a href="${escapeHtml(safeFinalResult.videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">${escapeHtml(safeFinalResult.statusText || '')}</div>`
                     : `${buildVideoCreateResponseHtml({
                         httpStatus: node.data?.videoCreateHttpStatus || '',
                         videoId: node.data?.videoId || videoId,
-                        status: node.data?.videoCreateStatus || finalResult.status || '',
-                        statusUpdateTime: finalResult.statusUpdateTime || node.data?.videoStatusUpdateTime || '',
+                        status: node.data?.videoCreateStatus || safeFinalResult.status || '',
+                        statusUpdateTime: safeFinalResult.statusUpdateTime || node.data?.videoStatusUpdateTime || '',
                         enhancedPrompt: node.data?.videoEnhancedPrompt || ''
-                    })}<div style="margin-top:6px;" class="chat-response-placeholder">${escapeHtml(finalResult.statusText || '任务已恢复')}</div>`;
+                    })}<div style="margin-top:6px;" class="chat-response-placeholder">${escapeHtml(safeFinalResult.statusText || '任务已恢复')}</div>`;
             }
-            updateVideoGenerationStatus(nodeId, finalResult.statusText || `已完成：任务 ${videoId} 已恢复`, 'success');
+            updateVideoGenerationStatus(nodeId, safeFinalResult.statusText || `已完成：任务 ${videoId} 已恢复`, 'success');
             completeNodeApiGenerationProgress(node, { current: 1, total: 1 });
-            if (downloadBtn) downloadBtn.disabled = !finalResult.videoUrl;
+            if (downloadBtn) downloadBtn.disabled = !safeFinalResult.videoUrl;
             updateAllConnections();
             scheduleSave();
-            return finalResult;
+            return safeFinalResult;
         } finally {
             if (resumeBtn) resumeBtn.disabled = false;
         }
@@ -938,7 +1021,8 @@ export function createAsyncMediaExecutionApi({
                 signal,
                 prompt
             });
-            results.push(finalResult);
+            await saveVideoGenerationToHistory(node, finalResult, modelCfg, signal);
+            results.push(stripVideoHistoryPayload(finalResult));
             incrementNodeApiGenerationProgress(node, 1, { current: index + 1, total: generationCount });
         }
 

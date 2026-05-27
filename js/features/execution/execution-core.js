@@ -217,6 +217,30 @@ export function createExecutionCoreApi({
         }
     }
 
+    async function saveVideoGenerationHistoryEntry(entry) {
+        try {
+            const saved = await saveHistoryEntry({
+                ...entry,
+                mediaType: 'video'
+            });
+            if (saved === false) {
+                addLog('warning', '视频历史保存失败', '视频已经生成成功，但写入历史记录失败。通常是视频过大、浏览器存储空间不足，或 IndexedDB 暂时不可用。', {
+                    nodeId: entry?.nodeId,
+                    model: entry?.model,
+                    videoUrl: entry?.videoUrl,
+                    videoSizeBytes: entry?.videoBlob?.size || entry?.videoSizeBytes || 0
+                });
+            }
+        } catch (error) {
+            addLog('warning', '视频历史保存异常', '视频已经生成成功，但保存历史记录时发生异常，不影响本次生成结果继续传递到下游。', {
+                nodeId: entry?.nodeId,
+                model: entry?.model,
+                videoUrl: entry?.videoUrl,
+                error: error?.message || String(error)
+            });
+        }
+    }
+
     function getNodeGenerationDurationSeconds(node) {
         if (Number.isFinite(node?.runStartedAt) && node.runStartedAt > 0) {
             return Number(((Date.now() - node.runStartedAt) / 1000).toFixed(2));
@@ -397,7 +421,10 @@ export function createExecutionCoreApi({
         throw new Error(`图片已生成，但下载至本地失败。${reasons ? `原因：${reasons}` : ''}`);
     }
 
-    async function downloadGeneratedVideo(videoUrl, signal) {
+    async function downloadGeneratedVideo(videoUrl, options = {}) {
+        const signal = typeof AbortSignal !== 'undefined' && options instanceof AbortSignal
+            ? options
+            : options?.signal || null;
         let directError = null;
         try {
             const directRes = await fetchRef(videoUrl, { signal });
@@ -915,6 +942,7 @@ export function createExecutionCoreApi({
         incrementNodeApiGenerationProgress,
         completeNodeApiGenerationProgress,
         saveImageGenerationHistoryEntry,
+        saveVideoGenerationHistoryEntry,
         getNodeGenerationDurationSeconds,
         getImageHistorySidebarActive,
         renderHistoryList,

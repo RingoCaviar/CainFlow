@@ -103,7 +103,7 @@ export function createGlobalInteractionsApi({
 
         windowRef.addEventListener('keydown', (e) => {
             const active = documentRef.activeElement;
-            const isInput = active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable);
+            const isInput = active && (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable);
 
             if (e.key === 'Escape') {
                 documentRef.getElementById('history-preview-modal')?.classList.add('hidden');
@@ -114,7 +114,7 @@ export function createGlobalInteractionsApi({
                     settingsModal.classList.add('hidden');
                     state.notificationAudio?.pause();
                 }
-            } else if ((e.key === 'd' || e.key === 'D') && !isInput) {
+            } else if ((e.key === 'm' || e.key === 'M' || e.key === 'd' || e.key === 'D') && !isInput && !e.repeat) {
                 if (state.selectedNodes.size > 0) {
                     e.preventDefault();
                     toggleNodesEnabled(Array.from(state.selectedNodes));
