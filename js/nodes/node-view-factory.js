@@ -686,7 +686,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
         </div>
         <div class="node-field node-field-row">
-            <button type="button" class="save-btn-secondary" id="${id}-download-video" ${videoUrl ? '' : 'disabled'} style="width:100%;">
+            <button type="button" class="save-btn-secondary video-node-action-btn" id="${id}-download-video" ${videoUrl ? '' : 'disabled'} style="width:100%;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 下载视频
             </button>
@@ -696,7 +696,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             <input type="text" id="${id}-resume-video-id" value="${escapeHtml(rd.videoId || '')}" placeholder="输入或粘贴任务 ID" />
         </div>
         <div class="node-field node-field-row">
-            <button type="button" class="save-btn-secondary" id="${id}-resume-video" ${rd.videoId ? '' : 'disabled'} style="width:100%;">
+            <button type="button" class="save-btn-secondary video-node-action-btn" id="${id}-resume-video" ${rd.videoId ? '' : 'disabled'} style="width:100%;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3.16-6.84"/><polyline points="21 3 21 9 15 9"/></svg>
                 恢复进度
             </button>

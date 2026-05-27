@@ -102,20 +102,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 12px;
     height: 60px;
     min-width: 148px;
     box-sizing: border-box;
-    padding: 0 24px 8px;
+    padding: 0 26px 6px;
     border: 1px solid var(--node-run-cancel-border);
     border-radius: 16px;
     background: var(--node-run-cancel-bg);
     color: var(--node-run-cancel-text);
     box-shadow: var(--node-run-cancel-shadow);
     font: inherit;
-    font-size: 16px;
+    font-size: 19px;
     font-weight: 700;
-    line-height: 1;
+    line-height: 1.1;
     text-align: center;
     cursor: pointer;
     opacity: 0;
@@ -158,8 +158,10 @@
 }
 
 .node-run-cancel-btn__label {
-    display: block;
-    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
     text-align: center;
 }
 
@@ -169,8 +171,8 @@
     position: absolute;
     left: 12px;
     right: 12px;
-    bottom: 9px;
-    height: 6px;
+    bottom: 8px;
+    height: 4px;
     border-radius: 999px;
     pointer-events: none;
 }
@@ -194,14 +196,12 @@
 }
 
 .node-run-cancel-btn__icon {
-    position: absolute;
-    left: 22px;
-    top: 50%;
-    transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
 }
 
 .node-run-cancel-btn svg {
@@ -379,6 +379,25 @@
 
 .video-size-param-toggle .toggle-switch {
     flex: 0 0 auto;
+}
+
+.node-video-generate .video-node-action-btn {
+    border: 1px solid color-mix(in srgb, var(--text-secondary) 46%, transparent);
+    box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 14%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--node-border, var(--border-node)) 70%, transparent);
+}
+
+.node-video-generate .video-node-action-btn:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent-cyan, #22d3ee) 62%, var(--text-primary));
+    box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 20%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--accent-cyan, #22d3ee) 42%, transparent);
+}
+
+.node-video-generate .video-node-action-btn:disabled {
+    border-color: color-mix(in srgb, var(--text-secondary) 34%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
 .node-camera-control .node-body {
