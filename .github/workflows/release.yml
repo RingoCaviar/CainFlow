@@ -3,8 +3,22 @@ name: Build and Release EXE
 on:
   push:
     tags:
-      - 'v*' # Trigger build when a tag starting with 'v' is pushed (e.g., v1.0)
-  workflow_dispatch: # Allow manual triggering from the Actions tab
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional release tag for manual builds. Empty = manual-<run_number>-<short_sha>.'
+        required: false
+        default: ''
+        type: string
+      prerelease:
+        description: 'Mark the GitHub Release as prerelease'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write
@@ -15,20 +29,25 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
+      - name: Checkout repository without external actions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git init .
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git fetch --no-tags --prune --depth=1 origin "${{ github.sha }}"
+          git checkout --force FETCH_HEAD
+          git log -1 --oneline
 
       - name: Install dependencies
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           python -m pip install --upgrade pip
           python -m pip install --upgrade pyinstaller
-          if (Test-Path "requirements.txt") { pip install -r requirements.txt }
+          if (Test-Path "requirements.txt") {
+            python -m pip install -r requirements.txt
+          }
 
       - name: Show build environment
         shell: pwsh
@@ -36,32 +55,76 @@ jobs:
           python --version
           python -m PyInstaller --version
 
-      - name: Build Release Zip
+      - name: Build release zip
+        id: build_zip
         shell: pwsh
         run: |
-          $REF = "${{ github.ref }}"
-          if ($REF -like 'refs/tags/*') {
-            $TAG_NAME = "${{ github.ref_name }}"
+          $ErrorActionPreference = "Stop"
+          $ref = "${{ github.ref }}"
+          $manualTag = "${{ github.event.inputs.release_tag }}"
+          if ($ref -like "refs/tags/*") {
+            $tagName = "${{ github.ref_name }}"
+          } elseif (![string]::IsNullOrWhiteSpace($manualTag)) {
+            $tagName = $manualTag.Trim()
           } else {
-            $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
-            $TAG_NAME = "${{ github.ref_name }}-$SHORT_SHA"
+            $shortSha = "${{ github.sha }}".Substring(0, 7)
+            $tagName = "manual-${{ github.run_number }}-$shortSha"
           }
-          ./scripts/build-release-local.ps1 -TagName $TAG_NAME -Python python -SkipDependencyInstall
+          if ($tagName -notmatch "^[A-Za-z0-9._-]+$") {
+            throw "Release tag may only contain letters, numbers, dots, underscores, and hyphens: $tagName"
+          }
 
-      - name: Create Release and Upload Asset
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: Cainflow_*.zip
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          ./scripts/build-release-local.ps1 -TagName $tagName -Python python -SkipDependencyInstall
+          $zip = Get-ChildItem -LiteralPath . -Filter "Cainflow_$tagName.zip" | Select-Object -First 1
+          if (!$zip) {
+            throw "Release zip was not found for tag $tagName"
+          }
+
+          "RELEASE_TAG=$tagName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ZIP_PATH=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ZIP_NAME=$($zip.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Release tag: $tagName"
+          Write-Host "Release zip: $($zip.FullName)"
+
+      - name: Create or update release with gh
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          IS_TAG_PUSH: ${{ startsWith(github.ref, 'refs/tags/') }}
+          MANUAL_PRERELEASE: ${{ github.event.inputs.prerelease }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseTag = $env:RELEASE_TAG
+          $zipPath = $env:ZIP_PATH
+          if ([string]::IsNullOrWhiteSpace($releaseTag) -or !(Test-Path -LiteralPath $zipPath)) {
+            throw "Missing release tag or zip path."
+          }
 
-      - name: Upload Workflow Artifact
-        uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        with:
-          name: CainFlow-${{ github.run_number }}
-          path: Cainflow_*.zip
+          if ($env:IS_TAG_PUSH -eq "true") {
+            $prerelease = "false"
+          } else {
+            $prerelease = if ($env:MANUAL_PRERELEASE -eq "false") { "false" } else { "true" }
+          }
+
+          $releaseExists = $false
+          gh release view $releaseTag --repo $env:REPO *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $releaseExists = $true
+          }
+
+          if ($releaseExists) {
+            gh release upload $releaseTag $zipPath --repo $env:REPO --clobber
+          } else {
+            $args = @(
+              "release", "create", $releaseTag, $zipPath,
+              "--repo", $env:REPO,
+              "--title", "Release $releaseTag",
+              "--target", "${{ github.sha }}",
+              "--notes", "Automated CainFlow build for $releaseTag."
+            )
+            if ($prerelease -eq "true") {
+              $args += "--prerelease"
+            }
+            gh @args
+          }

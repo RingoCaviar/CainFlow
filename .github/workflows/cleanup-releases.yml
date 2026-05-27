@@ -7,10 +7,15 @@ on:
         description: 'Number of newest releases to keep'
         required: true
         default: '5'
+        type: number
       dry_run:
         description: 'true = preview only, false = actually delete releases and tags'
         required: true
         default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write
@@ -45,7 +50,9 @@ jobs:
 
           mapfile -t releases < <(
             gh api --paginate "repos/$REPO/releases?per_page=100" \
-              --jq 'sort_by(.created_at) | .[] | {id, tagName: .tag_name, createdAt: .created_at, name: .name, draft: .draft, prerelease: .prerelease} | @base64'
+              --jq '.[] | {id, tagName: .tag_name, createdAt: .created_at, name: (.name // ""), draft: .draft, prerelease: .prerelease}' \
+              | jq -s 'sort_by(.createdAt) | .[] | @base64' \
+              | tr -d '"'
           )
 
           total="${#releases[@]}"

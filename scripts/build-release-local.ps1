@@ -83,10 +83,15 @@ if (!$SkipDependencyInstall) {
   Write-Step "Skipping dependency install"
 }
 
-Write-Step "Ensuring asset directories exist"
-foreach ($directory in @("css", "js", "sounds")) {
+Write-Step "Checking required release inputs"
+foreach ($file in @("server.py", "index.html", "index.js", "index.css", "notification-sw.js", "cainflow.ico")) {
+  if (!(Test-Path -LiteralPath $file -PathType Leaf)) {
+    throw "Required release file is missing: $file"
+  }
+}
+foreach ($directory in @("backend", "css", "js", "sounds")) {
   if (!(Test-Path -LiteralPath $directory)) {
-    New-Item -ItemType Directory -Path $directory | Out-Null
+    throw "Required release directory is missing: $directory"
   }
 }
 
@@ -121,6 +126,7 @@ $pyInstallerArgs = @(
   "--add-data", "index.html;.",
   "--add-data", "index.js;.",
   "--add-data", "index.css;.",
+  "--add-data", "notification-sw.js;.",
   "--add-data", "cainflow.ico;.",
   "--add-data", "css;css",
   "--add-data", "js;js",
