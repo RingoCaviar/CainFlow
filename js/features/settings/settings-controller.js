@@ -22,7 +22,7 @@ import {
     getProtocolSelectOptions
 } from '../execution/model-protocol-registry.js';
 import { createProxyHeadersGetter } from '../../services/api-client.js';
-import { API_PROVIDERS_LOCKED, AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
+import { API_PROVIDERS_LOCKED, AUTO_UPDATE_CHECK_DISABLED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 
 export function createSettingsControllerApi({
     appVersion,
@@ -273,12 +273,22 @@ export function createSettingsControllerApi({
     }
 
     function syncModelProviderBindings(model) {
-        const providerIds = getModelProviderIds(model).filter((providerId) => (
-            state.providers.some((provider) => provider.id === providerId)
-        ));
+        const rawProviderIds = getModelProviderIds(model);
+        const fallbackProviderId = state.providers[0]?.id || '';
+        const providerIds = API_PROVIDERS_LOCKED
+            ? (rawProviderIds.length > 0 ? rawProviderIds : (fallbackProviderId ? [fallbackProviderId] : []))
+            : rawProviderIds.filter((providerId) => (
+                state.providers.some((provider) => provider.id === providerId)
+            ));
         model.providerIds = providerIds;
         model.providerId = providerIds[0] || '';
         return providerIds;
+    }
+
+    function getVisibleSettingsProviders() {
+        if (!API_PROVIDERS_LOCKED) return state.providers;
+        const defaultProviderIds = new Set(DEFAULT_PROVIDERS.map((provider) => provider.id));
+        return state.providers.filter((provider) => defaultProviderIds.has(provider.id));
     }
 
     function getModelBoundProviders(model) {
@@ -1342,14 +1352,15 @@ export function createSettingsControllerApi({
         }
 
         providersList.innerHTML = '';
-        if (state.providers.length === 0) {
+        const visibleProviders = getVisibleSettingsProviders();
+        if (visibleProviders.length === 0) {
             providersList.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:20px;font-size:12px;">暂无供应商配置</div>';
             return;
         }
 
-        syncCollapseState(state.providers, providerCollapseState);
+        syncCollapseState(visibleProviders, providerCollapseState);
 
-        state.providers.forEach((prov) => {
+        visibleProviders.forEach((prov) => {
             const isCollapsed = providerCollapseState.get(prov.id) !== false;
             const el = documentRef.createElement('div');
             el.className = `api-config-card provider-config-card${isCollapsed ? ' is-collapsed' : ''}`;
@@ -1537,7 +1548,8 @@ export function createSettingsControllerApi({
                 .join('');
             const boundProviderIds = getModelProviderIds(mod);
             const isProviderPanelOpen = openModelProviderPanelId === mod.id;
-            const providerDropdown = state.providers.length > 0
+            const visibleProviders = getVisibleSettingsProviders();
+            const providerDropdown = visibleProviders.length > 0
                 ? `
                     <div class="provider-multiselect" data-id="${mod.id}">
                         <button type="button" class="provider-multiselect-trigger" data-id="${mod.id}" aria-expanded="${isProviderPanelOpen ? 'true' : 'false'}">
@@ -1545,7 +1557,7 @@ export function createSettingsControllerApi({
                             <span class="provider-multiselect-caret">▾</span>
                         </button>
                         <div class="provider-multiselect-panel ${isProviderPanelOpen ? '' : 'hidden'}" data-id="${mod.id}">
-                            ${state.providers.map((providerItem) => `
+                            ${visibleProviders.map((providerItem) => `
                                 <div class="provider-multiselect-option" role="option" aria-selected="${boundProviderIds.includes(providerItem.id) ? 'true' : 'false'}" data-id="${mod.id}" data-provider-id="${providerItem.id}">
                                     <input type="checkbox" tabindex="-1" aria-hidden="true" data-id="${mod.id}" data-field="providerIds" value="${providerItem.id}" ${boundProviderIds.includes(providerItem.id) ? 'checked' : ''} />
                                     <span>${escapeHtml(providerItem.name || providerItem.id)}</span>
@@ -1619,18 +1631,25 @@ export function createSettingsControllerApi({
         const toggleModelProviderSelection = (modelId, providerId) => {
             const mod = state.models.find((candidate) => candidate.id === modelId);
             if (!mod) return;
-            const validProviderIds = new Set(state.providers.map((provider) => provider.id));
+            const selectableProviders = getVisibleSettingsProviders();
+            const validProviderIds = new Set(selectableProviders.map((provider) => provider.id));
             if (!validProviderIds.has(providerId)) return;
             openModelProviderPanelId = modelId;
-            const current = new Set(getModelProviderIds(mod).filter((id) => validProviderIds.has(id)));
+            const current = new Set(API_PROVIDERS_LOCKED
+                ? getModelProviderIds(mod)
+                : getModelProviderIds(mod).filter((id) => validProviderIds.has(id)));
             if (current.has(providerId)) {
                 current.delete(providerId);
             } else {
                 current.add(providerId);
             }
-            mod.providerIds = state.providers
-                .map((provider) => provider.id)
-                .filter((id) => current.has(id));
+            const orderedProviderIds = API_PROVIDERS_LOCKED
+                ? [
+                    ...state.providers.map((provider) => provider.id),
+                    ...Array.from(current)
+                ]
+                : state.providers.map((provider) => provider.id);
+            mod.providerIds = orderedProviderIds.filter((id, index, ids) => current.has(id) && ids.indexOf(id) === index);
             syncModelProviderBindings(mod);
             saveState();
             renderModels();

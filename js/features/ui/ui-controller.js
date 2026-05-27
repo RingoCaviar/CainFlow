@@ -361,7 +361,9 @@ export function createUiControllerApi({
 
     function getLockedProviders(importedProviders = []) {
         const importedById = new Map((importedProviders || []).map((provider) => [provider.id, provider]));
-        return DEFAULT_PROVIDERS.map((provider) => {
+        const currentById = new Map((state.providers || []).map((provider) => [provider.id, provider]));
+        const defaultProviderIds = new Set(DEFAULT_PROVIDERS.map((provider) => provider.id));
+        const lockedDefaults = DEFAULT_PROVIDERS.map((provider) => {
             const current = state.providers.find((candidate) => candidate.id === provider.id);
             const imported = importedById.get(provider.id);
             return {
@@ -370,11 +372,15 @@ export function createUiControllerApi({
                 apikey: current?.apikey || imported?.apikey || provider.apikey
             };
         });
+        const hiddenProviders = [
+            ...Array.from(currentById.values()),
+            ...Array.from(importedById.values())
+        ].filter((provider) => provider && !defaultProviderIds.has(provider.id));
+        return mergeItemsById(lockedDefaults, hiddenProviders);
     }
 
     function bindModelToAvailableProviders(model, providers) {
-        const availableProviderIds = new Set((providers || []).map((provider) => provider.id));
-        const providerIds = getModelProviderIds(model).filter((providerId) => availableProviderIds.has(providerId));
+        const providerIds = getModelProviderIds(model);
         const fallbackProviderId = providers?.[0]?.id || '';
         const nextProviderIds = providerIds.length > 0
             ? providerIds
@@ -449,7 +455,7 @@ export function createUiControllerApi({
             ensureUniqueIds(importedPromptLibrary, '提示词预设');
         }
 
-        if (finalSelection.models) {
+        if (finalSelection.models && !API_PROVIDERS_LOCKED) {
             const providerIds = new Set(nextProviders.map((provider) => provider.id));
             const invalidModel = nextModels.find((model) => getModelProviderIds(model).some((providerId) => !providerIds.has(providerId)));
             if (invalidModel) {

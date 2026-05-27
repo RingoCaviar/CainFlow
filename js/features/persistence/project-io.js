@@ -51,7 +51,8 @@ export function createProjectIoApi({
         const storedById = new Map((storedProviders || [])
             .map((provider, index) => normalizeStoredProvider(provider, index))
             .map((provider) => [provider.id, provider]));
-        return DEFAULT_PROVIDERS.map((provider) => {
+        const defaultProviderIds = new Set(DEFAULT_PROVIDERS.map((provider) => provider.id));
+        const lockedDefaults = DEFAULT_PROVIDERS.map((provider) => {
             const stored = storedById.get(provider.id);
             return {
                 ...provider,
@@ -59,11 +60,13 @@ export function createProjectIoApi({
                 apikey: stored?.apikey || provider.apikey
             };
         });
+        const hiddenProviders = Array.from(storedById.values())
+            .filter((provider) => !defaultProviderIds.has(provider.id));
+        return [...lockedDefaults, ...hiddenProviders];
     }
 
     function bindModelToAvailableProviders(model, providers) {
-        const availableProviderIds = new Set((providers || []).map((provider) => provider.id));
-        const providerIds = getModelProviderIds(model).filter((providerId) => availableProviderIds.has(providerId));
+        const providerIds = getModelProviderIds(model);
         const fallbackProviderId = providers?.[0]?.id || '';
         const nextProviderIds = providerIds.length > 0
             ? providerIds
