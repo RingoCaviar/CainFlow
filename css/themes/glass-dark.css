@@ -1,0 +1,863 @@
+/* Glass Dark theme: translucent deep surfaces with cool luminous accents. */
+:root[data-app-theme="glass-dark"] {
+    --glass-surface: rgba(255, 255, 255, 0.15);
+    --glass-surface-soft: rgba(255, 255, 255, 0.1);
+    --glass-surface-hover: rgba(255, 255, 255, 0.2);
+    --glass-surface-strong: rgba(255, 255, 255, 0.24);
+    --glass-card-surface: rgba(0, 0, 0, 0.28);
+    --glass-card-surface-hover: rgba(0, 0, 0, 0.34);
+    --glass-surface-dark: rgba(0, 0, 0, 0.2);
+    --glass-surface-dark-hover: rgba(0, 0, 0, 0.26);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-border-soft: rgba(255, 255, 255, 0.1);
+    --glass-border-strong: rgba(255, 255, 255, 0.3);
+    --glass-blur: blur(20px);
+    --glass-blur-strong: blur(24px);
+    --bg-canvas: #07111d;
+    --bg-grid-dot: rgba(148, 203, 233, 0.12);
+    --bg-toolbar: var(--glass-surface);
+    --bg-node: var(--glass-card-surface);
+    --bg-node-header: var(--glass-surface-soft);
+    --bg-input: var(--glass-surface-dark);
+    --bg-context-menu: var(--glass-surface);
+    --border-node: var(--glass-border);
+    --border-input: var(--glass-border-soft);
+    --text-primary: #edf7ff;
+    --text-secondary: #a6bed0;
+    --text-dim: #668095;
+    --accent-purple: #a78bfa;
+    --accent-blue: #60a5fa;
+    --accent-cyan: #22d3ee;
+    --accent-green: #34d399;
+    --accent-orange: #fbbf24;
+    --accent-red: #fb7185;
+    --accent-pink: #f0abfc;
+    --accent-primary: #38bdf8;
+    --port-image: #a78bfa;
+    --port-text: #22d3ee;
+    --port-params: #fbbf24;
+    --shadow-node: none;
+    --shadow-node-hover: none;
+    --bg-modal: var(--glass-surface);
+    --bg-drawer: var(--glass-surface);
+    --bg-log-item: rgba(56, 189, 248, 0.055);
+    --bg-log-item-hover: rgba(56, 189, 248, 0.1);
+    --shadow-drawer: none;
+    --conn-color: 56, 189, 248;
+    --connection-flow-color: rgba(56, 189, 248, 0.92);
+    --settings-model-provider-accent: #7dd3fc;
+    --bg-card: var(--glass-card-surface);
+    --border-color: var(--glass-border);
+    --text-main: #edf7ff;
+    --accent-light: #67e8f9;
+    --node-concurrent-status-panel-bg: var(--glass-surface);
+    --node-concurrent-status-panel-border: var(--glass-border);
+    --node-concurrent-status-panel-shadow: none;
+    --node-concurrent-status-dot-running: #fbbf24;
+    --node-concurrent-status-dot-running-glow: rgba(251, 191, 36, 0.42);
+    --node-concurrent-status-dot-success: var(--accent-green);
+    --node-concurrent-status-dot-success-glow: rgba(52, 211, 153, 0.34);
+    --node-concurrent-status-dot-failed: var(--accent-red);
+    --node-concurrent-status-dot-failed-glow: rgba(251, 113, 133, 0.34);
+    --painter-board-bg: #07111d;
+    --painter-board-check-a: rgba(255, 255, 255, 0.06);
+    --painter-board-check-b: rgba(0, 0, 0, 0.16);
+    --painter-board-glow: rgba(34, 211, 238, 0.1);
+    --painter-board-sheen: rgba(255, 255, 255, 0.04);
+    --node-select-bg: var(--glass-surface-dark);
+    --node-select-border: var(--glass-border-soft);
+    --node-select-text: var(--text-primary);
+    --node-select-caret: #93adc2;
+    --node-select-focus-border: rgba(56, 189, 248, 0.46);
+    --node-select-focus-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+    --node-select-panel-bg: var(--glass-surface);
+    --node-select-panel-border: var(--glass-border);
+    --node-select-panel-shadow: none;
+    --node-select-option-hover-bg: var(--glass-surface-hover);
+    --node-select-option-selected-bg: rgba(56, 189, 248, 0.22);
+    --overlay-backdrop: rgba(1, 7, 16, 0.62);
+    --surface-soft: var(--glass-surface-soft);
+    --surface-muted: var(--glass-surface);
+    --surface-hover: var(--glass-surface-hover);
+    --surface-strong: var(--glass-surface-strong);
+    --bg-dark: var(--bg-toolbar);
+    --panel-shadow: none;
+    --panel-bg: var(--glass-surface);
+    --panel-bg-strong: var(--glass-surface-strong);
+    --panel-bg-soft: var(--glass-surface-soft);
+    --panel-bg-muted: rgba(255, 255, 255, 0.08);
+    --panel-border: var(--glass-border);
+    --panel-border-strong: var(--glass-border-strong);
+    --panel-shadow-soft: none;
+    --panel-shadow-strong: none;
+    --panel-hover-bg: var(--glass-surface-hover);
+    --panel-hover-border: var(--glass-border-strong);
+    --panel-active-bg: rgba(34, 211, 238, 0.2);
+    --panel-active-border: rgba(34, 211, 238, 0.42);
+    --panel-control-bg: var(--glass-surface);
+    --panel-control-border: var(--glass-border);
+    --panel-control-text: var(--text-secondary);
+    --panel-control-hover-bg: var(--glass-surface-hover);
+    --panel-control-hover-border: var(--glass-border-strong);
+    --panel-control-hover-text: var(--text-primary);
+    --panel-input-bg: var(--glass-surface-dark);
+    --panel-input-border: var(--glass-border-soft);
+    --panel-accent-bg: rgba(56, 189, 248, 0.12);
+    --panel-accent-border: rgba(56, 189, 248, 0.28);
+    --panel-accent-text: #bae6fd;
+    --notice-bg: var(--glass-surface);
+    --notice-border: var(--glass-border);
+    --notice-shadow: none;
+    --notice-inline-bg: rgba(251, 191, 36, 0.12);
+    --notice-inline-text: #fde68a;
+    --notice-inline-border: rgba(251, 191, 36, 0.22);
+    --notice-highlight-bg: rgba(48, 31, 10, 0.58);
+    --notice-highlight-border: rgba(251, 191, 36, 0.24);
+    --notice-update-bg: rgba(12, 24, 39, 0.7);
+    --notice-update-border: rgba(56, 189, 248, 0.24);
+    --notice-update-icon-bg: rgba(56, 189, 248, 0.14);
+    --notice-update-icon-text: #7dd3fc;
+    --notice-action-bg: rgba(56, 189, 248, 0.11);
+    --notice-action-border: rgba(56, 189, 248, 0.26);
+    --notice-action-hover-bg: rgba(56, 189, 248, 0.18);
+    --notice-action-hover-border: rgba(56, 189, 248, 0.36);
+    --notice-close-hover-bg: rgba(255, 255, 255, 0.08);
+    --workflow-card-bg: var(--glass-card-surface);
+    --workflow-card-border: var(--glass-border);
+    --workflow-card-hover-bg: var(--glass-card-surface-hover);
+    --workflow-card-hover-border: var(--glass-border-strong);
+    --workflow-card-shadow: none;
+    --cache-card-bg: var(--glass-card-surface);
+    --cache-card-border: var(--glass-border);
+    --cache-card-shadow: none;
+    --cache-row-border: rgba(148, 203, 233, 0.13);
+    --cache-card-radius: 12px;
+    --sidebar-bg: var(--glass-surface);
+    --sidebar-border: var(--glass-border);
+    --sidebar-btn-hover-bg: var(--glass-surface-hover);
+    --sidebar-btn-active-bg: rgba(56, 189, 248, 0.2);
+    --sidebar-btn-active-text: #bae6fd;
+    --prompt-overlay-bg: rgba(1, 7, 16, 0.66);
+    --prompt-panel-bg: var(--glass-surface);
+    --prompt-panel-border: var(--glass-border);
+    --prompt-panel-shadow: none;
+    --prompt-section-border: rgba(148, 203, 233, 0.12);
+    --prompt-header-bg: var(--glass-surface-soft);
+    --prompt-empty-bg: var(--glass-surface-soft);
+    --prompt-empty-border: var(--glass-border-soft);
+    --prompt-card-bg: var(--glass-card-surface);
+    --prompt-card-border: var(--glass-border);
+    --prompt-card-shadow: none;
+    --prompt-card-hover-bg: var(--glass-card-surface-hover);
+    --prompt-card-hover-border: var(--glass-border-strong);
+    --prompt-card-hover-shadow: none;
+    --prompt-card-selected-border: rgba(34, 211, 238, 0.6);
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(34, 211, 238, 0.16);
+    --prompt-card-actions-bg: var(--glass-surface-dark);
+    --prompt-editor-bg: var(--glass-surface-dark);
+    --prompt-editor-border: rgba(148, 203, 233, 0.14);
+    --prompt-import-dialog-bg: rgba(1, 7, 16, 0.66);
+    --prompt-import-panel-bg: var(--prompt-panel-bg);
+    --prompt-import-panel-border: var(--prompt-panel-border);
+    --prompt-import-panel-shadow: var(--prompt-panel-shadow);
+    --prompt-import-item-bg: var(--prompt-card-bg);
+    --prompt-import-item-border: var(--prompt-card-border);
+    --prompt-import-item-shadow: var(--prompt-card-shadow);
+    --prompt-import-item-selected-border: rgba(34, 211, 238, 0.6);
+    --prompt-import-item-selected-shadow: var(--prompt-card-selected-shadow);
+    --history-overlay-bg:
+        linear-gradient(135deg, rgba(2, 8, 18, 0.94), rgba(8, 24, 38, 0.82) 48%, rgba(21, 14, 35, 0.84));
+    --history-panel-bg: var(--glass-surface);
+    --history-panel-border: var(--glass-border);
+    --history-panel-shadow: none;
+    --history-section-border: rgba(148, 203, 233, 0.12);
+    --history-batch-bg: var(--glass-surface-soft);
+    --history-empty-bg: var(--glass-surface-soft);
+    --history-empty-border: var(--glass-border-soft);
+    --history-group-header-bg: var(--glass-surface);
+    --history-rail-bg: var(--glass-surface-soft);
+    --history-rail-border: rgba(148, 203, 233, 0.12);
+    --history-rail-tooltip-bg: var(--glass-surface);
+    --history-rail-tooltip-border: var(--glass-border);
+    --history-rail-tooltip-shadow: none;
+    --history-rail-tooltip-text: var(--text-primary);
+    --history-card-meta-bg: linear-gradient(180deg, rgba(5, 12, 22, 0) 0%, rgba(5, 12, 22, 0.76) 52%, rgba(6, 15, 27, 0.95) 100%);
+    --history-card-meta-text: var(--text-primary);
+    --history-card-meta-subtext: var(--text-secondary);
+    --history-preview-bg: var(--glass-surface);
+    --history-preview-border: var(--glass-border);
+    --history-preview-shadow: none;
+    --history-preview-meta-border: rgba(148, 203, 233, 0.12);
+}
+
+html[data-app-theme="glass-dark"] {
+    background:
+        linear-gradient(135deg, rgba(56, 189, 248, 0.36) 0%, rgba(167, 139, 250, 0.24) 50%, rgba(34, 211, 238, 0.24) 100%),
+        linear-gradient(135deg, #050b14 0%, #071827 48%, #101225 100%);
+}
+
+html[data-app-theme="glass-dark"] body {
+    background: transparent;
+}
+
+html[data-app-theme="glass-dark"] ::-webkit-scrollbar-thumb {
+    background: rgba(148, 203, 233, 0.22);
+    border-color: rgba(5, 12, 22, 0.62);
+}
+
+html[data-app-theme="glass-dark"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 203, 233, 0.36);
+}
+
+html[data-app-theme="glass-dark"] * {
+    scrollbar-color: rgba(148, 203, 233, 0.28) transparent;
+}
+
+html[data-app-theme="glass-dark"] #toolbar,
+html[data-app-theme="glass-dark"] .drawer,
+html[data-app-theme="glass-dark"] .drawer-left,
+html[data-app-theme="glass-dark"] .modal-panel,
+html[data-app-theme="glass-dark"] .help-panel,
+html[data-app-theme="glass-dark"] .context-menu,
+html[data-app-theme="glass-dark"] .toast,
+html[data-app-theme="glass-dark"] .update-modal-panel,
+html[data-app-theme="glass-dark"] .provider-models-panel,
+html[data-app-theme="glass-dark"] .api-settings-help-panel {
+    background: var(--panel-bg);
+    border-color: var(--panel-border);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] #toolbar {
+    background: rgba(255, 255, 255, 0.08);
+    border-bottom-color: rgba(186, 230, 253, 0.14);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] #toolbar:hover,
+html[data-app-theme="glass-dark"] #toolbar:focus-within,
+html[data-app-theme="glass-dark"] #toolbar:has(.btn.active),
+html[data-app-theme="glass-dark"] #toolbar:has([aria-expanded="true"]),
+html[data-app-theme="glass-dark"] body.toolbar-peek-active #toolbar,
+html[data-app-theme="glass-dark"] body.toolbar-pinned #toolbar {
+    background: rgba(255, 255, 255, 0.11);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] #toolbar::after {
+    background: linear-gradient(90deg, rgba(34, 211, 238, 0.82), rgba(96, 165, 250, 0.76), rgba(167, 139, 250, 0.68));
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .logo svg {
+    color: var(--accent-primary);
+    filter: none;
+}
+
+html[data-app-theme="glass-dark"] .logo-version,
+html[data-app-theme="glass-dark"] .toolbar-toggle-group:hover,
+html[data-app-theme="glass-dark"] .btn-ghost:hover {
+    background: var(--glass-surface-hover);
+}
+
+html[data-app-theme="glass-dark"] .logo-version {
+    background: rgba(0, 0, 0, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    color: #e0f7ff;
+}
+
+html[data-app-theme="glass-dark"] .toolbar-toggle-group {
+    background: var(--glass-surface);
+    border: 1px solid var(--glass-border);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .toolbar-toggle-group:hover {
+    background: var(--glass-surface-hover);
+    border-color: var(--glass-border-strong);
+}
+
+html[data-app-theme="glass-dark"] #toolbar .toolbar-toggle-group .toggle-slider {
+    background: var(--glass-surface-dark);
+    border: 1px solid var(--glass-border-soft);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] #toolbar .toolbar-toggle-group .toggle-slider::before {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] #toolbar .toolbar-toggle-group input:checked + .toggle-slider {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.94), rgba(96, 165, 250, 0.92));
+    border-color: rgba(125, 211, 252, 0.34);
+}
+
+html[data-app-theme="glass-dark"] .toolbar-divider,
+html[data-app-theme="glass-dark"] .context-menu-divider {
+    background: rgba(148, 203, 233, 0.14);
+}
+
+html[data-app-theme="glass-dark"] .btn,
+html[data-app-theme="glass-dark"] .btn-secondary,
+html[data-app-theme="glass-dark"] .btn-ghost,
+html[data-app-theme="glass-dark"] .btn-icon,
+html[data-app-theme="glass-dark"] .icon-btn,
+html[data-app-theme="glass-dark"] .workflow-action-btn,
+html[data-app-theme="glass-dark"] .prompt-card-btn,
+html[data-app-theme="glass-dark"] .prompt-card-icon-btn,
+html[data-app-theme="glass-dark"] .prompt-import-btn,
+html[data-app-theme="glass-dark"] .camera-control-open-btn,
+html[data-app-theme="glass-dark"] .camera-control-editor-close,
+html[data-app-theme="glass-dark"] .camera-control-editor-reset,
+html[data-app-theme="glass-dark"] .camera-control-view-mode-btn,
+html[data-app-theme="glass-dark"] .fullscreen-close,
+html[data-app-theme="glass-dark"] .fullscreen-paint-btn,
+html[data-app-theme="glass-dark"] .preview-nav-btn,
+html[data-app-theme="glass-dark"] .btn-close-preview,
+html[data-app-theme="glass-dark"] .history-card .delete-btn,
+html[data-app-theme="glass-dark"] .copy-btn {
+    background: var(--glass-surface);
+    border-color: var(--glass-border);
+    color: var(--text-primary);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .btn:hover,
+html[data-app-theme="glass-dark"] .btn-icon:hover,
+html[data-app-theme="glass-dark"] .icon-btn:hover,
+html[data-app-theme="glass-dark"] .workflow-action-btn:hover,
+html[data-app-theme="glass-dark"] .prompt-card-btn:hover,
+html[data-app-theme="glass-dark"] .prompt-card-icon-btn:hover,
+html[data-app-theme="glass-dark"] .prompt-import-btn:hover,
+html[data-app-theme="glass-dark"] .camera-control-open-btn:hover,
+html[data-app-theme="glass-dark"] .camera-control-editor-close:hover,
+html[data-app-theme="glass-dark"] .camera-control-editor-reset:hover,
+html[data-app-theme="glass-dark"] .camera-control-view-mode-btn:hover,
+html[data-app-theme="glass-dark"] .camera-control-view-mode-btn.active,
+html[data-app-theme="glass-dark"] .fullscreen-close:hover,
+html[data-app-theme="glass-dark"] .fullscreen-paint-btn:hover,
+html[data-app-theme="glass-dark"] .preview-nav-btn:hover,
+html[data-app-theme="glass-dark"] .copy-btn:hover {
+    background: var(--glass-surface-hover);
+    border-color: var(--glass-border-strong);
+    color: #e0f7ff;
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .btn-run,
+html[data-app-theme="glass-dark"] .btn-primary,
+html[data-app-theme="glass-dark"] #settings-modal .settings-toolbar .btn-accent,
+html[data-app-theme="glass-dark"] .card-btn-fetch-models {
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+    border-color: rgba(125, 211, 252, 0.34);
+    color: #f8fbff;
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .btn-run:hover,
+html[data-app-theme="glass-dark"] .btn-primary:hover,
+html[data-app-theme="glass-dark"] #settings-modal .settings-toolbar .btn-accent:hover,
+html[data-app-theme="glass-dark"] .card-btn-fetch-models:hover {
+    background: linear-gradient(135deg, #22d3ee, #60a5fa);
+    color: #ffffff;
+}
+
+html[data-app-theme="glass-dark"] .btn-stop {
+    background: rgba(251, 113, 133, 0.17);
+    border-color: rgba(251, 113, 133, 0.28);
+    color: #fecdd3;
+}
+
+html[data-app-theme="glass-dark"] .btn-stop:not(:disabled):hover,
+html[data-app-theme="glass-dark"] #btn-clear:hover {
+    background: linear-gradient(135deg, #fb7185, #ef4444);
+    border-color: rgba(251, 113, 133, 0.38);
+    color: #ffffff;
+}
+
+html[data-app-theme="glass-dark"] #btn-theme-toggle {
+    background: var(--glass-surface);
+    border-color: rgba(34, 211, 238, 0.26);
+    color: #bae6fd;
+}
+
+html[data-app-theme="glass-dark"] #canvas-container {
+    background-image:
+        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
+        linear-gradient(135deg, rgba(56, 189, 248, 0.18) 0%, rgba(167, 139, 250, 0.12) 50%, rgba(34, 211, 238, 0.12) 100%);
+}
+
+html[data-app-theme="glass-dark"] .node-glass-bg {
+    overflow: hidden;
+    background: var(--glass-card-surface);
+    border-color: var(--border-node);
+    box-shadow: var(--shadow-node);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .node-glass-bg::before {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    border-radius: calc(var(--radius-node) - 1px);
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04) 48%, rgba(255, 255, 255, 0) 72%);
+    opacity: 0.9;
+    pointer-events: none;
+}
+
+html[data-app-theme="glass-dark"] .node.selected .node-glass-bg {
+    background: var(--glass-card-surface-hover);
+    border-color: var(--glass-border-strong);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .node.is-interacting .node-glass-bg,
+html[data-app-theme="glass-dark"] #canvas-container.is-zooming .node-glass-bg {
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+}
+
+html[data-app-theme="glass-dark"] .node.running .node-glass-bg {
+    border-color: #22d3ee !important;
+}
+
+html[data-app-theme="glass-dark"] .node-header,
+html[data-app-theme="glass-dark"] .drawer-header,
+html[data-app-theme="glass-dark"] .drawer-subheader,
+html[data-app-theme="glass-dark"] .help-panel-header,
+html[data-app-theme="glass-dark"] .modal-header,
+html[data-app-theme="glass-dark"] .modal-tabs,
+html[data-app-theme="glass-dark"] .provider-models-header,
+html[data-app-theme="glass-dark"] .provider-models-search-row,
+html[data-app-theme="glass-dark"] .api-settings-help-header {
+    background: var(--glass-surface-soft);
+    border-color: var(--glass-border-soft);
+}
+
+html[data-app-theme="glass-dark"] .node-body {
+    background: transparent;
+}
+
+html[data-app-theme="glass-dark"] .node-field label,
+html[data-app-theme="glass-dark"] .port-label,
+html[data-app-theme="glass-dark"] #settings-modal .api-config-card .card-field label,
+html[data-app-theme="glass-dark"] #general-settings .general-settings-card .card-field label {
+    color: #c7dbea;
+}
+
+html[data-app-theme="glass-dark"] .node-field input,
+html[data-app-theme="glass-dark"] .node-field select,
+html[data-app-theme="glass-dark"] .node-field textarea,
+html[data-app-theme="glass-dark"] .api-config-card .card-field input,
+html[data-app-theme="glass-dark"] .api-config-card .card-field select,
+html[data-app-theme="glass-dark"] .save-workflow-box input,
+html[data-app-theme="glass-dark"] #settings-modal #proxy-ip,
+html[data-app-theme="glass-dark"] #settings-modal #proxy-port,
+html[data-app-theme="glass-dark"] #settings-modal #setting-max-side,
+html[data-app-theme="glass-dark"] #settings-modal #setting-max-retries,
+html[data-app-theme="glass-dark"] #settings-modal #setting-timeout-seconds,
+html[data-app-theme="glass-dark"] #settings-modal .password-wrapper input,
+html[data-app-theme="glass-dark"] .provider-models-search-row input,
+html[data-app-theme="glass-dark"] .provider-multiselect-trigger,
+html[data-app-theme="glass-dark"] .camera-control-value,
+html[data-app-theme="glass-dark"] .camera-control-prompt {
+    background: var(--glass-surface-dark) !important;
+    border-color: var(--glass-border-soft) !important;
+    color: var(--text-primary) !important;
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .node-field input:focus,
+html[data-app-theme="glass-dark"] .node-field select:focus,
+html[data-app-theme="glass-dark"] .node-field textarea:focus,
+html[data-app-theme="glass-dark"] .api-config-card .card-field input:focus,
+html[data-app-theme="glass-dark"] .api-config-card .card-field select:focus,
+html[data-app-theme="glass-dark"] .save-workflow-box input:focus,
+html[data-app-theme="glass-dark"] #settings-modal #proxy-ip:focus,
+html[data-app-theme="glass-dark"] #settings-modal #proxy-port:focus,
+html[data-app-theme="glass-dark"] #settings-modal #setting-max-side:focus,
+html[data-app-theme="glass-dark"] #settings-modal #setting-max-retries:focus,
+html[data-app-theme="glass-dark"] #settings-modal #setting-timeout-seconds:focus,
+html[data-app-theme="glass-dark"] .provider-models-search-row input:focus,
+html[data-app-theme="glass-dark"] .provider-multiselect-trigger:hover,
+html[data-app-theme="glass-dark"] .provider-multiselect-trigger[aria-expanded="true"],
+html[data-app-theme="glass-dark"] .camera-control-value:focus {
+    border-color: rgba(56, 189, 248, 0.48) !important;
+    box-shadow:
+        0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+
+html[data-app-theme="glass-dark"] .api-config-card .card-field select option,
+html[data-app-theme="glass-dark"] .node-field select option {
+    background: #0b1727;
+    color: var(--text-primary);
+}
+
+html[data-app-theme="glass-dark"] .node-select-trigger,
+html[data-app-theme="glass-dark"] .node-select-panel {
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .node-select-option {
+    color: var(--text-primary);
+}
+
+html[data-app-theme="glass-dark"] .modal-overlay,
+html[data-app-theme="glass-dark"] .camera-control-editor-overlay {
+    background: rgba(1, 7, 16, 0.62);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+html[data-app-theme="glass-dark"] .workflow-item,
+html[data-app-theme="glass-dark"] .api-config-card,
+html[data-app-theme="glass-dark"] #settings-modal .general-settings-card,
+html[data-app-theme="glass-dark"] .cache-info-card,
+html[data-app-theme="glass-dark"] .cache-item,
+html[data-app-theme="glass-dark"] .cache-breakdown,
+html[data-app-theme="glass-dark"] .save-workflow-box,
+html[data-app-theme="glass-dark"] .api-settings-help-section,
+html[data-app-theme="glass-dark"] .camera-control-node-preview,
+html[data-app-theme="glass-dark"] .camera-control-node-preview.has-image,
+html[data-app-theme="glass-dark"] .camera-control-editor-panel,
+html[data-app-theme="glass-dark"] .camera-control-stage,
+html[data-app-theme="glass-dark"] #general-settings .update-version-summary {
+    background: var(--workflow-card-bg) !important;
+    border-color: var(--workflow-card-border) !important;
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .workflow-item:hover,
+html[data-app-theme="glass-dark"] .api-config-card:hover,
+html[data-app-theme="glass-dark"] #settings-modal .general-settings-card:hover {
+    background: var(--glass-surface-hover) !important;
+    border-color: var(--glass-border-strong) !important;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .api-config-card:hover,
+html[data-app-theme="glass-dark"] #settings-modal .general-settings-card:hover {
+    background: rgba(0, 0, 0, 0.22) !important;
+    border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-drawer-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-info-card,
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-item,
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-action-note {
+    border: 1px solid var(--cache-card-border);
+    border-radius: var(--cache-card-radius);
+    background: var(--cache-card-bg);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-info-card {
+    padding: 24px;
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 0;
+    background: transparent !important;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--cache-card-border);
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-item:last-child {
+    border-bottom: 1px solid var(--cache-card-border);
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-section-actions {
+    margin-top: 0;
+    padding-top: 14px;
+    border-top-color: var(--cache-row-border);
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-action-note {
+    padding: 12px 14px;
+    margin-top: 14px;
+}
+
+html[data-app-theme="glass-dark"] #cache-sidebar .cache-action-btn {
+    border-radius: var(--cache-card-radius);
+}
+
+html[data-app-theme="glass-dark"] .context-menu-item:hover,
+html[data-app-theme="glass-dark"] .context-menu-item.is-open,
+html[data-app-theme="glass-dark"] .provider-models-row:hover,
+html[data-app-theme="glass-dark"] .api-settings-help-close:hover {
+    background: rgba(56, 189, 248, 0.1);
+}
+
+html[data-app-theme="glass-dark"] .prompt-library-panel,
+html[data-app-theme="glass-dark"] .prompt-import-panel,
+html[data-app-theme="glass-dark"] .history-fullscreen-panel {
+    backdrop-filter: var(--glass-blur-strong);
+    -webkit-backdrop-filter: var(--glass-blur-strong);
+}
+
+html[data-app-theme="glass-dark"] .prompt-card,
+html[data-app-theme="glass-dark"] .prompt-import-item,
+html[data-app-theme="glass-dark"] .history-card,
+html[data-app-theme="glass-dark"] .search-chips {
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .history-card:hover {
+    background: var(--glass-card-surface-hover);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .history-card.selected .selection-checkbox {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+html[data-app-theme="glass-dark"] .history-card.selected {
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .history-card.selected .selection-checkbox::after {
+    color: #04111f;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .modal-panel {
+    background: var(--glass-surface);
+    border-color: var(--glass-border);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .modal-tab-btn {
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .modal-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .modal-tab-btn.active {
+    color: #bae6fd;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .settings-toolbar h3,
+html[data-app-theme="glass-dark"] #settings-modal #providers-list .card-name,
+html[data-app-theme="glass-dark"] .provider-models-row-name,
+html[data-app-theme="glass-dark"] .api-settings-help-header h3,
+html[data-app-theme="glass-dark"] .api-settings-help-section h4 {
+    color: var(--text-primary);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal #models-list .card-name,
+html[data-app-theme="glass-dark"] #settings-modal .api-config-card .card-header .card-name {
+    color: var(--settings-model-provider-accent);
+}
+
+html[data-app-theme="glass-dark"] .provider-multiselect-caret,
+html[data-app-theme="glass-dark"] .provider-toggle-label,
+html[data-app-theme="glass-dark"] .provider-models-subtitle,
+html[data-app-theme="glass-dark"] .provider-models-row-id,
+html[data-app-theme="glass-dark"] .api-settings-help-subtitle,
+html[data-app-theme="glass-dark"] .api-settings-help-section p,
+html[data-app-theme="glass-dark"] .api-settings-help-section li,
+html[data-app-theme="glass-dark"] #settings-modal .footer-left span,
+html[data-app-theme="glass-dark"] #general-settings .general-settings-card .card-field p,
+html[data-app-theme="glass-dark"] #general-settings .general-settings-card span,
+html[data-app-theme="glass-dark"] #general-settings .update-status-indicator,
+html[data-app-theme="glass-dark"] #settings-modal .endpoint-preview {
+    color: var(--text-secondary) !important;
+}
+
+html[data-app-theme="glass-dark"] .provider-multiselect-panel,
+html[data-app-theme="glass-dark"] .theme-menu-panel {
+    background: var(--glass-surface);
+    border-color: var(--glass-border);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .theme-menu-item:hover,
+html[data-app-theme="glass-dark"] .theme-menu-item:focus-visible {
+    background: var(--glass-surface-hover);
+    border-color: var(--glass-border-strong);
+}
+
+html[data-app-theme="glass-dark"] .theme-menu-item.is-active {
+    background: rgba(56, 189, 248, 0.14);
+    border-color: rgba(56, 189, 248, 0.28);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .card-type.google,
+html[data-app-theme="glass-dark"] .provider-models-badge,
+html[data-app-theme="glass-dark"] #settings-modal .version-badge {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.24);
+    color: #bae6fd;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .card-type.openai {
+    background: rgba(52, 211, 153, 0.12);
+    color: #bbf7d0;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .card-btn-collapse,
+html[data-app-theme="glass-dark"] #settings-modal .eye-toggle-btn,
+html[data-app-theme="glass-dark"] .provider-models-add,
+html[data-app-theme="glass-dark"] .provider-models-close,
+html[data-app-theme="glass-dark"] #settings-modal .retry-input-group,
+html[data-app-theme="glass-dark"] #settings-modal #global-dir-badge,
+html[data-app-theme="glass-dark"] .help-key {
+    background: var(--glass-surface) !important;
+    border-color: var(--glass-border) !important;
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .card-btn-collapse:hover,
+html[data-app-theme="glass-dark"] #settings-modal .eye-toggle-btn:hover,
+html[data-app-theme="glass-dark"] .provider-models-add:hover,
+html[data-app-theme="glass-dark"] .provider-models-close:hover {
+    background: var(--glass-surface-hover) !important;
+    border-color: var(--glass-border-strong) !important;
+    color: var(--text-primary);
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .toggle-slider {
+    background: var(--glass-surface-dark);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .toggle-slider::before {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] #settings-modal .toggle-switch input:checked + .toggle-slider {
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.95), rgba(96, 165, 250, 0.9));
+}
+
+html[data-app-theme="glass-dark"] #settings-modal input[type="checkbox"] {
+    accent-color: #38bdf8;
+}
+
+html[data-app-theme="glass-dark"] .settings-inline-help {
+    color: #67e8f9;
+}
+
+html[data-app-theme="glass-dark"] .settings-inline-help:hover {
+    color: #cffafe;
+}
+
+html[data-app-theme="glass-dark"] .node-run-cancel-btn {
+    --node-run-cancel-bg: rgba(251, 113, 133, 0.16);
+    --node-run-cancel-bg-hover: rgba(251, 113, 133, 0.24);
+    --node-run-cancel-bg-active: #e11d48;
+    --node-run-cancel-border: rgba(251, 113, 133, 0.32);
+    --node-run-cancel-border-hover: rgba(251, 113, 133, 0.46);
+    --node-run-cancel-text: #fecdd3;
+    --node-run-cancel-progress-track: rgba(255, 228, 230, 0.15);
+    --node-run-cancel-progress-fill: #fb7185;
+    --node-run-cancel-shadow: 0 6px 18px rgba(76, 5, 25, 0.16);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-dark"] .node-run-cancel-btn:hover,
+html[data-app-theme="glass-dark"] .node-run-cancel-btn.is-holding {
+    background: var(--node-run-cancel-bg-hover);
+    border-color: var(--node-run-cancel-border-hover);
+}
+
+html[data-app-theme="glass-dark"] .node-run-cancel-btn.is-canceling {
+    background: var(--node-run-cancel-bg-active);
+    color: var(--node-run-cancel-text-active);
+}
+
+html[data-app-theme="glass-dark"] .node-clone-badge {
+    background: rgba(34, 211, 238, 0.13);
+    border-color: rgba(34, 211, 238, 0.32);
+    color: #a5f3fc;
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-dark"] .node-clone-badge:hover,
+html[data-app-theme="glass-dark"] .node-clone-badge:focus-visible {
+    background: rgba(34, 211, 238, 0.2);
+    border-color: rgba(34, 211, 238, 0.46);
+}
+
+html[data-app-theme="glass-dark"] .update-download-status {
+    background: var(--glass-surface);
+    border-color: var(--glass-border);
+    color: var(--text-secondary);
+}
+
+html[data-app-theme="glass-dark"] .update-download-status.info,
+html[data-app-theme="glass-dark"] .update-download-toast__cancel {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.24);
+    color: #bae6fd;
+}
+
+html[data-app-theme="glass-dark"] .update-download-status.success {
+    background: rgba(52, 211, 153, 0.12);
+    border-color: rgba(52, 211, 153, 0.22);
+    color: #bbf7d0;
+}
+
+html[data-app-theme="glass-dark"] .update-download-status.error {
+    background: rgba(251, 113, 133, 0.12);
+    border-color: rgba(251, 113, 133, 0.22);
+    color: #fecdd3;
+}
+
+html[data-app-theme="glass-dark"] .update-download-progress__bar {
+    background: linear-gradient(90deg, #22d3ee 0%, #3b82f6 100%);
+}
+
+html[data-app-theme="glass-dark"] .camera-control-sliders input[type="range"]::-webkit-slider-runnable-track {
+    background: rgba(148, 203, 233, 0.18);
+}
+
+html[data-app-theme="glass-dark"] .camera-control-sliders input[type="range"]::-webkit-slider-thumb {
+    background: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(5, 12, 22, 0.96);
+}
+
+html[data-app-theme="glass-dark"] .camera-control-sliders input[type="range"]::-moz-range-track {
+    background: rgba(148, 203, 233, 0.18);
+}
+
+html[data-app-theme="glass-dark"] .camera-control-sliders input[type="range"]::-moz-range-thumb {
+    background: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(5, 12, 22, 0.96);
+}

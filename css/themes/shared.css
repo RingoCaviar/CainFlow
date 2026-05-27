@@ -37,6 +37,11 @@
     transform: rotate(8deg) scale(1.04);
 }
 
+#btn-theme-toggle[data-theme-id="glass-dark"] .icon-sm {
+    color: var(--accent-cyan);
+    transform: rotate(-8deg) scale(1.04);
+}
+
 #btn-theme-toggle[data-theme-id="pink"] .icon-sm {
     color: var(--accent-pink);
     transform: rotate(-8deg) scale(1.05);

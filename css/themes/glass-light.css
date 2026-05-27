@@ -246,6 +246,12 @@ html[data-app-theme="glass-light"] .btn-ghost:hover {
     background: rgba(255, 255, 255, 0.5);
 }
 
+html[data-app-theme="glass-light"] .logo-version {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    color: #0f172a;
+}
+
 html[data-app-theme="glass-light"] .toolbar-toggle-group {
     background: rgba(255, 255, 255, 0.34);
     border: 1px solid rgba(255, 255, 255, 0.46);
@@ -886,4 +892,312 @@ html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::
 html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::-moz-range-thumb {
     background: var(--accent-blue);
     box-shadow: 0 0 0 2px rgba(248, 250, 252, 0.96);
+}
+
+/* Glass Light refresh: align with the simplified glassmorphism surface model. */
+:root[data-app-theme="glass-light"] {
+    --glass-surface: rgba(255, 255, 255, 0.42);
+    --glass-surface-soft: rgba(255, 255, 255, 0.3);
+    --glass-surface-hover: rgba(255, 255, 255, 0.58);
+    --glass-surface-strong: rgba(255, 255, 255, 0.72);
+    --glass-card-surface: rgba(255, 255, 255, 0.48);
+    --glass-card-surface-hover: rgba(255, 255, 255, 0.64);
+    --glass-surface-dark: rgba(255, 255, 255, 0.36);
+    --glass-border: rgba(255, 255, 255, 0.58);
+    --glass-border-soft: rgba(148, 163, 184, 0.18);
+    --glass-border-strong: rgba(255, 255, 255, 0.76);
+    --glass-blur: blur(20px);
+    --glass-blur-strong: blur(24px);
+    --bg-toolbar: var(--glass-surface);
+    --bg-node: var(--glass-card-surface);
+    --bg-node-header: var(--glass-surface-soft);
+    --bg-input: var(--glass-surface-dark);
+    --bg-context-menu: var(--glass-surface);
+    --border-node: var(--glass-border);
+    --border-input: var(--glass-border-soft);
+    --bg-modal: var(--glass-surface);
+    --bg-drawer: var(--glass-surface);
+    --bg-card: var(--glass-card-surface);
+    --border-color: var(--glass-border-soft);
+    --shadow-node: 0 4px 14px rgba(44, 71, 97, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    --shadow-node-hover: 0 5px 16px rgba(44, 71, 97, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    --shadow-drawer: -3px 0 12px rgba(44, 71, 97, 0.08);
+    --panel-bg: var(--glass-surface);
+    --panel-bg-strong: var(--glass-surface-strong);
+    --panel-bg-soft: var(--glass-surface-soft);
+    --panel-bg-muted: rgba(255, 255, 255, 0.24);
+    --panel-border: var(--glass-border);
+    --panel-border-strong: var(--glass-border-strong);
+    --panel-shadow: none;
+    --panel-shadow-soft: none;
+    --panel-shadow-strong: none;
+    --panel-hover-bg: var(--glass-surface-hover);
+    --panel-hover-border: var(--glass-border-strong);
+    --panel-active-bg: rgba(37, 99, 235, 0.14);
+    --panel-active-border: rgba(37, 99, 235, 0.26);
+    --panel-control-bg: var(--glass-surface);
+    --panel-control-border: var(--glass-border);
+    --panel-control-hover-bg: var(--glass-surface-hover);
+    --panel-control-hover-border: var(--glass-border-strong);
+    --panel-input-bg: var(--glass-surface-dark);
+    --panel-input-border: var(--glass-border-soft);
+    --workflow-card-bg: var(--glass-card-surface);
+    --workflow-card-border: var(--glass-border);
+    --workflow-card-hover-bg: var(--glass-card-surface-hover);
+    --workflow-card-hover-border: var(--glass-border-strong);
+    --workflow-card-shadow: none;
+    --cache-card-bg: var(--glass-card-surface);
+    --cache-card-border: var(--glass-border);
+    --cache-card-shadow: none;
+    --notice-bg: var(--glass-surface);
+    --notice-border: var(--glass-border);
+    --notice-shadow: none;
+    --prompt-panel-bg: var(--glass-surface);
+    --prompt-panel-border: var(--glass-border);
+    --prompt-panel-shadow: none;
+    --prompt-header-bg: var(--glass-surface-soft);
+    --prompt-empty-bg: var(--glass-surface-soft);
+    --prompt-empty-border: var(--glass-border-soft);
+    --prompt-card-bg: var(--glass-card-surface);
+    --prompt-card-border: var(--glass-border);
+    --prompt-card-shadow: none;
+    --prompt-card-hover-bg: var(--glass-card-surface-hover);
+    --prompt-card-hover-border: var(--glass-border-strong);
+    --prompt-card-hover-shadow: none;
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+    --prompt-card-actions-bg: var(--glass-surface-soft);
+    --prompt-editor-bg: var(--glass-surface-soft);
+    --history-panel-bg: var(--glass-surface);
+    --history-panel-border: var(--glass-border);
+    --history-panel-shadow: none;
+    --history-batch-bg: var(--glass-surface-soft);
+    --history-empty-bg: var(--glass-surface-soft);
+    --history-empty-border: var(--glass-border-soft);
+    --history-group-header-bg: var(--glass-surface);
+    --history-rail-bg: var(--glass-surface-soft);
+    --history-rail-tooltip-bg: var(--glass-surface);
+    --history-rail-tooltip-border: var(--glass-border);
+    --history-rail-tooltip-shadow: none;
+    --history-preview-bg: var(--glass-surface);
+    --history-preview-border: var(--glass-border);
+    --history-preview-shadow: none;
+    --node-select-bg: var(--glass-surface-dark);
+    --node-select-border: var(--glass-border-soft);
+    --node-select-panel-bg: var(--glass-surface);
+    --node-select-panel-border: var(--glass-border);
+    --node-select-panel-shadow: none;
+    --node-select-option-hover-bg: var(--glass-surface-hover);
+    --node-select-option-selected-bg: rgba(37, 99, 235, 0.14);
+}
+
+html[data-app-theme="glass-light"] {
+    background:
+        linear-gradient(135deg, rgba(14, 165, 233, 0.18) 0%, rgba(37, 99, 235, 0.12) 48%, rgba(20, 184, 166, 0.12) 100%),
+        linear-gradient(135deg, #f8fbff 0%, #eef8fb 42%, #fff7ef 100%);
+}
+
+html[data-app-theme="glass-light"] #toolbar,
+html[data-app-theme="glass-light"] .drawer,
+html[data-app-theme="glass-light"] .drawer-left,
+html[data-app-theme="glass-light"] .modal-panel,
+html[data-app-theme="glass-light"] .help-panel,
+html[data-app-theme="glass-light"] .context-menu,
+html[data-app-theme="glass-light"] .toast,
+html[data-app-theme="glass-light"] .update-modal-panel,
+html[data-app-theme="glass-light"] .provider-models-panel,
+html[data-app-theme="glass-light"] .api-settings-help-panel,
+html[data-app-theme="glass-light"] .theme-menu-panel,
+html[data-app-theme="glass-light"] .provider-multiselect-panel {
+    background: var(--glass-surface);
+    border-color: var(--glass-border);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-light"] #toolbar:hover,
+html[data-app-theme="glass-light"] #toolbar:focus-within,
+html[data-app-theme="glass-light"] #toolbar:has(.btn.active),
+html[data-app-theme="glass-light"] #toolbar:has([aria-expanded="true"]),
+html[data-app-theme="glass-light"] body.toolbar-peek-active #toolbar,
+html[data-app-theme="glass-light"] body.toolbar-pinned #toolbar,
+html[data-app-theme="glass-light"] .btn:hover,
+html[data-app-theme="glass-light"] .btn-icon:hover,
+html[data-app-theme="glass-light"] .icon-btn:hover,
+html[data-app-theme="glass-light"] .workflow-action-btn:hover,
+html[data-app-theme="glass-light"] .prompt-card-btn:hover,
+html[data-app-theme="glass-light"] .prompt-card-icon-btn:hover,
+html[data-app-theme="glass-light"] .prompt-import-btn:hover,
+html[data-app-theme="glass-light"] .camera-control-open-btn:hover,
+html[data-app-theme="glass-light"] .camera-control-editor-close:hover,
+html[data-app-theme="glass-light"] .camera-control-editor-reset:hover,
+html[data-app-theme="glass-light"] .camera-control-view-mode-btn:hover,
+html[data-app-theme="glass-light"] .camera-control-view-mode-btn.active,
+html[data-app-theme="glass-light"] .fullscreen-close:hover,
+html[data-app-theme="glass-light"] .fullscreen-paint-btn:hover,
+html[data-app-theme="glass-light"] .preview-nav-btn:hover,
+html[data-app-theme="glass-light"] .copy-btn:hover {
+    background: var(--glass-surface-hover);
+    border-color: var(--glass-border-strong);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-light"] .btn,
+html[data-app-theme="glass-light"] .btn-secondary,
+html[data-app-theme="glass-light"] .btn-ghost,
+html[data-app-theme="glass-light"] .btn-icon,
+html[data-app-theme="glass-light"] .icon-btn,
+html[data-app-theme="glass-light"] .workflow-action-btn,
+html[data-app-theme="glass-light"] .prompt-card-btn,
+html[data-app-theme="glass-light"] .prompt-card-icon-btn,
+html[data-app-theme="glass-light"] .prompt-import-btn,
+html[data-app-theme="glass-light"] .camera-control-open-btn,
+html[data-app-theme="glass-light"] .camera-control-editor-close,
+html[data-app-theme="glass-light"] .camera-control-editor-reset,
+html[data-app-theme="glass-light"] .camera-control-view-mode-btn,
+html[data-app-theme="glass-light"] .fullscreen-close,
+html[data-app-theme="glass-light"] .fullscreen-paint-btn,
+html[data-app-theme="glass-light"] .preview-nav-btn,
+html[data-app-theme="glass-light"] .btn-close-preview,
+html[data-app-theme="glass-light"] .history-card .delete-btn,
+html[data-app-theme="glass-light"] .copy-btn {
+    background: var(--glass-surface);
+    border-color: var(--glass-border);
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-light"] .btn-run,
+html[data-app-theme="glass-light"] .btn-primary,
+html[data-app-theme="glass-light"] #settings-modal .settings-toolbar .btn-accent,
+html[data-app-theme="glass-light"] .card-btn-fetch-models {
+    background: linear-gradient(135deg, #0ea5e9, #2563eb);
+    border-color: rgba(37, 99, 235, 0.28);
+    color: #ffffff;
+}
+
+html[data-app-theme="glass-light"] .btn-run:hover,
+html[data-app-theme="glass-light"] .btn-primary:hover,
+html[data-app-theme="glass-light"] #settings-modal .settings-toolbar .btn-accent:hover,
+html[data-app-theme="glass-light"] .card-btn-fetch-models:hover {
+    background: linear-gradient(135deg, #38bdf8, #3b82f6);
+    color: #ffffff;
+}
+
+html[data-app-theme="glass-light"] .btn-stop {
+    background: rgba(244, 63, 94, 0.12);
+    border-color: rgba(244, 63, 94, 0.24);
+    color: #be123c;
+}
+
+html[data-app-theme="glass-light"] #canvas-container {
+    background-image:
+        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
+        linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(37, 99, 235, 0.08) 50%, rgba(20, 184, 166, 0.1) 100%);
+}
+
+html[data-app-theme="glass-light"] .node-glass-bg {
+    background: var(--glass-card-surface);
+    border-color: var(--glass-border);
+    box-shadow: var(--shadow-node);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-light"] .node.selected .node-glass-bg {
+    background: var(--glass-card-surface-hover);
+    border-color: var(--glass-border-strong);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-light"] .node.is-interacting .node-glass-bg,
+html[data-app-theme="glass-light"] #canvas-container.is-zooming .node-glass-bg {
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+}
+
+html[data-app-theme="glass-light"] .node-header,
+html[data-app-theme="glass-light"] .drawer-header,
+html[data-app-theme="glass-light"] .drawer-subheader,
+html[data-app-theme="glass-light"] .help-panel-header,
+html[data-app-theme="glass-light"] .modal-header,
+html[data-app-theme="glass-light"] .modal-tabs,
+html[data-app-theme="glass-light"] .provider-models-header,
+html[data-app-theme="glass-light"] .provider-models-search-row,
+html[data-app-theme="glass-light"] .api-settings-help-header {
+    background: var(--glass-surface-soft);
+    border-color: var(--glass-border-soft);
+}
+
+html[data-app-theme="glass-light"] .node-field input,
+html[data-app-theme="glass-light"] .node-field select,
+html[data-app-theme="glass-light"] .node-field textarea,
+html[data-app-theme="glass-light"] .api-config-card .card-field input,
+html[data-app-theme="glass-light"] .api-config-card .card-field select,
+html[data-app-theme="glass-light"] .save-workflow-box input,
+html[data-app-theme="glass-light"] #settings-modal #proxy-ip,
+html[data-app-theme="glass-light"] #settings-modal #proxy-port,
+html[data-app-theme="glass-light"] #settings-modal #setting-max-side,
+html[data-app-theme="glass-light"] #settings-modal #setting-max-retries,
+html[data-app-theme="glass-light"] #settings-modal #setting-timeout-seconds,
+html[data-app-theme="glass-light"] #settings-modal .password-wrapper input,
+html[data-app-theme="glass-light"] .provider-models-search-row input,
+html[data-app-theme="glass-light"] .provider-multiselect-trigger,
+html[data-app-theme="glass-light"] .camera-control-value,
+html[data-app-theme="glass-light"] .camera-control-prompt {
+    background: var(--glass-surface-dark) !important;
+    border-color: var(--glass-border-soft) !important;
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-light"] .workflow-item,
+html[data-app-theme="glass-light"] .api-config-card,
+html[data-app-theme="glass-light"] #settings-modal .general-settings-card,
+html[data-app-theme="glass-light"] .cache-info-card,
+html[data-app-theme="glass-light"] .cache-item,
+html[data-app-theme="glass-light"] .cache-breakdown,
+html[data-app-theme="glass-light"] .save-workflow-box,
+html[data-app-theme="glass-light"] .api-settings-help-section,
+html[data-app-theme="glass-light"] .camera-control-node-preview,
+html[data-app-theme="glass-light"] .camera-control-node-preview.has-image,
+html[data-app-theme="glass-light"] .camera-control-editor-panel,
+html[data-app-theme="glass-light"] .camera-control-stage,
+html[data-app-theme="glass-light"] #general-settings .update-version-summary {
+    background: var(--glass-card-surface) !important;
+    border-color: var(--glass-border) !important;
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-app-theme="glass-light"] .workflow-item:hover,
+html[data-app-theme="glass-light"] .api-config-card:hover,
+html[data-app-theme="glass-light"] #settings-modal .general-settings-card:hover,
+html[data-app-theme="glass-light"] .prompt-card:hover,
+html[data-app-theme="glass-light"] .history-card:hover {
+    background: var(--glass-card-surface-hover) !important;
+    border-color: var(--glass-border-strong) !important;
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-light"] #settings-modal .api-config-card:hover,
+html[data-app-theme="glass-light"] #settings-modal .general-settings-card:hover {
+    background: rgba(226, 232, 240, 0.58) !important;
+    border-color: rgba(148, 163, 184, 0.28) !important;
+}
+
+html[data-app-theme="glass-light"] .history-card.selected {
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-light"] .prompt-card,
+html[data-app-theme="glass-light"] .prompt-import-item,
+html[data-app-theme="glass-light"] .history-card,
+html[data-app-theme="glass-light"] .search-chips {
+    box-shadow: none;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
 }
