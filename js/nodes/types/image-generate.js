@@ -14,6 +14,7 @@ export const imageGenerateNode = {
         { name: 'image_3', type: 'image', label: '参考图 3' },
         { name: 'image_4', type: 'image', label: '参考图 4' },
         { name: 'image_5', type: 'image', label: '参考图 5' },
+        { name: 'mask', type: 'image', label: '遮罩' },
         { name: 'params', type: 'params', label: '自定义参数' }
     ],
     outputs: [{ name: 'image', type: 'image', label: '图片输出' }],

@@ -2308,13 +2308,24 @@ export function createSettingsControllerApi({
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = normalizedValue;
-        const isOpenAiModel = getEffectiveProtocol(model, provider) === 'openai';
+        const protocol = getEffectiveProtocol(model, provider);
+        const isOpenAiModel = protocol === 'openai';
+        const isNewApiAsyncImage = protocol === 'newapi-image-async';
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
         if (aspectField) aspectField.classList.toggle('hidden', isOpenAiModel);
         const qualityField = documentRef.getElementById(`${id}-quality-field`);
         if (qualityField) qualityField.classList.toggle('hidden', !isOpenAiModel);
+        [
+            `${id}-moderation-field`,
+            `${id}-background-field`
+        ].forEach((fieldId) => {
+            const field = documentRef.getElementById(fieldId);
+            if (field) field.classList.toggle('hidden', !isOpenAiModel);
+        });
         const note = documentRef.getElementById(`${id}-resolution-param-note`);
         if (note) note.classList.toggle('hidden', !isOpenAiModel);
+        const searchField = documentRef.getElementById(`${id}-search-field`);
+        if (searchField) searchField.classList.toggle('hidden', isOpenAiModel || isNewApiAsyncImage);
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (customField) customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
         const widthInput = documentRef.getElementById(`${id}-custom-resolution-width`);

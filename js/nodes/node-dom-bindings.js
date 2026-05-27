@@ -1330,8 +1330,9 @@ export function createNodeDomBindingsApi({
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
         updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage);
         updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage);
+        updateImageGenerateOpenAiExtraVisibility(id, isOpenAiModel, isNewApiAsyncImage);
         updateImageGenerateResolutionParamNote(id, isOpenAiModel);
-        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage);
+        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, isOpenAiModel);
         updateImageGenerateCustomResolutionVisibility(id);
     }
 
@@ -1347,13 +1348,23 @@ export function createNodeDomBindingsApi({
         qualityField.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
     }
 
+    function updateImageGenerateOpenAiExtraVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
+        [
+            `${id}-moderation-field`,
+            `${id}-background-field`
+        ].forEach((fieldId) => {
+            const field = documentRef.getElementById(fieldId);
+            if (field) field.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
+        });
+    }
+
     function updateImageGenerateResolutionParamNote(id, isOpenAiModel) {
         const note = documentRef.getElementById(`${id}-resolution-param-note`);
         if (!note) return;
         note.classList.toggle('hidden', !isOpenAiModel);
     }
 
-    function updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage) {
+    function updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, isOpenAiModel = false) {
         [
             `${id}-image-async-result-field`,
             `${id}-resume-image-id-field`,
@@ -1363,7 +1374,7 @@ export function createNodeDomBindingsApi({
             if (field) field.classList.toggle('hidden', !isNewApiAsyncImage);
         });
         const searchField = documentRef.getElementById(`${id}-search-field`);
-        if (searchField) searchField.classList.toggle('hidden', isNewApiAsyncImage);
+        if (searchField) searchField.classList.toggle('hidden', isOpenAiModel || isNewApiAsyncImage);
     }
 
     function updateImageGenerateCustomResolutionVisibility(id) {

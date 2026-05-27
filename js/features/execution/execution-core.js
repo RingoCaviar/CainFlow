@@ -815,6 +815,9 @@ export function createExecutionCoreApi({
         const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
         const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
         const quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
+        const moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
+        const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
+        const mask = getImageGenerateMask(inputs);
         const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
         const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
         const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
@@ -825,12 +828,21 @@ export function createExecutionCoreApi({
             action: isNewApiAsyncImage ? 'create' : undefined,
             inputs
         });
+        const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
         const requestBody = isNewApiAsyncImage
             ? buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolution, inputs })
             : (isGoogle
                 ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs }));
-        const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
+                : buildOpenAiImageRequest({
+                    modelCfg,
+                    prompt,
+                    resolution,
+                    quality,
+                    moderation,
+                    background,
+                    mask: isOpenAiImageEdit ? mask : null,
+                    inputs
+                }));
         return {
             nodeId: id,
             nodeType: node.type,
@@ -1042,6 +1054,30 @@ export function createExecutionCoreApi({
         throw new Error('OpenAI 兼容图片编辑只支持 data URL 或 HTTP(S) 参考图');
     }
 
+    function getImageGenerateMask(inputs = {}) {
+        const data = getPrimaryImageInput(inputs.mask);
+        if (!data) return null;
+        return {
+            data,
+            name: 'mask.png',
+            size: 0,
+            type: ''
+        };
+    }
+
+    async function getOpenAiMaskBlob(mask, signal) {
+        if (!mask?.data) return null;
+        const blob = await getReferenceImageBlob(mask.data, signal);
+        const mime = String(blob?.type || '').toLowerCase();
+        if (mime && mime !== 'image/png') {
+            throw new Error('OpenAI 图片编辑遮罩必须是 PNG 图片');
+        }
+        if (blob.size > 4 * 1024 * 1024) {
+            throw new Error('OpenAI 图片编辑遮罩不能超过 4MB');
+        }
+        return blob;
+    }
+
     async function buildOpenAiImageEditFormData(requestBody, inputs, signal) {
         const formData = new FormData();
         const referenceImages = getReferenceImageInputs(inputs);
@@ -1051,6 +1087,8 @@ export function createExecutionCoreApi({
         if (requestBody.n !== undefined) formData.append('n', String(requestBody.n));
         if (requestBody.size) formData.append('size', requestBody.size);
         if (requestBody.quality) formData.append('quality', requestBody.quality);
+        if (requestBody.moderation) formData.append('moderation', requestBody.moderation);
+        if (requestBody.background) formData.append('background', requestBody.background);
 
         for (let index = 0; index < referenceImages.length; index += 1) {
             const blob = await getReferenceImageBlob(referenceImages[index].value, signal);
@@ -1058,19 +1096,29 @@ export function createExecutionCoreApi({
             formData.append('image', blob, `reference_${index + 1}.${extension}`);
         }
 
+        if (requestBody.mask?.data) {
+            const maskBlob = await getOpenAiMaskBlob(requestBody.mask, signal);
+            formData.append('mask', maskBlob, requestBody.mask.name || 'mask.png');
+        }
+
         return formData;
     }
 
     function getOpenAiImageRequestLogBody(requestBody, inputs) {
         const referenceImages = getReferenceImageInputs(inputs);
-        if (referenceImages.length === 0) return requestBody;
+        if (referenceImages.length === 0 && !requestBody.mask?.data) return requestBody;
         return {
             model: requestBody.model,
             prompt: requestBody.prompt,
             n: requestBody.n,
             ...(requestBody.size ? { size: requestBody.size } : {}),
             ...(requestBody.quality ? { quality: requestBody.quality } : {}),
-            image: `[${referenceImages.length} reference image file(s)]`
+            ...(requestBody.moderation ? { moderation: requestBody.moderation } : {}),
+            ...(requestBody.background ? { background: requestBody.background } : {}),
+            image: `[${referenceImages.length} reference image file(s)]`,
+            ...(requestBody.mask?.data ? {
+                mask: `[mask file: ${requestBody.mask.name || 'mask.png'}, ${requestBody.mask.size || 0} bytes]`
+            } : {})
         };
     }
 
@@ -1175,6 +1223,8 @@ export function createExecutionCoreApi({
                 const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
                 const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
                 const quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
+                const moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
+                const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
                 const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`).value;
                 const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
@@ -1210,6 +1260,7 @@ export function createExecutionCoreApi({
                 }
                 const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
                 const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
+                const mask = isOpenAiImageEdit ? getImageGenerateMask(inputs) : null;
                 const headers = isGoogle
                     ? getProxyHeaders(url, 'POST')
                     : getProxyHeaders(url, 'POST', {
@@ -1257,7 +1308,7 @@ export function createExecutionCoreApi({
                     const runSingleGeneration = async (nextGenerationIndex) => {
                         const requestBody = isGoogle
                             ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                            : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs });
+                            : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs });
                         showToast(
                             generationCount > 1
                                 ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
@@ -1410,7 +1461,7 @@ export function createExecutionCoreApi({
                     });
                     const requestBody = isGoogle
                         ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs });
+                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs });
                     showToast(
                         generationCount > 1
                             ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`

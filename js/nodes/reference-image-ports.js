@@ -40,14 +40,17 @@ export function applyReferenceImagePorts(config, restoreData = {}) {
     const baseInputs = Array.isArray(config.inputs)
         ? config.inputs.filter((port) => !(port?.type === 'image' && /^image_\d+$/.test(String(port?.name || ''))))
         : [];
-    const paramsIndex = baseInputs.findIndex((port) => port?.name === 'params');
+    const maskPort = baseInputs.find((port) => port?.name === 'mask') || null;
+    const nonMaskInputs = baseInputs.filter((port) => port?.name !== 'mask');
+    const paramsIndex = nonMaskInputs.findIndex((port) => port?.name === 'params');
     const referencePorts = getReferenceImageInputPorts(restoreData, config?.type || '');
     const inputs = paramsIndex >= 0
         ? [
-            ...baseInputs.slice(0, paramsIndex),
+            ...nonMaskInputs.slice(0, paramsIndex),
             ...referencePorts,
-            ...baseInputs.slice(paramsIndex)
+            ...(maskPort ? [maskPort] : []),
+            ...nonMaskInputs.slice(paramsIndex)
         ]
-        : [...baseInputs, ...referencePorts];
+        : [...nonMaskInputs, ...referencePorts, ...(maskPort ? [maskPort] : [])];
     return { ...config, inputs };
 }

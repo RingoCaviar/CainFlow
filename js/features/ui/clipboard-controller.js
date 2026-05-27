@@ -94,6 +94,9 @@ export function createClipboardControllerApi({
                 serialized.customResolution = serialized.customWidth && serialized.customHeight
                     ? `${serialized.customWidth}x${serialized.customHeight}`
                     : '';
+                serialized.quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
+                serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
+                serialized.background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                 serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
             } else if (node.type === 'VideoGenerate') {

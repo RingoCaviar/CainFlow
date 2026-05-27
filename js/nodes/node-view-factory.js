@@ -387,6 +387,12 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const imageQuality = ['low', 'medium', 'high'].includes(String(rd.quality || '').toLowerCase())
         ? String(rd.quality).toLowerCase()
         : 'auto';
+    const imageModeration = ['low', 'auto'].includes(String(rd.moderation || '').toLowerCase())
+        ? String(rd.moderation).toLowerCase()
+        : 'auto';
+    const imageBackground = ['transparent', 'opaque', 'auto'].includes(String(rd.background || '').toLowerCase())
+        ? String(rd.background).toLowerCase()
+        : 'auto';
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
     const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
     const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
@@ -456,6 +462,25 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             </select>`
         })}
         ${renderNodeFormField({
+            label: '内容审核',
+            fieldClass: isOpenAiModel && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldId: `${id}-moderation-field`,
+            content: `<select id="${id}-moderation">
+                <option value="auto" ${imageModeration === 'auto' ? 'selected' : ''}>自动（auto）</option>
+                <option value="low" ${imageModeration === 'low' ? 'selected' : ''}>低限制（low）</option>
+            </select>`
+        })}
+        ${renderNodeFormField({
+            label: '背景',
+            fieldClass: isOpenAiModel && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldId: `${id}-background-field`,
+            content: `<select id="${id}-background">
+                <option value="auto" ${imageBackground === 'auto' ? 'selected' : ''}>自动（auto）</option>
+                <option value="transparent" ${imageBackground === 'transparent' ? 'selected' : ''}>透明（transparent）</option>
+                <option value="opaque" ${imageBackground === 'opaque' ? 'selected' : ''}>不透明（opaque）</option>
+            </select>`
+        })}
+        ${renderNodeFormField({
             label: '自定义分辨率',
             fieldClass: showCustomResolution ? '' : 'hidden',
             fieldId: `${id}-custom-resolution-field`,
@@ -472,7 +497,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             label: '启用搜索',
             inputId: `${id}-search`,
             checked: rd.search === true,
-            hidden: isNewApiAsyncImage,
+            hidden: isOpenAiModel || isNewApiAsyncImage,
             fieldId: `${id}-search-field`
         })}
         ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality；NEW API 原生异步模式会走 /v1/videos 并通过任务 ID 轮询。')}

@@ -221,6 +221,13 @@ export function createWorkflowRunnerApi({
             };
         }
 
+        if (node.type === 'ImageGenerate') {
+            return {
+                referenceImageCount: node.data.referenceImageCount,
+                generationCount: node.data.generationCount
+            };
+        }
+
         return {};
     }
 

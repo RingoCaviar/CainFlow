@@ -530,6 +530,16 @@ function normalizeOpenAiImageQuality(quality) {
     return value === 'low' || value === 'medium' || value === 'high' ? value : '';
 }
 
+function normalizeOpenAiImageModeration(moderation) {
+    const value = String(moderation || '').trim().toLowerCase();
+    return value === 'low' || value === 'auto' ? value : '';
+}
+
+function normalizeOpenAiImageBackground(background) {
+    const value = String(background || '').trim().toLowerCase();
+    return value === 'transparent' || value === 'opaque' || value === 'auto' ? value : '';
+}
+
 function getOpenAiReferenceImages(inputs = {}) {
     return getImageInputKeys(inputs)
         .map((key) => inputs[key])
@@ -577,7 +587,7 @@ function addDoubaoImageContent(content, url, role) {
     content.push(item);
 }
 
-export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, inputs = {} }) {
+export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask = null, inputs = {} }) {
     const requestBody = {
         model: modelCfg.modelId,
         prompt,
@@ -589,6 +599,21 @@ export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality,
 
     const normalizedQuality = normalizeOpenAiImageQuality(quality);
     if (normalizedQuality) requestBody.quality = normalizedQuality;
+
+    const normalizedModeration = normalizeOpenAiImageModeration(moderation);
+    if (normalizedModeration) requestBody.moderation = normalizedModeration;
+
+    const normalizedBackground = normalizeOpenAiImageBackground(background);
+    if (normalizedBackground) requestBody.background = normalizedBackground;
+
+    if (mask?.data) {
+        requestBody.mask = {
+            name: mask.name || 'mask.png',
+            type: mask.type || 'image/png',
+            size: Number(mask.size) || 0,
+            data: mask.data
+        };
+    }
 
     const referenceImages = getOpenAiReferenceImages(inputs);
     if (referenceImages.length > 0) requestBody.reference_images = referenceImages;
