@@ -1,3 +1,5 @@
+import { canUseCanvasShortcuts, isModalOrFullscreenOpen, isTextEditingTarget } from './shortcut-guard.js';
+
 /**
  * Handles global interactions such as image drag/drop, paste, and Escape.
  */
@@ -103,7 +105,7 @@ export function createGlobalInteractionsApi({
 
         windowRef.addEventListener('keydown', (e) => {
             const active = documentRef.activeElement;
-            const isInput = active && (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable);
+            const isInput = isTextEditingTarget(active);
 
             if (e.key === 'Escape') {
                 documentRef.getElementById('history-preview-modal')?.classList.add('hidden');
@@ -115,6 +117,7 @@ export function createGlobalInteractionsApi({
                     state.notificationAudio?.pause();
                 }
             } else if ((e.key === 'm' || e.key === 'M' || e.key === 'd' || e.key === 'D') && !isInput && !e.repeat) {
+                if (!canUseCanvasShortcuts({ event: e, state, canvasContainer, documentRef, windowRef })) return;
                 if (state.selectedNodes.size > 0) {
                     e.preventDefault();
                     toggleNodesEnabled(Array.from(state.selectedNodes));
@@ -133,7 +136,8 @@ export function createGlobalInteractionsApi({
             lastExternalPasteTime = now;
 
             const active = documentRef.activeElement;
-            if (active && (['INPUT', 'TEXTAREA'].includes(active.tagName) || active.isContentEditable)) return;
+            if (isTextEditingTarget(active) || isModalOrFullscreenOpen({ documentRef, windowRef })) return;
+            if (!canUseCanvasShortcuts({ event: e, state, canvasContainer, documentRef, windowRef })) return;
 
             const data = e.clipboardData;
             if (!data) return;

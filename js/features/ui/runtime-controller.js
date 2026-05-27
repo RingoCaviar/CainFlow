@@ -1,3 +1,5 @@
+import { canUseCanvasShortcuts, isTextEditingTarget } from './shortcut-guard.js';
+
 /**
  * 负责运行时全局监听，包括快捷键、窗口焦点、模态框关闭与工具栏高度同步。
  */
@@ -100,15 +102,17 @@ export function createRuntimeControllerApi({
     function initKeyboardShortcuts() {
         documentRef.addEventListener('keydown', (e) => {
             const activeElement = documentRef.activeElement;
-            const inInput = activeElement && (
-                activeElement.tagName === 'INPUT'
-                || activeElement.tagName === 'TEXTAREA'
-                || activeElement.tagName === 'SELECT'
-                || activeElement.isContentEditable
-            );
-            const hasTextSelection = windowRef.getSelection().toString().length > 0;
+            const inInput = isTextEditingTarget(activeElement);
+            const hasTextSelection = windowRef.getSelection()?.toString().length > 0;
+            const canvasShortcutsEnabled = canUseCanvasShortcuts({
+                event: e,
+                state,
+                canvasContainer,
+                documentRef,
+                windowRef
+            });
 
-            if (e.code === 'Space' && !inInput) {
+            if (e.code === 'Space' && canvasShortcutsEnabled) {
                 if (!state.isSpacePressed) {
                     state.isSpacePressed = true;
                     canvasContainer.classList.add('space-pan-active');
@@ -116,7 +120,7 @@ export function createRuntimeControllerApi({
                 if (e.target === documentRef.body || e.target === canvasContainer) e.preventDefault();
             }
 
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && !inInput && state.isMouseOverCanvas) {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A') && canvasShortcutsEnabled) {
                 e.preventDefault();
                 selectionApi.selectAllNodes();
             }
@@ -124,8 +128,8 @@ export function createRuntimeControllerApi({
             if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveState(); showToast('工作流已保存', 'success'); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); documentRef.getElementById('import-file')?.click(); }
-            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !inInput && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V') && !inInput) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && canvasShortcutsEnabled && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V') && canvasShortcutsEnabled) {
                 e.preventDefault();
                 e.stopPropagation();
                 state.skipNextClipboardPasteUntil = Date.now() + 300;
@@ -136,10 +140,11 @@ export function createRuntimeControllerApi({
                 undo();
             }
 
-            if (e.key === 'Delete' && state.selectedNodes.size > 0 && !inInput) {
+            if (e.key === 'Delete' && state.selectedNodes.size > 0 && canvasShortcutsEnabled) {
+                e.preventDefault();
                 Array.from(state.selectedNodes).forEach((id) => removeNode(id));
             }
-            if ((e.key === 'f' || e.key === 'F') && !inInput) {
+            if ((e.key === 'f' || e.key === 'F') && canvasShortcutsEnabled) {
                 e.preventDefault();
                 zoomToFit();
                 scheduleSave();

@@ -417,6 +417,22 @@
     z-index: 0;
 }
 
+#providers-list .provider-config-card.is-collapsed,
+#models-list .model-config-card.is-collapsed {
+    cursor: pointer;
+}
+
+#providers-list .provider-config-card.is-collapsed .card-header,
+#models-list .model-config-card.is-collapsed .card-header {
+    min-height: 28px;
+}
+
+#providers-list .provider-config-card.is-collapsed .card-header .card-name,
+#models-list .model-config-card.is-collapsed .card-header .card-name {
+    pointer-events: none;
+    cursor: pointer;
+}
+
 #models-list .api-config-card:has(.provider-multiselect-trigger[aria-expanded="true"]) {
     z-index: 90;
 }

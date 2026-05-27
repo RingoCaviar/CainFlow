@@ -1352,10 +1352,11 @@ export function createSettingsControllerApi({
         state.providers.forEach((prov) => {
             const isCollapsed = providerCollapseState.get(prov.id) !== false;
             const el = documentRef.createElement('div');
-            el.className = 'api-config-card';
+            el.className = `api-config-card provider-config-card${isCollapsed ? ' is-collapsed' : ''}`;
+            el.dataset.providerId = prov.id;
             el.innerHTML = `
                 <div class="card-header">
-                    <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:var(--accent-cyan);width:150px" />
+                    <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开供应商配置"' : ''} style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:var(--accent-cyan);width:150px" />
                     <div class="card-header-actions">
                         <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
                         <button class="card-btn-collapse" data-id="${prov.id}" data-target="provider" title="${isCollapsed ? '展开此供应商' : '折叠此供应商'}" aria-expanded="${isCollapsed ? 'false' : 'true'}">${isCollapsed ? '▸' : '▾'}</button>
@@ -1494,11 +1495,17 @@ export function createSettingsControllerApi({
             });
         });
 
-        providersList.querySelectorAll('.api-config-card .card-header').forEach((header) => {
-            header.addEventListener('click', (e) => {
-                if (isCardHeaderControlClick(e)) return;
-                const id = header.querySelector('.card-btn-collapse')?.dataset.id;
+        providersList.querySelectorAll('.provider-config-card').forEach((card) => {
+            card.addEventListener('click', (e) => {
+                const isCollapsedCard = card.classList.contains('is-collapsed');
+                const clickedHeader = e.target.closest('.card-header');
+                if (!isCollapsedCard && !clickedHeader) return;
+                if (e.target.closest('.card-btn-fetch-models, .card-btn-delete, .card-btn-collapse, button, select, textarea, label, a')) return;
+                if (!isCollapsedCard && isCardHeaderControlClick(e)) return;
+
+                const id = card.dataset.providerId || card.querySelector('.card-btn-collapse')?.dataset.id;
                 if (!id) return;
+                e.preventDefault();
                 toggleConfigCard(providerCollapseState, id, renderProviders);
             });
         });
@@ -1517,7 +1524,8 @@ export function createSettingsControllerApi({
             syncModelProviderBindings(mod);
             const isCollapsed = modelCollapseState.get(mod.id) !== false;
             const el = documentRef.createElement('div');
-            el.className = 'api-config-card';
+            el.className = `api-config-card model-config-card${isCollapsed ? ' is-collapsed' : ''}`;
+            el.dataset.modelId = mod.id;
             const taskType = normalizeModelTaskType(mod.taskType, mod);
             const provider = getResolvedModelProvider(mod);
             const protocol = getEffectiveProtocol(mod, provider);
@@ -1548,7 +1556,7 @@ export function createSettingsControllerApi({
                 : '<div style="font-size:11px;color:var(--text-dim);padding-top:8px;">请先添加供应商</div>';
             el.innerHTML = `
                 <div class="card-header">
-                    <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:#a855f7;width:200px" />
+                    <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开模型配置"' : ''} style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:#a855f7;width:200px" />
                     <div class="card-header-actions">
                         ${mod.id !== 'default' ? `<button class="card-btn-delete" data-id="${mod.id}" data-target="model" title="删除此模型">×</button>` : ''}
                     </div>
@@ -1679,11 +1687,17 @@ export function createSettingsControllerApi({
             });
         });
 
-        modelsList.querySelectorAll('.api-config-card .card-header').forEach((header) => {
-            header.addEventListener('click', (e) => {
-                if (isCardHeaderControlClick(e)) return;
-                const id = header.querySelector('.card-name')?.dataset.id;
+        modelsList.querySelectorAll('.model-config-card').forEach((card) => {
+            card.addEventListener('click', (e) => {
+                const isCollapsedCard = card.classList.contains('is-collapsed');
+                const clickedHeader = e.target.closest('.card-header');
+                if (!isCollapsedCard && !clickedHeader) return;
+                if (e.target.closest('.card-btn-delete, button, select, textarea, label, a')) return;
+                if (!isCollapsedCard && isCardHeaderControlClick(e)) return;
+
+                const id = card.dataset.modelId || card.querySelector('.card-name')?.dataset.id;
                 if (!id) return;
+                e.preventDefault();
                 toggleConfigCard(modelCollapseState, id, renderModels);
             });
         });
