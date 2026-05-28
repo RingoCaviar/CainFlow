@@ -65,6 +65,29 @@ export function createCanvasInteractionsApi({
         return isFormControl && !!active.closest('.node');
     }
 
+    function distributeNodeTextareaResize(resizeState, nextNodeHeight) {
+        const targets = Array.isArray(resizeState?.textareaResizeTargets)
+            ? resizeState.textareaResizeTargets
+            : [];
+        if (!targets.length) return;
+
+        const delta = Number(nextNodeHeight) - Number(resizeState.startHeight);
+        const totalWeight = targets.reduce((sum, target) => {
+            return sum + Math.max(1, Number(target.weight) || Number(target.startHeight) || 1);
+        }, 0) || targets.length;
+
+        targets.forEach((target) => {
+            const textarea = target?.el;
+            if (!textarea?.isConnected) return;
+            const weight = Math.max(1, Number(target.weight) || Number(target.startHeight) || 1);
+            const ratio = weight / totalWeight;
+            const minHeight = Math.max(0, Number(target.minHeight) || 0);
+            const startHeight = Math.max(minHeight, Number(target.startHeight) || minHeight);
+            const nextHeight = Math.max(minHeight, startHeight + delta * ratio);
+            textarea.style.height = `${Math.round(nextHeight)}px`;
+        });
+    }
+
     function finishZoomInteraction() {
         if (state.zoomSettleControlLock) {
             state.pendingZoomVisualRefresh = true;
@@ -501,6 +524,8 @@ export function createCanvasInteractionsApi({
                     let dynamicMinWidth = r.minWidth;
                     let dynamicMinHeight = r.minHeight;
                     let constrainedWidth = Math.max(targetW, r.minWidth);
+                    const configuredMaxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
+                    distributeNodeTextareaResize(r, Math.min(targetH, configuredMaxHeight));
 
                     if (typeof getNodeMinimumSize === 'function') {
                         const provisionalMinimum = getNodeMinimumSize(node, { width: constrainedWidth });
@@ -517,11 +542,11 @@ export function createCanvasInteractionsApi({
                         }
                     }
 
-                    const configuredMaxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
                     const maxHeight = configuredMaxHeight >= dynamicMinHeight ? configuredMaxHeight : Infinity;
                     const newH = Math.min(Math.max(targetH, dynamicMinHeight), maxHeight);
                     node.el.style.width = constrainedWidth + 'px';
                     node.el.style.height = newH + 'px';
+                    distributeNodeTextareaResize(r, newH);
 
                     updateAllConnections();
                 }
@@ -638,6 +663,7 @@ export function createCanvasInteractionsApi({
                         node.el.style.width = `${Math.round(finalWidth)}px`;
                         node.el.style.height = `${Math.round(finalHeight)}px`;
                     }
+                    distributeNodeTextareaResize(r, finalHeight);
                     node.width = Math.round(finalWidth);
                     node.height = Math.round(finalHeight);
                     node.observedWidth = node.width;

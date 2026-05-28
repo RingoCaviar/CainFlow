@@ -3,7 +3,7 @@
     --bg-canvas: #1a1a2e;
     --bg-grid-dot: rgba(255, 255, 255, 0.06);
     --bg-toolbar: rgba(16, 16, 32, 0.92);
-    --bg-node: rgba(30, 30, 52, 0.95);
+    --bg-node: #1e1e34;
     --bg-node-header: rgba(255, 255, 255, 0.06);
     --bg-input: rgba(0, 0, 0, 0.3);
     --bg-context-menu: rgba(22, 22, 42, 0.96);
@@ -954,13 +954,13 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     0%,
     100% {
         box-shadow: 0 0 4px 1px rgba(34, 211, 238, 0.28), 0 0 8px 2px rgba(34, 211, 238, 0.08);
-        background: rgba(34, 211, 238, 0.02);
+        background: transparent;
         filter: drop-shadow(0 0 2px rgba(34, 211, 238, 0.3));
     }
 
     50% {
         box-shadow: 0 0 12px 4px rgba(34, 211, 238, 0.6), 0 0 22px 8px rgba(34, 211, 238, 0.22);
-        background: rgba(34, 211, 238, 0.12);
+        background: transparent;
         filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.7));
     }
 }

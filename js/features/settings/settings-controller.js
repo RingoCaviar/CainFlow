@@ -2326,6 +2326,13 @@ export function createSettingsControllerApi({
         if (note) note.classList.toggle('hidden', !isOpenAiModel);
         const searchField = documentRef.getElementById(`${id}-search-field`);
         if (searchField) searchField.classList.toggle('hidden', isOpenAiModel || isNewApiAsyncImage);
+        const maskPort = documentRef.querySelector(`.node-port[data-node-id="${id}"][data-port="mask"][data-direction="input"]`);
+        if (maskPort) {
+            const wasHidden = maskPort.classList.contains('hidden');
+            maskPort.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
+            maskPort.setAttribute('aria-hidden', isOpenAiModel && !isNewApiAsyncImage ? 'false' : 'true');
+            if (wasHidden !== maskPort.classList.contains('hidden')) updateAllConnections();
+        }
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (customField) customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
         const widthInput = documentRef.getElementById(`${id}-custom-resolution-width`);

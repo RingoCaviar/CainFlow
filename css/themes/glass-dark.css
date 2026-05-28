@@ -4,8 +4,8 @@
     --glass-surface-soft: rgba(255, 255, 255, 0.1);
     --glass-surface-hover: rgba(255, 255, 255, 0.2);
     --glass-surface-strong: rgba(255, 255, 255, 0.24);
-    --glass-card-surface: rgba(0, 0, 0, 0.28);
-    --glass-card-surface-hover: rgba(0, 0, 0, 0.34);
+    --glass-card-surface: rgba(0, 0, 0, 0.14);
+    --glass-card-surface-hover: rgba(0, 0, 0, 0.2);
     --glass-surface-dark: rgba(0, 0, 0, 0.2);
     --glass-surface-dark-hover: rgba(0, 0, 0, 0.26);
     --glass-border: rgba(255, 255, 255, 0.2);
@@ -402,14 +402,7 @@ html[data-app-theme="glass-dark"] .node-glass-bg {
 }
 
 html[data-app-theme="glass-dark"] .node-glass-bg::before {
-    content: "";
-    position: absolute;
-    inset: 1px;
-    border-radius: calc(var(--radius-node) - 1px);
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04) 48%, rgba(255, 255, 255, 0) 72%);
-    opacity: 0.9;
-    pointer-events: none;
+    display: none;
 }
 
 html[data-app-theme="glass-dark"] .node.selected .node-glass-bg {

@@ -3,7 +3,7 @@
     --bg-canvas: #eef7fb;
     --bg-grid-dot: rgba(48, 82, 112, 0.13);
     --bg-toolbar: rgba(255, 255, 255, 0.52);
-    --bg-node: rgba(255, 255, 255, 0.56);
+    --bg-node: rgba(255, 255, 255, 0.42);
     --bg-node-header: rgba(255, 255, 255, 0.24);
     --bg-input: rgba(255, 255, 255, 0.6);
     --bg-context-menu: rgba(255, 255, 255, 0.66);
@@ -900,8 +900,8 @@ html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::
     --glass-surface-soft: rgba(255, 255, 255, 0.3);
     --glass-surface-hover: rgba(255, 255, 255, 0.58);
     --glass-surface-strong: rgba(255, 255, 255, 0.72);
-    --glass-card-surface: rgba(255, 255, 255, 0.48);
-    --glass-card-surface-hover: rgba(255, 255, 255, 0.64);
+    --glass-card-surface: rgba(255, 255, 255, 0.34);
+    --glass-card-surface-hover: rgba(255, 255, 255, 0.48);
     --glass-surface-dark: rgba(255, 255, 255, 0.36);
     --glass-border: rgba(255, 255, 255, 0.58);
     --glass-border-soft: rgba(148, 163, 184, 0.18);

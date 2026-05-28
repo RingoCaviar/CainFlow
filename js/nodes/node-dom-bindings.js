@@ -1290,11 +1290,13 @@ export function createNodeDomBindingsApi({
             const nextHeight = Math.round(element.offsetHeight || 0);
             if (!nextHeight || Math.abs(nextHeight - observedHeight) <= 1) return;
             observedHeight = nextHeight;
+            const nodeEl = element.closest('.node');
+            const nodeId = nodeEl?.dataset?.id;
+            if (nodeId && state.resizing?.nodeId === nodeId) return;
             if (frameId !== null) return;
             frameId = requestAnimationFrame(() => {
                 frameId = null;
-                const nodeEl = element.closest('.node');
-                const nodeId = nodeEl?.dataset?.id;
+                if (nodeId && state.resizing?.nodeId === nodeId) return;
                 if (nodeId) fitNodeToContent(nodeId, { reason: 'textarea-resize' });
                 scheduleSave();
             });
@@ -1331,6 +1333,7 @@ export function createNodeDomBindingsApi({
         updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage);
         updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage);
         updateImageGenerateOpenAiExtraVisibility(id, isOpenAiModel, isNewApiAsyncImage);
+        updateImageGenerateMaskPortVisibility(id, isOpenAiModel && !isNewApiAsyncImage);
         updateImageGenerateResolutionParamNote(id, isOpenAiModel);
         updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, isOpenAiModel);
         updateImageGenerateCustomResolutionVisibility(id);
@@ -1356,6 +1359,18 @@ export function createNodeDomBindingsApi({
             const field = documentRef.getElementById(fieldId);
             if (field) field.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
         });
+    }
+
+    function updateImageGenerateMaskPortVisibility(id, shouldShow) {
+        const maskPort = documentRef.querySelector(`.node-port[data-node-id="${id}"][data-port="mask"][data-direction="input"]`);
+        if (!maskPort) return;
+        const wasHidden = maskPort.classList.contains('hidden');
+        maskPort.classList.toggle('hidden', !shouldShow);
+        maskPort.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+        if (wasHidden !== !shouldShow) {
+            updateAllConnections();
+            updatePortStyles();
+        }
     }
 
     function updateImageGenerateResolutionParamNote(id, isOpenAiModel) {
@@ -1469,6 +1484,29 @@ export function createNodeDomBindingsApi({
 
     function isResizableMediaElement(el) {
         return Boolean(el?.matches?.(NODE_RESIZABLE_MEDIA_SELECTOR));
+    }
+
+    function collectNodeTextareaResizeTargets(el) {
+        const body = el?.querySelector?.('.node-body');
+        if (!body) return [];
+        return Array.from(body.querySelectorAll('textarea'))
+            .filter(isVisibleElement)
+            .map((textarea) => {
+                const style = getComputedStyle(textarea);
+                const minHeight = getPx(style, 'min-height');
+                const measuredHeight = textarea.getBoundingClientRect?.().height ||
+                    textarea.offsetHeight ||
+                    parseFloat(textarea.style.height || '0') ||
+                    minHeight;
+                const startHeight = Math.max(minHeight, measuredHeight || 0);
+                return {
+                    el: textarea,
+                    startHeight,
+                    minHeight,
+                    weight: Math.max(1, startHeight)
+                };
+            })
+            .filter((target) => target.startHeight > 0);
     }
 
     function measureTextWidth(text, font) {
@@ -1783,7 +1821,8 @@ export function createNodeDomBindingsApi({
                 startHeight: currentHeight,
                 minWidth: defaultMinimum.minWidth,
                 minHeight: defaultMinimum.minHeight,
-                maxHeight: node?.maxHeight || null
+                maxHeight: node?.maxHeight || null,
+                textareaResizeTargets: collectNodeTextareaResizeTargets(el)
             };
 
             pushHistory();

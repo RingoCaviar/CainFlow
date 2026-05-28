@@ -285,6 +285,13 @@ export function createConnectionsApi({
         };
     }
 
+    function isConnectionEndpointVisible(nodeId, portName, direction) {
+        const node = getNodeById(nodeId);
+        const portEl = node?.el?.querySelector(`.node-port[data-node-id="${nodeId}"][data-port="${portName}"][data-direction="${direction}"]`);
+        if (!portEl) return false;
+        return !portEl.classList.contains('hidden') && portEl.offsetParent !== null;
+    }
+
     function getNodeBounds(node) {
         const width = Number(node.width) > 0
             ? Number(node.width)
@@ -647,6 +654,15 @@ export function createConnectionsApi({
                     continue;
                 }
             }
+
+            const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
+                isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
+            if (!endpointsVisible && path) {
+                path.setAttribute('d', '');
+                updateFlowDecoration(path, conn.id, false);
+                continue;
+            }
+            if (!endpointsVisible) continue;
 
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
