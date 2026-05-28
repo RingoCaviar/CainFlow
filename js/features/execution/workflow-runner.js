@@ -1999,9 +1999,14 @@ export function createWorkflowRunnerApi({
                 clearTimeout(session.timeoutId);
                 session.timeoutId = null;
             }
+            const abortReason = session.abortReason || state.abortReason;
+            const wasManuallyStopped = abortReason === 'manual';
+            const wasTimedOut = abortReason === 'timeout';
             if (!isRunActive()) {
                 if (session.abortReason) state.abortReason = session.abortReason;
-                addLog('info', '工作流停止', getAbortMessage(state));
+                if (wasManuallyStopped) {
+                    addLog('info', '工作流停止', getAbortMessage({ ...state, abortReason }));
+                }
                 for (const nid of runningNodes) {
                     const node = state.nodes.get(nid);
                     if (node) clearNodeRunning(nid, node);
@@ -2019,7 +2024,6 @@ export function createWorkflowRunnerApi({
 
             const hasNodeBranchCancellation = session.canceledBranchNodeIds.size > 0;
             const completedRun = !terminatedByError && isRunActive() && !hasNodeBranchCancellation;
-            const abortReason = session.abortReason || state.abortReason;
             finalizeWorkflow();
 
             const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
@@ -2050,14 +2054,14 @@ export function createWorkflowRunnerApi({
                     notificationBody: `已跳过被取消节点的下游，其余节点已结束。耗时 ${totalDuration}s`,
                     playSound: true
                 });
-            } else if (abortReason === 'timeout') {
+            } else if (wasTimedOut) {
                 dispatchWorkflowCompletionNotice({
                     toastMessage: '请求超时，生成失败',
                     toastType: 'error',
                     notificationTitle: 'CainFlow 请求超时',
                     notificationBody: `工作流因请求超时停止，耗时 ${totalDuration}s`
                 });
-            } else {
+            } else if (wasManuallyStopped) {
                 dispatchWorkflowCompletionNotice({
                     toastMessage: '已手动停止运行',
                     toastType: 'info',

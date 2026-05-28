@@ -86,7 +86,7 @@ def set_request_body(handler, body, content_type=None, partial=False):
     context = get_request_log(handler)
     if not context:
         return
-    context['request'].update(summarize_body(body, content_type=content_type, partial=partial))
+    context['request'].update(summarize_body(body, content_type=content_type, partial=partial, include_full_body=False))
     if content_type:
         context['request']['contentType'] = content_type
 
@@ -104,7 +104,13 @@ def set_response_data(handler, status=None, headers=None, body=None, content_typ
     if content_type:
         response['contentType'] = content_type
     if body is not None or total_bytes is not None:
-        response.update(summarize_body(body, content_type=content_type, total_bytes=total_bytes, partial=partial))
+        response.update(summarize_body(
+            body,
+            content_type=content_type,
+            total_bytes=total_bytes,
+            partial=partial,
+            include_full_body=True,
+        ))
     for key, value in extra_fields.items():
         if value is not None:
             response[key] = value
@@ -200,7 +206,7 @@ def sanitize_headers(headers):
     return sanitized
 
 
-def summarize_body(body, content_type=None, total_bytes=None, partial=False):
+def summarize_body(body, content_type=None, total_bytes=None, partial=False, include_full_body=False):
     body_bytes = total_bytes
     if body is None:
         return {
@@ -228,11 +234,14 @@ def summarize_body(body, content_type=None, total_bytes=None, partial=False):
         try:
             parsed = json.loads(text)
             preview, truncated = sanitize_value(parsed)
-            return {
+            summary = {
                 'bodyPreview': preview,
                 'bodyTruncated': truncated,
                 'bodyBytes': body_bytes,
             }
+            if include_full_body and not partial:
+                summary['body'] = parsed
+            return summary
         except Exception:
             pass
 
@@ -246,11 +255,14 @@ def summarize_body(body, content_type=None, total_bytes=None, partial=False):
 
     safe_text, text_truncated = sanitize_text(text)
     body_truncated = text_truncated or (partial and body_bytes > len(text.encode('utf-8', errors='replace')))
-    return {
+    summary = {
         'bodyPreview': safe_text,
         'bodyTruncated': body_truncated,
         'bodyBytes': body_bytes,
     }
+    if include_full_body and not partial:
+        summary['body'] = text
+    return summary
 
 
 def sanitize_form_encoded(text):

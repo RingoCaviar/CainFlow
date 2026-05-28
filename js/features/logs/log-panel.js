@@ -25,7 +25,10 @@ export function createLogPanelApi({
     function persistLogs() {
         try {
             localStorageRef.setItem(storageKey, JSON.stringify({
-                logs: Array.isArray(state.logs) ? state.logs : [],
+                logs: (Array.isArray(state.logs) ? state.logs : []).map((log) => ({
+                    ...log,
+                    rawDetails: null
+                })),
                 logRetentionDays: normalizeRetentionDays(state.logRetentionDays)
             }));
         } catch (error) {
@@ -111,6 +114,7 @@ export function createLogPanelApi({
     function addLog(type, title, message, details = null, meta = {}) {
         ensureLogsInitialized();
         const sanitized = sanitizeDetails(details);
+        const rawDetails = details === null || details === undefined ? null : details;
         const now = Date.now();
         const latestLog = Array.isArray(state.logs) ? state.logs[0] : null;
         if (
@@ -131,7 +135,7 @@ export function createLogPanelApi({
             title,
             message,
             details: sanitized,
-            rawDetails: null,
+            rawDetails,
             userFacing: meta?.userFacing || null
         };
         state.logs.unshift(log);

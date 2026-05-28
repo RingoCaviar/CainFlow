@@ -872,13 +872,22 @@ export function extractAsyncImageResult(result) {
 }
 
 export function extractImageResult(apiCfg, result, modelCfg = null) {
+    if (result?.cainflowRecoveredImage && result?.recoveredImage?.dataUrl) {
+        return {
+            dataUrl: result.recoveredImage.dataUrl,
+            recovered: true,
+            recoverySource: result.recoveredImage.source || 'backend'
+        };
+    }
+
     if (getEffectiveProtocol(modelCfg, apiCfg) === 'google') {
         const candidate = result?.candidates?.[0];
         const parts = candidate?.content?.parts || [];
         for (const part of parts) {
-            if (part?.inlineData?.data) {
+            const inlineData = part?.inlineData || part?.inline_data;
+            if (inlineData?.data) {
                 return {
-                    dataUrl: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
+                    dataUrl: `data:${inlineData.mimeType || inlineData.mime_type || 'image/png'};base64,${inlineData.data}`
                 };
             }
         }

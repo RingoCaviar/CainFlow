@@ -34,6 +34,7 @@ export function createAsyncMediaExecutionApi({
     logRequestToPanel,
     formatProxyErrorMessage,
     parseJsonResponseOrThrow,
+    recoverImageResultFromFailedResponse = async () => null,
     buildProviderErrorContext,
     applyUserFacingError,
     downloadGeneratedImage,
@@ -426,6 +427,25 @@ export function createAsyncMediaExecutionApi({
 
             if (!response.ok) {
                 const t = await response.text();
+                const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                    apiCfg,
+                    modelCfg,
+                    url,
+                    requestBody: null,
+                    status: response.status
+                });
+                if (recoveredResult?.recoveredImage?.dataUrl) {
+                    return {
+                        imageTaskId,
+                        imageData: recoveredResult.recoveredImage.dataUrl,
+                        status: 'completed',
+                        progress: 100,
+                        statusText: `图片生成完成（任务 ${imageTaskId}，已从失败响应恢复）`,
+                        prompt,
+                        recovered: true,
+                        recoverySource: recoveredResult.recoveredImage.source || 'backend'
+                    };
+                }
                 addLog('warning', `图片异步轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, `服务器返回错误状态 ${response.status}`, {
                     url,
                     method: 'GET',
@@ -495,14 +515,23 @@ export function createAsyncMediaExecutionApi({
     }
 
     async function finalizeAsyncImageGeneration(node, finalResult, signal) {
-        const imageBlob = await downloadGeneratedImage(finalResult.imageUrl, signal);
-        const imageData = await blobToDataUrl(imageBlob);
+        const imageData = finalResult.imageData || await (async () => {
+            const imageBlob = await downloadGeneratedImage(finalResult.imageUrl, signal);
+            return blobToDataUrl(imageBlob);
+        })();
+        if (finalResult.recovered) {
+            addLog('warning', '图片异步响应兜底恢复成功', '图片异步任务返回失败状态，但后端恢复模块已从响应中提取出图片。', {
+                nodeId: node.id,
+                imageTaskId: finalResult.imageTaskId,
+                recoverySource: finalResult.recoverySource || 'backend'
+            });
+        }
         commitImageGenerateOutputs(node, [imageData], finalResult.prompt || node.data?.prompt || '');
         commitAsyncImageTaskState(node, {
             imageTaskId: finalResult.imageTaskId,
             imageTaskStatus: finalResult.status || 'completed',
             imageTaskStatusText: finalResult.statusText || `图片生成完成（任务 ${finalResult.imageTaskId}）`,
-            imageTaskUrl: finalResult.imageUrl,
+            imageTaskUrl: finalResult.imageUrl || '',
             prompt: finalResult.prompt || node.data?.prompt || '',
             progress: finalResult.progress
         });
@@ -575,6 +604,37 @@ export function createAsyncMediaExecutionApi({
 
             if (!response.ok) {
                 const t = await response.text();
+                const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                    apiCfg,
+                    modelCfg,
+                    url,
+                    requestBody,
+                    status: response.status
+                });
+                if (recoveredResult?.recoveredImage?.dataUrl) {
+                    const imageData = await finalizeAsyncImageGeneration(node, {
+                        imageTaskId: `recovered:${Date.now()}`,
+                        imageData: recoveredResult.recoveredImage.dataUrl,
+                        status: 'completed',
+                        progress: 100,
+                        statusText: '图片生成完成（已从失败响应恢复）',
+                        prompt,
+                        recovered: true,
+                        recoverySource: recoveredResult.recoveredImage.source || 'backend',
+                        modelName: modelCfg.name
+                    }, signal);
+                    results.push({
+                        imageTaskId: recoveredResult.recoveredImage.id || `recovered:${Date.now()}`,
+                        imageUrl: '',
+                        image: imageData,
+                        status: 'completed'
+                    });
+                    incrementNodeApiGenerationProgress(node, 1, {
+                        current: results.length,
+                        total: generationCount
+                    });
+                    continue;
+                }
                 const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
                 const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步任务创建失败', errorContext));
                 err.serverResponse = {

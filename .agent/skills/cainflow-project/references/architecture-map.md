@@ -2,7 +2,7 @@
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
-> 当前版本：v2.9.4.x
+> 当前版本：以 `js/core/constants.js` 中的 `APP_VERSION_NUMBER` 为准，不在架构图中维护固定版本号。
 
 ## 近期约定
 
@@ -37,6 +37,7 @@
 - 模型卡片里的兼容格式、模型用途、协议选项、帮助文案与分组选项统一收口在 `js/features/execution/model-protocol-registry.js`。后续新增厂家或协议时，先扩展注册表，再让设置页和节点 UI 消费注册表，不要把兼容格式散写在模型卡片模板或执行核心里。
 - 供应商 URL、模型协议归一化、模型用途识别、分辨率选项、OpenAI/Gemini/视频兼容格式请求差异等共享判断放 `js/features/execution/provider-request-utils.js`。模型名称中 `veo`、`seedance`、`sora` 等视频关键字应识别为视频用途。
 - 图片/视频异步创建、轮询、恢复任务 ID、状态文案、轮询日志、结果 URL 提取和后续节点续跑等流程集中在 `js/features/execution/async-media-execution.js`。`execution-core.js` 只负责节点 handler 接入、读取节点参数、把异步模块返回值写回节点数据和交给运行器继续下游。
+- API 响应不是可解析 JSON、但疑似夹带图片数据时，前端在 `js/features/execution/execution-core.js` 调用 `/api/media/recover-image` 做兜底恢复；后端解析逻辑集中在 `backend/services/media_recovery_service.py`，路由入口在 `backend/routes/media_routes.py`。如果兜底模块尝试过但没有发现可用媒体，前端执行日志也要明确告知用户，不要让用户误以为没有尝试恢复。
 - 异步图片默认轮询间隔为 5 秒；视频轮询间隔为 10 秒。轮询日志要记录每次请求信息和服务器返回信息；视频任务返回签名 URL 时，日志中应标识为“签名视频直链”。
 - 恢复任务 ID 不要求节点之前保存过该任务；用户手动输入任务 ID 后，恢复成功应让节点进入运行中状态，任务完成后继续运行后续节点。
 - 视频输出数据要兼容 `videoUrl`、`video`、`videos` 等结构；保存节点和媒体预览链路必须能识别视频 URL、预览视频并保存视频文件。
@@ -253,8 +254,10 @@
 | 设置路由 | `backend/routes/settings_routes.py` | 设置相关 HTTP 请求处理 |
 | 工作流路由 | `backend/routes/workflow_routes.py` | 工作流 CRUD 接口；处理重命名请求与目标已存在冲突返回 |
 | 更新路由 | `backend/routes/update_routes.py` | 在线更新下载启动、状态查询与取消接口 |
+| 媒体路由 | `backend/routes/media_routes.py` | 视频/媒体下载接口与 `/api/media/recover-image` 响应兜底恢复入口 |
 | HTTP 工具 | `backend/services/http_helpers.py` | JSON 请求体解析与 JSON / 错误响应 |
 | 日志服务 | `backend/services/log_service.py` | 服务端日志收集与管理 |
+| 媒体恢复服务 | `backend/services/media_recovery_service.py` | 从异常、截断或嵌套响应文本中尝试提取 data URL、Gemini inlineData、OpenAI b64_json 等图片数据；失败时返回 attempted/message 供前端日志说明 |
 | 代理服务 | `backend/services/proxy_service.py` | 上游代理与请求转发 |
 | 安全服务 | `backend/services/security_service.py` | 允许主机列表、代理检测、安全路径与 URL 校验；`probe_network_target` 只负责前端网络提醒的单 URL 代探测，不负责整体提醒判断 |
 | 工作流服务 | `backend/services/workflow_service.py` | 工作流列表、读取、保存、重命名、删除；重命名时禁止静默覆盖已有工作流 |
@@ -282,11 +285,13 @@
 | 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
 | 修改 workflow JSON 契约、导入旧工作流模型匹配或缺失模型提示 | `js/nodes/node-serializer.js`, `js/features/workflow/workflow-manager.js`, `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `workflows/Default.json` |
 | 修复工作流执行、节点调度 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` |
+| 修复工作流停止、手动取消、超时或自然完成的日志文案 | `js/features/execution/workflow-runner.js`, `js/services/api-client.js`, `js/features/ui/toolbar-controller.js` |
 | 修改图片/视频异步任务、轮询、恢复任务 ID 或继续下游 | `js/features/execution/async-media-execution.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/nodes/types/video-generate.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js` |
 | 新增模型兼容格式、协议选项、模型用途或模型卡片协议展示 | `js/features/execution/model-protocol-registry.js`, `js/features/execution/provider-request-utils.js`, `js/features/settings/settings-controller.js` |
 | 修改运行中节点取消、下游跳过或单节点 abort 行为 | `js/features/execution/workflow-runner.js`, `js/core/state.js`, `index.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `css/components/nodes.css`, `css/themes.css`, `js/features/help/help-panel.js` |
 | 修复代理请求拼装或 API 调用 | `js/services/api-client.js`, `backend/handler.py`, `backend/services/proxy_service.py` |
 | 修改 OpenAI 兼容生图请求路径、参考图上传或请求体格式 | `js/features/execution/provider-request-utils.js`, `js/features/execution/execution-core.js`, `js/services/api-client.js`, `backend/services/proxy_service.py` |
+| 修复 Gemini/OpenAI 等生图响应不是标准 JSON、响应截断或需要从响应体兜底恢复图片 | `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js`, `backend/routes/media_routes.py`, `backend/services/media_recovery_service.py`, `scripts/build-release-local.ps1` |
 | 修改 VEO / OpenAI 视频格式 / 豆包视频请求体、首尾帧或参考图字段 | `js/features/execution/model-protocol-registry.js`, `js/features/execution/provider-request-utils.js`, `js/features/execution/async-media-execution.js`, `js/features/execution/execution-core.js`, `js/nodes/types/video-generate.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js` |
 | 修改生图节点分辨率菜单、OpenAI 自定义分辨率输入 | `js/features/execution/provider-request-utils.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js` |
 | 修改生图节点生成次数、成功计数或失败重试语义 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js` |
@@ -394,6 +399,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 在线更新的前端状态、通知、下载进度/速度/百分比、取消按钮、关闭窗口确认和关闭后自动取消都收在 `js/features/update/update-manager.js`；设置页只展示入口和状态，不另写下载逻辑。右下角常驻下载进度通知挂到 `#toast-container`，样式在 `css/legacy.css` / `css/themes.css`，普通 Toast 可以自动消失，但更新下载进度卡片在完成、取消或失败前必须常驻。后端更新路由只做接口分发，下载、取消、临时文件清理、Release ZIP 选择、`CainFlow.exe` 提取和主程序替换都放 `backend/services/update_service.py`。更新服务必须只提取并校验 Windows 主程序文件，不允许整包解压；目标路径使用 `backend/config.py` 的 `MAIN_EXE_PATH`，打包后应指向 `sys.executable`。下载进度总量优先用 GitHub Release asset 的 `size`，完成态要在顶层状态写入 `downloadedBytes`、`totalBytes` 和 `percent=100`；前端收到完成态后先渲染 100% 进度，再延迟弹出重启提示，避免 `alert()` 阻塞 100% 进度帧。取消、失败、完成和下次启动都要清理未完成下载与 ZIP 临时文件；运行中的 EXE 被锁住时，使用待替换文件加重试脚本完成覆盖，并提示用户重启 CainFlow 主程序。
 - 更新能力的全局关闭参数是 `js/core/constants.js` 的 `AUTO_UPDATE_CHECK_DISABLED`。为 `true` 时，`index.js` 把 `autoUpdateCheckDisabled` 注入 `js/features/update/update-manager.js`，启动自动检测不再排队、不显示倒计时、不请求 GitHub；`js/features/settings/settings-controller.js` 也不渲染“系统版本与更新”卡片。调整自动检测、手动检查按钮或设置页更新模块显隐时，要同步检查这条常量链，避免只关一半。
 - 发布包构建链路分为 GitHub Actions 与本地脚本两份入口：`.github/workflows/release.yml` 负责 tag/manual 触发的 Release ZIP，`scripts/build-release-local.ps1` 负责本地复现。两者的 PyInstaller 资源列表要保持一致；`server.py` 导入的 `backend` 会作为 Python 模块自动进入 exe，不要再把 `backend` 当 `--add-data` 静态目录重复打包，尤其不要把 `__pycache__` 带进发布包。当前仓库不允许外部 action，workflow 维护时优先纯 `run` + `gh` CLI。
+- 新增后端 service 或 route 后，打包脚本优先通过 PyInstaller 正常 import 图或必要的 `--hidden-import` 收集模块；不要用 `--add-data "backend;backend"` 把后端源码作为静态目录打进 exe。新增关键后端模块时，同步检查 `scripts/build-release-local.ps1` 的必需文件检查和 hidden-import。
 - `.github/workflows/cleanup-releases.yml` 和 `.github/workflows/cleanup-workflow-runs.yml` 是维护脚本：前者按创建时间从旧到新删 Release 并同步删 tag，后者删 Actions 运行记录；两者默认 dry-run，正式删除前要让用户确认参数。
 - OpenAI 兼容生图无参考图走 `/v1/images/generations`；有 `image_1` 到 `image_5` 任意参考图走 `/v1/images/edits`。`/images/edits` 必须发送 `multipart/form-data`，图片作为文件字段上传；不要用 JSON `reference_images` 代替 multipart。
 - OpenAI 兼容生图分辨率菜单由 `provider-request-utils.js` 的选项驱动：`自动` 使用空值且不发送 `size`，固定项使用 OpenAI `WxH` size，自定义项由节点 UI 的“宽度输入框 x 高度输入框”拼成 `宽x高`。相关 UI 在 `js/nodes/node-view-factory.js` / `js/nodes/node-dom-bindings.js`，序列化同步更新 `js/nodes/node-serializer.js` 和 `js/features/ui/clipboard-controller.js`。
@@ -436,6 +442,8 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 持久化逻辑放 `js/features/persistence/`，不要散落在各 feature 中。
 - Workflow JSON 是画布文件，不是 API 配置快照：保存、导出和 `workflows/Default.json` 只包含 `canvas`、`nodes`、`connections`、`version`，节点通过 `apiConfigId` 保存所选模型 ID。默认供应商/默认模型只维护在 `js/core/constants.js`。导入旧 workflow 时可读取旧 `models/providers` 作为匹配线索，但不得把它们合并进当前 API 设置；缺失模型或供应商引用由 `js/features/persistence/workflow-model-resolver.js` 提示。
 - 后端按 route 与 service 分责，不要混写。
+- 媒体恢复兜底保持“前端触发与日志、后端解析”的边界：`execution-core.js` 只负责在 JSON 解析失败且响应疑似含图时调用 `/api/media/recover-image`，`media_recovery_service.py` 负责尝试提取图片；兜底失败必须有用户可见日志，成功则继续走标准图片结果提取。
+- 工作流收尾日志不要把所有 abort 都写成用户终止。只有工具栏停止按钮或明确手动停止写入 `abortReason === 'manual'` 时，才显示“用户手动停止了工作流”；超时、错误停止、分支取消和自然完成要分别走各自提示。
 - 版本号升级必须以 `js/core/constants.js` 的 `APP_VERSION_NUMBER` 为唯一来源：页面展示、静态资源缓存参数、后端启动提示、代理 User-Agent 与版本同步脚本都应从这条链路派生；不要再引入 `package.json`、`css/base/variables.css` 或 ES module import 手写 `?v=...` 这类第二份版本号。若当前任务显式要求更新 skill 文档，也要同步改 `.agent/skills/cainflow-project/SKILL.md` 与本架构图中的版本标记和经验说明。
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
 - 主题相关改动优先落在 `css/themes/*` 与 `js/features/ui/theme-controller.js`。如果主题变更影响面板、节点、弹窗、菜单或预览区的视觉，必须同步补对应主题文件里的覆盖，而不是只改基础样式后假设所有区域都会自动正确继承。

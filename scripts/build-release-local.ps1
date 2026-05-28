@@ -84,7 +84,7 @@ if (!$SkipDependencyInstall) {
 }
 
 Write-Step "Checking required release inputs"
-foreach ($file in @("server.py", "index.html", "index.js", "index.css", "notification-sw.js", "cainflow.ico")) {
+foreach ($file in @("server.py", "index.html", "index.js", "index.css", "notification-sw.js", "cainflow.ico", "backend/routes/media_routes.py", "backend/services/media_recovery_service.py")) {
   if (!(Test-Path -LiteralPath $file -PathType Leaf)) {
     throw "Required release file is missing: $file"
   }
@@ -121,6 +121,8 @@ $pyInstallerArgs = @(
   "--exclude-module", "test",
   "--exclude-module", "tkinter",
   "--exclude-module", "unittest",
+  "--hidden-import", "backend.routes.media_routes",
+  "--hidden-import", "backend.services.media_recovery_service",
   "--name", "CainFlow_Launcher",
   "--icon", "cainflow.ico",
   "--add-data", "index.html;.",

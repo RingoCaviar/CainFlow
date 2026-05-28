@@ -80,12 +80,13 @@ export function createErrorModalControllerApi({
 
         const btnFull = documentRef.getElementById('btn-show-full-log');
         if (btnFull) {
-            const isTruncated = detail && detail.includes('... [数据过长已截断]');
-            if (log && log.rawDetails && isTruncated) {
+            const fullTextPreview = log?.rawDetails ? sanitizeDetails(log.rawDetails, { truncate: false }) : '';
+            const hasExpandableDetails = Boolean(log?.rawDetails && fullTextPreview && fullTextPreview !== detail);
+            if (hasExpandableDetails) {
                 btnFull.classList.remove('hidden');
                 btnFull.onclick = (e) => {
                     e.preventDefault();
-                    const fullText = sanitizeDetails(log.rawDetails, { truncate: false }) || String(log.rawDetails || '');
+                    const fullText = fullTextPreview || String(log.rawDetails || '');
                     showErrorModal(title, msg, fullText, modalTitle, {
                         type: log.type,
                         userFacing: log.userFacing || null,

@@ -1,7 +1,8 @@
 from urllib.parse import parse_qs, urlparse
 
 from backend.services.download_service import classify_download_error, stream_remote_download
-from backend.services.http_helpers import read_json_body, write_error
+from backend.services.http_helpers import read_json_body, write_error, write_json
+from backend.services.media_recovery_service import recover_image_from_response_text
 
 
 def handle_get(handler):
@@ -23,6 +24,21 @@ def handle_get(handler):
 
 def handle_post(handler):
     parsed = urlparse(handler.path)
+    if parsed.path == '/api/media/recover-image':
+        try:
+            payload = read_json_body(handler)
+        except Exception as error:
+            write_error(handler, 400, 'Invalid JSON body', error)
+            return True
+
+        result = recover_image_from_response_text(
+            text=str((payload or {}).get('body') or ''),
+            content_type=str((payload or {}).get('contentType') or ''),
+        )
+        status = 200 if result.get('success') else 422
+        write_json(handler, result, status=status)
+        return True
+
     if parsed.path != '/api/media/download':
         return False
 

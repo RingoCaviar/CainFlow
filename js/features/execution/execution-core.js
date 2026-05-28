@@ -291,6 +291,130 @@ export function createExecutionCoreApi({
         return err;
     }
 
+    function extractFirstJsonText(text = '') {
+        const source = String(text || '');
+        const firstObject = source.indexOf('{');
+        const firstArray = source.indexOf('[');
+        const starts = [firstObject, firstArray].filter((index) => index >= 0);
+        if (starts.length === 0) return '';
+
+        const start = Math.min(...starts);
+        const stack = [];
+        let inString = false;
+        let escaped = false;
+
+        for (let index = start; index < source.length; index += 1) {
+            const char = source[index];
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (char === '\\') {
+                    escaped = true;
+                } else if (char === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (char === '"') {
+                inString = true;
+            } else if (char === '{') {
+                stack.push('}');
+            } else if (char === '[') {
+                stack.push(']');
+            } else if (char === '}' || char === ']') {
+                if (stack.pop() !== char) return '';
+                if (stack.length === 0) return source.slice(start, index + 1);
+            }
+        }
+
+        return '';
+    }
+
+    function tryParseEmbeddedJson(text = '') {
+        const jsonText = extractFirstJsonText(text);
+        if (!jsonText) return null;
+        try {
+            return JSON.parse(jsonText);
+        } catch {
+            return null;
+        }
+    }
+
+    function shouldAttemptBackendImageRecovery(text = '', context = {}) {
+        const protocol = getEffectiveProtocol(context.modelCfg, context.apiCfg);
+        const url = String(context.url || '').toLowerCase();
+        const source = String(text || '');
+        const hasLongContent = source.length > 1200;
+        const hasTruncatedContent = hasLongContent || /\[数据过长已截断\]|\[完整详情仍过长，已截断\]|\[truncated\s+\d+\s+chars\]|数据过长|truncated/i.test(source);
+        if (!context.responseFailed && !hasTruncatedContent && protocol !== 'google' && !url.includes(':generatecontent') && !url.includes('/v1beta/models/')) {
+            return false;
+        }
+
+        return (
+            hasTruncatedContent ||
+            /"inlineData"|"inline_data"|"b64_json"|"b64Json"|data:image\//i.test(source) &&
+            /"data"\s*:|"b64_json"\s*:|"b64Json"\s*:|data:image\//i.test(source)
+        );
+    }
+
+    async function recoverImageResponseWithBackend(text = '', contentType = '', context = {}) {
+        if (!shouldAttemptBackendImageRecovery(text, context)) return null;
+        try {
+            const response = await fetchRef('/api/media/recover-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    body: text,
+                    contentType,
+                    providerType: getEffectiveProtocol(context.modelCfg, context.apiCfg) || '',
+                    modelId: context.modelCfg?.modelId || ''
+                })
+            });
+            const result = await response.json().catch(() => null);
+            if (result?.attempted && (!result?.success || !result?.image?.dataUrl)) {
+                addLog?.('info', '媒体响应兜底解析无结果', result.message || '媒体恢复模块已尝试解析服务器响应，但未发现可用的图片或媒体数据。', {
+                    url: context.url,
+                    status: context.status,
+                    contentType,
+                    recoveryError: result.error || '',
+                    modelId: context.modelCfg?.modelId || '',
+                    providerType: getEffectiveProtocol(context.modelCfg, context.apiCfg) || 'unknown'
+                });
+            }
+            if (!response.ok || !result?.success || !result?.image?.dataUrl) return null;
+            return {
+                cainflowRecoveredImage: true,
+                recoveredImage: result.image,
+                recoveredFromFailedResponse: context.responseFailed === true,
+                recoveredHttpStatus: context.status || null,
+                data: [{
+                    b64_json: String(result.image.dataUrl).split(',')[1] || ''
+                }]
+            };
+        } catch (error) {
+            console.warn('Backend image recovery failed:', error);
+            return null;
+        }
+    }
+
+    async function recoverImageResultFromFailedResponse(text = '', contentType = '', context = {}) {
+        const recovered = await recoverImageResponseWithBackend(text, contentType, {
+            ...context,
+            responseFailed: true
+        });
+        if (!recovered?.cainflowRecoveredImage) return null;
+        addLog?.('warning', '失败响应兜底恢复成功', '当前请求返回失败状态，但响应内容疑似包含被截断的媒体数据，后端恢复模块已尝试提取并恢复出图片。', {
+            url: context.url,
+            status: context.status,
+            contentType,
+            modelId: context.modelCfg?.modelId || '',
+            providerType: getEffectiveProtocol(context.modelCfg, context.apiCfg) || 'unknown',
+            recoverySource: recovered.recoveredImage?.source || 'backend'
+        });
+        return recovered;
+    }
+
     async function parseJsonResponseOrThrow(response, context = {}) {
         const contentType = String(response.headers.get('content-type') || '').toLowerCase();
         const rawText = await response.text();
@@ -340,6 +464,15 @@ export function createExecutionCoreApi({
         try {
             return JSON.parse(trimmedText);
         } catch {
+            const embeddedJson = tryParseEmbeddedJson(trimmedText);
+            if (embeddedJson) return embeddedJson;
+
+            const recoveredImageResponse = await recoverImageResponseWithBackend(trimmedText, contentType, {
+                ...context,
+                status: response.status
+            });
+            if (recoveredImageResponse) return recoveredImageResponse;
+
             const err = new Error('当前提供商返回的不是有效 JSON，请检查接口兼容性或 API 地址。');
             err.serverResponse = {
                 url: context.url,
@@ -474,7 +607,7 @@ export function createExecutionCoreApi({
         if (getEffectiveProtocol(modelCfg, apiCfg) === 'google') {
             const candidate = result?.candidates?.[0];
             const parts = candidate?.content?.parts || [];
-            const hasTextOnlyResponse = parts.length > 0 && parts.every((part) => typeof part?.text === 'string' && !part?.inlineData?.data);
+            const hasTextOnlyResponse = parts.length > 0 && parts.every((part) => typeof part?.text === 'string' && !(part?.inlineData || part?.inline_data)?.data);
             if (candidate?.finishReason) {
                 const finishReason = candidate.finishReason;
                 if (finishReason === 'STOP' && hasTextOnlyResponse) return '模型已正常结束，但这次只返回了文本，没有返回图片。通常是当前模型或中转线路不支持图片输出，或本次请求被当成了文本生成。';
@@ -1137,6 +1270,7 @@ export function createExecutionCoreApi({
         logRequestToPanel,
         formatProxyErrorMessage,
         parseJsonResponseOrThrow,
+        recoverImageResultFromFailedResponse,
         buildProviderErrorContext,
         applyUserFacingError,
         downloadGeneratedImage,
@@ -1349,6 +1483,14 @@ export function createExecutionCoreApi({
 
                         if (!response.ok) {
                             const t = await response.text();
+                            const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                                apiCfg,
+                                modelCfg,
+                                url,
+                                requestBody,
+                                status: response.status
+                            });
+                            if (recoveredResult) return recoveredResult;
                             const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
                             const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
                             err.serverResponse = {
@@ -1373,6 +1515,14 @@ export function createExecutionCoreApi({
                         const imageResult = extractImageResult(apiCfg, result, modelCfg);
                         if (imageResult?.dataUrl) {
                             imageData = imageResult.dataUrl;
+                            if (imageResult.recovered) {
+                                showToast('服务器响应异常，已从返回内容中恢复出图片。', 'warning', 6000);
+                                addLog('warning', '图片响应兜底恢复成功', '服务器返回内容无法按标准 JSON 解析，但后端恢复模块已从响应中提取出图片。', {
+                                    nodeId: id,
+                                    model: modelCfg.name,
+                                    recoverySource: imageResult.recoverySource || 'backend'
+                                });
+                            }
                         } else if (imageResult?.url) {
                             const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
                             imageData = await blobToDataUrl(imgBlob);
@@ -1502,6 +1652,37 @@ export function createExecutionCoreApi({
 
                     if (!response.ok) {
                         const t = await response.text();
+                        const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                            apiCfg,
+                            modelCfg,
+                            url,
+                            requestBody,
+                            status: response.status
+                        });
+                        if (recoveredResult) {
+                            const imageResult = extractImageResult(apiCfg, recoveredResult, modelCfg);
+                            if (imageResult?.dataUrl) {
+                                const recoveredImageData = imageResult.dataUrl;
+                                node.generatedImages = normalizeImageList(node.generatedImages);
+                                node.generatedImages[nextGenerationIndex - 1] = recoveredImageData;
+                                commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
+                                incrementNodeApiGenerationProgress(node, 1, {
+                                    current: nextGenerationIndex,
+                                    total: generationCount
+                                });
+                                await refreshDependentImageResizePreviews(id);
+                                await saveImageGenerationHistoryEntry({
+                                    nodeId: id,
+                                    image: recoveredImageData,
+                                    prompt,
+                                    model: modelCfg.name,
+                                    generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+                                });
+                                if (getImageHistorySidebarActive()) renderHistoryList();
+                                node.generationCompletedCount = nextGenerationIndex;
+                                continue;
+                            }
+                        }
                         const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
                         const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
                         err.serverResponse = {
@@ -1526,6 +1707,14 @@ export function createExecutionCoreApi({
                     const imageResult = extractImageResult(apiCfg, result, modelCfg);
                     if (imageResult?.dataUrl) {
                         imageData = imageResult.dataUrl;
+                        if (imageResult.recovered) {
+                            showToast('服务器响应异常，已从返回内容中恢复出图片。', 'warning', 6000);
+                            addLog('warning', '图片响应兜底恢复成功', '服务器返回内容无法按标准 JSON 解析，但后端恢复模块已从响应中提取出图片。', {
+                                nodeId: id,
+                                model: modelCfg.name,
+                                recoverySource: imageResult.recoverySource || 'backend'
+                            });
+                        }
                     } else if (imageResult?.url) {
                         const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
                         imageData = await blobToDataUrl(imgBlob);
