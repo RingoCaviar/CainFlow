@@ -5,6 +5,9 @@ __pycache__/
 # Runtime logs
 log/
 
+# Local workflow data
+workflows/
+
 # Local release builds
 build/
 dist/
