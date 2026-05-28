@@ -6,6 +6,7 @@ export function createMediaControllerApi({
     getNodeById,
     saveImageAsset,
     saveImageAssetList = async () => false,
+    saveImageImportAsset = async () => '',
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
@@ -1479,6 +1480,7 @@ export function createMediaControllerApi({
         } else {
             if (node.imageData) node.data.image = node.imageData;
             else delete node.data.image;
+            if (node.imageImportAssetKey) node.data.imageImportAssetKey = node.imageImportAssetKey;
             renderImageImportUploadState(nodeId, node.imageData || null);
         }
 
@@ -2126,8 +2128,15 @@ export function createMediaControllerApi({
             node.importMode = 'upload';
             node.imageUrl = '';
             node.imageData = data;
+            node.data = node.data || {};
             node.data.image = data;
-            await saveImageAsset(nodeId, data);
+            const assetKey = await saveImageImportAsset(nodeId, data, node.imageImportAssetKey);
+            if (assetKey) {
+                node.imageImportAssetKey = assetKey;
+                node.data.imageImportAssetKey = assetKey;
+            } else {
+                await saveImageAsset(nodeId, data);
+            }
             await syncImageImportSourceState(nodeId, { refreshDependents: true });
             scheduleSave();
         };
@@ -2145,8 +2154,15 @@ export function createMediaControllerApi({
         node.importMode = 'upload';
         node.imageUrl = '';
         node.imageData = imageData;
+        node.data = node.data || {};
         node.data.image = imageData;
-        await saveImageAsset(nodeId, imageData);
+        const assetKey = await saveImageImportAsset(nodeId, imageData, node.imageImportAssetKey);
+        if (assetKey) {
+            node.imageImportAssetKey = assetKey;
+            node.data.imageImportAssetKey = assetKey;
+        } else {
+            await saveImageAsset(nodeId, imageData);
+        }
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
         scheduleSave();
     }

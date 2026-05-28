@@ -15,6 +15,7 @@ export function createUiControllerApi({
     storeAssetsName,
     clearHistory,
     clearImageAssets = null,
+    clearImageImportAssets = null,
     clearOrphanedHistoryAssets = null,
     clearOrphanedNodeAssets = null,
     collectRetainedNodeAssetIds = () => new Set(),
@@ -877,6 +878,23 @@ export function createUiControllerApi({
                 settingsControllerApi?.updateCacheUsage();
             } catch (e) {
                 showToast('资产清理失败: ' + e.message, 'error');
+            }
+        });
+
+        documentRef.getElementById('btn-clear-image-import-assets')?.addEventListener('click', async () => {
+            if (!confirmRef('确定要清理所有图片导入节点缓存吗？\n\n已保存工作流中的图片导入节点可能无法再从本地缓存恢复图片。')) return;
+            if (typeof clearImageImportAssets !== 'function') {
+                showToast('当前环境不支持清理图片导入节点缓存', 'warning');
+                return;
+            }
+
+            try {
+                const ok = await clearImageImportAssets();
+                if (!ok) throw new Error('IndexedDB 图片导入缓存清理未完成');
+                showToast('图片导入节点缓存已清理', 'success');
+                settingsControllerApi?.updateCacheUsage();
+            } catch (e) {
+                showToast('图片导入缓存清理失败: ' + e.message, 'error');
             }
         });
     }

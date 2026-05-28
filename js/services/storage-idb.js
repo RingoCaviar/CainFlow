@@ -11,9 +11,19 @@ import {
 
 let dbInstance = null;
 const HISTORY_ASSET_KEY_PREFIX = 'history:';
+const IMAGE_IMPORT_ASSET_KEY_PREFIX = 'image-import:';
 
 function getHistoryAssetKey(id) {
     return `${HISTORY_ASSET_KEY_PREFIX}${id}`;
+}
+
+function isImageImportAssetKey(key) {
+    return typeof key === 'string' && key.startsWith(IMAGE_IMPORT_ASSET_KEY_PREFIX);
+}
+
+function getImageImportAssetKey(nodeId, preferredKey = '') {
+    if (isImageImportAssetKey(preferredKey)) return preferredKey;
+    return `${IMAGE_IMPORT_ASSET_KEY_PREFIX}${String(nodeId || '').trim()}`;
 }
 
 function createHistoryEntryId() {
@@ -188,6 +198,22 @@ export function createIndexedDbApi(getState) {
         }
     }
 
+    async function saveImageImportAsset(nodeId, dataUrl, preferredKey = '') {
+        if (!dataUrl || dataUrl.length < 100) return '';
+        const key = getImageImportAssetKey(nodeId, preferredKey);
+        if (!key || key === IMAGE_IMPORT_ASSET_KEY_PREFIX) return '';
+        try {
+            const db = await openDB();
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            tx.objectStore(STORE_ASSETS).put(dataUrl, key);
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx) ? key : '';
+        } catch (error) {
+            console.warn('IDB save image import asset failed:', error);
+            return '';
+        }
+    }
+
     async function getImageAsset(nodeId) {
         try {
             const db = await openDB();
@@ -319,6 +345,41 @@ export function createIndexedDbApi(getState) {
             img.src = source;
             timer = setTimeout(() => finish(fallbackThumb()), 5000);
         });
+    }
+
+    async function deleteImageImportAsset(assetKeyOrNodeId) {
+        const raw = String(assetKeyOrNodeId || '').trim();
+        const key = isImageImportAssetKey(raw) ? raw : getImageImportAssetKey(raw);
+        if (!key || key === IMAGE_IMPORT_ASSET_KEY_PREFIX) return false;
+        try {
+            const db = await openDB();
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            tx.objectStore(STORE_ASSETS).delete(key);
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx);
+        } catch {
+            return false;
+        }
+    }
+
+    async function clearImageImportAssets() {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            const store = tx.objectStore(STORE_ASSETS);
+            const req = store.openKeyCursor();
+            req.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) return;
+                if (isImageImportAssetKey(cursor.key)) store.delete(cursor.key);
+                cursor.continue();
+            };
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx);
+        } catch (error) {
+            console.warn('IDB clear image import assets failed:', error);
+            return false;
+        }
     }
 
     function createVideoPlaceholderThumbnail(size = 256) {
@@ -471,7 +532,7 @@ export function createIndexedDbApi(getState) {
                     const cursor = event.target.result;
                     if (!cursor) return;
                     const isHistoryAsset = typeof cursor.key === 'string' && cursor.key.startsWith(HISTORY_ASSET_KEY_PREFIX);
-                    if (!isHistoryAsset) store.delete(cursor.key);
+                    if (!isHistoryAsset && !isImageImportAssetKey(cursor.key)) store.delete(cursor.key);
                     cursor.continue();
                 };
             }
@@ -534,7 +595,7 @@ export function createIndexedDbApi(getState) {
                 if (!cursor) return;
                 const key = cursor.key;
                 const isHistoryAsset = typeof key === 'string' && key.startsWith(HISTORY_ASSET_KEY_PREFIX);
-                if (!isHistoryAsset && !keepNodeIds.has(String(key))) {
+                if (!isHistoryAsset && !isImageImportAssetKey(key) && !keepNodeIds.has(String(key))) {
                     store.delete(key);
                 }
                 cursor.continue();
@@ -807,7 +868,10 @@ export function createIndexedDbApi(getState) {
         getImageAssetBlob,
         saveImageAssetList,
         getImageAssetList,
+        saveImageImportAsset,
         deleteImageAsset,
+        deleteImageImportAsset,
+        clearImageImportAssets,
         clearImageAssets,
         clearOrphanedHistoryAssets,
         clearOrphanedNodeAssets,

@@ -85,6 +85,7 @@ export function createSettingsControllerApi({
         result: null
     };
     const HISTORY_ASSET_KEY_PREFIX = 'history:';
+    const IMAGE_IMPORT_ASSET_KEY_PREFIX = 'image-import:';
     let activeModelFetchRequestId = 0;
     let openModelProviderPanelId = '';
 
@@ -2448,6 +2449,10 @@ export function createSettingsControllerApi({
         return typeof key === 'string' && key.startsWith(HISTORY_ASSET_KEY_PREFIX);
     }
 
+    function isImageImportAssetKey(key) {
+        return typeof key === 'string' && key.startsWith(IMAGE_IMPORT_ASSET_KEY_PREFIX);
+    }
+
     async function getStoreSizeBytes(storeName, includeEntry = () => true) {
         try {
             const db = await openDB();
@@ -2494,6 +2499,7 @@ export function createSettingsControllerApi({
         const display = documentRef.getElementById('cache-size-display');
         const historyEl = documentRef.getElementById('usage-history');
         const assetsEl = documentRef.getElementById('usage-assets');
+        const importAssetsEl = documentRef.getElementById('usage-image-import-assets');
         const localEl = documentRef.getElementById('usage-local');
         if (!display) return;
 
@@ -2505,14 +2511,16 @@ export function createSettingsControllerApi({
 
             const historyStoreBytes = await getStoreSizeBytes(storeHistoryName);
             const historyAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => isHistoryAssetKey(key));
-            const nodeAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => !isHistoryAssetKey(key));
+            const imageImportAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => isImageImportAssetKey(key));
+            const nodeAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => !isHistoryAssetKey(key) && !isImageImportAssetKey(key));
             const localBytes = getLocalStorageBytes();
             const historyBytes = historyStoreBytes + historyAssetBytes;
-            const totalBytes = historyBytes + nodeAssetBytes + localBytes;
+            const totalBytes = historyBytes + nodeAssetBytes + imageImportAssetBytes + localBytes;
 
             display.textContent = formatMB(totalBytes);
             if (historyEl) historyEl.textContent = formatMB(historyBytes);
             if (assetsEl) assetsEl.textContent = formatMB(nodeAssetBytes);
+            if (importAssetsEl) importAssetsEl.textContent = formatMB(imageImportAssetBytes);
             if (localEl) localEl.textContent = formatMB(localBytes);
         } catch (e) {
             display.textContent = '获取失败';

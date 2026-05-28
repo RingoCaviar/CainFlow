@@ -476,6 +476,39 @@ export function createWorkflowManagerApi({
         return true;
     }
 
+    async function closeOtherWorkflows() {
+        if (state.runningNodeIds?.size > 0) {
+            showToast('有节点正在运行，暂不能关闭其他工作流', 'warning');
+            return false;
+        }
+        snapshotActiveWorkflow();
+
+        const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
+        if (!getActiveWorkflowTab()) {
+            await ensureOpenWorkflow({ useCurrentCanvas: false });
+            return true;
+        }
+        const inactiveTabs = tabs.filter((tab) => tab.name !== state.activeWorkflowName);
+        if (inactiveTabs.length === 0) {
+            showToast('没有其他已打开的工作流', 'info');
+            return true;
+        }
+
+        const dirtyTabs = inactiveTabs.filter((tab) => tab.dirty === true);
+        if (dirtyTabs.length > 0 && windowRef.confirm(`有 ${dirtyTabs.length} 个其他工作流存在未保存修改，关闭前是否全部保存？`)) {
+            for (const tab of dirtyTabs) {
+                if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+                tab.dirty = false;
+            }
+        }
+
+        state.workflowTabs = tabs.filter((tab) => tab.name === state.activeWorkflowName);
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        showToast('已关闭其他工作流', 'info');
+        return true;
+    }
+
     async function createNewWorkflow() {
         const names = await fetchWorkflows();
         const name = findNextUnsavedName(names);
@@ -559,6 +592,7 @@ export function createWorkflowManagerApi({
         const btnClose = documentRef.getElementById('btn-close-workflow');
         const btnSave = documentRef.getElementById('btn-save-workflow');
         const btnNew = documentRef.getElementById('btn-new-workflow');
+        const btnCloseOther = documentRef.getElementById('btn-close-other-workflows');
 
         if (!btnToggle) return;
 
@@ -574,6 +608,10 @@ export function createWorkflowManagerApi({
 
         btnNew?.addEventListener('click', () => {
             createNewWorkflow();
+        });
+
+        btnCloseOther?.addEventListener('click', () => {
+            closeOtherWorkflows();
         });
 
         btnSave?.addEventListener('click', async () => {
@@ -628,6 +666,7 @@ export function createWorkflowManagerApi({
         snapshotActiveWorkflow,
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,
-        ensureOpenWorkflow
+        ensureOpenWorkflow,
+        closeOtherWorkflows
     };
 }

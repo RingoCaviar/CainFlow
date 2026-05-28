@@ -5803,7 +5803,7 @@ body.sidebar-pinned #side-bar::after {
     position: absolute;
     inset: 0 auto 0 0;
     width: 5px;
-    background: transparent;
+    background: rgba(148, 163, 184, 0.45);
 }
 
 .workflow-item.is-open {
@@ -5816,12 +5816,12 @@ body.sidebar-pinned #side-bar::after {
     border-color: rgba(34, 197, 94, 0.42);
 }
 
-.workflow-item[data-tab-color="0"]::before { background: #38bdf8; }
-.workflow-item[data-tab-color="1"]::before { background: #a78bfa; }
-.workflow-item[data-tab-color="2"]::before { background: #34d399; }
-.workflow-item[data-tab-color="3"]::before { background: #f59e0b; }
-.workflow-item[data-tab-color="4"]::before { background: #fb7185; }
-.workflow-item[data-tab-color="5"]::before { background: #2dd4bf; }
+.workflow-item.is-open[data-tab-color="0"]::before { background: #38bdf8; }
+.workflow-item.is-open[data-tab-color="1"]::before { background: #a78bfa; }
+.workflow-item.is-open[data-tab-color="2"]::before { background: #34d399; }
+.workflow-item.is-open[data-tab-color="3"]::before { background: #f59e0b; }
+.workflow-item.is-open[data-tab-color="4"]::before { background: #fb7185; }
+.workflow-item.is-open[data-tab-color="5"]::before { background: #2dd4bf; }
 
 .workflow-item:hover {
     background: var(--workflow-card-hover-bg);

@@ -59,6 +59,9 @@ export function createNodeSerializer({ state, documentRef }) {
             if (node.type === 'ImageImport') {
                 serialized.importMode = documentRef.getElementById(`${id}-import-mode`)?.value || node.importMode || 'upload';
                 serialized.imageUrl = documentRef.getElementById(`${id}-url-input`)?.value || node.imageUrl || '';
+                if (serialized.importMode !== 'url') {
+                    serialized.imageImportAssetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || '';
+                }
             }
 
             if (node.type === 'ImageResize') {
