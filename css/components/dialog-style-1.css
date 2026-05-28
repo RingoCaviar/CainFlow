@@ -1,0 +1,96 @@
+.dialog-style-1 {
+    position: fixed;
+    inset: 0;
+    z-index: 9100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dialog-style-1.hidden {
+    display: none;
+}
+
+.dialog-style-1-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--settings-dialog-backdrop, rgba(0, 0, 0, 0.58));
+}
+
+.dialog-style-1-panel {
+    position: relative;
+    width: min(480px, calc(100vw - 32px));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--settings-dialog-panel-bg, var(--panel-bg, rgba(22, 22, 42, 0.92))) 86%, transparent);
+    border: 1px solid color-mix(in srgb, var(--settings-dialog-panel-border, rgba(255, 255, 255, 0.14)) 72%, rgba(255, 255, 255, 0.28));
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    overflow: hidden;
+    backdrop-filter: blur(18px) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.dialog-style-1-header,
+.dialog-style-1-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+}
+
+.dialog-style-1-header {
+    border-bottom: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.08));
+}
+
+.dialog-style-1-header h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.dialog-style-1-close {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font-size: 22px;
+    cursor: pointer;
+}
+
+.dialog-style-1-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.dialog-style-1-body {
+    display: grid;
+    gap: 8px;
+    padding: 16px;
+}
+
+.dialog-style-1-message {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: pre-line;
+}
+
+.dialog-style-1-note {
+    margin: 0;
+    line-height: 1.6;
+    font-size: 12px;
+    color: var(--settings-dialog-muted-text, var(--text-dim));
+}
+
+.dialog-style-1-footer {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.08));
+}
+
+.dialog-style-1-footer .btn {
+    min-width: 88px;
+}

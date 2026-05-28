@@ -27,6 +27,7 @@ export function isModalOrFullscreenOpen({ documentRef = document, windowRef = wi
         '.painter-overlay',
         '.image-compare-advanced-overlay',
         '.camera-control-editor-overlay',
+        '.dialog-style-1:not(.hidden)',
         '.reference-image-count-dialog:not(.hidden)',
         '.provider-models-dialog:not(.hidden)',
         '.api-settings-help-dialog:not(.hidden)',

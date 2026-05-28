@@ -12,6 +12,7 @@ import {
     buildWorkflowModelWarningMessage,
     resolveWorkflowModelReferences
 } from '../persistence/workflow-model-resolver.js';
+import { openDialogStyle1 } from '../ui/dialog-style-1.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 
 export function createWorkflowManagerApi({
@@ -82,6 +83,60 @@ export function createWorkflowManagerApi({
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function promptWorkflowCloseDecision({
+        title = '关闭工作流',
+        message = '',
+        note = '选择“是”会保存并关闭，选择“否”会直接关闭，选择“取消”会保留当前工作流。',
+        yesText = '是',
+        noText = '否',
+        cancelText = '取消'
+    } = {}) {
+        return openDialogStyle1({
+            id: 'workflow-confirm-dialog',
+            title,
+            message,
+            note,
+            cancelActionId: 'cancel',
+            documentRef,
+            actions: [
+                { id: 'cancel', label: cancelText, variant: 'secondary' },
+                { id: 'discard', label: noText, variant: 'secondary' },
+                { id: 'save', label: yesText, variant: 'primary', autofocus: true }
+            ]
+        });
+    }
+
+    async function confirmWorkflowAction(options = {}) {
+        const decision = await promptWorkflowCloseDecision(options);
+        return decision === 'save';
+    }
+
+    function promptWorkflowDeleteDecision({
+        title = '删除工作流',
+        message = '',
+        note = '选择“是”会删除，选择“否”会保留。',
+        yesText = '是',
+        noText = '否'
+    } = {}) {
+        return openDialogStyle1({
+            id: 'workflow-delete-dialog',
+            title,
+            message,
+            note,
+            cancelActionId: 'cancel',
+            documentRef,
+            actions: [
+                { id: 'decline', label: noText, variant: 'secondary' },
+                { id: 'confirm', label: yesText, variant: 'primary', autofocus: true }
+            ]
+        });
+    }
+
+    async function confirmWorkflowDelete(options = {}) {
+        const decision = await promptWorkflowDeleteDecision(options);
+        return decision === 'confirm';
     }
 
     function getWorkflowPayload() {
@@ -315,29 +370,48 @@ export function createWorkflowManagerApi({
 
             item.querySelector('.delete-btn').onclick = async (e) => {
                 e.stopPropagation();
-                if (windowRef.confirm(`确定要删除工作流「${name}」吗？`)) {
-                    const tab = getWorkflowTab(name);
-                    if (tab?.dirty && !windowRef.confirm(`工作流「${name}」有未保存修改，仍要删除文件吗？`)) {
-                        return;
-                    }
-                    if (await deleteWorkflowFile(name)) {
-                        const wasActive = state.activeWorkflowName === name;
-                        state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
-                        if (wasActive) {
-                            if (state.workflowTabs.length > 0) {
-                                await activateFallbackWorkflow();
-                            } else {
-                                state.activeWorkflowName = '';
-                                await ensureOpenWorkflow({ useCurrentCanvas: false });
-                            }
-                        }
-                        showToast('已删除', 'info');
-                        renderWorkflowList();
-                        scheduleSave({ dirty: false });
-                    }
-                }
+                await confirmAndDeleteWorkflow(name);
             };
         });
+    }
+
+    async function confirmAndDeleteWorkflow(name) {
+        const confirmed = await confirmWorkflowDelete({
+            title: '删除工作流',
+            message: `确定要删除工作流「${name}」吗？`,
+            note: '选择“是”会删除工作流文件；选择“否”会保留它。',
+            noText: '否'
+        });
+        if (!confirmed) return false;
+
+        const tab = getWorkflowTab(name);
+        if (tab?.dirty) {
+            const discardConfirmed = await confirmWorkflowDelete({
+                title: '删除未保存的工作流',
+                message: `工作流「${name}」有未保存修改，仍要删除文件吗？`,
+                note: '选择“是”会直接删除文件，并丢失未保存修改；选择“否”会停止删除。',
+                noText: '否'
+            });
+            if (!discardConfirmed) return false;
+        }
+
+        if (await deleteWorkflowFile(name)) {
+            const wasActive = state.activeWorkflowName === name;
+            state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
+            if (wasActive) {
+                if (state.workflowTabs.length > 0) {
+                    await activateFallbackWorkflow();
+                } else {
+                    state.activeWorkflowName = '';
+                    await ensureOpenWorkflow({ useCurrentCanvas: false });
+                }
+            }
+            showToast('已删除', 'info');
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+            return true;
+        }
+        return false;
     }
 
     async function applyWorkflowData(data, options = {}) {
@@ -348,7 +422,12 @@ export function createWorkflowManagerApi({
         }
         const modelResolution = resolveWorkflowModelReferences(data, state);
         const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
-        if (warningMessage && !windowRef.confirm(`${warningMessage}\n\n是否继续加载工作流？`)) {
+        if (warningMessage && !(await confirmWorkflowAction({
+            title: '加载工作流',
+            message: `${warningMessage}\n\n是否继续加载工作流？`,
+            note: '选择“是”会继续加载并使用自动匹配结果；选择“否”或“取消”会停止加载。',
+            noText: '否'
+        }))) {
             return false;
         }
         if (modelResolution.remappedModels.length > 0) {
@@ -456,9 +535,17 @@ export function createWorkflowManagerApi({
         }
         if (state.activeWorkflowName === name) snapshotActiveWorkflow();
 
-        if (tab.dirty && windowRef.confirm(`工作流「${name}」有未保存修改，关闭前是否保存？`)) {
-            if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
-            tab.dirty = false;
+        if (tab.dirty) {
+            const decision = await promptWorkflowCloseDecision({
+                title: '关闭当前工作流',
+                message: `工作流「${name}」有未保存修改，关闭前是否保存？`,
+                note: '选择“是”会先保存当前工作流，再关闭；选择“否”会直接关闭并丢失未保存修改。'
+            });
+            if (decision === 'cancel') return false;
+            if (decision === 'save') {
+                if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+                tab.dirty = false;
+            }
         }
 
         const wasActive = state.activeWorkflowName === name;
@@ -495,10 +582,18 @@ export function createWorkflowManagerApi({
         }
 
         const dirtyTabs = inactiveTabs.filter((tab) => tab.dirty === true);
-        if (dirtyTabs.length > 0 && windowRef.confirm(`有 ${dirtyTabs.length} 个其他工作流存在未保存修改，关闭前是否全部保存？`)) {
-            for (const tab of dirtyTabs) {
-                if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
-                tab.dirty = false;
+        if (dirtyTabs.length > 0) {
+            const decision = await promptWorkflowCloseDecision({
+                title: '关闭其他工作流',
+                message: `有 ${dirtyTabs.length} 个其他工作流存在未保存修改，关闭前是否全部保存？`,
+                note: '选择“是”会先保存这些工作流，再关闭其他已打开的工作流；选择“否”会直接关闭并丢失未保存修改。'
+            });
+            if (decision === 'cancel') return false;
+            if (decision === 'save') {
+                for (const tab of dirtyTabs) {
+                    if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+                    tab.dirty = false;
+                }
             }
         }
 
@@ -627,28 +722,7 @@ export function createWorkflowManagerApi({
 
         documentRef.getElementById('menu-delete-workflow')?.addEventListener('click', async () => {
             const name = menu.dataset.targetName;
-            if (windowRef.confirm(`确定要删除工作流「${name}」吗？`)) {
-                const tab = getWorkflowTab(name);
-                if (tab?.dirty && !windowRef.confirm(`工作流「${name}」有未保存修改，仍要删除文件吗？`)) {
-                    menu.classList.add('hidden');
-                    return;
-                }
-                if (await deleteWorkflowFile(name)) {
-                    const wasActive = state.activeWorkflowName === name;
-                    state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
-                    if (wasActive) {
-                        if (state.workflowTabs.length > 0) {
-                            await activateFallbackWorkflow();
-                        } else {
-                            state.activeWorkflowName = '';
-                            await ensureOpenWorkflow({ useCurrentCanvas: false });
-                        }
-                    }
-                    showToast('已删除', 'info');
-                    renderWorkflowList();
-                    scheduleSave({ dirty: false });
-                }
-            }
+            await confirmAndDeleteWorkflow(name);
             menu.classList.add('hidden');
         });
 
