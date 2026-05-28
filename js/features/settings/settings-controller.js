@@ -2544,11 +2544,14 @@ export function createSettingsControllerApi({
 
         documentRef.querySelectorAll('.modal-tab-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
+                if (btn.classList.contains('active')) return;
                 const targetTab = btn.dataset.tab;
                 documentRef.querySelectorAll('.modal-tab-btn').forEach((button) => button.classList.remove('active'));
                 btn.classList.add('active');
                 documentRef.querySelectorAll('.settings-tab-pane').forEach((pane) => {
-                    pane.classList.toggle('active', pane.id === `settings-tab-${targetTab}`);
+                    const isTargetPane = pane.id === `settings-tab-${targetTab}`;
+                    pane.classList.toggle('active', isTargetPane);
+                    pane.hidden = !isTargetPane;
                 });
             });
         });

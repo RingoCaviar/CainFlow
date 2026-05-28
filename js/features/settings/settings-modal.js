@@ -7,7 +7,9 @@ export function createSettingsModalApi({ settingsModal, onOpen }) {
             button.classList.toggle('active', button.dataset.tab === 'api');
         });
         document.querySelectorAll('.settings-tab-pane').forEach((pane) => {
-            pane.classList.toggle('active', pane.id === 'settings-tab-api');
+            const isApiPane = pane.id === 'settings-tab-api';
+            pane.classList.toggle('active', isApiPane);
+            pane.hidden = !isApiPane;
         });
         onOpen();
         settingsModal.classList.remove('hidden');

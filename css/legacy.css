@@ -3858,7 +3858,6 @@ body.is-interacting #canvas-container * {
 
 .settings-tab-pane {
     display: none;
-    animation: fade-in 0.2s ease-out;
 }
 
 .settings-tab-pane.active {
