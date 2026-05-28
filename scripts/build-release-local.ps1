@@ -55,6 +55,18 @@ function Get-ReleaseName {
   return "local-$(Get-Date -Format 'yyyyMMddHHmmss')"
 }
 
+function Get-SafeFileNamePart {
+  param([string]$Value)
+
+  $source = if ($null -eq $Value) { '' } else { $Value }
+  $safe = [regex]::Replace($source, '[<>:"/\\|?*]', '-')
+  $safe = $safe.Trim().TrimEnd('.')
+  if ([string]::IsNullOrWhiteSpace($safe)) {
+    return 'local'
+  }
+  return $safe
+}
+
 function Remove-PathIfExists {
   param([string]$Path)
 
@@ -102,7 +114,7 @@ Remove-PathIfExists "release_staging"
 Remove-PathIfExists "CainFlow_Launcher.spec"
 
 $releaseName = Get-ReleaseName
-$zipName = "Cainflow_$releaseName.zip"
+$zipName = "Cainflow_$(Get-SafeFileNamePart $releaseName).zip"
 Remove-PathIfExists $zipName
 
 Write-Step "Building CainFlow_Launcher.exe with PyInstaller"
@@ -166,6 +178,6 @@ Remove-PathIfExists "dist"
 Remove-PathIfExists "release_staging"
 Remove-PathIfExists "CainFlow_Launcher.spec"
 
-$zipPath = (Resolve-Path $zipName).Path
+$zipPath = (Resolve-Path -LiteralPath $zipName).Path
 Write-Host ""
 Write-Host "Done: $zipPath" -ForegroundColor Green

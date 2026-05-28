@@ -60,6 +60,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          function Get-SafeFileNamePart {
+            param([string]$Value)
+            $source = if ($null -eq $Value) { '' } else { $Value }
+            $safe = [regex]::Replace($source, '[<>:"/\\|?*]', '-')
+            $safe = $safe.Trim().TrimEnd('.')
+            if ([string]::IsNullOrWhiteSpace($safe)) {
+              return 'local'
+            }
+            return $safe
+          }
+
           $ref = "${{ github.ref }}"
           $manualTag = "${{ github.event.inputs.release_tag }}"
           if ($ref -like "refs/tags/*") {
@@ -75,10 +86,11 @@ jobs:
           }
 
           ./scripts/build-release-local.ps1 -TagName $tagName -Python python -SkipDependencyInstall
-          $zip = Get-ChildItem -LiteralPath . -Filter "Cainflow_$tagName.zip" | Select-Object -First 1
-          if (!$zip) {
-            throw "Release zip was not found for tag $tagName"
+          $zipName = "Cainflow_$(Get-SafeFileNamePart $tagName).zip"
+          if (!(Test-Path -LiteralPath $zipName -PathType Leaf)) {
+            throw "Release zip was not found for tag $tagName (expected $zipName)"
           }
+          $zip = Get-Item -LiteralPath $zipName
 
           "RELEASE_TAG=$tagName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ZIP_PATH=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
