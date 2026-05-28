@@ -38,11 +38,24 @@ export function createLogPanelApi({
             const raw = localStorageRef.getItem(storageKey);
             if (!raw) return;
             const parsed = JSON.parse(raw);
+            let shouldRewritePersistedLogs = false;
             if (Array.isArray(parsed?.logs)) {
-                state.logs = parsed.logs;
+                state.logs = parsed.logs.map((log) => {
+                    if (log?.rawDetails) shouldRewritePersistedLogs = true;
+                    const nextDetails = sanitizeDetails(log?.details ?? log?.rawDetails ?? null);
+                    if (nextDetails !== log?.details) shouldRewritePersistedLogs = true;
+                    return {
+                        ...log,
+                        details: nextDetails,
+                        rawDetails: null
+                    };
+                });
             }
             if (parsed?.logRetentionDays !== undefined) {
                 state.logRetentionDays = normalizeRetentionDays(parsed.logRetentionDays);
+            }
+            if (shouldRewritePersistedLogs) {
+                persistLogs();
             }
         } catch (error) {
             console.warn('Load persisted logs failed:', error);
@@ -118,7 +131,7 @@ export function createLogPanelApi({
             title,
             message,
             details: sanitized,
-            rawDetails: sanitized !== details ? details : null,
+            rawDetails: null,
             userFacing: meta?.userFacing || null
         };
         state.logs.unshift(log);

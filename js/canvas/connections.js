@@ -32,6 +32,9 @@ export function createConnectionsApi({
     const PORT_LANE_GAP = 6;
     const NODE_LANE_GAP = 4;
     const MAX_LANE_OFFSET = 42;
+    const FLOW_ANIMATION_TARGET_FPS = 60;
+    const FLOW_ANIMATION_FRAME_MS = 1000 / FLOW_ANIMATION_TARGET_FPS;
+    let lastFlowAnimationTime = 0;
 
     function isGlobalAnimationEnabled() {
         return state.globalAnimationEnabled !== false;
@@ -140,7 +143,16 @@ export function createConnectionsApi({
         }
 
         connectionsGroup.appendChild(group);
-        decoration = { group, arrows, active: false };
+        decoration = {
+            group,
+            arrows,
+            active: false,
+            pathData: '',
+            totalLength: 0,
+            edgePadding: 0,
+            usableLength: 0,
+            spacing: 0,
+        };
         flowDecorationById.set(connId, decoration);
         return decoration;
     }
@@ -153,9 +165,39 @@ export function createConnectionsApi({
     }
 
     function updateFlowDecoration(path, connId, isActive) {
-        const decoration = ensureFlowDecoration(connId);
         const canShowFlowDecoration = (state.connectionLineType || 'bezier') !== 'orthogonal';
-        decoration.active = canShowFlowDecoration && isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
+        const shouldShow = canShowFlowDecoration && isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
+        if (!shouldShow) {
+            removeFlowDecoration(connId);
+            return;
+        }
+
+        const decoration = ensureFlowDecoration(connId);
+        const pathData = path.getAttribute('d') || '';
+        if (decoration.pathData !== pathData) {
+            let totalLength = 0;
+            try {
+                totalLength = path.getTotalLength();
+            } catch {
+                removeFlowDecoration(connId);
+                return;
+            }
+
+            if (!Number.isFinite(totalLength) || totalLength < 80) {
+                removeFlowDecoration(connId);
+                return;
+            }
+
+            const arrowCount = decoration.arrows.length;
+            const edgePadding = Math.min(28, totalLength * 0.18);
+            const usableLength = Math.max(totalLength - edgePadding * 2, 1);
+            decoration.pathData = pathData;
+            decoration.totalLength = totalLength;
+            decoration.edgePadding = edgePadding;
+            decoration.usableLength = usableLength;
+            decoration.spacing = Math.max(26, usableLength / Math.max(arrowCount - 1, 1));
+        }
+        decoration.active = true;
         decoration.group.classList.toggle('active', decoration.active);
         if (path.nextSibling !== decoration.group) {
             path.parentNode?.insertBefore(decoration.group, path.nextSibling);
@@ -163,12 +205,26 @@ export function createConnectionsApi({
     }
 
     function stopFlowAnimation() {
-        if (!flowAnimationFrame) return;
-        view.cancelAnimationFrame(flowAnimationFrame);
-        flowAnimationFrame = null;
+        if (flowAnimationFrame !== null) {
+            view.cancelAnimationFrame(flowAnimationFrame);
+            flowAnimationFrame = null;
+        }
+        lastFlowAnimationTime = 0;
+    }
+
+    function scheduleFlowAnimation() {
+        if (flowAnimationFrame !== null) return;
+        if (!isGlobalAnimationEnabled()) return;
+        flowAnimationFrame = view.requestAnimationFrame(animateFlowDecorations);
     }
 
     function animateFlowDecorations(now) {
+        flowAnimationFrame = null;
+        if (lastFlowAnimationTime && now - lastFlowAnimationTime < FLOW_ANIMATION_FRAME_MS) {
+            scheduleFlowAnimation();
+            return;
+        }
+        lastFlowAnimationTime = now;
         let hasActiveDecoration = false;
 
         flowDecorationById.forEach((decoration, connId) => {
@@ -182,27 +238,14 @@ export function createConnectionsApi({
                 return;
             }
 
-            let totalLength = 0;
-            try {
-                totalLength = path.getTotalLength();
-            } catch {
-                decoration.active = false;
-                decoration.group.classList.remove('active');
-                return;
-            }
-
-            if (!Number.isFinite(totalLength) || totalLength < 80) {
-                decoration.group.classList.remove('active');
-                return;
-            }
-
             hasActiveDecoration = true;
             decoration.group.classList.add('active');
 
             const arrowCount = decoration.arrows.length;
-            const edgePadding = Math.min(28, totalLength * 0.18);
-            const usableLength = Math.max(totalLength - edgePadding * 2, 1);
-            const spacing = Math.max(26, usableLength / Math.max(arrowCount - 1, 1));
+            const totalLength = decoration.totalLength;
+            const edgePadding = decoration.edgePadding;
+            const usableLength = decoration.usableLength;
+            const spacing = decoration.spacing;
             const speed = 0.045;
             const phase = (now * speed) % spacing;
 
@@ -224,11 +267,10 @@ export function createConnectionsApi({
         });
 
         if (!hasActiveDecoration) {
-            flowAnimationFrame = null;
             return;
         }
 
-        flowAnimationFrame = view.requestAnimationFrame(animateFlowDecorations);
+        scheduleFlowAnimation();
     }
 
     function ensureFlowAnimation() {
@@ -245,9 +287,7 @@ export function createConnectionsApi({
             stopFlowAnimation();
             return;
         }
-        if (!flowAnimationFrame) {
-            flowAnimationFrame = view.requestAnimationFrame(animateFlowDecorations);
-        }
+        scheduleFlowAnimation();
     }
 
     function getPortPosition(nodeId, portName, direction, containerRectOverride = null) {
@@ -668,6 +708,7 @@ export function createConnectionsApi({
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
             const pathStr = createBezierPath(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
             const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
+            const shouldAnimateFlow = hasRunningEndpoint(conn);
 
             if (!path) {
                 path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -696,7 +737,7 @@ export function createConnectionsApi({
             path.setAttribute('d', pathStr);
             path.classList.toggle('selected', isSelected);
             path.removeAttribute('stroke');
-            updateFlowDecoration(path, conn.id, isSelected);
+            updateFlowDecoration(path, conn.id, shouldAnimateFlow);
         }
 
         renderConnectionInsertPreview();

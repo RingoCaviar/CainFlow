@@ -340,7 +340,7 @@ function renderImageImportBody(id, restoreData) {
         <div class="image-import-upload-section ${importMode === 'upload' ? '' : 'hidden'}" id="${id}-upload-section">
             <div class="file-drop-zone${hasLocalImage ? ' has-image' : ''}" id="${id}-drop">
                 ${hasLocalImage
-                    ? `<img src="${rd.imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" loading="lazy" decoding="async" />`
+                    ? `<div class="drop-text">正在恢复图片预览...</div>`
                     : `<div class="drop-text">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         拖拽图片到此处
@@ -808,14 +808,11 @@ function normalizeRestoreImageList(value) {
 }
 
 function renderRestoredMultiImagePreview(imageList, previewIndex, altPrefix, placeholderClass, placeholderText) {
-    if (imageList.length === 0) {
-        return `<div class="${placeholderClass}">${placeholderText}</div>`;
-    }
-    const index = Math.max(0, Math.min(imageList.length - 1, previewIndex));
-    const image = imageList[index];
+    const hasImages = imageList.length > 0;
+    const index = hasImages ? Math.max(0, Math.min(imageList.length - 1, previewIndex)) : 0;
     return `
-        <img src="${image}" alt="${altPrefix} ${index + 1}/${imageList.length}" draggable="false" loading="lazy" decoding="async" />
-        ${imageList.length > 1 ? `
+        <div class="${placeholderClass}">${placeholderText}</div>
+        ${hasImages && imageList.length > 1 ? `
             <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
@@ -931,7 +928,7 @@ function renderImageResizeBody(id, restoreData) {
             <div class="image-resize-preview-frame">
                 <div class="preview-container image-resize-preview" id="${id}-resize-preview">
                     ${hasPreview
-                        ? `<img src="${previewImage}" alt="缩放结果预览" draggable="false" loading="lazy" decoding="async" />`
+                        ? `<div class="preview-placeholder">正在恢复缩放预览...</div>`
                         : `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>等待上游图片</div>`}
                 </div>
             </div>

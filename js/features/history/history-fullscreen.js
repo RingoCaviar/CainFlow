@@ -15,7 +15,7 @@ const VIRTUAL_OVERSCAN = 900;
 export function createHistoryFullscreenApi({
     state,
     getHistory,
-    getHistoryMetadata = getHistory,
+    getHistoryMetadata = async () => [],
     getHistoryEntry = async (id) => (await getHistory()).find((entry) => entry.id === id) || null,
     clearHistory,
     deleteHistoryEntry,

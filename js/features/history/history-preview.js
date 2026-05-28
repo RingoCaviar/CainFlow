@@ -5,8 +5,9 @@ import { escapeHistoryHtml, formatHistoryGenerationDuration, formatHistoryVideoS
 
 export function createHistoryPreviewApi({
     getHistory,
-    getHistoryMetadata = getHistory,
+    getHistoryMetadata = async () => [],
     getHistoryEntry = async (id) => (await getHistory()).find((entry) => entry.id === id) || null,
+    getHistoryImageBlob = async () => null,
     deleteHistoryEntry,
     getImageResolution,
     downloadImage,
@@ -31,6 +32,7 @@ export function createHistoryPreviewApi({
         currentIndex: -1,
         currentItem: null,
         loadToken: 0,
+        imageObjectUrl: '',
         videoObjectUrl: ''
     };
 
@@ -58,6 +60,12 @@ export function createHistoryPreviewApi({
         if (!previewState.videoObjectUrl) return;
         URL.revokeObjectURL(previewState.videoObjectUrl);
         previewState.videoObjectUrl = '';
+    }
+
+    function revokePreviewImageUrl() {
+        if (!previewState.imageObjectUrl) return;
+        URL.revokeObjectURL(previewState.imageObjectUrl);
+        previewState.imageObjectUrl = '';
     }
 
     function setPreviewMode(mode) {
@@ -191,9 +199,25 @@ export function createHistoryPreviewApi({
     }
 
     async function getFullHistoryItem(item) {
-        if (item?.image || item?.videoBlob) return item;
+        if (item?.image || item?.imageBlob || item?.videoBlob) return item;
         const entry = await getHistoryEntry(item.id);
         return entry || item;
+    }
+
+    async function getPreviewImageSource(item) {
+        if (!item) return { src: '', objectUrl: '' };
+        if (item.imageBlob instanceof Blob) {
+            const objectUrl = URL.createObjectURL(item.imageBlob);
+            return { src: objectUrl, objectUrl };
+        }
+        if (typeof getHistoryImageBlob === 'function' && item.id !== undefined) {
+            const blob = await getHistoryImageBlob(item.id);
+            if (blob instanceof Blob) {
+                const objectUrl = URL.createObjectURL(blob);
+                return { src: objectUrl, objectUrl };
+            }
+        }
+        return { src: item.image || '', objectUrl: '' };
     }
 
     function downloadBlob(blob, filename) {
@@ -247,6 +271,7 @@ export function createHistoryPreviewApi({
 
         previewState.currentItem = item;
         resetPreviewTransform();
+        revokePreviewImageUrl();
         revokePreviewVideoUrl();
         const isVideo = isVideoHistoryItem(item);
         setPreviewMode(isVideo ? 'video' : 'image');
@@ -302,19 +327,28 @@ export function createHistoryPreviewApi({
 
         syncPreviewNavState();
 
-        const fullItem = await getFullHistoryItem(item);
+        const fullItem = isVideo ? await getFullHistoryItem(item) : item;
         if (token !== previewState.loadToken) return;
         previewState.currentItem = fullItem;
 
         if (isVideoHistoryItem(fullItem)) {
             const resolution = setPreviewVideoSource(fullItem, token);
             updatePreviewMeta(fullItem, resolution);
-        } else if (fullItem?.image) {
-            const resolution = await setPreviewImageSource(fullItem.image, token);
+        } else {
+            const { src, objectUrl } = await getPreviewImageSource(fullItem);
+            if (token !== previewState.loadToken) {
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                return;
+            }
+            if (!src) {
+                if (img) img.classList.remove('history-preview-img-loading');
+                updatePreviewMeta(fullItem, '');
+                return;
+            }
+            previewState.imageObjectUrl = objectUrl;
+            const resolution = await setPreviewImageSource(src, token);
             if (token !== previewState.loadToken) return;
             updatePreviewMeta(fullItem, resolution);
-        } else {
-            updatePreviewMeta(item, '');
         }
     }
 
@@ -335,6 +369,7 @@ export function createHistoryPreviewApi({
             video.removeAttribute('src');
             video.load();
         }
+        revokePreviewImageUrl();
         revokePreviewVideoUrl();
         previewState.loadToken += 1;
         previewState.items = [];

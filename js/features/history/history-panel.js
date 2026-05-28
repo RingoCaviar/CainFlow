@@ -6,7 +6,7 @@ import { buildHistoryCardMarkup } from './history-utils.js';
 export function createHistoryPanelApi({
     state,
     getHistory,
-    getHistoryMetadata = getHistory,
+    getHistoryMetadata = async () => [],
     getHistoryCount = async () => (await getHistoryMetadata()).length,
     getHistoryEntry = async (id) => (await getHistory()).find((entry) => entry.id === id) || null,
     createThumbnail,
@@ -129,7 +129,7 @@ export function createHistoryPanelApi({
                 return;
             }
 
-            const item = await hydrateHistoryItem(itemId);
+            const item = itemsById.get(itemId) || await hydrateHistoryItem(itemId);
             if (item) openHistoryPreview(item);
         };
     }

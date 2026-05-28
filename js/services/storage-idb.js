@@ -201,6 +201,39 @@ export function createIndexedDbApi(getState) {
         }
     }
 
+    async function getImageAssetBlob(nodeId) {
+        try {
+            const db = await openDB();
+            const asset = await requestToPromise(db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(nodeId));
+            if (asset instanceof Blob) return asset;
+            if (typeof asset === 'string') return dataUrlToBlob(asset);
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    async function getHistoryImageBlob(id) {
+        try {
+            const normalizedId = Number(id);
+            if (!Number.isFinite(normalizedId)) return null;
+            const db = await openDB();
+            const entry = await requestToPromise(db.transaction(STORE_HISTORY).objectStore(STORE_HISTORY).get(normalizedId));
+            if (!entry || entry.mediaType === 'video' || entry.videoAssetKey) return null;
+
+            const imageAssetKey = entry.imageAssetKey || getHistoryAssetKey(normalizedId);
+            const asset = imageAssetKey
+                ? await requestToPromise(db.transaction(STORE_ASSETS).objectStore(STORE_ASSETS).get(imageAssetKey))
+                : null;
+            if (asset instanceof Blob) return asset;
+            if (typeof asset === 'string') return dataUrlToBlob(asset);
+            if (entry.image) return dataUrlToBlob(entry.image);
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
     async function getImageAssetList(nodeId) {
         try {
             const db = await openDB();
@@ -771,6 +804,7 @@ export function createIndexedDbApi(getState) {
         getHandle,
         saveImageAsset,
         getImageAsset,
+        getImageAssetBlob,
         saveImageAssetList,
         getImageAssetList,
         deleteImageAsset,
@@ -784,6 +818,7 @@ export function createIndexedDbApi(getState) {
         getHistoryMetadata,
         getHistoryCount,
         getHistoryEntry,
+        getHistoryImageBlob,
         updateHistoryThumb,
         clearHistory,
         deleteHistoryEntry

@@ -48,6 +48,10 @@ export function createNodeSerializer({ state, documentRef }) {
             if (includeImages && images.length > 1) {
                 serialized.images = images.slice();
             }
+            if (node.data?.imageMemoryReleased === true && typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
+                serialized.imageMemoryReleased = true;
+                serialized.imageAssetKey = node.data.imageAssetKey;
+            }
             if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
             }

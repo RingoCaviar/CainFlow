@@ -442,38 +442,202 @@ export function getAbortMessage(state) {
         : '用户终止了工作流';
 }
 
+const DETAILS_STRING_LIMIT = 1200;
+const DETAILS_FIELD_STRING_LIMIT = 400;
+const DETAILS_FULL_STRING_LIMIT = 60000;
+const DETAILS_FULL_FIELD_STRING_LIMIT = 12000;
+const DETAILS_OBJECT_TEXT_LIMIT = 16000;
+const DETAILS_FULL_OBJECT_TEXT_LIMIT = 60000;
+const DETAILS_MAX_DEPTH = 8;
+const DETAILS_MAX_ARRAY_ITEMS = 80;
+const DETAILS_MAX_OBJECT_KEYS = 120;
+
+function formatApproxBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return '未知大小';
+    if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${Math.round(value)} B`;
+}
+
+function estimateBase64Bytes(payload = '') {
+    const compact = String(payload || '').replace(/\s+/g, '');
+    if (!compact) return 0;
+    const padding = compact.endsWith('==') ? 2 : (compact.endsWith('=') ? 1 : 0);
+    return Math.max(0, Math.floor(compact.length * 3 / 4) - padding);
+}
+
+function parseDataUrlMeta(value = '') {
+    const match = String(value || '').match(/^data:([^;,]+)?((?:;[^,]*)*),(.*)$/is);
+    if (!match) return null;
+    const mimeType = match[1] || 'application/octet-stream';
+    const options = match[2] || '';
+    const payload = match[3] || '';
+    const isBase64 = /;base64/i.test(options);
+    const bytes = isBase64 ? estimateBase64Bytes(payload) : payload.length;
+    return { mimeType, bytes };
+}
+
+function getMediaLabelFromMime(mimeType = '') {
+    const normalized = String(mimeType || '').toLowerCase();
+    if (normalized.startsWith('image/')) return '图片';
+    if (normalized.startsWith('video/')) return '视频';
+    if (normalized.startsWith('audio/')) return '音频';
+    return '媒体';
+}
+
+function summarizeDataUrl(value) {
+    const meta = parseDataUrlMeta(value);
+    if (!meta) return '[媒体数据已省略]';
+    const label = getMediaLabelFromMime(meta.mimeType);
+    return `[${label}数据已省略: ${meta.mimeType}, ${formatApproxBytes(meta.bytes)}]`;
+}
+
+function summarizeBlobLike(value, fallbackLabel = '二进制数据') {
+    const name = typeof value?.name === 'string' && value.name ? `, ${value.name}` : '';
+    const type = typeof value?.type === 'string' && value.type ? value.type : 'application/octet-stream';
+    const size = formatApproxBytes(value?.size || 0);
+    return `[${fallbackLabel}已省略: ${type}${name}, ${size}]`;
+}
+
+function isDataUrlString(value) {
+    return typeof value === 'string' && /^data:/i.test(value.trim());
+}
+
+function isLikelyBase64Payload(value) {
+    if (typeof value !== 'string' || value.length < 1500) return false;
+    const trimmed = value.trim();
+    if (!trimmed || /^https?:\/\//i.test(trimmed) || /^</.test(trimmed)) return false;
+    const compact = trimmed.replace(/\s+/g, '');
+    if (compact.length < 1500 || compact.length % 4 === 1) return false;
+    return /^[A-Za-z0-9+/=_-]+$/.test(compact);
+}
+
+function sanitizeStringValue(value, key = '', options = {}) {
+    const { truncate = true, stringLimit = null } = options;
+    const raw = String(value ?? '');
+    if (isDataUrlString(raw)) return summarizeDataUrl(raw);
+    if (isLikelyBase64Payload(raw)) {
+        return `[Base64数据已省略: ${formatApproxBytes(estimateBase64Bytes(raw))}]`;
+    }
+
+    const sanitized = sanitizeRequestUrl(raw);
+    const normalizedKey = String(key || '').toLowerCase();
+    const isUrlLike = normalizedKey.includes('url') || /^https?:\/\//i.test(sanitized);
+    const limit = Number.isFinite(Number(stringLimit)) && Number(stringLimit) > 0
+        ? Number(stringLimit)
+        : truncate
+        ? (isUrlLike ? DETAILS_FULL_FIELD_STRING_LIMIT : DETAILS_FIELD_STRING_LIMIT)
+        : DETAILS_FULL_FIELD_STRING_LIMIT;
+
+    if (sanitized.length > limit) {
+        const suffix = truncate ? '[数据过长已截断]' : '[完整详情仍过长，已截断]';
+        return `${sanitized.substring(0, limit)}... ${suffix}`;
+    }
+    return sanitized;
+}
+
+function sanitizeDetailsValue(value, options = {}, context = {}) {
+    const { depth = 0, key = '', seen = new WeakSet() } = context;
+    if (value === null || value === undefined) return value;
+    const type = typeof value;
+    if (type === 'string') return sanitizeStringValue(value, key, options);
+    if (type === 'number' || type === 'boolean') return value;
+    if (type === 'bigint') return String(value);
+    if (type === 'function') return '[函数已省略]';
+    if (type !== 'object') return String(value);
+
+    if (typeof Blob !== 'undefined' && value instanceof Blob) {
+        const isFile = typeof File !== 'undefined' && value instanceof File;
+        return summarizeBlobLike(value, isFile ? '文件' : 'Blob');
+    }
+    if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+        return `[ArrayBuffer已省略: ${formatApproxBytes(value.byteLength)}]`;
+    }
+    if (ArrayBuffer.isView?.(value)) {
+        return `[TypedArray已省略: ${formatApproxBytes(value.byteLength)}]`;
+    }
+    if (value instanceof Error) {
+        return {
+            name: value.name || 'Error',
+            message: sanitizeStringValue(value.message || '', 'message', options),
+            stack: sanitizeStringValue(value.stack || '', 'stack', options)
+        };
+    }
+    if (typeof URLSearchParams !== 'undefined' && value instanceof URLSearchParams) {
+        return Object.fromEntries(Array.from(value.entries()).map(([entryKey, entryValue]) => [
+            entryKey,
+            sanitizeStringValue(entryValue, entryKey, options)
+        ]));
+    }
+    if (typeof FormData !== 'undefined' && value instanceof FormData) {
+        const fields = [];
+        value.forEach((entryValue, entryKey) => {
+            fields.push({
+                key: entryKey,
+                value: sanitizeDetailsValue(entryValue, options, { depth: depth + 1, key: entryKey, seen })
+            });
+        });
+        return { type: 'FormData', fields };
+    }
+    if (depth >= DETAILS_MAX_DEPTH) return '[对象层级过深，已省略]';
+    if (seen.has(value)) return '[循环引用已省略]';
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+        const limited = value.slice(0, DETAILS_MAX_ARRAY_ITEMS).map((item, index) => (
+            sanitizeDetailsValue(item, options, { depth: depth + 1, key: String(index), seen })
+        ));
+        if (value.length > DETAILS_MAX_ARRAY_ITEMS) {
+            limited.push(`[还有 ${value.length - DETAILS_MAX_ARRAY_ITEMS} 项已省略]`);
+        }
+        seen.delete(value);
+        return limited;
+    }
+
+    const output = {};
+    const entries = Object.entries(value);
+    entries.slice(0, DETAILS_MAX_OBJECT_KEYS).forEach(([entryKey, entryValue]) => {
+        output[entryKey] = sanitizeDetailsValue(entryValue, options, {
+            depth: depth + 1,
+            key: entryKey,
+            seen
+        });
+    });
+    if (entries.length > DETAILS_MAX_OBJECT_KEYS) {
+        output.__omittedKeys = entries.length - DETAILS_MAX_OBJECT_KEYS;
+    }
+    seen.delete(value);
+    return output;
+}
+
+function truncateDetailsText(text, options = {}) {
+    const { truncate = true } = options;
+    const limit = truncate ? DETAILS_OBJECT_TEXT_LIMIT : DETAILS_FULL_OBJECT_TEXT_LIMIT;
+    if (typeof text !== 'string' || text.length <= limit) return text;
+    const suffix = truncate ? '[数据过长已截断]' : '[完整详情仍过长，已截断]';
+    return `${text.substring(0, limit)}... ${suffix}`;
+}
+
 export function sanitizeDetails(details, options = {}) {
     const { truncate = true } = options;
     if (!details) return null;
-    if (typeof details === 'string' && truncate && details.length > 1200) {
-        const sanitized = sanitizeRequestUrl(details);
-        return `${sanitized.substring(0, 1200)}... [数据过长已截断]`;
-    }
     if (typeof details === 'string') {
-        return sanitizeRequestUrl(details);
+        const sanitized = sanitizeStringValue(details, '', {
+            truncate,
+            stringLimit: truncate ? DETAILS_STRING_LIMIT : DETAILS_FULL_STRING_LIMIT
+        });
+        const limit = truncate ? DETAILS_STRING_LIMIT : DETAILS_FULL_STRING_LIMIT;
+        if (sanitized.length > limit) {
+            const suffix = truncate ? '[数据过长已截断]' : '[完整详情仍过长，已截断]';
+            return `${sanitized.substring(0, limit)}... ${suffix}`;
+        }
+        return sanitized;
     }
     if (typeof details === 'object') {
         try {
-            const copy = JSON.parse(JSON.stringify(details));
-            const traverse = (obj) => {
-                for (const key in obj) {
-                    if (typeof obj[key] === 'string') {
-                        if (obj[key].startsWith('data:image/') && obj[key].length > 500) {
-                            obj[key] = '[图片数据已隐藏]';
-                        } else if (key.toLowerCase().includes('url')) {
-                            obj[key] = sanitizeRequestUrl(obj[key]);
-                        } else if (truncate && obj[key].length > 400) {
-                            obj[key] = `${sanitizeRequestUrl(obj[key]).substring(0, 400)}... [数据过长已截断]`;
-                        } else {
-                            obj[key] = sanitizeRequestUrl(obj[key]);
-                        }
-                    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                        traverse(obj[key]);
-                    }
-                }
-            };
-            traverse(copy);
-            return JSON.stringify(copy, null, 2);
+            const sanitized = sanitizeDetailsValue(details, { truncate });
+            return truncateDetailsText(JSON.stringify(sanitized, null, 2), { truncate });
         } catch {
             return '[无法序列化的详细信息]';
         }

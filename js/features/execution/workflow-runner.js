@@ -26,6 +26,8 @@ export function createWorkflowRunnerApi({
     scheduleSave,
     updateAllConnections,
     updatePortStyles,
+    getImageAsset = async () => null,
+    getImageAssetList = async () => [],
     saveImageAsset = async () => false,
     deleteImageAsset = async () => false,
     saveImageAssetList = async () => false,
@@ -33,6 +35,18 @@ export function createWorkflowRunnerApi({
     getAbortMessage,
     playNotificationSound
 }) {
+    const view = documentRef.defaultView || window;
+    let runningConnectionRefreshFrame = null;
+
+    function scheduleRunningConnectionRefresh() {
+        if (runningConnectionRefreshFrame !== null) return;
+        const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
+        runningConnectionRefreshFrame = requestFrame(() => {
+            runningConnectionRefreshFrame = null;
+            updateAllConnections();
+        });
+    }
+
     function isAbortLikeError(err) {
         if (!err) return false;
         if (err.name === 'AbortError') return true;
@@ -77,6 +91,161 @@ export function createWorkflowRunnerApi({
     function getNodeDisplayTitle(node) {
         if (!node) return '节点';
         return node.customTitle || nodeConfigs[node.type]?.title || node.type;
+    }
+
+    function formatApproxBytes(bytes) {
+        const value = Number(bytes || 0);
+        if (!Number.isFinite(value) || value <= 0) return '未知大小';
+        if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
+        if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+        return `${Math.round(value)} B`;
+    }
+
+    function estimateDataUrlBytes(value = '') {
+        const text = String(value || '');
+        const commaIndex = text.indexOf(',');
+        const payload = (commaIndex >= 0 ? text.slice(commaIndex + 1) : text).replace(/\s+/g, '');
+        if (!payload) return 0;
+        const padding = payload.endsWith('==') ? 2 : (payload.endsWith('=') ? 1 : 0);
+        return Math.max(0, Math.floor(payload.length * 3 / 4) - padding);
+    }
+
+    function isDataUrl(value) {
+        return typeof value === 'string' && /^data:/i.test(value);
+    }
+
+    function estimateImageValueBytes(value) {
+        if (isDataUrl(value)) return estimateDataUrlBytes(value);
+        return 0;
+    }
+
+    function summarizeMediaString(value) {
+        if (typeof value !== 'string') return null;
+        const dataUrlMatch = value.match(/^data:([^;,]+)?/i);
+        if (dataUrlMatch) {
+            const mimeType = dataUrlMatch[1] || 'application/octet-stream';
+            const label = mimeType.toLowerCase().startsWith('video/') ? '视频' : '图片';
+            return {
+                kind: label,
+                mimeType,
+                approxBytes: estimateDataUrlBytes(value),
+                summary: `${label}数据（${mimeType}, ${formatApproxBytes(estimateDataUrlBytes(value))}）`
+            };
+        }
+        if (/^https?:\/\//i.test(value.trim())) {
+            return {
+                kind: '链接',
+                url: value.trim()
+            };
+        }
+        return null;
+    }
+
+    function summarizeMediaList(values) {
+        const items = normalizeImageList(values);
+        const totalApproxBytes = items.reduce((sum, item) => sum + estimateDataUrlBytes(item), 0);
+        return {
+            count: items.length,
+            approxBytes: totalApproxBytes,
+            approxSize: totalApproxBytes > 0 ? formatApproxBytes(totalApproxBytes) : '',
+            items: items.slice(0, 6).map((item, index) => ({
+                index: index + 1,
+                ...summarizeMediaString(item)
+            })),
+            omittedItems: Math.max(0, items.length - 6)
+        };
+    }
+
+    function summarizeValueForCompletionLog(value) {
+        if (value === null || value === undefined) return value;
+        if (typeof value === 'string') {
+            const media = summarizeMediaString(value);
+            if (media) return media;
+            return value.length > 240 ? `${value.slice(0, 240)}... [文本过长已截断]` : value;
+        }
+        if (Array.isArray(value)) {
+            const imageList = normalizeImageList(value);
+            if (imageList.length > 0) return summarizeMediaList(imageList);
+            return value.slice(0, 20).map((item) => summarizeValueForCompletionLog(item));
+        }
+        if (typeof Blob !== 'undefined' && value instanceof Blob) {
+            return {
+                kind: 'Blob',
+                mimeType: value.type || 'application/octet-stream',
+                size: formatApproxBytes(value.size || 0)
+            };
+        }
+        if (typeof value === 'object') {
+            const output = {};
+            Object.entries(value).slice(0, 40).forEach(([key, item]) => {
+                output[key] = summarizeValueForCompletionLog(item);
+            });
+            return output;
+        }
+        return value;
+    }
+
+    function createNodeCompletionLogDetails(node, inputs, extra = {}) {
+        const data = node?.data && typeof node.data === 'object' ? node.data : {};
+        const details = {
+            nodeId: node?.id || '',
+            inputs: summarizeValueForCompletionLog(inputs || {}),
+            data: {}
+        };
+
+        const imageList = normalizeImageList(data.images || node?.imageDataList || node?.generatedImages || data.image || node?.imageData);
+        if (imageList.length > 0) {
+            details.data.images = summarizeMediaList(imageList);
+            details.data.imageAssetKey = node?.id || '';
+        }
+
+        if (data.videoUrl || data.video?.url || Array.isArray(data.videos)) {
+            details.data.videoId = data.videoId || data.video?.id || '';
+            details.data.videoUrl = data.videoUrl || data.video?.url || '';
+            details.data.videoStatus = data.videoStatus || data.video?.status || '';
+            details.data.videoStatusText = data.videoStatusText || '';
+            details.data.videos = Array.isArray(data.videos)
+                ? data.videos.map((video) => ({
+                    videoId: video?.videoId || video?.id || '',
+                    videoUrl: video?.videoUrl || video?.url || '',
+                    status: video?.status || '',
+                    statusText: video?.statusText || ''
+                }))
+                : undefined;
+        }
+
+        const textValues = normalizeTextList(data.texts || data.text);
+        if (textValues.length > 0) {
+            details.data.textCount = textValues.length;
+            details.data.textPreview = textValues.slice(0, 3).map((text) => summarizeValueForCompletionLog(text));
+        }
+
+        [
+            'prompt',
+            'imageTaskId',
+            'imageTaskStatus',
+            'imageTaskStatusText',
+            'imageTaskUrl',
+            'imageTaskCreateHttpStatus',
+            'imageTaskCreateStatus',
+            'imageTaskProgress',
+            'videoCreateHttpStatus',
+            'videoCreateStatus',
+            'videoStatusUpdateTime',
+            'videoEnhancedPrompt'
+        ].forEach((key) => {
+            if (data[key] !== undefined && data[key] !== null && data[key] !== '') {
+                details.data[key] = summarizeValueForCompletionLog(data[key]);
+            }
+        });
+
+        Object.entries(extra || {}).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                details[key] = value;
+            }
+        });
+
+        return details;
     }
 
     async function sendSystemNotification(title, options = {}) {
@@ -183,6 +352,7 @@ export function createWorkflowRunnerApi({
             node.el.classList.remove('completed', 'error');
         }
         setNodeRunningLock(node, true);
+        scheduleRunningConnectionRefresh();
     }
 
     function clearNodeRunning(nodeId, node) {
@@ -192,6 +362,7 @@ export function createWorkflowRunnerApi({
             node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
         }
         setNodeRunningLock(node, false);
+        scheduleRunningConnectionRefresh();
     }
 
     function hasRunningNodeInPlan(plan) {
@@ -292,12 +463,180 @@ export function createWorkflowRunnerApi({
         return images.length > 0 ? images : null;
     }
 
-    function getEnabledNodeOutputValue(fromNode, toNode, portName) {
+    function isNodeResultFixed(nodeId) {
+        const fixedToggle = documentRef.getElementById(`${nodeId}-fixed`);
+        return fixedToggle?.checked === true;
+    }
+
+    function hasImageOutputPort(node) {
+        if (!node) return false;
+        return (nodeConfigs[node.type]?.outputs || []).some((output) => output?.type === 'image');
+    }
+
+    function hasImageResultInMemory(node) {
+        if (!node) return false;
+        return normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages || node?.data?.image || node?.imageData || node?.resizePreviewData).length > 0;
+    }
+
+    function estimateNodeImageMemoryBytes(node) {
+        if (!node) return 0;
+        const fields = [
+            node.data?.images,
+            node.data?.image,
+            node.imageDataList,
+            node.imageData,
+            node.generatedImages,
+            node.resizePreviewData,
+            node.compareImageA,
+            node.compareImageB
+        ];
+        const seen = new Set();
+        let total = 0;
+        fields.forEach((field) => {
+            normalizeImageList(field).forEach((image) => {
+                if (!image || seen.has(image)) return;
+                seen.add(image);
+                total += estimateImageValueBytes(image);
+            });
+        });
+        return total;
+    }
+
+    function getProtectedImageNodeIds(plan, completedNodes = new Set()) {
+        const protectedIds = new Set();
+        const completed = completedNodes instanceof Set ? completedNodes : new Set(completedNodes || []);
+
+        for (const nodeId of plan.executionOrder || plan.nodeIds || []) {
+            const node = state.nodes.get(nodeId);
+            if (!node || node.enabled === false) continue;
+            if (!completed.has(nodeId) && plan.scopeNodeSet?.has(nodeId)) continue;
+
+            if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+                protectedIds.add(nodeId);
+            } else if (isNodeResultFixed(nodeId) && hasImageResultInMemory(node)) {
+                protectedIds.add(nodeId);
+            }
+        }
+
+        return protectedIds;
+    }
+
+    function clearIntermediateImageResult(node) {
+        if (!node) return 0;
+        const estimatedBytes = estimateNodeImageMemoryBytes(node);
+        if (estimatedBytes <= 0) return 0;
+
+        node.el?.querySelectorAll?.('img[data-original-src]').forEach((img) => {
+            if (isDataUrl(img.dataset.originalSrc)) {
+                delete img.dataset.originalSrc;
+            }
+        });
+        if (node.data && typeof node.data === 'object') {
+            delete node.data.images;
+            delete node.data.image;
+            delete node.data.imagePromptList;
+        }
+        node.imageData = null;
+        node.imageDataList = [];
+        node.generatedImages = [];
+        node.imagePromptList = [];
+        node.resizePreviewData = null;
+        node.resizePreviewMeta = null;
+        node.compareImageA = null;
+        node.compareImageB = null;
+        return estimatedBytes;
+    }
+
+    async function releaseWorkflowIntermediateImageResults(plan, completedNodes = new Set(), options = {}) {
+        if (!plan?.executionOrder?.length) return { releasedNodes: 0, releasedBytes: 0 };
+        const protectedIds = getProtectedImageNodeIds(plan, completedNodes);
+        const released = [];
+        let releasedBytes = 0;
+
+        for (const nodeId of plan.executionOrder) {
+            if (protectedIds.has(nodeId)) continue;
+            if (!completedNodes.has(nodeId)) continue;
+            const node = state.nodes.get(nodeId);
+            if (!node || node.enabled === false || !hasImageOutputPort(node)) continue;
+            if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave') continue;
+            if (isNodeResultFixed(nodeId)) continue;
+
+            const bytes = clearIntermediateImageResult(node);
+            if (bytes <= 0) continue;
+            node.data = node.data || {};
+            node.data.imageAssetKey = nodeId;
+            node.data.imageMemoryReleased = true;
+            released.push({
+                nodeId,
+                title: getNodeDisplayTitle(node),
+                approxBytes: bytes
+            });
+            releasedBytes += bytes;
+        }
+
+        if (released.length === 0) return { releasedNodes: 0, releasedBytes: 0 };
+
+        if (options.log !== false) {
+            addLog('info', '已释放中间图片结果', `清理 ${released.length} 个中间节点，估算释放 ${formatApproxBytes(releasedBytes)}。保存/预览/固定与历史结果已保留。`, {
+                releasedNodes: released.map((item) => ({
+                    nodeId: item.nodeId,
+                    title: item.title,
+                    approxSize: formatApproxBytes(item.approxBytes)
+                })),
+                protectedNodeIds: Array.from(protectedIds)
+            });
+        }
+        scheduleSave();
+        return {
+            releasedNodes: released.length,
+            releasedBytes
+        };
+    }
+
+    async function restoreReleasedImageOutput(node) {
+        if (!node?.data?.imageMemoryReleased || !node.data.imageAssetKey) {
+            return null;
+        }
+        const assetKey = node.data.imageAssetKey;
+        let restoredImages = [];
+        try {
+            if (typeof getImageAssetList === 'function') {
+                restoredImages = await getImageAssetList(assetKey);
+            }
+            if (restoredImages.length === 0 && typeof getImageAsset === 'function') {
+                const image = await getImageAsset(assetKey);
+                if (image) restoredImages = [image];
+            }
+        } catch (error) {
+            addLog('warning', '中间图片恢复失败', `节点「${getNodeDisplayTitle(node)}」的中间图片已释放，尝试从缓存恢复时失败。`, {
+                nodeId: node.id,
+                error: error?.message || String(error)
+            });
+        }
+
+        if (restoredImages.length === 0) return null;
+
+        node.data.images = restoredImages.slice();
+        node.data.image = restoredImages[restoredImages.length - 1];
+        node.imageDataList = restoredImages.slice();
+        node.imageData = node.data.image;
+        if (node.type === 'ImageGenerate') {
+            node.generatedImages = restoredImages.slice();
+            node.generationCompletedCount = restoredImages.length;
+        }
+        delete node.data.imageMemoryReleased;
+        return restoredImages;
+    }
+
+    async function getEnabledNodeOutputValue(fromNode, toNode, portName) {
         if (!fromNode || fromNode.enabled === false) return undefined;
         if (portName === 'image') {
             const images = getNodeImageOutputList(fromNode);
             if (images?.length > 1) return images;
             if (images?.length === 1) return images[0];
+            const restoredImages = await restoreReleasedImageOutput(fromNode);
+            if (restoredImages?.length > 1) return restoredImages;
+            if (restoredImages?.length === 1) return restoredImages[0];
         }
         return getCachedOutputValue(fromNode, portName);
     }
@@ -320,7 +659,7 @@ export function createWorkflowRunnerApi({
 
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 const toNode = state.nodes.get(nodeId);
-                const outputValue = getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+                const outputValue = getCachedOutputValue(fromNode, connection.from.port);
                 if (outputValue === undefined) continue;
 
                 if (!externalInputsByNode[nodeId]) {
@@ -333,7 +672,7 @@ export function createWorkflowRunnerApi({
         return externalInputsByNode;
     }
 
-    function getInputValueForConnection(plan, nodeId, connection) {
+    async function getInputValueForConnection(plan, nodeId, connection) {
         const isSelectedOnlyExternalInput = plan?.mode === 'selected-only' &&
             !plan.scopeNodeSet.has(connection.from.nodeId);
         if (isSelectedOnlyExternalInput) {
@@ -345,13 +684,14 @@ export function createWorkflowRunnerApi({
 
         const fromNode = state.nodes.get(connection.from.nodeId);
         const toNode = state.nodes.get(nodeId);
-        return getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+        return await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
     }
 
     function hasPromptInputValue(plan, nodeId) {
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
             if (connection.to.port !== 'prompt') continue;
-            const promptValue = getInputValueForConnection(plan, nodeId, connection);
+            const fromNode = state.nodes.get(connection.from.nodeId);
+            const promptValue = getCachedOutputValue(fromNode, connection.from.port);
             if (typeof promptValue === 'string' && promptValue.trim()) return true;
             if (promptValue !== undefined && promptValue !== null && promptValue !== '') return true;
             if (isPromptProducedDuringPlan(plan, nodeId, connection)) return true;
@@ -359,11 +699,11 @@ export function createWorkflowRunnerApi({
         return false;
     }
 
-    function collectInputsForNode(plan, nodeId) {
+    async function collectInputsForNode(plan, nodeId) {
         const inputs = {};
 
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
-            const outputValue = getInputValueForConnection(plan, nodeId, connection);
+            const outputValue = await getInputValueForConnection(plan, nodeId, connection);
             if (outputValue !== undefined) {
                 inputs[connection.to.port] = outputValue;
             }
@@ -860,6 +1200,8 @@ export function createWorkflowRunnerApi({
             node.data = node.data || {};
             node.data.images = aggregatedImages.slice();
             node.data.image = aggregatedImages[aggregatedImages.length - 1];
+            delete node.data.imageAssetKey;
+            delete node.data.imageMemoryReleased;
             node.imageDataList = aggregatedImages.slice();
             node.imageData = node.data.image;
             if (node.type === 'ImageGenerate') {
@@ -1066,11 +1408,11 @@ export function createWorkflowRunnerApi({
                     timeBadge.textContent = `${elapsed}s`;
                     if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
                     else timeBadge.style.color = '';
-                }, 100);
+                }, 500);
             }
 
             try {
-                const inputs = collectInputsForNode(plan, nid);
+                const inputs = await collectInputsForNode(plan, nid);
                 const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, linkedAbort.signal);
                 if (linkedAbort.signal?.aborted) {
                     const abortError = new Error('Node run aborted');
@@ -1088,13 +1430,10 @@ export function createWorkflowRunnerApi({
                     timeBadge.textContent = `${durationSec}s`;
                     timeBadge.style.color = '';
                 }
-                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, {
-                    nodeId: nid,
-                    inputs: loggedInputs,
-                    data: currentNode.data,
+                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, createNodeCompletionLogDetails(currentNode, loggedInputs, {
                     resumedFromVideoTask: nid === nodeId && expectedType === 'VideoGenerate' ? String(node.data?.videoId || '') : undefined,
                     resumedFromImageTask: nid === nodeId && expectedType === 'ImageGenerate' ? String(node.data?.imageTaskId || '') : undefined
-                });
+                }));
                 scheduleSave();
                 completedNodes.add(nid);
             } catch (err) {
@@ -1176,6 +1515,7 @@ export function createWorkflowRunnerApi({
                 await executeSingleNodeForResume(nid, session.controller.signal);
             }
 
+            await releaseWorkflowIntermediateImageResults(plan, completedNodes);
             updateAllConnections();
             updatePortStyles();
             dispatchWorkflowCompletionNotice({
@@ -1553,11 +1893,11 @@ export function createWorkflowRunnerApi({
                                         timeBadge.textContent = `${elapsed}s`;
                                         if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
                                         else timeBadge.style.color = '';
-                                    }, 100);
+                                    }, 500);
                                 }
 
                                 try {
-                                    const inputs = collectInputsForNode(plan, nid);
+                                    const inputs = await collectInputsForNode(plan, nid);
                                     const loggedInputs = await executeNodeWithInputBatches(node, inputs, linkedAbort.signal);
 
                                     if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
@@ -1577,7 +1917,7 @@ export function createWorkflowRunnerApi({
                                         timeBadge.textContent = `${durationSec}s`;
                                         timeBadge.style.color = '';
                                     }
-                                    addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, { nodeId: nid, inputs: loggedInputs, data: node.data });
+                                    addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, createNodeCompletionLogDetails(node, loggedInputs));
                                     scheduleSave();
                                     completedNodes.add(nid);
                                 } catch (err) {
@@ -1693,6 +2033,7 @@ export function createWorkflowRunnerApi({
                     playSound: true
                 });
             } else if (completedRun) {
+                await releaseWorkflowIntermediateImageResults(plan, completedNodes);
                 dispatchWorkflowCompletionNotice({
                     toastMessage: `工作流运行完成，总耗时 ${totalDuration}s`,
                     toastType: 'success',
@@ -1701,6 +2042,7 @@ export function createWorkflowRunnerApi({
                     playSound: true
                 });
             } else if (hasNodeBranchCancellation && isRunActive()) {
+                await releaseWorkflowIntermediateImageResults(plan, completedNodes);
                 dispatchWorkflowCompletionNotice({
                     toastMessage: `已跳过被取消节点的下游，其余节点已结束，耗时 ${totalDuration}s`,
                     toastType: 'info',

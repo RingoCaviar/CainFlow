@@ -184,10 +184,14 @@ export function createExecutionCoreApi({
             node.data.images = normalizedImages.slice();
             node.data.image = normalizedImages[normalizedImages.length - 1];
             node.data.imagePromptList = normalizedImages.map(() => prompt || '');
+            delete node.data.imageAssetKey;
+            delete node.data.imageMemoryReleased;
         } else {
             delete node.data.images;
             delete node.data.image;
             delete node.data.imagePromptList;
+            delete node.data.imageAssetKey;
+            delete node.data.imageMemoryReleased;
         }
         node.imageDataList = normalizedImages.slice();
         node.imageData = normalizedImages[normalizedImages.length - 1] || null;
@@ -1914,6 +1918,8 @@ export function createExecutionCoreApi({
                 throw new Error('未导入图片');
             }
             node.data.image = imageValue;
+            delete node.data.imageAssetKey;
+            delete node.data.imageMemoryReleased;
             await refreshDependentImageResizePreviews(node.id);
             return;
         }
