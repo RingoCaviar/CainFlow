@@ -5774,21 +5774,54 @@ body.sidebar-pinned #side-bar::after {
     padding: 10px;
 }
 
+.workflow-empty {
+    color: var(--text-dim);
+    text-align: center;
+    padding: 20px;
+    font-size: 12px;
+}
+
 .workflow-item {
     background: var(--workflow-card-bg);
     border: 1px solid var(--workflow-card-border);
-    border-radius: 12px;
-    padding: 12px 14px;
+    border-radius: 8px;
+    padding: 12px 14px 12px 28px;
     min-height: 52px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
     cursor: pointer;
     transition: all 0.2s;
     position: relative;
     overflow: hidden;
     box-shadow: var(--workflow-card-shadow);
 }
+
+.workflow-item::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: transparent;
+}
+
+.workflow-item.is-open {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), var(--workflow-card-bg));
+    border-color: rgba(59, 130, 246, 0.26);
+}
+
+.workflow-item.is-active {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.14), var(--workflow-card-bg));
+    border-color: rgba(34, 197, 94, 0.42);
+}
+
+.workflow-item[data-tab-color="0"]::before { background: #38bdf8; }
+.workflow-item[data-tab-color="1"]::before { background: #a78bfa; }
+.workflow-item[data-tab-color="2"]::before { background: #34d399; }
+.workflow-item[data-tab-color="3"]::before { background: #f59e0b; }
+.workflow-item[data-tab-color="4"]::before { background: #fb7185; }
+.workflow-item[data-tab-color="5"]::before { background: #2dd4bf; }
 
 .workflow-item:hover {
     background: var(--workflow-card-hover-bg);
@@ -5802,6 +5835,33 @@ body.sidebar-pinned #side-bar::after {
     color: var(--text-main);
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workflow-item-state {
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.workflow-dirty-dot {
+    position: absolute;
+    left: 13px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+    transform: translateY(-50%) scale(0);
+    transition: transform 0.16s ease;
+}
+
+.workflow-item.is-dirty .workflow-dirty-dot {
+    transform: translateY(-50%) scale(1);
 }
 
 .workflow-item-actions {
@@ -5860,6 +5920,10 @@ body.sidebar-pinned #side-bar::after {
     color: var(--text-main);
     font-size: 12px;
     outline: none;
+}
+
+.save-workflow-box .btn {
+    flex: 1;
 }
 
 .cache-drawer-content {

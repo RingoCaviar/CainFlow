@@ -16,3 +16,13 @@ html:not([data-app-theme^="glass"]) .node-glass-bg {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }
+
+.workflow-item.is-open {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), var(--workflow-card-bg)) !important;
+    border-color: rgba(59, 130, 246, 0.26) !important;
+}
+
+.workflow-item.is-active {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.14), var(--workflow-card-bg)) !important;
+    border-color: rgba(34, 197, 94, 0.42) !important;
+}

@@ -9,6 +9,7 @@ export function createToolbarControllerApi({
     confirmRef = confirm,
     runWorkflow,
     saveState,
+    saveCurrentWorkflow = null,
     undo,
     exportWorkflow,
     importWorkflow,
@@ -20,6 +21,7 @@ export function createToolbarControllerApi({
     cleanupNodeElement = (node) => node?.el?.remove(),
     clearUndoStack = () => {},
     clearImageAssets = null,
+    clearWorkflowAssets = null,
     updateCacheUsage = () => {}
 }) {
     function withZoomInteraction(callback) {
@@ -123,8 +125,12 @@ export function createToolbarControllerApi({
             saveState();
         });
         documentRef.getElementById('btn-save')?.addEventListener('click', () => {
-            saveState();
-            showToast('工作流已手动保存', 'success');
+            if (typeof saveCurrentWorkflow === 'function') {
+                saveCurrentWorkflow();
+            } else {
+                saveState();
+                showToast('工作流已手动保存', 'success');
+            }
         });
         documentRef.getElementById('btn-undo')?.addEventListener('click', undo);
         documentRef.getElementById('btn-export')?.addEventListener('click', exportWorkflow);
@@ -193,7 +199,9 @@ export function createToolbarControllerApi({
                 state.nodes.clear();
                 state.selectedNodes.clear();
                 clearUndoStack();
-                if (clearImageAssets) {
+                if (typeof clearWorkflowAssets === 'function') {
+                    await clearWorkflowAssets({ includeCanvas: false });
+                } else if (clearImageAssets) {
                     await clearImageAssets({ preserveHistory: true });
                     updateCacheUsage();
                 }

@@ -297,6 +297,17 @@ export function createProjectIoApi({
             if (data.historyGridCols !== undefined) {
                 applyHistoryGridCols(data.historyGridCols);
             }
+            state.workflowTabs = Array.isArray(data.workflowTabs)
+                ? data.workflowTabs
+                    .filter((tab) => tab?.name && tab?.data)
+                    .map((tab, index) => ({
+                        name: String(tab.name),
+                        data: tab.data,
+                        dirty: tab.dirty === true,
+                        colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : index
+                    }))
+                : [];
+            state.activeWorkflowName = typeof data.activeWorkflowName === 'string' ? data.activeWorkflowName : '';
             if (data.canvas) {
                 state.canvas.x = data.canvas.x || 0;
                 state.canvas.y = data.canvas.y || 0;

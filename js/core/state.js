@@ -112,6 +112,8 @@ export function createInitialState() {
         historyGridCols: 2,
         cacheSizes: {},
         undoStack: [],
+        workflowTabs: [],
+        activeWorkflowName: '',
         isSpacePressed: false,
         isCutting: false,
         cutPath: [],

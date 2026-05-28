@@ -17,10 +17,25 @@ export function createSessionManagerApi({
     clearOrphanedNodeAssets = async () => true
 }) {
     let saveTimer = null;
+    let onBeforeSave = () => {};
+
+    function setBeforeSave(callback) {
+        onBeforeSave = typeof callback === 'function' ? callback : () => {};
+    }
 
     function saveState() {
         try {
+            onBeforeSave({ dirty: false });
             const data = nodeSerializer.buildStatePayload();
+            data.workflowTabs = Array.isArray(state.workflowTabs)
+                ? state.workflowTabs.map((tab) => ({
+                    name: tab.name,
+                    data: tab.data,
+                    dirty: tab.dirty === true,
+                    colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0
+                }))
+                : [];
+            data.activeWorkflowName = state.activeWorkflowName || '';
             localStorageRef.setItem(storageKey, JSON.stringify(data));
         } catch (e) {
             console.warn('Save failed:', e);
@@ -30,8 +45,11 @@ export function createSessionManagerApi({
         }
     }
 
-    function scheduleSave() {
+    function scheduleSave(options = {}) {
         if (state.dragging || state.resizing) return;
+        if (options.dirty !== false) {
+            onBeforeSave({ dirty: true });
+        }
         clearTimeout(saveTimer);
         saveTimer = setTimeout(saveState, 300);
     }
@@ -110,6 +128,7 @@ export function createSessionManagerApi({
         updatePortStyles();
         onConnectionsChanged();
         updateUndoButton();
+        onBeforeSave({ dirty: true });
         saveState();
         cleanupOrphanedNodeAssetsSoon();
         showToast('已撤回上一步操作', 'info');
@@ -118,6 +137,7 @@ export function createSessionManagerApi({
     return {
         scheduleSave,
         saveState,
+        setBeforeSave,
         pushHistory,
         updateUndoButton,
         undo,

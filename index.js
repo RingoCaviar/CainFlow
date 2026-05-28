@@ -607,8 +607,8 @@ function cancelRunningNode(nodeId) {
 }
 
 // ===== 持久化 =====
-function scheduleSave() {
-    return getSessionManagerApi().scheduleSave();
+function scheduleSave(options) {
+    return getSessionManagerApi().scheduleSave(options);
 }
 
 function saveState() {
@@ -640,6 +640,9 @@ function getSessionManagerApi() {
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
             clearOrphanedNodeAssets
+        });
+        sessionManagerApi.setBeforeSave((options) => {
+            workflowManagerApi?.syncActiveWorkflowBeforeSessionSave?.(options);
         });
     }
     return sessionManagerApi;
@@ -790,6 +793,7 @@ function getToolbarControllerApi() {
             viewportApi,
             runWorkflow,
             saveState,
+            saveCurrentWorkflow: () => workflowManagerApi.saveActiveWorkflow(),
             undo,
             exportWorkflow,
             importWorkflow,
@@ -804,6 +808,7 @@ function getToolbarControllerApi() {
                 updateUndoButton();
             },
             clearImageAssets,
+            clearWorkflowAssets: (options) => workflowManagerApi.cleanupOpenWorkflowAssets(options),
             updateCacheUsage: () => settingsControllerApi?.updateCacheUsage()
         });
     }
@@ -932,6 +937,7 @@ function getRuntimeControllerApi() {
             selectionApi,
             runWorkflow,
             saveState,
+            saveCurrentWorkflow: () => workflowManagerApi.saveActiveWorkflow(),
             showToast,
             exportWorkflow,
             undo,
@@ -956,8 +962,7 @@ function getStartupControllerApi() {
             showToast,
             syncProxyToServer: () => settingsControllerApi.syncProxyToServer(),
             checkNetworkProxyMismatch: (force = false) => settingsControllerApi.checkNetworkProxyMismatch(force),
-            loadDefaultWorkflow: () => workflowManagerApi.loadWorkflowFromFile('Default'),
-            applyDefaultWorkflow: (defaultData) => workflowManagerApi.applyWorkflowData(defaultData),
+            ensureOpenWorkflow: () => workflowManagerApi.ensureOpenWorkflow(),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
             scheduleAutoUpdateCheck: () => updateManager.scheduleAutoUpdateCheck({ delayMs: 5000, force: true, showModal: false, showCanvasNotification: true }),
             checkRefreshNotice: () => updateManager.checkRefreshNotice(),
@@ -1087,6 +1092,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     showToast,
     panelManager,
     clearImageAssets,
+    clearOrphanedNodeAssets,
     clearUndoStack: () => {
         state.undoStack = [];
         updateUndoButton();

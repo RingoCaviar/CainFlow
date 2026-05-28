@@ -9,8 +9,7 @@ export function createStartupControllerApi({
     showToast,
     syncProxyToServer,
     checkNetworkProxyMismatch = async () => {},
-    loadDefaultWorkflow,
-    applyDefaultWorkflow,
+    ensureOpenWorkflow = async () => true,
     updateCanvasTransform,
     scheduleAutoUpdateCheck,
     checkRefreshNotice,
@@ -100,19 +99,13 @@ export function createStartupControllerApi({
         try {
             initUI();
             const restored = await loadState();
+            await ensureOpenWorkflow();
             initLogs();
             await syncProxyToServer();
             if (restored) {
                 showToast('已从本地存储恢复工作状态', 'success');
             } else if (state.nodes.size === 0) {
-                const defaultData = await loadDefaultWorkflow();
-                if (defaultData) {
-                    if (await applyDefaultWorkflow(defaultData) !== false) {
-                        showToast('已自动加载默认工作流', 'info');
-                    }
-                } else {
-                    updateCanvasTransform();
-                }
+                updateCanvasTransform();
             }
             consoleRef.log('CainFlow Initialized successfully.');
 

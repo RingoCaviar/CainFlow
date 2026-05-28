@@ -10,6 +10,7 @@ export function createRuntimeControllerApi({
     selectionApi,
     runWorkflow,
     saveState,
+    saveCurrentWorkflow = null,
     showToast,
     exportWorkflow,
     undo,
@@ -64,6 +65,18 @@ export function createRuntimeControllerApi({
             return false;
         }
 
+        function isPointerOverWorkflowPanel(event) {
+            const workflowPanel = documentRef.getElementById('workflow-sidebar');
+            if (!workflowPanel?.classList.contains('active')) return false;
+            if (workflowPanel.contains(event.target)) return true;
+
+            const rect = workflowPanel.getBoundingClientRect();
+            return event.clientX >= rect.left
+                && event.clientX <= rect.right
+                && event.clientY >= rect.top
+                && event.clientY <= rect.bottom;
+        }
+
         function updatePeekState(event) {
             if (isImmersivePreviewOpen()) {
                 body.classList.remove('toolbar-peek-active', 'sidebar-peek-active');
@@ -78,7 +91,9 @@ export function createRuntimeControllerApi({
             const sidebarRect = sidebar.getBoundingClientRect();
             const toolbarBottom = Math.max(toolbarRect.bottom, toolbarRect.top + toolbar.offsetHeight);
             const sidebarRight = Math.max(sidebarRect.right, sidebarRect.left + sidebar.offsetWidth);
-            const toolbarPeek = !body.classList.contains('toolbar-pinned') && event.clientY <= toolbarBottom + toolbarDistance;
+            const toolbarPeek = !isPointerOverWorkflowPanel(event)
+                && !body.classList.contains('toolbar-pinned')
+                && event.clientY <= toolbarBottom + toolbarDistance;
             const sidebarPeek = !body.classList.contains('sidebar-pinned') && event.clientX <= sidebarRight + sidebarDistance;
 
             if (toolbarPeek !== lastToolbarPeek) {
@@ -125,7 +140,15 @@ export function createRuntimeControllerApi({
                 selectionApi.selectAllNodes();
             }
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runWorkflow(); }
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveState(); showToast('工作流已保存', 'success'); }
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                if (typeof saveCurrentWorkflow === 'function') {
+                    saveCurrentWorkflow();
+                } else {
+                    saveState();
+                    showToast('工作流已保存', 'success');
+                }
+            }
             if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); documentRef.getElementById('import-file')?.click(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'c' && canvasShortcutsEnabled && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
