@@ -901,7 +901,8 @@ function getThemeControllerApi() {
         themeControllerApi = createThemeControllerApi({
             state,
             documentRef: document,
-            saveState
+            saveState,
+            onThemeApplied: () => viewportApi.applyCanvasVisualTransform()
         });
     }
     return themeControllerApi;

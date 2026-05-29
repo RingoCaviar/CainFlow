@@ -18,6 +18,13 @@
     --glass-blur-strong: blur(22px);
     --bg-canvas: #0b111a;
     --bg-grid-dot: rgba(128, 150, 172, 0.1);
+    --canvas-bg-color: #0b111a;
+    --canvas-dot-color: rgba(125, 211, 252, 0.11);
+    --canvas-dot-size: 1.1px;
+    --canvas-dot-spacing: 24px;
+    --canvas-bg-layers:
+        radial-gradient(circle at 20% 18%, rgba(65, 96, 123, 0.16), transparent 32%),
+        linear-gradient(135deg, rgba(11, 17, 26, 0.96) 0%, rgba(14, 26, 40, 0.9) 52%, rgba(17, 24, 39, 0.94) 100%);
     --bg-toolbar: var(--glass-surface);
     --bg-node: var(--glass-card-surface);
     --bg-node-header: var(--glass-surface-soft);
@@ -388,13 +395,6 @@ html[data-app-theme="glass-dark"] #btn-theme-toggle {
     background: var(--glass-surface);
     border-color: rgba(125, 211, 252, 0.24);
     color: #b7e3f5;
-}
-
-html[data-app-theme="glass-dark"] #canvas-container {
-    background-image:
-        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
-        radial-gradient(circle at 20% 18%, rgba(65, 96, 123, 0.16), transparent 32%),
-        linear-gradient(135deg, rgba(11, 17, 26, 0.96) 0%, rgba(14, 26, 40, 0.9) 52%, rgba(17, 24, 39, 0.94) 100%);
 }
 
 html[data-app-theme="glass-dark"] .node-glass-bg {

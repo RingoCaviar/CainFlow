@@ -2,6 +2,13 @@
 :root[data-app-theme="pro"] {
     --bg-canvas: #131722;
     --bg-grid-dot: rgba(148, 163, 184, 0.12);
+    --canvas-bg-color: #121722;
+    --canvas-dot-color: rgba(148, 163, 184, 0.13);
+    --canvas-dot-size: 1.15px;
+    --canvas-dot-spacing: 24px;
+    --canvas-bg-layers:
+        radial-gradient(circle at top left, rgba(93, 124, 255, 0.08), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(86, 182, 217, 0.07), transparent 28%);
     --bg-toolbar: rgba(18, 23, 34, 0.92);
     --bg-node: #181f2e;
     --bg-node-header: rgba(255, 255, 255, 0.035);
@@ -233,12 +240,6 @@ html[data-app-theme="pro"] #btn-theme-toggle {
 html[data-app-theme="pro"] #btn-theme-toggle:hover {
     background: linear-gradient(180deg, rgba(37, 47, 67, 0.98), rgba(25, 33, 48, 0.98));
     border-color: rgba(86, 182, 217, 0.3);
-}
-
-html[data-app-theme="pro"] #canvas-container {
-    background-image:
-        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0));
 }
 
 html[data-app-theme="pro"] .node-glass-bg,

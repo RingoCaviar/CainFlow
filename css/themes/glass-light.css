@@ -2,6 +2,12 @@
 :root[data-app-theme="glass-light"] {
     --bg-canvas: #eef7fb;
     --bg-grid-dot: rgba(48, 82, 112, 0.13);
+    --canvas-bg-color: #eef7fb;
+    --canvas-dot-color: rgba(48, 82, 112, 0.13);
+    --canvas-dot-size: 1.15px;
+    --canvas-dot-spacing: 24px;
+    --canvas-bg-layers:
+        linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(37, 99, 235, 0.08) 50%, rgba(20, 184, 166, 0.1) 100%);
     --bg-toolbar: rgba(255, 255, 255, 0.52);
     --bg-node: rgba(255, 255, 255, 0.42);
     --bg-node-header: rgba(255, 255, 255, 0.24);
@@ -386,13 +392,6 @@ html[data-app-theme="glass-light"] #btn-theme-toggle {
     background: linear-gradient(180deg, rgba(236, 254, 255, 0.8), rgba(255, 255, 255, 0.46));
     border-color: rgba(14, 145, 178, 0.24);
     color: #0f766e;
-}
-
-html[data-app-theme="glass-light"] #canvas-container {
-    background-image:
-        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
-        linear-gradient(135deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 42%),
-        linear-gradient(315deg, rgba(219, 234, 254, 0.34), rgba(255, 247, 237, 0.22));
 }
 
 html[data-app-theme="glass-light"] .node-glass-bg {
@@ -1089,12 +1088,6 @@ html[data-app-theme="glass-light"] .btn-stop {
     background: rgba(244, 63, 94, 0.12);
     border-color: rgba(244, 63, 94, 0.24);
     color: #be123c;
-}
-
-html[data-app-theme="glass-light"] #canvas-container {
-    background-image:
-        radial-gradient(circle, var(--bg-grid-dot) 1.15px, transparent 1.15px),
-        linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(37, 99, 235, 0.08) 50%, rgba(20, 184, 166, 0.1) 100%);
 }
 
 html[data-app-theme="glass-light"] .node-glass-bg {

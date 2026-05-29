@@ -7,6 +7,22 @@ export function createViewportApi({
     updateAllConnections,
     requestAnimationFrameRef = requestAnimationFrame
 }) {
+    const DEFAULT_CANVAS_DOT_SPACING = 22;
+
+    function getCanvasDotSpacing() {
+        if (!elements.canvasContainer || typeof getComputedStyle !== 'function') {
+            return DEFAULT_CANVAS_DOT_SPACING;
+        }
+
+        const rawSpacing = getComputedStyle(elements.canvasContainer)
+            .getPropertyValue('--canvas-dot-spacing')
+            .trim();
+        const parsedSpacing = Number.parseFloat(rawSpacing);
+        return Number.isFinite(parsedSpacing) && parsedSpacing > 0
+            ? parsedSpacing
+            : DEFAULT_CANVAS_DOT_SPACING;
+    }
+
     function applyCanvasVisualTransform() {
         const { x, y, zoom } = state.canvas;
         elements.nodesLayer.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
@@ -15,9 +31,10 @@ export function createViewportApi({
         elements.connectionsGroup?.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
         elements.originAxes?.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
 
-        const gridSize = 20 * zoom;
-        elements.canvasContainer.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-        elements.canvasContainer.style.backgroundPosition = `${x}px ${y}px`;
+        const dotSpacing = getCanvasDotSpacing() * zoom;
+        elements.canvasContainer.style.setProperty('--canvas-dot-spacing-scaled', `${dotSpacing}px`);
+        elements.canvasContainer.style.setProperty('--canvas-dot-offset-x', `${x}px`);
+        elements.canvasContainer.style.setProperty('--canvas-dot-offset-y', `${y}px`);
         if (elements.zoomLevel) {
             elements.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
         }

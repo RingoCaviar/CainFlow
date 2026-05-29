@@ -5,7 +5,8 @@
 export function createThemeControllerApi({
     state,
     documentRef = document,
-    saveState = () => {}
+    saveState = () => {},
+    onThemeApplied = () => {}
 }) {
     const THEME_ATTRIBUTE = 'data-app-theme';
     const THEME_IDS = Object.freeze({
@@ -231,6 +232,7 @@ export function createThemeControllerApi({
         documentRef.documentElement.setAttribute(THEME_ATTRIBUTE, theme.id);
         documentRef.documentElement.style.colorScheme = theme.colorScheme || 'dark';
         syncThemeToggleUi(theme.id);
+        onThemeApplied(theme.id);
 
         return theme.id;
     }

@@ -2,6 +2,17 @@
 :root {
     --bg-canvas: #1a1a2e;
     --bg-grid-dot: rgba(255, 255, 255, 0.06);
+    /* Canvas dot grid: adjust size and spacing here, or override per theme. */
+    --canvas-bg-color: var(--bg-canvas);
+    --canvas-dot-color: var(--bg-grid-dot);
+    --canvas-dot-size: 1.15px;
+    --canvas-dot-spacing: 22px;
+    --canvas-dot-spacing-scaled: var(--canvas-dot-spacing);
+    --canvas-dot-offset-x: 0px;
+    --canvas-dot-offset-y: 0px;
+    --canvas-bg-layers:
+        linear-gradient(135deg, rgba(99, 102, 241, 0.06), transparent 42%),
+        linear-gradient(315deg, rgba(34, 211, 238, 0.04), transparent 46%);
     --bg-toolbar: rgba(16, 16, 32, 0.92);
     --bg-node: #1e1e34;
     --bg-node-header: rgba(255, 255, 255, 0.06);
@@ -653,12 +664,28 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     position: relative;
     overflow: hidden;
     cursor: default;
-    background-color: var(--bg-canvas);
-    background-image:
-        radial-gradient(circle, var(--bg-grid-dot) 1px, transparent 1px);
-    background-size: 20px 20px;
-    background-position: 0 0;
+    background-color: var(--canvas-bg-color, var(--bg-canvas));
+    background-image: var(--canvas-bg-layers, none);
+    background-repeat: no-repeat;
+    background-size: cover;
     outline: none;
+}
+
+#canvas-container::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        radial-gradient(
+            circle at center,
+            var(--canvas-dot-color, var(--bg-grid-dot)) 0,
+            var(--canvas-dot-color, var(--bg-grid-dot)) var(--canvas-dot-size),
+            transparent calc(var(--canvas-dot-size) + 0.35px)
+        );
+    background-size: var(--canvas-dot-spacing-scaled) var(--canvas-dot-spacing-scaled);
+    background-position: var(--canvas-dot-offset-x) var(--canvas-dot-offset-y);
 }
 
 #canvas-container.grabbing,
