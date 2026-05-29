@@ -1,10 +1,11 @@
+import base64
 import os
 import socket
 import ssl
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from backend import config, state
 
@@ -159,6 +160,38 @@ def _get_proxy_detection_candidates():
     return candidates
 
 
+class ForcedProxyHandler(urllib.request.BaseHandler):
+    """Use an explicitly configured proxy without applying system bypass rules."""
+
+    handler_order = 100
+
+    def __init__(self, proxies):
+        self.proxies = proxies
+        for scheme, proxy_url in proxies.items():
+            normalized_scheme = str(scheme).lower()
+            setattr(
+                self,
+                f'{normalized_scheme}_open',
+                lambda request, proxy=proxy_url, proxy_type=normalized_scheme: self.proxy_open(request, proxy, proxy_type)
+            )
+
+    def proxy_open(self, request, proxy, request_type):
+        original_type = request.type
+        proxy_type, user, password, hostport = urllib.request._parse_proxy(proxy)
+        if proxy_type is None:
+            proxy_type = original_type
+
+        if user and password:
+            credentials = f'{unquote(user)}:{unquote(password)}'
+            encoded = base64.b64encode(credentials.encode()).decode('ascii')
+            request.add_header('Proxy-authorization', f'Basic {encoded}')
+
+        request.set_proxy(unquote(hostport), proxy_type)
+        if original_type == proxy_type or original_type == 'https':
+            return None
+        return self.parent.open(request, timeout=request.timeout)
+
+
 def build_upstream_opener(proxy_enabled=None, proxy_host=None, proxy_port=None):
     resolved_enabled = bool(state.ACTIVE_PROXY.get('enabled')) if proxy_enabled is None else bool(proxy_enabled)
     resolved_host = str(proxy_host if proxy_host is not None else state.ACTIVE_PROXY.get('ip') or '127.0.0.1').strip() or '127.0.0.1'
@@ -168,7 +201,7 @@ def build_upstream_opener(proxy_enabled=None, proxy_host=None, proxy_port=None):
     context.verify_mode = ssl.CERT_NONE
     if resolved_enabled:
         proxy_url = f'http://{resolved_host}:{resolved_port}'
-        proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
+        proxy_handler = ForcedProxyHandler({'http': proxy_url, 'https': proxy_url})
     else:
         proxy_handler = urllib.request.ProxyHandler({})
     opener = urllib.request.build_opener(

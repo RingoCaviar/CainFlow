@@ -23,6 +23,7 @@ import {
     classifyProviderError as classifyProviderErrorService,
     createProxyHeadersGetter,
     formatProxyErrorMessage as formatProxyErrorMessageService,
+    getProxyRequestInfo,
     getAbortMessage as getAbortMessageService
 } from './js/services/api-client.js';
 import { createSystemNotificationService } from './js/services/system-notification-service.js';
@@ -146,7 +147,10 @@ function blobToDataUrl(blob) {
 }
 
 function logRequestToPanel(title, url, requestBody, extra = {}) {
-    getLogPanelApi().logRequestToPanel(title, url, requestBody, extra);
+    getLogPanelApi().logRequestToPanel(title, url, requestBody, {
+        proxy: getProxyRequestInfo(state),
+        ...extra
+    });
 }
 
 function addLog(type, title, message, details = null) {

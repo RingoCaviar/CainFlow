@@ -40,6 +40,30 @@ export function createProxyHeadersGetter(getState) {
     };
 }
 
+export function getProxyRequestInfo(state = {}) {
+    const proxy = state?.proxy && typeof state.proxy === 'object' ? state.proxy : null;
+    if (!proxy) {
+        return {
+            enabled: false,
+            host: '',
+            port: '',
+            mode: 'direct',
+            label: '直连'
+        };
+    }
+
+    const enabled = proxy.enabled === true;
+    const host = String(proxy.ip || proxy.host || '127.0.0.1').trim() || '127.0.0.1';
+    const port = String(proxy.port || '7890').trim() || '7890';
+    return {
+        enabled,
+        host,
+        port,
+        mode: enabled ? 'proxy' : 'direct',
+        label: enabled ? `代理 ${host}:${port}` : '直连'
+    };
+}
+
 export function sanitizeRequestUrl(url) {
     if (!url) return '';
     return String(url)
