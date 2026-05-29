@@ -1408,7 +1408,7 @@ export function createWorkflowRunnerApi({
                     timeBadge.textContent = `${elapsed}s`;
                     if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
                     else timeBadge.style.color = '';
-                }, 500);
+                }, 100);
             }
 
             try {
@@ -1893,7 +1893,7 @@ export function createWorkflowRunnerApi({
                                         timeBadge.textContent = `${elapsed}s`;
                                         if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
                                         else timeBadge.style.color = '';
-                                    }, 500);
+                                    }, 100);
                                 }
 
                                 try {
