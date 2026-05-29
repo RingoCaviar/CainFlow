@@ -306,6 +306,7 @@ export function createAsyncMediaExecutionApi({
                     status: response.status,
                     body: t
                 };
+                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
                 throw err;
             }
 
@@ -462,6 +463,7 @@ export function createAsyncMediaExecutionApi({
                     status: response.status,
                     body: t
                 };
+                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
                 throw err;
             }
 
@@ -1023,6 +1025,7 @@ export function createAsyncMediaExecutionApi({
                     status: response.status,
                     body: t
                 };
+                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
                 throw err;
             }
 

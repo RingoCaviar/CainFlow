@@ -126,6 +126,29 @@ function buildNoImageResponseSuggestions(providerType, modelId = '') {
     return suggestions;
 }
 
+function isCloudflareChallengePage(text = '') {
+    const normalized = String(text || '').toLowerCase();
+    return (
+        normalized.includes('<title>just a moment...</title>') ||
+        (
+            normalized.includes('just a moment') &&
+            normalized.includes('cloudflare')
+        ) ||
+        normalized.includes('/cdn-cgi/challenge-platform/') ||
+        normalized.includes('cf-browser-verification') ||
+        normalized.includes('__cf_chl_tk') ||
+        normalized.includes('cf_chl_')
+    );
+}
+
+function buildForbiddenSuggestions() {
+    return [
+        '如果这是供应商的人机验证或 IP 保护，请在供应商后台放行当前 IP，或切换到可访问该服务的网络/代理。',
+        '确认当前 API Key、账号或套餐是否有访问该模型和接口的权限。',
+        '检查 endpoint 是否指向真实 API 接口，而不是会触发网页防护的站点页面。'
+    ];
+}
+
 export function classifyProviderError(status, body, context = {}) {
     const text = typeof body === 'string' ? body.trim() : '';
     const json = safeParseJson(text);
@@ -143,10 +166,36 @@ export function classifyProviderError(status, body, context = {}) {
         )
     ) {
         return {
-            title: '????????????',
+            title: '目标地址不可用',
             userMessage: '当前目标地址不可用，请检查 API 地址是否为有效的 http 或 https URL。',
             suggestions: buildBlockedTargetSuggestions(),
             category: 'blocked_target_url',
+            rawMessage,
+            providerType
+        };
+    }
+
+    if (isCloudflareChallengePage(text)) {
+        return {
+            title: '被人机验证拦截',
+            userMessage: '服务器返回了 Cloudflare 的 “Just a moment...” 验证页，请求被人机验证拦截了，CainFlow 无法直接通过这类网页验证。',
+            suggestions: [
+                '在浏览器中打开对应服务并完成验证，或使用已经通过验证的官方 API 入口。',
+                '如果服务端启用了 IP 保护，请放行当前 IP，或切换到受信任的网络/代理。',
+                '确认 endpoint 指向 API 接口，而不是 Cloudflare 保护下的网页地址。'
+            ],
+            category: 'cloudflare_challenge',
+            rawMessage,
+            providerType
+        };
+    }
+
+    if (status === 403) {
+        return {
+            title: '被禁止访问',
+            userMessage: '服务器返回 403 Forbidden，表示当前请求被禁止访问。常见原因是触发了人机验证、服务器增加了 IP 保护/地区限制，或当前账号/API Key 没有访问权限。',
+            suggestions: buildForbiddenSuggestions(),
+            category: 'forbidden',
             rawMessage,
             providerType
         };

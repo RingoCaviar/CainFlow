@@ -426,7 +426,13 @@ export function createExecutionCoreApi({
 
         const isHtmlResponse = contentType.includes('text/html') || /^<!doctype html/i.test(trimmedText) || /^<html/i.test(trimmedText);
         if (isHtmlResponse) {
-            const err = new Error('当前提供商返回的是网页 HTML，而不是 API JSON。请检查 API 地址是否填成了网站首页，而不是接口地址。');
+            const errorContext = buildProviderErrorContext(context.apiCfg, context.modelCfg, context.url);
+            const classified = classifyProviderError(response.status, rawText, errorContext);
+            const isHumanVerification = classified?.category === 'cloudflare_challenge';
+            const err = new Error(isHumanVerification
+                ? classified.userMessage
+                : '当前提供商返回的是网页 HTML，而不是 API JSON。请检查 API 地址是否填成了网站首页，而不是接口地址。'
+            );
             err.serverResponse = {
                 url: context.url,
                 requestBody: context.requestBody,
@@ -434,18 +440,19 @@ export function createExecutionCoreApi({
                 contentType,
                 body: rawText
             };
-            applyUserFacingError(err, {
-                title: 'API 地址配置错误',
-                userMessage: '当前提供商返回的是网页 HTML，不是 API JSON。通常是 API 地址填成了网站首页，或缺少 `/v1` 之类的接口前缀。',
-                suggestions: [
-                    '检查提供商的 API 地址是否为文档中的接口基址，而不是官网首页。',
-                    '如果你在使用 OpenAI 兼容提供商，优先确认地址是否应以 `/v1` 结尾。',
-                    '把当前地址复制到浏览器访问，如果看到网页后台而不是接口响应，通常就是地址填错了。'
-                ],
-                category: 'html_instead_of_json',
-                providerType: getEffectiveProtocol(context.modelCfg, context.apiCfg) || 'unknown',
-                rawMessage: 'HTML page returned instead of API JSON.'
-            });
+            applyUserFacingError(err, isHumanVerification ? classified : {
+                    title: 'API 地址配置错误',
+                    userMessage: '当前提供商返回的是网页 HTML，不是 API JSON。通常是 API 地址填成了网站首页，或缺少 `/v1` 之类的接口前缀。',
+                    suggestions: [
+                        '检查提供商的 API 地址是否为文档中的接口基址，而不是官网首页。',
+                        '如果你在使用 OpenAI 兼容提供商，优先确认地址是否应以 `/v1` 结尾。',
+                        '把当前地址复制到浏览器访问，如果看到网页后台而不是接口响应，通常就是地址填错了。'
+                    ],
+                    category: 'html_instead_of_json',
+                    providerType: getEffectiveProtocol(context.modelCfg, context.apiCfg) || 'unknown',
+                    rawMessage: 'HTML page returned instead of API JSON.'
+                }
+            );
             throw err;
         }
 
