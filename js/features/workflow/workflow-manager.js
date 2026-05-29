@@ -612,6 +612,34 @@ export function createWorkflowManagerApi({
         }
     }
 
+    async function reloadAfterWorkflowImport(preferredName = '') {
+        normalizeWorkflowTabs();
+        const names = await fetchWorkflows();
+        const nextName = names.includes(preferredName)
+            ? preferredName
+            : (names.includes(state.activeWorkflowName) ? state.activeWorkflowName : names[0]);
+
+        state.workflowTabs = [];
+        state.activeWorkflowName = '';
+        if (nextName) {
+            const data = await loadWorkflowFromFile(nextName);
+            if (data) {
+                state.workflowTabs.push({
+                    name: nextName,
+                    data,
+                    dirty: false,
+                    colorIndex: 0
+                });
+                state.activeWorkflowName = nextName;
+                await applyWorkflowData(data, { saveSession: false });
+            }
+        } else {
+            await ensureOpenWorkflow({ useCurrentCanvas: false });
+        }
+        await renderWorkflowList();
+        scheduleSave({ dirty: false });
+    }
+
     async function createNewWorkflow() {
         const names = await fetchWorkflows();
         const name = findNextUnsavedName(names);
@@ -749,6 +777,7 @@ export function createWorkflowManagerApi({
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,
         ensureOpenWorkflow,
-        closeOtherWorkflows
+        closeOtherWorkflows,
+        reloadAfterWorkflowImport
     };
 }

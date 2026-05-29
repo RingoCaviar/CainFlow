@@ -2,6 +2,19 @@
  * 负责主界面各类面板与按钮的事件装配，是通用 UI 行为的集中控制器。
  */
 import { getModelProviderIds, normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import {
+    createConfigArchiveBlob,
+    jsonEntry,
+    readConfigArchive,
+    readJsonEntry,
+    readWorkflowEntries
+} from '../settings/config-archive.js';
+import {
+    clearWorkflowFiles,
+    fetchWorkflows,
+    loadWorkflowFromFile,
+    saveWorkflowToFile
+} from '../../services/workflow-api.js';
 import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
@@ -39,6 +52,8 @@ export function createUiControllerApi({
     copyToClipboard,
     downloadImage,
     initFeatureModules,
+    syncOpenWorkflowsBeforeConfigExport = () => {},
+    onConfigWorkflowsImported = async () => {},
     documentRef = document,
     localStorageRef = localStorage,
     indexedDbRef = indexedDB,
@@ -48,7 +63,7 @@ export function createUiControllerApi({
     confirmRef = confirm,
     alertRef = alert
 }) {
-    const CONFIG_SECTION_KEYS = ['providers', 'models', 'settings', 'prompts'];
+    const CONFIG_SECTION_KEYS = ['providers', 'models', 'settings', 'prompts', 'workflows'];
     const CONFIG_IMPORT_MODES = {
         replace: 'replace',
         append: 'append'
@@ -60,8 +75,9 @@ export function createUiControllerApi({
         return {
             providers: raw.providers !== false,
             models: raw.models !== false,
-            settings: raw.settings !== false
-            ,prompts: raw.prompts !== false
+            settings: raw.settings !== false,
+            prompts: raw.prompts !== false,
+            workflows: raw.workflows !== false
         };
     }
 
@@ -69,12 +85,17 @@ export function createUiControllerApi({
         return !!selection && CONFIG_SECTION_KEYS.some((key) => selection[key]);
     }
 
+    function hasAnySelectedConfigDataSection(selection) {
+        return !!selection && CONFIG_SECTION_KEYS.some((key) => key !== 'workflows' && selection[key]);
+    }
+
     function getConfigSelectionFromUi() {
         return normalizeConfigSelection({
             providers: documentRef.getElementById('config-export-providers')?.checked,
             models: documentRef.getElementById('config-export-models')?.checked,
             settings: documentRef.getElementById('config-export-settings')?.checked,
-            prompts: documentRef.getElementById('config-export-prompts')?.checked
+            prompts: documentRef.getElementById('config-export-prompts')?.checked,
+            workflows: documentRef.getElementById('config-export-workflows')?.checked
         });
     }
 
@@ -94,14 +115,14 @@ export function createUiControllerApi({
 
     function getConfigModalHint(mode) {
         return mode === 'import'
-            ? '可选择只导入供应商、模型、通用设置或提示词库，也可任意组合。'
-            : '可选择导出全部配置，或只导出供应商 / 模型 / 通用设置 / 提示词库中的任意组合。';
+            ? '可选择只导入供应商、模型、通用设置、提示词库或工作流数据，也可任意组合。'
+            : '可选择导出全部配置，或只导出供应商 / 模型 / 通用设置 / 提示词库 / 工作流数据中的任意组合。';
     }
 
     function getConfigModalFileHint(mode) {
         return mode === 'import'
-            ? '导入时会按所选范围处理配置，支持替换或追加合并。'
-            : '导出的 JSON 只会包含你勾选的数据块。';
+            ? '支持新版 ZIP 配置包，也兼容旧版 JSON 配置；导入时会按所选范围处理。'
+            : '导出的 ZIP 会按数据类型分目录保存，包含 API 密钥时请妥善保管。';
     }
 
     function setConfigModalMode(mode) {
@@ -347,6 +368,93 @@ export function createUiControllerApi({
         return payload;
     }
 
+    function getSafeArchiveWorkflowFileName(name, fallbackIndex = 0) {
+        const safeName = String(name || '')
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+            .replace(/^\.+$/, '')
+            .trim();
+        return safeName || `workflow_${fallbackIndex + 1}`;
+    }
+
+    function validateWorkflowImportName(name) {
+        const value = String(name || '').trim();
+        if (!value) throw new Error('工作流名称不能为空');
+        if (value === '.' || value === '..' || /[\\/:*?"<>|]/.test(value)) {
+            throw new Error(`工作流名称包含非法字符：${value}`);
+        }
+        return value;
+    }
+
+    async function collectWorkflowArchiveItems() {
+        syncOpenWorkflowsBeforeConfigExport();
+        const names = await fetchWorkflows();
+        const workflowMap = new Map();
+        for (const name of names) {
+            const data = await loadWorkflowFromFile(name);
+            if (data?.ok === false) throw new Error(data.message || `读取工作流失败：${name}`);
+            workflowMap.set(name, { name, data });
+        }
+        (state.workflowTabs || []).forEach((tab) => {
+            if (tab?.name && tab?.data && typeof tab.data === 'object') {
+                workflowMap.set(tab.name, { name: tab.name, data: tab.data });
+            }
+        });
+        return Array.from(workflowMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    async function buildConfigArchiveEntries(selection = normalizeConfigSelection()) {
+        const exportedAt = new Date().toISOString();
+        const entries = [];
+        const includedSections = [];
+
+        if (selection.providers) {
+            includedSections.push('providers');
+            entries.push(jsonEntry('providers/providers.json', state.providers.map((provider) => ({ ...provider }))));
+        }
+        if (selection.models) {
+            includedSections.push('models');
+            entries.push(jsonEntry('models/models.json', state.models.map((model) => ({ ...model }))));
+        }
+        if (selection.settings) {
+            includedSections.push('settings');
+            entries.push(jsonEntry('settings/settings.json', buildConfigPayload({ providers: false, models: false, settings: true, prompts: false, workflows: false }).settings || {}));
+        }
+        if (selection.prompts) {
+            includedSections.push('prompts');
+            entries.push(jsonEntry('prompts/prompt-library.json', {
+                storageKey: PROMPT_LIBRARY_STORAGE_KEY,
+                prompts: getStoredPromptLibrary()
+            }));
+        }
+        if (selection.workflows) {
+            includedSections.push('workflows');
+            const workflows = await collectWorkflowArchiveItems();
+            entries.push(jsonEntry('workflows/index.json', workflows.map((workflow, index) => ({
+                name: workflow.name,
+                file: `${getSafeArchiveWorkflowFileName(workflow.name, index)}.json`
+            }))));
+            workflows.forEach((workflow, index) => {
+                entries.push(jsonEntry(`workflows/${getSafeArchiveWorkflowFileName(workflow.name, index)}.json`, workflow.data));
+            });
+        }
+
+        entries.unshift(jsonEntry('manifest.json', {
+            type: 'cainflow-config-archive',
+            version: '2.0',
+            exportedAt,
+            includedSections,
+            layout: {
+                providers: 'providers/providers.json',
+                models: 'models/models.json',
+                settings: 'settings/settings.json',
+                prompts: 'prompts/prompt-library.json',
+                workflows: 'workflows/*.json'
+            }
+        }));
+
+        return entries;
+    }
+
     function normalizeProviders(providers) {
         if (!Array.isArray(providers)) throw new Error('配置文件缺少 providers 数组');
 
@@ -485,36 +593,119 @@ export function createUiControllerApi({
         saveState();
     }
 
-    function exportConfig(selection = normalizeConfigSelection()) {
+    async function applyImportedWorkflows(workflows, importMode = CONFIG_IMPORT_MODES.replace) {
+        if (!Array.isArray(workflows)) return 0;
+        const validWorkflows = workflows
+            .filter((workflow) => workflow?.name && workflow?.data && typeof workflow.data === 'object')
+            .map((workflow) => ({
+                name: validateWorkflowImportName(workflow.name),
+                data: workflow.data
+            }));
+        if (validWorkflows.length === 0) return 0;
+
+        if (importMode === CONFIG_IMPORT_MODES.replace) {
+            const result = await clearWorkflowFiles();
+            if (result !== true) throw new Error(result?.message || '清空工作流文件夹失败');
+        }
+
+        for (const workflow of validWorkflows) {
+            const result = await saveWorkflowToFile(workflow.name, workflow.data);
+            if (result !== true) throw new Error(result?.message || `保存工作流失败：${workflow.name}`);
+        }
+
+        await onConfigWorkflowsImported(validWorkflows, importMode);
+        return validWorkflows.length;
+    }
+
+    function buildConfigDataFromArchiveEntries(entries) {
+        const configData = { type: 'cainflow-config', version: '2.0' };
+        const providers = readJsonEntry(entries, 'providers/providers.json');
+        const models = readJsonEntry(entries, 'models/models.json');
+        const settings = readJsonEntry(entries, 'settings/settings.json');
+        const promptLibrary = readJsonEntry(entries, 'prompts/prompt-library.json');
+
+        if (providers !== null) configData.providers = providers;
+        if (models !== null) configData.models = models;
+        if (settings !== null) configData.settings = settings;
+        if (promptLibrary !== null) configData.promptLibrary = promptLibrary;
+
+        return configData;
+    }
+
+    async function applyImportedConfigArchive(file, { selection, importMode } = {}) {
+        const entries = await readConfigArchive(file);
+        const finalSelection = normalizeConfigSelection(selection);
+        const configData = buildConfigDataFromArchiveEntries(entries);
+        const workflowItems = finalSelection.workflows ? readWorkflowEntries(entries) : [];
+        const nonWorkflowSelection = {
+            ...finalSelection,
+            workflows: false
+        };
+
+        if (hasAnySelectedConfigDataSection(nonWorkflowSelection)) {
+            applyImportedConfig(configData, {
+                selection: nonWorkflowSelection,
+                importMode
+            });
+        }
+
+        const workflowCount = await applyImportedWorkflows(workflowItems, importMode);
+        saveState();
+        return { workflowCount };
+    }
+
+    async function exportConfig(selection = normalizeConfigSelection()) {
         try {
-            const payload = buildConfigPayload(selection);
             if (!hasAnySelectedConfigSection(selection)) {
                 throw new Error('请至少选择一个要导出的数据块');
             }
-            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+            const blob = createConfigArchiveBlob(await buildConfigArchiveEntries(selection));
             const url = URL.createObjectURL(blob);
             const link = documentRef.createElement('a');
             const time = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
             link.href = url;
-            link.download = `CainFlow_Config_${time}.json`;
+            link.download = `CainFlow_Config_${time}.zip`;
             link.click();
 
             URL.revokeObjectURL(url);
-            showToast('配置已导出，请妥善保管文件（包含 API 密钥）', 'success', 5000);
+            showToast('配置 ZIP 已导出，请妥善保管文件（包含 API 密钥）', 'success', 5000);
         } catch (error) {
             showToast('导出配置失败: ' + error.message, 'error');
         }
     }
 
-    function importConfig(file, selection = normalizeConfigSelection(), importMode = CONFIG_IMPORT_MODES.replace) {
+    async function importConfig(file, selection = normalizeConfigSelection(), importMode = CONFIG_IMPORT_MODES.replace) {
         if (!file) return;
+
+        const isZip = /\.zip$/i.test(file.name || '') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
+        if (isZip) {
+            try {
+                const result = await applyImportedConfigArchive(file, { selection, importMode });
+                const workflowText = result.workflowCount > 0 ? `，已导入 ${result.workflowCount} 个工作流` : '';
+                showToast(`配置 ZIP 已导入并生效${workflowText}`, 'success', 5000);
+            } catch (error) {
+                showToast('导入配置失败: ' + error.message, 'error', 5000);
+            }
+            return;
+        }
+
+        if (selection.workflows && !hasAnySelectedConfigDataSection(selection)) {
+            showToast('旧版 JSON 配置不包含工作流数据，请选择 CainFlow 配置 ZIP', 'warning', 5000);
+            return;
+        }
 
         const reader = new FileReader();
         reader.onload = () => {
             try {
                 const data = JSON.parse(reader.result);
-                applyImportedConfig(data, { selection, importMode });
+                applyImportedConfig(data, {
+                    selection: {
+                        ...selection,
+                        workflows: false
+                    },
+                    importMode
+                });
                 showToast('配置已导入并生效', 'success');
             } catch (error) {
                 showToast('导入配置失败: ' + error.message, 'error', 5000);
@@ -692,10 +883,10 @@ export function createUiControllerApi({
             openConfigModal('import');
         });
 
-        documentRef.getElementById('config-modal-action')?.addEventListener('click', () => {
+        documentRef.getElementById('config-modal-action')?.addEventListener('click', async () => {
             const selection = getConfigSelectionFromUi();
             if (configModalMode === 'export') {
-                exportConfig(selection);
+                await exportConfig(selection);
                 closeConfigModal();
                 return;
             }
@@ -712,7 +903,7 @@ export function createUiControllerApi({
         inputConfigFile?.addEventListener('change', (event) => {
             const file = event.target.files?.[0];
             if (!file || !pendingConfigImportFile) return;
-            importConfig(file, pendingConfigImportFile.selection, pendingConfigImportFile.importMode);
+            void importConfig(file, pendingConfigImportFile.selection, pendingConfigImportFile.importMode);
             pendingConfigImportFile = null;
             closeConfigModal();
         });

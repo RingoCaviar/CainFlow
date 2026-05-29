@@ -63,3 +63,12 @@ export async function renameWorkflowFile(oldName, newName) {
     );
     return result?.ok === false ? result : true;
 }
+
+export async function clearWorkflowFiles() {
+    const result = await requestWorkflow(
+        '/api/workflows',
+        { method: 'DELETE' },
+        '清空工作流文件夹失败'
+    );
+    return result?.ok === false ? result : true;
+}

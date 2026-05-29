@@ -719,6 +719,8 @@ function getUiControllerApi() {
             copyToClipboard,
             downloadImage,
             initFeatureModules,
+            syncOpenWorkflowsBeforeConfigExport: () => workflowManagerApi.snapshotActiveWorkflow(),
+            onConfigWorkflowsImported: (workflows) => workflowManagerApi.reloadAfterWorkflowImport(workflows?.[0]?.name || ''),
             systemNotificationApi: getSystemNotificationApi()
         });
     }

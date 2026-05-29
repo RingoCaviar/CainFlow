@@ -5,7 +5,8 @@ from backend.services.security_service import get_safe_path
 
 
 def list_workflows(workflows_dir):
-    return [filename[:-5] for filename in os.listdir(workflows_dir) if filename.endswith('.json')]
+    os.makedirs(workflows_dir, exist_ok=True)
+    return sorted(filename[:-5] for filename in os.listdir(workflows_dir) if filename.endswith('.json'))
 
 
 def load_workflow(name):
@@ -41,5 +42,19 @@ def delete_workflow(name):
         return False
     os.remove(filepath)
     return True
+
+
+def clear_workflows(workflows_dir):
+    os.makedirs(workflows_dir, exist_ok=True)
+    deleted = 0
+    for filename in os.listdir(workflows_dir):
+        if not filename.endswith('.json'):
+            continue
+        filepath = os.path.join(workflows_dir, filename)
+        if not os.path.isfile(filepath):
+            continue
+        os.remove(filepath)
+        deleted += 1
+    return deleted
 
 """封装工作流文件的保存、读取、重命名和删除操作。"""

@@ -2,7 +2,7 @@ from urllib.parse import unquote
 
 from backend import config
 from backend.services.http_helpers import read_request_body, write_bytes, write_error, write_json, write_text
-from backend.services.workflow_service import delete_workflow, list_workflows, load_workflow, rename_workflow, save_workflow
+from backend.services.workflow_service import clear_workflows, delete_workflow, list_workflows, load_workflow, rename_workflow, save_workflow
 
 
 def handle_get(handler):
@@ -54,6 +54,14 @@ def handle_post(handler):
 
 
 def handle_delete(handler):
+    if handler.path == '/api/workflows':
+        try:
+            payload = {'deleted': clear_workflows(config.WORKFLOWS_DIR)}
+            write_json(handler, payload)
+        except Exception as exc:
+            write_error(handler, 500, 'Failed to clear workflows', exc)
+        return True
+
     if not handler.path.startswith('/api/workflows/'):
         return False
 

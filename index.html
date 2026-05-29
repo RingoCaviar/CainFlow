@@ -1147,7 +1147,7 @@
                         注意：恢复出厂设置将清空所有画布、API配置及历史记录。</span>
                 </div>
                 <div class="footer-right" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <input id="input-config-import" type="file" accept=".json,application/json" style="display:none;" />
+                    <input id="input-config-import" type="file" accept=".zip,.json,application/zip,application/json" style="display:none;" />
                     <button id="btn-import-config" class="btn btn-secondary btn-sm">导入配置</button>
                     <button id="btn-export-config" class="btn btn-secondary btn-sm">导出配置</button>
                     <button id="btn-factory-reset" class="btn btn-danger btn-sm">恢复出厂设置</button>
@@ -1182,6 +1182,10 @@
                         <input id="config-export-prompts" type="checkbox" checked />
                         <span>提示词库</span>
                     </label>
+                    <label class="config-check">
+                        <input id="config-export-workflows" type="checkbox" checked />
+                        <span>工作流数据</span>
+                    </label>
                 </div>
                 <div id="config-import-mode-group" class="config-section">
                     <div class="config-section-title">导入模式</div>
@@ -1194,8 +1198,8 @@
                         <span>追加到当前数据</span>
                     </label>
                 </div>
-                <div class="config-file-hint" id="config-modal-file-hint">导出的 JSON 只会包含你勾选的数据块。</div>
-                <input id="input-config-file" type="file" accept=".json,application/json" style="display:none;" />
+                <div class="config-file-hint" id="config-modal-file-hint">导出的 ZIP 会按数据类型分目录保存。</div>
+                <input id="input-config-file" type="file" accept=".zip,.json,application/zip,application/json" style="display:none;" />
             </div>
             <div class="modal-footer" style="padding: 16px 24px; display: flex; justify-content: flex-end; gap: 8px;">
                 <button id="config-modal-action" class="btn btn-primary">立即导出</button>
