@@ -269,10 +269,29 @@ export function createWorkflowManagerApi({
 
     async function promptRenameWorkflow(oldName) {
         if (!oldName) return;
-        const input = windowRef.prompt('重命名工作流:', oldName);
-        if (input === null) return;
+        const result = await openDialogStyle1({
+            id: 'workflow-rename-dialog',
+            title: '重命名工作流',
+            message: '请输入新的工作流名称。',
+            note: '名称不能包含 \\ / : * ? " < > |',
+            cancelActionId: 'cancel',
+            submitActionId: 'confirm',
+            documentRef,
+            input: {
+                id: 'workflow-rename-input',
+                label: '工作流名称',
+                value: oldName,
+                maxLength: 120,
+                rejectPattern: /[\\/:*?"<>|]/
+            },
+            actions: [
+                { id: 'cancel', label: '取消', variant: 'secondary' },
+                { id: 'confirm', label: '确定', variant: 'primary' }
+            ]
+        });
+        if (result?.actionId !== 'confirm') return;
 
-        const newName = input.trim();
+        const newName = result.value.trim();
         if (!newName) {
             showToast('请输入新的工作流名称', 'warning');
             return;

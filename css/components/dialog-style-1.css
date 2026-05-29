@@ -83,6 +83,48 @@
     line-height: 1.6;
     font-size: 12px;
     color: var(--settings-dialog-muted-text, var(--text-dim));
+    transition: color 0.14s ease;
+}
+
+.dialog-style-1-note.is-rejecting {
+    color: var(--accent-red, #ef4444);
+}
+
+.dialog-style-1-field {
+    display: grid;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.dialog-style-1-field span {
+    color: var(--settings-dialog-muted-text, var(--text-secondary, var(--text-dim)));
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.dialog-style-1-field input {
+    width: 100%;
+    min-height: 38px;
+    border: 1px solid var(--settings-input-border, rgba(255, 255, 255, 0.14));
+    border-radius: 6px;
+    background: var(--settings-input-bg, rgba(255, 255, 255, 0.08));
+    color: var(--text-primary);
+    padding: 8px 10px;
+    font: inherit;
+    outline: none;
+    transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+
+.dialog-style-1-field input:focus {
+    border-color: var(--accent-blue, #60a5fa);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue, #60a5fa) 24%, transparent);
+}
+
+.dialog-style-1-field input.is-rejecting,
+.dialog-style-1-field input.is-rejecting:focus {
+    border-color: var(--accent-red, #ef4444);
+    background: color-mix(in srgb, var(--accent-red, #ef4444) 12%, var(--settings-input-bg, rgba(255, 255, 255, 0.08)));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-red, #ef4444) 25%, transparent);
 }
 
 .dialog-style-1-footer {
