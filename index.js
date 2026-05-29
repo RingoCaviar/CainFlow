@@ -48,7 +48,7 @@ import { createHistoryFullscreenApi } from './js/features/history/history-fullsc
 import { createMediaControllerApi } from './js/features/media/media-controller.js';
 import { createImagePainterApi } from './js/features/media/image-painter.js';
 import { createMediaUtils } from './js/features/media/media-utils.js';
-import { createCameraControlNodeApi } from './js/features/camera/camera-control-node.js';
+import { createCameraControlNodeApi } from './js/features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from './js/features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from './js/features/execution/workflow-runner.js';
 import { createSessionManagerApi } from './js/features/persistence/session-manager.js';

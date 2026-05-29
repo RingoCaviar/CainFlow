@@ -25,7 +25,7 @@ import {
     normalizeImageList
 } from './execution-data-utils.js';
 import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
-import { generateCameraPrompt } from '../camera/camera-control-node.js';
+import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 
 export function createExecutionCoreApi({
