@@ -433,6 +433,7 @@ export function createWorkflowRunnerApi({
             const forceReset = forceResetNodeIds?.has(nid) === true;
 
             if (!forceReset && preserveFixedCache && isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
+                node.isFailed = false;
                 node.el.classList.add('completed');
                 node.el.classList.remove('error', 'running');
                 continue;
@@ -442,6 +443,7 @@ export function createWorkflowRunnerApi({
             removeConcurrentRequestStatusPanel(node);
             node.data = getPreservedNodeDataForReset(node);
             node.isSucceeded = false;
+            node.isFailed = false;
             if (node.type === 'ImageGenerate') {
                 node.imageData = null;
                 node.imageDataList = [];
@@ -1442,6 +1444,7 @@ export function createWorkflowRunnerApi({
                 if (timerId) clearInterval(timerId);
                 const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
                 currentNode.isSucceeded = true;
+                currentNode.isFailed = false;
                 currentNode.lastDuration = durationSec;
                 currentNode.runStartedAt = null;
                 clearNodeRunning(nid, currentNode, { status: 'completed', durationSec });
@@ -1464,8 +1467,10 @@ export function createWorkflowRunnerApi({
                     if (session.abortReason) state.abortReason = session.abortReason;
                     throw err;
                 }
-                clearNodeRunning(nid, currentNode, { status: 'error' });
                 currentNode.runStartedAt = null;
+                currentNode.isSucceeded = false;
+                currentNode.isFailed = true;
+                clearNodeRunning(nid, currentNode, { status: 'error' });
                 currentNode.el.classList.add('error');
                 const errorMsg = err.message || '未知错误';
                 if (timeBadge) timeBadge.textContent = 'Err';
@@ -1511,6 +1516,7 @@ export function createWorkflowRunnerApi({
             try {
                 await resumeTaskFn(nodeId, linkedResumeAbort.signal);
                 node.isSucceeded = true;
+                node.isFailed = false;
                 node.el.classList.add('completed');
                 scheduleSave();
             } finally {
@@ -1689,6 +1695,7 @@ export function createWorkflowRunnerApi({
             emptyImageNodes.forEach((nid) => {
                 const node = state.nodes.get(nid);
                 if (node) {
+                    node.isFailed = true;
                     node.el.classList.add('error');
                     addLog('error', '前置检查未通过', `节点「图片导入」(${nid}) 未载入素材图片`);
                 }
@@ -1717,6 +1724,7 @@ export function createWorkflowRunnerApi({
             emptyPromptNodes.forEach((nid) => {
                 const node = state.nodes.get(nid);
                 if (node) {
+                    node.isFailed = true;
                     node.el.classList.add('error');
                     addLog('error', '前置检查未通过', `节点「智能对话」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
                 }
@@ -1929,6 +1937,7 @@ export function createWorkflowRunnerApi({
                                     if (timerId) clearInterval(timerId);
                                     const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
                                     node.isSucceeded = true;
+                                    node.isFailed = false;
                                     node.lastDuration = durationSec;
                                     node.runStartedAt = null;
                                     clearNodeRunning(nid, node, { status: 'completed', durationSec });
@@ -1951,8 +1960,10 @@ export function createWorkflowRunnerApi({
                                         }
                                         return;
                                     }
-                                    clearNodeRunning(nid, node, { status: 'error' });
                                     node.runStartedAt = null;
+                                    node.isSucceeded = false;
+                                    node.isFailed = true;
+                                    clearNodeRunning(nid, node, { status: 'error' });
                                     node.el.classList.add('error');
                                     const errorMsg = err.message || '未知错误';
                                     if (timeBadge) timeBadge.textContent = 'Err';

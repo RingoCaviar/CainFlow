@@ -428,6 +428,7 @@ function applyVisibleNodeRunState(workflowName, payload = {}) {
             return context?.runner?.cancelRunningNode?.(nodeId) || false;
         });
         node.runStartedAt = startedAt;
+        node.isFailed = false;
         node.el.classList.add('running');
         node.el.classList.remove('completed', 'error', 'workflow-running-locked');
         setVisibleNodeControlsLocked(node, true);
@@ -440,6 +441,8 @@ function applyVisibleNodeRunState(workflowName, payload = {}) {
 
     const status = payload.status || 'idle';
     if (status === 'completed') {
+        node.isSucceeded = true;
+        node.isFailed = false;
         node.el.classList.add('completed');
         node.el.classList.remove('error');
         const timeBadge = document.getElementById(`${nodeId}-time`);
@@ -450,6 +453,8 @@ function applyVisibleNodeRunState(workflowName, payload = {}) {
             timeBadge.style.color = '';
         }
     } else if (status === 'error') {
+        node.isSucceeded = false;
+        node.isFailed = true;
         node.el.classList.add('error');
         node.el.classList.remove('completed');
         const timeBadge = document.getElementById(`${nodeId}-time`);
@@ -562,6 +567,7 @@ function serializeRuntimeNode(node, doc) {
         collapsed: node.collapsed === true,
         enabled: node.enabled,
         isSucceeded: node.isSucceeded === true,
+        isFailed: node.isFailed === true || node.el?.classList?.contains('error') === true,
         lastDuration: node.lastDuration || null
     };
     if (node.isClone === true && node.cloneSourceId) {
