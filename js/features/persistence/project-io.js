@@ -305,7 +305,8 @@ export function createProjectIoApi({
                         data: tab.data,
                         dirty: tab.dirty === true,
                         colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : index,
-                        running: false
+                        running: false,
+                        runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
                     }))
                 : [];
             state.activeWorkflowName = typeof data.activeWorkflowName === 'string' ? data.activeWorkflowName : '';

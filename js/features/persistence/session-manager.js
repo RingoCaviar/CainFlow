@@ -32,7 +32,8 @@ export function createSessionManagerApi({
                     name: tab.name,
                     data: tab.data,
                     dirty: tab.dirty === true,
-                    colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0
+                    colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
+                    runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
                 }))
                 : [];
             data.activeWorkflowName = state.activeWorkflowName || '';

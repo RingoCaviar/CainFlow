@@ -5915,6 +5915,26 @@ body.sidebar-pinned #side-bar::after {
     animation: workflow-running-pulse 1.4s ease-in-out infinite;
 }
 
+.workflow-item.has-run-result:not(.is-running)::after {
+    content: '';
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+.workflow-item.is-run-success:not(.is-running)::after {
+    background: var(--node-concurrent-status-dot-success, var(--accent-green));
+    box-shadow: 0 0 8px var(--node-concurrent-status-dot-success-glow, rgba(16, 185, 129, 0.5));
+}
+
+.workflow-item.is-run-error:not(.is-running)::after {
+    background: var(--node-concurrent-status-dot-failed, var(--accent-red));
+    box-shadow: 0 0 8px var(--node-concurrent-status-dot-failed-glow, rgba(239, 68, 68, 0.52));
+}
+
 @keyframes workflow-running-pulse {
     0%, 100% { opacity: 0.5; transform: scale(0.9); }
     50% { opacity: 1; transform: scale(1.15); }

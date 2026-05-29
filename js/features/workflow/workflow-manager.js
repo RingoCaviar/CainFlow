@@ -36,6 +36,12 @@ export function createWorkflowManagerApi({
 }) {
     const WORKFLOW_VERSION = '1.3';
     const TAB_COLORS = 6;
+    const RUN_RESULT_SUCCESS = 'success';
+    const RUN_RESULT_ERROR = 'error';
+
+    function normalizeWorkflowRunResult(value) {
+        return value === RUN_RESULT_SUCCESS || value === RUN_RESULT_ERROR ? value : '';
+    }
 
     async function fetchWorkflows() {
         return fetchWorkflowsService();
@@ -219,12 +225,33 @@ export function createWorkflowManagerApi({
         const tab = getWorkflowTab(name);
         const isOpen = !!tab;
         const isActive = state.activeWorkflowName === name;
+        const runResult = !isActive ? normalizeWorkflowRunResult(tab?.runResult) : '';
         item.classList.toggle('is-open', isOpen);
         item.classList.toggle('is-active', isActive);
         item.classList.toggle('is-dirty', tab?.dirty === true);
         item.classList.toggle('is-running', tab?.running === true);
+        item.classList.toggle('has-run-result', !!runResult);
+        item.classList.toggle('is-run-success', runResult === RUN_RESULT_SUCCESS);
+        item.classList.toggle('is-run-error', runResult === RUN_RESULT_ERROR);
         const stateLabel = item.querySelector('.workflow-item-state');
-        if (stateLabel) stateLabel.textContent = tab?.running === true ? '运行中' : (isActive ? '当前' : (isOpen ? '已打开' : ''));
+        if (stateLabel) stateLabel.textContent = getWorkflowCardStateLabel({ isActive, isOpen, running: tab?.running === true, runResult });
+    }
+
+    function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult }) {
+        if (running) return '\u8fd0\u884c\u4e2d';
+        if (runResult === RUN_RESULT_SUCCESS) return '\u5df2\u5b8c\u6210';
+        if (runResult === RUN_RESULT_ERROR) return '\u5931\u8d25';
+        if (isActive) return '\u5f53\u524d';
+        if (isOpen) return '\u5df2\u6253\u5f00';
+        return '';
+    }
+
+    function clearWorkflowRunResult(name) {
+        const tab = getWorkflowTab(name);
+        if (!tab || !tab.runResult) return false;
+        tab.runResult = '';
+        refreshWorkflowCardState(name);
+        return true;
     }
 
     function syncActiveWorkflowBeforeSessionSave({ dirty = false } = {}) {
@@ -246,10 +273,15 @@ export function createWorkflowManagerApi({
                 data: tab.data,
                 dirty: tab.dirty === true,
                 colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : index,
-                running: tab.running === true
+                running: tab.running === true,
+                runResult: normalizeWorkflowRunResult(tab.runResult)
             }));
         if (state.activeWorkflowName && !getWorkflowTab(state.activeWorkflowName)) {
             state.activeWorkflowName = state.workflowTabs[0]?.name || '';
+        }
+        if (state.activeWorkflowName) {
+            const activeTab = getWorkflowTab(state.activeWorkflowName);
+            if (activeTab) activeTab.runResult = '';
         }
     }
 
@@ -278,6 +310,7 @@ export function createWorkflowManagerApi({
         const nextTab = state.workflowTabs[0] || null;
         state.activeWorkflowName = nextTab?.name || '';
         if (nextTab) {
+            clearWorkflowRunResult(nextTab.name);
             await applyWorkflowData(nextTab.data, { saveSession: false });
         } else {
             await applyWorkflowData(getEmptyWorkflowData(), { saveSession: false });
@@ -353,14 +386,16 @@ export function createWorkflowManagerApi({
             const isActive = state.activeWorkflowName === name;
             const dirty = tab?.dirty === true;
             const running = tab?.running === true;
+            const runResult = !isActive ? normalizeWorkflowRunResult(tab?.runResult) : '';
+            const runResultClass = runResult ? `has-run-result is-run-${runResult}` : '';
             const colorIndex = Number.isInteger(tab?.colorIndex) ? tab.colorIndex % TAB_COLORS : 0;
             return `
-        <div class="workflow-item ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''} ${running ? 'is-running' : ''}"
+        <div class="workflow-item ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''} ${running ? 'is-running' : ''} ${runResultClass}"
              data-name="${escapeHtml(name)}"
              data-tab-color="${colorIndex}">
             <span class="workflow-dirty-dot" aria-hidden="true"></span>
             <span class="workflow-item-name">${escapeHtml(name)}</span>
-            <span class="workflow-item-state">${running ? '运行中' : (isActive ? '当前' : (isOpen ? '已打开' : ''))}</span>
+            <span class="workflow-item-state">${getWorkflowCardStateLabel({ isActive, isOpen, running, runResult })}</span>
             <div class="workflow-item-actions">
                 ${isOpen ? `
                 <button class="workflow-action-btn close-tab-btn" title="关闭">
@@ -513,7 +548,13 @@ export function createWorkflowManagerApi({
 
     async function openWorkflow(name) {
         if (!name) return false;
-        if (state.activeWorkflowName === name) return true;
+        if (state.activeWorkflowName === name) {
+            if (clearWorkflowRunResult(name)) {
+                renderWorkflowList();
+                scheduleSave({ dirty: false });
+            }
+            return true;
+        }
         snapshotActiveWorkflow();
 
         let tab = getWorkflowTab(name);
@@ -533,6 +574,7 @@ export function createWorkflowManagerApi({
 
         const previousActiveName = state.activeWorkflowName;
         state.activeWorkflowName = name;
+        clearWorkflowRunResult(name);
         if (await applyWorkflowData(tab.data, { saveSession: false })) {
             showToast(`已打开工作流: ${name}`, 'success');
             renderWorkflowList();
@@ -828,14 +870,16 @@ export function createWorkflowManagerApi({
                     name,
                     data: cloneWorkflowData(data),
                     dirty: options.dirty === true,
-                    colorIndex: (state.workflowTabs || []).length % TAB_COLORS
+                    colorIndex: (state.workflowTabs || []).length % TAB_COLORS,
+                    runResult: normalizeWorkflowRunResult(options.runResult)
                 };
                 state.workflowTabs.push(tab);
             } else {
                 tab.data = cloneWorkflowData(data);
                 if (options.dirty === true) tab.dirty = true;
+                if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);
             }
-        if (state.activeWorkflowName === name && options.applyToCanvas === true) {
+            if (state.activeWorkflowName === name && options.applyToCanvas === true) {
                 void applyWorkflowData(tab.data, { saveSession: false, keepRunningLock: true });
             }
             refreshWorkflowCardState(name);
@@ -845,11 +889,21 @@ export function createWorkflowManagerApi({
             const tab = getWorkflowTab(name);
             if (!tab) return false;
             tab.running = running === true;
+            if (tab.running) tab.runResult = '';
             if (state.activeWorkflowName === name) {
                 state.nodes.forEach((node) => {
                     node.el?.classList.remove('workflow-running-locked');
                 });
             }
+            refreshWorkflowCardState(name);
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+            return true;
+        },
+        setWorkflowRunResult: (name, result = '') => {
+            const tab = getWorkflowTab(name);
+            if (!tab) return false;
+            tab.runResult = state.activeWorkflowName === name ? '' : normalizeWorkflowRunResult(result);
             refreshWorkflowCardState(name);
             renderWorkflowList();
             scheduleSave({ dirty: false });
