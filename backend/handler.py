@@ -47,8 +47,10 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', '*')
         static_path = self.path.split('?', 1)[0].lower()
-        if static_path.endswith(('.html', '.css', '.js', '.mjs')):
-            self.send_header('Cache-Control', 'no-store, max-age=0')
+        if static_path.endswith(('.html',)):
+            self.send_header('Cache-Control', 'no-cache')
+        elif static_path.endswith(('.css', '.js', '.mjs')):
+            self.send_header('Cache-Control', 'public, max-age=0, must-revalidate')
         super().end_headers()
 
     def do_OPTIONS(self):

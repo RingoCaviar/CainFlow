@@ -18,9 +18,21 @@ export function createSessionManagerApi({
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
+    const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
 
     function setBeforeSave(callback) {
         onBeforeSave = typeof callback === 'function' ? callback : () => {};
+    }
+
+    function saveUiBootstrapState() {
+        try {
+            localStorageRef.setItem(uiBootstrapStorageKey, JSON.stringify({
+                themeId: typeof state.themeId === 'string' && state.themeId ? state.themeId : 'dark',
+                globalAnimationEnabled: state.globalAnimationEnabled !== false
+            }));
+        } catch {
+            // Ignore quota/privacy failures; this only speeds up the next boot theme restore.
+        }
     }
 
     function saveState() {
@@ -38,6 +50,7 @@ export function createSessionManagerApi({
                 : [];
             data.activeWorkflowName = state.activeWorkflowName || '';
             localStorageRef.setItem(storageKey, JSON.stringify(data));
+            saveUiBootstrapState();
         } catch (e) {
             console.warn('Save failed:', e);
             if (e.name === 'QuotaExceededError') {

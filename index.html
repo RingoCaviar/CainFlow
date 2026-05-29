@@ -15,43 +15,61 @@
     <script>
         (() => {
             const storageKey = 'nodeflow_ai_state';
+            const bootstrapKey = 'cainflow_ui_bootstrap';
             const themeAttribute = 'data-app-theme';
             const animationsDisabledClass = 'animations-disabled';
             const fallbackTheme = 'dark';
+            const lightThemes = ['light', 'pink', 'glass-light'];
 
-            try {
-                const raw = window.localStorage.getItem(storageKey);
-                if (!raw) {
-                    document.documentElement.setAttribute(themeAttribute, fallbackTheme);
-                    document.documentElement.style.colorScheme = fallbackTheme;
-                    return;
-                }
+            const applyBootstrapSettings = (settings) => {
+                const themeId = typeof settings?.themeId === 'string' && settings.themeId
+                    ? settings.themeId
+                    : fallbackTheme;
+                const globalAnimationEnabled = settings?.globalAnimationEnabled !== false;
 
-                const parsed = JSON.parse(raw);
+                document.documentElement.setAttribute(themeAttribute, themeId);
+                document.documentElement.style.colorScheme = lightThemes.includes(themeId) ? 'light' : 'dark';
+                document.documentElement.classList.toggle(animationsDisabledClass, !globalAnimationEnabled);
+            };
+
+            const getSettingsFromFullState = (parsed) => {
                 const themeId = typeof parsed?.themeId === 'string' && parsed.themeId
                     ? parsed.themeId
                     : (parsed?.themeMode === 'light' ? 'light' : fallbackTheme);
                 const globalAnimationEnabled = parsed?.globalAnimationEnabled !== undefined
                     ? parsed.globalAnimationEnabled !== false
                     : parsed?.connectionFlowAnimationEnabled !== false;
+                return { themeId, globalAnimationEnabled };
+            };
 
-                document.documentElement.setAttribute(themeAttribute, themeId);
-                document.documentElement.style.colorScheme = ['light', 'pink', 'glass-light'].includes(themeId) ? 'light' : 'dark';
-                document.documentElement.classList.toggle(animationsDisabledClass, !globalAnimationEnabled);
+            try {
+                const bootstrapRaw = window.localStorage.getItem(bootstrapKey);
+                if (bootstrapRaw) {
+                    applyBootstrapSettings(JSON.parse(bootstrapRaw));
+                    return;
+                }
+
+                const raw = window.localStorage.getItem(storageKey);
+                if (!raw) {
+                    applyBootstrapSettings({ themeId: fallbackTheme, globalAnimationEnabled: true });
+                    return;
+                }
+
+                const settings = getSettingsFromFullState(JSON.parse(raw));
+                applyBootstrapSettings(settings);
+                try {
+                    window.localStorage.setItem(bootstrapKey, JSON.stringify(settings));
+                } catch (error) {
+                    // The fallback still applied; failing to cache this tiny bootstrap state is non-fatal.
+                }
             } catch (error) {
-                document.documentElement.setAttribute(themeAttribute, fallbackTheme);
-                document.documentElement.style.colorScheme = fallbackTheme;
+                applyBootstrapSettings({ themeId: fallbackTheme, globalAnimationEnabled: true });
             }
         })();
     </script>
     <link id="app-stylesheet" rel="stylesheet" href="index.css">
     <script type="module">
-        import { APP_ASSET_VERSION, APP_VERSION, APP_VERSION_NUMBER } from './js/core/constants.js';
-
-        const stylesheet = document.getElementById('app-stylesheet');
-        if (stylesheet) {
-            stylesheet.href = `index.css?v=${encodeURIComponent(APP_ASSET_VERSION)}`;
-        }
+        import { APP_VERSION, APP_VERSION_NUMBER } from './js/core/constants.js';
 
         document.documentElement.style.setProperty('--app-version', `"${APP_VERSION_NUMBER}"`);
 

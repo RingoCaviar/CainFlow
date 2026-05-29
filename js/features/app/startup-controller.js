@@ -101,7 +101,9 @@ export function createStartupControllerApi({
             const restored = await loadState();
             await ensureOpenWorkflow();
             initLogs();
-            await syncProxyToServer();
+            Promise.resolve(syncProxyToServer()).catch((error) => {
+                consoleRef.error('Failed to sync proxy state to server on startup:', error);
+            });
             if (restored) {
                 showToast('已从本地存储恢复工作状态', 'success');
             } else if (state.nodes.size === 0) {
