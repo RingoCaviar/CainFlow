@@ -98,7 +98,7 @@ export function openDialogStyle1({
             resolveDialog({
                 id,
                 documentRef,
-                actionId: button.dataset.dialogStyle1Action || cancelActionId
+                actionId: button.getAttribute('data-dialog-style-1-action') || cancelActionId
             });
         };
 

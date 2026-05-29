@@ -564,44 +564,52 @@ export function createWorkflowManagerApi({
     }
 
     async function closeOtherWorkflows() {
-        if (state.runningNodeIds?.size > 0) {
-            showToast('有节点正在运行，暂不能关闭其他工作流', 'warning');
-            return false;
-        }
-        snapshotActiveWorkflow();
+        try {
+            if (state.runningNodeIds?.size > 0) {
+                showToast('有节点正在运行，暂不能关闭其他工作流', 'warning');
+                return false;
+            }
+            snapshotActiveWorkflow();
 
-        const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
-        if (!getActiveWorkflowTab()) {
-            await ensureOpenWorkflow({ useCurrentCanvas: false });
-            return true;
-        }
-        const inactiveTabs = tabs.filter((tab) => tab.name !== state.activeWorkflowName);
-        if (inactiveTabs.length === 0) {
-            showToast('没有其他已打开的工作流', 'info');
-            return true;
-        }
+            const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
+            if (!getActiveWorkflowTab()) {
+                await ensureOpenWorkflow({ useCurrentCanvas: false });
+                return true;
+            }
+            const inactiveTabs = tabs.filter((tab) => tab.name !== state.activeWorkflowName);
+            if (inactiveTabs.length === 0) {
+                showToast('没有其他已打开的工作流', 'info');
+                return true;
+            }
 
-        const dirtyTabs = inactiveTabs.filter((tab) => tab.dirty === true);
-        if (dirtyTabs.length > 0) {
-            const decision = await promptWorkflowCloseDecision({
-                title: '关闭其他工作流',
-                message: `有 ${dirtyTabs.length} 个其他工作流存在未保存修改，关闭前是否全部保存？`,
-                note: '选择“是”会先保存这些工作流，再关闭其他已打开的工作流；选择“否”会直接关闭并丢失未保存修改。'
-            });
-            if (decision === 'cancel') return false;
-            if (decision === 'save') {
+            const dirtyTabs = inactiveTabs.filter((tab) => tab.dirty === true);
+            let shouldSaveDirtyTabs = false;
+            if (dirtyTabs.length > 0) {
+                const decision = await promptWorkflowCloseDecision({
+                    title: '关闭其他工作流',
+                    message: `有 ${dirtyTabs.length} 个其他工作流存在未保存修改，关闭前是否全部保存？`,
+                    note: '选择“是”会先保存这些工作流，再关闭其他已打开的工作流；选择“否”会直接关闭并丢失未保存修改。'
+                });
+                if (decision === 'cancel') return false;
+                shouldSaveDirtyTabs = decision === 'save';
+            }
+
+            if (shouldSaveDirtyTabs) {
                 for (const tab of dirtyTabs) {
                     if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
                     tab.dirty = false;
                 }
             }
-        }
 
-        state.workflowTabs = tabs.filter((tab) => tab.name === state.activeWorkflowName);
-        renderWorkflowList();
-        scheduleSave({ dirty: false });
-        showToast('已关闭其他工作流', 'info');
-        return true;
+            state.workflowTabs = tabs.filter((tab) => tab.name === state.activeWorkflowName);
+            await renderWorkflowList();
+            scheduleSave({ dirty: false });
+            showToast(shouldSaveDirtyTabs ? '已保存并关闭其他工作流' : '已关闭其他工作流', 'info');
+            return true;
+        } catch (error) {
+            showToast(`关闭其他工作流失败: ${error.message || error}`, 'error', 6000);
+            return false;
+        }
     }
 
     async function createNewWorkflow() {
@@ -706,7 +714,7 @@ export function createWorkflowManagerApi({
         });
 
         btnCloseOther?.addEventListener('click', () => {
-            closeOtherWorkflows();
+            void closeOtherWorkflows();
         });
 
         btnSave?.addEventListener('click', async () => {
