@@ -5771,7 +5771,7 @@ body.sidebar-pinned #side-bar::after {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 10px;
+    padding: 10px calc(10px + 1em) 10px 10px;
 }
 
 .workflow-empty {
@@ -5796,6 +5796,9 @@ body.sidebar-pinned #side-bar::after {
     position: relative;
     overflow: hidden;
     box-shadow: var(--workflow-card-shadow);
+    --workflow-item-active-offset: 0px;
+    --workflow-item-hover-offset: 0px;
+    transform: translateX(calc(var(--workflow-item-active-offset) + var(--workflow-item-hover-offset)));
 }
 
 .workflow-item::before {
@@ -5814,6 +5817,7 @@ body.sidebar-pinned #side-bar::after {
 .workflow-item.is-active {
     background: linear-gradient(135deg, rgba(34, 197, 94, 0.14), var(--workflow-card-bg));
     border-color: rgba(34, 197, 94, 0.42);
+    --workflow-item-active-offset: 1em;
 }
 
 .workflow-item.is-open[data-tab-color="0"]::before { background: #38bdf8; }
@@ -5826,7 +5830,7 @@ body.sidebar-pinned #side-bar::after {
 .workflow-item:hover {
     background: var(--workflow-card-hover-bg);
     border-color: var(--workflow-card-hover-border);
-    transform: translateX(4px);
+    --workflow-item-hover-offset: 4px;
 }
 
 .workflow-item-name {
