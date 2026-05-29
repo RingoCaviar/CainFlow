@@ -112,8 +112,9 @@ export function createToolbarControllerApi({
         documentRef.getElementById('btn-stop')?.addEventListener('click', () => {
             if (state.isRunning) {
                 state.abortReason = 'manual';
-                state.isRunning = false;
-                if (state.runAbortControllers instanceof Set && state.runAbortControllers.size > 0) {
+                if (typeof state.abortAllWorkflowRuns === 'function') {
+                    state.abortAllWorkflowRuns('manual');
+                } else if (state.runAbortControllers instanceof Set && state.runAbortControllers.size > 0) {
                     state.runAbortControllers.forEach((controller) => controller.abort());
                 } else {
                     state.abortController?.abort();

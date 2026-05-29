@@ -33,7 +33,8 @@ export function createWorkflowRunnerApi({
     saveImageAssetList = async () => false,
     refreshDependentImageResizePreviews = () => {},
     getAbortMessage,
-    playNotificationSound
+    playNotificationSound,
+    onNodeRunStateChange = () => {}
 }) {
     const view = documentRef.defaultView || window;
     let runningConnectionRefreshFrame = null;
@@ -91,6 +92,14 @@ export function createWorkflowRunnerApi({
     function getNodeDisplayTitle(node) {
         if (!node) return '节点';
         return node.customTitle || nodeConfigs[node.type]?.title || node.type;
+    }
+
+    function emitNodeRunState(payload) {
+        try {
+            onNodeRunStateChange(payload);
+        } catch (err) {
+            console.warn('Node run state callback failed:', err);
+        }
     }
 
     function formatApproxBytes(bytes) {
@@ -311,7 +320,7 @@ export function createWorkflowRunnerApi({
 
         if (runBtn) {
             runBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
-            runBtn.disabled = hasActiveRuns || isRunStarting;
+            runBtn.disabled = isRunStarting;
         }
         if (stopBtn) {
             stopBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
@@ -346,22 +355,33 @@ export function createWorkflowRunnerApi({
     }
 
     function markNodeRunning(nodeId, node) {
+        const startedAt = node?.runStartedAt || Date.now();
+        if (node && !node.runStartedAt) node.runStartedAt = startedAt;
         getRunningNodeIds().add(nodeId);
         if (node?.el) {
             node.el.classList.add('running');
             node.el.classList.remove('completed', 'error');
         }
         setNodeRunningLock(node, true);
+        emitNodeRunState({ nodeId, status: 'running', running: true, startedAt });
         scheduleRunningConnectionRefresh();
     }
 
-    function clearNodeRunning(nodeId, node) {
-        getRunningNodeIds().delete(nodeId);
+    function clearNodeRunning(nodeId, node, result = {}) {
+        const wasRunning = getRunningNodeIds().delete(nodeId);
         if (node?.el) {
             node.el.classList.remove('running', 'running-locked');
             node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
         }
         setNodeRunningLock(node, false);
+        if (wasRunning || result.status) {
+            emitNodeRunState({
+                nodeId,
+                status: result.status || 'idle',
+                running: false,
+                durationSec: result.durationSec || node?.lastDuration || null
+            });
+        }
         scheduleRunningConnectionRefresh();
     }
 
@@ -1424,7 +1444,7 @@ export function createWorkflowRunnerApi({
                 currentNode.isSucceeded = true;
                 currentNode.lastDuration = durationSec;
                 currentNode.runStartedAt = null;
-                clearNodeRunning(nid, currentNode);
+                clearNodeRunning(nid, currentNode, { status: 'completed', durationSec });
                 currentNode.el.classList.add('completed');
                 if (timeBadge) {
                     timeBadge.textContent = `${durationSec}s`;
@@ -1439,12 +1459,12 @@ export function createWorkflowRunnerApi({
             } catch (err) {
                 if (isAbortLikeError(err)) {
                     currentNode.runStartedAt = null;
-                    clearNodeRunning(nid, currentNode);
+                    clearNodeRunning(nid, currentNode, { status: 'aborted' });
                     clearAbortedNodeFeedback(nid);
                     if (session.abortReason) state.abortReason = session.abortReason;
                     throw err;
                 }
-                clearNodeRunning(nid, currentNode);
+                clearNodeRunning(nid, currentNode, { status: 'error' });
                 currentNode.runStartedAt = null;
                 currentNode.el.classList.add('error');
                 const errorMsg = err.message || '未知错误';
@@ -1495,7 +1515,7 @@ export function createWorkflowRunnerApi({
                 scheduleSave();
             } finally {
                 linkedResumeAbort.cleanup();
-                clearNodeRunning(nodeId, node);
+                clearNodeRunning(nodeId, node, { status: node.isSucceeded ? 'completed' : 'aborted' });
                 runningNodes.delete(nodeId);
                 unregisterNodeCancelHandler(session, nodeId);
             }
@@ -1911,7 +1931,7 @@ export function createWorkflowRunnerApi({
                                     node.isSucceeded = true;
                                     node.lastDuration = durationSec;
                                     node.runStartedAt = null;
-                                    clearNodeRunning(nid, node);
+                                    clearNodeRunning(nid, node, { status: 'completed', durationSec });
                                     node.el.classList.add('completed');
                                     if (timeBadge) {
                                         timeBadge.textContent = `${durationSec}s`;
@@ -1923,7 +1943,7 @@ export function createWorkflowRunnerApi({
                                 } catch (err) {
                                     if (isAbortLikeError(err)) {
                                         node.runStartedAt = null;
-                                        clearNodeRunning(nid, node);
+                                        clearNodeRunning(nid, node, { status: 'aborted' });
                                         clearAbortedNodeFeedback(nid);
                                         if (session.abortReason) state.abortReason = session.abortReason;
                                         if (!session.canceledBranchNodeIds.has(nid)) {
@@ -1931,7 +1951,7 @@ export function createWorkflowRunnerApi({
                                         }
                                         return;
                                     }
-                                    clearNodeRunning(nid, node);
+                                    clearNodeRunning(nid, node, { status: 'error' });
                                     node.runStartedAt = null;
                                     node.el.classList.add('error');
                                     const errorMsg = err.message || '未知错误';

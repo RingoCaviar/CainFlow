@@ -30,6 +30,7 @@ export function createWorkflowManagerApi({
     clearOrphanedNodeAssets = null,
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
+    onWorkflowViewApplied = () => {},
     documentRef = document,
     windowRef = window
 }) {
@@ -148,6 +149,20 @@ export function createWorkflowManagerApi({
         };
     }
 
+    function cloneWorkflowData(data) {
+        if (!data || typeof data !== 'object') return getEmptyWorkflowData();
+        try {
+            return JSON.parse(JSON.stringify(data));
+        } catch {
+            return {
+                canvas: { ...(data.canvas || {}) },
+                nodes: Array.isArray(data.nodes) ? data.nodes.map((node) => ({ ...node })) : [],
+                connections: Array.isArray(data.connections) ? data.connections.map((connection) => ({ ...connection })) : [],
+                version: data.version || WORKFLOW_VERSION
+            };
+        }
+    }
+
     function collectOpenWorkflowNodeIds({ includeCanvas = true } = {}) {
         const ids = new Set();
         (state.workflowTabs || []).forEach((tab) => {
@@ -207,8 +222,9 @@ export function createWorkflowManagerApi({
         item.classList.toggle('is-open', isOpen);
         item.classList.toggle('is-active', isActive);
         item.classList.toggle('is-dirty', tab?.dirty === true);
+        item.classList.toggle('is-running', tab?.running === true);
         const stateLabel = item.querySelector('.workflow-item-state');
-        if (stateLabel) stateLabel.textContent = isActive ? '当前' : (isOpen ? '已打开' : '');
+        if (stateLabel) stateLabel.textContent = tab?.running === true ? '运行中' : (isActive ? '当前' : (isOpen ? '已打开' : ''));
     }
 
     function syncActiveWorkflowBeforeSessionSave({ dirty = false } = {}) {
@@ -229,7 +245,8 @@ export function createWorkflowManagerApi({
                 name: String(tab.name),
                 data: tab.data,
                 dirty: tab.dirty === true,
-                colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : index
+                colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : index,
+                running: tab.running === true
             }));
         if (state.activeWorkflowName && !getWorkflowTab(state.activeWorkflowName)) {
             state.activeWorkflowName = state.workflowTabs[0]?.name || '';
@@ -335,14 +352,15 @@ export function createWorkflowManagerApi({
             const isOpen = !!tab;
             const isActive = state.activeWorkflowName === name;
             const dirty = tab?.dirty === true;
+            const running = tab?.running === true;
             const colorIndex = Number.isInteger(tab?.colorIndex) ? tab.colorIndex % TAB_COLORS : 0;
             return `
-        <div class="workflow-item ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''}"
+        <div class="workflow-item ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''} ${running ? 'is-running' : ''}"
              data-name="${escapeHtml(name)}"
              data-tab-color="${colorIndex}">
             <span class="workflow-dirty-dot" aria-hidden="true"></span>
             <span class="workflow-item-name">${escapeHtml(name)}</span>
-            <span class="workflow-item-state">${isActive ? '当前' : (isOpen ? '已打开' : '')}</span>
+            <span class="workflow-item-state">${running ? '运行中' : (isActive ? '当前' : (isOpen ? '已打开' : ''))}</span>
             <div class="workflow-item-actions">
                 ${isOpen ? `
                 <button class="workflow-action-btn close-tab-btn" title="关闭">
@@ -434,11 +452,7 @@ export function createWorkflowManagerApi({
     }
 
     async function applyWorkflowData(data, options = {}) {
-        const { saveSession = true } = options;
-        if (state.runningNodeIds?.size > 0) {
-            showToast('有节点正在运行，暂不能加载其他工作流', 'warning');
-            return false;
-        }
+        const { saveSession = true, keepRunningLock = false } = options;
         const modelResolution = resolveWorkflowModelReferences(data, state);
         const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
         if (warningMessage && !(await confirmWorkflowAction({
@@ -472,6 +486,12 @@ export function createWorkflowManagerApi({
             for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData);
         }
 
+        if (keepRunningLock || getActiveWorkflowTab()?.running === true) {
+            state.nodes.forEach((node) => {
+                node.el?.classList.add('workflow-running-locked');
+            });
+        }
+
         if (data.connections?.length) {
             for (const conn of data.connections) {
                 if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
@@ -486,6 +506,7 @@ export function createWorkflowManagerApi({
         onConnectionsChanged();
         viewportApi.updateCanvasTransform();
         await cleanupOpenWorkflowAssets({ includeCanvas: true });
+        onWorkflowViewApplied(state.activeWorkflowName || '');
         if (saveSession) scheduleSave();
         return true;
     }
@@ -493,10 +514,6 @@ export function createWorkflowManagerApi({
     async function openWorkflow(name) {
         if (!name) return false;
         if (state.activeWorkflowName === name) return true;
-        if (state.runningNodeIds?.size > 0) {
-            showToast('有节点正在运行，暂不能切换工作流', 'warning');
-            return false;
-        }
         snapshotActiveWorkflow();
 
         let tab = getWorkflowTab(name);
@@ -548,8 +565,8 @@ export function createWorkflowManagerApi({
     async function closeWorkflow(name) {
         const tab = getWorkflowTab(name);
         if (!tab) return true;
-        if (state.runningNodeIds?.size > 0 && state.activeWorkflowName === name) {
-            showToast('有节点正在运行，暂不能关闭当前工作流', 'warning');
+        if (tab.running === true) {
+            showToast('该工作流正在运行，暂不能关闭', 'warning');
             return false;
         }
         if (state.activeWorkflowName === name) snapshotActiveWorkflow();
@@ -584,8 +601,9 @@ export function createWorkflowManagerApi({
 
     async function closeOtherWorkflows() {
         try {
-            if (state.runningNodeIds?.size > 0) {
-                showToast('有节点正在运行，暂不能关闭其他工作流', 'warning');
+            const runningInactiveTab = (state.workflowTabs || []).find((tab) => tab.name !== state.activeWorkflowName && tab.running === true);
+            if (runningInactiveTab) {
+                showToast('有其他工作流正在运行，暂不能关闭其他工作流', 'warning');
                 return false;
             }
             snapshotActiveWorkflow();
@@ -793,6 +811,50 @@ export function createWorkflowManagerApi({
         saveActiveWorkflow,
         markActiveWorkflowDirty,
         snapshotActiveWorkflow,
+        getActiveWorkflowName: () => state.activeWorkflowName || '',
+        getActiveWorkflowSnapshot: () => {
+            const tab = snapshotActiveWorkflow();
+            return tab ? cloneWorkflowData(tab.data) : getWorkflowPayload();
+        },
+        getWorkflowTabSnapshot: (name) => {
+            const tab = getWorkflowTab(name);
+            return tab ? cloneWorkflowData(tab.data) : null;
+        },
+        updateWorkflowTabData: (name, data, options = {}) => {
+            if (!name || !data) return false;
+            let tab = getWorkflowTab(name);
+            if (!tab) {
+                tab = {
+                    name,
+                    data: cloneWorkflowData(data),
+                    dirty: options.dirty === true,
+                    colorIndex: (state.workflowTabs || []).length % TAB_COLORS
+                };
+                state.workflowTabs.push(tab);
+            } else {
+                tab.data = cloneWorkflowData(data);
+                if (options.dirty === true) tab.dirty = true;
+            }
+        if (state.activeWorkflowName === name && options.applyToCanvas === true) {
+                void applyWorkflowData(tab.data, { saveSession: false, keepRunningLock: true });
+            }
+            refreshWorkflowCardState(name);
+            return true;
+        },
+        setWorkflowRunningState: (name, running = false) => {
+            const tab = getWorkflowTab(name);
+            if (!tab) return false;
+            tab.running = running === true;
+            if (state.activeWorkflowName === name) {
+                state.nodes.forEach((node) => {
+                    node.el?.classList.remove('workflow-running-locked');
+                });
+            }
+            refreshWorkflowCardState(name);
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+            return true;
+        },
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,
         ensureOpenWorkflow,
