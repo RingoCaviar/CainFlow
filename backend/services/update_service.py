@@ -75,15 +75,30 @@ def _delete_file_quietly(path):
 def cleanup_update_temp_files():
     app_dir = Path(config.EXE_DIR).resolve()
     target_path = Path(config.MAIN_EXE_PATH).resolve()
+    current_pending_path = None
+    pending_script_path = None
+    if target_path.parent == app_dir:
+        current_pending_path = target_path.with_name(f'{target_path.stem}.update{target_path.suffix}')
+        pending_script_path = target_path.with_name('apply_cainflow_update.bat')
     for pattern in (
         '.Cainflow_*.zip.download',
         'Cainflow_*.zip',
+        'CainFlow*.update.exe',
+        '*.update.exe',
     ):
         for path in app_dir.glob(pattern):
-            if path.is_file():
-                _delete_file_quietly(path)
+            if not path.is_file():
+                continue
+            is_current_pending = current_pending_path is not None and path.resolve() == current_pending_path
+            if is_current_pending and pending_script_path and pending_script_path.exists():
+                continue
+            if is_current_pending and pending_script_path and not pending_script_path.exists():
+                _delete_file_quietly(pending_script_path)
+            _delete_file_quietly(path)
     if target_path.parent == app_dir:
         _delete_file_quietly(target_path.with_name(f'.{target_path.name}.new'))
+        if pending_script_path and pending_script_path.exists() and not current_pending_path.exists():
+            _delete_file_quietly(pending_script_path)
 
 
 def _create_ssl_context():
