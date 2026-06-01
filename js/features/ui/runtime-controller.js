@@ -116,6 +116,10 @@ export function createRuntimeControllerApi({
 
     function initKeyboardShortcuts() {
         documentRef.addEventListener('keydown', (e) => {
+            if (documentRef.querySelector('.painter-overlay')) {
+                return;
+            }
+
             const activeElement = documentRef.activeElement;
             const inInput = isTextEditingTarget(activeElement);
             const hasTextSelection = windowRef.getSelection()?.toString().length > 0;
@@ -158,7 +162,7 @@ export function createRuntimeControllerApi({
                 state.skipNextClipboardPasteUntil = Date.now() + 300;
                 pasteNode({ includeExternalConnections: true });
             }
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && canvasShortcutsEnabled) {
                 e.preventDefault();
                 undo();
             }
