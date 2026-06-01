@@ -40,6 +40,18 @@ export function createMediaControllerApi({
     const PREVIEW_THUMBNAIL_CACHE_LIMIT = 48;
     const TRANSPARENT_PREVIEW_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
     const videoAutoSaveToasts = new Map();
+    const pendingPreviewIndexSaveNodeIds = new Set();
+    let previewIndexSaveTimer = null;
+
+    function schedulePreviewIndexSave(nodeId) {
+        if (nodeId) pendingPreviewIndexSaveNodeIds.add(nodeId);
+        if (previewIndexSaveTimer) windowRef.clearTimeout(previewIndexSaveTimer);
+        previewIndexSaveTimer = windowRef.setTimeout(() => {
+            previewIndexSaveTimer = null;
+            pendingPreviewIndexSaveNodeIds.clear();
+            scheduleSave();
+        }, 800);
+    }
 
     function hasIncomingImageConnection(nodeId) {
         return state.connections.some((conn) => (
@@ -1279,7 +1291,7 @@ export function createMediaControllerApi({
         if (image) {
             await showResolutionBadge(nodeId, image);
         }
-        scheduleSave();
+        schedulePreviewIndexSave(nodeId);
         return true;
     }
 
@@ -1291,7 +1303,7 @@ export function createMediaControllerApi({
         node.imagePreviewIndex = (currentIndex + delta + images.length) % images.length;
         renderImageSavePreview(nodeId, images);
         await showResolutionBadge(nodeId, images[node.imagePreviewIndex]);
-        scheduleSave();
+        schedulePreviewIndexSave(nodeId);
         return true;
     }
 
@@ -3031,11 +3043,13 @@ export function createMediaControllerApi({
         const img = overlay.querySelector('img');
         const iw = overlay.querySelector('.fullscreen-img-wrapper');
         const thumbTrack = overlay.querySelector('.fullscreen-thumb-track');
+        const thumbButtons = [];
         let fsZoom = 1;
         let fsX = 0;
         let fsY = 0;
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
+        let previewIndexDirty = false;
         const updateFsT = () => {
             img.style.transform = `translate(${fsX}px, ${fsY}px) scale(${fsZoom})`;
         };
@@ -3048,6 +3062,11 @@ export function createMediaControllerApi({
         const syncNodePreviewIndex = () => {
             if (!nodeId || !context.node) return;
             context.node.imagePreviewIndex = currentIndex;
+            previewIndexDirty = true;
+        };
+        const flushNodePreviewState = () => {
+            if (!nodeId || !context.node || !previewIndexDirty) return;
+            context.node.imagePreviewIndex = currentIndex;
             if (context.node.type === 'ImagePreview') {
                 context.node.previewZoom = 1;
                 renderImagePreviewImage(nodeId, images);
@@ -3055,6 +3074,7 @@ export function createMediaControllerApi({
                 renderImageSavePreview(nodeId, images);
             }
             scheduleSave();
+            previewIndexDirty = false;
         };
         const centerActiveThumbnail = () => {
             if (!thumbTrack) return;
@@ -3065,34 +3085,41 @@ export function createMediaControllerApi({
             const delta = activeRect.top - trackRect.top - (trackRect.height / 2) + (activeRect.height / 2);
             thumbTrack.scrollBy({ top: delta, behavior: 'smooth' });
         };
-        const renderThumbnailRail = () => {
+        const updateThumbnailRail = () => {
             if (!thumbTrack) return;
-            thumbTrack.innerHTML = '';
-            images.forEach((imageSrc, index) => {
-                const button = documentRef.createElement('button');
-                button.type = 'button';
-                button.className = `fullscreen-thumb-item${index === currentIndex ? ' is-active' : ''}`;
-                button.title = `第 ${index + 1} 张`;
-                button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
-                button.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    if (index === currentIndex) return;
-                    currentIndex = index;
-                    renderCurrentImage();
-                });
+            if (thumbButtons.length === 0) {
+                thumbTrack.innerHTML = '';
+                images.forEach((imageSrc, index) => {
+                    const button = documentRef.createElement('button');
+                    button.type = 'button';
+                    button.className = `fullscreen-thumb-item${index === currentIndex ? ' is-active' : ''}`;
+                    button.title = `第 ${index + 1} 张`;
+                    button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
+                    button.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        if (index === currentIndex) return;
+                        currentIndex = index;
+                        renderCurrentImage();
+                    });
 
-                const thumbImage = documentRef.createElement('img');
-                setImageElementSource(thumbImage, imageSrc, `缩略图 ${index + 1}`, {
-                    originalSrc: imageSrc
-                });
-                thumbImage.alt = `缩略图 ${index + 1}`;
-                button.appendChild(thumbImage);
+                    const thumbImage = documentRef.createElement('img');
+                    setImageElementSource(thumbImage, imageSrc, `缩略图 ${index + 1}`, {
+                        originalSrc: imageSrc
+                    });
+                    thumbImage.alt = `缩略图 ${index + 1}`;
+                    button.appendChild(thumbImage);
 
-                const label = documentRef.createElement('span');
-                label.className = 'fullscreen-thumb-label';
-                label.textContent = `${index + 1}/${images.length}`;
-                button.appendChild(label);
-                thumbTrack.appendChild(button);
+                    const label = documentRef.createElement('span');
+                    label.className = 'fullscreen-thumb-label';
+                    label.textContent = `${index + 1}/${images.length}`;
+                    button.appendChild(label);
+                    thumbTrack.appendChild(button);
+                    thumbButtons.push(button);
+                });
+            }
+
+            thumbButtons.forEach((button, index) => {
+                button.classList.toggle('is-active', index === currentIndex);
             });
             windowRef.requestAnimationFrame(centerActiveThumbnail);
         };
@@ -3103,7 +3130,7 @@ export function createMediaControllerApi({
             }
             resetTransform();
             syncNodePreviewIndex();
-            renderThumbnailRail();
+            updateThumbnailRail();
         };
         const stepFullscreenImage = (delta) => {
             if (images.length <= 1) return;
@@ -3111,7 +3138,7 @@ export function createMediaControllerApi({
             renderCurrentImage();
         };
 
-        renderThumbnailRail();
+        updateThumbnailRail();
 
         overlay.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -3144,6 +3171,7 @@ export function createMediaControllerApi({
         windowRef.addEventListener('mousemove', onMove);
         windowRef.addEventListener('mouseup', onUp);
         const cleanup = () => {
+            flushNodePreviewState();
             overlay.remove();
             windowRef.removeEventListener('mousemove', onMove);
             windowRef.removeEventListener('mouseup', onUp);
