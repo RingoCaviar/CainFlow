@@ -929,6 +929,9 @@ export function createWorkflowRuntimeManager({
             getAbortMessage,
             playNotificationSound: () => getSettingsControllerApi()?.playNotificationSound?.(),
             systemNotificationApi: getSystemNotificationApi(),
+            onAutoSaveNodeInjected: () => {
+                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true });
+            },
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
                 applyVisibleNodeRunState(workflowName, payload);

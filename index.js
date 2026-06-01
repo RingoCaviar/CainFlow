@@ -1088,6 +1088,10 @@ function getWorkflowRunnerApi() {
             getAbortMessage: getAbortMessageService,
             playNotificationSound: () => settingsControllerApi.playNotificationSound(),
             systemNotificationApi: getSystemNotificationApi(),
+            onAutoSaveNodeInjected: () => {
+                handleNodeGraphChanged();
+                scheduleSave();
+            },
             onNodeRunStateChange: (payload) => {
                 if (state.activeWorkflowName) {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState(state.activeWorkflowName, payload);

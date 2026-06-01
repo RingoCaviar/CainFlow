@@ -34,7 +34,8 @@ export function createWorkflowRunnerApi({
     refreshDependentImageResizePreviews = () => {},
     getAbortMessage,
     playNotificationSound,
-    onNodeRunStateChange = () => {}
+    onNodeRunStateChange = () => {},
+    onAutoSaveNodeInjected = () => {}
 }) {
     const view = documentRef.defaultView || window;
     let runningConnectionRefreshFrame = null;
@@ -1858,6 +1859,7 @@ export function createWorkflowRunnerApi({
             if (injected) {
                 updateAllConnections();
                 updatePortStyles();
+                onAutoSaveNodeInjected();
                 runOptions = normalizeRunOptions(runOptions);
                 plan = resolveExecutionPlan(runOptions);
                 if (!plan) {
