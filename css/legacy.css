@@ -48,7 +48,8 @@
     --conn-color: 168, 85, 247;
     /* Purple RGB */
     --conn-opacity: 0.2;
-    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    --font-mono: Consolas, "SFMono-Regular", Menlo, Monaco, "Courier New", monospace;
     --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     --panel-bg: var(--bg-drawer);
     --panel-bg-strong: var(--bg-drawer);
@@ -446,7 +447,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     border-radius: 4px;
     margin-left: 4px;
     vertical-align: baseline;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     opacity: 0.9;
 }
 
@@ -1172,7 +1173,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 }
 
 .node-time-badge {
-    font-family: 'Inter', monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.1);
@@ -5458,7 +5459,7 @@ body:has(#toolbar [aria-expanded="true"]) .help-panel {
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-family: var(--font-mono);
     margin-bottom: 12px;
 }
 
@@ -5692,7 +5693,7 @@ body.sidebar-pinned #side-bar::after {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    font-family: var(--font, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-family: var(--font);
     animation: help-panel-appear 0.26s cubic-bezier(0.4, 0, 0.2, 1);
     transition:
         top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
@@ -5795,7 +5796,7 @@ body.sidebar-pinned #side-bar::after {
     border: 1px solid var(--panel-control-border);
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: var(--font, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-family: var(--font);
     font-size: 11px;
     color: var(--accent-cyan);
     white-space: nowrap;
@@ -6079,7 +6080,7 @@ body.sidebar-pinned #side-bar::after {
     font-size: 34px;
     font-weight: 700;
     color: var(--accent-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .cache-breakdown {
@@ -6320,7 +6321,7 @@ body.sidebar-pinned #side-bar::after {
 
 .update-migration-notice code {
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     padding: 1px 5px;
     border-radius: 4px;
@@ -6395,7 +6396,7 @@ body.sidebar-pinned #side-bar::after {
 
 .update-download-progress__percent {
     color: #bfdbfe;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-weight: 700;
     white-space: nowrap;
 }
@@ -6473,7 +6474,7 @@ body.sidebar-pinned #side-bar::after {
     font-size: 13px;
     font-weight: 700;
     border: 1px solid rgba(168, 85, 247, 0.3);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 /* Update Status Indicators in Settings */
@@ -6523,7 +6524,7 @@ body.sidebar-pinned #side-bar::after {
 
 .update-version-summary strong {
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6648,7 +6649,7 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
 
 .floating-notice .notice-content span {
     color: var(--notice-inline-text);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-weight: 700;
     padding: 2px 6px;
     background: var(--notice-inline-bg);
@@ -6659,7 +6660,7 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
 
 .floating-notice .notice-content code {
     color: var(--notice-inline-text);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     font-weight: 700;
     padding: 2px 6px;
@@ -6718,7 +6719,7 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
 
 .update-canvas-notice-title span,
 .update-canvas-notice-meta span {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .update-canvas-notice-meta {

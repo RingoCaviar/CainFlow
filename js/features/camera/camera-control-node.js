@@ -35,6 +35,7 @@ const FRONT_CAMERA_STATE = Object.freeze({
 });
 
 const SLIDER_KEYS = ['pitch', 'yaw', 'distance', 'fov', 'roll'];
+const CANVAS_UI_FONT = 'Arial, "Microsoft YaHei UI", sans-serif';
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -66,13 +67,13 @@ function buildBackTexture() {
     }
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.font = 'bold 136px Inter, Arial, sans-serif';
+    ctx.font = `bold 136px ${CANVAS_UI_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('BACK', canvas.width / 2, canvas.height / 2 - 36);
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.66)';
-    ctx.font = '600 44px Inter, Arial, sans-serif';
+    ctx.font = `600 44px ${CANVAS_UI_FONT}`;
     ctx.fillText('reverse side reference', canvas.width / 2, canvas.height / 2 + 78);
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -110,13 +111,13 @@ function buildPlaceholderTexture() {
     }
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.font = 'bold 78px Inter, Arial, sans-serif';
+    ctx.font = `bold 78px ${CANVAS_UI_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('Image Preview', canvas.width / 2, canvas.height / 2 - 24);
 
     ctx.fillStyle = 'rgba(226, 232, 240, 0.72)';
-    ctx.font = '500 32px Inter, Arial, sans-serif';
+    ctx.font = `500 32px ${CANVAS_UI_FONT}`;
     ctx.fillText('Connect an upstream image node', canvas.width / 2, canvas.height / 2 + 56);
 
     const texture = new THREE.CanvasTexture(canvas);

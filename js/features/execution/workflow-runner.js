@@ -396,6 +396,16 @@ export function createWorkflowRunnerApi({
     }
 
     function getPreservedNodeDataForReset(node) {
+        if (node?.type === 'ImageImport') {
+            const data = node.data && typeof node.data === 'object' ? node.data : {};
+            const preserved = {};
+            if (data.image || node.imageData) preserved.image = data.image || node.imageData;
+            if (data.imageImportAssetKey || node.imageImportAssetKey) {
+                preserved.imageImportAssetKey = data.imageImportAssetKey || node.imageImportAssetKey;
+            }
+            return preserved;
+        }
+
         if (!node?.data || typeof node.data !== 'object') return {};
 
         if (node.type === 'CameraControl') {
@@ -648,6 +658,34 @@ export function createWorkflowRunnerApi({
         }
         delete node.data.imageMemoryReleased;
         return restoredImages;
+    }
+
+    async function restoreImageImportOutput(node) {
+        if (!node || node.type !== 'ImageImport') return undefined;
+
+        const cachedValue = getCachedOutputValue(node, 'image');
+        if (cachedValue) return cachedValue;
+        if (node.importMode === 'url') return undefined;
+
+        const candidateKeys = [
+            node.imageImportAssetKey,
+            node.data?.imageImportAssetKey,
+            node.id ? `image-import:${node.id}` : ''
+        ].filter((key, index, arr) => typeof key === 'string' && key && arr.indexOf(key) === index);
+
+        for (const key of candidateKeys) {
+            const image = await getImageAsset(key);
+            if (!image) continue;
+
+            node.data = node.data || {};
+            node.imageData = image;
+            node.data.image = image;
+            node.imageImportAssetKey = key;
+            node.data.imageImportAssetKey = key;
+            return image;
+        }
+
+        return undefined;
     }
 
     async function getEnabledNodeOutputValue(fromNode, toNode, portName) {
@@ -1685,7 +1723,7 @@ export function createWorkflowRunnerApi({
         const emptyImageNodes = [];
         for (const nid of order) {
             const node = state.nodes.get(nid);
-            if (node && node.enabled !== false && node.type === 'ImageImport' && !getCachedOutputValue(node, 'image')) {
+            if (node && node.enabled !== false && node.type === 'ImageImport' && !(await restoreImageImportOutput(node))) {
                 emptyImageNodes.push(nid);
             }
         }

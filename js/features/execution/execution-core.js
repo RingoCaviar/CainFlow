@@ -669,9 +669,17 @@ export function createExecutionCoreApi({
 
     function getImageImportOutputValue(node) {
         if (!node || node.type !== 'ImageImport') return undefined;
-        return node.importMode === 'url'
-            ? (node.imageUrl || undefined)
-            : (node.imageData || undefined);
+        if (node.importMode === 'url') {
+            return node.imageUrl || node.data?.image || undefined;
+        }
+        const imageDataList = normalizeImageList(node.imageDataList);
+        const imageList = imageDataList.length > 0
+            ? imageDataList
+            : normalizeImageList(node.data?.images);
+        return node.imageData
+            || node.data?.image
+            || imageList[0]
+            || undefined;
     }
 
     function isFixedTextChatWithCachedResult(node) {
@@ -1300,8 +1308,10 @@ export function createExecutionCoreApi({
 
     const nodeHandlers = {
         ImageImport: async (node) => {
-            if (!node.imageData) throw new Error('未导入图片');
-            node.data.image = node.imageData;
+            const imageValue = getImageImportOutputValue(node);
+            if (!imageValue) throw new Error('未导入图片');
+            node.data.image = imageValue;
+            if (node.importMode !== 'url') node.imageData = imageValue;
             await refreshDependentImageResizePreviews(node.id);
         },
         ImageResize: async (node, inputs) => {
@@ -2114,6 +2124,7 @@ export function createExecutionCoreApi({
                 throw new Error('未导入图片');
             }
             node.data.image = imageValue;
+            if (node.importMode !== 'url') node.imageData = imageValue;
             delete node.data.imageAssetKey;
             delete node.data.imageMemoryReleased;
             await refreshDependentImageResizePreviews(node.id);
