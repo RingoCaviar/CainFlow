@@ -169,6 +169,35 @@ export function createWorkflowManagerApi({
         }
     }
 
+    function getSafeWorkflowFileName(name) {
+        const safeName = String(name || 'workflow')
+            .trim()
+            .replace(/[\\/:*?"<>|]/g, '_')
+            .replace(/\s+/g, '_')
+            .replace(/^\.+/, '')
+            .slice(0, 80);
+        return safeName || 'workflow';
+    }
+
+    function downloadWorkflowJson(name, data) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = documentRef.createElement('a');
+        link.href = url;
+        link.download = `${getSafeWorkflowFileName(name)}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+    }
+
+    async function getWorkflowDataForAction(name) {
+        if (!name) return null;
+        if (state.activeWorkflowName === name) snapshotActiveWorkflow();
+        const tab = getWorkflowTab(name);
+        if (tab) return cloneWorkflowData(tab.data);
+        const data = await loadWorkflowFromFile(name);
+        return data ? cloneWorkflowData(data) : null;
+    }
+
     function collectOpenWorkflowNodeIds({ includeCanvas = true } = {}) {
         const ids = new Set();
         (state.workflowTabs || []).forEach((tab) => {
@@ -315,6 +344,22 @@ export function createWorkflowManagerApi({
         } else {
             await applyWorkflowData(getEmptyWorkflowData(), { saveSession: false });
         }
+    }
+
+    async function removeWorkflowTab(name) {
+        const wasActive = state.activeWorkflowName === name;
+        state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
+        if (wasActive) {
+            if (state.workflowTabs.length > 0) {
+                await activateFallbackWorkflow();
+            } else {
+                state.activeWorkflowName = '';
+                await ensureOpenWorkflow({ useCurrentCanvas: false });
+            }
+        }
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return true;
     }
 
     async function promptRenameWorkflow(oldName) {
@@ -604,6 +649,145 @@ export function createWorkflowManagerApi({
         return false;
     }
 
+    async function saveWorkflowByName(name) {
+        if (!name) return false;
+        if (state.activeWorkflowName === name) snapshotActiveWorkflow();
+        const tab = getWorkflowTab(name);
+        const data = tab ? tab.data : await loadWorkflowFromFile(name);
+        if (!data) return false;
+        if (await saveWorkflowToFile(name, data)) {
+            if (tab) tab.dirty = false;
+            showToast(`工作流「${name}」已保存`, 'success');
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+            return true;
+        }
+        return false;
+    }
+
+    async function closeWorkflowAfterSave(name) {
+        const tab = getWorkflowTab(name);
+        if (!tab) {
+            showToast(`工作流「${name}」未打开，无需关闭`, 'info');
+            return true;
+        }
+        if (tab.running === true) {
+            showToast('该工作流正在运行，暂不能关闭', 'warning');
+            return false;
+        }
+        if (state.activeWorkflowName === name) snapshotActiveWorkflow();
+        if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+        tab.dirty = false;
+        await removeWorkflowTab(name);
+        showToast(`已保存并关闭工作流「${name}」`, 'success');
+        return true;
+    }
+
+    async function closeWorkflowWithoutSaving(name) {
+        const tab = getWorkflowTab(name);
+        if (!tab) {
+            showToast(`工作流「${name}」未打开，无需关闭`, 'info');
+            return true;
+        }
+        if (tab.running === true) {
+            showToast('该工作流正在运行，暂不能关闭', 'warning');
+            return false;
+        }
+        await removeWorkflowTab(name);
+        showToast(`已关闭工作流「${name}」`, 'info');
+        return true;
+    }
+
+    async function reopenWorkflowFromFile(name) {
+        if (!name) return false;
+        const tab = getWorkflowTab(name);
+        if (tab?.running === true) {
+            showToast('该工作流正在运行，暂不能重新打开', 'warning');
+            return false;
+        }
+
+        if (state.activeWorkflowName !== name) snapshotActiveWorkflow();
+        const data = await loadWorkflowFromFile(name);
+        if (!data) return false;
+
+        const previousActiveName = state.activeWorkflowName;
+        const existingTab = getWorkflowTab(name);
+        const previousTabData = existingTab ? cloneWorkflowData(existingTab.data) : null;
+        const previousDirty = existingTab?.dirty === true;
+        const previousRunResult = existingTab?.runResult || '';
+        let targetTab = existingTab;
+        let createdTab = false;
+
+        if (!targetTab) {
+            targetTab = {
+                name,
+                data: cloneWorkflowData(data),
+                dirty: false,
+                colorIndex: (state.workflowTabs || []).length % TAB_COLORS
+            };
+            state.workflowTabs.push(targetTab);
+            createdTab = true;
+        } else {
+            targetTab.data = cloneWorkflowData(data);
+            targetTab.dirty = false;
+            targetTab.runResult = '';
+        }
+
+        state.activeWorkflowName = name;
+        if (await applyWorkflowData(targetTab.data, { saveSession: false })) {
+            showToast(`已重新打开工作流「${name}」`, 'success');
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+            return true;
+        }
+
+        state.activeWorkflowName = previousActiveName;
+        if (createdTab) {
+            state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
+        } else if (targetTab) {
+            targetTab.data = previousTabData;
+            targetTab.dirty = previousDirty;
+            targetTab.runResult = previousRunResult;
+        }
+        renderWorkflowList();
+        return false;
+    }
+
+    async function exportWorkflowByName(name) {
+        const fileName = `${getSafeWorkflowFileName(name)}.json`;
+
+        try {
+            if (typeof windowRef.showSaveFilePicker === 'function') {
+                const handle = await windowRef.showSaveFilePicker({
+                    suggestedName: fileName,
+                    types: [
+                        {
+                            description: 'CainFlow 工作流 JSON',
+                            accept: { 'application/json': ['.json'] }
+                        }
+                    ]
+                });
+                const data = await getWorkflowDataForAction(name);
+                if (!data) return false;
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+            } else {
+                const data = await getWorkflowDataForAction(name);
+                if (!data) return false;
+                downloadWorkflowJson(name, data);
+            }
+            showToast(`工作流「${name}」已另存为 JSON`, 'success');
+            return true;
+        } catch (error) {
+            if (error?.name !== 'AbortError') {
+                showToast(`另存为失败: ${error.message || error}`, 'error');
+            }
+            return false;
+        }
+    }
+
     async function closeWorkflow(name) {
         const tab = getWorkflowTab(name);
         if (!tab) return true;
@@ -626,19 +810,7 @@ export function createWorkflowManagerApi({
             }
         }
 
-        const wasActive = state.activeWorkflowName === name;
-        state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
-        if (wasActive) {
-            if (state.workflowTabs.length > 0) {
-                await activateFallbackWorkflow();
-            } else {
-                state.activeWorkflowName = '';
-                await ensureOpenWorkflow({ useCurrentCanvas: false });
-            }
-        }
-        renderWorkflowList();
-        scheduleSave({ dirty: false });
-        return true;
+        return removeWorkflowTab(name);
     }
 
     async function closeOtherWorkflows() {
@@ -829,19 +1001,39 @@ export function createWorkflowManagerApi({
         });
 
         const menu = documentRef.getElementById('workflow-context-menu');
-        documentRef.getElementById('menu-rename-workflow')?.addEventListener('click', async () => {
-            const oldName = menu.dataset.targetName;
+        const getMenuTargetName = () => menu?.dataset?.targetName || '';
+        const hideWorkflowMenu = () => menu?.classList.add('hidden');
+        const bindWorkflowMenuAction = (id, action) => {
+            documentRef.getElementById(id)?.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                const name = getMenuTargetName();
+                hideWorkflowMenu();
+                if (!name) return;
+                await action(name);
+            });
+        };
+
+        bindWorkflowMenuAction('menu-save-workflow', saveWorkflowByName);
+        bindWorkflowMenuAction('menu-save-close-workflow', closeWorkflowAfterSave);
+        bindWorkflowMenuAction('menu-close-discard-workflow', closeWorkflowWithoutSaving);
+        bindWorkflowMenuAction('menu-reopen-workflow', reopenWorkflowFromFile);
+        bindWorkflowMenuAction('menu-save-as-workflow', exportWorkflowByName);
+
+        documentRef.getElementById('menu-rename-workflow')?.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            const oldName = getMenuTargetName();
+            hideWorkflowMenu();
             await promptRenameWorkflow(oldName);
-            menu.classList.add('hidden');
         });
 
-        documentRef.getElementById('menu-delete-workflow')?.addEventListener('click', async () => {
-            const name = menu.dataset.targetName;
+        documentRef.getElementById('menu-delete-workflow')?.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            const name = getMenuTargetName();
+            hideWorkflowMenu();
             await confirmAndDeleteWorkflow(name);
-            menu.classList.add('hidden');
         });
 
-        windowRef.addEventListener('click', () => menu?.classList.add('hidden'));
+        windowRef.addEventListener('click', hideWorkflowMenu);
         ensureDefaultWorkflow();
     }
 

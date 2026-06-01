@@ -2756,6 +2756,10 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     display: none;
 }
 
+#workflow-context-menu {
+    z-index: 12000;
+}
+
 .context-menu-header {
     padding: 8px 12px 6px;
     font-size: 11px;
