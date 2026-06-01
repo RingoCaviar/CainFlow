@@ -4,6 +4,7 @@
 export function createHelpPanelApi({
     canvasContainer,
     nodesLayer,
+    panelManager = null,
     closeHistorySidebar,
     documentRef = document
 }) {
@@ -72,14 +73,11 @@ export function createHelpPanelApi({
         if (!panel || !content) return;
 
         if (panel.classList.contains('hidden')) {
+            panelManager?.closeAll?.();
+            closeHistorySidebar?.();
             content.innerHTML = helpContent;
             panel.classList.remove('hidden');
             btnHelp?.classList.add('active');
-
-            const historySidebar = documentRef.getElementById('history-sidebar');
-            if (historySidebar && !historySidebar.classList.contains('hidden')) {
-                closeHistorySidebar?.();
-            }
         } else {
             closeHelpPanel();
         }

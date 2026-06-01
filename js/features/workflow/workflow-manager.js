@@ -32,12 +32,30 @@ export function createWorkflowManagerApi({
     updateCacheUsage = () => {},
     onWorkflowViewApplied = () => {},
     documentRef = document,
-    windowRef = window
+    windowRef = window,
+    localStorageRef = localStorage
 }) {
     const WORKFLOW_VERSION = '1.3';
     const TAB_COLORS = 6;
     const RUN_RESULT_SUCCESS = 'success';
     const RUN_RESULT_ERROR = 'error';
+    const DEFAULT_WORKFLOW_SEED_KEY = 'cainflow_default_workflow_seeded';
+
+    function getDefaultWorkflowSeeded() {
+        try {
+            return localStorageRef.getItem(DEFAULT_WORKFLOW_SEED_KEY) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    function setDefaultWorkflowSeeded() {
+        try {
+            localStorageRef.setItem(DEFAULT_WORKFLOW_SEED_KEY, '1');
+        } catch {
+            // Ignore storage failures; the workflow list still works without the seed flag.
+        }
+    }
 
     function normalizeWorkflowRunResult(value) {
         return value === RUN_RESULT_SUCCESS || value === RUN_RESULT_ERROR ? value : '';
@@ -569,6 +587,7 @@ export function createWorkflowManagerApi({
         }
 
         if (await deleteWorkflowFile(name)) {
+            if (name === 'Default') setDefaultWorkflowSeeded();
             const wasActive = state.activeWorkflowName === name;
             state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
             if (wasActive) {
@@ -981,22 +1000,32 @@ export function createWorkflowManagerApi({
 
     async function ensureDefaultWorkflow() {
         const names = await fetchWorkflows();
-        if (!names.includes('Default')) {
-            const defaultImageModel = state.models.find((model) => model.taskType === 'image');
-            const defaultData = {
-                canvas: { x: 0, y: 0, zoom: 1 },
-                nodes: [
-                    { id: 'n_prompt', type: 'Text', x: 100, y: 150, width: 240, height: 160, text: 'A futuristic city at sunset, cinematic lighting, 8k resolution' },
-                    { id: 'n_gen', type: 'ImageGenerate', x: 450, y: 100, width: 260, height: 520, apiConfigId: defaultImageModel?.id || 'default', generationCount: 1 },
-                    { id: 'n_prev', type: 'ImagePreview', x: 800, y: 150, width: 300, height: 350 }
-                ],
-                connections: [
-                    { id: 'c_p_g', from: { nodeId: 'n_prompt', port: 'text' }, to: { nodeId: 'n_gen', port: 'prompt' }, type: 'text' },
-                    { id: 'c_g_p', from: { nodeId: 'n_gen', port: 'image' }, to: { nodeId: 'n_prev', port: 'image' }, type: 'image' }
-                ],
-                version: '1.3'
-            };
-            await saveWorkflowToFile('Default', defaultData);
+        if (names.includes('Default')) {
+            setDefaultWorkflowSeeded();
+            return;
+        }
+
+        if (names.length > 0 || getDefaultWorkflowSeeded()) {
+            return;
+        }
+
+        const defaultImageModel = state.models.find((model) => model.taskType === 'image');
+        const defaultData = {
+            canvas: { x: 0, y: 0, zoom: 1 },
+            nodes: [
+                { id: 'n_prompt', type: 'Text', x: 100, y: 150, width: 240, height: 160, text: 'A futuristic city at sunset, cinematic lighting, 8k resolution' },
+                { id: 'n_gen', type: 'ImageGenerate', x: 450, y: 100, width: 260, height: 520, apiConfigId: defaultImageModel?.id || 'default', generationCount: 1 },
+                { id: 'n_prev', type: 'ImagePreview', x: 800, y: 150, width: 300, height: 350 }
+            ],
+            connections: [
+                { id: 'c_p_g', from: { nodeId: 'n_prompt', port: 'text' }, to: { nodeId: 'n_gen', port: 'prompt' }, type: 'text' },
+                { id: 'c_g_p', from: { nodeId: 'n_gen', port: 'image' }, to: { nodeId: 'n_prev', port: 'image' }, type: 'image' }
+            ],
+            version: '1.3'
+        };
+        const saved = await saveWorkflowToFile('Default', defaultData);
+        if (saved) {
+            setDefaultWorkflowSeeded();
         }
     }
 

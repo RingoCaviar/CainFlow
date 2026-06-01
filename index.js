@@ -431,7 +431,8 @@ const updateManager = createUpdateManager({
 });
 const helpPanelApi = createHelpPanelApi({
     canvasContainer,
-    nodesLayer
+    nodesLayer,
+    panelManager
 });
 const settingsModal = document.getElementById('settings-modal');
 const providersList = document.getElementById('providers-list');
