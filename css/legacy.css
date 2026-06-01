@@ -1183,6 +1183,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 .node.running {
     z-index: 1000 !important;
     animation: node-running-super-glow 2.5s ease-in-out infinite !important;
+    overflow: visible !important;
 }
 
 .node.running .node-glass-bg {

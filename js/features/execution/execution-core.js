@@ -208,6 +208,21 @@ export function createExecutionCoreApi({
         }
     }
 
+    function resetImageGenerateRunOutputs(node) {
+        if (!node) return;
+        node.data = node.data || {};
+        delete node.data.images;
+        delete node.data.image;
+        delete node.data.imagePromptList;
+        delete node.data.imageAssetKey;
+        delete node.data.imageMemoryReleased;
+        node.imageDataList = [];
+        node.imageData = null;
+        node.generatedImages = [];
+        node.imagePromptList = [];
+        node.generationCompletedCount = 0;
+    }
+
     async function saveImageGenerationHistoryEntry(entry) {
         try {
             const saved = await saveHistoryEntry(entry);
@@ -1147,14 +1162,6 @@ export function createExecutionCoreApi({
         return normalizeImageList(value).some((image) => isRemoteImageUrl(image));
     }
 
-    function getStoredGeneratedImages(node, completedCount = 0) {
-        const images = normalizeImageList(node?.data?.images || node?.generatedImages);
-        if (images.length > 0) {
-            return completedCount > 0 ? images.slice(0, completedCount) : images;
-        }
-        return normalizeImageList(node?.data?.image || node?.imageData);
-    }
-
     function getImagePreviewIndex(node, images) {
         if (!images.length) return 0;
         const rawIndex = Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0;
@@ -1469,13 +1476,8 @@ export function createExecutionCoreApi({
                         Authorization: `Bearer ${apiCfg.apikey}`,
                         'Content-Type': isOpenAiImageEdit ? null : 'application/json'
                     });
-                const storedCompletedCount = Math.min(
-                    generationCount,
-                    Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0)
-                );
-                const storedGeneratedImages = getStoredGeneratedImages(node, storedCompletedCount).slice(0, generationCount);
                 if (!executionContext.concurrentExecution) {
-                    commitImageGenerateOutputs(node, storedGeneratedImages, prompt);
+                    resetImageGenerateRunOutputs(node);
                 }
                 renderNodeApiGenerationProgress(node, {
                     current: executionContext.concurrentExecution ? 0 : node.generationCompletedCount,
@@ -1486,26 +1488,8 @@ export function createExecutionCoreApi({
                     (generationCount > 1 || executionContext.concurrentExecution);
                 if (shouldRunConcurrentRequests) {
                     const progressTotal = Math.max(1, parseInt(node.apiGenerationProgress?.total ?? generationCount, 10) || generationCount);
-                    const generatedImages = executionContext.concurrentExecution
-                        ? new Array(generationCount)
-                        : getStoredGeneratedImages(node, node.generationCompletedCount).slice(0, generationCount);
-                    const completedBefore = executionContext.concurrentExecution
-                        ? 0
-                        : Math.min(generationCount, normalizeImageList(generatedImages).length);
-
-                    if (completedBefore >= generationCount) {
-                        const completedImages = normalizeImageList(generatedImages);
-                        if (!executionContext.concurrentExecution) {
-                            commitImageGenerateOutputs(node, completedImages, prompt);
-                            node.isSucceeded = true;
-                            await refreshDependentImageResizePreviews(id);
-                            updateAllConnections();
-                        }
-                        return {
-                            image: completedImages[completedImages.length - 1] || '',
-                            images: completedImages.slice()
-                        };
-                    }
+                    const generatedImages = new Array(generationCount);
+                    const completedBefore = 0;
 
                     const runSingleGeneration = async (nextGenerationIndex) => {
                         return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {

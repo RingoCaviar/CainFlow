@@ -415,8 +415,8 @@ export function createWorkflowRuntimeManager({
             }
         });
 
-        if (hasFailedNode) return 'error';
-        if (context.runResult === 'success' || hasCompletedNode || context.nodeRunStarted === true) return 'success';
+        if (context.nodeRunStarted === true && hasFailedNode) return 'error';
+        if (context.nodeRunStarted === true && (context.runResult === 'success' || hasCompletedNode)) return 'success';
         return '';
     }
 

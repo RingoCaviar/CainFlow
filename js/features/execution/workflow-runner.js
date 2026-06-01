@@ -1610,11 +1610,13 @@ export function createWorkflowRunnerApi({
 
     async function runWorkflow(runInput = null) {
         if (state.isRunStarting) {
-            return;
+            return { started: false, executed: false, reason: 'starting' };
         }
         state.isRunStarting = true;
         syncRunToolbarState();
         let startSucceeded = false;
+        let started = false;
+        let executed = false;
         try {
             await new Promise((resolve) => {
                 const requestFrame = documentRef.defaultView?.requestAnimationFrame;
@@ -1627,19 +1629,25 @@ export function createWorkflowRunnerApi({
 
             if (state.nodes.size === 0) {
                 showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
-                return;
+                return { started: false, executed: false, reason: 'empty-canvas' };
             }
             let runOptions = normalizeRunOptions(runInput);
             let plan = resolveExecutionPlan(runOptions);
             if (!plan) {
-                return;
+                return { started: false, executed: false, reason: 'no-plan' };
+            }
+            const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
+                .filter((nid) => state.nodes.get(nid)?.enabled !== false);
+            if (runnableNodeIds.length === 0) {
+                showToast('当前运行范围内没有启用的可运行节点', 'warning');
+                return { started: false, executed: false, reason: 'no-enabled-nodes' };
             }
             plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
 
             const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
             if (alreadyRunningNodeIds.length > 0) {
                 showToast(`当前运行范围内有 ${alreadyRunningNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
-                return;
+                return { started: false, executed: false, reason: 'already-running' };
             }
 
             const missingKeysProviders = new Set();
@@ -1665,7 +1673,7 @@ export function createWorkflowRunnerApi({
                 const names = Array.from(missingKeysProviders).join(', ');
                 const msg = `场景中存在未配置 API 密钥的模型（涉及供应商: ${names}），可能会导致执行报错。\n\n您确定要强制继续运行吗？`;
                 if (!confirmRef(msg)) {
-                    return;
+                    return { started: false, executed: false, reason: 'missing-api-key-confirm-cancelled' };
                 }
             }
 
@@ -1686,6 +1694,7 @@ export function createWorkflowRunnerApi({
             state.abortController = session.controller;
             syncRunToolbarState();
             startSucceeded = true;
+            started = true;
             if (state.requestTimeoutEnabled) {
                 const timeoutMs = Math.max(1, parseInt(state.requestTimeoutSeconds, 10) || 60) * 1000;
                 session.timeoutId = setTimeout(() => {
@@ -1739,7 +1748,7 @@ export function createWorkflowRunnerApi({
                 }
             });
             finalizeWorkflow();
-            return;
+            return { started: true, executed: false, reason: 'missing-image-input' };
         }
 
         const emptyPromptNodes = [];
@@ -1768,7 +1777,7 @@ export function createWorkflowRunnerApi({
                 }
             });
             finalizeWorkflow();
-            return;
+            return { started: true, executed: false, reason: 'missing-prompt-input' };
         }
 
         if (state.globalSaveDirHandle) {
@@ -1863,7 +1872,14 @@ export function createWorkflowRunnerApi({
                 plan = resolveExecutionPlan(runOptions);
                 if (!plan) {
                     finalizeWorkflow();
-                    return;
+                    return { started: true, executed: false, reason: 'no-plan-after-injection' };
+                }
+                const runnableNodeIdsAfterInjection = (plan.executionOrder || plan.nodeIds || [])
+                    .filter((nid) => state.nodes.get(nid)?.enabled !== false);
+                if (runnableNodeIdsAfterInjection.length === 0) {
+                    showToast('当前运行范围内没有启用的可运行节点', 'warning');
+                    finalizeWorkflow();
+                    return { started: true, executed: false, reason: 'no-enabled-nodes-after-injection' };
                 }
                 order = plan.executionOrder.slice();
                 resetNodesForPlan(plan, { forceResetNodeIds });
@@ -1872,6 +1888,7 @@ export function createWorkflowRunnerApi({
 
         const totalWorkflowStartTime = Date.now();
         addLog('info', '并发工作流启动', `开始运行 ${order.length} 个节点...`);
+        executed = order.length > 0;
 
         let retryAttempt = 0;
         const maxRetries = state.maxRetries || 15;
@@ -2139,6 +2156,13 @@ export function createWorkflowRunnerApi({
                     notificationBody: `工作流已手动停止，耗时 ${totalDuration}s`
                 });
             }
+            return {
+                started,
+                executed,
+                reason: terminatedByError
+                    ? 'error'
+                    : (completedRun || hasNodeBranchCancellation || wasTimedOut || wasManuallyStopped ? 'finished' : 'no-execution')
+            };
         }
         } finally {
             if (!startSucceeded) {

@@ -2,9 +2,10 @@
 
 .node-concurrent-status-panel {
     position: absolute;
-    left: 0;
-    right: 0;
-    bottom: calc(100% + 10px);
+    top: 6px;
+    right: 8px;
+    left: auto;
+    bottom: auto;
     z-index: 70;
     box-sizing: border-box;
     padding: 8px 10px;
@@ -15,6 +16,7 @@
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     pointer-events: auto;
+    max-width: calc(100% - 16px);
 }
 
 .node-concurrent-status-grid {
