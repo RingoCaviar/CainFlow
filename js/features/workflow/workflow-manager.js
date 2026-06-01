@@ -187,6 +187,81 @@ export function createWorkflowManagerApi({
         }
     }
 
+    function cloneWorkflowItem(item) {
+        if (!item || typeof item !== 'object') return item;
+        try {
+            return JSON.parse(JSON.stringify(item));
+        } catch {
+            return { ...item };
+        }
+    }
+
+    function normalizeConnectionId(connection, index = 0) {
+        if (connection?.id) return String(connection.id);
+        const from = connection?.from || {};
+        const to = connection?.to || {};
+        return [
+            from.nodeId || '',
+            from.port || '',
+            to.nodeId || '',
+            to.port || '',
+            connection?.type || '',
+            index
+        ].join('::');
+    }
+
+    function mergeRunWorkflowData(currentData, runtimeData, options = {}) {
+        const current = cloneWorkflowData(currentData);
+        const runtime = cloneWorkflowData(runtimeData);
+        const runtimeNodes = Array.isArray(runtime.nodes) ? runtime.nodes : [];
+        const baseNodeIds = options.baseNodeIds instanceof Set ? options.baseNodeIds : null;
+        const baseConnectionIds = options.baseConnectionIds instanceof Set ? options.baseConnectionIds : null;
+        const mergedNodeIds = new Set();
+        const runtimeNodeById = new Map(runtimeNodes.map((node) => [node?.id, node]).filter(([id]) => id));
+        const mergedNodes = [];
+
+        (Array.isArray(current.nodes) ? current.nodes : []).forEach((node) => {
+            if (!node?.id) return;
+            const runtimeNode = runtimeNodeById.get(node.id);
+            mergedNodes.push(runtimeNode ? cloneWorkflowItem(runtimeNode) : node);
+            mergedNodeIds.add(node.id);
+            runtimeNodeById.delete(node.id);
+        });
+
+        runtimeNodeById.forEach((node, nodeId) => {
+            if (!nodeId) return;
+            if (baseNodeIds?.has(nodeId)) return;
+            mergedNodes.push(node);
+            mergedNodeIds.add(nodeId);
+        });
+
+        const mergedConnections = [];
+        const mergedConnectionIds = new Set();
+        (Array.isArray(current.connections) ? current.connections : []).forEach((connection, index) => {
+            if (!connection?.from?.nodeId || !connection?.to?.nodeId) return;
+            if (!mergedNodeIds.has(connection.from.nodeId) || !mergedNodeIds.has(connection.to.nodeId)) return;
+            mergedConnectionIds.add(normalizeConnectionId(connection, index));
+            mergedConnections.push(connection);
+        });
+
+        (Array.isArray(runtime.connections) ? runtime.connections : []).forEach((connection, index) => {
+            if (!connection?.from?.nodeId || !connection?.to?.nodeId) return;
+            if (!mergedNodeIds.has(connection.from.nodeId) || !mergedNodeIds.has(connection.to.nodeId)) return;
+            const connectionId = normalizeConnectionId(connection, index);
+            if (mergedConnectionIds.has(connectionId)) return;
+            if (baseConnectionIds?.has(connectionId)) return;
+            mergedConnectionIds.add(connectionId);
+            mergedConnections.push(connection);
+        });
+
+        return {
+            canvas: current.canvas || runtime.canvas || getEmptyWorkflowData().canvas,
+            nodes: mergedNodes,
+            connections: mergedConnections,
+            version: runtime.version || current.version || WORKFLOW_VERSION
+        };
+    }
+
     function getSafeWorkflowFileName(name) {
         const safeName = String(name || 'workflow')
             .trim()
@@ -1116,22 +1191,32 @@ export function createWorkflowManagerApi({
         },
         updateWorkflowTabData: (name, data, options = {}) => {
             if (!name || !data) return false;
+            const shouldApplyToCanvas = state.activeWorkflowName === name && options.applyToCanvas === true;
+            const sourceData = state.activeWorkflowName === name && options.mergeWithCanvas === true
+                ? getWorkflowPayload()
+                : getWorkflowTab(name)?.data;
+            const nextData = options.mergeRunResults === true
+                ? mergeRunWorkflowData(sourceData, data, {
+                    baseNodeIds: options.baseNodeIds,
+                    baseConnectionIds: options.baseConnectionIds
+                })
+                : cloneWorkflowData(data);
             let tab = getWorkflowTab(name);
             if (!tab) {
                 tab = {
                     name,
-                    data: cloneWorkflowData(data),
+                    data: nextData,
                     dirty: options.dirty === true,
                     colorIndex: (state.workflowTabs || []).length % TAB_COLORS,
                     runResult: normalizeWorkflowRunResult(options.runResult)
                 };
                 state.workflowTabs.push(tab);
             } else {
-                tab.data = cloneWorkflowData(data);
+                tab.data = nextData;
                 if (options.dirty === true) tab.dirty = true;
                 if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);
             }
-            if (state.activeWorkflowName === name && options.applyToCanvas === true) {
+            if (shouldApplyToCanvas) {
                 void applyWorkflowData(tab.data, { saveSession: false, keepRunningLock: true });
             }
             refreshWorkflowCardState(name);

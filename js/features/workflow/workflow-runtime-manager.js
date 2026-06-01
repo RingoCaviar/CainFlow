@@ -45,6 +45,20 @@ function cloneWorkflowData(data = {}) {
     };
 }
 
+function getWorkflowConnectionIdentity(connection, index = 0) {
+    if (connection?.id) return String(connection.id);
+    const from = connection?.from || {};
+    const to = connection?.to || {};
+    return [
+        from.nodeId || '',
+        from.port || '',
+        to.nodeId || '',
+        to.port || '',
+        connection?.type || '',
+        index
+    ].join('::');
+}
+
 function createDetachedElements(doc) {
     const wrapper = doc.createElement('div');
     wrapper.className = 'workflow-runtime-detached';
@@ -687,9 +701,14 @@ export function createWorkflowRuntimeManager({
         if (!context?.workflowName) return false;
         const data = context.serialize();
         const applyToCanvas = state.activeWorkflowName === context.workflowName && options.applyToCanvas === true;
+        const mergeRunResults = options.mergeRunResults !== false;
         return getWorkflowManagerApi()?.updateWorkflowTabData?.(context.workflowName, data, {
             dirty: options.dirty !== false,
-            applyToCanvas
+            applyToCanvas,
+            mergeRunResults,
+            mergeWithCanvas: mergeRunResults && state.activeWorkflowName === context.workflowName,
+            baseNodeIds: context.baseNodeIds,
+            baseConnectionIds: context.baseConnectionIds
         });
     }
 
@@ -850,6 +869,7 @@ export function createWorkflowRuntimeManager({
             updateCacheUsage: () => {},
             documentRef: runtimeDocument
         });
+        const data = cloneWorkflowData(workflowData);
         const runtimeExecutionCoreApi = createExecutionCoreApi({
             state: runtimeState,
             nodeConfigs,
@@ -890,6 +910,8 @@ export function createWorkflowRuntimeManager({
             workflowName,
             state: runtimeState,
             elements: runtimeElements,
+            baseNodeIds: new Set(data.nodes.map((node) => node?.id).filter(Boolean)),
+            baseConnectionIds: new Set(data.connections.map((connection, index) => getWorkflowConnectionIdentity(connection, index))),
             nodeRunStarted: false,
             runResult: '',
             abortReason: null,
@@ -939,7 +961,6 @@ export function createWorkflowRuntimeManager({
         });
         context.runner = runtimeRunnerApi;
 
-        const data = cloneWorkflowData(workflowData);
         runtimeState.canvas.x = data.canvas.x;
         runtimeState.canvas.y = data.canvas.y;
         runtimeState.canvas.zoom = data.canvas.zoom;
@@ -975,14 +996,14 @@ export function createWorkflowRuntimeManager({
             let runError = null;
             try {
                 await context.runner.runWorkflow(runInput);
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true });
+                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
             } catch (error) {
                 runError = error;
                 addLog('error', `工作流运行异常: ${workflowName}`, error?.message || String(error), {
                     workflowName,
                     error: error?.stack || error
                 });
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true });
+                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
             } finally {
                 const runResult = deriveWorkflowRunResult(context, runError);
                 getWorkflowManagerApi()?.setWorkflowRunningState?.(workflowName, false);
