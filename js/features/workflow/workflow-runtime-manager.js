@@ -23,6 +23,8 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
     'requestTimeoutSeconds'
 ];
 
+const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
+
 function clonePlainValue(value) {
     if (value === undefined) return undefined;
     try {
@@ -124,11 +126,23 @@ function serializeRuntimeNode(node, doc) {
         serialized.imageMemoryReleased = true;
         serialized.imageAssetKey = node.data.imageAssetKey;
     }
-    const images = Array.isArray(node.data?.images)
-        ? node.data.images
-        : (Array.isArray(node.imageDataList) ? node.imageDataList : []);
-    if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
-        serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+    const images = normalizeRuntimeImageList(
+        Array.isArray(node.data?.images)
+            ? node.data.images
+            : (Array.isArray(node.imageDataList) ? node.imageDataList : [])
+    );
+    if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
+        if (images.length > 1) {
+            serialized.images = images.slice();
+        } else {
+            const imageData = typeof node.data?.image === 'string' && node.data.image.trim()
+                ? node.data.image
+                : (typeof node.imageData === 'string' && node.imageData.trim() ? node.imageData : images[0]);
+            if (imageData) serialized.imageData = imageData;
+        }
+        if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
+            serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+        }
     }
 
     if (node.type === 'ImageImport') {
