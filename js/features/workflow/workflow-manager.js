@@ -306,7 +306,7 @@ export function createWorkflowManagerApi({
                 runResult: normalizeWorkflowRunResult(tab.runResult)
             }));
         if (state.activeWorkflowName && !getWorkflowTab(state.activeWorkflowName)) {
-            state.activeWorkflowName = state.workflowTabs[0]?.name || '';
+            state.activeWorkflowName = '';
         }
         if (state.activeWorkflowName) {
             const activeTab = getWorkflowTab(state.activeWorkflowName);
@@ -335,6 +335,16 @@ export function createWorkflowManagerApi({
         };
     }
 
+    function hasCurrentCanvasContent() {
+        return state.nodes.size > 0 || state.connections.length > 0;
+    }
+
+    function getNewWorkflowData({ inheritCurrentCanvas = false } = {}) {
+        return inheritCurrentCanvas && hasCurrentCanvasContent()
+            ? getWorkflowPayload()
+            : getEmptyWorkflowData();
+    }
+
     async function activateFallbackWorkflow() {
         const nextTab = state.workflowTabs[0] || null;
         state.activeWorkflowName = nextTab?.name || '';
@@ -354,7 +364,7 @@ export function createWorkflowManagerApi({
                 await activateFallbackWorkflow();
             } else {
                 state.activeWorkflowName = '';
-                await ensureOpenWorkflow({ useCurrentCanvas: false });
+                await ensureOpenWorkflow();
             }
         }
         renderWorkflowList();
@@ -520,7 +530,7 @@ export function createWorkflowManagerApi({
                     await activateFallbackWorkflow();
                 } else {
                     state.activeWorkflowName = '';
-                    await ensureOpenWorkflow({ useCurrentCanvas: false });
+                    await ensureOpenWorkflow();
                 }
             }
             showToast('已删除', 'info');
@@ -824,7 +834,7 @@ export function createWorkflowManagerApi({
 
             const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
             if (!getActiveWorkflowTab()) {
-                await ensureOpenWorkflow({ useCurrentCanvas: false });
+                await ensureOpenWorkflow();
                 return true;
             }
             const inactiveTabs = tabs.filter((tab) => tab.name !== state.activeWorkflowName);
@@ -885,7 +895,7 @@ export function createWorkflowManagerApi({
                 await applyWorkflowData(data, { saveSession: false });
             }
         } else {
-            await ensureOpenWorkflow({ useCurrentCanvas: false });
+            await ensureOpenWorkflow();
         }
         await renderWorkflowList();
         scheduleSave({ dirty: false });
@@ -894,7 +904,8 @@ export function createWorkflowManagerApi({
     async function createNewWorkflow() {
         const names = await fetchWorkflows();
         const name = findNextUnsavedName(names);
-        const data = getEmptyWorkflowData();
+        const shouldInheritCanvas = !getActiveWorkflowTab();
+        const data = getNewWorkflowData({ inheritCurrentCanvas: shouldInheritCanvas });
         if (!(await saveWorkflowToFile(name, data))) return false;
         snapshotActiveWorkflow();
         state.workflowTabs.push({
@@ -904,7 +915,9 @@ export function createWorkflowManagerApi({
             colorIndex: (state.workflowTabs || []).length % TAB_COLORS
         });
         state.activeWorkflowName = name;
-        await applyWorkflowData(data, { saveSession: false });
+        if (!shouldInheritCanvas || !hasCurrentCanvasContent()) {
+            await applyWorkflowData(data, { saveSession: false });
+        }
         showToast(`已新建工作流「${name}」`, 'success');
         renderWorkflowList();
         scheduleSave({ dirty: false });
@@ -913,21 +926,13 @@ export function createWorkflowManagerApi({
 
     async function ensureOpenWorkflow({ useCurrentCanvas = true } = {}) {
         normalizeWorkflowTabs();
-        if (getActiveWorkflowTab()) return true;
-
-        if (state.workflowTabs.length > 0) {
-            const tab = state.workflowTabs[0];
-            state.activeWorkflowName = tab.name;
-            await applyWorkflowData(tab.data, { saveSession: false });
-            renderWorkflowList();
-            scheduleSave({ dirty: false });
-            return true;
-        }
+        const activeTab = getActiveWorkflowTab();
+        if (activeTab) return true;
 
         const names = await fetchWorkflows();
         const name = findNextUnsavedName(names);
-        const hasCanvasContent = useCurrentCanvas && (state.nodes.size > 0 || state.connections.length > 0);
-        const data = hasCanvasContent ? getWorkflowPayload() : getEmptyWorkflowData();
+        const hasCanvasContent = useCurrentCanvas && hasCurrentCanvasContent();
+        const data = getNewWorkflowData({ inheritCurrentCanvas: hasCanvasContent });
         if (!(await saveWorkflowToFile(name, data))) return false;
 
         state.workflowTabs.push({
