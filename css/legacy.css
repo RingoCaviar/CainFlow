@@ -5677,7 +5677,7 @@ body.sidebar-pinned #side-bar::after {
 /* Help Panel */
 .help-panel {
     position: absolute;
-    left: 60px;
+    left: -340px;
     top: calc(var(--drawer-top-offset, 0px) + var(--drawer-edge-gap, 0px));
     bottom: var(--drawer-edge-gap, 0px);
     width: 320px;
@@ -5694,19 +5694,19 @@ body.sidebar-pinned #side-bar::after {
     flex-direction: column;
     overflow: hidden;
     font-family: var(--font);
-    animation: help-panel-appear 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0;
+    pointer-events: none;
     transition:
+        left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.2s ease,
         top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         bottom 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@keyframes help-panel-appear {
-    from { opacity: 0; transform: translateX(-24px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-
-.help-panel.hidden {
-    display: none;
+.help-panel.active {
+    left: 60px;
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .help-panel-header {

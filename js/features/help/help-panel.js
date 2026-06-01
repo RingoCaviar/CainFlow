@@ -55,10 +55,23 @@ export function createHelpPanelApi({
     </div>
 `;
 
+    function setPanelOpenState(panel, open) {
+        if (!panel) return;
+        panel.classList.toggle('active', open);
+        panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+        if (open) {
+            panel.removeAttribute('inert');
+            panel.inert = false;
+        } else {
+            panel.setAttribute('inert', '');
+            panel.inert = true;
+        }
+    }
+
     function closeHelpPanel() {
         const panel = documentRef.getElementById('help-panel');
         const btnHelp = documentRef.getElementById('btn-help');
-        panel?.classList.add('hidden');
+        setPanelOpenState(panel, false);
         btnHelp?.classList.remove('active');
         if (btnHelp && documentRef.activeElement === btnHelp) {
             btnHelp.blur();
@@ -72,11 +85,11 @@ export function createHelpPanelApi({
 
         if (!panel || !content) return;
 
-        if (panel.classList.contains('hidden')) {
+        if (!panel.classList.contains('active')) {
             panelManager?.closeAll?.();
             closeHistorySidebar?.();
             content.innerHTML = helpContent;
-            panel.classList.remove('hidden');
+            setPanelOpenState(panel, true);
             btnHelp?.classList.add('active');
         } else {
             closeHelpPanel();
@@ -84,6 +97,13 @@ export function createHelpPanelApi({
     }
 
     function initHelpPanel() {
+        documentRef.getElementById('side-bar')?.addEventListener('click', (e) => {
+            const button = e.target?.closest?.('.side-bar-btn');
+            if (button && button.id !== 'btn-help') {
+                closeHelpPanel();
+            }
+        });
+
         documentRef.getElementById('btn-help')?.addEventListener('click', (e) => {
             e.stopPropagation();
             toggleHelpPanel();
