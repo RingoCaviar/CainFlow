@@ -732,6 +732,7 @@ export function createNodeLifecycleApi({
             return null;
         }
         const effectiveRestoreData = restoreData || getNodeDefaultRestoreData(normalizedType);
+        const restoreLayoutOptions = silent ? { save: false } : {};
         const id = effectiveRestoreData?.id ? effectiveRestoreData.id : generateId();
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
@@ -974,7 +975,7 @@ export function createNodeLifecycleApi({
         el.addEventListener('load', (event) => {
             if (event.target?.tagName === 'IMG') {
                 if (normalizedType === 'ImageImport' && nodeData.importMode === 'url') return;
-                scheduleEnsureNodeContentVisible(id);
+                scheduleEnsureNodeContentVisible(id, restoreLayoutOptions);
             }
         }, true);
         bindNodeSizeObserver(nodeData);
@@ -984,7 +985,7 @@ export function createNodeLifecycleApi({
                 if (!state.nodes.has(id)) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
                 if (nodeData.data?.imageMemoryReleased === true && nodeData.data?.imageAssetKey) {
-                    scheduleNodeContentVisibleChecks(id);
+                    scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                     return;
                 }
                 const hasInitialData = !!(effectiveRestoreData && effectiveRestoreData.imageData);
@@ -1022,7 +1023,7 @@ export function createNodeLifecycleApi({
                     const urlInput = el.querySelector(`#${id}-url-input`);
                     if (urlInput) urlInput.value = nodeData.imageUrl;
                     onConnectionsChanged();
-                    scheduleNodeContentVisibleChecks(id);
+                    scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                     return;
                 }
 
@@ -1142,7 +1143,7 @@ export function createNodeLifecycleApi({
                         showResolutionBadge(id, data);
                         onConnectionsChanged();
                     }
-                    scheduleNodeContentVisibleChecks(id);
+                    scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                 }
             });
         }
@@ -1155,7 +1156,7 @@ export function createNodeLifecycleApi({
             if (!silent) showToast(`初始化节点失败：${error.message || error}`, 'error', 5000);
             return null;
         }
-        scheduleNodeContentVisibleChecks(id);
+        scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
 
         if (!restoreData && !silent) showToast(`已添加「${config.title}」节点`, 'success');
         if (!restoreData) scheduleSave();

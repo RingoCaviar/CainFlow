@@ -345,6 +345,48 @@ export function createWorkflowManagerApi({
             : getEmptyWorkflowData();
     }
 
+    function centerEmptyWorkflowCanvas() {
+        const canvasContainer = documentRef.getElementById('canvas-container');
+        state.canvas.x = (canvasContainer?.clientWidth || windowRef.innerWidth || 0) / 2;
+        state.canvas.y = (canvasContainer?.clientHeight || windowRef.innerHeight || 0) / 2;
+        state.canvas.zoom = 1;
+        viewportApi.updateCanvasTransform();
+    }
+
+    async function ensureActiveWorkflowExists({ inheritCurrentCanvas = true, showNotice = true, applyToCanvas = false, centerEmptyCanvas = false } = {}) {
+        normalizeWorkflowTabs();
+        if (getActiveWorkflowTab()) return true;
+
+        const names = await fetchWorkflows();
+        const name = findNextUnsavedName(names);
+        const data = getNewWorkflowData({ inheritCurrentCanvas });
+
+        state.workflowTabs.push({
+            name,
+            data,
+            dirty: false,
+            colorIndex: (state.workflowTabs || []).length % TAB_COLORS
+        });
+        state.activeWorkflowName = name;
+        if (applyToCanvas) {
+            await applyWorkflowData(data, { saveSession: false });
+        }
+        if (centerEmptyCanvas && !inheritCurrentCanvas) {
+            centerEmptyWorkflowCanvas();
+            data.canvas = { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom };
+            const tab = getWorkflowTab(name);
+            if (tab) tab.data = data;
+        }
+        scheduleSave({ dirty: false });
+
+        const saved = await saveWorkflowToFile(name, data);
+        renderWorkflowList();
+        if (showNotice) {
+            showToast(saved ? `已自动新建工作流「${name}」` : `已创建工作流「${name}」，但保存文件失败`, saved ? 'info' : 'warning');
+        }
+        return true;
+    }
+
     async function activateFallbackWorkflow() {
         const nextTab = state.workflowTabs[0] || null;
         state.activeWorkflowName = nextTab?.name || '';
@@ -364,7 +406,7 @@ export function createWorkflowManagerApi({
                 await activateFallbackWorkflow();
             } else {
                 state.activeWorkflowName = '';
-                await ensureOpenWorkflow();
+                await ensureActiveWorkflowExists({ inheritCurrentCanvas: false, showNotice: false, applyToCanvas: true, centerEmptyCanvas: true });
             }
         }
         renderWorkflowList();
@@ -426,9 +468,13 @@ export function createWorkflowManagerApi({
 
     async function renderWorkflowList() {
         const list = documentRef.getElementById('workflow-list');
-        const names = await fetchWorkflows();
+        const savedNames = await fetchWorkflows();
         if (!list) return;
         normalizeWorkflowTabs();
+        const names = Array.from(new Set([
+            ...savedNames,
+            ...(state.workflowTabs || []).map((tab) => tab.name).filter(Boolean)
+        ]));
 
         if (names.length === 0) {
             renderWorkflowEmpty(list);
@@ -530,7 +576,7 @@ export function createWorkflowManagerApi({
                     await activateFallbackWorkflow();
                 } else {
                     state.activeWorkflowName = '';
-                    await ensureOpenWorkflow();
+                    await ensureActiveWorkflowExists({ inheritCurrentCanvas: false, showNotice: false, applyToCanvas: true, centerEmptyCanvas: true });
                 }
             }
             showToast('已删除', 'info');
@@ -573,7 +619,7 @@ export function createWorkflowManagerApi({
         }
 
         if (modelResolution.nodes?.length) {
-            for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData);
+            for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
         }
 
         if (keepRunningLock || getActiveWorkflowTab()?.running === true) {
@@ -711,6 +757,7 @@ export function createWorkflowManagerApi({
     async function reopenWorkflowFromFile(name) {
         if (!name) return false;
         const tab = getWorkflowTab(name);
+        if (!tab) return openWorkflow(name);
         if (tab?.running === true) {
             showToast('该工作流正在运行，暂不能重新打开', 'warning');
             return false;
@@ -834,7 +881,7 @@ export function createWorkflowManagerApi({
 
             const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
             if (!getActiveWorkflowTab()) {
-                await ensureOpenWorkflow();
+                await ensureActiveWorkflowExists({ inheritCurrentCanvas: true });
                 return true;
             }
             const inactiveTabs = tabs.filter((tab) => tab.name !== state.activeWorkflowName);
@@ -895,7 +942,7 @@ export function createWorkflowManagerApi({
                 await applyWorkflowData(data, { saveSession: false });
             }
         } else {
-            await ensureOpenWorkflow();
+            await ensureActiveWorkflowExists({ inheritCurrentCanvas: true });
         }
         await renderWorkflowList();
         scheduleSave({ dirty: false });
@@ -928,28 +975,7 @@ export function createWorkflowManagerApi({
         normalizeWorkflowTabs();
         const activeTab = getActiveWorkflowTab();
         if (activeTab) return true;
-
-        const names = await fetchWorkflows();
-        const name = findNextUnsavedName(names);
-        const hasCanvasContent = useCurrentCanvas && hasCurrentCanvasContent();
-        const data = getNewWorkflowData({ inheritCurrentCanvas: hasCanvasContent });
-        if (!(await saveWorkflowToFile(name, data))) return false;
-
-        state.workflowTabs.push({
-            name,
-            data,
-            dirty: false,
-            colorIndex: 0
-        });
-        state.activeWorkflowName = name;
-
-        if (!hasCanvasContent) {
-            await applyWorkflowData(data, { saveSession: false });
-        }
-
-        renderWorkflowList();
-        scheduleSave({ dirty: false });
-        showToast(`已自动新建工作流「${name}」`, 'info');
+        await ensureActiveWorkflowExists({ inheritCurrentCanvas: useCurrentCanvas });
         return true;
     }
 
