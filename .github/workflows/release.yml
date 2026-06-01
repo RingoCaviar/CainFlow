@@ -1,4 +1,4 @@
-name: Build and Release EXE
+name: Build and Release Packages
 
 on:
   push:
@@ -19,12 +19,77 @@ on:
         options:
           - 'true'
           - 'false'
+      build_macos:
+        description: 'Build and upload macOS package. default = BUILD_MACOS_RELEASE.'
+        required: true
+        default: 'default'
+        type: choice
+        options:
+          - 'default'
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write
 
+env:
+  BUILD_MACOS_RELEASE: ${{ vars.BUILD_MACOS_RELEASE || 'true' }}
+
 jobs:
-  build:
+  prepare:
+    runs-on: windows-latest
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      build_macos: ${{ steps.release.outputs.build_macos }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+
+    steps:
+      - name: Resolve release settings
+        id: release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $ref = "${{ github.ref }}"
+          $manualTag = "${{ github.event.inputs.release_tag }}"
+          if ($ref -like "refs/tags/*") {
+            $tagName = "${{ github.ref_name }}"
+          } elseif (![string]::IsNullOrWhiteSpace($manualTag)) {
+            $tagName = $manualTag.Trim()
+          } else {
+            $shortSha = "${{ github.sha }}".Substring(0, 7)
+            $tagName = "manual-${{ github.run_number }}-$shortSha"
+          }
+          if ($tagName -notmatch "^[A-Za-z0-9._-]+$") {
+            throw "Release tag may only contain letters, numbers, dots, underscores, and hyphens: $tagName"
+          }
+
+          $buildMacos = "${{ env.BUILD_MACOS_RELEASE }}".Trim().ToLowerInvariant()
+          $manualBuildMacos = "${{ github.event.inputs.build_macos }}".Trim().ToLowerInvariant()
+          if ($manualBuildMacos -and $manualBuildMacos -ne "default") {
+            $buildMacos = $manualBuildMacos
+          }
+          if ($buildMacos -notin @("true", "false")) {
+            throw "BUILD_MACOS_RELEASE must be true or false, got: $buildMacos"
+          }
+
+          $isTagPush = "${{ startsWith(github.ref, 'refs/tags/') }}"
+          if ($isTagPush -eq "true") {
+            $prerelease = "false"
+          } else {
+            $manualPrerelease = "${{ github.event.inputs.prerelease }}"
+            $prerelease = if ($manualPrerelease -eq "false") { "false" } else { "true" }
+          }
+
+          "release_tag=$tagName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build_macos=$buildMacos" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Release tag: $tagName"
+          Write-Host "Build macOS package: $buildMacos"
+          Write-Host "Prerelease: $prerelease"
+
+  build_windows:
+    needs: prepare
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -71,21 +136,9 @@ jobs:
             return $safe
           }
 
-          $ref = "${{ github.ref }}"
-          $manualTag = "${{ github.event.inputs.release_tag }}"
-          if ($ref -like "refs/tags/*") {
-            $tagName = "${{ github.ref_name }}"
-          } elseif (![string]::IsNullOrWhiteSpace($manualTag)) {
-            $tagName = $manualTag.Trim()
-          } else {
-            $shortSha = "${{ github.sha }}".Substring(0, 7)
-            $tagName = "manual-${{ github.run_number }}-$shortSha"
-          }
-          if ($tagName -notmatch "^[A-Za-z0-9._-]+$") {
-            throw "Release tag may only contain letters, numbers, dots, underscores, and hyphens: $tagName"
-          }
+          $tagName = "${{ needs.prepare.outputs.release_tag }}"
 
-          ./scripts/build-release-local.ps1 -TagName $tagName -Python python -SkipDependencyInstall
+          ./scripts/build-release-local.ps1 -TagName $tagName -Python python -SkipDependencyInstall -TargetPlatform windows
           $zipName = "Cainflow_$(Get-SafeFileNamePart $tagName).zip"
           if (!(Test-Path -LiteralPath $zipName -PathType Leaf)) {
             throw "Release zip was not found for tag $tagName (expected $zipName)"
@@ -103,8 +156,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          IS_TAG_PUSH: ${{ startsWith(github.ref, 'refs/tags/') }}
-          MANUAL_PRERELEASE: ${{ github.event.inputs.prerelease }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           $ErrorActionPreference = "Stop"
           $releaseTag = $env:RELEASE_TAG
@@ -113,11 +165,7 @@ jobs:
             throw "Missing release tag or zip path."
           }
 
-          if ($env:IS_TAG_PUSH -eq "true") {
-            $prerelease = "false"
-          } else {
-            $prerelease = if ($env:MANUAL_PRERELEASE -eq "false") { "false" } else { "true" }
-          }
+          $prerelease = if ($env:PRERELEASE -eq "true") { "true" } else { "false" }
 
           $releaseExists = $false
           gh release view $releaseTag --repo $env:REPO *> $null
@@ -140,3 +188,85 @@ jobs:
             }
             gh @args
           }
+
+  build_macos:
+    needs:
+      - prepare
+      - build_windows
+    if: needs.prepare.outputs.build_macos == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository without external actions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git init .
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git fetch --no-tags --prune --depth=1 origin "${{ github.sha }}"
+          git checkout --force FETCH_HEAD
+          git log -1 --oneline
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python3 -m venv .build-venv
+          $macPython = "./.build-venv/bin/python"
+          & $macPython -m pip install --upgrade pip
+          & $macPython -m pip install --upgrade pyinstaller
+          if (Test-Path "requirements.txt") {
+            & $macPython -m pip install -r requirements.txt
+          }
+
+      - name: Show build environment
+        shell: pwsh
+        run: |
+          $macPython = "./.build-venv/bin/python"
+          & $macPython --version
+          & $macPython -m PyInstaller --version
+          sw_vers
+
+      - name: Build macOS release zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          function Get-SafeFileNamePart {
+            param([string]$Value)
+            $source = if ($null -eq $Value) { '' } else { $Value }
+            $safe = [regex]::Replace($source, '[<>:"/\\|?*]', '-')
+            $safe = $safe.Trim().TrimEnd('.')
+            if ([string]::IsNullOrWhiteSpace($safe)) {
+              return 'local'
+            }
+            return $safe
+          }
+
+          $tagName = "${{ needs.prepare.outputs.release_tag }}"
+          $macPython = "./.build-venv/bin/python"
+          ./scripts/build-release-local.ps1 -TagName $tagName -Python $macPython -SkipDependencyInstall -TargetPlatform macos
+          $zipName = "Cainflow_$(Get-SafeFileNamePart $tagName)_macos.zip"
+          if (!(Test-Path -LiteralPath $zipName -PathType Leaf)) {
+            throw "macOS release zip was not found for tag $tagName (expected $zipName)"
+          }
+          $zip = Get-Item -LiteralPath $zipName
+
+          "ZIP_PATH=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ZIP_NAME=$($zip.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "macOS release zip: $($zip.FullName)"
+
+      - name: Upload macOS package to release with gh
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zipPath = $env:ZIP_PATH
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_TAG) -or !(Test-Path -LiteralPath $zipPath)) {
+            throw "Missing release tag or macOS zip path."
+          }
+
+          gh release upload $env:RELEASE_TAG $zipPath --repo $env:REPO --clobber
