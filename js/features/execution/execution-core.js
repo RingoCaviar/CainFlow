@@ -37,6 +37,7 @@ export function createExecutionCoreApi({
     fetchRef = fetch,
     showToast,
     addLog,
+    recordNodeRequest = () => {},
     getProxyHeaders,
     classifyProviderError,
     logRequestToPanel,
@@ -957,6 +958,51 @@ export function createExecutionCoreApi({
         };
     }
 
+    function recordProviderNodeRequest(node, apiCfg, modelCfg, url, responseOrOptions = {}, options = {}) {
+        const response = responseOrOptions && typeof responseOrOptions === 'object' && 'ok' in responseOrOptions
+            ? responseOrOptions
+            : null;
+        const finalOptions = response ? options : responseOrOptions;
+        recordNodeRequest({
+            nodeId: node?.id || '',
+            nodeType: node?.type || finalOptions?.nodeType || '',
+            providerId: apiCfg?.id || '',
+            providerName: apiCfg?.name || apiCfg?.id || '',
+            modelName: modelCfg?.name || modelCfg?.modelId || '',
+            url,
+            status: response ? response.status : finalOptions?.status,
+            success: response ? response.ok : finalOptions?.success === true
+        });
+    }
+
+    function createProviderRequestOutcomeRecorder(node, apiCfg, modelCfg, url, options = {}) {
+        let recorded = false;
+        return (success, extra = {}) => {
+            if (recorded) return;
+            recorded = true;
+            recordProviderNodeRequest(node, apiCfg, modelCfg, url, {
+                ...options,
+                ...extra,
+                success: success === true
+            });
+        };
+    }
+
+    async function runTrackedProviderRequest(node, apiCfg, modelCfg, url, requestFn, options = {}) {
+        const recordOutcome = createProviderRequestOutcomeRecorder(node, apiCfg, modelCfg, url, options);
+        try {
+            const result = await requestFn();
+            recordOutcome(true);
+            return result;
+        } catch (error) {
+            const status = Number(error?.serverResponse?.status);
+            recordOutcome(false, {
+                status: Number.isFinite(status) ? status : undefined
+            });
+            throw error;
+        }
+    }
+
     function buildImageGenerateRequestPreview(node, inputs) {
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
@@ -1280,6 +1326,7 @@ export function createExecutionCoreApi({
         windowRef,
         fetchRef,
         addLog,
+        recordNodeRequest,
         getProxyHeaders,
         classifyProviderError,
         logRequestToPanel,
@@ -1461,97 +1508,99 @@ export function createExecutionCoreApi({
                     }
 
                     const runSingleGeneration = async (nextGenerationIndex) => {
-                        const requestBody = isGoogle
-                            ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                            : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs });
-                        showToast(
-                            generationCount > 1
-                                ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
-                                : `正在调用 ${modelCfg.name}...`,
-                            'info',
-                            5000
-                        );
+                        return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                            const requestBody = isGoogle
+                                ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                                : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs });
+                            showToast(
+                                generationCount > 1
+                                    ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
+                                    : `正在调用 ${modelCfg.name}...`,
+                                'info',
+                                5000
+                            );
 
-                        const requestPayload = isOpenAiImageEdit
-                            ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
-                            : JSON.stringify(requestBody);
-                        const loggedRequestBody = isOpenAiImageEdit
-                            ? getOpenAiImageRequestLogBody(requestBody, inputs)
-                            : requestBody;
-                        logRequestToPanel(
-                            generationCount > 1
-                                ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
-                                : `请求发送: ${modelCfg.name}`,
-                            url,
-                            loggedRequestBody,
-                            {
-                                nodeId: id,
-                                nodeType: 'TextToImage',
-                                providerType: protocol
+                            const requestPayload = isOpenAiImageEdit
+                                ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
+                                : JSON.stringify(requestBody);
+                            const loggedRequestBody = isOpenAiImageEdit
+                                ? getOpenAiImageRequestLogBody(requestBody, inputs)
+                                : requestBody;
+                            logRequestToPanel(
+                                generationCount > 1
+                                    ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                                    : `请求发送: ${modelCfg.name}`,
+                                url,
+                                loggedRequestBody,
+                                {
+                                    nodeId: id,
+                                    nodeType: 'TextToImage',
+                                    providerType: protocol
+                                }
+                            );
+
+                            const response = await fetchRef('/proxy', {
+                                method: 'POST',
+                                headers,
+                                body: requestPayload,
+                                signal
+                            });
+
+                            if (!response.ok) {
+                                const t = await response.text();
+                                const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                                    apiCfg,
+                                    modelCfg,
+                                    url,
+                                    requestBody,
+                                    status: response.status
+                                });
+                                if (recoveredResult) return recoveredResult;
+                                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                                const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                                err.serverResponse = {
+                                    url,
+                                    requestBody,
+                                    status: response.status,
+                                    body: t
+                                };
+                                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                                throw err;
                             }
-                        );
 
-                        const response = await fetchRef('/proxy', {
-                            method: 'POST',
-                            headers,
-                            body: requestPayload,
-                            signal
-                        });
-
-                        if (!response.ok) {
-                            const t = await response.text();
-                            const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                            const result = await parseJsonResponseOrThrow(response, {
                                 apiCfg,
                                 modelCfg,
                                 url,
-                                requestBody,
-                                status: response.status
+                                requestBody
                             });
-                            if (recoveredResult) return recoveredResult;
-                            const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                            const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
-                            err.serverResponse = {
-                                url,
-                                requestBody,
-                                status: response.status,
-                                body: t
-                            };
-                            applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                            throw err;
-                        }
+                            if (!result) throw new Error('API 返回了空的 JSON 响应');
 
-                        const result = await parseJsonResponseOrThrow(response, {
-                            apiCfg,
-                            modelCfg,
-                            url,
-                            requestBody
-                        });
-                        if (!result) throw new Error('API 返回了空的 JSON 响应');
-
-                        let imageData = '';
-                        const imageResult = extractImageResult(apiCfg, result, modelCfg);
-                        if (imageResult?.dataUrl) {
-                            imageData = imageResult.dataUrl;
-                            if (imageResult.recovered) {
-                                showToast('服务器响应异常，已从返回内容中恢复出图片。', 'warning', 6000);
-                                addLog('warning', '图片响应兜底恢复成功', '服务器返回内容无法按标准 JSON 解析，但后端恢复模块已从响应中提取出图片。', {
-                                    nodeId: id,
-                                    model: modelCfg.name,
-                                    recoverySource: imageResult.recoverySource || 'backend'
-                                });
+                            let imageData = '';
+                            const imageResult = extractImageResult(apiCfg, result, modelCfg);
+                            if (imageResult?.dataUrl) {
+                                imageData = imageResult.dataUrl;
+                                if (imageResult.recovered) {
+                                    showToast('服务器响应异常，已从返回内容中恢复出图片。', 'warning', 6000);
+                                    addLog('warning', '图片响应兜底恢复成功', '服务器返回内容无法按标准 JSON 解析，但后端恢复模块已从响应中提取出图片。', {
+                                        nodeId: id,
+                                        model: modelCfg.name,
+                                        recoverySource: imageResult.recoverySource || 'backend'
+                                    });
+                                }
+                            } else if (imageResult?.url) {
+                                const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
+                                imageData = await blobToDataUrl(imgBlob);
                             }
-                        } else if (imageResult?.url) {
-                            const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
-                            imageData = await blobToDataUrl(imgBlob);
-                        }
 
-                        if (!imageData) {
-                            const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
-                            err.serverResponse = JSON.stringify(result, null, 2);
-                            throw err;
-                        }
+                            if (!imageData) {
+                                const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
+                                err.serverResponse = JSON.stringify(result, null, 2);
+                                throw err;
+                            }
 
-                        return imageData;
+                            return imageData;
+                        }, { nodeType: 'ImageGenerate' });
                     };
 
                     const requestIndexes = Array.from(
@@ -1660,87 +1709,98 @@ export function createExecutionCoreApi({
                         }
                     );
 
-                    const response = await fetchRef('/proxy', {
-                        method: 'POST',
-                        headers,
-                        body: requestPayload,
-                        signal
-                    });
+                    const requestResult = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                        const response = await fetchRef('/proxy', {
+                            method: 'POST',
+                            headers,
+                            body: requestPayload,
+                            signal
+                        });
 
-                    if (!response.ok) {
-                        const t = await response.text();
-                        const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                        if (!response.ok) {
+                            const t = await response.text();
+                            const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                                apiCfg,
+                                modelCfg,
+                                url,
+                                requestBody,
+                                status: response.status
+                            });
+                            if (recoveredResult) {
+                                const imageResult = extractImageResult(apiCfg, recoveredResult, modelCfg);
+                                if (imageResult?.dataUrl) {
+                                    return {
+                                        recovered: true,
+                                        imageData: imageResult.dataUrl
+                                    };
+                                }
+                            }
+                            const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                            const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                            err.serverResponse = {
+                                url,
+                                requestBody,
+                                status: response.status,
+                                body: t
+                            };
+                            applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                            throw err;
+                        }
+
+                        const result = await parseJsonResponseOrThrow(response, {
                             apiCfg,
                             modelCfg,
                             url,
-                            requestBody,
-                            status: response.status
+                            requestBody
                         });
-                        if (recoveredResult) {
-                            const imageResult = extractImageResult(apiCfg, recoveredResult, modelCfg);
-                            if (imageResult?.dataUrl) {
-                                const recoveredImageData = imageResult.dataUrl;
-                                node.generatedImages = normalizeImageList(node.generatedImages);
-                                node.generatedImages[nextGenerationIndex - 1] = recoveredImageData;
-                                commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
-                                incrementNodeApiGenerationProgress(node, 1, {
-                                    current: nextGenerationIndex,
-                                    total: generationCount
-                                });
-                                await refreshDependentImageResizePreviews(id);
-                                await saveImageGenerationHistoryEntry({
-                                    nodeId: id,
-                                    image: recoveredImageData,
-                                    prompt,
-                                    model: modelCfg.name,
-                                    generationDurationSeconds: getNodeGenerationDurationSeconds(node)
-                                });
-                                if (getImageHistorySidebarActive()) renderHistoryList();
-                                node.generationCompletedCount = nextGenerationIndex;
-                                continue;
-                            }
-                        }
-                        const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                        const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
-                        err.serverResponse = {
-                            url,
-                            requestBody,
-                            status: response.status,
-                            body: t
-                        };
-                        applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                        throw err;
-                    }
-
-                    const result = await parseJsonResponseOrThrow(response, {
-                        apiCfg,
-                        modelCfg,
-                        url,
-                        requestBody
-                    });
                         if (!result) throw new Error('API 返回了空的 JSON 响应');
 
-                    let imageData = '';
-                    const imageResult = extractImageResult(apiCfg, result, modelCfg);
-                    if (imageResult?.dataUrl) {
-                        imageData = imageResult.dataUrl;
-                        if (imageResult.recovered) {
-                            showToast('服务器响应异常，已从返回内容中恢复出图片。', 'warning', 6000);
-                            addLog('warning', '图片响应兜底恢复成功', '服务器返回内容无法按标准 JSON 解析，但后端恢复模块已从响应中提取出图片。', {
-                                nodeId: id,
-                                model: modelCfg.name,
-                                recoverySource: imageResult.recoverySource || 'backend'
-                            });
+                        let imageData = '';
+                        const imageResult = extractImageResult(apiCfg, result, modelCfg);
+                        if (imageResult?.dataUrl) {
+                            imageData = imageResult.dataUrl;
+                            if (imageResult.recovered) {
+                                showToast('服务器响应异常，已从返回内容中恢复出图片。', 'warning', 6000);
+                                addLog('warning', '图片响应兜底恢复成功', '服务器返回内容无法按标准 JSON 解析，但后端恢复模块已从响应中提取出图片。', {
+                                    nodeId: id,
+                                    model: modelCfg.name,
+                                    recoverySource: imageResult.recoverySource || 'backend'
+                                });
+                            }
+                        } else if (imageResult?.url) {
+                            const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
+                            imageData = await blobToDataUrl(imgBlob);
                         }
-                    } else if (imageResult?.url) {
-                        const imgBlob = await downloadGeneratedImage(imageResult.url, signal);
-                        imageData = await blobToDataUrl(imgBlob);
-                    }
 
-                    if (!imageData) {
-                        const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
-                        err.serverResponse = JSON.stringify(result, null, 2);
-                        throw err;
+                        if (!imageData) {
+                            const err = new Error(getImageGenerationError(apiCfg, result, modelCfg));
+                            err.serverResponse = JSON.stringify(result, null, 2);
+                            throw err;
+                        }
+
+                        return { imageData };
+                    }, { nodeType: 'ImageGenerate' });
+
+                    const imageData = requestResult.imageData;
+                    if (requestResult.recovered) {
+                        node.generatedImages = normalizeImageList(node.generatedImages);
+                        node.generatedImages[nextGenerationIndex - 1] = imageData;
+                        commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
+                        incrementNodeApiGenerationProgress(node, 1, {
+                            current: nextGenerationIndex,
+                            total: generationCount
+                        });
+                        await refreshDependentImageResizePreviews(id);
+                        await saveImageGenerationHistoryEntry({
+                            nodeId: id,
+                            image: imageData,
+                            prompt,
+                            model: modelCfg.name,
+                            generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+                        });
+                        if (getImageHistorySidebarActive()) renderHistoryList();
+                        node.generationCompletedCount = nextGenerationIndex;
+                        continue;
                     }
 
                     node.generatedImages = normalizeImageList(node.generatedImages);
@@ -1849,37 +1909,44 @@ export function createExecutionCoreApi({
                         providerType: protocol
                     });
 
-                    const res = await fetchRef('/proxy', {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify(body),
-                        signal
-                    });
-                    if (!res.ok) {
-                        const t = await res.text();
-                        const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                        const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
-                        err.serverResponse = {
+                    responseText = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                        const res = await fetchRef('/proxy', {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(body),
+                            signal
+                        });
+                        if (!res.ok) {
+                            const t = await res.text();
+                            const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                            const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
+                            err.serverResponse = {
+                                url,
+                                requestBody: body,
+                                status: res.status,
+                                body: t
+                            };
+                            applyUserFacingError(err, classifyProviderError(res.status, t, errorContext));
+                            throw err;
+                        }
+                        jsonResponse = await parseJsonResponseOrThrow(res, {
+                            apiCfg,
+                            modelCfg,
                             url,
-                            requestBody: body,
-                            status: res.status,
-                            body: t
-                        };
-                        applyUserFacingError(err, classifyProviderError(res.status, t, errorContext));
-                        throw err;
-                    }
-                    jsonResponse = await parseJsonResponseOrThrow(res, {
-                        apiCfg,
-                        modelCfg,
-                        url,
-                        requestBody: body
-                    });
+                            requestBody: body
+                        });
 
-                    let resultText = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                    if (jsonResponse.candidates?.[0]?.groundingMetadata?.searchEntryPoint?.html) {
-                        resultText += `\n\n<div class="search-chips">${jsonResponse.candidates[0].groundingMetadata.searchEntryPoint.html}</div>`;
-                    }
-                    responseText = resultText;
+                        let resultText = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        if (jsonResponse.candidates?.[0]?.groundingMetadata?.searchEntryPoint?.html) {
+                            resultText += `\n\n<div class="search-chips">${jsonResponse.candidates[0].groundingMetadata.searchEntryPoint.html}</div>`;
+                        }
+                        if (!String(resultText || '').trim()) {
+                            const err = new Error('API 返回了空回复。');
+                            err.serverResponse = JSON.stringify(jsonResponse, null, 2);
+                            throw err;
+                        }
+                        return resultText;
+                    }, { nodeType: 'TextChat' });
                 } else {
                     const url = resolveProviderUrl(apiCfg, modelCfg, 'chat');
                     const requestBody = buildOpenAiChatRequest({ modelCfg, prompt, inputs, sysprompt });
@@ -1892,32 +1959,40 @@ export function createExecutionCoreApi({
                         providerType: protocol
                     });
 
-                    const res = await fetchRef('/proxy', {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify(requestBody),
-                        signal
-                    });
-                    if (!res.ok) {
-                        const t = await res.text();
-                        const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                        const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
-                        err.serverResponse = {
+                    responseText = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                        const res = await fetchRef('/proxy', {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(requestBody),
+                            signal
+                        });
+                        if (!res.ok) {
+                            const t = await res.text();
+                            const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                            const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
+                            err.serverResponse = {
+                                url,
+                                requestBody,
+                                status: res.status,
+                                body: t
+                            };
+                            applyUserFacingError(err, classifyProviderError(res.status, t, errorContext));
+                            throw err;
+                        }
+                        jsonResponse = await parseJsonResponseOrThrow(res, {
+                            apiCfg,
+                            modelCfg,
                             url,
-                            requestBody,
-                            status: res.status,
-                            body: t
-                        };
-                        applyUserFacingError(err, classifyProviderError(res.status, t, errorContext));
-                        throw err;
-                    }
-                    jsonResponse = await parseJsonResponseOrThrow(res, {
-                        apiCfg,
-                        modelCfg,
-                        url,
-                        requestBody
-                    });
-                    responseText = jsonResponse.choices?.[0]?.message?.content || '';
+                            requestBody
+                        });
+                        const resultText = jsonResponse.choices?.[0]?.message?.content || '';
+                        if (!String(resultText || '').trim()) {
+                            const err = new Error('API 返回了空回复。');
+                            err.serverResponse = JSON.stringify(jsonResponse, null, 2);
+                            throw err;
+                        }
+                        return resultText;
+                    }, { nodeType: 'TextChat' });
                 }
 
                 if (!responseText) {

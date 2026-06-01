@@ -144,6 +144,13 @@
             <line x1="16" y1="17" x2="8" y2="17" />
             <polyline points="10 9 9 9 8 9" />
         </symbol>
+        <symbol id="icon-statistics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3v18h18" />
+            <rect x="7" y="12" width="3" height="5" rx="1" />
+            <rect x="12" y="8" width="3" height="9" rx="1" />
+            <rect x="17" y="5" width="3" height="12" rx="1" />
+        </symbol>
         <symbol id="icon-prompt-library" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 4h16v16H4z" />
@@ -369,6 +376,12 @@
                         <path d="M21 8l-3 3" />
                     </svg>
                     <span>缓存</span>
+                </button>
+                <button id="btn-toggle-statistics" class="side-bar-btn" title="今日请求统计">
+                    <svg class="icon-sm">
+                        <use href="#icon-statistics" />
+                    </svg>
+                    <span>统计</span>
                 </button>
                 <button id="btn-prompt-library" class="side-bar-btn" title="提示词库">
                     <svg class="icon-sm">
@@ -664,6 +677,49 @@
         </div>
         <div id="log-list" class="log-list">
             <div class="log-empty">暂无执行记录</div>
+        </div>
+    </div>
+
+    <!-- Statistics Sidebar -->
+    <div id="statistics-sidebar" class="drawer drawer-left">
+        <div class="drawer-header">
+            <div class="header-left">
+                <svg class="icon-sm">
+                    <use href="#icon-statistics" />
+                </svg>
+                <h3>今日请求统计</h3>
+            </div>
+            <div class="header-right">
+                <button id="btn-close-statistics" class="icon-btn" title="关闭">
+                    <svg class="icon-sm">
+                        <use href="#icon-close" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <div class="drawer-content statistics-drawer-content">
+            <section class="statistics-summary-grid">
+                <div class="statistics-metric">
+                    <span class="statistics-metric-label">节点请求总数</span>
+                    <strong id="statistics-total-requests" class="statistics-metric-value">0</strong>
+                </div>
+                <div class="statistics-metric">
+                    <span class="statistics-metric-label">成功率</span>
+                    <strong id="statistics-success-rate" class="statistics-metric-value" title="成功 0 次，失败 0 次">0%</strong>
+                </div>
+            </section>
+            <section class="statistics-ranking-section">
+                <div class="statistics-section-header">
+                    <h4>供应商排行榜</h4>
+                    <select id="statistics-ranking-sort" class="statistics-sort-select" title="切换排序依据">
+                        <option value="requestCount">按请求次数</option>
+                        <option value="successRate">按成功率</option>
+                    </select>
+                </div>
+                <div id="statistics-provider-ranking" class="statistics-provider-ranking"></div>
+                <div id="statistics-empty" class="statistics-empty">今天还没有节点请求记录</div>
+            </section>
+            <div class="statistics-updated-note">更新时间 <span id="statistics-updated-time">--:--:--</span></div>
         </div>
     </div>
 

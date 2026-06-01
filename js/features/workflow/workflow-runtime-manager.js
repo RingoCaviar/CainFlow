@@ -248,6 +248,43 @@ function serializeRuntimeWorkflow(runtimeState, doc, workflowVersion = '1.3') {
     };
 }
 
+function sanitizeRuntimeFilenamePart(value, fallback = 'image') {
+    const safe = String(value || '')
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 80);
+    return safe || fallback;
+}
+
+function getRuntimeTimestampText() {
+    return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+}
+
+async function getAvailableRuntimeFileHandle(directoryHandle, baseName, extension = '.png') {
+    const safeBaseName = sanitizeRuntimeFilenamePart(baseName, 'image');
+    const safeExtension = String(extension || '.png').startsWith('.') ? extension : `.${extension}`;
+    for (let index = 0; index < 1000; index += 1) {
+        const filename = index === 0
+            ? `${safeBaseName}${safeExtension}`
+            : `${safeBaseName}_${index + 1}${safeExtension}`;
+        try {
+            await directoryHandle.getFileHandle(filename, { create: false });
+        } catch {
+            const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+            return { fileHandle, filename };
+        }
+    }
+    throw new Error('无法创建可用文件名');
+}
+
+function normalizeRuntimeImageList(value) {
+    if (Array.isArray(value)) return value.filter((item) => typeof item === 'string' && item.trim());
+    if (typeof value === 'string' && value.trim()) return [value];
+    return [];
+}
+
 export function createWorkflowRuntimeManager({
     state,
     nodeConfigs,
@@ -273,6 +310,7 @@ export function createWorkflowRuntimeManager({
     saveHistoryEntry,
     renderHistoryList,
     logRequestToPanel,
+    recordNodeRequest = () => {},
     classifyProviderError,
     formatProxyErrorMessage,
     getAbortMessage,
@@ -685,6 +723,63 @@ export function createWorkflowRuntimeManager({
             documentRef: runtimeDocument
         });
         const runtimeMediaApi = createRuntimeMediaApi(runtimeState, runtimeDocument);
+        const runtimeAutoSaveToDir = async (nodeId, payload) => {
+            const node = runtimeState.nodes.get(nodeId);
+            if (!node) return;
+            const images = normalizeRuntimeImageList(payload?.images ?? payload);
+            if (images.length === 0) return;
+            const handle = runtimeState.globalSaveDirHandle;
+            if (!handle) {
+                showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
+                addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId, workflowName });
+                return;
+            }
+            try {
+                const perm = await handle.queryPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') {
+                    const req = await handle.requestPermission({ mode: 'readwrite' });
+                    if (req !== 'granted') {
+                        showToast('【自动保存失败】目录访问权限被拒绝', 'error');
+                        addLog('error', '自动保存失败', '权限被拒绝', { nodeId, workflowName });
+                        return;
+                    }
+                }
+
+                const prefix = runtimeDocument.getElementById(`${nodeId}-filename`)?.value || 'image';
+                const timestamp = getRuntimeTimestampText();
+                const savedFilenames = [];
+                for (let index = 0; index < images.length; index += 1) {
+                    const image = images[index];
+                    const blob = dataURLtoBlob(image);
+                    if (!blob) throw new Error('图片数据无效，无法写入文件');
+                    const baseName = `${prefix}_${timestamp}${images.length > 1 ? `_${index + 1}` : ''}`;
+                    const { fileHandle, filename } = await getAvailableRuntimeFileHandle(handle, baseName, '.png');
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    savedFilenames.push(filename);
+                }
+
+                showToast(
+                    images.length > 1
+                        ? `已自动保存 ${images.length} 张图片`
+                        : `图片已自动保存: ${savedFilenames[0]}`,
+                    'success'
+                );
+                addLog('success', '自动保存成功', `已保存至: ${handle.name}/${savedFilenames.join(', ')}`, {
+                    nodeId,
+                    workflowName
+                });
+            } catch (error) {
+                console.error('Runtime auto-save error:', error);
+                showToast('自动保存出错: ' + error.message, 'error', 5000);
+                addLog('error', '自动保存异常', error.message, {
+                    nodeId,
+                    workflowName,
+                    error: error.stack || error
+                });
+            }
+        };
         let runtimeRunnerApi = null;
         const runtimeCameraApi = createCameraControlNodeApi({
             state: runtimeState,
@@ -764,6 +859,7 @@ export function createWorkflowRuntimeManager({
             fetchRef,
             showToast,
             addLog,
+            recordNodeRequest,
             getProxyHeaders: (url, method = 'POST', extraHeaders = {}) => createProxyHeadersGetter(() => runtimeState)(url, method, extraHeaders),
             classifyProviderError,
             logRequestToPanel,
@@ -777,7 +873,7 @@ export function createWorkflowRuntimeManager({
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
-            autoSaveToDir: async () => {},
+            autoSaveToDir: runtimeAutoSaveToDir,
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,

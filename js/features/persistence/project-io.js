@@ -184,7 +184,16 @@ export function createProjectIoApi({
     }
 
     async function restoreHandles() {
-        // We only restore global handle now, which is handled in loadState
+        try {
+            const globalHandle = await getHandle('GLOBAL_SAVE_DIR');
+            if (!globalHandle) return null;
+            state.globalSaveDirHandle = globalHandle;
+            addLog('info', '全局保存目录已恢复', `已恢复目录: ${globalHandle.name}`);
+            return globalHandle;
+        } catch (error) {
+            console.warn('Restore global save dir handle failed:', error);
+            return null;
+        }
     }
 
     async function loadState() {
@@ -316,9 +325,9 @@ export function createProjectIoApi({
                 state.canvas.zoom = data.canvas.zoom || 1;
             }
 
+            await restoreHandles();
             if (data.nodes?.length) {
                 for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd, true);
-                await restoreHandles();
             }
             if (data.connections?.length) {
                 for (const conn of data.connections) {
@@ -332,17 +341,6 @@ export function createProjectIoApi({
                 onConnectionsChanged();
             }
             viewportApi.updateCanvasTransform();
-            setTimeout(async () => {
-                try {
-                    const globalHandle = await getHandle('GLOBAL_SAVE_DIR');
-                    if (globalHandle) {
-                        state.globalSaveDirHandle = globalHandle;
-                        addLog('info', '全局保存目录已恢复', `已恢复目录: ${globalHandle.name}`);
-                    }
-                } catch (error) {
-                    console.warn('Restore global save dir handle failed:', error);
-                }
-            }, 0);
             setTimeout(() => {
                 const cleanup = typeof cleanupRecoverableNodeAssetCache === 'function'
                     ? cleanupRecoverableNodeAssetCache

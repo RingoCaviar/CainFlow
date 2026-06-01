@@ -29,6 +29,7 @@ export function createAsyncMediaExecutionApi({
     windowRef = window,
     fetchRef = fetch,
     addLog,
+    recordNodeRequest = () => {},
     getProxyHeaders,
     classifyProviderError,
     logRequestToPanel,
@@ -54,6 +55,51 @@ export function createAsyncMediaExecutionApi({
     scheduleSave = () => {},
     requestNodeFit = () => {}
 }) {
+    function recordProviderNodeRequest(node, apiCfg, modelCfg, url, responseOrOptions = {}, options = {}) {
+        const response = responseOrOptions && typeof responseOrOptions === 'object' && 'ok' in responseOrOptions
+            ? responseOrOptions
+            : null;
+        const finalOptions = response ? options : responseOrOptions;
+        recordNodeRequest({
+            nodeId: node?.id || '',
+            nodeType: node?.type || finalOptions?.nodeType || '',
+            providerId: apiCfg?.id || '',
+            providerName: apiCfg?.name || apiCfg?.id || '',
+            modelName: modelCfg?.name || modelCfg?.modelId || '',
+            url,
+            status: response ? response.status : finalOptions?.status,
+            success: response ? response.ok : finalOptions?.success === true
+        });
+    }
+
+    function createProviderRequestOutcomeRecorder(node, apiCfg, modelCfg, url, options = {}) {
+        let recorded = false;
+        return (success, extra = {}) => {
+            if (recorded) return;
+            recorded = true;
+            recordProviderNodeRequest(node, apiCfg, modelCfg, url, {
+                ...options,
+                ...extra,
+                success: success === true
+            });
+        };
+    }
+
+    async function runTrackedProviderRequest(node, apiCfg, modelCfg, url, requestFn, options = {}) {
+        const recordOutcome = createProviderRequestOutcomeRecorder(node, apiCfg, modelCfg, url, options);
+        try {
+            const result = await requestFn();
+            recordOutcome(true);
+            return result;
+        } catch (error) {
+            const status = Number(error?.serverResponse?.status);
+            recordOutcome(false, {
+                status: Number.isFinite(status) ? status : undefined
+            });
+            throw error;
+        }
+    }
+
     function updateVideoGenerationStatus(nodeId, text, stateName = 'progress') {
         const statusEl = documentRef.getElementById(`${nodeId}-video-status`);
         if (!statusEl) return;
@@ -232,6 +278,7 @@ export function createAsyncMediaExecutionApi({
     }
 
     async function pollVideoGeneration({
+        node,
         apiCfg,
         modelCfg,
         protocol,
@@ -278,52 +325,59 @@ export function createAsyncMediaExecutionApi({
                 }
             );
 
-            const response = await fetchRef('/proxy', {
-                method: 'POST',
-                headers,
-                signal
-            });
+            const pollResult = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                const response = await fetchRef('/proxy', {
+                    method: 'POST',
+                    headers,
+                    signal
+                });
 
-            if (!response.ok) {
-                const t = await response.text();
-                addLog('warning', `视频轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, `服务器返回错误状态 ${response.status}`, {
+                if (!response.ok) {
+                    const t = await response.text();
+                    addLog('warning', `视频轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, `服务器返回错误状态 ${response.status}`, {
+                        url,
+                        method: 'GET',
+                        status: response.status,
+                        videoId,
+                        pollAttempt: attempt,
+                        body: t
+                    });
+                    const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                    const err = new Error(formatProxyErrorMessage(response.status, t, '视频状态查询失败', errorContext));
+                    err.serverResponse = {
+                        url,
+                        requestBody,
+                        status: response.status,
+                        body: t
+                    };
+                    applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                    throw err;
+                }
+
+                const result = await parseJsonResponseOrThrow(response, {
+                    apiCfg,
+                    modelCfg,
+                    url,
+                    requestBody
+                });
+                addLog('info', `视频轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, '已收到服务器返回', {
                     url,
                     method: 'GET',
                     status: response.status,
                     videoId,
                     pollAttempt: attempt,
-                    body: t
+                    responseBody: result
                 });
-                if (protocol === 'veo-unified' && response.status === 404 && attempt < Math.min(maxAttempts, max404Retries)) {
+                return { result, statusCode: response.status };
+            }, { nodeType: 'VideoGenerate' }).catch(async (error) => {
+                if (protocol === 'veo-unified' && Number(error?.serverResponse?.status) === 404 && attempt < Math.min(maxAttempts, max404Retries)) {
                     await waitForPollInterval(intervalMs, signal);
-                    continue;
+                    return null;
                 }
-                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                const err = new Error(formatProxyErrorMessage(response.status, t, '视频状态查询失败', errorContext));
-                err.serverResponse = {
-                    url,
-                    requestBody,
-                    status: response.status,
-                    body: t
-                };
-                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                throw err;
-            }
-
-            const result = await parseJsonResponseOrThrow(response, {
-                apiCfg,
-                modelCfg,
-                url,
-                requestBody
+                throw error;
             });
-            addLog('info', `视频轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, '已收到服务器返回', {
-                url,
-                method: 'GET',
-                status: response.status,
-                videoId,
-                pollAttempt: attempt,
-                responseBody: result
-            });
+            if (!pollResult) continue;
+            const { result } = pollResult;
             const status = extractVideoStatus(result, protocol);
             const extracted = extractVideoResult(result, protocol);
             const videoUrlMeta = classifyVideoUrlForLog(extracted.url);
@@ -376,6 +430,7 @@ export function createAsyncMediaExecutionApi({
     }
 
     async function pollAsyncImageGeneration({
+        node,
         apiCfg,
         modelCfg,
         imageTaskId,
@@ -420,63 +475,65 @@ export function createAsyncMediaExecutionApi({
                 }
             );
 
-            const response = await fetchRef('/proxy', {
-                method: 'POST',
-                headers,
-                signal
-            });
+            const result = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                const response = await fetchRef('/proxy', {
+                    method: 'POST',
+                    headers,
+                    signal
+                });
 
-            if (!response.ok) {
-                const t = await response.text();
-                const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                if (!response.ok) {
+                    const t = await response.text();
+                    const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                        apiCfg,
+                        modelCfg,
+                        url,
+                        requestBody: null,
+                        status: response.status
+                    });
+                    if (recoveredResult?.recoveredImage?.dataUrl) {
+                        return {
+                            imageTaskId,
+                            imageData: recoveredResult.recoveredImage.dataUrl,
+                            status: 'completed',
+                            progress: 100,
+                            statusText: `图片生成完成（任务 ${imageTaskId}，已从失败响应恢复）`,
+                            prompt,
+                            recovered: true,
+                            recoverySource: recoveredResult.recoveredImage.source || 'backend'
+                        };
+                    }
+                    addLog('warning', `图片异步轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, `服务器返回错误状态 ${response.status}`, {
+                        url,
+                        method: 'GET',
+                        status: response.status,
+                        imageTaskId,
+                        pollAttempt: attempt,
+                        body: t
+                    });
+                    const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                    const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步状态查询失败', errorContext));
+                    err.serverResponse = {
+                        url,
+                        requestBody: null,
+                        status: response.status,
+                        body: t
+                    };
+                    applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                    throw err;
+                }
+
+                return parseJsonResponseOrThrow(response, {
                     apiCfg,
                     modelCfg,
                     url,
-                    requestBody: null,
-                    status: response.status
+                    requestBody: null
                 });
-                if (recoveredResult?.recoveredImage?.dataUrl) {
-                    return {
-                        imageTaskId,
-                        imageData: recoveredResult.recoveredImage.dataUrl,
-                        status: 'completed',
-                        progress: 100,
-                        statusText: `图片生成完成（任务 ${imageTaskId}，已从失败响应恢复）`,
-                        prompt,
-                        recovered: true,
-                        recoverySource: recoveredResult.recoveredImage.source || 'backend'
-                    };
-                }
-                addLog('warning', `图片异步轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, `服务器返回错误状态 ${response.status}`, {
-                    url,
-                    method: 'GET',
-                    status: response.status,
-                    imageTaskId,
-                    pollAttempt: attempt,
-                    body: t
-                });
-                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步状态查询失败', errorContext));
-                err.serverResponse = {
-                    url,
-                    requestBody: null,
-                    status: response.status,
-                    body: t
-                };
-                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                throw err;
-            }
-
-            const result = await parseJsonResponseOrThrow(response, {
-                apiCfg,
-                modelCfg,
-                url,
-                requestBody: null
-            });
+            }, { nodeType: 'ImageGenerate' });
+            if (result?.imageData) return result;
             addLog('info', `图片异步轮询响应: ${modelCfg.name} (${attempt}/${maxAttempts})`, '已收到服务器返回', {
                 url,
                 method: 'GET',
-                status: response.status,
                 imageTaskId,
                 pollAttempt: attempt,
                 responseBody: result
@@ -597,77 +654,91 @@ export function createAsyncMediaExecutionApi({
                 }
             );
 
-            const response = await fetchRef('/proxy', {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(requestBody),
-                signal
-            });
-
-            if (!response.ok) {
-                const t = await response.text();
-                const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
-                    apiCfg,
-                    modelCfg,
-                    url,
-                    requestBody,
-                    status: response.status
-                });
-                if (recoveredResult?.recoveredImage?.dataUrl) {
-                    const imageData = await finalizeAsyncImageGeneration(node, {
-                        imageTaskId: `recovered:${Date.now()}`,
-                        imageData: recoveredResult.recoveredImage.dataUrl,
-                        status: 'completed',
-                        progress: 100,
-                        statusText: '图片生成完成（已从失败响应恢复）',
-                        prompt,
-                        recovered: true,
-                        recoverySource: recoveredResult.recoveredImage.source || 'backend',
-                        modelName: modelCfg.name
-                    }, signal);
-                    results.push({
-                        imageTaskId: recoveredResult.recoveredImage.id || `recovered:${Date.now()}`,
-                        imageUrl: '',
-                        image: imageData,
-                        status: 'completed'
-                    });
-                    incrementNodeApiGenerationProgress(node, 1, {
-                        current: results.length,
-                        total: generationCount
-                    });
-                    continue;
-                }
-                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步任务创建失败', errorContext));
-                err.serverResponse = {
-                    url,
-                    requestBody,
-                    status: response.status,
-                    body: t
-                };
-                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                throw err;
-            }
-
             const createResponseContext = {
                 apiCfg,
                 modelCfg,
                 url,
                 requestBody
             };
-            const createResult = await parseJsonResponseOrThrow(response, createResponseContext);
+            const createResultPayload = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                const response = await fetchRef('/proxy', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(requestBody),
+                    signal
+                });
+
+                if (!response.ok) {
+                    const t = await response.text();
+                    const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                        apiCfg,
+                        modelCfg,
+                        url,
+                        requestBody,
+                        status: response.status
+                    });
+                    if (recoveredResult?.recoveredImage?.dataUrl) {
+                        return {
+                            recoveredImage: recoveredResult.recoveredImage,
+                            responseStatus: response.status
+                        };
+                    }
+                    const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                    const err = new Error(formatProxyErrorMessage(response.status, t, '图片异步任务创建失败', errorContext));
+                    err.serverResponse = {
+                        url,
+                        requestBody,
+                        status: response.status,
+                        body: t
+                    };
+                    applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                    throw err;
+                }
+
+                const createResult = await parseJsonResponseOrThrow(response, createResponseContext);
+                const imageTaskId = extractAsyncImageTaskId(createResult);
+                if (!imageTaskId) throw new Error('图片异步任务创建成功，但接口没有返回任务 ID');
+                return {
+                    createResult,
+                    imageTaskId,
+                    responseStatus: response.status
+                };
+            }, { nodeType: 'ImageGenerate' });
+            if (createResultPayload.recoveredImage?.dataUrl) {
+                const imageData = await finalizeAsyncImageGeneration(node, {
+                    imageTaskId: `recovered:${Date.now()}`,
+                    imageData: createResultPayload.recoveredImage.dataUrl,
+                    status: 'completed',
+                    progress: 100,
+                    statusText: '图片生成完成（已从失败响应恢复）',
+                    prompt,
+                    recovered: true,
+                    recoverySource: createResultPayload.recoveredImage.source || 'backend',
+                    modelName: modelCfg.name
+                }, signal);
+                results.push({
+                    imageTaskId: createResultPayload.recoveredImage.id || `recovered:${Date.now()}`,
+                    imageUrl: '',
+                    image: imageData,
+                    status: 'completed'
+                });
+                incrementNodeApiGenerationProgress(node, 1, {
+                    current: results.length,
+                    total: generationCount
+                });
+                continue;
+            }
+            const { createResult, imageTaskId, responseStatus } = createResultPayload;
             addLog('info', generationCount > 1 ? `图片异步创建响应: ${modelCfg.name} (${index + 1}/${generationCount})` : `图片异步创建响应: ${modelCfg.name}`, '已收到创建任务返回', {
                 url,
                 method: 'POST',
-                status: response.status,
+                status: responseStatus,
                 providerType: protocol,
                 contentType: createResponseContext.__responseContentType || '',
                 rawResponseBody: createResponseContext.__rawResponseText || '',
                 responseBody: createResult
             });
 
-            const imageTaskId = extractAsyncImageTaskId(createResult);
-            if (!imageTaskId) throw new Error('图片异步任务创建成功，但接口没有返回任务 ID');
             const createStatus = extractAsyncImageStatus(createResult) || 'submitted';
             const createProgress = createResult?.progress ?? createResult?.data?.progress ?? '';
             commitAsyncImageTaskState(node, {
@@ -676,7 +747,7 @@ export function createAsyncMediaExecutionApi({
                 imageTaskStatusText: `创建中：任务 ${imageTaskId} 已创建，等待轮询`,
                 imageTaskUrl: '',
                 prompt,
-                createHttpStatus: response.status,
+                createHttpStatus: responseStatus,
                 createStatus,
                 progress: createProgress
             });
@@ -684,7 +755,7 @@ export function createAsyncMediaExecutionApi({
             if (responseArea) {
                 responseArea.innerHTML = `
                     <div><strong>图片异步创建响应</strong></div>
-                    <div>HTTP 状态：${escapeHtml(String(response.status))}</div>
+                    <div>HTTP 状态：${escapeHtml(String(responseStatus))}</div>
                     <div>任务 ID：${escapeHtml(imageTaskId)}</div>
                     <div>创建状态：${escapeHtml(createStatus)}</div>
                     ${createProgress !== '' ? `<div>进度：${escapeHtml(String(createProgress))}</div>` : ''}
@@ -701,6 +772,7 @@ export function createAsyncMediaExecutionApi({
             );
 
             const finalResult = await pollAsyncImageGeneration({
+                node,
                 apiCfg,
                 modelCfg,
                 imageTaskId,
@@ -788,6 +860,7 @@ export function createAsyncMediaExecutionApi({
 
         try {
             const finalResult = await pollAsyncImageGeneration({
+                node,
                 apiCfg,
                 modelCfg,
                 imageTaskId,
@@ -850,6 +923,7 @@ export function createAsyncMediaExecutionApi({
 
         try {
             const finalResult = await pollVideoGeneration({
+                node,
                 apiCfg,
                 modelCfg,
                 protocol,
@@ -1008,45 +1082,53 @@ export function createAsyncMediaExecutionApi({
                 }
             );
 
-            const response = await fetchRef('/proxy', {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(requestBody),
-                signal
-            });
-
-            if (!response.ok) {
-                const t = await response.text();
-                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                const err = new Error(formatProxyErrorMessage(response.status, t, '视频创建失败', errorContext));
-                err.serverResponse = {
-                    url,
-                    requestBody,
-                    status: response.status,
-                    body: t
-                };
-                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                throw err;
-            }
-
             const createResponseContext = {
                 apiCfg,
                 modelCfg,
                 url,
                 requestBody
             };
-            const createResult = await parseJsonResponseOrThrow(response, createResponseContext);
+            const createResultPayload = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                const response = await fetchRef('/proxy', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(requestBody),
+                    signal
+                });
+
+                if (!response.ok) {
+                    const t = await response.text();
+                    const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                    const err = new Error(formatProxyErrorMessage(response.status, t, '视频创建失败', errorContext));
+                    err.serverResponse = {
+                        url,
+                        requestBody,
+                        status: response.status,
+                        body: t
+                    };
+                    applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                    throw err;
+                }
+
+                const createResult = await parseJsonResponseOrThrow(response, createResponseContext);
+                const videoId = extractVideoTaskId(createResult, protocol);
+                if (!videoId) throw new Error('视频创建成功，但接口没有返回任务 ID');
+                return {
+                    createResult,
+                    videoId,
+                    responseStatus: response.status
+                };
+            }, { nodeType: 'VideoGenerate' });
+            const { createResult, videoId, responseStatus } = createResultPayload;
             addLog('info', generationCount > 1 ? `视频创建响应: ${modelCfg.name} (${index + 1}/${generationCount})` : `视频创建响应: ${modelCfg.name}`, '已收到创建任务返回', {
                 url,
                 method: 'POST',
-                status: response.status,
+                status: responseStatus,
                 providerType: protocol,
                 contentType: createResponseContext.__responseContentType || '',
                 rawResponseBody: createResponseContext.__rawResponseText || '',
                 responseBody: createResult
             });
-            const videoId = extractVideoTaskId(createResult, protocol);
-            if (!videoId) throw new Error('视频创建成功，但接口没有返回任务 ID');
             const createSummary = getVideoCreateResponseSummary(createResult, videoId);
             commitVideoGenerateOutputs(node, {
                 videoId: createSummary.videoId || videoId,
@@ -1054,7 +1136,7 @@ export function createAsyncMediaExecutionApi({
                 status: createSummary.status || 'submitted',
                 statusText: `创建中：任务 ${createSummary.videoId || videoId} 已创建，等待轮询`,
                 prompt,
-                createHttpStatus: response.status,
+                createHttpStatus: responseStatus,
                 createStatus: createSummary.status,
                 statusUpdateTime: createSummary.statusUpdateTime,
                 enhancedPrompt: createSummary.enhancedPrompt
@@ -1062,7 +1144,7 @@ export function createAsyncMediaExecutionApi({
 
             if (responseArea) {
                 responseArea.innerHTML = buildVideoCreateResponseHtml({
-                    httpStatus: response.status,
+                    httpStatus: responseStatus,
                     videoId: createSummary.videoId || videoId,
                     status: createSummary.status,
                     statusUpdateTime: createSummary.statusUpdateTime,
@@ -1079,6 +1161,7 @@ export function createAsyncMediaExecutionApi({
             );
 
             const finalResult = await pollVideoGeneration({
+                node,
                 apiCfg,
                 modelCfg,
                 protocol,

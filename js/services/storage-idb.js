@@ -164,6 +164,18 @@ export function createIndexedDbApi(getState) {
         }
     }
 
+    async function deleteHandle(key) {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(STORE_HANDLES, 'readwrite');
+            tx.objectStore(STORE_HANDLES).delete(key);
+            return await waitForTransaction(tx);
+        } catch (error) {
+            console.warn('IDB delete handle failed:', error);
+            return false;
+        }
+    }
+
     async function saveImageAsset(nodeId, dataUrl) {
         if (!dataUrl || dataUrl.length < 100) return false;
         try {
@@ -863,6 +875,7 @@ export function createIndexedDbApi(getState) {
         openDB,
         saveHandle,
         getHandle,
+        deleteHandle,
         saveImageAsset,
         getImageAsset,
         getImageAssetBlob,

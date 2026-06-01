@@ -69,6 +69,7 @@ import { createToolbarControllerApi } from './js/features/ui/toolbar-controller.
 import { createToastControllerApi } from './js/features/ui/toast-controller.js';
 import { createFloatingNoticesController } from './js/features/ui/floating-notices-controller.js';
 import { createLogPanelApi } from './js/features/logs/log-panel.js';
+import { createRequestStatisticsApi } from './js/features/statistics/request-statistics.js';
 import { createStartupControllerApi } from './js/features/app/startup-controller.js';
 import { createSettingsModalApi } from './js/features/settings/settings-modal.js';
 import { createSettingsControllerApi } from './js/features/settings/settings-controller.js';
@@ -222,6 +223,7 @@ const {
     openDB,
     saveHandle,
     getHandle,
+    deleteHandle,
     saveImageAsset,
     getImageAsset,
     saveImageAssetList,
@@ -262,6 +264,7 @@ const nodeSerializer = createNodeSerializer({
     documentRef: document
 });
 let logPanelApi = null;
+let requestStatisticsApi = null;
 let historyPanelApi = null;
 let settingsControllerApi = null;
 let historyPreviewApi = null;
@@ -340,6 +343,17 @@ function getLogPanelApi() {
         });
     }
     return logPanelApi;
+}
+
+function getRequestStatisticsApi() {
+    if (!requestStatisticsApi) {
+        requestStatisticsApi = createRequestStatisticsApi({
+            state,
+            documentRef: document,
+            localStorageRef: localStorage
+        });
+    }
+    return requestStatisticsApi;
 }
 
 function getHistoryPanelApi() {
@@ -733,6 +747,7 @@ function getUiControllerApi() {
             historyFullscreenApi: getHistoryFullscreenApi(),
             settingsControllerApi,
             logPanelApi: getLogPanelApi(),
+            requestStatisticsApi: getRequestStatisticsApi(),
             applyHistoryGridCols,
             applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting,
@@ -1015,6 +1030,7 @@ function getExecutionCoreApi() {
             syncTextSplitNodeData: (nodeId) => nodeDomBindingsApi.syncTextSplitNodeData(nodeId),
             showToast,
             addLog,
+            recordNodeRequest: (...args) => getRequestStatisticsApi().recordNodeRequest(...args),
             getProxyHeaders,
             classifyProviderError: classifyProviderErrorService,
             logRequestToPanel,
@@ -1109,6 +1125,7 @@ function getWorkflowRuntimeManagerApi() {
             saveHistoryEntry,
             renderHistoryList,
             logRequestToPanel,
+            recordNodeRequest: (...args) => getRequestStatisticsApi().recordNodeRequest(...args),
             classifyProviderError: classifyProviderErrorService,
             formatProxyErrorMessage: formatProxyErrorMessageService,
             getAbortMessage: getAbortMessageService,
@@ -1196,6 +1213,7 @@ settingsControllerApi = createSettingsControllerApi({
     storeAssetsName: STORE_ASSETS,
     openDB,
     saveHandle,
+    deleteHandle,
     showToast,
     saveState,
     addLog,

@@ -42,6 +42,7 @@ export function createUiControllerApi({
     historyFullscreenApi,
     settingsControllerApi,
     logPanelApi = null,
+    requestStatisticsApi = null,
     applyHistoryGridCols,
     applyTheme = () => {},
     applyGlobalAnimationSetting = () => {},
@@ -723,6 +724,7 @@ export function createUiControllerApi({
         const btnHistory = documentRef.getElementById('btn-history');
         const sidebar = documentRef.getElementById('history-sidebar');
         const logDrawer = documentRef.getElementById('log-drawer');
+        const statisticsSidebar = documentRef.getElementById('statistics-sidebar');
         const btnImportConfig = documentRef.getElementById('btn-import-config');
         const btnExportConfig = documentRef.getElementById('btn-export-config');
         const inputConfigFile = documentRef.getElementById('input-config-file');
@@ -747,6 +749,15 @@ export function createUiControllerApi({
             });
         }
 
+        const btnStatistics = documentRef.getElementById('btn-toggle-statistics');
+        if (btnStatistics && statisticsSidebar) {
+            btnStatistics.addEventListener('click', () => {
+                panelManager.toggle('statistics', () => {
+                    requestStatisticsApi?.render?.();
+                });
+            });
+        }
+
         documentRef.getElementById('btn-close-history')?.addEventListener('click', () => {
             sidebar?.classList.remove('active');
         });
@@ -767,6 +778,14 @@ export function createUiControllerApi({
 
         documentRef.getElementById('btn-close-logs')?.addEventListener('click', () => {
             logDrawer?.classList.remove('active');
+        });
+
+        documentRef.getElementById('btn-close-statistics')?.addEventListener('click', () => {
+            panelManager.close?.('statistics');
+        });
+
+        documentRef.getElementById('statistics-ranking-sort')?.addEventListener('change', (e) => {
+            requestStatisticsApi?.setSortBy?.(e.target.value);
         });
 
         documentRef.getElementById('btn-col-decrease')?.addEventListener('click', () => {

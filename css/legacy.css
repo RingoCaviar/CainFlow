@@ -620,6 +620,193 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     --pulse-color: rgba(239, 68, 68, 0.7);
 }
 
+.statistics-drawer-content {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.statistics-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.statistics-metric {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.statistics-metric-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.statistics-metric-value {
+    display: block;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.statistics-ranking-section {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.statistics-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.statistics-section-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.statistics-sort-select {
+    height: 30px;
+    max-width: 132px;
+    padding: 0 28px 0 10px;
+    border: 1px solid var(--node-select-border);
+    border-radius: var(--radius-xs);
+    background-color: var(--node-select-bg);
+    color: var(--node-select-text);
+    font-size: 12px;
+    font-family: var(--font);
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--node-select-caret) 50%),
+        linear-gradient(135deg, var(--node-select-caret) 50%, transparent 50%);
+    background-position:
+        calc(100% - 15px) 12px,
+        calc(100% - 10px) 12px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    box-shadow: var(--node-select-focus-shadow);
+    transition: border-color var(--transition), background-color var(--transition), box-shadow var(--transition);
+}
+
+.statistics-sort-select:hover,
+.statistics-sort-select:focus {
+    border-color: var(--node-select-focus-border);
+}
+
+.statistics-sort-select option {
+    background-color: var(--node-select-panel-bg);
+    color: var(--node-select-text);
+}
+
+.statistics-provider-ranking {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.statistics-provider-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.statistics-provider-rank {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: rgba(34, 211, 238, 0.12);
+    color: var(--accent-cyan);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.statistics-provider-main {
+    min-width: 0;
+}
+
+.statistics-provider-heading,
+.statistics-provider-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.statistics-provider-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.statistics-provider-count,
+.statistics-provider-meta {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.statistics-provider-bar {
+    height: 5px;
+    margin: 8px 0 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.statistics-provider-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+}
+
+.statistics-empty {
+    padding: 34px 12px;
+    text-align: center;
+    color: var(--text-dim);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+}
+
+.statistics-empty.hidden {
+    display: none;
+}
+
+.statistics-updated-note {
+    margin-top: auto;
+    padding-top: 8px;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 @keyframes common-pulse {
 
     0%,

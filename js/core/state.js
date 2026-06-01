@@ -84,6 +84,7 @@ export function createInitialState() {
         models: DEFAULT_MODELS.map((model) => ({ ...model })),
         logs: [],
         logRetentionDays: 1,
+        requestStatistics: [],
         globalSaveDirHandle: null,
         imageSaveUsePromptFilename: false,
         justDragged: false,

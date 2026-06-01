@@ -6,6 +6,7 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
         history: { id: 'history-sidebar', btn: 'btn-history' },
         workflow: { id: 'workflow-sidebar', btn: 'btn-toggle-workflow' },
         cache: { id: 'cache-sidebar', btn: 'btn-toggle-cache' },
+        statistics: { id: 'statistics-sidebar', btn: 'btn-toggle-statistics' },
         logs: { id: 'log-drawer', btn: 'btn-logs' }
     };
     let canvasBlankCloseBound = false;

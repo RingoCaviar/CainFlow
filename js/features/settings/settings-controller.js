@@ -36,6 +36,7 @@ export function createSettingsControllerApi({
     storeAssetsName,
     openDB,
     saveHandle,
+    deleteHandle = async () => false,
     showToast,
     saveState,
     addLog,
@@ -2224,6 +2225,7 @@ export function createSettingsControllerApi({
 
         btnClearGlobal?.addEventListener('click', async () => {
             state.globalSaveDirHandle = null;
+            await deleteHandle('GLOBAL_SAVE_DIR');
             renderGeneralSettings();
             updateImageSaveWarnings();
             showToast('全局保存目录已清除', 'info');
