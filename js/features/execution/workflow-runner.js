@@ -1083,8 +1083,7 @@ export function createWorkflowRunnerApi({
     }
 
     function shouldTrackStandaloneConcurrentImageRequests(node) {
-        return isConcurrentRequestModeEnabled() &&
-            node?.type === 'ImageGenerate' &&
+        return node?.type === 'ImageGenerate' &&
             getConfiguredImageGenerationCount(node) > 1;
     }
 

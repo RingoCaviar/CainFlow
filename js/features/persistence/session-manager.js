@@ -18,7 +18,93 @@ export function createSessionManagerApi({
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
+    let lastStorageFailureToastAt = 0;
     const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
+    const storageFailureToastIntervalMs = 8000;
+
+    let storageTextEncoder = null;
+
+    function getStringStorageBytes(value) {
+        const text = String(value ?? '');
+        const Encoder = globalThis.TextEncoder;
+        if (Encoder) {
+            storageTextEncoder = storageTextEncoder || new Encoder();
+            return storageTextEncoder.encode(text).length;
+        }
+        return text.length * 2;
+    }
+
+    function formatStorageBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) return '未知';
+        if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${Math.round(bytes)} B`;
+    }
+
+    function getLocalStorageBytes() {
+        let bytes = 0;
+        try {
+            for (let i = 0; i < localStorageRef.length; i++) {
+                const key = localStorageRef.key(i);
+                bytes += getStringStorageBytes(key);
+                bytes += getStringStorageBytes(localStorageRef.getItem(key));
+            }
+        } catch {
+            return null;
+        }
+        return bytes;
+    }
+
+    function shouldShowStorageFailureToast() {
+        const now = Date.now();
+        if (now - lastStorageFailureToastAt < storageFailureToastIntervalMs) return false;
+        lastStorageFailureToastAt = now;
+        return true;
+    }
+
+    async function getBrowserStorageEstimate() {
+        try {
+            const storage = globalThis.navigator?.storage;
+            if (!storage?.estimate) return null;
+            const estimate = await storage.estimate();
+            const usage = Number.isFinite(estimate?.usage) ? estimate.usage : null;
+            const quota = Number.isFinite(estimate?.quota) ? estimate.quota : null;
+            return { usage, quota };
+        } catch {
+            return null;
+        }
+    }
+
+    async function showStorageFailureDetails(error, payloadText = '') {
+        if (!shouldShowStorageFailureToast()) return;
+
+        const payloadBytes = getStringStorageBytes(storageKey) + getStringStorageBytes(payloadText);
+        const localBytes = getLocalStorageBytes();
+        const estimate = await getBrowserStorageEstimate();
+        const quotaFreeBytes = estimate?.usage !== null && estimate?.quota !== null
+            ? estimate.quota - estimate.usage
+            : null;
+        const localAfterWriteBytes = localBytes !== null ? localBytes + payloadBytes : null;
+
+        const details = [
+            `本次会话状态 ${formatStorageBytes(payloadBytes)}`
+        ];
+        if (localBytes !== null) details.push(`localStorage 当前 ${formatStorageBytes(localBytes)}`);
+        if (estimate?.quota !== null) {
+            details.push(`浏览器配额剩余约 ${formatStorageBytes(quotaFreeBytes)}`);
+        }
+
+        let reason = '浏览器拒绝写入 localStorage';
+        if (quotaFreeBytes !== null && quotaFreeBytes < payloadBytes) {
+            reason = `浏览器配额剩余不足，需要 ${formatStorageBytes(payloadBytes)}，剩余约 ${formatStorageBytes(quotaFreeBytes)}`;
+        } else if (localAfterWriteBytes !== null && localAfterWriteBytes > 4.5 * 1024 * 1024) {
+            reason = `localStorage 接近或超过单域常见上限，写入后约 ${formatStorageBytes(localAfterWriteBytes)}`;
+        } else if (estimate?.quota !== null) {
+            reason = '浏览器总配额看起来足够，可能是 localStorage 单独上限、隐私模式或浏览器策略限制';
+        }
+
+        showToast(`${reason}；${details.join('，')}。错误: ${error?.name || '未知'}`, 'error', 9000);
+    }
 
     function setBeforeSave(callback) {
         onBeforeSave = typeof callback === 'function' ? callback : () => {};
@@ -36,6 +122,7 @@ export function createSessionManagerApi({
     }
 
     function saveState() {
+        let serializedData = '';
         try {
             onBeforeSave({ dirty: false });
             const data = nodeSerializer.buildStatePayload();
@@ -49,12 +136,13 @@ export function createSessionManagerApi({
                 }))
                 : [];
             data.activeWorkflowName = state.activeWorkflowName || '';
-            localStorageRef.setItem(storageKey, JSON.stringify(data));
+            serializedData = JSON.stringify(data);
+            localStorageRef.setItem(storageKey, serializedData);
             saveUiBootstrapState();
         } catch (e) {
             console.warn('Save failed:', e);
-            if (e.name === 'QuotaExceededError') {
-                showToast('浏览器存储空间不足，部分状态可能未保存', 'error', 5000);
+            if (e?.name === 'QuotaExceededError') {
+                showStorageFailureDetails(e, serializedData);
             }
         }
     }

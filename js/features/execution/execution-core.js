@@ -1675,6 +1675,7 @@ export function createExecutionCoreApi({
 
                 while (node.generationCompletedCount < generationCount) {
                     const nextGenerationIndex = node.generationCompletedCount + 1;
+                    const currentRequestIndex = nextGenerationIndex - 1;
                     renderNodeApiGenerationProgress(node, {
                         current: node.generationCompletedCount,
                         total: generationCount
@@ -1786,6 +1787,7 @@ export function createExecutionCoreApi({
                         node.generatedImages = normalizeImageList(node.generatedImages);
                         node.generatedImages[nextGenerationIndex - 1] = imageData;
                         commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
+                        executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                         incrementNodeApiGenerationProgress(node, 1, {
                             current: nextGenerationIndex,
                             total: generationCount
@@ -1806,6 +1808,7 @@ export function createExecutionCoreApi({
                     node.generatedImages = normalizeImageList(node.generatedImages);
                     node.generatedImages[nextGenerationIndex - 1] = imageData;
                     commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
+                    executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
                         total: generationCount
@@ -1833,6 +1836,8 @@ export function createExecutionCoreApi({
                     }
                     throw err;
                 }
+                const failedRequestIndex = Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0);
+                executionContext.concurrentRequestStatus?.markRequestStatus?.(failedRequestIndex, 'failed', err);
                 renderNodeApiGenerationProgress(node, {
                     current: Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0),
                     total: targetGenerationCount
