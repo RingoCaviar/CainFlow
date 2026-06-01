@@ -7,7 +7,7 @@ HOST = '0.0.0.0'
 LOCAL_HOST = '127.0.0.1'
 PORT = 8767
 GITHUB_REPO = 'RingoCaviar/CainFlow'
-UPDATE_MAIN_EXE_NAME = 'CainFlow.exe'
+UPDATE_MAIN_EXE_NAME = 'CainFlow.exe' if sys.platform != 'darwin' else 'CainFlow'
 PROXY_STREAM_CHUNK_SIZE = 64 * 1024
 LOG_FILE_PREFIX = 'backend'
 LOG_BODY_PREVIEW_BYTES = 4096

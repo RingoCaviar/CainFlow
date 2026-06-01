@@ -6,6 +6,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -79,12 +80,14 @@ def cleanup_update_temp_files():
     pending_script_path = None
     if target_path.parent == app_dir:
         current_pending_path = target_path.with_name(f'{target_path.stem}.update{target_path.suffix}')
-        pending_script_path = target_path.with_name('apply_cainflow_update.bat')
+        pending_script_path = target_path.with_name(_get_pending_replace_script_name())
     for pattern in (
         '.Cainflow_*.zip.download',
         'Cainflow_*.zip',
         'CainFlow*.update.exe',
         '*.update.exe',
+        'CainFlow.update',
+        '*.update',
     ):
         for path in app_dir.glob(pattern):
             if not path.is_file():
@@ -259,11 +262,19 @@ def _read_github_json(url, proxy_override=None, low_speed_callback=None):
 
 
 def _safe_zip_filename(name, tag_name):
-    fallback = f'Cainflow_{tag_name or "latest"}.zip'
+    suffix = '_macos' if sys.platform == 'darwin' else ''
+    fallback = f'Cainflow_{tag_name or "latest"}{suffix}.zip'
     filename = os.path.basename(str(name or '').strip()) or fallback
     if not filename.lower().endswith('.zip'):
         filename = fallback
     return re.sub(r'[^A-Za-z0-9._-]+', '_', filename)
+
+
+def _is_release_asset_for_current_platform(name):
+    normalized = str(name or '').strip().lower()
+    if sys.platform == 'darwin':
+        return '_macos' in normalized or '-macos' in normalized or 'macos' in normalized
+    return 'macos' not in normalized and 'darwin' not in normalized
 
 
 def _is_github_release_zip_url(url):
@@ -300,6 +311,8 @@ def _select_release_zip_asset(release_data):
         download_url = str(asset.get('browser_download_url') or '').strip()
         if not name.lower().endswith('.zip') or not download_url.startswith('https://github.com/'):
             continue
+        if not _is_release_asset_for_current_platform(name):
+            continue
         candidates.append(asset)
 
     if not candidates:
@@ -318,7 +331,10 @@ def _select_release_zip_asset_from_links(links, tag_name='', source=''):
         url = str(link or '').strip()
         if not _is_github_release_zip_url(url):
             continue
-        candidates.append(_build_release_asset(os.path.basename(url.split('?', 1)[0]), url, tag_name=tag_name, source=source))
+        asset_name = os.path.basename(url.split('?', 1)[0])
+        if not _is_release_asset_for_current_platform(asset_name):
+            continue
+        candidates.append(_build_release_asset(asset_name, url, tag_name=tag_name, source=source))
 
     if not candidates:
         return None
@@ -680,7 +696,9 @@ def _find_main_program_member(zip_path):
             basename = posixpath.basename(member.filename).lower()
             if basename == preferred_name:
                 return member.filename
-            if basename.endswith('.exe') and 'cainflow' in basename:
+            if sys.platform == 'darwin' and basename == 'cainflow':
+                fallback_candidates.append(member.filename)
+            if sys.platform != 'darwin' and basename.endswith('.exe') and 'cainflow' in basename:
                 fallback_candidates.append(member.filename)
 
     if fallback_candidates:
@@ -689,38 +707,82 @@ def _find_main_program_member(zip_path):
     raise RuntimeError(f'ZIP 包内没有找到 {config.UPDATE_MAIN_EXE_NAME}，已停止更新以避免误覆盖')
 
 
+def _has_valid_program_header(path):
+    with open(path, 'rb') as file:
+        header = file.read(4)
+    if sys.platform == 'darwin':
+        return (
+            header in {b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe'}
+            or header.startswith(b'#!')
+        )
+    return header.startswith(b'MZ')
+
+
 def _extract_main_program_to_temp(zip_path, member_name, target_path):
-    temp_exe = target_path.with_name(f'.{target_path.name}.new')
-    _delete_file_quietly(temp_exe)
+    temp_program = target_path.with_name(f'.{target_path.name}.new')
+    _delete_file_quietly(temp_program)
 
     try:
         with zipfile.ZipFile(zip_path) as archive:
             with archive.open(member_name) as source:
-                with open(temp_exe, 'wb') as output:
+                with open(temp_program, 'wb') as output:
                     shutil.copyfileobj(source, output)
     except Exception:
-        _delete_file_quietly(temp_exe)
+        _delete_file_quietly(temp_program)
         raise
 
-    if temp_exe.stat().st_size <= 0:
-        _delete_file_quietly(temp_exe)
+    if temp_program.stat().st_size <= 0:
+        _delete_file_quietly(temp_program)
         raise RuntimeError('ZIP 中的 CainFlow 主程序为空，已停止更新')
 
-    with open(temp_exe, 'rb') as file:
-        if file.read(2) != b'MZ':
-            _delete_file_quietly(temp_exe)
-            raise RuntimeError('ZIP 中的 CainFlow 主程序不是有效的 Windows 可执行文件，已停止更新')
+    if not _has_valid_program_header(temp_program):
+        _delete_file_quietly(temp_program)
+        platform_name = 'macOS' if sys.platform == 'darwin' else 'Windows'
+        raise RuntimeError(f'ZIP 中的 CainFlow 主程序不是有效的 {platform_name} 可执行文件，已停止更新')
 
-    return temp_exe
+    if sys.platform == 'darwin':
+        temp_program.chmod(temp_program.stat().st_mode | 0o755)
+
+    return temp_program
 
 
 def _escape_batch_path(path):
     return str(path).replace('%', '%%')
 
 
+def _escape_shell_single_quoted_path(path):
+    return str(path).replace("'", "'\"'\"'")
+
+
+def _get_pending_replace_script_name():
+    return 'apply_cainflow_update.command' if sys.platform == 'darwin' else 'apply_cainflow_update.bat'
+
+
 def _write_pending_replace_script(pending_path, target_path):
-    script_path = target_path.with_name('apply_cainflow_update.bat')
+    script_path = target_path.with_name(_get_pending_replace_script_name())
     pid = os.getpid()
+    if sys.platform == 'darwin':
+        source = _escape_shell_single_quoted_path(pending_path)
+        target = _escape_shell_single_quoted_path(target_path)
+        script = f'''#!/bin/sh
+SOURCE='{source}'
+TARGET='{target}'
+PID='{pid}'
+
+while kill -0 "$PID" >/dev/null 2>&1; do
+    sleep 1
+done
+
+while ! mv -f "$SOURCE" "$TARGET"; do
+    sleep 1
+done
+chmod +x "$TARGET" >/dev/null 2>&1
+rm -- "$0" >/dev/null 2>&1
+'''
+        script_path.write_text(script, encoding='utf-8')
+        script_path.chmod(0o755)
+        return script_path
+
     script = f'''@echo off
 chcp 65001 >nul
 set "SOURCE={_escape_batch_path(pending_path)}"
@@ -747,6 +809,17 @@ del "%~f0" >nul 2>nul
 
 
 def _launch_pending_replace_script(script_path):
+    if sys.platform == 'darwin':
+        subprocess.Popen(
+            ['/bin/sh', str(script_path)],
+            cwd=str(script_path.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+
     if os.name != 'nt':
         return False
 
@@ -762,23 +835,28 @@ def _launch_pending_replace_script(script_path):
     return True
 
 
-def _replace_main_program(temp_exe, target_path):
+def _replace_main_program(temp_program, target_path):
     try:
-        os.replace(temp_exe, target_path)
+        os.replace(temp_program, target_path)
+        if sys.platform == 'darwin':
+            target_path.chmod(target_path.stat().st_mode | 0o755)
         return {
             'applied': True,
             'replacementPending': False,
             'message': '更新已下载并覆盖 CainFlow 主程序，请重启 CainFlow 主程序。',
         }
     except OSError as replace_error:
-        if os.name != 'nt':
+        if os.name != 'nt' and sys.platform != 'darwin':
             raise
         try:
             pending_path = target_path.with_name(f'{target_path.stem}.update{target_path.suffix}')
             _delete_file_quietly(pending_path)
-            os.replace(temp_exe, pending_path)
+            os.replace(temp_program, pending_path)
+            if sys.platform == 'darwin':
+                pending_path.chmod(pending_path.stat().st_mode | 0o755)
             script_path = _write_pending_replace_script(pending_path, target_path)
             helper_started = _launch_pending_replace_script(script_path)
+            platform_note = '关闭当前程序后会自动覆盖；请随后重新启动 CainFlow 主程序。'
             return {
                 'applied': False,
                 'replacementPending': True,
@@ -786,7 +864,7 @@ def _replace_main_program(temp_exe, target_path):
                 'helperPath': str(script_path),
                 'helperStarted': helper_started,
                 'replaceError': str(replace_error),
-                'message': '更新已下载完成。当前 CainFlow 主程序正在运行，关闭当前程序后会自动覆盖；请随后重新启动 CainFlow 主程序。',
+                'message': f'更新已下载完成。当前 CainFlow 主程序正在运行，{platform_note}',
             }
         except Exception as pending_error:
             raise RuntimeError(
