@@ -75,6 +75,11 @@ export function createSettingsControllerApi({
         { name: 'Google 204', url: 'https://www.google.com/generate_204', method: 'HEAD' },
         { name: 'YouTube', url: 'https://www.youtube.com/', method: 'GET' }
     ];
+    const NETWORK_CONNECTIVITY_TARGETS = [
+        { name: '华为网络连通性检测', url: 'http://connectivitycheck.platform.hicloud.com/generate_204', method: 'HEAD' },
+        { name: '百度', url: 'https://www.baidu.com/', method: 'GET' },
+        { name: '阿里云', url: 'https://www.aliyun.com/', method: 'GET' }
+    ];
     const networkProxyDetectionTargetsSignature = JSON.stringify(
         NETWORK_PROBE_TARGETS.map((target) => ({
             name: String(target?.name || ''),
@@ -218,6 +223,27 @@ export function createSettingsControllerApi({
             attempts,
             proxyAttempts: [],
             shouldNotify: allTargetsReachable
+        };
+    }
+
+    async function detectNetworkConnectivity() {
+        const attempts = [];
+        for (const target of NETWORK_CONNECTIVITY_TARGETS) {
+            const attempt = await probeNetworkTargetFromBackend(target, 5);
+            attempts.push(attempt);
+            if (attempt.success) break;
+        }
+
+        const successfulAttempts = attempts.filter((attempt) => attempt.success);
+        const firstReachable = successfulAttempts[0] || null;
+        const detailAttempt = firstReachable || attempts[0] || {};
+        return {
+            online: successfulAttempts.length > 0,
+            reachable: successfulAttempts.length > 0,
+            checkedTarget: String(firstReachable?.name || ''),
+            latency: Number(firstReachable?.latency) || 0,
+            detail: detailAttempt.detail || '网络探测失败',
+            attempts
         };
     }
 
@@ -1035,6 +1061,43 @@ export function createSettingsControllerApi({
             return;
         }
         showToast('网络环境检测完成，未检测到代理/透明代理异常', 'success', 5000);
+    }
+
+    function showNetworkConnectivityResultToast(result) {
+        if (result?.online) {
+            const targetText = result.checkedTarget ? `（${result.checkedTarget}）` : '';
+            const latencyText = Number.isFinite(result.latency) && result.latency > 0 ? `，${result.latency}ms` : '';
+            showToast(`网络连接正常${targetText}${latencyText}`, 'success', 5000);
+            return;
+        }
+
+        const failedCount = Array.isArray(result?.attempts) ? result.attempts.length : 0;
+        const suffix = failedCount > 0 ? `，已测试 ${failedCount} 个目标` : '';
+        showToast(`网络连接不可用${suffix}，请检查网络或代理设置`, 'warning', 7000);
+    }
+
+    async function checkNetworkConnectivity({ showResultToast = true } = {}) {
+        try {
+            const result = await detectNetworkConnectivity();
+            if (showResultToast) {
+                showNetworkConnectivityResultToast(result);
+            }
+            return result;
+        } catch (error) {
+            console.error('Failed to check network connectivity', error);
+            const result = {
+                online: false,
+                reachable: false,
+                checkedTarget: '',
+                latency: 0,
+                detail: error?.message || '网络连通性检测失败',
+                attempts: []
+            };
+            if (showResultToast) {
+                showToast(`${result.detail}，请检查网络或代理设置`, 'warning', 7000);
+            }
+            return result;
+        }
     }
 
     async function checkNetworkProxyMismatch(force = false) {
@@ -2611,6 +2674,7 @@ export function createSettingsControllerApi({
 
     return {
         initProxyPanel,
+        checkNetworkConnectivity,
         checkNetworkProxyMismatch,
         syncProxyToServer,
         collapseAllConfigCards,

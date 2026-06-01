@@ -994,6 +994,7 @@ function getStartupControllerApi() {
             loadState,
             showToast,
             syncProxyToServer: () => settingsControllerApi.syncProxyToServer(),
+            checkNetworkConnectivity: (options) => settingsControllerApi.checkNetworkConnectivity(options),
             checkNetworkProxyMismatch: (force = false) => settingsControllerApi.checkNetworkProxyMismatch(force),
             ensureOpenWorkflow: () => workflowManagerApi.ensureOpenWorkflow(),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),

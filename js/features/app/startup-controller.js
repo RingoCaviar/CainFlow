@@ -8,6 +8,7 @@ export function createStartupControllerApi({
     loadState,
     showToast,
     syncProxyToServer,
+    checkNetworkConnectivity = async () => {},
     checkNetworkProxyMismatch = async () => {},
     ensureOpenWorkflow = async () => true,
     updateCanvasTransform,
@@ -47,7 +48,7 @@ export function createStartupControllerApi({
 
         const message = startupNetworkDetectionToast.querySelector('.update-auto-check-countdown-message');
         if (message) {
-            message.textContent = `将在 ${secondsRemaining} 秒后检测网络环境是否正常`;
+            message.textContent = `将在 ${secondsRemaining} 秒后检测网络连接`;
         }
     }
 
@@ -85,10 +86,20 @@ export function createStartupControllerApi({
             startupNetworkDetectionTimer = null;
             if (startupNetworkDetectionToast) {
                 const message = startupNetworkDetectionToast.querySelector('.update-auto-check-countdown-message');
-                if (message) message.textContent = '正在检测网络环境是否正常...';
+                if (message) message.textContent = '正在检测网络连接...';
             }
-            Promise.resolve(checkNetworkProxyMismatch(true))
-                .finally(() => dismissStartupNetworkDetectionToast(1200));
+            Promise.resolve(checkNetworkConnectivity({ showResultToast: true }))
+                .catch((error) => {
+                    consoleRef.error('Failed to check startup network connectivity:', error);
+                })
+                .finally(() => {
+                    dismissStartupNetworkDetectionToast(1200);
+                    window.setTimeout(() => {
+                        Promise.resolve(checkNetworkProxyMismatch(true)).catch((error) => {
+                            consoleRef.error('Failed to detect startup network proxy mismatch:', error);
+                        });
+                    }, 1600);
+                });
         };
 
         tick();
