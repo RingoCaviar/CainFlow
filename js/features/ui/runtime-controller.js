@@ -65,16 +65,19 @@ export function createRuntimeControllerApi({
             return false;
         }
 
-        function isPointerOverWorkflowPanel(event) {
-            const workflowPanel = documentRef.getElementById('workflow-sidebar');
-            if (!workflowPanel?.classList.contains('active')) return false;
-            if (workflowPanel.contains(event.target)) return true;
+        function isPointerOverActiveDrawer(event) {
+            const drawerIds = ['history-sidebar', 'workflow-sidebar', 'cache-sidebar', 'statistics-sidebar', 'log-drawer'];
+            return drawerIds.some((id) => {
+                const drawer = documentRef.getElementById(id);
+                if (!drawer?.classList.contains('active')) return false;
+                if (drawer.contains(event.target)) return true;
 
-            const rect = workflowPanel.getBoundingClientRect();
-            return event.clientX >= rect.left
-                && event.clientX <= rect.right
-                && event.clientY >= rect.top
-                && event.clientY <= rect.bottom;
+                const rect = drawer.getBoundingClientRect();
+                return event.clientX >= rect.left
+                    && event.clientX <= rect.right
+                    && event.clientY >= rect.top
+                    && event.clientY <= rect.bottom;
+            });
         }
 
         function updatePeekState(event) {
@@ -91,7 +94,7 @@ export function createRuntimeControllerApi({
             const sidebarRect = sidebar.getBoundingClientRect();
             const toolbarBottom = Math.max(toolbarRect.bottom, toolbarRect.top + toolbar.offsetHeight);
             const sidebarRight = Math.max(sidebarRect.right, sidebarRect.left + sidebar.offsetWidth);
-            const toolbarPeek = !isPointerOverWorkflowPanel(event)
+            const toolbarPeek = !isPointerOverActiveDrawer(event)
                 && !body.classList.contains('toolbar-pinned')
                 && event.clientY <= toolbarBottom + toolbarDistance;
             const sidebarPeek = !body.classList.contains('sidebar-pinned') && event.clientX <= sidebarRight + sidebarDistance;

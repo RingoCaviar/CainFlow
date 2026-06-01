@@ -753,6 +753,10 @@ export function createUiControllerApi({
         if (btnStatistics && statisticsSidebar) {
             btnStatistics.addEventListener('click', () => {
                 panelManager.toggle('statistics', () => {
+                    const retentionSelect = documentRef.getElementById('statistics-retention-days');
+                    if (retentionSelect && requestStatisticsApi?.getRetentionDays) {
+                        retentionSelect.value = String(requestStatisticsApi.getRetentionDays());
+                    }
                     requestStatisticsApi?.render?.();
                 });
             });
@@ -782,6 +786,16 @@ export function createUiControllerApi({
 
         documentRef.getElementById('btn-close-statistics')?.addEventListener('click', () => {
             panelManager.close?.('statistics');
+        });
+
+        documentRef.getElementById('statistics-retention-days')?.addEventListener('change', (e) => {
+            const retentionDays = parseInt(e.target.value, 10);
+            if (!Number.isNaN(retentionDays) && retentionDays >= 1) {
+                const nextDays = requestStatisticsApi?.setRetentionDays?.(retentionDays);
+                if (nextDays) {
+                    showToast(`统计信息保留时长已更新为 ${nextDays} 天`, 'success');
+                }
+            }
         });
 
         documentRef.getElementById('statistics-ranking-sort')?.addEventListener('change', (e) => {

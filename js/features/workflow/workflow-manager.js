@@ -40,6 +40,8 @@ export function createWorkflowManagerApi({
     const RUN_RESULT_SUCCESS = 'success';
     const RUN_RESULT_ERROR = 'error';
     const DEFAULT_WORKFLOW_SEED_KEY = 'cainflow_default_workflow_seeded';
+    let workflowSelectionMode = false;
+    const selectedWorkflowNames = new Set();
 
     function getDefaultWorkflowSeeded() {
         try {
@@ -355,8 +357,47 @@ export function createWorkflowManagerApi({
         item.classList.toggle('has-run-result', !!runResult);
         item.classList.toggle('is-run-success', runResult === RUN_RESULT_SUCCESS);
         item.classList.toggle('is-run-error', runResult === RUN_RESULT_ERROR);
+        item.classList.toggle('is-selected', selectedWorkflowNames.has(name));
         const stateLabel = item.querySelector('.workflow-item-state');
         if (stateLabel) stateLabel.textContent = getWorkflowCardStateLabel({ isActive, isOpen, running: tab?.running === true, runResult });
+    }
+
+    function refreshWorkflowSelectionUi() {
+        const list = documentRef.getElementById('workflow-list');
+        list?.classList.toggle('workflow-multi-select-mode', workflowSelectionMode);
+        list?.querySelectorAll('.workflow-item').forEach((item) => {
+            item.classList.toggle('is-selected', selectedWorkflowNames.has(item.dataset.name));
+        });
+
+        const menuToggle = documentRef.getElementById('menu-toggle-workflow-selection');
+        if (menuToggle) {
+            menuToggle.classList.toggle('is-active', workflowSelectionMode);
+            const label = menuToggle.querySelector('.context-menu-label');
+            if (label) label.textContent = workflowSelectionMode ? '退出多选模式' : '开启多选模式';
+        }
+    }
+
+    function setWorkflowSelectionMode(enabled) {
+        workflowSelectionMode = enabled === true;
+        if (!workflowSelectionMode) selectedWorkflowNames.clear();
+        refreshWorkflowSelectionUi();
+    }
+
+    function toggleWorkflowSelection(name) {
+        if (!name) return;
+        if (selectedWorkflowNames.has(name)) {
+            selectedWorkflowNames.delete(name);
+        } else {
+            selectedWorkflowNames.add(name);
+        }
+        refreshWorkflowSelectionUi();
+    }
+
+    function pruneWorkflowSelection(names = []) {
+        const validNames = new Set(names);
+        selectedWorkflowNames.forEach((name) => {
+            if (!validNames.has(name)) selectedWorkflowNames.delete(name);
+        });
     }
 
     function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult }) {
@@ -553,6 +594,10 @@ export function createWorkflowManagerApi({
             const tab = getWorkflowTab(oldName);
             if (tab) tab.name = newName;
             if (state.activeWorkflowName === oldName) state.activeWorkflowName = newName;
+            if (selectedWorkflowNames.has(oldName)) {
+                selectedWorkflowNames.delete(oldName);
+                selectedWorkflowNames.add(newName);
+            }
             showToast(`工作流「${oldName}」已重命名为「${newName}」`, 'success');
             renderWorkflowList();
             scheduleSave({ dirty: false });
@@ -568,9 +613,12 @@ export function createWorkflowManagerApi({
             ...savedNames,
             ...(state.workflowTabs || []).map((tab) => tab.name).filter(Boolean)
         ]));
+        pruneWorkflowSelection(names);
 
         if (names.length === 0) {
+            selectedWorkflowNames.clear();
             renderWorkflowEmpty(list);
+            refreshWorkflowSelectionUi();
             return;
         }
 
@@ -582,14 +630,16 @@ export function createWorkflowManagerApi({
             const running = tab?.running === true;
             const runResult = !isActive ? normalizeWorkflowRunResult(tab?.runResult) : '';
             const runResultClass = runResult ? `has-run-result is-run-${runResult}` : '';
+            const selectedClass = selectedWorkflowNames.has(name) ? 'is-selected' : '';
             const colorIndex = Number.isInteger(tab?.colorIndex) ? tab.colorIndex % TAB_COLORS : 0;
             return `
-        <div class="workflow-item ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''} ${running ? 'is-running' : ''} ${runResultClass}"
+        <div class="workflow-item ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''} ${running ? 'is-running' : ''} ${runResultClass} ${selectedClass}"
              data-name="${escapeHtml(name)}"
              data-tab-color="${colorIndex}">
-            <span class="workflow-dirty-dot" aria-hidden="true"></span>
-            <span class="workflow-item-name">${escapeHtml(name)}</span>
+            <span class="workflow-select-check" aria-hidden="true"></span>
+            <span class="workflow-item-name" title="${escapeHtml(name)}" aria-label="${escapeHtml(name)}">${escapeHtml(name)}</span>
             <span class="workflow-item-state">${getWorkflowCardStateLabel({ isActive, isOpen, running, runResult })}</span>
+            <span class="workflow-dirty-dot" aria-hidden="true"></span>
             <div class="workflow-item-actions">
                 ${isOpen ? `
                 <button class="workflow-action-btn close-tab-btn" title="关闭">
@@ -610,6 +660,10 @@ export function createWorkflowManagerApi({
             const name = item.dataset.name;
             item.addEventListener('click', async (e) => {
                 if (e.target.closest('.workflow-action-btn')) return;
+                if (workflowSelectionMode) {
+                    toggleWorkflowSelection(name);
+                    return;
+                }
                 await openWorkflow(name);
             });
 
@@ -622,6 +676,7 @@ export function createWorkflowManagerApi({
                 menu.style.left = e.clientX + 'px';
                 menu.style.top = e.clientY + 'px';
                 menu.classList.remove('hidden');
+                refreshWorkflowSelectionUi();
             });
 
             item.querySelector('.close-tab-btn')?.addEventListener('click', async (e) => {
@@ -636,9 +691,73 @@ export function createWorkflowManagerApi({
 
             item.querySelector('.delete-btn').onclick = async (e) => {
                 e.stopPropagation();
+                if (workflowSelectionMode && selectedWorkflowNames.size > 0) {
+                    await confirmAndDeleteSelectedWorkflows();
+                    return;
+                }
                 await confirmAndDeleteWorkflow(name);
             };
         });
+        refreshWorkflowSelectionUi();
+    }
+
+    async function applyDeletedWorkflowNames(deletedNames) {
+        if (!Array.isArray(deletedNames) || deletedNames.length === 0) return;
+        const deletedSet = new Set(deletedNames);
+        deletedNames.forEach((name) => selectedWorkflowNames.delete(name));
+        const wasActive = deletedSet.has(state.activeWorkflowName);
+        state.workflowTabs = (state.workflowTabs || []).filter((item) => !deletedSet.has(item.name));
+        if (wasActive) {
+            if (state.workflowTabs.length > 0) {
+                await activateFallbackWorkflow();
+            } else {
+                state.activeWorkflowName = '';
+                await ensureActiveWorkflowExists({ inheritCurrentCanvas: false, showNotice: false, applyToCanvas: true, centerEmptyCanvas: true });
+            }
+        }
+    }
+
+    async function confirmAndDeleteSelectedWorkflows() {
+        const names = Array.from(selectedWorkflowNames);
+        if (names.length === 0) return false;
+
+        const confirmed = await confirmWorkflowDelete({
+            title: '删除选中的工作流',
+            message: `确定要删除选中的 ${names.length} 个工作流吗？`,
+            note: '选择“是”会删除这些工作流文件；选择“否”会保留它们。',
+            noText: '否'
+        });
+        if (!confirmed) return false;
+
+        const dirtyNames = names.filter((name) => getWorkflowTab(name)?.dirty === true);
+        if (dirtyNames.length > 0) {
+            const discardConfirmed = await confirmWorkflowDelete({
+                title: '删除未保存的工作流',
+                message: `选中的工作流里有 ${dirtyNames.length} 个存在未保存修改，仍要删除文件吗？`,
+                note: '选择“是”会直接删除文件，并丢失未保存修改；选择“否”会停止删除。',
+                noText: '否'
+            });
+            if (!discardConfirmed) return false;
+        }
+
+        const deletedNames = [];
+        for (const name of names) {
+            if (await deleteWorkflowFile(name)) {
+                if (name === 'Default') setDefaultWorkflowSeeded();
+                deletedNames.push(name);
+            }
+        }
+
+        if (deletedNames.length === 0) return false;
+        await applyDeletedWorkflowNames(deletedNames);
+        if (deletedNames.length === names.length) {
+            showToast(`已删除 ${deletedNames.length} 个工作流`, 'info');
+        } else {
+            showToast(`已删除 ${deletedNames.length} 个工作流，${names.length - deletedNames.length} 个删除失败`, 'warning');
+        }
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return true;
     }
 
     async function confirmAndDeleteWorkflow(name) {
@@ -663,16 +782,7 @@ export function createWorkflowManagerApi({
 
         if (await deleteWorkflowFile(name)) {
             if (name === 'Default') setDefaultWorkflowSeeded();
-            const wasActive = state.activeWorkflowName === name;
-            state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
-            if (wasActive) {
-                if (state.workflowTabs.length > 0) {
-                    await activateFallbackWorkflow();
-                } else {
-                    state.activeWorkflowName = '';
-                    await ensureActiveWorkflowExists({ inheritCurrentCanvas: false, showNotice: false, applyToCanvas: true, centerEmptyCanvas: true });
-                }
-            }
+            await applyDeletedWorkflowNames([name]);
             showToast('已删除', 'info');
             renderWorkflowList();
             scheduleSave({ dirty: false });
@@ -797,6 +907,30 @@ export function createWorkflowManagerApi({
             return true;
         }
         return false;
+    }
+
+    async function saveAllOpenWorkflows() {
+        snapshotActiveWorkflow();
+        const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
+        if (tabs.length === 0) {
+            showToast('没有可保存的已打开工作流', 'info');
+            return false;
+        }
+
+        let savedCount = 0;
+        for (const tab of tabs) {
+            if (await saveWorkflowToFile(tab.name, tab.data)) {
+                tab.dirty = false;
+                savedCount += 1;
+            } else {
+                return false;
+            }
+        }
+
+        showToast(`已保存 ${savedCount} 个工作流`, 'success');
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return true;
     }
 
     async function saveWorkflowByName(name) {
@@ -1108,6 +1242,7 @@ export function createWorkflowManagerApi({
         const btnToggle = documentRef.getElementById('btn-toggle-workflow');
         const btnClose = documentRef.getElementById('btn-close-workflow');
         const btnSave = documentRef.getElementById('btn-save-workflow');
+        const btnDeleteActive = documentRef.getElementById('btn-delete-active-workflow');
         const btnNew = documentRef.getElementById('btn-new-workflow');
         const btnCloseOther = documentRef.getElementById('btn-close-other-workflows');
 
@@ -1132,7 +1267,24 @@ export function createWorkflowManagerApi({
         });
 
         btnSave?.addEventListener('click', async () => {
-            await saveActiveWorkflow();
+            await saveAllOpenWorkflows();
+        });
+
+        btnDeleteActive?.addEventListener('click', async () => {
+            if (workflowSelectionMode) {
+                if (selectedWorkflowNames.size === 0) {
+                    showToast('请先选择要删除的工作流', 'warning');
+                    return;
+                }
+                await confirmAndDeleteSelectedWorkflows();
+                return;
+            }
+            const name = state.activeWorkflowName || '';
+            if (!name) {
+                showToast('请先打开一个工作流', 'warning');
+                return;
+            }
+            await confirmAndDeleteWorkflow(name);
         });
 
         const menu = documentRef.getElementById('workflow-context-menu');
@@ -1153,6 +1305,11 @@ export function createWorkflowManagerApi({
         bindWorkflowMenuAction('menu-close-discard-workflow', closeWorkflowWithoutSaving);
         bindWorkflowMenuAction('menu-reopen-workflow', reopenWorkflowFromFile);
         bindWorkflowMenuAction('menu-save-as-workflow', exportWorkflowByName);
+        documentRef.getElementById('menu-toggle-workflow-selection')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            hideWorkflowMenu();
+            setWorkflowSelectionMode(!workflowSelectionMode);
+        });
 
         documentRef.getElementById('menu-rename-workflow')?.addEventListener('click', async (event) => {
             event.stopPropagation();
@@ -1169,6 +1326,7 @@ export function createWorkflowManagerApi({
         });
 
         windowRef.addEventListener('click', hideWorkflowMenu);
+        refreshWorkflowSelectionUi();
         ensureDefaultWorkflow();
     }
 
@@ -1178,6 +1336,7 @@ export function createWorkflowManagerApi({
         loadWorkflowFromFile,
         openWorkflow,
         saveActiveWorkflow,
+        saveAllOpenWorkflows,
         markActiveWorkflowDirty,
         snapshotActiveWorkflow,
         getActiveWorkflowName: () => state.activeWorkflowName || '',

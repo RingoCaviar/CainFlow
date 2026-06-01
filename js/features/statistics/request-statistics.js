@@ -2,6 +2,9 @@
  * Tracks node-originated provider requests and renders today's request statistics.
  */
 const DEFAULT_STORAGE_KEY = 'cainflow_request_statistics';
+const DEFAULT_RETENTION_DAYS = 1;
+const MIN_RETENTION_DAYS = 1;
+const MAX_RETENTION_DAYS = 365;
 const MAX_RECORDS = 5000;
 
 function getLocalDayKey(timestamp = Date.now()) {
@@ -70,6 +73,7 @@ export function createRequestStatisticsApi({
 }) {
     let initialized = false;
     let sortBy = 'requestCount';
+    let retentionDays = DEFAULT_RETENTION_DAYS;
 
     function getRecords() {
         state.requestStatistics = Array.isArray(state.requestStatistics)
@@ -81,11 +85,32 @@ export function createRequestStatisticsApi({
     function persist() {
         try {
             localStorageRef.setItem(storageKey, JSON.stringify({
+                retentionDays,
                 records: getRecords().slice(0, MAX_RECORDS)
             }));
         } catch (error) {
             console.warn('Persist request statistics failed:', error);
         }
+    }
+
+    function normalizeRetentionDays(value) {
+        const parsed = parseInt(value, 10);
+        if (!Number.isFinite(parsed)) return DEFAULT_RETENTION_DAYS;
+        return Math.max(MIN_RETENTION_DAYS, Math.min(MAX_RETENTION_DAYS, parsed));
+    }
+
+    function getRetentionCutoffTime(days = retentionDays) {
+        const normalizedDays = normalizeRetentionDays(days);
+        return Date.now() - (normalizedDays * 24 * 60 * 60 * 1000);
+    }
+
+    function pruneExpiredRecords(days = retentionDays) {
+        const cutoffTime = getRetentionCutoffTime(days);
+        const records = getRecords();
+        const filtered = records.filter((record) => record.timestamp >= cutoffTime);
+        if (filtered.length === records.length) return false;
+        state.requestStatistics = filtered;
+        return true;
     }
 
     function initialize() {
@@ -94,12 +119,16 @@ export function createRequestStatisticsApi({
         try {
             const parsed = JSON.parse(localStorageRef.getItem(storageKey) || '{}');
             const loaded = Array.isArray(parsed?.records) ? parsed.records : [];
+            retentionDays = normalizeRetentionDays(parsed?.retentionDays ?? DEFAULT_RETENTION_DAYS);
             state.requestStatistics = loaded
                 .map(normalizeRecord)
                 .filter(Boolean)
                 .slice(0, MAX_RECORDS);
+            pruneExpiredRecords(retentionDays);
+            persist();
         } catch (error) {
             state.requestStatistics = [];
+            retentionDays = DEFAULT_RETENTION_DAYS;
             console.warn('Load request statistics failed:', error);
         }
     }
@@ -140,6 +169,7 @@ export function createRequestStatisticsApi({
         if (!record) return null;
         getRecords().unshift(record);
         prune();
+        pruneExpiredRecords();
         persist();
         if (documentRef.getElementById('statistics-sidebar')?.classList.contains('active')) {
             render();
@@ -237,11 +267,26 @@ export function createRequestStatisticsApi({
         render();
     }
 
+    function setRetentionDays(value) {
+        initialize();
+        retentionDays = normalizeRetentionDays(value);
+        pruneExpiredRecords();
+        prune();
+        persist();
+        render();
+        return retentionDays;
+    }
+
     return {
         initialize,
         recordNodeRequest,
         render,
         setSortBy,
-        getTodaySummary
+        getTodaySummary,
+        setRetentionDays,
+        getRetentionDays: () => {
+            initialize();
+            return retentionDays;
+        }
     };
 }
