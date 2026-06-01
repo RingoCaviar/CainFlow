@@ -94,7 +94,7 @@ function safeParseJson(text) {
 
 function buildBlockedTargetSuggestions() {
     return [
-        '检查 API 地址是否填写完整且以 http:// 或 https:// 开头',
+        '检查 API 地址是否填写完整，裸 IP 或域名会按 http:// 处理',
         '确认地址中没有多余空格、中文标点或被截断的路径',
         '如果是自建服务，先在浏览器或其他工具里验证该地址可访问'
     ];

@@ -321,8 +321,14 @@ export function getModelsForTask(models = [], taskType) {
     return models.filter((model) => normalizeModelTaskType(model?.taskType, model) === taskType);
 }
 
+export function normalizeProviderEndpointUrl(endpoint) {
+    const raw = String(endpoint || '').trim();
+    if (!raw) return '';
+    return raw.includes('://') ? raw : `http://${raw}`;
+}
+
 function getBaseEndpoint(endpoint) {
-    return String(endpoint || '').replace(/\/+$/, '');
+    return normalizeProviderEndpointUrl(endpoint).replace(/\/+$/, '');
 }
 
 function normalizeGoogleAutoCompleteBase(base) {
@@ -391,7 +397,7 @@ function hasOpenAiReferenceImages(inputs = {}) {
 
 export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     if (apiCfg?.autoComplete === false) {
-        const endpoint = apiCfg?.endpoint || '';
+        const endpoint = normalizeProviderEndpointUrl(apiCfg?.endpoint);
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
         if (taskType === 'image' && protocol === 'newapi-image-async') {
             const action = options.action || 'create';

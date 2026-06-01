@@ -13,6 +13,7 @@ import {
     normalizeImageResolutionForModel,
     normalizeModelProtocol,
     normalizeModelTaskType,
+    normalizeProviderEndpointUrl,
     normalizeProviderType,
     resolveProviderUrl,
     validateOpenAiImageSize
@@ -93,7 +94,7 @@ export function createSettingsControllerApi({
         const raw = String(endpoint || '').trim();
         if (!raw) return '';
         try {
-            const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
+            const url = new URL(normalizeProviderEndpointUrl(raw));
             return String(url.hostname || '').trim().toLowerCase().replace(/\.$/, '');
         } catch {
             return '';
@@ -241,21 +242,22 @@ export function createSettingsControllerApi({
         }
 
         let parsedUrl = null;
+        const normalizedEndpoint = normalizeProviderEndpointUrl(endpoint);
         try {
-            parsedUrl = new URL(endpoint);
+            parsedUrl = new URL(normalizedEndpoint);
         } catch {
-            return { valid: false, sanitized: endpoint, message: 'API 地址不是合法的 URL，请填写完整的 http(s) 地址' };
+            return { valid: false, sanitized: endpoint, message: 'API 地址不是合法的 URL' };
         }
 
         const protocol = String(parsedUrl.protocol || '').toLowerCase();
         if (protocol !== 'http:' && protocol !== 'https:') {
-            return { valid: false, sanitized: endpoint, message: 'API 地址只支持 http:// 或 https:// 开头' };
+            return { valid: false, sanitized: endpoint, message: 'API 地址只支持 HTTP 或 HTTPS' };
         }
         if (!parsedUrl.hostname || parsedUrl.hostname.length > 253) {
             return { valid: false, sanitized: endpoint, message: 'API 地址缺少有效主机名' };
         }
 
-        return { valid: true, sanitized: endpoint, message: '' };
+        return { valid: true, sanitized: normalizedEndpoint, message: '' };
     }
 
     function getSafeProviderName(provider) {
@@ -1135,7 +1137,7 @@ export function createSettingsControllerApi({
                         <ul>
                             <li><strong>供应商名称：</strong>随便起一个好认的名字，例如 Gemini、OpenAI、公司网关。</li>
                             <li><strong>API 密钥：</strong>填写服务商给你的 Key。如果使用本地接口且不需要密钥，可以留空。</li>
-                            <li><strong>API 地址：</strong>填写服务商的基础地址，例如 <code>https://api.openai.com</code> 或 <code>https://generativelanguage.googleapis.com</code>。</li>
+                            <li><strong>API 地址：</strong>填写服务商的基础地址，例如 <code>https://api.openai.com</code>、<code>https://generativelanguage.googleapis.com</code>，也可以使用 <code>192.168.1.10:11434</code> 这类 IP / 本地地址。</li>
                             <li><strong>自动补全：</strong>推荐开启。CainFlow 会按模型协议自动补齐 <code>/v1/chat/completions</code>、Gemini 路径或生图路径。</li>
                         </ul>
                     </section>
