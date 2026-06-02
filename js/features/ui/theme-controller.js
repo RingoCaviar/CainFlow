@@ -219,7 +219,7 @@ export function createThemeControllerApi({
         button.title = `\u5f53\u524d\u4e3b\u9898\uff1a${currentTheme.label}`;
 
         if (buttonLabel) {
-            buttonLabel.textContent = `\u4e3b\u9898\uff1a${currentTheme.label}`;
+            buttonLabel.textContent = currentTheme.label;
         }
 
         renderThemeMenu();

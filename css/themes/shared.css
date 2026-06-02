@@ -1,10 +1,13 @@
 /* Shared theme plumbing and theme-switcher UI styles. */
 #btn-theme-toggle {
-    min-width: 104px;
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
 }
 
 .theme-menu-shell {
     position: relative;
+    flex: 0 0 auto;
 }
 
 #btn-theme-toggle .icon-sm {
@@ -16,6 +19,11 @@
     margin-left: 2px;
     opacity: 0.72;
     transition: transform var(--transition), opacity var(--transition);
+}
+
+#btn-theme-toggle [data-role="theme-toggle-label"] {
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 #btn-theme-toggle[aria-expanded="true"] .theme-menu-caret {
@@ -169,7 +177,9 @@ html[data-app-theme="pink"] .theme-menu-item.is-active {
 
 @media (max-width: 768px) {
     #btn-theme-toggle {
-        min-width: 92px;
+        width: 144px;
+        min-width: 144px;
+        max-width: 144px;
         padding-inline: 10px;
     }
 
