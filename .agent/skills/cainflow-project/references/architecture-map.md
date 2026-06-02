@@ -171,7 +171,7 @@
 | 提供商请求工具 | `js/features/execution/provider-request-utils.js` | 针对不同 API 提供商的请求拼装、协议判断、模型用途/协议归一化、OpenAI/Gemini 图片分辨率预设、OpenAI 图片接口路径选择、视频模型用途识别与协议辅助 |
 | 工作流运行器 | `js/features/execution/workflow-runner.js` | 整体工作流执行流程编排、自动重试、节点运行态重置；维护 `state.runningNodeIds`、并发运行会话和停止全部当前运行的 abort controller 集合；维护 `state.runningNodeCancelHandlers` 与单节点 abort controller，用于只取消某个运行中节点并跳过其本次计划内下游，不影响其他并发运行节点；收集下游输入和提示词预检查时必须过滤禁用上游输出，固定且有缓存的 TextChat 不向上追溯依赖、不按数组拆批；普通节点接到数组输入时按笛卡尔组合批量运行并聚合输出，动态文本输出按真实端口聚合，ImageMerge/TextMerge/ImagePreview/ImageSave/Text 不拆批；并发请求模式下并发执行 ImageGenerate/TextChat 的 batch 并在全部成功后统一提交 |
 | **帮助** | | |
-| 帮助面板 | `js/features/help/help-panel.js` | 操作帮助文档内容、帮助面板打开关闭与交互；新增画布/节点交互时同步补充对应说明 |
+| 帮助面板 | `js/features/help/help-panel.js` | 左侧工具栏“帮助”按钮对应的操作帮助浮层；文案、快捷键、左侧栏面板入口说明和打开关闭交互都在这里，新加画布/节点交互时同步补充对应说明 |
 | **历史记录** | | |
 | 历史面板 | `js/features/history/history-panel.js` | 侧边历史列表 UI 与列表交互；只读最近有限条元数据并空闲补缩略图；拖拽时按需读取原图或传递 `imagePromise`，不要从卡片 `<img>` 取缩略图 |
 | 历史预览 | `js/features/history/history-preview.js` | 历史记录条目预览渲染；先显示缩略图/加载态，再异步加载原图、计算分辨率、处理下载和删除 |
@@ -328,7 +328,7 @@
 | 修复已连接输入端口拖拽改线、拖到空白处断开连接 | `js/nodes/node-dom-bindings.js`, `js/canvas/canvas-interactions.js`, `js/canvas/connections.js` |
 | 调整滚轮缩放结束后的文字锐化延迟或缩放手感 | `js/canvas/canvas-interactions.js`, `js/canvas/viewport.js`, `js/features/ui/toolbar-controller.js` |
 | 修复节点删除、摘取节点、节点尺寸显示不全兜底 | `js/nodes/node-lifecycle.js`, `js/nodes/node-dom-bindings.js` |
-| 更新操作帮助面板内容或帮助字体 | `js/features/help/help-panel.js`, `css/legacy.css` |
+| 更新左侧工具栏“帮助”面板内容、快捷键说明或帮助字体 | `js/features/help/help-panel.js`, `index.html`, `css/legacy.css` |
 | 修改共享常量或默认值 | `js/core/constants.js`, `js/core/state.js` |
 | 修改默认 API 供应商或默认模型 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/execution/provider-request-utils.js` |
 | 新增或调整“锁定 API 供应商”能力 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js` |
