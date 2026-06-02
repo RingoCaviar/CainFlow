@@ -394,6 +394,37 @@ export function createIndexedDbApi(getState) {
         }
     }
 
+    async function clearOrphanedImageImportAssets(activeAssetKeys = []) {
+        try {
+            const keepKeys = new Set(
+                Array.from(activeAssetKeys || [])
+                    .map((key) => String(key || '').trim())
+                    .filter(isImageImportAssetKey)
+            );
+            const db = await openDB();
+            const tx = db.transaction(STORE_ASSETS, 'readwrite');
+            const store = tx.objectStore(STORE_ASSETS);
+            let deletedCount = 0;
+            const req = store.openKeyCursor();
+            req.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) return;
+                const key = cursor.key;
+                if (isImageImportAssetKey(key) && !keepKeys.has(key)) {
+                    store.delete(key);
+                    deletedCount += 1;
+                }
+                cursor.continue();
+            };
+            const ok = await waitForTransaction(tx);
+            if (ok && deletedCount > 0) getState().cacheSizes[STORE_ASSETS] = null;
+            return ok;
+        } catch (error) {
+            console.warn('IDB clear orphaned image import assets failed:', error);
+            return false;
+        }
+    }
+
     function createVideoPlaceholderThumbnail(size = 256) {
         return createMediaPlaceholderThumbnail('VIDEO', size);
     }
@@ -885,6 +916,7 @@ export function createIndexedDbApi(getState) {
         deleteImageAsset,
         deleteImageImportAsset,
         clearImageImportAssets,
+        clearOrphanedImageImportAssets,
         clearImageAssets,
         clearOrphanedHistoryAssets,
         clearOrphanedNodeAssets,

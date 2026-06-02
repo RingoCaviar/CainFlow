@@ -234,6 +234,7 @@ const {
     clearImageImportAssets,
     clearImageAssets,
     clearOrphanedNodeAssets,
+    clearOrphanedImageImportAssets,
     createThumbnail,
     saveHistoryEntry,
     getHistory,
@@ -711,6 +712,7 @@ function getProjectIoApi() {
             applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
             clearImageAssets,
             clearOrphanedNodeAssets,
+            clearOrphanedImageImportAssets,
             cleanupRecoverableNodeAssetCache,
             clearUndoStack: () => {
                 state.undoStack = [];

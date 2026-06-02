@@ -32,10 +32,80 @@ export function createProjectIoApi({
     applyWorkflowSidebarWidth = () => {},
     clearImageAssets = null,
     clearOrphanedNodeAssets = async () => true,
+    clearOrphanedImageImportAssets = async () => true,
     cleanupRecoverableNodeAssetCache = null,
     clearUndoStack = () => {},
     updateCacheUsage = () => {}
 }) {
+    function isImageImportAssetKey(key) {
+        return typeof key === 'string' && key.startsWith('image-import:');
+    }
+
+    function getImageImportAssetKeyFromNode(node) {
+        const key = node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
+        if (isImageImportAssetKey(key)) return key;
+        if (node?.type === 'ImageImport' && node?.id) return `image-import:${String(node.id).trim()}`;
+        return '';
+    }
+
+    function collectWorkflowImageImportAssetKeys(workflowData) {
+        const keys = new Set();
+        if (!Array.isArray(workflowData?.nodes)) return keys;
+        workflowData.nodes.forEach((node) => {
+            const key = getImageImportAssetKeyFromNode(node);
+            if (key) keys.add(key);
+        });
+        return keys;
+    }
+
+    function collectActiveImageImportAssetKeys(data = null) {
+        const keys = new Set();
+        state.nodes.forEach((node) => {
+            const key = getImageImportAssetKeyFromNode(node);
+            if (key) keys.add(key);
+        });
+
+        const addWorkflowKeys = (workflowData) => {
+            collectWorkflowImageImportAssetKeys(workflowData).forEach((key) => keys.add(key));
+        };
+
+        if (data) addWorkflowKeys(data);
+        (state.workflowTabs || []).forEach((tab) => addWorkflowKeys(tab?.data));
+        return keys;
+    }
+
+    function scheduleIdleTask(callback, { delayMs = 0, timeoutMs = 5000 } = {}) {
+        const run = () => {
+            if (typeof windowRef.requestIdleCallback === 'function') {
+                windowRef.requestIdleCallback(callback, { timeout: timeoutMs });
+                return;
+            }
+            windowRef.setTimeout(callback, 0);
+        };
+        windowRef.setTimeout(run, delayMs);
+    }
+
+    function scheduleStartupCacheCleanup(data) {
+        scheduleIdleTask(() => {
+            const cleanup = typeof cleanupRecoverableNodeAssetCache === 'function'
+                ? cleanupRecoverableNodeAssetCache
+                : () => clearOrphanedNodeAssets(new Set(state.nodes.keys()));
+            cleanup({ refresh: true }).catch((error) => {
+                console.warn('Clear stale node assets after load failed:', error);
+            }).finally(() => {
+                updateCacheUsage();
+            });
+        }, { delayMs: 1000, timeoutMs: 6000 });
+
+        scheduleIdleTask(() => {
+            clearOrphanedImageImportAssets(collectActiveImageImportAssetKeys(data)).catch((error) => {
+                console.warn('Clear stale image import assets after load failed:', error);
+            }).finally(() => {
+                updateCacheUsage();
+            });
+        }, { delayMs: 2500, timeoutMs: 10000 });
+    }
+
     function normalizeStoredProvider(provider, index) {
         return {
             ...provider,
@@ -363,16 +433,7 @@ export function createProjectIoApi({
                 onConnectionsChanged();
             }
             viewportApi.updateCanvasTransform();
-            setTimeout(() => {
-                const cleanup = typeof cleanupRecoverableNodeAssetCache === 'function'
-                    ? cleanupRecoverableNodeAssetCache
-                    : () => clearOrphanedNodeAssets(new Set(state.nodes.keys()));
-                cleanup({ refresh: true }).catch((error) => {
-                    console.warn('Clear stale node assets after load failed:', error);
-                }).finally(() => {
-                    updateCacheUsage();
-                });
-            }, 1000);
+            scheduleStartupCacheCleanup(data);
             return data.nodes?.length > 0;
         } catch (e) {
             console.warn('Load failed:', e);
