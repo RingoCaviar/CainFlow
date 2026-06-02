@@ -1,5 +1,5 @@
 /**
- * 负责工作流文件管理与默认工作流应用，包括列表渲染、保存、加载、删除与校验提示。
+ * 负责工作流文件管理，包括列表渲染、保存、加载、删除与校验提示。
  */
 import {
     createWorkflowFolder as createWorkflowFolderService,
@@ -43,7 +43,6 @@ export function createWorkflowManagerApi({
     const TAB_COLORS = 6;
     const RUN_RESULT_SUCCESS = 'success';
     const RUN_RESULT_ERROR = 'error';
-    const DEFAULT_WORKFLOW_SEED_KEY = 'cainflow_default_workflow_seeded';
     const WORKFLOW_ROOT_DROP_GAP = 12;
     const WORKFLOW_SIDEBAR_DEFAULT_WIDTH = 320;
     const WORKFLOW_SIDEBAR_MIN_WIDTH = 260;
@@ -51,22 +50,6 @@ export function createWorkflowManagerApi({
     let workflowSelectionMode = false;
     let draggingWorkflowName = '';
     const selectedWorkflowNames = new Set();
-
-    function getDefaultWorkflowSeeded() {
-        try {
-            return localStorageRef.getItem(DEFAULT_WORKFLOW_SEED_KEY) === '1';
-        } catch {
-            return false;
-        }
-    }
-
-    function setDefaultWorkflowSeeded() {
-        try {
-            localStorageRef.setItem(DEFAULT_WORKFLOW_SEED_KEY, '1');
-        } catch {
-            // Ignore storage failures; the workflow list still works without the seed flag.
-        }
-    }
 
     function normalizeWorkflowSidebarWidth(value) {
         const width = Number(value);
@@ -955,9 +938,6 @@ export function createWorkflowManagerApi({
         if (!payload) return false;
         if (deleteContents) {
             await applyDeletedWorkflowNames(payload.deleted || []);
-            (payload.deleted || []).forEach((name) => {
-                if (name === 'Default') setDefaultWorkflowSeeded();
-            });
             showToast(`已删除文件夹${(payload.deleted || []).length ? `和 ${payload.deleted.length} 个工作流` : ''}`, 'info');
         } else {
             applyMovedWorkflowNames(payload.moved || []);
@@ -1016,6 +996,26 @@ export function createWorkflowManagerApi({
         if (state.activeWorkflowName) {
             const activeTab = getWorkflowTab(state.activeWorkflowName);
             if (activeTab) activeTab.runResult = '';
+        }
+    }
+
+    function pruneWorkflowStateToNames(names = []) {
+        normalizeWorkflowTabs();
+        const validNames = new Set(names.filter((name) => typeof name === 'string' && name));
+        state.workflowTabs = (state.workflowTabs || []).filter((tab) => validNames.has(tab.name));
+        state.workflowOrder = (state.workflowOrder || []).filter((entry) => (
+            entry.startsWith('folder:') || validNames.has(entry)
+        ));
+        (state.workflowFolders || []).forEach((folder) => {
+            folder.items = Array.isArray(folder.items)
+                ? folder.items.filter((name) => validNames.has(name))
+                : [];
+        });
+        selectedWorkflowNames.forEach((name) => {
+            if (!validNames.has(name)) selectedWorkflowNames.delete(name);
+        });
+        if (state.activeWorkflowName && !validNames.has(state.activeWorkflowName)) {
+            state.activeWorkflowName = '';
         }
     }
 
@@ -1175,11 +1175,8 @@ export function createWorkflowManagerApi({
         const list = documentRef.getElementById('workflow-list');
         const workflowEntries = await fetchWorkflowEntries();
         if (!list) return;
-        normalizeWorkflowTabs();
-        const workflowNames = Array.from(new Set([
-            ...workflowEntries.workflows,
-            ...(state.workflowTabs || []).map((tab) => tab.name).filter(Boolean)
-        ]));
+        const workflowNames = Array.from(new Set(workflowEntries.workflows || []));
+        pruneWorkflowStateToNames(workflowNames);
         const rootEntries = normalizeWorkflowOrder(workflowNames, workflowEntries.folders);
         pruneWorkflowSelection(workflowNames);
 
@@ -1534,7 +1531,6 @@ export function createWorkflowManagerApi({
         const deletedNames = [];
         for (const name of names) {
             if (await deleteWorkflowFile(name)) {
-                if (name === 'Default') setDefaultWorkflowSeeded();
                 deletedNames.push(name);
             }
         }
@@ -1572,7 +1568,6 @@ export function createWorkflowManagerApi({
         }
 
         if (await deleteWorkflowFile(name)) {
-            if (name === 'Default') setDefaultWorkflowSeeded();
             await applyDeletedWorkflowNames([name]);
             showToast('已删除', 'info');
             renderWorkflowList();
@@ -1985,42 +1980,16 @@ export function createWorkflowManagerApi({
     }
 
     async function ensureOpenWorkflow({ useCurrentCanvas = true } = {}) {
-        normalizeWorkflowTabs();
+        const names = await fetchWorkflows();
+        pruneWorkflowStateToNames(names);
         const activeTab = getActiveWorkflowTab();
         if (activeTab) return true;
+        const fallbackName = names[0] || '';
+        if (fallbackName) {
+            return openWorkflow(fallbackName);
+        }
         await ensureActiveWorkflowExists({ inheritCurrentCanvas: useCurrentCanvas });
         return true;
-    }
-
-    async function ensureDefaultWorkflow() {
-        const names = await fetchWorkflows();
-        if (hasWorkflowBaseName(names, 'Default')) {
-            setDefaultWorkflowSeeded();
-            return;
-        }
-
-        if (names.length > 0 || getDefaultWorkflowSeeded()) {
-            return;
-        }
-
-        const defaultImageModel = state.models.find((model) => model.taskType === 'image');
-        const defaultData = {
-            canvas: { x: 0, y: 0, zoom: 1 },
-            nodes: [
-                { id: 'n_prompt', type: 'Text', x: 100, y: 150, width: 240, height: 160, text: 'A futuristic city at sunset, cinematic lighting, 8k resolution' },
-                { id: 'n_gen', type: 'ImageGenerate', x: 450, y: 100, width: 260, height: 520, apiConfigId: defaultImageModel?.id || 'default', generationCount: 1 },
-                { id: 'n_prev', type: 'ImagePreview', x: 800, y: 150, width: 300, height: 350 }
-            ],
-            connections: [
-                { id: 'c_p_g', from: { nodeId: 'n_prompt', port: 'text' }, to: { nodeId: 'n_gen', port: 'prompt' }, type: 'text' },
-                { id: 'c_g_p', from: { nodeId: 'n_gen', port: 'image' }, to: { nodeId: 'n_prev', port: 'image' }, type: 'image' }
-            ],
-            version: '1.3'
-        };
-        const saved = await saveWorkflowToFile('Default', defaultData);
-        if (saved) {
-            setDefaultWorkflowSeeded();
-        }
     }
 
     function initWorkflow() {
@@ -2155,7 +2124,6 @@ export function createWorkflowManagerApi({
 
         windowRef.addEventListener('click', hideWorkflowMenus);
         refreshWorkflowSelectionUi();
-        ensureDefaultWorkflow();
     }
 
     return {
