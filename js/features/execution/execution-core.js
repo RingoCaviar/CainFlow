@@ -291,12 +291,31 @@ export function createExecutionCoreApi({
 
     function buildProviderErrorContext(apiCfg, modelCfg, url) {
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+        const proxy = state?.proxy && typeof state.proxy === 'object' ? state.proxy : null;
+        let targetProtocol = '';
+        let targetHost = '';
+        let targetPort = '';
+        try {
+            const parsed = new URL(String(url || ''), windowRef.location?.href || 'http://localhost');
+            targetProtocol = String(parsed.protocol || '').replace(/:$/, '');
+            targetHost = String(parsed.hostname || '').trim();
+            targetPort = String(parsed.port || '').trim();
+        } catch {
+            // Keep URL metadata empty; the raw URL is still included for logs and diagnostics.
+        }
         return {
             providerType: protocol || 'unknown',
             url,
+            providerEndpoint: apiCfg?.endpoint || '',
+            targetProtocol,
+            targetHost,
+            targetPort,
             modelId: modelCfg?.modelId || '',
             providerId: apiCfg?.id || '',
-            apiKeyShape: getApiKeyShape(apiCfg?.apikey)
+            apiKeyShape: getApiKeyShape(apiCfg?.apikey),
+            proxyEnabled: proxy?.enabled === true,
+            proxyHost: String(proxy?.ip || proxy?.host || '').trim(),
+            proxyPort: String(proxy?.port || '').trim()
         };
     }
 

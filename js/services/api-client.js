@@ -173,11 +173,47 @@ function buildForbiddenSuggestions() {
     ];
 }
 
+function buildConnectionRefusedSuggestions(context = {}) {
+    const proxyEnabled = context.proxyEnabled === true;
+    const proxyHost = String(context.proxyHost || '').trim();
+    const proxyPort = String(context.proxyPort || '').trim();
+    const proxyLabel = proxyHost && proxyPort ? `${proxyHost}:${proxyPort}` : '当前代理端口';
+    if (proxyEnabled) {
+        const suggestions = [
+            '确认代理软件已启动，并且 HTTP/Mixed 代理端口可连接。',
+            '检查 CainFlow 常规设置里的代理地址和端口是否与代理软件一致。',
+            '暂时关闭 CainFlow 代理后重试，用来区分是代理问题还是上游服务问题。'
+        ];
+        if (proxyHost || proxyPort) {
+            suggestions.unshift(`当前连接的是 ${proxyLabel}，这台机器上很可能没有对应的代理监听进程。`);
+        }
+        return suggestions;
+    }
+
+    const targetHost = String(context.targetHost || '').trim();
+    const targetPort = String(context.targetPort || '').trim();
+    const targetProtocol = String(context.targetProtocol || '').trim();
+    const originalEndpoint = String(context.providerEndpoint || '').trim();
+    const targetLabel = targetHost
+        ? `${targetProtocol ? `${targetProtocol}://` : ''}${targetHost}${targetPort ? `:${targetPort}` : ''}`
+        : '当前 API 地址';
+    const suggestions = [
+        `当前是直连模式，连接被 ${targetLabel} 拒绝，请先确认这个地址和端口真的有 API 服务在运行。`,
+        '如果 endpoint 是本地或局域网中转地址，检查对应服务是否已启动、监听端口是否填对。',
+        '如果这是公网服务，确认 API 地址应使用 https://，不要漏写协议或误写成 http://。'
+    ];
+    if (originalEndpoint && !originalEndpoint.includes('://')) {
+        suggestions.unshift('当前 API 地址没有写协议，CainFlow 会按 http:// 处理；如果服务商要求 HTTPS，请补成完整的 https:// 地址。');
+    }
+    return suggestions;
+}
+
 export function classifyProviderError(status, body, context = {}) {
     const text = typeof body === 'string' ? body.trim() : '';
     const json = safeParseJson(text);
-    const rawMessage = json?.error?.message || json?.message || text || '未知错误';
-    const normalized = `${rawMessage}\n${text}`.toLowerCase();
+    const rawMessage = json?.error?.message || (typeof json?.error === 'string' ? json.error : '') || json?.message || text || '未知错误';
+    const detailText = typeof json?.detail === 'string' ? json.detail : '';
+    const normalized = `${rawMessage}\n${detailText}\n${text}`.toLowerCase();
     const providerType = inferProviderType(context.url, context);
     const modelId = String(context.modelId || '').toLowerCase();
     const apiKeyShape = context.apiKeyShape || 'unknown';
@@ -226,6 +262,28 @@ export function classifyProviderError(status, body, context = {}) {
     }
 
     if (status === 504 || normalized.includes('timeout') || normalized.includes('timed out')) {
+        const refusedDetail = normalized.includes('api connection refused') || normalized.includes('winerror 10061') || normalized.includes('connection refused') || normalized.includes('actively refused');
+        if (refusedDetail) {
+            const proxyHost = String(context.proxyHost || '').trim();
+            const proxyPort = String(context.proxyPort || '').trim();
+            const proxyLabel = proxyHost && proxyPort ? `${proxyHost}:${proxyPort}` : '当前代理端口';
+            const targetHost = String(context.targetHost || '').trim();
+            const targetPort = String(context.targetPort || '').trim();
+            const targetProtocol = String(context.targetProtocol || '').trim();
+            const targetLabel = targetHost
+                ? `${targetProtocol ? `${targetProtocol}://` : ''}${targetHost}${targetPort ? `:${targetPort}` : ''}`
+                : '当前 API 地址';
+            return {
+                title: '连接被拒绝',
+                userMessage: context.proxyEnabled === true
+                    ? `本机代理 ${proxyLabel} 拒绝连接，通常是代理软件没有启动、端口填错，或被防火墙拦截。`
+                    : `${targetLabel} 拒绝连接，CainFlow 当前没有启用代理；通常是 API 地址/端口不正确，或目标服务没有启动。`,
+                suggestions: buildConnectionRefusedSuggestions(context),
+                category: 'connection_refused',
+                rawMessage,
+                providerType
+            };
+        }
         return {
             title: '请求超时',
             userMessage: '上游服务响应超时，可能是生成耗时过长、代理不稳定，或当前网络不可达。',
@@ -486,6 +544,10 @@ export function formatProxyErrorMessage(status, body, fallbackPrefix = 'API 错�
     }
 
     if (status === 504) {
+        const normalized = text.toLowerCase();
+        if (normalized.includes('api connection refused') || normalized.includes('winerror 10061') || normalized.includes('connection refused') || normalized.includes('actively refused')) {
+            return context.hint || '连接被拒绝，请检查目标服务或代理端口是否在运行';
+        }
         return '图片生成等待超时，请稍后重试或检查服务端处理耗时';
     }
 

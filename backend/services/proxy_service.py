@@ -22,6 +22,41 @@ from backend.services.security_service import build_upstream_opener, is_safe_url
 from backend.services.version_service import get_app_user_agent
 
 
+def _is_connection_refused_error(error):
+    text = str(error or '').lower()
+    reason = getattr(error, 'reason', None)
+    reason_text = str(reason or '').lower()
+    return (
+        isinstance(error, ConnectionRefusedError)
+        or isinstance(reason, ConnectionRefusedError)
+        or 'winerror 10061' in text
+        or 'winerror 10061' in reason_text
+        or 'connection refused' in text
+        or 'connection refused' in reason_text
+        or 'actively refused' in text
+        or 'actively refused' in reason_text
+        or '积极拒绝' in text
+        or '积极拒绝' in reason_text
+    )
+
+
+def _build_connection_refused_detail(error, proxy_info):
+    mode = 'proxy' if proxy_info.get('enabled') else 'direct'
+    detail = {
+        'message': str(error),
+        'networkMode': mode,
+    }
+    if proxy_info.get('enabled'):
+        detail.update({
+            'proxyHost': proxy_info.get('host') or '',
+            'proxyPort': proxy_info.get('port') or '',
+            'hint': '本机代理端口未监听或被防火墙拦截，请启动代理软件，修正代理端口，或关闭 CainFlow 代理后重试。'
+        })
+    else:
+        detail['hint'] = '当前为直连模式，目标 API 地址拒绝连接，请检查 endpoint 协议、端口和服务状态。'
+    return detail
+
+
 def _is_client_disconnect_error(error):
     return (
         isinstance(error, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError))
@@ -111,6 +146,13 @@ def handle_proxy_request(handler):
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
+
+    resolved_proxy_info = {
+        'enabled': False,
+        'host': '',
+        'port': '',
+        'mode': 'direct',
+    }
 
     try:
         request = urllib.request.Request(target_url, data=body, headers=req_headers, method=target_method)
@@ -276,6 +318,9 @@ def handle_proxy_request(handler):
             set_error_data(handler, 'Client disconnected during proxy request', detail=error, exception=error, category='client_disconnect')
             finalize_request_log(handler)
             return
+        if _is_connection_refused_error(error):
+            write_error(handler, 504, 'API Connection Refused', _build_connection_refused_detail(error, resolved_proxy_info))
+            return
         if _is_upstream_disconnect_error(error):
             write_error(handler, 502, 'Upstream connection closed', error)
             return
@@ -286,6 +331,9 @@ def handle_proxy_request(handler):
         if _is_client_disconnect_error(error):
             set_error_data(handler, 'Client disconnected during proxy request', detail=error, exception=error, category='client_disconnect')
             finalize_request_log(handler)
+            return
+        if _is_connection_refused_error(error):
+            write_error(handler, 504, 'API Connection Refused', _build_connection_refused_detail(error, resolved_proxy_info))
             return
         if _is_upstream_disconnect_error(error):
             write_error(handler, 502, 'Upstream connection closed', error)
