@@ -809,6 +809,49 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     font-variant-numeric: tabular-nums;
 }
 
+.statistics-day-nav {
+    display: grid;
+    grid-template-columns: minmax(76px, 1fr) auto minmax(76px, 1fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.statistics-day-btn {
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid rgba(34, 211, 238, 0.28);
+    border-radius: var(--radius-xs);
+    background: rgba(34, 211, 238, 0.12);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color var(--transition), background-color var(--transition), color var(--transition), opacity var(--transition);
+}
+
+.statistics-day-btn:hover:not(:disabled),
+.statistics-day-btn:focus-visible:not(:disabled) {
+    border-color: var(--accent-cyan);
+    background: rgba(34, 211, 238, 0.2);
+}
+
+.statistics-day-btn:disabled {
+    border-color: rgba(148, 163, 184, 0.16);
+    background: rgba(148, 163, 184, 0.08);
+    color: var(--text-dim);
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.statistics-current-day {
+    min-width: 58px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
 @keyframes common-pulse {
 
     0%,

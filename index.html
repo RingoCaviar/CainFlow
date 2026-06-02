@@ -687,15 +687,15 @@
                 <svg class="icon-sm">
                     <use href="#icon-statistics" />
                 </svg>
-                <h3>今日请求统计</h3>
+                <h3 id="statistics-panel-title">今日请求统计</h3>
             </div>
             <div class="header-right">
                 <label class="log-retention-control log-retention-control--inline" for="statistics-retention-days">
                     <span>保留</span>
                     <select id="statistics-retention-days">
-                        <option value="1" selected>1 天</option>
+                        <option value="1">1 天</option>
                         <option value="3">3 天</option>
-                        <option value="7">7 天</option>
+                        <option value="7" selected>7 天</option>
                         <option value="30">30 天</option>
                         <option value="90">90 天</option>
                     </select>
@@ -730,6 +730,11 @@
                 <div id="statistics-empty" class="statistics-empty">今天还没有节点请求记录</div>
             </section>
             <div class="statistics-updated-note">更新时间 <span id="statistics-updated-time">--:--:--</span></div>
+            <div class="statistics-day-nav">
+                <button id="statistics-prev-day" class="statistics-day-btn" type="button">上一天</button>
+                <span id="statistics-current-day" class="statistics-current-day">今天</span>
+                <button id="statistics-next-day" class="statistics-day-btn" type="button">下一天</button>
+            </div>
         </div>
     </div>
 

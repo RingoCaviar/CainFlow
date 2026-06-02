@@ -2,10 +2,11 @@
  * Tracks node-originated provider requests and renders today's request statistics.
  */
 const DEFAULT_STORAGE_KEY = 'cainflow_request_statistics';
-const DEFAULT_RETENTION_DAYS = 1;
+const DEFAULT_RETENTION_DAYS = 7;
 const MIN_RETENTION_DAYS = 1;
 const MAX_RETENTION_DAYS = 365;
 const MAX_RECORDS = 5000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function getLocalDayKey(timestamp = Date.now()) {
     const date = new Date(timestamp);
@@ -13,6 +14,45 @@ function getLocalDayKey(timestamp = Date.now()) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+function getLocalDateFromDayKey(dayKey) {
+    const match = String(dayKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return new Date();
+    const [, year, month, day] = match;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
+function shiftDayKey(dayKey, offsetDays) {
+    const date = getLocalDateFromDayKey(dayKey);
+    date.setDate(date.getDate() + offsetDays);
+    return getLocalDayKey(date.getTime());
+}
+
+function getDayStartTime(dayKey = getLocalDayKey()) {
+    return getLocalDateFromDayKey(dayKey).getTime();
+}
+
+function getEarliestViewableDayKey(days = DEFAULT_RETENTION_DAYS) {
+    const normalizedDays = Math.max(1, days);
+    const date = getLocalDateFromDayKey(getLocalDayKey());
+    date.setDate(date.getDate() - (normalizedDays - 1));
+    return getLocalDayKey(date.getTime());
+}
+
+function clampViewDayKey(dayKey, retentionDays) {
+    const earliest = getEarliestViewableDayKey(retentionDays);
+    const today = getLocalDayKey();
+    if (dayKey < earliest) return earliest;
+    if (dayKey > today) return today;
+    return dayKey || today;
+}
+
+function formatDayLabel(dayKey) {
+    const today = getLocalDayKey();
+    if (dayKey === today) return '今天';
+    if (dayKey === shiftDayKey(today, -1)) return '昨天';
+    return dayKey;
 }
 
 function safeText(value, fallback = '') {
@@ -74,6 +114,7 @@ export function createRequestStatisticsApi({
     let initialized = false;
     let sortBy = 'requestCount';
     let retentionDays = DEFAULT_RETENTION_DAYS;
+    let selectedDayKey = getLocalDayKey();
 
     function getRecords() {
         state.requestStatistics = Array.isArray(state.requestStatistics)
@@ -101,7 +142,7 @@ export function createRequestStatisticsApi({
 
     function getRetentionCutoffTime(days = retentionDays) {
         const normalizedDays = normalizeRetentionDays(days);
-        return Date.now() - (normalizedDays * 24 * 60 * 60 * 1000);
+        return Date.now() - (normalizedDays * DAY_MS);
     }
 
     function pruneExpiredRecords(days = retentionDays) {
@@ -125,6 +166,7 @@ export function createRequestStatisticsApi({
                 .filter(Boolean)
                 .slice(0, MAX_RECORDS);
             pruneExpiredRecords(retentionDays);
+            selectedDayKey = clampViewDayKey(selectedDayKey, retentionDays);
             persist();
         } catch (error) {
             state.requestStatistics = [];
@@ -170,6 +212,7 @@ export function createRequestStatisticsApi({
         getRecords().unshift(record);
         prune();
         pruneExpiredRecords();
+        selectedDayKey = clampViewDayKey(selectedDayKey, retentionDays);
         persist();
         if (documentRef.getElementById('statistics-sidebar')?.classList.contains('active')) {
             render();
@@ -177,10 +220,10 @@ export function createRequestStatisticsApi({
         return record;
     }
 
-    function getTodaySummary() {
+    function getDaySummary(dayKey = selectedDayKey) {
         initialize();
-        const todayKey = getLocalDayKey();
-        const records = getRecords().filter((record) => record.dayKey === todayKey);
+        selectedDayKey = clampViewDayKey(dayKey, retentionDays);
+        const records = getRecords().filter((record) => record.dayKey === selectedDayKey);
         const total = records.length;
         const success = records.filter((record) => record.success).length;
         const failed = total - success;
@@ -208,27 +251,55 @@ export function createRequestStatisticsApi({
             success,
             failed,
             successRate: calculateSuccessRate(success, total),
+            dayKey: selectedDayKey,
+            dayLabel: formatDayLabel(selectedDayKey),
+            earliestDayKey: getEarliestViewableDayKey(retentionDays),
+            todayKey: getLocalDayKey(),
             providers: sortProviders(Array.from(providersById.values()), sortBy)
         };
     }
 
     function render() {
-        const summary = getTodaySummary();
+        const summary = getDaySummary();
+        const titleEl = documentRef.getElementById('statistics-panel-title');
         const totalEl = documentRef.getElementById('statistics-total-requests');
         const rateEl = documentRef.getElementById('statistics-success-rate');
         const listEl = documentRef.getElementById('statistics-provider-ranking');
         const emptyEl = documentRef.getElementById('statistics-empty');
         const updatedEl = documentRef.getElementById('statistics-updated-time');
         const sortSelect = documentRef.getElementById('statistics-ranking-sort');
+        const currentDayEl = documentRef.getElementById('statistics-current-day');
+        const prevDayBtn = documentRef.getElementById('statistics-prev-day');
+        const nextDayBtn = documentRef.getElementById('statistics-next-day');
 
         if (sortSelect) sortSelect.value = sortBy;
+        if (titleEl) titleEl.textContent = `${summary.dayLabel}请求统计`;
         if (totalEl) totalEl.textContent = String(summary.total);
         if (rateEl) {
             rateEl.textContent = summary.total ? `${summary.successRate}%` : '0%';
             rateEl.title = `成功 ${summary.success} 次，失败 ${summary.failed} 次`;
         }
         if (updatedEl) updatedEl.textContent = new Date().toLocaleTimeString();
+        if (currentDayEl) {
+            currentDayEl.textContent = summary.dayLabel === '今天'
+                ? '今天'
+                : `${summary.dayLabel}`;
+            currentDayEl.title = summary.dayKey;
+        }
+        if (prevDayBtn) {
+            const disabled = getDayStartTime(summary.dayKey) <= getDayStartTime(summary.earliestDayKey);
+            prevDayBtn.disabled = disabled;
+            prevDayBtn.setAttribute('aria-disabled', String(disabled));
+            prevDayBtn.title = disabled ? '已经到达保留范围内最早的一天' : '查看上一天';
+        }
+        if (nextDayBtn) {
+            const disabled = getDayStartTime(summary.dayKey) >= getDayStartTime(summary.todayKey);
+            nextDayBtn.disabled = disabled;
+            nextDayBtn.setAttribute('aria-disabled', String(disabled));
+            nextDayBtn.title = disabled ? '已经是今天' : '查看下一天';
+        }
         if (emptyEl) emptyEl.classList.toggle('hidden', summary.total > 0);
+        if (emptyEl) emptyEl.textContent = `${summary.dayLabel}还没有节点请求记录`;
         if (!listEl) return;
 
         if (summary.providers.length === 0) {
@@ -267,11 +338,19 @@ export function createRequestStatisticsApi({
         render();
     }
 
+    function shiftSelectedDay(offsetDays) {
+        initialize();
+        selectedDayKey = clampViewDayKey(shiftDayKey(selectedDayKey, offsetDays), retentionDays);
+        render();
+        return selectedDayKey;
+    }
+
     function setRetentionDays(value) {
         initialize();
         retentionDays = normalizeRetentionDays(value);
         pruneExpiredRecords();
         prune();
+        selectedDayKey = clampViewDayKey(selectedDayKey, retentionDays);
         persist();
         render();
         return retentionDays;
@@ -282,7 +361,9 @@ export function createRequestStatisticsApi({
         recordNodeRequest,
         render,
         setSortBy,
-        getTodaySummary,
+        getTodaySummary: () => getDaySummary(getLocalDayKey()),
+        getDaySummary,
+        shiftSelectedDay,
         setRetentionDays,
         getRetentionDays: () => {
             initialize();

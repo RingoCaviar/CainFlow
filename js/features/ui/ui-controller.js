@@ -840,6 +840,14 @@ export function createUiControllerApi({
             requestStatisticsApi?.setSortBy?.(e.target.value);
         });
 
+        documentRef.getElementById('statistics-prev-day')?.addEventListener('click', () => {
+            requestStatisticsApi?.shiftSelectedDay?.(-1);
+        });
+
+        documentRef.getElementById('statistics-next-day')?.addEventListener('click', () => {
+            requestStatisticsApi?.shiftSelectedDay?.(1);
+        });
+
         documentRef.getElementById('btn-col-decrease')?.addEventListener('click', () => {
             applyHistoryGridCols(state.historyGridCols - 1);
             saveState();
