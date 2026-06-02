@@ -14,18 +14,19 @@ LOG_BODY_PREVIEW_BYTES = 4096
 LOG_TEXT_PREVIEW_LIMIT = 2000
 LOG_STACK_PREVIEW_LIMIT = 4000
 LOG_BINARY_SNIFF_BYTES = 256
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 
 def get_resource_path():
     if hasattr(sys, '_MEIPASS'):
         return sys._MEIPASS
-    return os.path.abspath('.')
+    return PROJECT_ROOT
 
 
 def get_exe_dir():
     if hasattr(sys, 'frozen'):
         return os.path.dirname(sys.executable)
-    return os.path.abspath('.')
+    return PROJECT_ROOT
 
 
 STATIC_ROOT = get_resource_path()
