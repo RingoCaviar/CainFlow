@@ -33,6 +33,7 @@ export function createProjectIoApi({
     clearImageAssets = null,
     clearOrphanedNodeAssets = async () => true,
     clearOrphanedImageImportAssets = async () => true,
+    trimHistoryCache = async () => true,
     cleanupRecoverableNodeAssetCache = null,
     clearUndoStack = () => {},
     updateCacheUsage = () => {}
@@ -104,6 +105,14 @@ export function createProjectIoApi({
                 updateCacheUsage();
             });
         }, { delayMs: 2500, timeoutMs: 10000 });
+
+        scheduleIdleTask(() => {
+            trimHistoryCache().catch((error) => {
+                console.warn('Trim stale history cache after load failed:', error);
+            }).finally(() => {
+                updateCacheUsage();
+            });
+        }, { delayMs: 3500, timeoutMs: 10000 });
     }
 
     function normalizeStoredProvider(provider, index) {

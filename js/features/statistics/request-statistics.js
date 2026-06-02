@@ -6,8 +6,6 @@ const DEFAULT_RETENTION_DAYS = 7;
 const MIN_RETENTION_DAYS = 1;
 const MAX_RETENTION_DAYS = 365;
 const MAX_RECORDS = 5000;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 function getLocalDayKey(timestamp = Date.now()) {
     const date = new Date(timestamp);
     const year = date.getFullYear();
@@ -140,15 +138,10 @@ export function createRequestStatisticsApi({
         return Math.max(MIN_RETENTION_DAYS, Math.min(MAX_RETENTION_DAYS, parsed));
     }
 
-    function getRetentionCutoffTime(days = retentionDays) {
-        const normalizedDays = normalizeRetentionDays(days);
-        return Date.now() - (normalizedDays * DAY_MS);
-    }
-
     function pruneExpiredRecords(days = retentionDays) {
-        const cutoffTime = getRetentionCutoffTime(days);
+        const earliestDayKey = getEarliestViewableDayKey(normalizeRetentionDays(days));
         const records = getRecords();
-        const filtered = records.filter((record) => record.timestamp >= cutoffTime);
+        const filtered = records.filter((record) => safeText(record.dayKey, getLocalDayKey(record.timestamp)) >= earliestDayKey);
         if (filtered.length === records.length) return false;
         state.requestStatistics = filtered;
         return true;
@@ -222,6 +215,9 @@ export function createRequestStatisticsApi({
 
     function getDaySummary(dayKey = selectedDayKey) {
         initialize();
+        if (pruneExpiredRecords()) {
+            persist();
+        }
         selectedDayKey = clampViewDayKey(dayKey, retentionDays);
         const records = getRecords().filter((record) => record.dayKey === selectedDayKey);
         const total = records.length;

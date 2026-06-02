@@ -245,6 +245,7 @@ const {
     updateHistoryThumb,
     clearHistory,
     clearOrphanedHistoryAssets,
+    trimHistoryCache,
     deleteHistoryEntry
 } = indexedDbApi;
 const mediaUtils = createMediaUtils({
@@ -713,6 +714,7 @@ function getProjectIoApi() {
             clearImageAssets,
             clearOrphanedNodeAssets,
             clearOrphanedImageImportAssets,
+            trimHistoryCache,
             cleanupRecoverableNodeAssetCache,
             clearUndoStack: () => {
                 state.undoStack = [];

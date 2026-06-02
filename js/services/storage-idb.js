@@ -12,6 +12,26 @@ import {
 let dbInstance = null;
 const HISTORY_ASSET_KEY_PREFIX = 'history:';
 const IMAGE_IMPORT_ASSET_KEY_PREFIX = 'image-import:';
+const HISTORY_RETENTION_DAYS = 365;
+const HISTORY_MAX_ENTRIES = 1000;
+
+function getLocalDayKey(timestamp = Date.now()) {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getEarliestRetainedDayKey(days = HISTORY_RETENTION_DAYS) {
+    const normalizedDays = Number.isFinite(Number(days))
+        ? Math.max(1, Math.floor(Number(days)))
+        : HISTORY_RETENTION_DAYS;
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (normalizedDays - 1));
+    return getLocalDayKey(date.getTime());
+}
 
 function getHistoryAssetKey(id) {
     return `${HISTORY_ASSET_KEY_PREFIX}${id}`;
@@ -549,7 +569,13 @@ export function createIndexedDbApi(getState) {
             const state = getState();
             state.cacheSizes[STORE_HISTORY] = null;
             state.cacheSizes[STORE_ASSETS] = null;
-            return await waitForTransaction(tx);
+            const saved = await waitForTransaction(tx);
+            if (saved) {
+                trimHistoryCache().catch((error) => {
+                    console.warn('IDB trim history cache failed:', error);
+                });
+            }
+            return saved;
         } catch (error) {
             console.warn('IDB save history failed:', {
                 name: error?.name || '',
@@ -557,6 +583,50 @@ export function createIndexedDbApi(getState) {
                 imageLength: typeof data?.image === 'string' ? data.image.length : 0,
                 videoSize: data?.videoBlob?.size || data?.video?.size || 0
             });
+            return false;
+        }
+    }
+
+    async function trimHistoryCache({
+        maxEntries = HISTORY_MAX_ENTRIES,
+        retentionDays = HISTORY_RETENTION_DAYS
+    } = {}) {
+        const normalizedMaxEntries = Number.isFinite(Number(maxEntries))
+            ? Math.max(0, Math.floor(Number(maxEntries)))
+            : HISTORY_MAX_ENTRIES;
+        const normalizedRetentionDays = Number.isFinite(Number(retentionDays))
+            ? Math.max(1, Math.floor(Number(retentionDays)))
+            : HISTORY_RETENTION_DAYS;
+        if (normalizedMaxEntries <= 0) return false;
+
+        try {
+            const db = await openDB();
+            const entries = await requestToPromise(db.transaction(STORE_HISTORY, 'readonly').objectStore(STORE_HISTORY).getAll());
+            const sortedEntries = (entries || [])
+                .filter((entry) => entry?.id !== undefined)
+                .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+            const earliestDayKey = getEarliestRetainedDayKey(normalizedRetentionDays);
+            const deleteIds = new Set();
+            sortedEntries.forEach((entry, index) => {
+                const timestamp = Number(entry.timestamp || 0);
+                if (index >= normalizedMaxEntries || !Number.isFinite(timestamp) || getLocalDayKey(timestamp) < earliestDayKey) {
+                    deleteIds.add(Number(entry.id));
+                }
+            });
+            if (deleteIds.size === 0) return true;
+
+            const tx = db.transaction([STORE_HISTORY, STORE_ASSETS], 'readwrite');
+            const historyStore = tx.objectStore(STORE_HISTORY);
+            const assetStore = tx.objectStore(STORE_ASSETS);
+            deleteIds.forEach((id) => {
+                historyStore.delete(id);
+                assetStore.delete(getHistoryAssetKey(id));
+            });
+            getState().cacheSizes[STORE_HISTORY] = null;
+            getState().cacheSizes[STORE_ASSETS] = null;
+            return await waitForTransaction(tx);
+        } catch (error) {
+            console.warn('IDB trim history cache failed:', error);
             return false;
         }
     }
@@ -920,6 +990,7 @@ export function createIndexedDbApi(getState) {
         clearImageAssets,
         clearOrphanedHistoryAssets,
         clearOrphanedNodeAssets,
+        trimHistoryCache,
         createThumbnail,
         createVideoThumbnail,
         saveHistoryEntry,

@@ -7,6 +7,27 @@ const MAX_LOG_COUNT = 200;
 const DEFAULT_RETENTION_DAYS = 1;
 const DUPLICATE_LOG_WINDOW_MS = 2000;
 
+function normalizeRetentionDayCount(value) {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS;
+}
+
+function getLocalDayKey(timestamp = Date.now()) {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getEarliestRetainedDayKey(days = DEFAULT_RETENTION_DAYS) {
+    const normalizedDays = normalizeRetentionDayCount(days);
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (normalizedDays - 1));
+    return getLocalDayKey(date.getTime());
+}
+
 export function createLogPanelApi({
     state,
     elements,
@@ -18,8 +39,7 @@ export function createLogPanelApi({
     let logsInitialized = false;
 
     function normalizeRetentionDays(value) {
-        const parsed = parseInt(value, 10);
-        return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS;
+        return normalizeRetentionDayCount(value);
     }
 
     function persistLogs() {
@@ -73,16 +93,12 @@ export function createLogPanelApi({
         logsInitialized = true;
     }
 
-    function getLogCutoffTimestamp(retentionDays = state.logRetentionDays) {
-        return Date.now() - normalizeRetentionDays(retentionDays) * 24 * 60 * 60 * 1000;
-    }
-
     function pruneExpiredLogs(options = {}) {
-        const cutoff = getLogCutoffTimestamp(options.retentionDays);
+        const earliestDayKey = getEarliestRetainedDayKey(options.retentionDays ?? state.logRetentionDays);
         const beforeCount = Array.isArray(state.logs) ? state.logs.length : 0;
         state.logs = (Array.isArray(state.logs) ? state.logs : []).filter((log) => {
             const timestamp = Number(log?.timestamp);
-            return Number.isFinite(timestamp) && timestamp >= cutoff;
+            return Number.isFinite(timestamp) && getLocalDayKey(timestamp) >= earliestDayKey;
         }).slice(0, MAX_LOG_COUNT);
         const changed = state.logs.length !== beforeCount;
         if (changed && options.save !== false) persistLogs();
@@ -155,7 +171,7 @@ export function createLogPanelApi({
         ensureLogsInitialized();
         const list = elements.logList;
         if (!list) return;
-        pruneExpiredLogs({ save: false });
+        pruneExpiredLogs({ save: true });
         if (state.logs.length === 0) {
             list.innerHTML = '<div class="log-empty">暂无执行记录</div>';
             return;

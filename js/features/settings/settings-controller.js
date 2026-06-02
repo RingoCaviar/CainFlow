@@ -1027,11 +1027,23 @@ export function createSettingsControllerApi({
         try {
             const parsed = JSON.parse(localStorageRef.getItem(networkProxyDetectionStorageKey) || 'null');
             if (!parsed || typeof parsed !== 'object') return null;
-            if (Number(parsed.version) !== networkProxyDetectionCacheVersion) return null;
-            if (String(parsed.targetsSignature || '') !== networkProxyDetectionTargetsSignature) return null;
+            if (Number(parsed.version) !== networkProxyDetectionCacheVersion) {
+                localStorageRef.removeItem(networkProxyDetectionStorageKey);
+                return null;
+            }
+            if (String(parsed.targetsSignature || '') !== networkProxyDetectionTargetsSignature) {
+                localStorageRef.removeItem(networkProxyDetectionStorageKey);
+                return null;
+            }
             const checkedAt = Number(parsed.checkedAt);
-            if (!Number.isFinite(checkedAt)) return null;
-            if (Date.now() - checkedAt > networkProxyDetectionCooldownMs) return null;
+            if (!Number.isFinite(checkedAt)) {
+                localStorageRef.removeItem(networkProxyDetectionStorageKey);
+                return null;
+            }
+            if (Date.now() - checkedAt > networkProxyDetectionCooldownMs) {
+                localStorageRef.removeItem(networkProxyDetectionStorageKey);
+                return null;
+            }
             const result = parsed.result || null;
             const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
             const hasLegacyGithubTarget = attempts.some((attempt) => {
@@ -1039,7 +1051,10 @@ export function createSettingsControllerApi({
                 const url = String(attempt?.url || '').toLowerCase();
                 return name.includes('github') || url.includes('api.github.com');
             });
-            if (hasLegacyGithubTarget) return null;
+            if (hasLegacyGithubTarget) {
+                localStorageRef.removeItem(networkProxyDetectionStorageKey);
+                return null;
+            }
             return result;
         } catch {
             return null;
