@@ -5,6 +5,8 @@ import threading
 import time
 import traceback
 import uuid
+from email import policy
+from email.parser import BytesParser
 from datetime import datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -222,6 +224,13 @@ def summarize_body(body, content_type=None, total_bytes=None, partial=False, inc
     if isinstance(body, bytes):
         if body_bytes is None:
             body_bytes = len(body)
+        if not partial and _is_multipart_form_content_type(content_type):
+            preview, truncated = summarize_multipart_form(body, content_type)
+            return {
+                'bodyPreview': preview,
+                'bodyTruncated': truncated,
+                'bodyBytes': body_bytes,
+            }
         if not _is_textual_content_type(content_type) and not _looks_like_text(body):
             return {
                 'bodyPreview': f'[binary content omitted; type={content_type or "application/octet-stream"}; bytes={body_bytes}]',
@@ -267,6 +276,52 @@ def summarize_body(body, content_type=None, total_bytes=None, partial=False, inc
     if include_full_body and not partial:
         summary['body'] = text
     return summary
+
+
+def summarize_multipart_form(body, content_type):
+    try:
+        header = f'Content-Type: {content_type or ""}\n\n'.encode('utf-8', errors='replace')
+        message = BytesParser(policy=policy.default).parsebytes(header + body)
+        if not message.is_multipart():
+            return '[multipart body could not be parsed]', True
+
+        fields = []
+        parts = list(message.iter_parts())
+        for index, part in enumerate(parts[:20]):
+            disposition = part.get_content_disposition() or ''
+            name = part.get_param('name', header='content-disposition') or ''
+            filename = part.get_filename() or ''
+            payload = part.get_payload(decode=True) or b''
+            item = {
+                'index': index + 1,
+                'field': name,
+                'disposition': disposition,
+                'contentType': part.get_content_type(),
+                'bytes': len(payload),
+            }
+            if filename:
+                safe_filename, _ = sanitize_text(filename)
+                item['filename'] = safe_filename
+                item['file'] = True
+            else:
+                text_value = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                safe_value, value_truncated = sanitize_text(text_value)
+                item['value'] = safe_value
+                item['valueTruncated'] = value_truncated
+            fields.append(item)
+
+        return {
+            'multipart': True,
+            'fieldCount': len(parts),
+            'fields': fields,
+            'omittedFields': max(0, len(parts) - len(fields)),
+        }, len(parts) > len(fields)
+    except Exception as error:
+        safe_error, _ = sanitize_text(str(error))
+        return {
+            'multipart': True,
+            'parseError': safe_error,
+        }, True
 
 
 def sanitize_form_encoded(text):
@@ -414,6 +469,11 @@ def _is_json_content_type(content_type):
 def _is_form_content_type(content_type):
     lowered = (content_type or '').lower()
     return 'application/x-www-form-urlencoded' in lowered
+
+
+def _is_multipart_form_content_type(content_type):
+    lowered = (content_type or '').lower()
+    return 'multipart/form-data' in lowered
 
 
 def _is_textual_content_type(content_type):

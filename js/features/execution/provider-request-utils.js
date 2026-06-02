@@ -376,7 +376,7 @@ function appendOpenAiPath(base, path) {
 
 function replaceOpenAiImageGenerationPath(endpoint) {
     const normalizedEndpoint = normalizeProviderEndpointUrl(endpoint);
-    return normalizedEndpoint.replace(/\/images\/generations(?=$|[?#])/i, '/images/edits');
+    return normalizedEndpoint.replace(/\/images\/generations\/?(?=$|[?#])/i, '/images/edits');
 }
 
 function appendUnifiedVideoPath(base, path) {

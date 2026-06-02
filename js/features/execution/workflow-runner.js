@@ -491,8 +491,23 @@ export function createWorkflowRunnerApi({
         return outputs.some((output) => output.name === connection.from.port && output.type === 'text');
     }
 
+    function getFirstNonEmptyImageList(...values) {
+        for (const value of values) {
+            const images = normalizeImageList(value);
+            if (images.length > 0) return images;
+        }
+        return [];
+    }
+
     function getNodeImageOutputList(node) {
-        const images = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
+        const images = getFirstNonEmptyImageList(
+            node?.data?.images,
+            node?.imageDataList,
+            node?.generatedImages,
+            node?.data?.image,
+            node?.imageData,
+            node?.resizePreviewData
+        );
         return images.length > 0 ? images : null;
     }
 
@@ -696,6 +711,10 @@ export function createWorkflowRunnerApi({
     async function getEnabledNodeOutputValue(fromNode, toNode, portName) {
         if (!fromNode || fromNode.enabled === false) return undefined;
         if (portName === 'image') {
+            if (fromNode.type === 'ImageImport') {
+                const importedImage = await restoreImageImportOutput(fromNode);
+                if (importedImage) return importedImage;
+            }
             const images = getNodeImageOutputList(fromNode);
             if (images?.length > 1) return images;
             if (images?.length === 1) return images[0];
@@ -704,6 +723,56 @@ export function createWorkflowRunnerApi({
             if (restoredImages?.length === 1) return restoredImages[0];
         }
         return getCachedOutputValue(fromNode, portName);
+    }
+
+    function isReferenceImageInputPort(node, portName) {
+        const normalizedPort = String(portName || '');
+        if (node?.type === 'ImageGenerate' || node?.type === 'TextChat') {
+            return normalizedPort === 'image' || /^image_\d+$/.test(normalizedPort);
+        }
+        if (node?.type === 'VideoGenerate') {
+            return /^image_\d+$/.test(normalizedPort);
+        }
+        return false;
+    }
+
+    function describeMissingReferenceImageInput(connection) {
+        const fromNode = state.nodes.get(connection.from.nodeId);
+        return {
+            fromNodeId: connection.from.nodeId,
+            fromNodeType: fromNode?.type || '',
+            fromPort: connection.from.port,
+            fromEnabled: fromNode?.enabled !== false,
+            toPort: connection.to.port,
+            importMode: fromNode?.type === 'ImageImport' ? (fromNode.importMode || 'upload') : undefined,
+            hasImageImportAssetKey: fromNode?.type === 'ImageImport'
+                ? !!(fromNode.imageImportAssetKey || fromNode.data?.imageImportAssetKey)
+                : undefined,
+            hasInlineImageInMemory: normalizeImageList(
+                fromNode?.data?.image ||
+                fromNode?.imageData ||
+                fromNode?.data?.images ||
+                fromNode?.imageDataList
+            ).length > 0
+        };
+    }
+
+    function assertConnectedReferenceImagesLoaded(plan, node, inputs = {}) {
+        if (!node || (node.type !== 'ImageGenerate' && node.type !== 'VideoGenerate' && node.type !== 'TextChat')) return;
+
+        const missingConnections = (plan.inputConnectionsByNode[node.id] || [])
+            .filter((connection) => isReferenceImageInputPort(node, connection.to.port))
+            .filter((connection) => normalizeImageList(inputs[connection.to.port]).length === 0);
+
+        if (missingConnections.length === 0) return;
+
+        const err = new Error(`已连接 ${missingConnections.length} 个参考图输入，但未读取到图片数据。请确认图片导入节点已加载完成且未被禁用，或重新拖入图片后等待预览出现再运行。`);
+        err.serverResponse = {
+            nodeId: node.id,
+            nodeType: node.type,
+            missingReferenceImageInputs: missingConnections.map(describeMissingReferenceImageInput)
+        };
+        throw err;
     }
 
     function cloneInputValue(value) {
@@ -774,6 +843,7 @@ export function createWorkflowRunnerApi({
             }
         }
 
+        assertConnectedReferenceImagesLoaded(plan, state.nodes.get(nodeId), inputs);
         return inputs;
     }
 
