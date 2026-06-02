@@ -1,6 +1,12 @@
 ﻿/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
  */
+import {
+    createFullscreenImageCropper,
+    renderFullscreenCropControls,
+    renderFullscreenCropLayer
+} from './image-cropper.js';
+
 export function createMediaControllerApi({
     state,
     getNodeById,
@@ -2180,9 +2186,9 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (isNodeRunning(nodeId)) {
             showToast('节点正在运行，暂不能修改图片', 'warning');
-            return;
+            return false;
         }
-        if (!node || node.type !== 'ImageImport' || !isInlineImageData(imageData)) return;
+        if (!node || node.type !== 'ImageImport' || !isInlineImageData(imageData)) return false;
 
         node.importMode = 'upload';
         node.imageUrl = '';
@@ -2198,6 +2204,7 @@ export function createMediaControllerApi({
         }
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
         scheduleSave();
+        return true;
     }
 
     async function loadImageUrl(nodeId, rawUrl, options = {}) {
@@ -3053,10 +3060,16 @@ export function createMediaControllerApi({
         let currentIndex = images.findIndex((image) => image === src);
         if (currentIndex < 0) currentIndex = context.index;
         if (currentIndex < 0) currentIndex = 0;
+        const canCropImageImport = Boolean(
+            context.node?.type === 'ImageImport'
+            && context.node.importMode !== 'url'
+        );
+        overlay.classList.toggle('has-crop-action', canCropImageImport);
         overlay.innerHTML = `
             <div class="fullscreen-close" title="关闭 (Esc)">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </div>
+            ${renderFullscreenCropControls(canCropImageImport)}
             ${nodeId ? `
             <div class="fullscreen-paint-btn" title="绘制/编辑">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -3064,6 +3077,7 @@ export function createMediaControllerApi({
             <div class="fullscreen-stage">
                 <div class="fullscreen-img-wrapper">
                     <img src="${images[currentIndex] || src}" alt="全屏预览" draggable="false" />
+                    ${renderFullscreenCropLayer(canCropImageImport)}
                 </div>
                 ${images.length > 1 ? `
                 <aside class="fullscreen-thumb-rail" aria-label="图片列表">
@@ -3081,6 +3095,7 @@ export function createMediaControllerApi({
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
         let previewIndexDirty = false;
+        let cropper = null;
         const updateFsT = () => {
             img.style.transform = `translate(${fsX}px, ${fsY}px) scale(${fsZoom})`;
         };
@@ -3107,6 +3122,37 @@ export function createMediaControllerApi({
             scheduleSave();
             previewIndexDirty = false;
         };
+        const getCurrentCropSource = () => {
+            if (!context.node || context.node.type !== 'ImageImport' || context.node.importMode === 'url') return '';
+            const currentImage = images[currentIndex] || src || '';
+            const candidates = normalizeImageList([
+                currentImage,
+                img?.dataset?.originalSrc,
+                context.node.imageData,
+                context.node.data?.image,
+                context.node.imageDataList,
+                context.node.data?.images
+            ]);
+            return candidates.find((candidate) => isInlineImageData(candidate)) || '';
+        };
+        cropper = createFullscreenImageCropper({
+            overlay,
+            imageElement: img,
+            wrapperElement: iw,
+            enabled: canCropImageImport,
+            getSource: getCurrentCropSource,
+            onApply: async (croppedData) => loadImageData(nodeId, croppedData),
+            onApplied: (croppedData) => {
+                images[currentIndex] = croppedData;
+            },
+            resetTransform,
+            showToast,
+            detectOutputFormat,
+            isInlineImageData,
+            documentRef,
+            windowRef
+        });
+        cropper.updateAvailability();
         const centerActiveThumbnail = () => {
             if (!thumbTrack) return;
             const active = thumbTrack.querySelector('.fullscreen-thumb-item.is-active');
@@ -3160,6 +3206,8 @@ export function createMediaControllerApi({
                 img.src = nextSrc;
             }
             resetTransform();
+            cropper?.setMode(false);
+            cropper?.updateAvailability();
             syncNodePreviewIndex();
             updateThumbnailRail();
         };
@@ -3173,6 +3221,7 @@ export function createMediaControllerApi({
 
         overlay.addEventListener('wheel', (e) => {
             e.preventDefault();
+            if (cropper?.isActive()) return;
             const nz = Math.max(0.1, Math.min(20, fsZoom * (e.deltaY > 0 ? 0.9 : 1.1)));
             const rect = overlay.getBoundingClientRect();
             const cx = e.clientX - rect.left - rect.width / 2;
@@ -3183,6 +3232,7 @@ export function createMediaControllerApi({
             updateFsT();
         }, { passive: false });
         iw.addEventListener('mousedown', (e) => {
+            if (cropper?.isActive()) return;
             if (e.button !== 0) return;
             e.preventDefault();
             isDragging = true;
@@ -3203,6 +3253,7 @@ export function createMediaControllerApi({
         windowRef.addEventListener('mouseup', onUp);
         const cleanup = () => {
             flushNodePreviewState();
+            cropper?.cleanup();
             overlay.remove();
             windowRef.removeEventListener('mousemove', onMove);
             windowRef.removeEventListener('mouseup', onUp);
@@ -3221,11 +3272,18 @@ export function createMediaControllerApi({
         });
         const onEsc = (e) => {
             if (e.key === 'Escape') {
+                if (cropper?.isActive()) {
+                    e.preventDefault();
+                    cropper.setMode(false);
+                    return;
+                }
                 cleanup();
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                if (cropper?.isActive()) return;
                 e.preventDefault();
                 stepFullscreenImage(-1);
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                if (cropper?.isActive()) return;
                 e.preventDefault();
                 stepFullscreenImage(1);
             }

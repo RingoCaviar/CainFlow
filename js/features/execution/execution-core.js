@@ -1480,7 +1480,8 @@ export function createExecutionCoreApi({
                         prompt,
                         aspect,
                         resolution,
-                        generationCount
+                        generationCount,
+                        concurrentRequestStatus: executionContext.concurrentRequestStatus
                     });
                 }
 

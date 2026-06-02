@@ -666,6 +666,7 @@ html[data-app-theme="light"] .node-image-resize .preview-placeholder svg {
 }
 
 html[data-app-theme="light"] .fullscreen-close,
+html[data-app-theme="light"] .fullscreen-crop-btn,
 html[data-app-theme="light"] .fullscreen-paint-btn {
     background: rgba(255, 255, 255, 0.82);
     border-color: rgba(148, 163, 184, 0.28);
@@ -677,7 +678,9 @@ html[data-app-theme="light"] .fullscreen-close:hover {
     background: rgba(255, 255, 255, 0.96);
 }
 
-html[data-app-theme="light"] .fullscreen-paint-btn:hover {
+html[data-app-theme="light"] .fullscreen-paint-btn:hover,
+html[data-app-theme="light"] .fullscreen-crop-btn:hover,
+html[data-app-theme="light"] .fullscreen-overlay.is-cropping .fullscreen-crop-btn {
     background: #2563eb;
     color: #ffffff;
     box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22);

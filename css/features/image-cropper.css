@@ -1,0 +1,140 @@
+/* Fullscreen Image Cropper */
+.fullscreen-overlay.has-crop-action .fullscreen-paint-btn {
+    right: 128px;
+}
+
+.fullscreen-crop-btn {
+    position: absolute;
+    top: 16px;
+    right: 72px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    transition: all var(--transition);
+    z-index: 10;
+}
+
+.fullscreen-crop-btn:hover,
+.fullscreen-overlay.is-cropping .fullscreen-crop-btn {
+    background: #22c55e;
+    color: #03110a;
+    transform: scale(1.1);
+    box-shadow: 0 0 15px rgba(34, 197, 94, 0.4);
+}
+
+.fullscreen-crop-btn.hidden {
+    display: none;
+}
+
+.fullscreen-crop-actions {
+    position: absolute;
+    top: 68px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.86);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+    z-index: 11;
+}
+
+.fullscreen-crop-actions.hidden {
+    display: none;
+}
+
+.fullscreen-crop-action {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.fullscreen-crop-action:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.fullscreen-crop-apply {
+    background: rgba(34, 197, 94, 0.22);
+    border-color: rgba(34, 197, 94, 0.44);
+    color: #bbf7d0;
+}
+
+.fullscreen-crop-apply:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.34);
+    color: white;
+}
+
+.fullscreen-crop-action:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.fullscreen-img-wrapper {
+    position: relative;
+}
+
+.fullscreen-overlay.is-cropping .fullscreen-img-wrapper {
+    cursor: crosshair;
+}
+
+.fullscreen-crop-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    cursor: crosshair;
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.09)) center / 1px 100% no-repeat,
+        linear-gradient(90deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.09)) center / 100% 1px no-repeat,
+        rgba(2, 6, 23, 0.12);
+}
+
+.fullscreen-crop-layer.hidden,
+.fullscreen-crop-box.hidden {
+    display: none;
+}
+
+.fullscreen-crop-hint {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    pointer-events: none;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.fullscreen-crop-box {
+    position: absolute;
+    border: 2px solid #22c55e;
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.26)) 33.333% 0 / 1px 100% no-repeat,
+        linear-gradient(rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.26)) 66.666% 0 / 1px 100% no-repeat,
+        linear-gradient(90deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.26)) 0 33.333% / 100% 1px no-repeat,
+        linear-gradient(90deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.26)) 0 66.666% / 100% 1px no-repeat,
+        rgba(34, 197, 94, 0.14);
+    box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.34) inset;
+    pointer-events: none;
+}

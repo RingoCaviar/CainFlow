@@ -625,6 +625,7 @@ html[data-app-theme="pink"] .node-image-resize .preview-placeholder svg {
 }
 
 html[data-app-theme="pink"] .fullscreen-close,
+html[data-app-theme="pink"] .fullscreen-crop-btn,
 html[data-app-theme="pink"] .fullscreen-paint-btn {
     background: rgba(255, 255, 255, 0.86);
     border-color: rgba(244, 114, 182, 0.24);
@@ -636,7 +637,9 @@ html[data-app-theme="pink"] .fullscreen-close:hover {
     background: rgba(255, 255, 255, 0.98);
 }
 
-html[data-app-theme="pink"] .fullscreen-paint-btn:hover {
+html[data-app-theme="pink"] .fullscreen-paint-btn:hover,
+html[data-app-theme="pink"] .fullscreen-crop-btn:hover,
+html[data-app-theme="pink"] .fullscreen-overlay.is-cropping .fullscreen-crop-btn {
     background: #ec4899;
     color: #ffffff;
     box-shadow: 0 12px 24px rgba(236, 72, 153, 0.22);
