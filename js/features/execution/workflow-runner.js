@@ -682,7 +682,9 @@ export function createWorkflowRunnerApi({
 
             node.data = node.data || {};
             node.imageData = image;
+            node.imageDataList = [image];
             node.data.image = image;
+            delete node.data.images;
             node.imageImportAssetKey = key;
             node.data.imageImportAssetKey = key;
             return image;

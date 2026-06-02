@@ -1490,10 +1490,27 @@ export function createMediaControllerApi({
             else delete node.data.image;
             renderImageImportUrlState(nodeId, node.imageUrl || '');
         } else {
-            if (node.imageData) node.data.image = node.imageData;
-            else delete node.data.image;
+            const imageList = normalizeImageList([
+                node.imageData,
+                node.data?.image,
+                node.imageDataList,
+                node.data?.images
+            ]);
+            const imageData = imageList[0] || null;
+            if (imageData) {
+                node.imageData = imageData;
+                node.imageDataList = imageList;
+                node.data.image = imageData;
+                if (imageList.length > 1) node.data.images = imageList.slice();
+                else delete node.data.images;
+            } else {
+                node.imageData = null;
+                node.imageDataList = [];
+                delete node.data.image;
+                delete node.data.images;
+            }
             if (node.imageImportAssetKey) node.data.imageImportAssetKey = node.imageImportAssetKey;
-            renderImageImportUploadState(nodeId, node.imageData || null);
+            renderImageImportUploadState(nodeId, imageData);
         }
 
         if (refreshDependents) {

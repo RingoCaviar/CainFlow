@@ -707,14 +707,14 @@ export function createExecutionCoreApi({
         if (node.importMode === 'url') {
             return node.imageUrl || node.data?.image || undefined;
         }
-        const imageDataList = normalizeImageList(node.imageDataList);
-        const imageList = imageDataList.length > 0
-            ? imageDataList
-            : normalizeImageList(node.data?.images);
-        return node.imageData
-            || node.data?.image
-            || imageList[0]
-            || undefined;
+        const imageList = normalizeImageList([
+            node.imageData,
+            node.data?.image,
+            node.imageDataList,
+            node.data?.images,
+            node.generatedImages
+        ]);
+        return imageList[0] || undefined;
     }
 
     function isFixedTextChatWithCachedResult(node) {
