@@ -7,13 +7,16 @@ import {
     isKnownModelProtocol,
     MODEL_PROTOCOL_IDS
 } from './model-protocol-registry.js';
+import { normalizeImageList } from './execution-data-utils.js';
 
 const VALID_PROTOCOLS = new Set(MODEL_PROTOCOL_IDS);
 
 function getImageInputKeys(inputs = {}) {
     return Object.keys(inputs)
-        .filter((key) => /^image_\d+$/.test(key))
+        .filter((key) => key === 'image' || /^image_\d+$/.test(key))
         .sort((a, b) => {
+            if (a === 'image') return -1;
+            if (b === 'image') return 1;
             const numA = parseInt(a.slice('image_'.length), 10) || 0;
             const numB = parseInt(b.slice('image_'.length), 10) || 0;
             return numA - numB;
@@ -371,6 +374,11 @@ function appendOpenAiPath(base, path) {
     return `${base}${path}`;
 }
 
+function replaceOpenAiImageGenerationPath(endpoint) {
+    const normalizedEndpoint = normalizeProviderEndpointUrl(endpoint);
+    return normalizedEndpoint.replace(/\/images\/generations(?=$|[?#])/i, '/images/edits');
+}
+
 function appendUnifiedVideoPath(base, path) {
     const normalizedBase = normalizeUnifiedVideoBase(base);
     if (!normalizedBase) return `/v1${path}`;
@@ -392,7 +400,7 @@ function appendQueryParam(url, key, value) {
 }
 
 function hasOpenAiReferenceImages(inputs = {}) {
-    return getImageInputKeys(inputs).some((key) => typeof inputs[key] === 'string' && inputs[key].trim());
+    return getImageInputKeys(inputs).some((key) => normalizeImageList(inputs[key]).length > 0);
 }
 
 export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
@@ -403,6 +411,9 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
             const action = options.action || 'create';
             if (action === 'query') return appendOpenAiPath(normalizeOpenAiAutoCompleteBase(endpoint), `/videos/${encodeURIComponent(options.imageTaskId || options.taskId || '')}`);
             return endpoint;
+        }
+        if (taskType === 'image' && protocol === 'openai' && hasOpenAiReferenceImages(options.inputs)) {
+            return replaceOpenAiImageGenerationPath(endpoint);
         }
         if (taskType === 'video') {
             const action = options.action || 'create';
@@ -462,12 +473,12 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
 export function getInputInlineParts(inputs = {}) {
     const parts = [];
     getImageInputKeys(inputs).forEach((key) => {
-        const value = inputs[key];
-        if (!value) return;
-        const match = value.match(/^data:(.+?);base64,(.+)$/);
-        if (match) {
-            parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-        }
+        normalizeImageList(inputs[key]).forEach((value) => {
+            const match = value.match(/^data:(.+?);base64,(.+)$/);
+            if (match) {
+                parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+            }
+        });
     });
     return parts;
 }
@@ -475,7 +486,9 @@ export function getInputInlineParts(inputs = {}) {
 export function getOpenAiImageContents(inputs = {}) {
     const imageContents = [];
     getImageInputKeys(inputs).forEach((key) => {
-        if (inputs[key]) imageContents.push({ type: 'image_url', image_url: { url: inputs[key] } });
+        normalizeImageList(inputs[key]).forEach((imageUrl) => {
+            imageContents.push({ type: 'image_url', image_url: { url: imageUrl } });
+        });
     });
     return imageContents;
 }
@@ -548,13 +561,11 @@ function normalizeOpenAiImageBackground(background) {
 
 function getOpenAiReferenceImages(inputs = {}) {
     return getImageInputKeys(inputs)
-        .map((key) => inputs[key])
-        .filter((value) => typeof value === 'string' && value.trim());
+        .flatMap((key) => normalizeImageList(inputs[key]));
 }
 
 function getImageInputUrl(inputs = {}, key = '') {
-    const value = inputs[key];
-    return typeof value === 'string' && value.trim() ? value.trim() : '';
+    return normalizeImageList(inputs[key])[0] || '';
 }
 
 function getUnifiedVideoFrameImages(inputs = {}) {
@@ -579,8 +590,7 @@ function getDoubaoVideoReferenceImages(inputs = {}) {
             const index = parseInt(key.slice('image_'.length), 10) || 0;
             return index >= 3;
         })
-        .map((key) => getImageInputUrl(inputs, key))
-        .filter(Boolean);
+        .flatMap((key) => normalizeImageList(inputs[key]));
 }
 
 function addDoubaoImageContent(content, url, role) {

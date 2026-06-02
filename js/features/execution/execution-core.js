@@ -1254,8 +1254,10 @@ export function createExecutionCoreApi({
 
     function getReferenceImageInputs(inputs = {}) {
         return Object.keys(inputs)
-            .filter((key) => /^image_\d+$/.test(key))
+            .filter((key) => key === 'image' || /^image_\d+$/.test(key))
             .sort((a, b) => {
+                if (a === 'image') return -1;
+                if (b === 'image') return 1;
                 const numA = parseInt(a.slice('image_'.length), 10) || 0;
                 const numB = parseInt(b.slice('image_'.length), 10) || 0;
                 return numA - numB;
