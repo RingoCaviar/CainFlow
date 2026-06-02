@@ -2977,6 +2977,13 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     background: var(--panel-accent-bg);
 }
 
+.context-menu-item.is-disabled,
+.context-menu-item.is-disabled:hover {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: transparent;
+}
+
 .context-menu-item.is-open {
     background: var(--panel-active-bg);
 }

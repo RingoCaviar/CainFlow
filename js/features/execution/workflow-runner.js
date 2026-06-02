@@ -544,7 +544,7 @@ export function createWorkflowRunnerApi({
             if (!node || node.enabled === false) continue;
             if (!completed.has(nodeId) && plan.scopeNodeSet?.has(nodeId)) continue;
 
-            if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+            if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
                 protectedIds.add(nodeId);
             } else if (isNodeResultFixed(nodeId) && hasImageResultInMemory(node)) {
                 protectedIds.add(nodeId);
@@ -568,6 +568,8 @@ export function createWorkflowRunnerApi({
             delete node.data.images;
             delete node.data.image;
             delete node.data.imagePromptList;
+            delete node.data.compareImageA;
+            delete node.data.compareImageB;
         }
         node.imageData = null;
         node.imageDataList = [];

@@ -811,6 +811,22 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        if (normalizedType === 'ImageCompare') {
+            const restoredCompareA = typeof effectiveRestoreData?.compareImageA === 'string' && effectiveRestoreData.compareImageA.trim()
+                ? effectiveRestoreData.compareImageA
+                : '';
+            const restoredCompareB = typeof effectiveRestoreData?.compareImageB === 'string' && effectiveRestoreData.compareImageB.trim()
+                ? effectiveRestoreData.compareImageB
+                : (typeof effectiveRestoreData?.imageData === 'string' && effectiveRestoreData.imageData.trim() ? effectiveRestoreData.imageData : '');
+            nodeData.compareImageA = restoredCompareA || null;
+            nodeData.compareImageB = restoredCompareB || null;
+            if (restoredCompareA) nodeData.data.compareImageA = restoredCompareA;
+            if (restoredCompareB) {
+                nodeData.data.compareImageB = restoredCompareB;
+                nodeData.data.image = restoredCompareB;
+                nodeData.imageData = restoredCompareB;
+            }
+        }
         if (normalizedType === 'ImageGenerate' || normalizedType === 'VideoGenerate' || normalizedType === 'TextChat') {
             nodeData.referenceImageCount = getReferenceImageCount(effectiveRestoreData);
             nodeData.data.referenceImageCount = nodeData.referenceImageCount;
@@ -1132,15 +1148,19 @@ export function createNodeLifecycleApi({
                         });
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageCompare') {
-                        nodeData.compareImageB = data;
+                        const restoredCompareA = nodeData.compareImageA || null;
+                        const restoredCompareB = nodeData.compareImageB || data;
+                        nodeData.compareImageB = restoredCompareB;
+                        nodeData.data.compareImageB = restoredCompareB;
+                        if (restoredCompareA) nodeData.data.compareImageA = restoredCompareA;
                         const compareContainer = el.querySelector(`#${id}-compare`);
                         if (typeof renderImageComparePreview === 'function') {
-                            renderImageComparePreview(id, null, data);
+                            renderImageComparePreview(id, restoredCompareA, restoredCompareB);
                         } else if (compareContainer) {
                             compareContainer.classList.add('has-images');
-                            compareContainer.innerHTML = `<img class="image-compare-img image-compare-b" src="${data}" alt="B 输入图片" draggable="false" />`;
+                            compareContainer.innerHTML = `<img class="image-compare-img image-compare-b" src="${restoredCompareB}" alt="B 输入图片" draggable="false" />`;
                         }
-                        showResolutionBadge(id, data);
+                        showResolutionBadge(id, restoredCompareB);
                         onConnectionsChanged();
                     }
                     scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);

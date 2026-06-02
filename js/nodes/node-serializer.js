@@ -56,6 +56,17 @@ export function createNodeSerializer({ state, documentRef }) {
             if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
             }
+            if (node.type === 'ImageCompare') {
+                const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
+                    ? node.compareImageA
+                    : (typeof node.data?.compareImageA === 'string' ? node.data.compareImageA : '');
+                const compareImageB = typeof node.compareImageB === 'string' && node.compareImageB.trim()
+                    ? node.compareImageB
+                    : (typeof node.data?.compareImageB === 'string' ? node.data.compareImageB : '');
+                if (compareImageA) serialized.compareImageA = compareImageA;
+                if (compareImageB) serialized.compareImageB = compareImageB;
+                if (compareImageB && !serialized.imageData) serialized.imageData = compareImageB;
+            }
 
             if (node.type === 'ImageImport') {
                 serialized.importMode = documentRef.getElementById(`${id}-import-mode`)?.value || node.importMode || 'upload';

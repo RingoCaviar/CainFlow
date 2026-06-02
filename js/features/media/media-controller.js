@@ -1792,6 +1792,10 @@ export function createMediaControllerApi({
         node.compareImageA = nextImageA || null;
         node.compareImageB = nextImageB || null;
         node.data = node.data || {};
+        if (nextImageA) node.data.compareImageA = nextImageA;
+        else delete node.data.compareImageA;
+        if (nextImageB) node.data.compareImageB = nextImageB;
+        else delete node.data.compareImageB;
 
         if (!nextImageB) {
             node.imageData = null;
@@ -2974,7 +2978,17 @@ export function createMediaControllerApi({
             openAdvancedImageCompare(id);
         });
 
-        void syncImageCompareNode(id);
+        const node = getNodeById(id);
+        if (node?.compareImageB || node?.data?.compareImageB || node?.data?.image) {
+            const imageA = node.compareImageA || node.data?.compareImageA || null;
+            const imageB = node.compareImageB || node.data?.compareImageB || node.data?.image || node.imageData || null;
+            node.compareImageA = imageA || null;
+            node.compareImageB = imageB || null;
+            renderImageComparePreview(id, imageA, imageB);
+            if (imageB) void showResolutionBadge(id, imageB);
+        } else {
+            void syncImageCompareNode(id);
+        }
     }
 
     function adjustPreviewZoom(nodeId, factor) {

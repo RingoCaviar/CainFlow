@@ -904,6 +904,12 @@ function getContextMenuControllerApi() {
             detachCloneNode: (nodeId) => getNodeLifecycleApi().detachCloneNode(nodeId),
             renameNode,
             runWorkflow,
+            getRunConflictInfo: (runInput) => {
+                const workflowName = workflowManagerApi.getActiveWorkflowName();
+                if (!workflowName) return { blocked: false, count: 0, nodeIds: [] };
+                const workflowData = workflowManagerApi.getActiveWorkflowSnapshot();
+                return getWorkflowRuntimeManagerApi().getRunConflictInfo(workflowName, workflowData, runInput);
+            },
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             updateAllConnections,

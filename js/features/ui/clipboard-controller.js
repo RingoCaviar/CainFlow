@@ -50,6 +50,17 @@ export function createClipboardControllerApi({
         if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageResize' || node.type === 'ImageCompare') {
             serialized.imageData = node.data.image || node.imageData || null;
         }
+        if (node.type === 'ImageCompare') {
+            const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
+                ? node.compareImageA
+                : (typeof node.data?.compareImageA === 'string' ? node.data.compareImageA : '');
+            const compareImageB = typeof node.compareImageB === 'string' && node.compareImageB.trim()
+                ? node.compareImageB
+                : (typeof node.data?.compareImageB === 'string' ? node.data.compareImageB : '');
+            if (compareImageA) serialized.compareImageA = compareImageA;
+            if (compareImageB) serialized.compareImageB = compareImageB;
+            if (compareImageB && !serialized.imageData) serialized.imageData = compareImageB;
+        }
         if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
             const images = Array.isArray(node.data?.images)
                 ? node.data.images.filter((item) => typeof item === 'string' && item.trim())

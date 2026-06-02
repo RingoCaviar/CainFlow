@@ -319,6 +319,7 @@ export function createWorkflowManagerApi({
         const runtimeNodes = Array.isArray(runtime.nodes) ? runtime.nodes : [];
         const baseNodeIds = options.baseNodeIds instanceof Set ? options.baseNodeIds : null;
         const baseConnectionIds = options.baseConnectionIds instanceof Set ? options.baseConnectionIds : null;
+        const mergeNodeIds = options.mergeNodeIds instanceof Set ? options.mergeNodeIds : null;
         const mergedNodeIds = new Set();
         const runtimeNodeById = new Map(runtimeNodes.map((node) => [node?.id, node]).filter(([id]) => id));
         const mergedNodes = [];
@@ -326,7 +327,8 @@ export function createWorkflowManagerApi({
         (Array.isArray(current.nodes) ? current.nodes : []).forEach((node) => {
             if (!node?.id) return;
             const runtimeNode = runtimeNodeById.get(node.id);
-            mergedNodes.push(runtimeNode ? cloneWorkflowItem(runtimeNode) : node);
+            const shouldMergeRuntimeNode = runtimeNode && (!mergeNodeIds || mergeNodeIds.has(node.id));
+            mergedNodes.push(shouldMergeRuntimeNode ? cloneWorkflowItem(runtimeNode) : node);
             mergedNodeIds.add(node.id);
             runtimeNodeById.delete(node.id);
         });
@@ -1581,7 +1583,7 @@ export function createWorkflowManagerApi({
     }
 
     async function applyWorkflowData(data, options = {}) {
-        const { saveSession = true, keepRunningLock = false } = options;
+        const { saveSession = true } = options;
         const modelResolution = resolveWorkflowModelReferences(data, state);
         const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
         if (warningMessage && !(await confirmWorkflowAction({
@@ -1613,12 +1615,6 @@ export function createWorkflowManagerApi({
 
         if (modelResolution.nodes?.length) {
             for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
-        }
-
-        if (keepRunningLock || getActiveWorkflowTab()?.running === true) {
-            state.nodes.forEach((node) => {
-                node.el?.classList.add('workflow-running-locked');
-            });
         }
 
         if (data.connections?.length) {
@@ -2190,7 +2186,8 @@ export function createWorkflowManagerApi({
             const nextData = options.mergeRunResults === true
                 ? mergeRunWorkflowData(sourceData, data, {
                     baseNodeIds: options.baseNodeIds,
-                    baseConnectionIds: options.baseConnectionIds
+                    baseConnectionIds: options.baseConnectionIds,
+                    mergeNodeIds: options.mergeNodeIds
                 })
                 : cloneWorkflowData(data);
             let tab = getWorkflowTab(name);

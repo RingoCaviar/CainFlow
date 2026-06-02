@@ -12,6 +12,7 @@ export function createContextMenuControllerApi({
     detachCloneNode = null,
     renameNode = null,
     runWorkflow,
+    getRunConflictInfo = () => ({ blocked: false, count: 0 }),
     buildNodeRequestPreview = null,
     createNodeFromConnectionCandidate,
     updateAllConnections,
@@ -56,9 +57,27 @@ export function createContextMenuControllerApi({
         const divider = documentRef.getElementById('context-menu-node-divider');
         const targetNode = state.contextMenuNodeId ? state.nodes.get(state.contextMenuNodeId) : null;
         const isCloneTarget = targetNode?.isClone === true;
+        const targetRunConflict = hasNodeTarget
+            ? getRunConflictInfo({ mode: 'target-node', targetNodeId: state.contextMenuNodeId })
+            : { blocked: false, count: 0 };
+        const selectedRunConflict = hasSelection
+            ? getRunConflictInfo({ mode: 'selected-only', selectedNodeIds: Array.from(state.selectedNodes) })
+            : { blocked: false, count: 0 };
+
+        const applyRunActionState = (element, conflict, defaultTitle) => {
+            if (!element) return;
+            const blocked = conflict?.blocked === true;
+            element.classList.toggle('is-disabled', blocked);
+            element.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+            element.title = blocked
+                ? `当前运行线路上有 ${conflict.count || 1} 个节点仍在运行`
+                : defaultTitle;
+        };
 
         setElementVisible(runToHereItem, hasNodeTarget);
         setElementVisible(runSelectedItem, hasSelection);
+        applyRunActionState(runToHereItem, targetRunConflict, '运行到此节点');
+        applyRunActionState(runSelectedItem, selectedRunConflict, '只运行选中的节点');
         setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));
@@ -389,6 +408,11 @@ export function createContextMenuControllerApi({
         if (!item) return;
         if (item.dataset.submenuTarget) {
             openContextSubmenu(item);
+            return;
+        }
+        if (item.classList.contains('is-disabled') || item.getAttribute('aria-disabled') === 'true') {
+            showToast?.(item.title || '当前运行范围内有节点正在运行，请等待完成后再运行', 'warning');
+            closeContextMenu();
             return;
         }
 

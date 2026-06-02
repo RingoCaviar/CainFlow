@@ -143,6 +143,17 @@ function serializeRuntimeNode(node, doc) {
         if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
             serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
         }
+        if (node.type === 'ImageCompare') {
+            const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
+                ? node.compareImageA
+                : (typeof node.data?.compareImageA === 'string' ? node.data.compareImageA : '');
+            const compareImageB = typeof node.compareImageB === 'string' && node.compareImageB.trim()
+                ? node.compareImageB
+                : (typeof node.data?.compareImageB === 'string' ? node.data.compareImageB : '');
+            if (compareImageA) serialized.compareImageA = compareImageA;
+            if (compareImageB) serialized.compareImageB = compareImageB;
+            if (compareImageB && !serialized.imageData) serialized.imageData = compareImageB;
+        }
     }
 
     if (node.type === 'ImageImport') {
@@ -356,6 +367,7 @@ export function createWorkflowRuntimeManager({
     const workflowRunContexts = new Map();
     const workflowRunViewTimers = new Map();
     const workflowRunViewNodeIds = new Set();
+    let workflowRunContextSeq = 0;
 
     function syncGlobalRunToolbarState() {
         let activeRunCount = workflowRunContexts.size;
@@ -380,8 +392,37 @@ export function createWorkflowRuntimeManager({
         }
     }
 
+    function getWorkflowRunContexts(workflowName) {
+        return Array.from(workflowRunContexts.values())
+            .filter((context) => context.workflowName === workflowName);
+    }
+
     function getWorkflowRunContext(workflowName) {
-        return workflowRunContexts.get(workflowName) || null;
+        return getWorkflowRunContexts(workflowName)[0] || null;
+    }
+
+    function getWorkflowRunContextForNode(workflowName, nodeId) {
+        return getWorkflowRunContexts(workflowName)
+            .find((context) => context.state?.runningNodeIds?.has(nodeId)) || null;
+    }
+
+    function getActivePlanNodeIds(workflowName) {
+        const nodeIds = new Set();
+        getWorkflowRunContexts(workflowName).forEach((context) => {
+            if (context.activePlanNodeIds instanceof Set) {
+                context.activePlanNodeIds.forEach((nodeId) => nodeIds.add(nodeId));
+            }
+        });
+        return nodeIds;
+    }
+
+    function getPlanOverlapNodeIds(workflowName, nodeIds = []) {
+        const activePlanNodeIds = getActivePlanNodeIds(workflowName);
+        return Array.from(nodeIds).filter((nodeId) => activePlanNodeIds.has(nodeId));
+    }
+
+    function isWorkflowRunning(workflowName) {
+        return getWorkflowRunContexts(workflowName).length > 0;
     }
 
     function recordRuntimeNodeRunState(context, payload = {}) {
@@ -513,7 +554,7 @@ export function createWorkflowRuntimeManager({
             workflowRunViewNodeIds.add(nodeId);
             state.runningNodeIds.add(nodeId);
             state.runningNodeCancelHandlers.set(nodeId, () => {
-                const context = getWorkflowRunContext(workflowName);
+                const context = getWorkflowRunContextForNode(workflowName, nodeId);
                 return context?.runner?.cancelRunningNode?.(nodeId) || false;
             });
             node.runStartedAt = startedAt;
@@ -555,18 +596,20 @@ export function createWorkflowRuntimeManager({
     }
 
     function refreshVisibleWorkflowRunState(workflowName = state.activeWorkflowName) {
-        const context = getWorkflowRunContext(workflowName);
-        clearWorkflowRunView({ keepLock: !!context });
-        if (!context?.state?.runningNodeIds || context.state.runningNodeIds.size === 0) {
+        const contexts = getWorkflowRunContexts(workflowName);
+        clearWorkflowRunView({ keepLock: contexts.length > 0 });
+        if (contexts.length === 0) {
             return;
         }
-        context.state.runningNodeIds.forEach((nodeId) => {
-            const runtimeNode = context.state.nodes.get(nodeId);
-            applyVisibleNodeRunState(workflowName, {
-                nodeId,
-                status: 'running',
-                running: true,
-                startedAt: runtimeNode?.runStartedAt || Date.now()
+        contexts.forEach((context) => {
+            context.state.runningNodeIds?.forEach((nodeId) => {
+                const runtimeNode = context.state.nodes.get(nodeId);
+                applyVisibleNodeRunState(workflowName, {
+                    nodeId,
+                    status: 'running',
+                    running: true,
+                    startedAt: runtimeNode?.runStartedAt || Date.now()
+                });
             });
         });
     }
@@ -627,6 +670,10 @@ export function createWorkflowRuntimeManager({
                 node.compareImageA = imageA || null;
                 node.compareImageB = imageB || null;
                 node.data = node.data || {};
+                if (imageA) node.data.compareImageA = imageA;
+                else delete node.data.compareImageA;
+                if (imageB) node.data.compareImageB = imageB;
+                else delete node.data.compareImageB;
                 if (imageB) {
                     node.imageData = imageB;
                     node.data.image = imageB;
@@ -705,6 +752,10 @@ export function createWorkflowRuntimeManager({
                 node.compareImageB = imageB || null;
                 node.imageData = imageB || null;
                 node.data = node.data || {};
+                if (imageA) node.data.compareImageA = imageA;
+                else delete node.data.compareImageA;
+                if (imageB) node.data.compareImageB = imageB;
+                else delete node.data.compareImageB;
                 if (imageB) node.data.image = imageB;
                 else delete node.data.image;
             }
@@ -716,17 +767,30 @@ export function createWorkflowRuntimeManager({
         const data = context.serialize();
         const applyToCanvas = state.activeWorkflowName === context.workflowName && options.applyToCanvas === true;
         const mergeRunResults = options.mergeRunResults !== false;
+        const mergeNodeIds = options.mergeNodeIds instanceof Set ? options.mergeNodeIds : context.activePlanNodeIds;
         return getWorkflowManagerApi()?.updateWorkflowTabData?.(context.workflowName, data, {
             dirty: options.dirty !== false,
             applyToCanvas,
             mergeRunResults,
             mergeWithCanvas: mergeRunResults && state.activeWorkflowName === context.workflowName,
             baseNodeIds: context.baseNodeIds,
-            baseConnectionIds: context.baseConnectionIds
+            baseConnectionIds: context.baseConnectionIds,
+            mergeNodeIds
+        });
+    }
+
+    function syncRuntimeNodeSnapshot(context, nodeId, options = {}) {
+        if (!context?.workflowName || !nodeId) return false;
+        return syncRuntimeWorkflowSnapshot(context, {
+            dirty: options.dirty !== false,
+            applyToCanvas: options.applyToCanvas !== false,
+            mergeRunResults: true,
+            mergeNodeIds: new Set([nodeId])
         });
     }
 
     function createWorkflowRuntimeContext(workflowName, workflowData) {
+        const contextId = `${workflowName}::${Date.now()}::${workflowRunContextSeq += 1}`;
         const runtimeState = createInitialState();
         const runtimeDocument = documentRef.implementation.createHTMLDocument(`CainFlow Runtime - ${workflowName}`);
         WORKFLOW_RUNTIME_STATE_KEYS.forEach((key) => {
@@ -921,21 +985,26 @@ export function createWorkflowRuntimeManager({
             getImageHistorySidebarActive: () => documentRef.getElementById('history-sidebar')?.classList.contains('active')
         });
         const context = {
+            id: contextId,
             workflowName,
             state: runtimeState,
             elements: runtimeElements,
             baseNodeIds: new Set(data.nodes.map((node) => node?.id).filter(Boolean)),
             baseConnectionIds: new Set(data.connections.map((connection, index) => getWorkflowConnectionIdentity(connection, index))),
+            activePlanNodeIds: new Set(),
             nodeRunStarted: false,
             runResult: '',
             abortReason: null,
             dispose() {
                 runtimeState.nodes.forEach((node) => cleanupElementResources(node.el));
                 runtimeElements.wrapper?.remove();
-                workflowRunContexts.delete(workflowName);
+                workflowRunContexts.delete(contextId);
             },
             serialize() {
                 return serializeRuntimeWorkflow(runtimeState, runtimeDocument, workflowData?.version || '1.3');
+            },
+            resolveExecutionPlan(runInput) {
+                return runtimeExecutionCoreApi.resolveExecutionPlan(runInput);
             }
         };
         runtimeRunnerApi = createWorkflowRunnerApi({
@@ -971,6 +1040,12 @@ export function createWorkflowRuntimeManager({
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
                 applyVisibleNodeRunState(workflowName, payload);
+                if (payload?.status === 'completed' && payload.nodeId) {
+                    syncRuntimeNodeSnapshot(context, payload.nodeId, {
+                        dirty: true,
+                        applyToCanvas: true
+                    });
+                }
             }
         });
         context.runner = runtimeRunnerApi;
@@ -991,18 +1066,29 @@ export function createWorkflowRuntimeManager({
         });
         runtimeConnectionsApi.updateAllConnections();
         runtimeConnectionsApi.updatePortStyles();
-        workflowRunContexts.set(workflowName, context);
+        workflowRunContexts.set(contextId, context);
         return context;
     }
 
     async function runWorkflowInContext(workflowName, workflowData, runInput = null) {
-        const existingContext = workflowRunContexts.get(workflowName);
-        if (existingContext?.state?.activeRunCount > 0 || existingContext?.state?.isRunStarting) {
-            showToast(`工作流「${workflowName}」正在运行，请等待它完成后再运行`, 'warning');
+        const context = createWorkflowRuntimeContext(workflowName, workflowData);
+        const plan = context.resolveExecutionPlan(runInput);
+        if (!plan) {
+            context.dispose();
+            syncGlobalRunToolbarState();
+            return false;
+        }
+        const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
+            .filter((nodeId) => context.state.nodes.get(nodeId)?.enabled !== false);
+        const overlappingNodeIds = getPlanOverlapNodeIds(workflowName, runnableNodeIds);
+        if (overlappingNodeIds.length > 0) {
+            context.dispose();
+            showToast(`当前运行线路上有 ${overlappingNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
+            syncGlobalRunToolbarState();
             return false;
         }
 
-        const context = createWorkflowRuntimeContext(workflowName, workflowData);
+        context.activePlanNodeIds = new Set(runnableNodeIds);
         getWorkflowManagerApi()?.setWorkflowRunningState?.(workflowName, true);
         syncGlobalRunToolbarState();
 
@@ -1020,8 +1106,10 @@ export function createWorkflowRuntimeManager({
                 syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
             } finally {
                 const runResult = deriveWorkflowRunResult(context, runError);
-                getWorkflowManagerApi()?.setWorkflowRunningState?.(workflowName, false);
-                if (runResult) {
+                context.activePlanNodeIds.clear();
+                const stillRunning = getWorkflowRunContexts(workflowName).some((entry) => entry !== context);
+                getWorkflowManagerApi()?.setWorkflowRunningState?.(workflowName, stillRunning);
+                if (runResult && !stillRunning) {
                     getWorkflowManagerApi()?.setWorkflowRunResult?.(workflowName, runResult);
                 }
                 if (state.activeWorkflowName === workflowName) {
@@ -1033,6 +1121,28 @@ export function createWorkflowRuntimeManager({
             }
         })();
         return true;
+    }
+
+    function getRunConflictInfo(workflowName, workflowData, runInput = null) {
+        if (!workflowName || getWorkflowRunContexts(workflowName).length === 0) {
+            return { blocked: false, count: 0, nodeIds: [] };
+        }
+        const context = createWorkflowRuntimeContext(workflowName, workflowData);
+        workflowRunContexts.delete(context.id);
+        try {
+            const plan = context.resolveExecutionPlan(runInput);
+            if (!plan) return { blocked: false, count: 0, nodeIds: [] };
+            const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
+                .filter((nodeId) => context.state.nodes.get(nodeId)?.enabled !== false);
+            const overlapNodeIds = getPlanOverlapNodeIds(workflowName, runnableNodeIds);
+            return {
+                blocked: overlapNodeIds.length > 0,
+                count: overlapNodeIds.length,
+                nodeIds: overlapNodeIds
+            };
+        } finally {
+            context.dispose();
+        }
     }
 
     function abortAllWorkflowRuns(reason = 'manual') {
@@ -1067,6 +1177,7 @@ export function createWorkflowRuntimeManager({
         abortAllWorkflowRuns,
         applyVisibleNodeRunState,
         cancelRunningNode,
+        getRunConflictInfo,
         refreshVisibleWorkflowRunState,
         runWorkflowInContext,
         syncGlobalRunToolbarState
