@@ -136,6 +136,22 @@ export function createSessionManagerApi({
                 }))
                 : [];
             data.activeWorkflowName = state.activeWorkflowName || '';
+            data.workflowOrder = Array.isArray(state.workflowOrder)
+                ? state.workflowOrder.filter((name) => typeof name === 'string' && name)
+                : [];
+            data.workflowFolders = Array.isArray(state.workflowFolders)
+                ? state.workflowFolders
+                    .map((folder) => ({
+                        id: typeof folder?.id === 'string' ? folder.id : '',
+                        name: typeof folder?.name === 'string' ? folder.name : '',
+                        collapsed: folder?.collapsed === true,
+                        items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
+                    }))
+                    .filter((folder) => folder.id && folder.name)
+                : [];
+            data.workflowSidebarWidth = Number.isFinite(Number(state.workflowSidebarWidth)) && Number(state.workflowSidebarWidth) > 0
+                ? Math.round(Number(state.workflowSidebarWidth))
+                : 320;
             serializedData = JSON.stringify(data);
             localStorageRef.setItem(storageKey, serializedData);
             saveUiBootstrapState();

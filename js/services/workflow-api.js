@@ -18,7 +18,23 @@ export async function fetchWorkflows() {
         console.error(result.message);
         return [];
     }
-    return result.json();
+    const payload = await result.json();
+    return Array.isArray(payload) ? payload : (Array.isArray(payload?.workflows) ? payload.workflows : []);
+}
+
+export async function fetchWorkflowEntries() {
+    const result = await requestWorkflow('/api/workflows', undefined, '读取工作流列表失败');
+    if (result?.ok === false) {
+        console.error(result.message);
+        return { workflows: [], folders: [] };
+    }
+    const payload = await result.json();
+    return Array.isArray(payload)
+        ? { workflows: payload, folders: [] }
+        : {
+            workflows: Array.isArray(payload?.workflows) ? payload.workflows : [],
+            folders: Array.isArray(payload?.folders) ? payload.folders : []
+        };
 }
 
 export async function saveWorkflowToFile(name, data) {
@@ -62,6 +78,36 @@ export async function renameWorkflowFile(oldName, newName) {
         '重命名工作流失败'
     );
     return result?.ok === false ? result : true;
+}
+
+export async function createWorkflowFolder(name) {
+    const result = await requestWorkflow(
+        `/api/workflow-folders/${encodeURIComponent(name)}`,
+        { method: 'POST' },
+        '新建工作流文件夹失败'
+    );
+    return result?.ok === false ? result : true;
+}
+
+export async function renameWorkflowFolder(oldName, newName) {
+    const result = await requestWorkflow(
+        `/api/workflow-folders/${encodeURIComponent(oldName)}`,
+        {
+            method: 'POST',
+            headers: { 'x-rename-to': encodeURIComponent(newName) }
+        },
+        '重命名工作流文件夹失败'
+    );
+    return result?.ok === false ? result : result.json();
+}
+
+export async function deleteWorkflowFolder(name, { deleteContents = false } = {}) {
+    const result = await requestWorkflow(
+        `/api/workflow-folders/${encodeURIComponent(name)}?delete_contents=${deleteContents ? '1' : '0'}`,
+        { method: 'DELETE' },
+        '删除工作流文件夹失败'
+    );
+    return result?.ok === false ? result : result.json();
 }
 
 export async function clearWorkflowFiles() {

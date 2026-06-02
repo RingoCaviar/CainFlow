@@ -2947,7 +2947,8 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     display: none;
 }
 
-#workflow-context-menu {
+#workflow-context-menu,
+#workflow-folder-context-menu {
     z-index: 12000;
 }
 
@@ -6040,6 +6041,51 @@ body.sidebar-pinned #side-bar::after {
     transform: none;
 }
 
+#workflow-sidebar {
+    left: calc(-1 * var(--workflow-sidebar-width, 320px) - 24px);
+    width: var(--workflow-sidebar-width, 320px);
+}
+
+#workflow-sidebar.active {
+    left: 60px;
+}
+
+.workflow-sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -5px;
+    bottom: 0;
+    width: 10px;
+    cursor: ew-resize;
+    z-index: 2;
+}
+
+.workflow-sidebar-resize-handle::before {
+    content: '';
+    position: absolute;
+    top: 14px;
+    bottom: 14px;
+    left: 4px;
+    width: 1px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.workflow-sidebar-resize-handle:hover::before,
+body.workflow-sidebar-resizing .workflow-sidebar-resize-handle::before {
+    background: var(--accent-primary);
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.45);
+}
+
+body.workflow-sidebar-resizing {
+    cursor: ew-resize;
+}
+
+body.workflow-sidebar-resizing * {
+    user-select: none !important;
+}
+
 .workflow-list {
     display: flex;
     flex-direction: column;
@@ -6078,6 +6124,115 @@ body.sidebar-pinned #side-bar::after {
     padding-left: 38px;
     --workflow-item-active-offset: 0px;
     --workflow-item-hover-offset: 0px;
+}
+
+.workflow-list.workflow-list-dragging {
+    cursor: grabbing;
+}
+
+.workflow-list.workflow-list-dragging .workflow-item {
+    --workflow-item-active-offset: 0px;
+    --workflow-item-hover-offset: 0px;
+    transition: transform 0.12s ease, opacity 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.workflow-item.is-dragging {
+    opacity: 0.55;
+    border-style: dashed;
+    cursor: grabbing;
+}
+
+.workflow-folder {
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1px solid var(--workflow-card-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.workflow-folder.is-drop-target,
+.workflow-folder-children.is-drop-target {
+    border-color: var(--accent-primary);
+    background: rgba(168, 85, 247, 0.12);
+}
+
+.workflow-folder.is-root-drop-target {
+    border-color: var(--accent-green);
+    background: rgba(16, 185, 129, 0.12);
+}
+
+.workflow-folder-toggle {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--accent-cyan);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    cursor: pointer;
+}
+
+.workflow-folder-toggle:hover {
+    background: var(--panel-control-bg);
+}
+
+.workflow-folder-caret {
+    transition: transform 0.16s ease;
+}
+
+.workflow-folder:not(.is-collapsed) .workflow-folder-caret {
+    transform: rotate(90deg);
+}
+
+.workflow-folder-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.workflow-folder-count {
+    min-width: 22px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--panel-control-bg);
+    color: var(--text-dim);
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.workflow-folder-children {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 18px;
+    margin: -4px 0 2px 14px;
+    padding: 8px 0 2px 12px;
+    border-left: 1px dashed var(--panel-border-strong);
+}
+
+.workflow-folder-children.hidden {
+    display: none;
+}
+
+.workflow-item.is-nested {
+    min-height: 48px;
 }
 
 .workflow-item::before {
@@ -6186,6 +6341,10 @@ body.sidebar-pinned #side-bar::after {
     --workflow-item-hover-offset: 4px;
 }
 
+.workflow-list.workflow-list-dragging .workflow-item:hover {
+    --workflow-item-hover-offset: 0px;
+}
+
 .workflow-item-name {
     font-size: 13.5px;
     font-weight: 500;
@@ -6217,45 +6376,6 @@ body.sidebar-pinned #side-bar::after {
 
 .workflow-item.is-dirty .workflow-dirty-dot {
     transform: scale(1);
-}
-
-.workflow-item-actions {
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.workflow-item:hover .workflow-item-actions {
-    opacity: 1;
-}
-
-.workflow-action-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    background: var(--panel-control-bg);
-    border: 1px solid var(--panel-control-border);
-    border-radius: 8px;
-    color: var(--panel-control-text);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.workflow-action-btn:hover {
-    background: var(--panel-accent-bg);
-    border-color: var(--panel-accent-border);
-    color: var(--panel-accent-text);
-    transform: scale(1.1);
-}
-
-.workflow-action-btn.delete:hover {
-    background: rgba(239, 68, 68, 0.15);
-    border-color: rgba(239, 68, 68, 0.4);
-    color: var(--accent-red);
 }
 
 .save-workflow-box {

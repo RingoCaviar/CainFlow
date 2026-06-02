@@ -750,6 +750,15 @@
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
                 </button>
+                <button id="btn-new-workflow-folder" class="icon-btn" title="新建文件夹">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v2"></path>
+                        <path d="M3 11h18l-2 8H5L3 11z"></path>
+                        <line x1="12" y1="13" x2="12" y2="17"></line>
+                        <line x1="10" y1="15" x2="14" y2="15"></line>
+                    </svg>
+                </button>
                 <button id="btn-close-other-workflows" class="icon-btn" title="关闭其他工作流">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round">
@@ -779,7 +788,8 @@
                 <button id="btn-delete-active-workflow" class="btn btn-danger">删除</button>
             </div>
         </div>
-            </div>
+        <div id="workflow-sidebar-resize-handle" class="workflow-sidebar-resize-handle" aria-hidden="true"></div>
+    </div>
 
     <!-- Cache Sidebar -->
     <div id="cache-sidebar" class="drawer drawer-left">
@@ -1423,6 +1433,23 @@
             重命名
         </div>
         <div class="context-menu-item delete" id="menu-delete-workflow">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            删除
+        </div>
+    </div>
+
+    <div id="workflow-folder-context-menu" class="context-menu hidden">
+        <div class="context-menu-item" id="menu-rename-workflow-folder">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            重命名
+        </div>
+        <div class="context-menu-item delete" id="menu-delete-workflow-folder">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />

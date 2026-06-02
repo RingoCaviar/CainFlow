@@ -388,16 +388,40 @@ def is_safe_url(url, allow_private_network_targets=False):
         return False
 
 
-def get_safe_path(name):
-    safe_name = os.path.basename(name)
-    if not safe_name or safe_name in ('.', '..'):
+def _normalize_workflow_relative_path(name):
+    raw = str(name or '').replace('\\', '/').strip().strip('/')
+    if not raw:
         return None
-    filepath = os.path.join(config.WORKFLOWS_DIR, f'{safe_name}.json')
+    parts = [part.strip() for part in raw.split('/') if part.strip()]
+    if not parts or any(part in ('.', '..') for part in parts):
+        return None
+    if any(any(char in part for char in '<>:"|?*') for part in parts):
+        return None
+    return parts
+
+
+def get_safe_path(name):
+    parts = _normalize_workflow_relative_path(name)
+    if not parts:
+        return None
+    filepath = os.path.join(config.WORKFLOWS_DIR, *parts) + '.json'
     abs_root = os.path.abspath(config.WORKFLOWS_DIR)
     abs_file = os.path.abspath(filepath)
-    if not abs_file.startswith(abs_root):
+    if not abs_file.startswith(abs_root + os.sep) and abs_file != abs_root:
         return None
     return filepath
+
+
+def get_safe_folder_path(name):
+    parts = _normalize_workflow_relative_path(name)
+    if not parts:
+        return None
+    folderpath = os.path.join(config.WORKFLOWS_DIR, *parts)
+    abs_root = os.path.abspath(config.WORKFLOWS_DIR)
+    abs_folder = os.path.abspath(folderpath)
+    if not abs_folder.startswith(abs_root + os.sep):
+        return None
+    return folderpath
 
 
 """提供代理健康检查、URL 基础校验和工作流路径安全能力。"""

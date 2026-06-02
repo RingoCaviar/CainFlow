@@ -120,6 +120,14 @@
 - `js/services/workflow-api.js` 负责重命名请求封装；名称通过请求头传递时要做编码，避免中文或特殊字符在链路中出问题。
 - 后端冲突处理放在 `backend/routes/workflow_routes.py` 与 `backend/services/workflow_service.py`：目标工作流已存在时应明确返回冲突，而不是静默覆盖。
 
+### 工作流文件夹约定
+
+- 工作流分组使用 `workflows/` 下的真实文件夹，工作流名允许使用 `文件夹/工作流名` 这样的相对路径，对应磁盘文件是 `workflows/文件夹/工作流名.json`。
+- 工作流自身名称全局唯一：`A` 与 `任意文件夹/A` 视为重名，前端校验和后端保存/重命名都必须按 basename 阻止重复，而不是只检查同一层级路径。
+- `js/features/workflow/workflow-manager.js` 负责文件夹行、展开折叠、右键重命名/删除、拖拽排序和拖入/拖出文件夹；前端持久化只保存排序、折叠、选择等 UI 状态，不把文件夹成员关系伪造成独立配置。
+- `js/services/workflow-api.js` 负责读取 `{ workflows, folders }`、创建/重命名/删除文件夹和工作流重命名移动；向旧调用方暴露的 `fetchWorkflows()` 仍只返回工作流数组。
+- `backend/services/workflow_service.py` 递归列出工作流与文件夹，保存/重命名时创建父目录；删除文件夹时支持删除内部工作流，或只删除文件夹并把内部工作流移动到 `workflows/` 根目录；`backend/services/security_service.py` 必须校验相对路径，禁止 `.`、`..` 和 Windows 非法文件名字符。
+
 ### 启动冲突提示约定
 
 - 源码双击启动的第一层逻辑在 `start_cainflow.bat`，后端统一启动逻辑在 `backend/main.py`，`server.py` 只保留兼容转发；修改本地启动、端口检测、黑色窗口停留或打包直启体验时要同时检查这三处。
@@ -212,7 +220,7 @@
 | 在线更新 | `js/core/constants.js`, `index.js`, `js/features/update/update-manager.js`, `js/features/settings/settings-controller.js` | GitHub Release 版本对比、启动自动检测开关、设置页更新模块显隐、更新提示、直接下载更新、右下角常驻下载进度/速度/百分比通知、取消下载、窗口关闭取消、100% 后重启提示 |
 | 版本读取 | `js/core/constants.js`, `backend/services/version_service.py` | 以 `APP_VERSION_NUMBER` 作为唯一来源；前端展示、静态资源版本、后端启动提示与 User-Agent 都从这条链路读取 |
 | **工作流** | | |
-| 工作流管理 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排；列表按钮与右键菜单共用重命名逻辑，前端负责空名/同名/非法字符/重名校验；保存时只写画布、节点、连线和版本号 |
+| 工作流管理 | `js/features/workflow/workflow-manager.js` | 工作流列表、保存、加载、删除、重命名编排；列表按钮与右键菜单共用重命名逻辑，前端负责空名/同名/非法字符/重名校验；支持工作流拖拽实时排序、创建真实文件夹、文件夹展开折叠、右键重命名/删除文件夹，以及把工作流拖入/拖出 `workflows/` 子目录；保存时只写画布、节点、连线和版本号 |
 
 ### Nodes（节点层）
 
@@ -252,15 +260,15 @@
 | 运行时配置 | `backend/config.py` | 端口、路径、运行时目录、GitHub 仓库与 `MAIN_EXE_PATH` 等配置项 |
 | 运行时状态 | `backend/state.py` | 共享运行时状态与噪音请求过滤 |
 | 设置路由 | `backend/routes/settings_routes.py` | 设置相关 HTTP 请求处理 |
-| 工作流路由 | `backend/routes/workflow_routes.py` | 工作流 CRUD 接口；处理重命名请求与目标已存在冲突返回 |
+| 工作流路由 | `backend/routes/workflow_routes.py` | 工作流 CRUD 接口；处理重命名请求与目标已存在冲突返回；暴露真实工作流文件夹创建、重命名与删除接口 |
 | 更新路由 | `backend/routes/update_routes.py` | 在线更新下载启动、状态查询与取消接口 |
 | 媒体路由 | `backend/routes/media_routes.py` | 视频/媒体下载接口与 `/api/media/recover-image` 响应兜底恢复入口 |
 | HTTP 工具 | `backend/services/http_helpers.py` | JSON 请求体解析与 JSON / 错误响应 |
 | 日志服务 | `backend/services/log_service.py` | 服务端日志收集与管理 |
 | 媒体恢复服务 | `backend/services/media_recovery_service.py` | 从异常、截断或嵌套响应文本中尝试提取 data URL、Gemini inlineData、OpenAI b64_json 等图片数据；失败时返回 attempted/message 供前端日志说明 |
 | 代理服务 | `backend/services/proxy_service.py` | 上游代理与请求转发 |
-| 安全服务 | `backend/services/security_service.py` | 允许主机列表、代理检测、安全路径与 URL 校验；`probe_network_target` 只负责前端网络提醒的单 URL 代探测，不负责整体提醒判断 |
-| 工作流服务 | `backend/services/workflow_service.py` | 工作流列表、读取、保存、重命名、删除；重命名时禁止静默覆盖已有工作流 |
+| 安全服务 | `backend/services/security_service.py` | 允许主机列表、代理检测、安全路径与 URL 校验；工作流路径允许安全相对子路径但禁止目录穿越和非法文件名字符；`probe_network_target` 只负责前端网络提醒的单 URL 代探测，不负责整体提醒判断 |
+| 工作流服务 | `backend/services/workflow_service.py` | 工作流列表、读取、保存、重命名、删除与文件夹创建/重命名/删除；递归维护 `workflows/` 下真实子目录，重命名时禁止静默覆盖已有工作流 |
 | 更新服务 | `backend/services/update_service.py` | GitHub Release ZIP 下载任务、进度/速度/百分比、Release asset size 总量、完成态 100%、取消清理、只提取 `CainFlow.exe`、覆盖 `MAIN_EXE_PATH`、Windows 待替换脚本 |
 
 ---
@@ -282,7 +290,7 @@
 
 | 需求 | 优先检查这些文件 |
 | --- | --- |
-| 修复工作流保存、加载、列表、重命名、删除 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py` |
+| 修复工作流保存、加载、列表、重命名、删除、分组或拖拽排序 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py`, `backend/services/security_service.py`, `css/legacy.css` |
 | 修改 workflow JSON 契约、导入旧工作流模型匹配或缺失模型提示 | `js/nodes/node-serializer.js`, `js/features/workflow/workflow-manager.js`, `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `workflows/Default.json` |
 | 修复工作流执行、节点调度 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` |
 | 修复工作流停止、手动取消、超时或自然完成的日志文案 | `js/features/execution/workflow-runner.js`, `js/services/api-client.js`, `js/features/ui/toolbar-controller.js` |

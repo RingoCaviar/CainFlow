@@ -29,6 +29,7 @@ export function createProjectIoApi({
     applyTheme = () => {},
     applyGlobalAnimationSetting = () => {},
     applyCanvasUiSetting = () => {},
+    applyWorkflowSidebarWidth = () => {},
     clearImageAssets = null,
     clearOrphanedNodeAssets = async () => true,
     cleanupRecoverableNodeAssetCache = null,
@@ -153,7 +154,8 @@ export function createProjectIoApi({
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
                     autoCheckUpdatesOnLoad: currentState.autoCheckUpdatesOnLoad !== undefined ? currentState.autoCheckUpdatesOnLoad : state.autoCheckUpdatesOnLoad,
-                    historyGridCols: currentState.historyGridCols !== undefined ? currentState.historyGridCols : state.historyGridCols
+                    historyGridCols: currentState.historyGridCols !== undefined ? currentState.historyGridCols : state.historyGridCols,
+                    workflowSidebarWidth: currentState.workflowSidebarWidth !== undefined ? currentState.workflowSidebarWidth : state.workflowSidebarWidth
                 };
 
                 localStorageRef.setItem(storageKey, JSON.stringify(mergedData));
@@ -319,6 +321,26 @@ export function createProjectIoApi({
                     }))
                 : [];
             state.activeWorkflowName = typeof data.activeWorkflowName === 'string' ? data.activeWorkflowName : '';
+            state.workflowOrder = Array.isArray(data.workflowOrder)
+                ? data.workflowOrder.filter((name) => typeof name === 'string' && name)
+                : [];
+            state.workflowFolders = Array.isArray(data.workflowFolders)
+                ? data.workflowFolders
+                    .map((folder) => ({
+                        id: typeof folder?.id === 'string' ? folder.id : '',
+                        name: typeof folder?.name === 'string' ? folder.name : '',
+                        collapsed: folder?.collapsed === true,
+                        items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
+                    }))
+                    .filter((folder) => folder.id && folder.name)
+                : [];
+            if (data.workflowSidebarWidth !== undefined) {
+                const workflowSidebarWidth = Number(data.workflowSidebarWidth);
+                if (Number.isFinite(workflowSidebarWidth) && workflowSidebarWidth > 0) {
+                    state.workflowSidebarWidth = Math.round(workflowSidebarWidth);
+                    applyWorkflowSidebarWidth(state.workflowSidebarWidth);
+                }
+            }
             if (data.canvas) {
                 state.canvas.x = data.canvas.x || 0;
                 state.canvas.y = data.canvas.y || 0;

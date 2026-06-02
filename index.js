@@ -708,6 +708,7 @@ function getProjectIoApi() {
             applyTheme: (themeId) => getThemeControllerApi().applyTheme(themeId),
             applyGlobalAnimationSetting,
             applyCanvasUiSetting,
+            applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
             clearImageAssets,
             clearOrphanedNodeAssets,
             cleanupRecoverableNodeAssetCache,
@@ -760,6 +761,7 @@ function getUiControllerApi() {
             initFeatureModules,
             syncOpenWorkflowsBeforeConfigExport: () => workflowManagerApi.snapshotActiveWorkflow(),
             onConfigWorkflowsImported: (workflows) => workflowManagerApi.reloadAfterWorkflowImport(workflows?.[0]?.name || ''),
+            applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
             systemNotificationApi: getSystemNotificationApi()
         });
     }

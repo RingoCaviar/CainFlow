@@ -55,6 +55,7 @@ export function createUiControllerApi({
     initFeatureModules,
     syncOpenWorkflowsBeforeConfigExport = () => {},
     onConfigWorkflowsImported = async () => {},
+    applyWorkflowSidebarWidth = () => {},
     documentRef = document,
     localStorageRef = localStorage,
     indexedDbRef = indexedDB,
@@ -286,6 +287,29 @@ export function createUiControllerApi({
             state.sidebarPinned = settings.sidebarPinned === true;
         }
 
+        if (Array.isArray(settings.workflowOrder)) {
+            state.workflowOrder = settings.workflowOrder.filter((name) => typeof name === 'string' && name);
+        }
+
+        if (Array.isArray(settings.workflowFolders)) {
+            state.workflowFolders = settings.workflowFolders
+                .map((folder) => ({
+                    id: typeof folder?.id === 'string' ? folder.id : '',
+                    name: typeof folder?.name === 'string' ? folder.name : '',
+                    collapsed: folder?.collapsed === true,
+                    items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
+                }))
+                .filter((folder) => folder.id && folder.name);
+        }
+
+        if (settings.workflowSidebarWidth !== undefined) {
+            const workflowSidebarWidth = Number(settings.workflowSidebarWidth);
+            if (Number.isFinite(workflowSidebarWidth) && workflowSidebarWidth > 0) {
+                state.workflowSidebarWidth = Math.round(workflowSidebarWidth);
+                applyWorkflowSidebarWidth(state.workflowSidebarWidth);
+            }
+        }
+
         applyCanvasUiSetting();
 
         if (settings.globalAnimationEnabled !== undefined || settings.connectionFlowAnimationEnabled !== undefined) {
@@ -355,7 +379,21 @@ export function createUiControllerApi({
                 requestTimeoutEnabled: state.requestTimeoutEnabled,
                 requestTimeoutSeconds: state.requestTimeoutSeconds,
                 autoCheckUpdatesOnLoad: state.autoCheckUpdatesOnLoad !== false,
-                historyGridCols: state.historyGridCols
+                historyGridCols: state.historyGridCols,
+                workflowOrder: Array.isArray(state.workflowOrder) ? state.workflowOrder.filter((name) => typeof name === 'string' && name) : [],
+                workflowFolders: Array.isArray(state.workflowFolders)
+                    ? state.workflowFolders
+                        .map((folder) => ({
+                            id: typeof folder?.id === 'string' ? folder.id : '',
+                            name: typeof folder?.name === 'string' ? folder.name : '',
+                            collapsed: folder?.collapsed === true,
+                            items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
+                        }))
+                        .filter((folder) => folder.id && folder.name)
+                    : [],
+                workflowSidebarWidth: Number.isFinite(Number(state.workflowSidebarWidth)) && Number(state.workflowSidebarWidth) > 0
+                    ? Math.round(Number(state.workflowSidebarWidth))
+                    : 320
             };
         }
 
