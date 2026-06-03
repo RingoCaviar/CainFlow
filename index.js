@@ -310,14 +310,43 @@ function hasIncomingImageConnection(nodeId) {
     ));
 }
 
+function hasIncomingImageConnectionInWorkflow(nodeId, connections = []) {
+    return Array.isArray(connections) && connections.some((conn) => (
+        conn?.to?.nodeId === nodeId
+        && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+    ));
+}
+
 function collectRetainedNodeAssetIds() {
     const recoverableDisplayTypes = new Set(['ImagePreview', 'ImageSave', 'ImageCompare']);
-    return new Set(Array.from(state.nodes.values())
+    const ids = new Set(Array.from(state.nodes.values())
         .filter((node) => {
             if (!node?.id) return false;
             return !(recoverableDisplayTypes.has(node.type) && hasIncomingImageConnection(node.id));
         })
         .map((node) => node.id));
+
+    Array.from(state.nodes.values()).forEach((node) => {
+        if (typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
+            ids.add(node.data.imageAssetKey);
+        }
+    });
+
+    (state.workflowTabs || []).forEach((tab) => {
+        const workflowNodes = Array.isArray(tab?.data?.nodes) ? tab.data.nodes : [];
+        const workflowConnections = Array.isArray(tab?.data?.connections) ? tab.data.connections : [];
+        workflowNodes.forEach((node) => {
+            if (!node?.id) return;
+            if (!(recoverableDisplayTypes.has(node.type) && hasIncomingImageConnectionInWorkflow(node.id, workflowConnections))) {
+                ids.add(node.id);
+            }
+            if (typeof node.imageAssetKey === 'string' && node.imageAssetKey) {
+                ids.add(node.imageAssetKey);
+            }
+        });
+    });
+
+    return ids;
 }
 
 async function cleanupRecoverableNodeAssetCache({ refresh = true } = {}) {
@@ -1218,7 +1247,9 @@ const workflowManagerApi = createWorkflowManagerApi({
         updateUndoButton();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
-    onWorkflowViewApplied: (workflowName) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflowName)
+    onWorkflowViewApplied: (workflowName) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflowName),
+    refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
+    waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores()
 });
 settingsControllerApi = createSettingsControllerApi({
     appVersion: APP_VERSION,

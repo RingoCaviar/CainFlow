@@ -21,7 +21,6 @@ export function createSessionManagerApi({
     let lastStorageFailureToastAt = 0;
     const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
     const storageFailureToastIntervalMs = 8000;
-
     let storageTextEncoder = null;
 
     function getStringStorageBytes(value) {
@@ -110,6 +109,40 @@ export function createSessionManagerApi({
         onBeforeSave = typeof callback === 'function' ? callback : () => {};
     }
 
+    function sanitizeNodeForSessionCache(node, options = {}) {
+        if (!node || typeof node !== 'object') return node;
+        const sanitized = { ...node };
+        delete sanitized.images;
+        delete sanitized.imageData;
+        if (options.stripCompareImages === true) {
+            delete sanitized.compareImageA;
+            delete sanitized.compareImageB;
+        }
+        return sanitized;
+    }
+
+    function sanitizeWorkflowDataForSessionCache(workflowData) {
+        if (!workflowData || typeof workflowData !== 'object') return workflowData;
+        const sanitized = { ...workflowData };
+        const incomingImageTargets = new Set(
+            (Array.isArray(workflowData.connections) ? workflowData.connections : [])
+                .filter((connection) => (
+                    connection?.to?.nodeId
+                    && (connection.to.port === 'image' || connection.to.port === 'imageA' || connection.to.port === 'imageB')
+                ))
+                .map((connection) => connection.to.nodeId)
+        );
+        if (Array.isArray(workflowData.nodes)) {
+            sanitized.nodes = workflowData.nodes.map((node) => sanitizeNodeForSessionCache(node, {
+                stripCompareImages: node?.type === 'ImageCompare' && incomingImageTargets.has(node.id)
+            }));
+        }
+        if (Array.isArray(workflowData.connections)) {
+            sanitized.connections = workflowData.connections.map((connection) => ({ ...connection }));
+        }
+        return sanitized;
+    }
+
     function saveUiBootstrapState() {
         try {
             localStorageRef.setItem(uiBootstrapStorageKey, JSON.stringify({
@@ -125,11 +158,11 @@ export function createSessionManagerApi({
         let serializedData = '';
         try {
             onBeforeSave({ dirty: false });
-            const data = nodeSerializer.buildStatePayload();
+            const data = sanitizeWorkflowDataForSessionCache(nodeSerializer.buildStatePayload());
             data.workflowTabs = Array.isArray(state.workflowTabs)
                 ? state.workflowTabs.map((tab) => ({
                     name: tab.name,
-                    data: tab.data,
+                    data: sanitizeWorkflowDataForSessionCache(tab.data),
                     dirty: tab.dirty === true,
                     colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
                     runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
@@ -179,6 +212,16 @@ export function createSessionManagerApi({
 
     function collectActiveNodeAssetIds() {
         const ids = new Set(state.nodes.keys());
+        (state.workflowTabs || []).forEach((tab) => {
+            if (!Array.isArray(tab?.data?.nodes)) return;
+            tab.data.nodes.forEach((node) => {
+                if (!node?.id) return;
+                ids.add(node.id);
+                if (typeof node.imageAssetKey === 'string' && node.imageAssetKey) {
+                    ids.add(node.imageAssetKey);
+                }
+            });
+        });
         state.undoStack.forEach((raw) => {
             try {
                 const snapshot = JSON.parse(raw);

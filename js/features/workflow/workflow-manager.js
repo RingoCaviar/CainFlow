@@ -35,6 +35,8 @@ export function createWorkflowManagerApi({
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
     onWorkflowViewApplied = () => {},
+    refreshRecoverableMediaNodes = async () => {},
+    waitForImageRestores = async () => {},
     documentRef = document,
     windowRef = window,
     localStorageRef = localStorage
@@ -1625,6 +1627,12 @@ export function createWorkflowManagerApi({
         updatePortStyles();
         onConnectionsChanged();
         viewportApi.updateCanvasTransform();
+        try {
+            await waitForImageRestores();
+            await refreshRecoverableMediaNodes();
+        } catch (error) {
+            console.warn('Refresh recoverable media nodes after workflow load failed:', error);
+        }
         await cleanupOpenWorkflowAssets({ includeCanvas: true });
         onWorkflowViewApplied(state.activeWorkflowName || '');
         if (saveSession) scheduleSave();
