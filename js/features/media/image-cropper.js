@@ -1,6 +1,31 @@
 /**
  * Fullscreen image cropper helpers for local ImageImport previews.
  */
+const CROP_RATIO_PRESETS = [
+    { id: 'free', label: '自由比例', ratio: null },
+    { id: 'original', label: '原图比例', ratio: 'original' },
+    { id: '1:1', label: '1:1 正方形', ratio: 1 },
+    { id: '4:3', label: '4:3 横版', ratio: 4 / 3 },
+    { id: '3:4', label: '3:4 竖版', ratio: 3 / 4 },
+    { id: '16:9', label: '16:9 横屏', ratio: 16 / 9 },
+    { id: '9:16', label: '9:16 竖屏', ratio: 9 / 16 },
+    { id: '3:2', label: '3:2 照片', ratio: 3 / 2 },
+    { id: '2:3', label: '2:3 竖照', ratio: 2 / 3 }
+];
+
+function renderCropRatioMenu() {
+    const items = CROP_RATIO_PRESETS.map((preset) => `
+        <div class="context-menu-item fullscreen-crop-ratio-item" data-crop-ratio="${preset.id}" role="menuitemradio" aria-checked="false">
+            <span class="fullscreen-crop-ratio-check" aria-hidden="true"></span>
+            <span class="fullscreen-crop-ratio-label">${preset.label}</span>
+        </div>`).join('');
+    return `
+            <div class="context-menu fullscreen-crop-ratio-menu hidden" role="menu" aria-label="裁剪比例">
+                <div class="context-menu-header">裁剪比例</div>
+                ${items}
+            </div>`;
+}
+
 export function renderFullscreenCropControls(enabled) {
     if (!enabled) return '';
     return `
@@ -10,7 +35,8 @@ export function renderFullscreenCropControls(enabled) {
             <div class="fullscreen-crop-actions hidden" role="toolbar" aria-label="裁剪操作">
                 <button type="button" class="fullscreen-crop-action fullscreen-crop-cancel">取消</button>
                 <button type="button" class="fullscreen-crop-action fullscreen-crop-apply" disabled>应用裁剪</button>
-            </div>`;
+            </div>
+            ${renderCropRatioMenu()}`;
 }
 
 export function renderFullscreenCropLayer(enabled) {
@@ -97,17 +123,52 @@ export function createFullscreenImageCropper({
     const cropActions = overlay?.querySelector('.fullscreen-crop-actions');
     const cropApplyButton = overlay?.querySelector('.fullscreen-crop-apply');
     const cropCancelButton = overlay?.querySelector('.fullscreen-crop-cancel');
+    const cropRatioMenu = overlay?.querySelector('.fullscreen-crop-ratio-menu');
 
     let active = false;
     let selecting = false;
+    let interactionMode = null;
     let startPoint = null;
+    let dragStartPoint = null;
+    let dragStartSelection = null;
     let selection = null;
+    let activeRatioPresetId = 'free';
+    const resizeHandleSize = 18;
 
     const isAvailable = () => Boolean(enabled && cropLayer);
+
+    const getRatioPreset = (presetId = activeRatioPresetId) => (
+        CROP_RATIO_PRESETS.find((preset) => preset.id === presetId) || CROP_RATIO_PRESETS[0]
+    );
+
+    const getActiveRatioValue = () => {
+        const preset = getRatioPreset();
+        if (preset.ratio === 'original') {
+            const width = imageElement?.naturalWidth || 0;
+            const height = imageElement?.naturalHeight || 0;
+            return width > 0 && height > 0 ? width / height : null;
+        }
+        return Number.isFinite(preset.ratio) && preset.ratio > 0 ? preset.ratio : null;
+    };
+
+    const refreshRatioMenuState = () => {
+        cropRatioMenu?.querySelectorAll('[data-crop-ratio]').forEach((item) => {
+            const selected = item.dataset.cropRatio === activeRatioPresetId;
+            item.classList.toggle('is-active', selected);
+            item.setAttribute('aria-checked', selected ? 'true' : 'false');
+        });
+    };
+
+    const closeRatioMenu = () => {
+        cropRatioMenu?.classList.add('hidden');
+    };
 
     const resetSelection = () => {
         selection = null;
         startPoint = null;
+        dragStartPoint = null;
+        dragStartSelection = null;
+        interactionMode = null;
         if (cropBox) {
             cropBox.classList.add('hidden');
             cropBox.style.left = '0px';
@@ -126,10 +187,13 @@ export function createFullscreenImageCropper({
         }
         active = enabledMode;
         selecting = false;
+        interactionMode = null;
         overlay?.classList.toggle('is-cropping', active);
         cropLayer?.classList.toggle('hidden', !active);
         cropActions?.classList.toggle('hidden', !active);
         if (wrapperElement) wrapperElement.style.cursor = active ? 'crosshair' : 'grab';
+        if (cropLayer) cropLayer.style.cursor = active ? 'crosshair' : '';
+        closeRatioMenu();
         resetSelection();
     };
 
@@ -161,19 +225,216 @@ export function createFullscreenImageCropper({
             && point.y <= imageRect.bottom;
     };
 
-    const updateSelection = (point) => {
-        if (!startPoint || !cropBox) return;
-        const left = Math.min(startPoint.x, point.x);
-        const top = Math.min(startPoint.y, point.y);
-        const width = Math.abs(point.x - startPoint.x);
-        const height = Math.abs(point.y - startPoint.y);
-        selection = { left, top, width, height };
+    const isValidSelection = () => Boolean(selection && selection.width >= 2 && selection.height >= 2);
+
+    const isPointInsideSelection = (point) => (
+        isValidSelection()
+        && point.x >= selection.left
+        && point.x <= selection.left + selection.width
+        && point.y >= selection.top
+        && point.y <= selection.top + selection.height
+    );
+
+    const isPointOnResizeHandle = (point) => (
+        isValidSelection()
+        && point.x >= selection.left + selection.width - resizeHandleSize
+        && point.x <= selection.left + selection.width + 4
+        && point.y >= selection.top + selection.height - resizeHandleSize
+        && point.y <= selection.top + selection.height + 4
+    );
+
+    const clampSelectionToImage = (nextSelection) => {
+        const imageRect = getVisibleImageRect();
+        const width = Math.max(0, Math.min(nextSelection.width, imageRect.right - imageRect.left));
+        const height = Math.max(0, Math.min(nextSelection.height, imageRect.bottom - imageRect.top));
+        return {
+            left: Math.max(imageRect.left, Math.min(imageRect.right - width, nextSelection.left)),
+            top: Math.max(imageRect.top, Math.min(imageRect.bottom - height, nextSelection.top)),
+            width,
+            height
+        };
+    };
+
+    const getConstrainedPoint = (point) => {
+        if (!startPoint) return point;
+        const ratio = getActiveRatioValue();
+        if (!ratio) return point;
+
+        const imageRect = getVisibleImageRect();
+        const dx = point.x - startPoint.x;
+        const dy = point.y - startPoint.y;
+        const directionX = dx < 0 ? -1 : 1;
+        const directionY = dy < 0 ? -1 : 1;
+        const maxWidth = directionX > 0 ? imageRect.right - startPoint.x : startPoint.x - imageRect.left;
+        const maxHeight = directionY > 0 ? imageRect.bottom - startPoint.y : startPoint.y - imageRect.top;
+        let width = Math.abs(dx);
+        let height = Math.abs(dy);
+
+        if (width <= 0 && height <= 0) {
+            return { ...startPoint };
+        }
+        if (width / Math.max(height, 1) > ratio) {
+            height = width / ratio;
+        } else {
+            width = height * ratio;
+        }
+        if (width > maxWidth) {
+            width = maxWidth;
+            height = width / ratio;
+        }
+        if (height > maxHeight) {
+            height = maxHeight;
+            width = height * ratio;
+        }
+
+        return {
+            x: startPoint.x + (Math.max(0, width) * directionX),
+            y: startPoint.y + (Math.max(0, height) * directionY)
+        };
+    };
+
+    const renderSelection = (nextSelection) => {
+        if (!cropBox) return;
+        selection = clampSelectionToImage(nextSelection);
+        const { left, top, width, height } = selection;
         cropBox.style.left = `${left}px`;
         cropBox.style.top = `${top}px`;
         cropBox.style.width = `${width}px`;
         cropBox.style.height = `${height}px`;
         cropBox.classList.toggle('hidden', width < 2 || height < 2);
         if (cropApplyButton) cropApplyButton.disabled = width < 8 || height < 8;
+    };
+
+    const updateSelection = (point) => {
+        if (!startPoint || !cropBox) return;
+        const constrainedPoint = getConstrainedPoint(point);
+        renderSelection({
+            left: Math.min(startPoint.x, constrainedPoint.x),
+            top: Math.min(startPoint.y, constrainedPoint.y),
+            width: Math.abs(constrainedPoint.x - startPoint.x),
+            height: Math.abs(constrainedPoint.y - startPoint.y)
+        });
+    };
+
+    const resizeSelectionToActiveRatio = () => {
+        const ratio = getActiveRatioValue();
+        if (!ratio || !selection || selection.width < 2 || selection.height < 2) return;
+        const imageRect = getVisibleImageRect();
+        const anchor = {
+            x: selection.left,
+            y: selection.top
+        };
+        let width = selection.width;
+        let height = width / ratio;
+        if (height > selection.height) {
+            height = selection.height;
+            width = height * ratio;
+        }
+        if (anchor.x + width > imageRect.right) width = Math.max(0, imageRect.right - anchor.x);
+        if (anchor.y + height > imageRect.bottom) height = Math.max(0, imageRect.bottom - anchor.y);
+        if (width / Math.max(height, 1) > ratio) width = height * ratio;
+        else height = width / ratio;
+        renderSelection({
+            left: anchor.x,
+            top: anchor.y,
+            width,
+            height
+        });
+    };
+
+    const moveSelection = (point) => {
+        if (!dragStartPoint || !dragStartSelection) return;
+        renderSelection({
+            left: dragStartSelection.left + point.x - dragStartPoint.x,
+            top: dragStartSelection.top + point.y - dragStartPoint.y,
+            width: dragStartSelection.width,
+            height: dragStartSelection.height
+        });
+    };
+
+    const resizeSelectionFromHandle = (point) => {
+        if (!dragStartSelection) return;
+        const imageRect = getVisibleImageRect();
+        const ratio = getActiveRatioValue();
+        const anchor = {
+            x: dragStartSelection.left,
+            y: dragStartSelection.top
+        };
+        let width = Math.max(2, Math.min(point.x, imageRect.right) - anchor.x);
+        let height = Math.max(2, Math.min(point.y, imageRect.bottom) - anchor.y);
+
+        if (ratio) {
+            if (width / Math.max(height, 1) > ratio) {
+                height = width / ratio;
+            } else {
+                width = height * ratio;
+            }
+            if (anchor.x + width > imageRect.right) {
+                width = imageRect.right - anchor.x;
+                height = width / ratio;
+            }
+            if (anchor.y + height > imageRect.bottom) {
+                height = imageRect.bottom - anchor.y;
+                width = height * ratio;
+            }
+        }
+
+        renderSelection({
+            left: anchor.x,
+            top: anchor.y,
+            width,
+            height
+        });
+    };
+
+    const positionRatioMenu = (event) => {
+        if (!cropRatioMenu) return;
+        const gap = 6;
+        cropRatioMenu.style.left = `${event.clientX}px`;
+        cropRatioMenu.style.top = `${event.clientY}px`;
+        cropRatioMenu.classList.remove('hidden');
+        const rect = cropRatioMenu.getBoundingClientRect();
+        const maxLeft = Math.max(gap, windowRef.innerWidth - rect.width - gap);
+        const maxTop = Math.max(gap, windowRef.innerHeight - rect.height - gap);
+        cropRatioMenu.style.left = `${Math.min(Math.max(gap, event.clientX), maxLeft)}px`;
+        cropRatioMenu.style.top = `${Math.min(Math.max(gap, event.clientY), maxTop)}px`;
+    };
+
+    const openRatioMenu = (event) => {
+        if (!cropRatioMenu || !active) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const wrapperRect = wrapperElement.getBoundingClientRect();
+        const rawPoint = {
+            x: event.clientX - wrapperRect.left,
+            y: event.clientY - wrapperRect.top
+        };
+        if (isValidSelection() ? !isPointInsideSelection(rawPoint) : !isPointInsideVisibleImage(rawPoint)) {
+            closeRatioMenu();
+            return;
+        }
+        selecting = false;
+        refreshRatioMenuState();
+        positionRatioMenu(event);
+    };
+
+    const setRatioPreset = (presetId, { closeMenu = true } = {}) => {
+        activeRatioPresetId = getRatioPreset(presetId).id;
+        refreshRatioMenuState();
+        if (closeMenu) closeRatioMenu();
+        resizeSelectionToActiveRatio();
+    };
+
+    const updateLayerCursor = (point) => {
+        if (!active || !cropLayer) return;
+        if (selecting) return;
+        if (isPointOnResizeHandle(point)) {
+            cropLayer.style.cursor = 'nwse-resize';
+        } else if (isPointInsideSelection(point)) {
+            cropLayer.style.cursor = 'move';
+        } else {
+            cropLayer.style.cursor = 'crosshair';
+        }
     };
 
     const applySelection = async () => {
@@ -242,6 +503,7 @@ export function createFullscreenImageCropper({
         if (event.button !== 0 || !active) return;
         event.preventDefault();
         event.stopPropagation();
+        closeRatioMenu();
         const wrapperRect = wrapperElement.getBoundingClientRect();
         const rawPoint = {
             x: event.clientX - wrapperRect.left,
@@ -249,17 +511,59 @@ export function createFullscreenImageCropper({
         };
         if (!isPointInsideVisibleImage(rawPoint)) return;
         selecting = true;
-        startPoint = getCropPoint(event);
-        updateSelection(startPoint);
+        const point = getCropPoint(event);
+        if (isPointOnResizeHandle(rawPoint)) {
+            interactionMode = 'resize';
+            dragStartSelection = { ...selection };
+            startPoint = {
+                x: selection.left,
+                y: selection.top
+            };
+            resizeSelectionFromHandle(point);
+        } else if (isPointInsideSelection(rawPoint)) {
+            interactionMode = 'move';
+            dragStartPoint = point;
+            dragStartSelection = { ...selection };
+        } else {
+            interactionMode = 'draw';
+            startPoint = point;
+            updateSelection(startPoint);
+        }
     };
 
     const handleMouseMove = (event) => {
-        if (!selecting) return;
-        updateSelection(getCropPoint(event));
+        const point = getCropPoint(event);
+        if (!selecting) {
+            updateLayerCursor(point);
+            return;
+        }
+        if (interactionMode === 'move') {
+            moveSelection(point);
+        } else if (interactionMode === 'resize') {
+            resizeSelectionFromHandle(point);
+        } else {
+            updateSelection(point);
+        }
     };
 
     const handleMouseUp = () => {
         selecting = false;
+        interactionMode = null;
+        dragStartPoint = null;
+        dragStartSelection = null;
+    };
+
+    const handleDocumentPointerDown = (event) => {
+        if (!cropRatioMenu || cropRatioMenu.classList.contains('hidden')) return;
+        if (cropRatioMenu.contains(event.target)) return;
+        closeRatioMenu();
+    };
+
+    const handleKeyDown = (event) => {
+        if (event.key !== 'Escape' || !cropRatioMenu || cropRatioMenu.classList.contains('hidden')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation?.();
+        closeRatioMenu();
     };
 
     cropButton?.addEventListener('click', (event) => {
@@ -275,14 +579,43 @@ export function createFullscreenImageCropper({
         void applySelection();
     });
     cropLayer?.addEventListener('mousedown', handleLayerMouseDown);
+    cropLayer?.addEventListener('contextmenu', openRatioMenu);
+    cropRatioMenu?.addEventListener('pointerdown', (event) => {
+        const item = event.target.closest('[data-crop-ratio]');
+        if (!item || !cropRatioMenu.contains(item)) return;
+        event.preventDefault();
+        event.stopPropagation();
+    });
+    cropRatioMenu?.addEventListener('pointerup', (event) => {
+        const item = event.target.closest('[data-crop-ratio]');
+        if (!item || !cropRatioMenu.contains(item)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setRatioPreset(item.dataset.cropRatio, { closeMenu: false });
+        windowRef.setTimeout(closeRatioMenu, 0);
+    });
+    cropRatioMenu?.addEventListener('click', (event) => {
+        const item = event.target.closest('[data-crop-ratio]');
+        if (item && cropRatioMenu.contains(item)) {
+            setRatioPreset(item.dataset.cropRatio);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    });
     windowRef.addEventListener('mousemove', handleMouseMove);
     windowRef.addEventListener('mouseup', handleMouseUp);
+    documentRef.addEventListener('pointerdown', handleDocumentPointerDown);
+    documentRef.addEventListener('keydown', handleKeyDown);
+    refreshRatioMenuState();
 
     const cleanup = () => {
         setMode(false);
         cropLayer?.removeEventListener('mousedown', handleLayerMouseDown);
+        cropLayer?.removeEventListener('contextmenu', openRatioMenu);
         windowRef.removeEventListener('mousemove', handleMouseMove);
         windowRef.removeEventListener('mouseup', handleMouseUp);
+        documentRef.removeEventListener('pointerdown', handleDocumentPointerDown);
+        documentRef.removeEventListener('keydown', handleKeyDown);
     };
 
     return {
