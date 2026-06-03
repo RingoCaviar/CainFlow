@@ -722,8 +722,9 @@ export function createIndexedDbApi(getState) {
         }
     }
 
-    function toHistoryMetadata(entry) {
+    function toHistoryMetadata(entry, options = {}) {
         if (!entry) return null;
+        const includeThumbs = options.includeThumbs !== false;
         if (entry.image && !entry.imageAssetKey && entry.id !== undefined) {
             scheduleHistoryAssetMigration(entry);
         }
@@ -731,7 +732,7 @@ export function createIndexedDbApi(getState) {
         return {
             id: entry.id,
             mediaType,
-            thumb: entry.thumb || '',
+            thumb: includeThumbs ? (entry.thumb || '') : '',
             prompt: entry.prompt || '',
             model: entry.model || '',
             timestamp: entry.timestamp || 0,
@@ -839,6 +840,7 @@ export function createIndexedDbApi(getState) {
             const limit = Number.isFinite(options.limit) ? Math.max(0, Number(options.limit)) : Infinity;
             if (limit === 0) return [];
             const direction = options.newestFirst === false ? 'next' : 'prev';
+            const includeThumbs = options.includeThumbs !== false;
             const db = await openDB();
             const tx = db.transaction(STORE_HISTORY, 'readonly');
             const store = tx.objectStore(STORE_HISTORY);
@@ -853,7 +855,7 @@ export function createIndexedDbApi(getState) {
                         return;
                     }
 
-                    const metadata = toHistoryMetadata(cursor.value);
+                    const metadata = toHistoryMetadata(cursor.value, { includeThumbs });
                     if (metadata) items.push(metadata);
                     if (items.length >= limit) {
                         resolve();

@@ -18,6 +18,7 @@ export function createHistoryPanelApi({
 }) {
     const SIDEBAR_LIMIT = 100;
     let renderToken = 0;
+    let sidebarObserver = null;
 
     function applyHistoryGridCols(cols) {
         let normalized = Number(cols) || 2;
@@ -71,6 +72,29 @@ export function createHistoryPanelApi({
     function updateSelectedCount() {
         const countEl = documentRef.getElementById('selected-count');
         if (countEl) countEl.textContent = state.selectedHistoryIds.size;
+    }
+
+    function releaseHistoryList() {
+        renderToken += 1;
+        const list = documentRef.getElementById('history-list');
+        const countBadge = documentRef.getElementById('history-total-count');
+        if (list) list.replaceChildren();
+        if (countBadge) countBadge.textContent = '';
+    }
+
+    function ensureSidebarObserver() {
+        if (sidebarObserver || typeof MutationObserver !== 'function') return;
+        const sidebar = documentRef.getElementById('history-sidebar');
+        if (!sidebar) return;
+        sidebarObserver = new MutationObserver(() => {
+            if (!sidebar.classList.contains('active')) {
+                releaseHistoryList();
+            }
+        });
+        sidebarObserver.observe(sidebar, {
+            attributes: true,
+            attributeFilter: ['class']
+        });
     }
 
     function bindHistoryListEvents(list, itemsById) {
@@ -135,6 +159,7 @@ export function createHistoryPanelApi({
     }
 
     async function renderHistoryList() {
+        ensureSidebarObserver();
         const token = ++renderToken;
         const list = documentRef.getElementById('history-list');
         const countBadge = documentRef.getElementById('history-total-count');

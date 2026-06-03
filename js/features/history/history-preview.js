@@ -425,7 +425,7 @@ export function createHistoryPreviewApi({
         previewState.items = [item];
         previewState.currentIndex = 0;
         const contentPromise = updatePreviewContent(item);
-        const history = await getHistoryMetadata();
+        const history = await getHistoryMetadata({ includeThumbs: false });
         previewState.items = history.length ? history : [item];
         previewState.currentIndex = history.findIndex((entry) => entry.id === item.id);
         if (previewState.currentIndex < 0) previewState.currentIndex = 0;

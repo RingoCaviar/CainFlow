@@ -777,18 +777,14 @@ export function createMediaControllerApi({
 
     function setImageElementSource(img, src, alt, options = {}) {
         if (!img) return;
-        const { cursor = '', className = '', originalSrc = '', useThumbnail = true } = options;
+        const { cursor = '', className = '', useThumbnail = true } = options;
         const shouldUseThumbnail = useThumbnail && isInlineImageData(src);
         if (className) img.className = className;
         img.draggable = false;
         img.loading = 'lazy';
         img.decoding = 'async';
         img.alt = alt;
-        if (originalSrc) {
-            img.dataset.originalSrc = originalSrc;
-        } else {
-            delete img.dataset.originalSrc;
-        }
+        delete img.dataset.originalSrc;
         if (cursor) img.style.cursor = cursor;
         else img.style.removeProperty('cursor');
         if (shouldUseThumbnail) {
@@ -906,10 +902,7 @@ export function createMediaControllerApi({
 
         removeElements(container, `.${placeholderClass}`);
         const img = ensureElement(container, 'img', () => documentRef.createElement('img'));
-        setImageElementSource(img, image, `${altPrefix} ${index + 1}/${total}`, {
-            cursor,
-            originalSrc: image
-        });
+        setImageElementSource(img, image, `${altPrefix} ${index + 1}/${total}`, { cursor });
 
         if (hasMultiple) {
             ensureElement(container, '.image-save-preview-prev', () => createPreviewNavButton(-1));
@@ -931,15 +924,13 @@ export function createMediaControllerApi({
         removeElements(container, '.preview-placeholder');
         const imageBEl = ensureElement(container, '.image-compare-b', () => documentRef.createElement('img'));
         setImageElementSource(imageBEl, imageB, 'B 输入图片', {
-            className: 'image-compare-img image-compare-b',
-            originalSrc: imageB
+            className: 'image-compare-img image-compare-b'
         });
 
         if (typeof imageA === 'string' && imageA.trim()) {
             const imageAEl = ensureElement(container, '.image-compare-a', () => documentRef.createElement('img'));
             setImageElementSource(imageAEl, imageA, 'A 输入图片', {
-                className: 'image-compare-img image-compare-a',
-                originalSrc: imageA
+                className: 'image-compare-img image-compare-a'
             });
             ensureElement(container, '.image-compare-divider', () => {
                 const divider = documentRef.createElement('div');
@@ -1292,7 +1283,7 @@ export function createMediaControllerApi({
             dropZone.innerHTML = '';
             const img = documentRef.createElement('img');
             img.style.pointerEvents = 'none';
-            setImageElementSource(img, imageData, '已导入图片', { originalSrc: imageData });
+            setImageElementSource(img, imageData, '已导入图片');
             dropZone.appendChild(img);
             showResolutionBadge(nodeId, imageData);
         } else {
@@ -1394,7 +1385,7 @@ export function createMediaControllerApi({
         if (preview) {
             preview.innerHTML = '';
             const img = documentRef.createElement('img');
-            setImageElementSource(img, result.dataUrl, '缩放结果预览', { originalSrc: result.dataUrl });
+            setImageElementSource(img, result.dataUrl, '缩放结果预览');
             preview.appendChild(img);
         }
         if (sizeLabel) {
@@ -2155,7 +2146,7 @@ export function createMediaControllerApi({
             e.stopPropagation();
             if (state.justDragged) return;
             const img = previewContainer.querySelector('img');
-            const source = getNodePreviewSourceData(getNodeById(id)) || img?.dataset?.originalSrc || img?.src || '';
+            const source = getNodePreviewSourceData(getNodeById(id)) || img?.getAttribute('src') || '';
             if (source) openFullscreenPreview(source, id);
         });
 
@@ -2953,7 +2944,6 @@ export function createMediaControllerApi({
             const currentImage = images[currentIndex] || src || '';
             const candidates = normalizeImageList([
                 currentImage,
-                img?.dataset?.originalSrc,
                 context.node.imageData,
                 context.node.data?.image,
                 context.node.imageDataList,
@@ -3006,9 +2996,7 @@ export function createMediaControllerApi({
                     });
 
                     const thumbImage = documentRef.createElement('img');
-                    setImageElementSource(thumbImage, imageSrc, `缩略图 ${index + 1}`, {
-                        originalSrc: imageSrc
-                    });
+                    setImageElementSource(thumbImage, imageSrc, `缩略图 ${index + 1}`);
                     thumbImage.alt = `缩略图 ${index + 1}`;
                     button.appendChild(thumbImage);
 

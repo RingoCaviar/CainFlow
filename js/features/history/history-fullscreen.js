@@ -43,6 +43,7 @@ export function createHistoryFullscreenApi({
         thumbQueue: [],
         queuedThumbIds: new Set(),
         hydratingThumbs: false,
+        version: 0,
         layout: {
             width: 0,
             columns: 1,
@@ -50,6 +51,7 @@ export function createHistoryFullscreenApi({
             totalHeight: 0
         }
     };
+    let modalObserver = null;
 
     function getEls() {
         return {
@@ -193,6 +195,45 @@ export function createHistoryFullscreenApi({
         if (list) list.replaceChildren();
     }
 
+    function releaseViewState() {
+        viewState.items = [];
+        viewState.itemMap = new Map();
+        viewState.groups = [];
+        viewState.rows = [];
+        viewState.activeGroupId = null;
+        viewState.thumbQueue = [];
+        viewState.queuedThumbIds.clear();
+        viewState.hydratingThumbs = false;
+        viewState.renderedRangeKey = '';
+        if (viewState.renderFrame) {
+            windowRef.cancelAnimationFrame(viewState.renderFrame);
+            viewState.renderFrame = 0;
+        }
+    }
+
+    function ensureModalObserver() {
+        if (modalObserver || typeof MutationObserver !== 'function') return;
+        const { modal, list, timeline, count, summary } = getEls();
+        if (!modal) return;
+        modalObserver = new MutationObserver(() => {
+            if (!modal.classList.contains('hidden')) return;
+            if (viewState.items.length === 0 && viewState.thumbQueue.length === 0) return;
+            viewState.version += 1;
+            if (list) {
+                clearRenderedRows(list);
+                list.style.height = '';
+            }
+            if (timeline) timeline.innerHTML = '';
+            if (count) count.textContent = '0';
+            if (summary) summary.textContent = '按大概时间分组浏览历史记录';
+            releaseViewState();
+        });
+        modalObserver.observe(modal, {
+            attributes: true,
+            attributeFilter: ['class']
+        });
+    }
+
     function createVirtualRowElement(row) {
         const template = documentRef.createElement('template');
         template.innerHTML = renderVirtualRow(row).trim();
@@ -285,17 +326,23 @@ export function createHistoryFullscreenApi({
     }
 
     async function processThumbQueue() {
+        const version = viewState.version;
         const item = viewState.thumbQueue.shift();
         if (!item) {
-            viewState.hydratingThumbs = false;
+            if (version === viewState.version) {
+                viewState.hydratingThumbs = false;
+            }
             return;
         }
 
         try {
             const entry = await getHistoryEntry(item.id);
+            if (version !== viewState.version) return;
             if (entry?.image) {
                 const thumb = entry.thumb || await createThumbnail(entry.image);
+                if (version !== viewState.version) return;
                 if (!entry.thumb) await updateHistoryThumb(item.id, thumb, entry);
+                if (version !== viewState.version) return;
                 item.thumb = thumb;
                 viewState.itemMap.set(item.id, item);
                 const img = documentRef.querySelector(`#history-fullscreen-list .history-card[data-id="${item.id}"] img`);
@@ -307,6 +354,10 @@ export function createHistoryFullscreenApi({
         } catch (error) {
             console.warn('Hydrate fullscreen history thumbnail failed:', error);
         } finally {
+            if (version !== viewState.version) {
+                viewState.hydratingThumbs = false;
+                return;
+            }
             setTimeout(processThumbQueue, 16);
         }
     }
@@ -369,9 +420,11 @@ export function createHistoryFullscreenApi({
     }
 
     async function refresh() {
+        const version = ++viewState.version;
         viewState.thumbQueue = [];
         viewState.queuedThumbIds.clear();
-        viewState.items = await getHistoryMetadata();
+        viewState.items = await getHistoryMetadata({ includeThumbs: false });
+        if (version !== viewState.version) return;
         viewState.itemMap = new Map(viewState.items.map((item) => [item.id, item]));
         viewState.groups = groupHistoryItems(viewState.items);
         if (!viewState.groups.some((group) => group.id === viewState.activeGroupId)) {
@@ -447,9 +500,10 @@ export function createHistoryFullscreenApi({
     }
 
     function close() {
-        const { modal, list, batchToolbar } = getEls();
+        const { modal, list, timeline, batchToolbar, count, summary } = getEls();
         modal?.classList.add('hidden');
         hideTimelineTooltip();
+        viewState.version += 1;
         state.historySelectionMode = false;
         state.selectedHistoryIds.clear();
         batchToolbar?.classList.add('hidden');
@@ -459,6 +513,10 @@ export function createHistoryFullscreenApi({
             clearRenderedRows(list);
             list.style.height = '';
         }
+        if (timeline) timeline.innerHTML = '';
+        if (count) count.textContent = '0';
+        if (summary) summary.textContent = '按大概时间分组浏览历史记录';
+        releaseViewState();
     }
 
     function enterBatchMode() {
@@ -550,6 +608,7 @@ export function createHistoryFullscreenApi({
     function bindStaticEvents() {
         if (viewState.scrollHandlerBound) return;
         const { scroll, modal } = getEls();
+        ensureModalObserver();
 
         bindCardEvents();
 
