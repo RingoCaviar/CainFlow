@@ -67,6 +67,13 @@ def handle_get(handler):
 
 
 def handle_post(handler):
+    if handler.path == '/api/site-data/clear':
+        write_json(handler, {'success': True}, headers={
+            'Clear-Site-Data': '"cache", "cookies", "storage", "executionContexts"',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        })
+        return True
+
     if handler.path == '/api/provider_models':
         _get_provider_models(handler)
         return True

@@ -5,6 +5,11 @@ import { createConnectionsApi } from '../../canvas/connections.js';
 import { createCameraControlNodeApi } from '../camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../execution/workflow-runner.js';
+import {
+    normalizeConcurrentRequestStatusPayload,
+    removeConcurrentRequestStatusPanel,
+    renderConcurrentRequestStatusPanel
+} from '../execution/concurrent-request-status-ui.js';
 import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
 
@@ -199,6 +204,9 @@ function serializeRuntimeNode(node, doc) {
             serialized.imageTaskCreateHttpStatus = node.data?.imageTaskCreateHttpStatus || '';
             serialized.imageTaskCreateStatus = node.data?.imageTaskCreateStatus || '';
             serialized.imageTaskProgress = node.data?.imageTaskProgress || '';
+            if (node.data?.concurrentRequestStatus?.total > 0) {
+                serialized.concurrentRequestStatus = normalizeConcurrentRequestStatusPayload(node.data.concurrentRequestStatus);
+            }
         } else if (node.type === 'VideoGenerate') {
             serialized.aspect = readElementControlValue(doc, `${node.id}-aspect`, '16:9');
             serialized.useVideoSizeParam = readElementControlValue(doc, `${node.id}-use-size-param`, false) === true;
@@ -500,6 +508,7 @@ export function createWorkflowRuntimeManager({
             node.el.classList.remove('running', 'running-locked');
             node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
             setVisibleNodeControlsLocked(node, false);
+            removeConcurrentRequestStatusPanel(node);
         });
         workflowRunViewNodeIds.clear();
         if (!keepLock) {
@@ -534,6 +543,15 @@ export function createWorkflowRuntimeManager({
         timeBadge.style.color = elapsed > 60 ? 'var(--accent-red)' : '';
     }
 
+    function renderVisibleConcurrentRequestStatus(node, statusPayload = {}) {
+        if (!node?.el) return;
+        const normalized = normalizeConcurrentRequestStatusPayload(statusPayload);
+        node.data = node.data || {};
+        if (normalized.total > 0) node.data.concurrentRequestStatus = normalized;
+        else delete node.data.concurrentRequestStatus;
+        renderConcurrentRequestStatusPanel(node, normalized, { documentRef });
+    }
+
     function startVisibleNodeRunTimer(nodeId, startedAt) {
         clearWorkflowRunViewTimer(nodeId);
         updateVisibleNodeRunTimer(nodeId, startedAt);
@@ -549,8 +567,15 @@ export function createWorkflowRuntimeManager({
         const node = state.nodes.get(nodeId);
         if (!node?.el) return;
 
+        if (payload.status === 'concurrent-request-status') {
+            renderVisibleConcurrentRequestStatus(node, payload.concurrentRequestStatus);
+            return;
+        }
+
         if (payload.running === true || payload.status === 'running') {
             const startedAt = Number(payload.startedAt) || Date.now();
+            removeConcurrentRequestStatusPanel(node);
+            if (node.data?.concurrentRequestStatus) delete node.data.concurrentRequestStatus;
             workflowRunViewNodeIds.add(nodeId);
             state.runningNodeIds.add(nodeId);
             state.runningNodeCancelHandlers.set(nodeId, () => {
@@ -610,6 +635,13 @@ export function createWorkflowRuntimeManager({
                     running: true,
                     startedAt: runtimeNode?.runStartedAt || Date.now()
                 });
+                if (runtimeNode?.data?.concurrentRequestStatus?.total > 0) {
+                    applyVisibleNodeRunState(workflowName, {
+                        nodeId,
+                        status: 'concurrent-request-status',
+                        concurrentRequestStatus: runtimeNode.data.concurrentRequestStatus
+                    });
+                }
             });
         });
     }

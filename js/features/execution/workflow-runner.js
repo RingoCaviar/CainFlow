@@ -1,5 +1,6 @@
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import { normalizeImageList, normalizeTextList } from './execution-data-utils.js';
+import { removeConcurrentRequestStatusPanel } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
 
 /**
@@ -1020,10 +1021,24 @@ export function createWorkflowRunnerApi({
         return 0;
     }
 
-    function removeConcurrentRequestStatusPanel(node) {
-        const panel = Array.from(node?.el?.children || [])
-            .find((child) => child.classList?.contains('node-concurrent-status-panel'));
-        if (panel) panel.remove();
+    function emitConcurrentRequestStatus(node, dots = []) {
+        if (!node?.id) return;
+        const concurrentRequestStatus = {
+            total: dots.length,
+            requests: dots.map((dot, index) => ({
+                index,
+                status: dot?.dataset?.status || 'running',
+                error: dot?.dataset?.error || ''
+            }))
+        };
+        node.data = node.data || {};
+        node.data.concurrentRequestStatus = concurrentRequestStatus;
+        emitNodeRunState({
+            nodeId: node.id,
+            status: 'concurrent-request-status',
+            running: getRunningNodeIds().has(node.id),
+            concurrentRequestStatus
+        });
     }
 
     function createConcurrentRequestStatusTracker(node, total) {
@@ -1057,6 +1072,7 @@ export function createWorkflowRunnerApi({
         });
 
         node.el.appendChild(panel);
+        node.el.classList.add('has-concurrent-status');
 
         const errorPopover = documentRef.createElement('div');
         errorPopover.className = 'node-concurrent-status-error-popover hidden';
@@ -1092,6 +1108,7 @@ export function createWorkflowRunnerApi({
                 dot.removeAttribute('role');
                 dot.removeAttribute('tabindex');
             }
+            emitConcurrentRequestStatus(node, dots);
         };
 
         grid.addEventListener('click', (event) => {
@@ -1112,6 +1129,7 @@ export function createWorkflowRunnerApi({
         });
 
         panel.addEventListener('mouseleave', hideErrorPopover);
+        emitConcurrentRequestStatus(node, dots);
 
         return {
             total: safeTotal,
@@ -1141,19 +1159,29 @@ export function createWorkflowRunnerApi({
         };
     }
 
+    async function executeImageGenerateWithRequestStatus(node, inputs, signal, requestStatusTracker, batchIndex = 0) {
+        const requestsPerBatch = getConfiguredImageGenerationCount(node);
+        const requestOffset = batchIndex * requestsPerBatch;
+        try {
+            const result = await executeNode(node, inputs, signal, {
+                concurrentRequestStatus: createConcurrentRequestStatusContext(
+                    requestStatusTracker,
+                    requestOffset,
+                    requestsPerBatch
+                )
+            });
+            requestStatusTracker?.markRange(requestOffset, requestsPerBatch, 'success', { onlyRunning: true });
+            return result;
+        } catch (error) {
+            requestStatusTracker?.markRange(requestOffset, requestsPerBatch, 'failed', { onlyRunning: true, error });
+            throw error;
+        }
+    }
+
     async function executeStandaloneConcurrentImageRequests(node, inputs, signal) {
         const requestCount = getConfiguredImageGenerationCount(node);
         const requestStatusTracker = createConcurrentRequestStatusTracker(node, requestCount);
-        try {
-            const result = await executeNode(node, inputs, signal, {
-                concurrentRequestStatus: createConcurrentRequestStatusContext(requestStatusTracker, 0, requestCount)
-            });
-            requestStatusTracker.markRange(0, requestCount, 'success', { onlyRunning: true });
-            return result;
-        } catch (error) {
-            requestStatusTracker.markRange(0, requestCount, 'failed', { onlyRunning: true, error });
-            throw error;
-        }
+        return executeImageGenerateWithRequestStatus(node, inputs, signal, requestStatusTracker, 0);
     }
 
     function shouldTrackStandaloneConcurrentImageRequests(node) {
@@ -1300,6 +1328,10 @@ export function createWorkflowRunnerApi({
         const aggregatedTextsByPort = new Map(textOutputPorts.map((portName) => [portName, []]));
         const shouldAggregateImages = getNodeOutputPortNames(node, 'image').length > 0;
         const shouldAggregateTexts = textOutputPorts.length > 0;
+        const shouldTrackSequentialImageRequests = shouldTrackStandaloneConcurrentImageRequests(node);
+        const sequentialImageRequestStatusTracker = shouldTrackSequentialImageRequests
+            ? createConcurrentRequestStatusTracker(node, getApiNodeRunCount(node, batches.length))
+            : null;
         addLog('info', `批量执行节点: ${getNodeDisplayTitle(node)}`, `检测到多图输入，将顺序运行 ${batches.length} 次`, {
             nodeId: node.id,
             batchCount: batches.length
@@ -1314,7 +1346,17 @@ export function createWorkflowRunnerApi({
 
             if (shouldAggregateImages) resetNodeImageOutputsForBatch(node);
             if (shouldAggregateTexts) resetNodeTextOutputsForBatch(node);
-            await executeNode(node, batches[index], signal);
+            if (shouldTrackSequentialImageRequests) {
+                await executeImageGenerateWithRequestStatus(
+                    node,
+                    batches[index],
+                    signal,
+                    sequentialImageRequestStatusTracker,
+                    index
+                );
+            } else {
+                await executeNode(node, batches[index], signal);
+            }
 
             if (shouldAggregateImages) {
                 const imageOutputs = normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);

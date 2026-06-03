@@ -164,6 +164,118 @@ export function createUiControllerApi({
         documentRef.getElementById('config-modal')?.classList.add('hidden');
     }
 
+    function getWindowRef() {
+        return documentRef.defaultView || window;
+    }
+
+    function idbRequestToBoolean(request) {
+        return new Promise((resolve) => {
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => resolve(false);
+            request.onblocked = () => resolve(false);
+        });
+    }
+
+    async function unregisterServiceWorkersForOrigin() {
+        const serviceWorker = getWindowRef().navigator?.serviceWorker;
+        if (!serviceWorker?.getRegistrations) return true;
+        try {
+            const registrations = await serviceWorker.getRegistrations();
+            const results = await Promise.all(registrations.map((registration) => registration.unregister()));
+            return results.every(Boolean);
+        } catch (error) {
+            console.warn('Service Worker cleanup failed:', error);
+            return false;
+        }
+    }
+
+    async function clearCacheStorageForOrigin() {
+        const cacheStorage = getWindowRef().caches;
+        if (!cacheStorage?.keys || !cacheStorage?.delete) return true;
+        try {
+            const keys = await cacheStorage.keys();
+            const results = await Promise.all(keys.map((key) => cacheStorage.delete(key)));
+            return results.every(Boolean);
+        } catch (error) {
+            console.warn('Cache Storage cleanup failed:', error);
+            return false;
+        }
+    }
+
+    async function deleteIndexedDbDatabase(name) {
+        if (!indexedDbRef?.deleteDatabase || !name) return true;
+        try {
+            return await idbRequestToBoolean(indexedDbRef.deleteDatabase(name));
+        } catch (error) {
+            console.warn('IndexedDB cleanup failed:', error);
+            return false;
+        }
+    }
+
+    async function deleteIndexedDbDatabasesForOrigin() {
+        if (!indexedDbRef?.deleteDatabase) return true;
+        try {
+            if (typeof indexedDbRef.databases === 'function') {
+                const databases = await indexedDbRef.databases();
+                const names = Array.from(new Set(
+                    (Array.isArray(databases) ? databases : [])
+                        .map((database) => database?.name)
+                        .filter(Boolean)
+                ));
+                if (names.length > 0) {
+                    const results = await Promise.all(names.map((name) => deleteIndexedDbDatabase(name)));
+                    return results.every(Boolean);
+                }
+            }
+            return await deleteIndexedDbDatabase(dbName);
+        } catch (error) {
+            console.warn('IndexedDB database enumeration failed:', error);
+            return await deleteIndexedDbDatabase(dbName);
+        }
+    }
+
+    async function requestBrowserSiteDataClear() {
+        const fetchRef = getWindowRef().fetch || fetch;
+        if (!fetchRef) return true;
+        try {
+            await fetchRef('/api/site-data/clear', {
+                method: 'POST',
+                cache: 'no-store',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: '{}'
+            });
+            return true;
+        } catch (error) {
+            console.warn('Clear-Site-Data request failed:', error);
+            return false;
+        }
+    }
+
+    async function clearOriginStorageForFactoryReset() {
+        const win = getWindowRef();
+        const results = [];
+        results.push(await unregisterServiceWorkersForOrigin());
+        results.push(await clearCacheStorageForOrigin());
+        try {
+            win.sessionStorage?.clear?.();
+        } catch (error) {
+            console.warn('sessionStorage cleanup failed:', error);
+            results.push(false);
+        }
+        try {
+            localStorageRef.clear();
+        } catch (error) {
+            console.warn('localStorage cleanup failed:', error);
+            results.push(false);
+        }
+        results.push(await deleteIndexedDbDatabasesForOrigin());
+        results.push(await requestBrowserSiteDataClear());
+        return results.every(Boolean);
+    }
+
     function mergeItemsById(currentItems = [], importedItems = []) {
         const merged = currentItems.map((item) => ({ ...item }));
         const indexById = new Map(merged.map((item, index) => [item.id, index]));
@@ -987,27 +1099,20 @@ export function createUiControllerApi({
             closeConfigModal();
         });
 
-        documentRef.getElementById('btn-factory-reset')?.addEventListener('click', () => {
-            const confirmed = confirmRef('确定要恢复出厂设置吗？\n这将清空所有画布节点、API 配置和图片历史记录，且无法撤销。');
-            if (confirmed) {
-                localStorageRef.clear();
-                const deleteRequest = indexedDbRef.deleteDatabase(dbName);
+        documentRef.getElementById('btn-factory-reset')?.addEventListener('click', async () => {
+            const confirmed = confirmRef('确定要恢复出厂设置吗？\n这将清空所有画布节点、API 配置、图片历史记录、浏览器缓存、IndexedDB、Cache Storage 和 Service Worker，且无法撤销。');
+            if (!confirmed) return;
 
-                deleteRequest.onsuccess = () => {
-                    console.log('Database deleted successfully');
-                    locationRef.reload();
-                };
-
-                deleteRequest.onerror = () => {
-                    console.error('Error deleting database');
-                    alertRef('数据库清理失败，请手动清除浏览器缓存。');
-                    locationRef.reload();
-                };
-
-                deleteRequest.onblocked = () => {
-                    console.warn('Delete blocked');
-                    locationRef.reload();
-                };
+            try {
+                const ok = await clearOriginStorageForFactoryReset();
+                if (!ok) {
+                    alertRef('已尽力清理本页面数据，但浏览器可能阻止了部分缓存清理。页面刷新后如仍异常，请在浏览器设置中手动清除此站点数据。');
+                }
+            } catch (error) {
+                console.error('Factory reset failed:', error);
+                alertRef('恢复出厂设置过程中出现错误，请在浏览器设置中手动清除此站点数据。');
+            } finally {
+                locationRef.reload();
             }
         });
 

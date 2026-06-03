@@ -3,6 +3,10 @@
  */
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
 import { cleanupElementResources, splitTextForTextSplitNode } from '../core/common-utils.js';
+import {
+    normalizeConcurrentRequestStatusPayload,
+    renderConcurrentRequestStatusPanel
+} from '../features/execution/concurrent-request-status-ui.js';
 import { getReferenceImageCount } from './reference-image-ports.js';
 
 export function createNodeLifecycleApi({
@@ -933,6 +937,11 @@ export function createNodeLifecycleApi({
             nodeData.data.imageTaskCreateHttpStatus = effectiveRestoreData?.imageTaskCreateHttpStatus || '';
             nodeData.data.imageTaskCreateStatus = effectiveRestoreData?.imageTaskCreateStatus || '';
             nodeData.data.imageTaskProgress = effectiveRestoreData?.imageTaskProgress || '';
+            const concurrentRequestStatus = normalizeConcurrentRequestStatusPayload(effectiveRestoreData?.concurrentRequestStatus || {});
+            if (concurrentRequestStatus.total > 0) {
+                nodeData.data.concurrentRequestStatus = concurrentRequestStatus;
+                renderConcurrentRequestStatusPanel(nodeData, concurrentRequestStatus, { documentRef });
+            }
         }
         if (normalizedType === 'TextSplit') {
             nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';

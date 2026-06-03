@@ -2,13 +2,14 @@
 
 .node-concurrent-status-panel {
     position: absolute;
-    top: 6px;
+    top: -42px;
     right: 8px;
     left: auto;
     bottom: auto;
-    z-index: 70;
+    z-index: 90;
     box-sizing: border-box;
-    padding: 8px 10px;
+    min-height: 30px;
+    padding: 7px 9px;
     border: 1px solid var(--node-concurrent-status-panel-border, rgba(148, 163, 184, 0.34));
     border-radius: 8px;
     background: var(--node-concurrent-status-panel-bg, rgba(15, 23, 42, 0.88));
@@ -16,21 +17,23 @@
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     pointer-events: auto;
-    max-width: calc(100% - 16px);
+    max-width: min(220px, calc(100% - 16px));
 }
 
 .node-concurrent-status-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 14px);
+    display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     gap: 5px;
     align-items: center;
+    min-width: 14px;
+    max-width: 122px;
 }
 
 .node-concurrent-status-dot {
+    flex: 0 0 auto;
     width: 14px;
     height: 14px;
-    justify-self: center;
     border-radius: 50%;
     background: var(--node-concurrent-status-dot-running, #facc15);
     box-shadow: 0 0 8px var(--node-concurrent-status-dot-running-glow, rgba(250, 204, 21, 0.55));

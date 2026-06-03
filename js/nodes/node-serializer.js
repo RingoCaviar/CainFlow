@@ -1,6 +1,8 @@
 /**
  * 负责节点与连接的序列化和反序列化，为保存、导入、撤销和工作流复制提供数据结构转换。
  */
+import { normalizeConcurrentRequestStatusPayload } from '../features/execution/concurrent-request-status-ui.js';
+
 export function createNodeSerializer({ state, documentRef }) {
     function getNodeTextareaHeights(id) {
         const heights = {};
@@ -117,6 +119,9 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.imageTaskCreateHttpStatus = node.data?.imageTaskCreateHttpStatus || '';
                     serialized.imageTaskCreateStatus = node.data?.imageTaskCreateStatus || '';
                     serialized.imageTaskProgress = node.data?.imageTaskProgress || '';
+                    if (node.data?.concurrentRequestStatus?.total > 0) {
+                        serialized.concurrentRequestStatus = normalizeConcurrentRequestStatusPayload(node.data.concurrentRequestStatus);
+                    }
                 } else if (node.type === 'VideoGenerate') {
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
                     serialized.useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
