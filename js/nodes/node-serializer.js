@@ -48,6 +48,10 @@ export function createNodeSerializer({ state, documentRef }) {
             const images = Array.isArray(node.data?.images)
                 ? node.data.images.filter((item) => typeof item === 'string' && item.trim())
                 : (Array.isArray(node.imageDataList) ? node.imageDataList.filter((item) => typeof item === 'string' && item.trim()) : []);
+            const imageCount = Math.max(
+                images.length,
+                Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0)
+            );
             if (includeImages && images.length > 1) {
                 serialized.images = images.slice();
             }
@@ -55,8 +59,16 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.imageMemoryReleased = true;
                 serialized.imageAssetKey = node.data.imageAssetKey;
             }
-            if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
-                serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+            if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+                if (typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
+                    serialized.imageAssetKey = node.data.imageAssetKey;
+                }
+                if (imageCount > 0) {
+                    serialized.imageCount = imageCount;
+                }
+                if (imageCount > 1) {
+                    serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+                }
             }
             if (node.type === 'ImageCompare') {
                 const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()

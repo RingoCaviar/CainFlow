@@ -807,19 +807,20 @@ function normalizeRestoreImageList(value) {
     return typeof value === 'string' && value.trim() ? [value] : [];
 }
 
-function renderRestoredMultiImagePreview(imageList, previewIndex, altPrefix, placeholderClass, placeholderText) {
+function renderRestoredMultiImagePreview(imageList, previewIndex, altPrefix, placeholderClass, placeholderText, totalCount = imageList.length) {
+    const safeTotal = Math.max(totalCount, imageList.length);
     const hasImages = imageList.length > 0;
-    const index = hasImages ? Math.max(0, Math.min(imageList.length - 1, previewIndex)) : 0;
+    const index = safeTotal > 0 ? Math.max(0, Math.min(safeTotal - 1, previewIndex)) : 0;
     return `
         <div class="${placeholderClass}">${placeholderText}</div>
-        ${hasImages && imageList.length > 1 ? `
+        ${safeTotal > 1 ? `
             <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
             <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
-            <div class="image-save-preview-counter">${index + 1}/${imageList.length}</div>
+            <div class="image-save-preview-counter">${index + 1}/${safeTotal}</div>
         ` : ''}
     `;
 }
@@ -827,19 +828,20 @@ function renderRestoredMultiImagePreview(imageList, previewIndex, altPrefix, pla
 function renderImagePreviewBody(id, restoreData) {
     const rd = restoreData || {};
     const imageList = normalizeRestoreImageList(rd.images || rd.imageData);
+    const totalCount = Math.max(imageList.length, Math.max(0, parseInt(rd.imageCount || '0', 10) || 0));
     const previewIndex = Math.max(0, parseInt(rd.imagePreviewIndex || '0', 10) || 0);
-    const hasMultipleImages = imageList.length > 1;
+    const hasMultipleImages = totalCount > 1;
     return `
         <div class="preview-container ${hasMultipleImages ? 'has-multiple-images' : ''}" id="${id}-preview">
-            ${imageList.length > 0
-                ? renderRestoredMultiImagePreview(imageList, previewIndex, '预览', 'preview-placeholder', '运行后预览图片')
+            ${(imageList.length > 0 || totalCount > 0)
+                ? renderRestoredMultiImagePreview(imageList, previewIndex, '预览', 'preview-placeholder', '运行后预览图片', totalCount)
                 : `<div class="preview-placeholder">
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                     运行后预览图片
                 </div>`}
         </div>
         <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
-        <div class="preview-controls" id="${id}-controls" style="display:${imageList.length > 0 ? 'flex' : 'none'}">
+        <div class="preview-controls" id="${id}-controls" style="display:${(imageList.length > 0 || totalCount > 0) ? 'flex' : 'none'}">
             <button class="preview-ctrl-btn" id="${id}-zoom-in" title="放大"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
             <button class="preview-ctrl-btn" id="${id}-zoom-out" title="缩小"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
             <button class="preview-ctrl-btn" id="${id}-zoom-reset" title="重置"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
@@ -1023,8 +1025,9 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
     const rd = restoreData || {};
     const showWarning = !hasGlobalSaveDirHandle;
     const imageList = normalizeRestoreImageList(rd.images || rd.imageData);
+    const totalCount = Math.max(imageList.length, Math.max(0, parseInt(rd.imageCount || '0', 10) || 0));
     const previewIndex = Math.max(0, parseInt(rd.imagePreviewIndex || '0', 10) || 0);
-    const hasMultipleImages = imageList.length > 1;
+    const hasMultipleImages = totalCount > 1;
     const videoData = rd.video && typeof rd.video === 'object' ? rd.video : null;
     const hasVideo = imageList.length === 0 && !!videoData?.url;
     const defaultFilename = hasVideo ? 'generated_video' : 'generated_image';
@@ -1035,8 +1038,8 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
             ⚠️ 未设置全局保存目录，保存节点无法自动落盘
         </div>
         <div class="save-preview-container ${hasMultipleImages ? 'has-multiple-images' : ''}" id="${id}-save-preview" data-save-mode="${hasVideo ? 'video' : 'image'}">
-            ${imageList.length > 0
-                ? renderRestoredMultiImagePreview(imageList, previewIndex, '待保存', 'save-preview-placeholder', '运行后显示图片')
+            ${(imageList.length > 0 || totalCount > 0)
+                ? renderRestoredMultiImagePreview(imageList, previewIndex, '待保存', 'save-preview-placeholder', '运行后显示图片', totalCount)
                 : (hasVideo
                     ? `<video src="${escapeHtml(videoData.url || '')}" controls preload="metadata" playsinline style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"></video>`
                     : '<div class="save-preview-placeholder">运行后显示图片或视频</div>')}
@@ -1045,11 +1048,11 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
         <div class="node-field"><label>文件名前缀/文件名</label>
             <input type="text" id="${id}-filename" value="${rd.filename || defaultFilename}" placeholder="不填则默认生成" /></div>
         <div class="save-btn-group">
-            <button class="save-btn-secondary" id="${id}-view-full" ${(imageList.length > 0 || hasVideo) ? '' : 'disabled'}>
+            <button class="save-btn-secondary" id="${id}-view-full" ${(imageList.length > 0 || totalCount > 0 || hasVideo) ? '' : 'disabled'}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 ${previewActionLabel}
             </button>
-            <button class="save-btn" id="${id}-manual-save" ${(imageList.length > 0 || hasVideo) ? '' : 'disabled'}>
+            <button class="save-btn" id="${id}-manual-save" ${(imageList.length > 0 || totalCount > 0 || hasVideo) ? '' : 'disabled'}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 保存
             </button>

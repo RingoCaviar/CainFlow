@@ -502,6 +502,20 @@ export function createWorkflowRunnerApi({
         return [];
     }
 
+    function isDisplayImageNode(node) {
+        return node?.type === 'ImagePreview' || node?.type === 'ImageSave';
+    }
+
+    function getDisplayNodeImageCount(node) {
+        const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
+        const inMemoryCount = Math.max(
+            normalizeImageList(node?.data?.images).length,
+            normalizeImageList(node?.imageDataList).length
+        );
+        const currentCount = normalizeImageList(node?.data?.image || node?.imageData).length;
+        return Math.max(explicitCount, inMemoryCount, currentCount);
+    }
+
     function getNodeImageOutputList(node) {
         const images = getFirstNonEmptyImageList(
             node?.data?.images,
@@ -512,6 +526,32 @@ export function createWorkflowRunnerApi({
             node?.resizePreviewData
         );
         return images.length > 0 ? images : null;
+    }
+
+    async function restoreDisplayNodeImageOutput(node) {
+        if (!isDisplayImageNode(node)) return null;
+        const assetKey = typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+            ? node.data.imageAssetKey
+            : '';
+        if (!assetKey) return null;
+
+        let restoredImages = [];
+        try {
+            if (typeof getImageAssetList === 'function') {
+                restoredImages = await getImageAssetList(assetKey);
+            }
+            if (restoredImages.length === 0 && typeof getImageAsset === 'function') {
+                const image = await getImageAsset(assetKey);
+                if (image) restoredImages = [image];
+            }
+        } catch (error) {
+            addLog('warning', '显示节点图片恢复失败', `节点「${getNodeDisplayTitle(node)}」尝试恢复图片批次失败。`, {
+                nodeId: node.id,
+                error: error?.message || String(error)
+            });
+        }
+
+        return restoredImages.length > 0 ? restoredImages : null;
     }
 
     function isNodeResultFixed(nodeId) {
@@ -719,6 +759,14 @@ export function createWorkflowRunnerApi({
                 if (importedImage) return importedImage;
             }
             const images = getNodeImageOutputList(fromNode);
+            const shouldRestoreDisplayBatch = isDisplayImageNode(fromNode) && getDisplayNodeImageCount(fromNode) > 1;
+            if (!shouldRestoreDisplayBatch) {
+                if (images?.length > 1) return images;
+                if (images?.length === 1) return images[0];
+            }
+            const restoredDisplayImages = await restoreDisplayNodeImageOutput(fromNode);
+            if (restoredDisplayImages?.length > 1) return restoredDisplayImages;
+            if (restoredDisplayImages?.length === 1) return restoredDisplayImages[0];
             if (images?.length > 1) return images;
             if (images?.length === 1) return images[0];
             const restoredImages = await restoreReleasedImageOutput(fromNode);
@@ -785,7 +833,7 @@ export function createWorkflowRunnerApi({
         return value;
     }
 
-    function captureSelectedOnlyExternalInputs(plan) {
+    async function captureSelectedOnlyExternalInputs(plan) {
         if (plan?.mode !== 'selected-only') return Object.create(null);
 
         const externalInputsByNode = Object.create(null);
@@ -796,7 +844,7 @@ export function createWorkflowRunnerApi({
 
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 const toNode = state.nodes.get(nodeId);
-                const outputValue = getCachedOutputValue(fromNode, connection.from.port);
+                const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
                 if (outputValue === undefined) continue;
 
                 if (!externalInputsByNode[nodeId]) {
@@ -1518,7 +1566,7 @@ export function createWorkflowRunnerApi({
             throw new Error('当前恢复范围内仍有节点在运行，请等待完成后再试');
         }
 
-        plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
+        plan.externalInputsByNode = await captureSelectedOnlyExternalInputs(plan);
         const order = (plan.executionOrder || []).filter((nid) => plan.scopeNodeSet.has(nid));
         if (!order.includes(nodeId)) {
             throw new Error('当前恢复节点不在执行计划内');
@@ -1782,7 +1830,7 @@ export function createWorkflowRunnerApi({
                 showToast('当前运行范围内没有启用的可运行节点', 'warning');
                 return { started: false, executed: false, reason: 'no-enabled-nodes' };
             }
-            plan.externalInputsByNode = captureSelectedOnlyExternalInputs(plan);
+            plan.externalInputsByNode = await captureSelectedOnlyExternalInputs(plan);
 
             const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
             if (alreadyRunningNodeIds.length > 0) {

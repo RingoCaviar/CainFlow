@@ -136,6 +136,7 @@ function serializeRuntimeNode(node, doc) {
             ? node.data.images
             : (Array.isArray(node.imageDataList) ? node.imageDataList : [])
     );
+    const imageCount = Math.max(images.length, Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0));
     if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
         if (images.length > 0) {
             serialized.images = images.slice();
@@ -144,8 +145,12 @@ function serializeRuntimeNode(node, doc) {
             ? node.data.image
             : (typeof node.imageData === 'string' && node.imageData.trim() ? node.imageData : images[0]);
         if (imageData) serialized.imageData = imageData;
-        if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 0) {
-            serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+        if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+            if (node.data?.imageAssetKey) serialized.imageAssetKey = node.data.imageAssetKey;
+            if (imageCount > 0) serialized.imageCount = imageCount;
+            if (imageCount > 1) {
+                serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+            }
         }
         if (node.type === 'ImageCompare') {
             const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
@@ -330,6 +335,14 @@ function normalizeRuntimeImageList(value) {
     if (Array.isArray(value)) return value.filter((item) => typeof item === 'string' && item.trim());
     if (typeof value === 'string' && value.trim()) return [value];
     return [];
+}
+
+function getRuntimeDisplayImageCount(node) {
+    return Math.max(
+        normalizeRuntimeImageList(node?.data?.images).length,
+        normalizeRuntimeImageList(node?.imageDataList).length,
+        Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0)
+    );
 }
 
 export function createWorkflowRuntimeManager({
@@ -654,14 +667,19 @@ export function createWorkflowRuntimeManager({
             const previewContainer = doc.getElementById(`${nodeId}-preview`);
             if (!previewContainer) return;
             const imageList = Array.isArray(images) ? images.filter(Boolean) : (images ? [images] : []);
-            node.imagePreviewIndex = Math.max(0, Math.min(imageList.length - 1, parseInt(node.imagePreviewIndex || '0', 10) || 0));
-            if (imageList.length === 0) {
+            const totalCount = Math.max(imageList.length, getRuntimeDisplayImageCount(node));
+            node.imagePreviewIndex = totalCount > 0
+                ? Math.max(0, Math.min(totalCount - 1, parseInt(node.imagePreviewIndex || '0', 10) || 0))
+                : 0;
+            if (imageList.length === 0 && totalCount === 0) {
                 previewContainer.classList.remove('has-multiple-images');
                 previewContainer.innerHTML = `<div class="preview-placeholder">${emptyMessage}</div>`;
                 return;
             }
-            const image = imageList[node.imagePreviewIndex] || imageList[0];
-            previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
+            const image = imageList.length > 1
+                ? (imageList[node.imagePreviewIndex] || imageList[0])
+                : (imageList[0] || '');
+            previewContainer.classList.toggle('has-multiple-images', totalCount > 1);
             previewContainer.innerHTML = `<img src="${image}" alt="预览" draggable="false" />`;
         };
         const renderImageSavePreview = (nodeId, images, emptyMessage = '无输入图片') => {
@@ -670,14 +688,19 @@ export function createWorkflowRuntimeManager({
             const previewContainer = doc.getElementById(`${nodeId}-save-preview`);
             if (!previewContainer) return;
             const imageList = Array.isArray(images) ? images.filter(Boolean) : (images ? [images] : []);
-            node.imagePreviewIndex = Math.max(0, Math.min(imageList.length - 1, parseInt(node.imagePreviewIndex || '0', 10) || 0));
-            if (imageList.length === 0) {
+            const totalCount = Math.max(imageList.length, getRuntimeDisplayImageCount(node));
+            node.imagePreviewIndex = totalCount > 0
+                ? Math.max(0, Math.min(totalCount - 1, parseInt(node.imagePreviewIndex || '0', 10) || 0))
+                : 0;
+            if (imageList.length === 0 && totalCount === 0) {
                 previewContainer.classList.remove('has-multiple-images');
                 previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
                 return;
             }
-            const image = imageList[node.imagePreviewIndex] || imageList[0];
-            previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
+            const image = imageList.length > 1
+                ? (imageList[node.imagePreviewIndex] || imageList[0])
+                : (imageList[0] || '');
+            previewContainer.classList.toggle('has-multiple-images', totalCount > 1);
             previewContainer.innerHTML = `<img src="${image}" alt="待保存" draggable="false" />`;
         };
         return {
@@ -722,20 +745,24 @@ export function createWorkflowRuntimeManager({
                 const imageList = Array.isArray(imageData) ? imageData.filter(Boolean) : (imageData ? [imageData] : []);
                 node.previewZoom = 1;
                 node.imagePreviewIndex = 0;
-                node.imageDataList = imageList.slice();
-                node.imageData = imageList[imageList.length - 1] || null;
+                node.imageDataList = [];
+                node.imageData = imageList[0] || null;
                 node.data = node.data || {};
                 if (node.imageData) {
                     node.data.image = node.imageData;
-                    node.data.images = imageList.slice();
+                    node.data.imageAssetKey = nodeId;
+                    node.data.imageCount = imageList.length;
+                    delete node.data.images;
                     if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
                     else await saveImageAsset(nodeId, node.imageData);
                 } else {
                     delete node.data.image;
+                    delete node.data.imageAssetKey;
+                    delete node.data.imageCount;
                     delete node.data.images;
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
                 }
-                renderImagePreviewImage(nodeId, imageList);
+                renderImagePreviewImage(nodeId, node.imageData ? [node.imageData] : []);
             },
             syncImageSaveNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
@@ -745,18 +772,22 @@ export function createWorkflowRuntimeManager({
                     : ((imageData?.images ?? imageData) ? [imageData?.images ?? imageData] : []);
                 const video = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
                 node.imagePreviewIndex = 0;
-                node.imageDataList = imageList.slice();
-                node.imageData = imageList[imageList.length - 1] || null;
+                node.imageDataList = [];
+                node.imageData = imageList[0] || null;
                 node.data = node.data || {};
                 if (node.imageData) {
                     node.data.image = node.imageData;
-                    node.data.images = imageList.slice();
+                    node.data.imageAssetKey = nodeId;
+                    node.data.imageCount = imageList.length;
+                    delete node.data.images;
                     delete node.data.video;
                     if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
                     else await saveImageAsset(nodeId, node.imageData);
-                    renderImageSavePreview(nodeId, imageList);
+                    renderImageSavePreview(nodeId, [node.imageData]);
                 } else if (video?.url) {
                     delete node.data.image;
+                    delete node.data.imageAssetKey;
+                    delete node.data.imageCount;
                     delete node.data.images;
                     node.data.video = {
                         id: video.id || '',
@@ -769,6 +800,8 @@ export function createWorkflowRuntimeManager({
                     if (preview) preview.innerHTML = `<video src="${video.url}" controls preload="metadata" playsinline></video>`;
                 } else {
                     delete node.data.image;
+                    delete node.data.imageAssetKey;
+                    delete node.data.imageCount;
                     delete node.data.images;
                     delete node.data.video;
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
@@ -957,6 +990,7 @@ export function createWorkflowRuntimeManager({
             getImageAsset,
             getImageAssetList,
             saveImageAsset,
+            saveImageAssetList,
             saveImageImportAsset,
             deleteImageImportAsset,
             showResolutionBadge: async () => {},

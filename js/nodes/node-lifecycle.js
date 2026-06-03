@@ -18,6 +18,7 @@ export function createNodeLifecycleApi({
     getImageAsset,
     getImageAssetList = async () => [],
     saveImageAsset,
+    saveImageAssetList = async () => false,
     saveImageImportAsset = async () => '',
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
@@ -205,6 +206,10 @@ export function createNodeLifecycleApi({
 
     function isImageImportUrlMode(node) {
         return node?.type === 'ImageImport' && node.importMode === 'url';
+    }
+
+    function isDisplayImageNodeType(type) {
+        return type === 'ImagePreview' || type === 'ImageSave';
     }
 
     function clampNodeWidthToDefault(width, config) {
@@ -888,20 +893,36 @@ export function createNodeLifecycleApi({
             nodeData.data.imageMemoryReleased = true;
             nodeData.data.imageAssetKey = effectiveRestoreData.imageAssetKey;
         }
+        if (isDisplayImageNodeType(normalizedType)) {
+            const restoredImageCount = Math.max(
+                restoredImages.length,
+                Math.max(0, parseInt(effectiveRestoreData?.imageCount || '0', 10) || 0)
+            );
+            if (restoredImageCount > 0) {
+                nodeData.data.imageCount = restoredImageCount;
+            }
+            if (typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey) {
+                nodeData.data.imageAssetKey = effectiveRestoreData.imageAssetKey;
+            }
+        }
         if (restoredImages.length > 0) {
-            nodeData.data.images = restoredImages.slice();
-            nodeData.imageDataList = restoredImages.slice();
-            if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
+            if (isDisplayImageNodeType(normalizedType)) {
+                nodeData.imageDataList = [];
                 nodeData.imagePreviewIndex = Math.max(0, Math.min(
                     restoredImages.length - 1,
                     parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0
                 ));
                 nodeData.data.image = restoredImages[nodeData.imagePreviewIndex] || restoredImages[0];
+                nodeData.data.imageCount = restoredImages.length;
+                nodeData.data.imageAssetKey = nodeData.data.imageAssetKey || id;
+                delete nodeData.data.images;
             } else {
+                nodeData.data.images = restoredImages.slice();
+                nodeData.imageDataList = restoredImages.slice();
                 nodeData.data.image = restoredImages[restoredImages.length - 1];
             }
             nodeData.imageData = nodeData.data.image;
-        } else if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
+        } else if (isDisplayImageNodeType(normalizedType)) {
             nodeData.imagePreviewIndex = 0;
         }
         if (normalizedType === 'ImageGenerate' && restoredImages.length > 0) {
@@ -1038,20 +1059,33 @@ export function createNodeLifecycleApi({
                 const hasInitialData = !!(effectiveRestoreData && effectiveRestoreData.imageData);
                 const hasInitialImageList = restoredImages.length > 0;
                 const imageImportAssetKey = normalizedType === 'ImageImport' ? (nodeData.imageImportAssetKey || effectiveRestoreData?.imageImportAssetKey || '') : '';
-                const storedImages = isImportUrlMode || imageImportAssetKey || hasInitialData || hasInitialImageList ? [] : await getImageAssetList(id);
+                const displayImageAssetKey = isDisplayImageNodeType(normalizedType)
+                    ? (nodeData.data?.imageAssetKey || effectiveRestoreData?.imageAssetKey || id)
+                    : '';
+                const shouldRestoreDisplayBatch = isDisplayImageNodeType(normalizedType)
+                    && !hasInitialImageList
+                    && !!displayImageAssetKey;
+                const storedImages = isImportUrlMode || imageImportAssetKey || (hasInitialData && !shouldRestoreDisplayBatch) || hasInitialImageList
+                    ? []
+                    : await getImageAssetList(displayImageAssetKey || id);
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const sourceImages = hasInitialImageList ? restoredImages : storedImages;
                 if (sourceImages.length > 0) {
-                    nodeData.data.images = sourceImages.slice();
-                    nodeData.imageDataList = sourceImages.slice();
-                    if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
+                    if (isDisplayImageNodeType(normalizedType)) {
+                        await saveImageAssetList(id, sourceImages);
+                        nodeData.data.imageAssetKey = id;
+                        nodeData.data.imageCount = sourceImages.length;
+                        nodeData.imageDataList = [];
                         nodeData.imagePreviewIndex = Math.max(0, Math.min(
                             sourceImages.length - 1,
                             Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0
                         ));
-                        nodeData.data.image = sourceImages[sourceImages.length - 1];
+                        nodeData.data.image = sourceImages[nodeData.imagePreviewIndex] || sourceImages[0];
                         nodeData.imageData = nodeData.data.image;
+                        delete nodeData.data.images;
                     } else {
+                        nodeData.data.images = sourceImages.slice();
+                        nodeData.imageDataList = sourceImages.slice();
                         nodeData.data.image = sourceImages[sourceImages.length - 1];
                         nodeData.imageData = nodeData.data.image;
                     }
@@ -1062,9 +1096,11 @@ export function createNodeLifecycleApi({
                 }
                 const data = isImportUrlMode
                     ? null
-                    : (imageImportAssetKey
-                        ? await getImageAsset(imageImportAssetKey)
-                        : (hasInitialData ? effectiveRestoreData.imageData : (sourceImages[0] || await getImageAsset(id))));
+                        : (imageImportAssetKey
+                            ? await getImageAsset(imageImportAssetKey)
+                            : (hasInitialData
+                                ? effectiveRestoreData.imageData
+                                : (sourceImages[0] || await getImageAsset(displayImageAssetKey || id))));
 
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
 
@@ -1079,7 +1115,7 @@ export function createNodeLifecycleApi({
                 }
 
                 if (data) {
-                    if (!(normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') || !Array.isArray(nodeData.imageDataList) || nodeData.imageDataList.length <= 1) {
+                    if (!isDisplayImageNodeType(normalizedType) || !nodeData.data?.imageCount || nodeData.data.imageCount <= 1) {
                         nodeData.imageData = data;
                         nodeData.data.image = data;
                     }

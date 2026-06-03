@@ -65,8 +65,17 @@ export function createClipboardControllerApi({
             const images = Array.isArray(node.data?.images)
                 ? node.data.images.filter((item) => typeof item === 'string' && item.trim())
                 : [];
+            const imageCount = Math.max(images.length, Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0));
+            if (typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
+                serialized.imageAssetKey = node.data.imageAssetKey;
+            }
+            if (imageCount > 0) {
+                serialized.imageCount = imageCount;
+            }
             if (images.length > 1) {
                 serialized.images = images.slice();
+            }
+            if (imageCount > 1) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
             }
         }

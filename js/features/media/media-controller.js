@@ -14,6 +14,8 @@ import {
 export function createMediaControllerApi({
     state,
     getNodeById,
+    getImageAsset = async () => null,
+    getImageAssetList = async () => [],
     saveImageAsset,
     saveImageAssetList = async () => false,
     saveImageImportAsset = async () => '',
@@ -702,6 +704,61 @@ export function createMediaControllerApi({
         return [];
     }
 
+    function isDisplayImageNode(node) {
+        return node?.type === 'ImagePreview' || node?.type === 'ImageSave';
+    }
+
+    function getStoredImageAssetKey(node) {
+        return typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+            ? node.data.imageAssetKey
+            : '';
+    }
+
+    function getStoredImageCount(node) {
+        const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
+        const inMemoryCount = Math.max(
+            normalizeImageList(node?.data?.images).length,
+            normalizeImageList(node?.imageDataList).length
+        );
+        const currentCount = normalizeImageList(node?.data?.image || node?.imageData).length;
+        return Math.max(explicitCount, inMemoryCount, currentCount);
+    }
+
+    async function restoreStoredImageList(node) {
+        const inMemoryList = normalizeImageList(node?.data?.images || node?.imageDataList);
+        if (inMemoryList.length > 0) {
+            return inMemoryList;
+        }
+
+        const currentImageList = normalizeImageList(node?.data?.image || node?.imageData);
+        if (!isDisplayImageNode(node)) {
+            return currentImageList;
+        }
+
+        const assetKey = getStoredImageAssetKey(node);
+        if (!assetKey) {
+            return currentImageList;
+        }
+
+        let restoredImages = [];
+        try {
+            restoredImages = typeof getImageAssetList === 'function'
+                ? await getImageAssetList(assetKey)
+                : [];
+            if (restoredImages.length === 0 && typeof getImageAsset === 'function') {
+                const image = await getImageAsset(assetKey);
+                if (image) restoredImages = [image];
+            }
+        } catch (error) {
+            console.warn('Restore display image list failed:', error);
+        }
+
+        if (restoredImages.length > 0) {
+            return restoredImages;
+        }
+        return currentImageList;
+    }
+
     function getStoredImageSaveList(node) {
         return normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
     }
@@ -717,6 +774,14 @@ export function createMediaControllerApi({
         return normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
     }
 
+    async function getStoredImageSaveListAsync(node) {
+        return restoreStoredImageList(node);
+    }
+
+    async function getStoredImagePreviewListAsync(node) {
+        return restoreStoredImageList(node);
+    }
+
     function getGeneratedImageList(node) {
         const images = normalizeImageList(node?.data?.images || node?.generatedImages);
         return images.length > 0 ? images : normalizeImageList(node?.data?.image || node?.imageData);
@@ -726,6 +791,14 @@ export function createMediaControllerApi({
         const images = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
         if (images.length > 0) return images;
         return normalizeImageList(node?.resizePreviewData || node?.data?.image || node?.imageData);
+    }
+
+    async function getNodeOutputImageListAsync(node) {
+        if (!node) return [];
+        if (isDisplayImageNode(node)) {
+            return restoreStoredImageList(node);
+        }
+        return getNodeOutputImageList(node);
     }
 
     function getImageSavePreviewIndex(node, images) {
@@ -949,7 +1022,8 @@ export function createMediaControllerApi({
         if (!previewContainer) return;
 
         const imageList = normalizeImageList(images);
-        if (imageList.length === 0) {
+        const totalCount = Math.max(imageList.length, getStoredImageCount(node));
+        if (imageList.length === 0 && totalCount === 0) {
             renderReusableMultiImagePreview(previewContainer, '', 0, 0, {
                 altPrefix: '预览',
                 placeholderClass: 'preview-placeholder',
@@ -961,13 +1035,19 @@ export function createMediaControllerApi({
             return;
         }
 
-        const index = getImagePreviewIndex(node, imageList);
-        const image = imageList[index];
+        const index = totalCount > 0
+            ? Math.max(0, Math.min(totalCount - 1, Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0))
+            : 0;
+        const image = imageList.length > 1
+            ? (imageList[index] || imageList[0])
+            : (imageList[0] || '');
         if (node) {
             node.imagePreviewIndex = index;
             node.data = node.data || {};
+            node.data.image = image || '';
+            node.imageData = image || null;
         }
-        renderReusableMultiImagePreview(previewContainer, image, index, imageList.length, {
+        renderReusableMultiImagePreview(previewContainer, image, index, totalCount, {
             altPrefix: '预览',
             placeholderClass: 'preview-placeholder',
             emptyMessage,
@@ -982,7 +1062,8 @@ export function createMediaControllerApi({
         if (!previewContainer) return;
 
         const imageList = normalizeImageList(images);
-        if (imageList.length === 0) {
+        const totalCount = Math.max(imageList.length, getStoredImageCount(node));
+        if (imageList.length === 0 && totalCount === 0) {
             renderReusableMultiImagePreview(previewContainer, '', 0, 0, {
                 altPrefix: '待保存',
                 placeholderClass: 'save-preview-placeholder',
@@ -993,10 +1074,21 @@ export function createMediaControllerApi({
             return;
         }
 
-        const index = getImageSavePreviewIndex(node, imageList);
-        if (node) node.imagePreviewIndex = index;
-        const image = imageList[index];
-        renderReusableMultiImagePreview(previewContainer, image, index, imageList.length, {
+        const index = totalCount > 0
+            ? Math.max(0, Math.min(totalCount - 1, Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0))
+            : 0;
+        if (node) {
+            node.imagePreviewIndex = index;
+            node.data = node.data || {};
+        }
+        const image = imageList.length > 1
+            ? (imageList[index] || imageList[0])
+            : (imageList[0] || '');
+        if (node) {
+            node.data.image = image || '';
+            node.imageData = image || null;
+        }
+        renderReusableMultiImagePreview(previewContainer, image, index, totalCount, {
             altPrefix: '待保存',
             placeholderClass: 'save-preview-placeholder',
             emptyMessage,
@@ -1011,7 +1103,14 @@ export function createMediaControllerApi({
 
         previewContainer.classList.remove('has-multiple-images');
         previewContainer.dataset.saveMode = video?.url ? 'video' : 'image';
-        if (node) node.imagePreviewIndex = 0;
+        if (node) {
+            node.imagePreviewIndex = 0;
+            node.data = node.data || {};
+            delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
+            node.imageData = null;
+        }
 
         if (!video?.url) {
             previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
@@ -1042,11 +1141,11 @@ export function createMediaControllerApi({
         return images[getImagePreviewIndex(node, images)] || images[0];
     }
 
-    function getNodeFullscreenImageContext(nodeId, fallbackSrc = '') {
+    async function getNodeFullscreenImageContext(nodeId, fallbackSrc = '') {
         const node = getNodeById(nodeId);
         const images = node?.type === 'ImageSave'
-            ? getStoredImageSaveList(node)
-            : getStoredImagePreviewList(node);
+            ? await getStoredImageSaveListAsync(node)
+            : await getStoredImagePreviewListAsync(node);
         const normalizedFallback = typeof fallbackSrc === 'string' ? fallbackSrc.trim() : '';
         const imageList = images.length > 0
             ? images
@@ -1067,13 +1166,17 @@ export function createMediaControllerApi({
         container.tabIndex = 0;
 
         const handleStep = (delta, event) => {
-            const images = normalizeImageList(getImages());
-            if (images.length <= 1) return;
             event.preventDefault();
             event.stopPropagation();
-            const currentIndex = Math.max(0, Math.min(images.length - 1, getIndex(images)));
-            const nextIndex = (currentIndex + delta + images.length) % images.length;
-            onChange(nextIndex, images, event);
+            Promise.resolve(getImages()).then((value) => {
+                const images = normalizeImageList(value);
+                if (images.length <= 1) return;
+                const currentIndex = Math.max(0, Math.min(images.length - 1, getIndex(images)));
+                const nextIndex = (currentIndex + delta + images.length) % images.length;
+                return onChange(nextIndex, images, event);
+            }).catch((error) => {
+                console.warn('Preview keyboard navigation failed:', error);
+            });
         };
 
         container.addEventListener('pointerdown', () => {
@@ -1106,7 +1209,7 @@ export function createMediaControllerApi({
 
     async function stepImagePreviewNodeByDelta(nodeId, delta) {
         const node = getNodeById(nodeId);
-        const images = getStoredImagePreviewList(node);
+        const images = await getStoredImagePreviewListAsync(node);
         if (!node || images.length <= 1) return false;
         const currentIndex = getImagePreviewIndex(node, images);
         const nextIndex = (currentIndex + delta + images.length) % images.length;
@@ -1123,7 +1226,7 @@ export function createMediaControllerApi({
 
     async function stepImageSaveNodeByDelta(nodeId, delta) {
         const node = getNodeById(nodeId);
-        const images = getStoredImageSaveList(node);
+        const images = await getStoredImageSaveListAsync(node);
         if (!node || images.length <= 1) return false;
         const currentIndex = getImageSavePreviewIndex(node, images);
         node.imagePreviewIndex = (currentIndex + delta + images.length) % images.length;
@@ -1451,27 +1554,29 @@ export function createMediaControllerApi({
 
         node.previewZoom = 1;
         node.imagePreviewIndex = 0;
-        node.imageDataList = imageList;
         node.data = node.data || {};
+        node.imageDataList = [];
         const currentImage = imageList[0] || null;
-        const outputImage = imageList[imageList.length - 1] || currentImage;
-        node.imageData = outputImage;
+        node.imageData = currentImage;
 
         if (currentImage) {
-            node.data.image = outputImage;
-            node.data.images = imageList.slice();
-            renderImagePreviewImage(nodeId, imageList);
+            node.data.image = currentImage;
+            node.data.imageAssetKey = nodeId;
+            node.data.imageCount = imageList.length;
+            delete node.data.images;
+            renderImagePreviewImage(nodeId, [currentImage]);
             if (controls) controls.style.display = 'flex';
-            if (!(await clearRecoverableDisplayAsset(nodeId))) {
-                if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-                else if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
-                else if (deleteImageAsset) await deleteImageAsset(nodeId);
-            }
+            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
+            else if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
+            else if (deleteImageAsset) await deleteImageAsset(nodeId);
             await showResolutionBadge(nodeId, currentImage);
         } else {
             delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
             delete node.data.images;
             node.imageDataList = [];
+            node.imageData = null;
             if (previewContainer) {
                 previewContainer.classList.remove('has-multiple-images');
                 previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
@@ -1499,10 +1604,10 @@ export function createMediaControllerApi({
 
         const imageList = normalizeImageList(imageData?.images ?? imageData);
         const videoData = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
-        const primaryImage = imageList.length > 0 ? imageList[imageList.length - 1] : null;
+        const currentImage = imageList.length > 0 ? imageList[0] : null;
 
-        node.imageDataList = imageList;
-        node.imageData = primaryImage || null;
+        node.imageDataList = [];
+        node.imageData = currentImage || null;
         node.data = node.data || {};
         if (videoData?.url) {
             node.data.video = {
@@ -1519,6 +1624,8 @@ export function createMediaControllerApi({
             node.imageData = null;
             node.imageDataList = [];
             delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
             delete node.data.images;
             delete node.data.video;
             renderImageSavePreview(nodeId, [], 'URL 图片不支持保存节点');
@@ -1535,21 +1642,23 @@ export function createMediaControllerApi({
             return;
         }
 
-        if (primaryImage) {
-            node.data.image = primaryImage;
-            node.data.images = imageList.slice();
+        if (currentImage) {
+            node.data.image = currentImage;
+            node.data.imageAssetKey = nodeId;
+            node.data.imageCount = imageList.length;
+            delete node.data.images;
             node.imagePreviewIndex = 0;
             delete node.data.video;
-            renderImageSavePreview(nodeId, imageList);
+            renderImageSavePreview(nodeId, [currentImage]);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            if (!(await clearRecoverableDisplayAsset(nodeId))) {
-                if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-                else await saveImageAsset(nodeId, primaryImage);
-            }
-            await showResolutionBadge(nodeId, imageList[0] || primaryImage);
+            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
+            else await saveImageAsset(nodeId, currentImage);
+            await showResolutionBadge(nodeId, currentImage);
         } else if (videoData?.url) {
             delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
             delete node.data.images;
             renderVideoSavePreview(nodeId, videoData);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
@@ -1561,6 +1670,8 @@ export function createMediaControllerApi({
             }
         } else {
             delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
             delete node.data.images;
             delete node.data.video;
             renderImageSavePreview(nodeId, [], '无输入图片或视频');
@@ -1667,7 +1778,7 @@ export function createMediaControllerApi({
         const sourceNode = getNodeById(sourceNodeId);
         const sourceImageList = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
             ? normalizeImageList(options.sourceImage)
-            : getNodeOutputImageList(sourceNode);
+            : await getNodeOutputImageListAsync(sourceNode);
         const sourceImage = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
             ? options.sourceImage
             : getNodePreviewSourceData(sourceNode);
@@ -2195,7 +2306,7 @@ export function createMediaControllerApi({
 
         bindPreviewKeyboardNavigation(
             previewContainer,
-            () => getStoredImageSaveList(getNodeById(id)),
+            () => getStoredImageSaveListAsync(getNodeById(id)),
             (images) => getImageSavePreviewIndex(getNodeById(id), images),
             (nextIndex, images, event) => {
                 event?.stopPropagation();
@@ -2219,9 +2330,9 @@ export function createMediaControllerApi({
             stepPreview(parseInt(navButton.dataset.direction || '0', 10) || 0, e);
         });
 
-        manualSaveBtn.addEventListener('click', () => {
+        manualSaveBtn.addEventListener('click', async () => {
             const node = getNodeById(id);
-            const images = getStoredImageSaveList(node);
+            const images = await getStoredImageSaveListAsync(node);
             const video = getStoredSaveVideo(node);
             if (!node || (images.length === 0 && !video?.url)) return showToast('没有可保存的内容', 'warning');
             const filename = el.querySelector(`#${id}-filename`).value || 'image';
@@ -2415,7 +2526,7 @@ export function createMediaControllerApi({
 
         bindPreviewKeyboardNavigation(
             previewContainer,
-            () => getStoredImagePreviewList(getNodeById(id)),
+            () => getStoredImagePreviewListAsync(getNodeById(id)),
             (images) => getImagePreviewIndex(getNodeById(id), images),
             (nextIndex, images, event) => {
                 event?.stopPropagation();
@@ -2865,10 +2976,10 @@ export function createMediaControllerApi({
         return toolbarCovered || sidebarCovered;
     }
 
-    function openFullscreenPreview(src, nodeId = null) {
+    async function openFullscreenPreview(src, nodeId = null) {
         const overlay = documentRef.createElement('div');
         overlay.className = `fullscreen-overlay${shouldIgnoreChromeOffsetForPreview() ? ' fullscreen-ignore-chrome' : ''}`;
-        const context = nodeId ? getNodeFullscreenImageContext(nodeId, src) : {
+        const context = nodeId ? await getNodeFullscreenImageContext(nodeId, src) : {
             node: null,
             images: normalizeImageList(src),
             index: 0

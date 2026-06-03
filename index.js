@@ -495,6 +495,8 @@ const settingsModalApi = createSettingsModalApi({
 const mediaControllerApi = createMediaControllerApi({
     state,
     getNodeById: (nodeId) => state.nodes.get(nodeId),
+    getImageAsset,
+    getImageAssetList,
     saveImageAsset,
     saveImageAssetList,
     saveImageImportAsset,
@@ -995,6 +997,7 @@ function getNodeLifecycleApi() {
             getImageAsset,
             getImageAssetList,
             saveImageAsset,
+            saveImageAssetList,
             saveImageImportAsset,
             deleteImageImportAsset,
             showResolutionBadge,
