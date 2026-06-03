@@ -48,6 +48,13 @@ export function createNodeLifecycleApi({
     const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
     const pendingImageRestoreTasks = [];
     let imageRestoreQueueRunning = false;
+    const imageRestoreWaiters = new Set();
+
+    function resolveImageRestoreWaiters() {
+        if (imageRestoreQueueRunning || pendingImageRestoreTasks.length > 0) return;
+        imageRestoreWaiters.forEach((resolve) => resolve());
+        imageRestoreWaiters.clear();
+    }
 
     function scheduleNodeSizeConnectionRefresh() {
         if (pendingNodeSizeConnectionRefresh !== null) return;
@@ -130,6 +137,7 @@ export function createNodeLifecycleApi({
         const task = pendingImageRestoreTasks.shift();
         if (!task) {
             imageRestoreQueueRunning = false;
+            resolveImageRestoreWaiters();
             return;
         }
 
@@ -144,6 +152,16 @@ export function createNodeLifecycleApi({
             return;
         }
         imageRestoreQueueRunning = false;
+        resolveImageRestoreWaiters();
+    }
+
+    function waitForImageRestores() {
+        if (!imageRestoreQueueRunning && pendingImageRestoreTasks.length === 0) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            imageRestoreWaiters.add(resolve);
+        });
     }
 
     function isRemoteImageUrl(value) {
@@ -870,7 +888,7 @@ export function createNodeLifecycleApi({
             nodeData.data.imageMemoryReleased = true;
             nodeData.data.imageAssetKey = effectiveRestoreData.imageAssetKey;
         }
-        if (restoredImages.length > 1) {
+        if (restoredImages.length > 0) {
             nodeData.data.images = restoredImages.slice();
             nodeData.imageDataList = restoredImages.slice();
             if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
@@ -885,6 +903,10 @@ export function createNodeLifecycleApi({
             nodeData.imageData = nodeData.data.image;
         } else if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
             nodeData.imagePreviewIndex = 0;
+        }
+        if (normalizedType === 'ImageGenerate' && restoredImages.length > 0) {
+            nodeData.generatedImages = restoredImages.slice();
+            nodeData.generationCompletedCount = restoredImages.length;
         }
         if (normalizedType === 'ImageSave' && effectiveRestoreData?.video && typeof effectiveRestoreData.video === 'object') {
             nodeData.data.video = {
@@ -1007,7 +1029,7 @@ export function createNodeLifecycleApi({
 
         if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare' || normalizedType === 'ImageGenerate') {
             enqueueImageRestoreTask(async () => {
-                if (!state.nodes.has(id)) return;
+                if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
                 if (nodeData.data?.imageMemoryReleased === true && nodeData.data?.imageAssetKey) {
                     scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
@@ -1017,9 +1039,9 @@ export function createNodeLifecycleApi({
                 const hasInitialImageList = restoredImages.length > 0;
                 const imageImportAssetKey = normalizedType === 'ImageImport' ? (nodeData.imageImportAssetKey || effectiveRestoreData?.imageImportAssetKey || '') : '';
                 const storedImages = isImportUrlMode || imageImportAssetKey || hasInitialData || hasInitialImageList ? [] : await getImageAssetList(id);
-                if (!state.nodes.has(id)) return;
+                if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const sourceImages = hasInitialImageList ? restoredImages : storedImages;
-                if (sourceImages.length > 1) {
+                if (sourceImages.length > 0) {
                     nodeData.data.images = sourceImages.slice();
                     nodeData.imageDataList = sourceImages.slice();
                     if (normalizedType === 'ImagePreview' || normalizedType === 'ImageSave') {
@@ -1034,13 +1056,17 @@ export function createNodeLifecycleApi({
                         nodeData.imageData = nodeData.data.image;
                     }
                 }
+                if (normalizedType === 'ImageGenerate' && sourceImages.length > 0) {
+                    nodeData.generatedImages = sourceImages.slice();
+                    nodeData.generationCompletedCount = sourceImages.length;
+                }
                 const data = isImportUrlMode
                     ? null
                     : (imageImportAssetKey
                         ? await getImageAsset(imageImportAssetKey)
                         : (hasInitialData ? effectiveRestoreData.imageData : (sourceImages[0] || await getImageAsset(id))));
 
-                if (!state.nodes.has(id)) return;
+                if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
 
                 if (isImportUrlMode && nodeData.imageUrl) {
                     nodeData.imageData = null;
@@ -1521,6 +1547,7 @@ export function createNodeLifecycleApi({
         toggleNodesEnabled,
         renameNode,
         cloneNode,
-        detachCloneNode
+        detachCloneNode,
+        waitForImageRestores
     };
 }

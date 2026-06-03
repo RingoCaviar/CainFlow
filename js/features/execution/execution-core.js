@@ -64,6 +64,24 @@ export function createExecutionCoreApi({
     updateAllConnections,
     getImageHistorySidebarActive = () => false
 }) {
+    function propagateImagesToDownstreamPreview(sourceNodeId, images = []) {
+        const imageList = normalizeImageList(images);
+        if (!sourceNodeId || imageList.length === 0) return;
+        const downstreamIds = (state.connections || [])
+            .filter((conn) => conn.from?.nodeId === sourceNodeId && conn.from?.port === 'image')
+            .map((conn) => conn.to?.nodeId)
+            .filter((nodeId, index, list) => nodeId && list.indexOf(nodeId) === index);
+        downstreamIds.forEach((targetId) => {
+            const targetNode = state.nodes.get(targetId);
+            if (!targetNode) return;
+            if (targetNode.type === 'ImagePreview') {
+                void syncImagePreviewNode(targetId, imageList).catch(() => {});
+            } else if (targetNode.type === 'ImageSave') {
+                void syncImageSaveNode(targetId, imageList).catch(() => {});
+            }
+        });
+    }
+
     function requestNodeFit(nodeId) {
         windowRef.requestAnimationFrame(() => {
             fitNodeToContent(nodeId);
@@ -205,6 +223,9 @@ export function createExecutionCoreApi({
             void saveImageAsset(node.id, normalizedImages[0]);
         } else if (deleteImageAsset) {
             void deleteImageAsset(node.id);
+        }
+        if (normalizedImages.length > 0) {
+            propagateImagesToDownstreamPreview(node.id, normalizedImages);
         }
     }
 

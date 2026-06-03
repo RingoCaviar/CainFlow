@@ -137,15 +137,14 @@ function serializeRuntimeNode(node, doc) {
             : (Array.isArray(node.imageDataList) ? node.imageDataList : [])
     );
     if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
-        if (images.length > 1) {
+        if (images.length > 0) {
             serialized.images = images.slice();
-        } else {
-            const imageData = typeof node.data?.image === 'string' && node.data.image.trim()
-                ? node.data.image
-                : (typeof node.imageData === 'string' && node.imageData.trim() ? node.imageData : images[0]);
-            if (imageData) serialized.imageData = imageData;
         }
-        if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 1) {
+        const imageData = typeof node.data?.image === 'string' && node.data.image.trim()
+            ? node.data.image
+            : (typeof node.imageData === 'string' && node.imageData.trim() ? node.imageData : images[0]);
+        if (imageData) serialized.imageData = imageData;
+        if ((node.type === 'ImagePreview' || node.type === 'ImageSave') && images.length > 0) {
             serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
         }
         if (node.type === 'ImageCompare') {
@@ -204,6 +203,7 @@ function serializeRuntimeNode(node, doc) {
             serialized.imageTaskCreateHttpStatus = node.data?.imageTaskCreateHttpStatus || '';
             serialized.imageTaskCreateStatus = node.data?.imageTaskCreateStatus || '';
             serialized.imageTaskProgress = node.data?.imageTaskProgress || '';
+            serialized.generationCompletedCount = Math.max(0, parseInt(node.generationCompletedCount ?? images.length ?? '0', 10) || 0);
             if (node.data?.concurrentRequestStatus?.total > 0) {
                 serialized.concurrentRequestStatus = normalizeConcurrentRequestStatusPayload(node.data.concurrentRequestStatus);
             }
@@ -727,8 +727,7 @@ export function createWorkflowRuntimeManager({
                 node.data = node.data || {};
                 if (node.imageData) {
                     node.data.image = node.imageData;
-                    if (imageList.length > 1) node.data.images = imageList.slice();
-                    else delete node.data.images;
+                    node.data.images = imageList.slice();
                     if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
                     else await saveImageAsset(nodeId, node.imageData);
                 } else {
@@ -751,8 +750,7 @@ export function createWorkflowRuntimeManager({
                 node.data = node.data || {};
                 if (node.imageData) {
                     node.data.image = node.imageData;
-                    if (imageList.length > 1) node.data.images = imageList.slice();
-                    else delete node.data.images;
+                    node.data.images = imageList.slice();
                     delete node.data.video;
                     if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
                     else await saveImageAsset(nodeId, node.imageData);
@@ -1037,6 +1035,9 @@ export function createWorkflowRuntimeManager({
             },
             resolveExecutionPlan(runInput) {
                 return runtimeExecutionCoreApi.resolveExecutionPlan(runInput);
+            },
+            waitForImageRestores() {
+                return runtimeNodeLifecycleApi.waitForImageRestores?.() || Promise.resolve();
             }
         };
         runtimeRunnerApi = createWorkflowRunnerApi({
@@ -1062,6 +1063,8 @@ export function createWorkflowRuntimeManager({
             saveImageAsset,
             deleteImageAsset,
             saveImageAssetList,
+            syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,
+            syncImageSaveNode: runtimeMediaApi.syncImageSaveNode,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             getAbortMessage,
             playNotificationSound: () => getSettingsControllerApi()?.playNotificationSound?.(),
@@ -1127,6 +1130,7 @@ export function createWorkflowRuntimeManager({
         context.promise = (async () => {
             let runError = null;
             try {
+                await context.waitForImageRestores();
                 await context.runner.runWorkflow(runInput);
                 syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
             } catch (error) {

@@ -6,6 +6,10 @@ import {
     renderFullscreenCropControls,
     renderFullscreenCropLayer
 } from './image-cropper.js';
+import {
+    createMediaPreviewCache,
+    TRANSPARENT_PREVIEW_PIXEL
+} from './media-preview-cache.js';
 
 export function createMediaControllerApi({
     state,
@@ -38,16 +42,14 @@ export function createMediaControllerApi({
 }) {
     const pendingFitNodeIds = new Set();
     let fitRequestFrame = null;
-    const resolutionCache = new Map();
-    const RESOLUTION_CACHE_LIMIT = 160;
-    const DATA_URL_RESOLUTION_CACHE_LIMIT = 32;
-    const previewThumbnailCache = new Map();
-    const PREVIEW_THUMBNAIL_MAX_EDGE = 480;
-    const PREVIEW_THUMBNAIL_CACHE_LIMIT = 48;
-    const TRANSPARENT_PREVIEW_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
     const videoAutoSaveToasts = new Map();
     const pendingPreviewIndexSaveNodeIds = new Set();
     let previewIndexSaveTimer = null;
+    const previewCache = createMediaPreviewCache({
+        getImageResolution,
+        documentRef,
+        windowRef
+    });
 
     function schedulePreviewIndexSave(nodeId) {
         if (nodeId) pendingPreviewIndexSaveNodeIds.add(nodeId);
@@ -129,98 +131,6 @@ export function createMediaControllerApi({
 
     function isRemoteImageUrl(value) {
         return typeof value === 'string' && /^https?:\/\//i.test(value);
-    }
-
-    function hashString(value) {
-        let hash = 2166136261;
-        for (let index = 0; index < value.length; index += 1) {
-            hash ^= value.charCodeAt(index);
-            hash = Math.imul(hash, 16777619);
-        }
-        return (hash >>> 0).toString(36);
-    }
-
-    function getImageCacheKey(value = '') {
-        const source = String(value || '');
-        if (!source) return '';
-        if (source.length <= 256) return source;
-        return `${source.length}:${source.slice(0, 96)}:${source.slice(-96)}:${hashString(source)}`;
-    }
-
-    function trimPreviewThumbnailCache(nextKey = '') {
-        if (nextKey && previewThumbnailCache.has(nextKey)) return;
-        while (previewThumbnailCache.size >= PREVIEW_THUMBNAIL_CACHE_LIMIT) {
-            const oldestKey = previewThumbnailCache.keys().next().value;
-            if (!oldestKey) break;
-            previewThumbnailCache.delete(oldestKey);
-        }
-    }
-
-    function createPreviewThumbnail(source, maxEdge = PREVIEW_THUMBNAIL_MAX_EDGE) {
-        if (!isInlineImageData(source)) return Promise.resolve(source);
-        const cacheKey = getImageCacheKey(source);
-        const cached = previewThumbnailCache.get(cacheKey);
-        if (cached) return cached instanceof Promise ? cached : Promise.resolve(cached);
-
-        trimPreviewThumbnailCache(cacheKey);
-        const pending = new Promise((resolve) => {
-            const img = new Image();
-            const finish = (value) => {
-                img.onload = null;
-                img.onerror = null;
-                img.removeAttribute('src');
-                resolve(value);
-            };
-            img.onload = () => {
-                const width = img.naturalWidth || img.width || 0;
-                const height = img.naturalHeight || img.height || 0;
-                const longestEdge = Math.max(width, height);
-                if (!width || !height || longestEdge <= maxEdge) {
-                    previewThumbnailCache.delete(cacheKey);
-                    finish(source);
-                    return;
-                }
-
-                const scale = maxEdge / longestEdge;
-                const outputWidth = Math.max(1, Math.round(width * scale));
-                const outputHeight = Math.max(1, Math.round(height * scale));
-                const canvas = documentRef.createElement('canvas');
-                canvas.width = outputWidth;
-                canvas.height = outputHeight;
-                const ctx = canvas.getContext('2d', { alpha: true });
-                if (!ctx) {
-                    previewThumbnailCache.delete(cacheKey);
-                    finish(source);
-                    return;
-                }
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'medium';
-                ctx.drawImage(img, 0, 0, outputWidth, outputHeight);
-                let thumbnail = '';
-                try {
-                    thumbnail = canvas.toDataURL('image/webp', 0.76);
-                } catch {
-                    thumbnail = '';
-                }
-                canvas.width = 0;
-                canvas.height = 0;
-                if (thumbnail) previewThumbnailCache.set(cacheKey, thumbnail);
-                else previewThumbnailCache.delete(cacheKey);
-                finish(thumbnail || source);
-            };
-            img.onerror = () => {
-                previewThumbnailCache.delete(cacheKey);
-                finish(source);
-            };
-            img.decoding = 'async';
-            img.src = source;
-        });
-        previewThumbnailCache.set(cacheKey, pending);
-        return pending;
-    }
-
-    function clearPreviewThumbnailCache() {
-        previewThumbnailCache.clear();
     }
 
     function sanitizeFilenamePart(value, fallback = 'image') {
@@ -773,61 +683,6 @@ export function createMediaControllerApi({
         throw new Error('无法生成不重复的文件名');
     }
 
-    function getResolutionCacheKey(value) {
-        const source = String(value || '').trim();
-        if (!source) return '';
-        if (!isInlineImageData(source)) return `url:${source}`;
-        const commaIndex = source.indexOf(',');
-        const header = commaIndex >= 0 ? source.slice(0, commaIndex) : source.slice(0, 64);
-        const payload = commaIndex >= 0 ? source.slice(commaIndex + 1) : source;
-        const midStart = Math.max(0, Math.floor(payload.length / 2) - 48);
-        const sample = [
-            payload.slice(0, 96),
-            payload.slice(midStart, midStart + 96),
-            payload.slice(Math.max(0, payload.length - 96))
-        ].join(':');
-        return `data:${header}:len=${source.length}:h=${hashString(sample)}`;
-    }
-
-    function trimResolutionCache(cacheKey) {
-        const isNewKey = !resolutionCache.has(cacheKey);
-        while (resolutionCache.size >= RESOLUTION_CACHE_LIMIT && isNewKey) {
-            const oldestKey = resolutionCache.keys().next().value;
-            if (oldestKey === undefined) break;
-            resolutionCache.delete(oldestKey);
-        }
-        if (!cacheKey.startsWith('data:') || !isNewKey) return;
-
-        let dataUrlCacheCount = 0;
-        for (const key of resolutionCache.keys()) {
-            if (key.startsWith('data:')) dataUrlCacheCount += 1;
-        }
-        while (dataUrlCacheCount >= DATA_URL_RESOLUTION_CACHE_LIMIT) {
-            let oldestDataKey;
-            for (const key of resolutionCache.keys()) {
-                if (key.startsWith('data:')) {
-                    oldestDataKey = key;
-                    break;
-                }
-            }
-            if (oldestDataKey === undefined) break;
-            resolutionCache.delete(oldestDataKey);
-            dataUrlCacheCount -= 1;
-        }
-    }
-
-    function getReloadableImageUrl(imageUrl) {
-        if (!isRemoteImageUrl(imageUrl)) return imageUrl || '';
-        try {
-            const url = new URL(imageUrl);
-            url.searchParams.set('_cf_preview_reload', String(Date.now()));
-            return url.toString();
-        } catch (error) {
-            const separator = imageUrl.includes('?') ? '&' : '?';
-            return `${imageUrl}${separator}_cf_preview_reload=${Date.now()}`;
-        }
-    }
-
     function normalizeImageList(value) {
         if (typeof value === 'string') {
             return value.trim() ? [value] : [];
@@ -903,31 +758,6 @@ export function createMediaControllerApi({
         return prevSignature !== nextSignature;
     }
 
-    async function resolveImageResolution(value) {
-        if (typeof value !== 'string' || !value.trim()) return '';
-        const source = value.trim();
-        const cacheKey = getResolutionCacheKey(source);
-        const cached = resolutionCache.get(cacheKey);
-        if (cached !== undefined) {
-            return cached instanceof Promise ? cached : Promise.resolve(cached);
-        }
-
-        const pending = Promise.resolve(getImageResolution(source))
-            .then((result) => {
-                const normalized = typeof result === 'string' ? result : '';
-                trimResolutionCache(cacheKey);
-                resolutionCache.set(cacheKey, normalized);
-                return normalized;
-            })
-            .catch(() => {
-                resolutionCache.delete(cacheKey);
-                return '';
-            });
-        trimResolutionCache(cacheKey);
-        resolutionCache.set(cacheKey, pending);
-        return pending;
-    }
-
     function createSvgElement(tagName) {
         return documentRef.createElementNS('http://www.w3.org/2000/svg', tagName);
     }
@@ -964,13 +794,12 @@ export function createMediaControllerApi({
         if (shouldUseThumbnail) {
             const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
             img.dataset.previewThumbnailToken = token;
-            const cacheKey = getImageCacheKey(src);
-            const cachedThumbnail = previewThumbnailCache.get(cacheKey);
-            const initialSrc = typeof cachedThumbnail === 'string' ? cachedThumbnail : TRANSPARENT_PREVIEW_PIXEL;
+            const cachedThumbnail = previewCache.getCachedPreviewThumbnail(src);
+            const initialSrc = cachedThumbnail || TRANSPARENT_PREVIEW_PIXEL;
             if (img.getAttribute('src') !== initialSrc) {
                 img.src = initialSrc;
             }
-            void createPreviewThumbnail(src).then((thumbnail) => {
+            void previewCache.createPreviewThumbnail(src).then((thumbnail) => {
                 if (!img.isConnected) return;
                 if (img.dataset.previewThumbnailToken !== token) return;
                 if (thumbnail && img.getAttribute('src') !== thumbnail) {
@@ -1352,7 +1181,7 @@ export function createMediaControllerApi({
     function renderImageImportUrlPreviewContent(imageUrl, options = {}) {
         const { reloading = false, message = '' } = options;
         if (imageUrl && isRemoteImageUrl(imageUrl)) {
-            const src = reloading ? getReloadableImageUrl(imageUrl) : imageUrl;
+            const src = reloading ? previewCache.getReloadableImageUrl(imageUrl) : imageUrl;
             return `
                 <img src="${escapeHtml(src)}" alt="URL 图片预览" draggable="false" style="pointer-events: none;" loading="eager" decoding="async" fetchpriority="high" referrerpolicy="no-referrer" data-original-src="${escapeHtml(imageUrl)}" />
                 <button type="button" class="image-import-url-refresh ${reloading ? 'is-loading' : ''}" title="重新加载预览" aria-label="重新加载 URL 图片预览">
@@ -1507,8 +1336,7 @@ export function createMediaControllerApi({
                 node.imageData = imageData;
                 node.imageDataList = imageList;
                 node.data.image = imageData;
-                if (imageList.length > 1) node.data.images = imageList.slice();
-                else delete node.data.images;
+                node.data.images = imageList.slice();
             } else {
                 node.imageData = null;
                 node.imageDataList = [];
@@ -1532,7 +1360,7 @@ export function createMediaControllerApi({
         if (!badge) return;
         const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         badge.dataset.resolutionToken = token;
-        const res = await resolveImageResolution(dataUrl);
+        const res = await previewCache.resolveImageResolution(dataUrl);
         if (badge.dataset.resolutionToken !== token) return;
         if (res) {
             badge.textContent = `尺寸 ${res}`;
@@ -1640,8 +1468,7 @@ export function createMediaControllerApi({
 
         if (currentImage) {
             node.data.image = outputImage;
-            if (imageList.length > 1) node.data.images = imageList.slice();
-            else delete node.data.images;
+            node.data.images = imageList.slice();
             renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
             if (!(await clearRecoverableDisplayAsset(nodeId))) {
@@ -1719,8 +1546,7 @@ export function createMediaControllerApi({
 
         if (primaryImage) {
             node.data.image = primaryImage;
-            if (imageList.length > 1) node.data.images = imageList.slice();
-            else delete node.data.images;
+            node.data.images = imageList.slice();
             node.imagePreviewIndex = 0;
             delete node.data.video;
             renderImageSavePreview(nodeId, imageList);
@@ -3310,7 +3136,7 @@ export function createMediaControllerApi({
         renderImagePreviewImage,
         renderImageSavePreview,
         renderImageComparePreview,
-        clearPreviewThumbnailCache,
+        clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
         syncImagePreviewNode,
         syncImageSaveNode,
         setupImageSave,

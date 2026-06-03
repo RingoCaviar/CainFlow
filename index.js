@@ -1096,6 +1096,8 @@ function getWorkflowRunnerApi() {
             saveImageAsset,
             deleteImageAsset,
             saveImageAssetList,
+            syncImagePreviewNode: (nodeId, imageData) => mediaControllerApi.syncImagePreviewNode(nodeId, imageData),
+            syncImageSaveNode: (nodeId, imageData) => mediaControllerApi.syncImageSaveNode(nodeId, imageData),
             refreshDependentImageResizePreviews,
             getAbortMessage: getAbortMessageService,
             playNotificationSound: () => settingsControllerApi.playNotificationSound(),

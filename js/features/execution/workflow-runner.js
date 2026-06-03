@@ -32,6 +32,8 @@ export function createWorkflowRunnerApi({
     saveImageAsset = async () => false,
     deleteImageAsset = async () => false,
     saveImageAssetList = async () => false,
+    syncImagePreviewNode = async () => {},
+    syncImageSaveNode = async () => {},
     refreshDependentImageResizePreviews = () => {},
     getAbortMessage,
     playNotificationSound,
@@ -886,6 +888,24 @@ export function createWorkflowRunnerApi({
         return state.concurrentRequestMode === true;
     }
 
+    async function propagateImagesToDownstreamPreview(sourceNodeId, images = []) {
+        const imageList = normalizeImageList(images);
+        if (!sourceNodeId || imageList.length === 0) return;
+        const targetNodeIds = (state.connections || [])
+            .filter((conn) => conn.from?.nodeId === sourceNodeId && conn.from?.port === 'image')
+            .map((conn) => conn.to?.nodeId)
+            .filter((nodeId, index, list) => nodeId && list.indexOf(nodeId) === index);
+        for (const targetNodeId of targetNodeIds) {
+            const targetNode = state.nodes.get(targetNodeId);
+            if (!targetNode) continue;
+            if (targetNode.type === 'ImagePreview') {
+                await syncImagePreviewNode(targetNodeId, imageList);
+            } else if (targetNode.type === 'ImageSave') {
+                await syncImageSaveNode(targetNodeId, imageList);
+            }
+        }
+    }
+
     async function commitConcurrentBatchResults(node, results = []) {
         if (!node) return;
         if (node.type === 'ImageGenerate') {
@@ -906,6 +926,7 @@ export function createWorkflowRunnerApi({
             if (images.length > 1) await saveImageAssetList(node.id, images);
             else if (images.length === 1) await saveImageAsset(node.id, images[0]);
             else await deleteImageAsset(node.id);
+            await propagateImagesToDownstreamPreview(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
             updateAllConnections();
             return;
@@ -1385,6 +1406,9 @@ export function createWorkflowRunnerApi({
                 node.generationCompletedCount = aggregatedImages.length;
             }
             await saveImageAssetList(node.id, aggregatedImages);
+            await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
+            await refreshDependentImageResizePreviews(node.id);
+            updateAllConnections();
         }
 
         if (shouldAggregateTexts) {
