@@ -134,45 +134,8 @@ export function createToolbarControllerApi({
             }
         });
         documentRef.getElementById('btn-undo')?.addEventListener('click', undo);
-        documentRef.getElementById('btn-export')?.addEventListener('click', exportWorkflow);
-        documentRef.getElementById('btn-import')?.addEventListener('click', () => {
-            documentRef.getElementById('import-file')?.click();
-        });
         documentRef.getElementById('import-file')?.addEventListener('change', (e) => {
             if (e.target.files[0]) importWorkflow(e.target.files[0]);
-        });
-
-        documentRef.getElementById('btn-zoom-in')?.addEventListener('click', () => {
-            withZoomInteraction(() => {
-                const nz = Math.min(5, state.canvas.zoom * 1.2);
-                const cx = canvasContainer.clientWidth / 2;
-                const cy = canvasContainer.clientHeight / 2;
-                state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
-                state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
-                state.canvas.zoom = nz;
-                viewportApi.updateCanvasTransform();
-            });
-        });
-
-        documentRef.getElementById('btn-zoom-out')?.addEventListener('click', () => {
-            withZoomInteraction(() => {
-                const nz = Math.max(0.1, state.canvas.zoom * 0.8);
-                const cx = canvasContainer.clientWidth / 2;
-                const cy = canvasContainer.clientHeight / 2;
-                state.canvas.x = cx - (cx - state.canvas.x) * (nz / state.canvas.zoom);
-                state.canvas.y = cy - (cy - state.canvas.y) * (nz / state.canvas.zoom);
-                state.canvas.zoom = nz;
-                viewportApi.updateCanvasTransform();
-            });
-        });
-
-        documentRef.getElementById('btn-zoom-reset')?.addEventListener('click', () => {
-            withZoomInteraction(() => {
-                state.canvas.x = canvasContainer.clientWidth / 2;
-                state.canvas.y = canvasContainer.clientHeight / 2;
-                state.canvas.zoom = 1;
-                viewportApi.updateCanvasTransform();
-            });
         });
 
         documentRef.getElementById('btn-focus-selection')?.addEventListener('click', () => {
