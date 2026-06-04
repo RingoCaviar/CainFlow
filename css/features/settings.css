@@ -653,6 +653,10 @@
     outline-offset: 2px;
 }
 
+#settings-modal .modal-panel {
+    width: 1105px;
+}
+
 #general-settings {
     width: 100%;
 }
@@ -692,6 +696,125 @@
     min-width: 0;
 }
 
+#general-settings .general-settings-label-row,
+#general-settings .general-settings-control-row {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+#general-settings .general-settings-control-row {
+    margin-bottom: 0;
+}
+
+#general-settings .general-settings-label-main {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#general-settings .general-settings-label-text {
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1.4;
+    font-weight: 600;
+}
+
+#general-settings .general-settings-help {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+#general-settings .general-settings-help-trigger {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--settings-primary-action-text) 42%, transparent);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--settings-primary-action-bg) 92%, transparent);
+    color: var(--settings-primary-action-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+#general-settings .general-settings-help-trigger:hover,
+#general-settings .general-settings-help-trigger:focus-visible,
+#general-settings .general-settings-help.is-open .general-settings-help-trigger {
+    border-color: var(--settings-primary-action-hover-border);
+    background: var(--settings-primary-action-hover-bg);
+    color: var(--settings-primary-action-hover-text);
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.general-settings-floating-help {
+    position: fixed;
+    z-index: 13050;
+    width: min(320px, calc(100vw - 24px));
+    padding: 12px 14px;
+    display: grid;
+    gap: 6px;
+    border-radius: 12px;
+    border: 1px solid var(--settings-dialog-panel-border);
+    background: color-mix(in srgb, var(--settings-dialog-panel-bg) 96%, rgba(255, 255, 255, 0.04));
+    box-shadow: var(--settings-dialog-panel-shadow);
+    color: var(--text-primary);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    pointer-events: auto;
+}
+
+.general-settings-floating-help::before {
+    content: "";
+    position: absolute;
+    left: var(--general-settings-floating-help-arrow-left, 22px);
+    width: 12px;
+    height: 12px;
+    background: inherit;
+    transform: translateX(-50%) rotate(45deg);
+}
+
+.general-settings-floating-help[data-placement="bottom"]::before {
+    top: -7px;
+    border-left: 1px solid var(--settings-dialog-panel-border);
+    border-top: 1px solid var(--settings-dialog-panel-border);
+}
+
+.general-settings-floating-help[data-placement="top"]::before {
+    bottom: -7px;
+    border-right: 1px solid var(--settings-dialog-panel-border);
+    border-bottom: 1px solid var(--settings-dialog-panel-border);
+}
+
+.general-settings-floating-help.hidden {
+    display: none;
+}
+
+.general-settings-floating-help-title {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--text-primary);
+}
+
+.general-settings-floating-help-body {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--settings-dialog-text);
+    white-space: normal;
+    word-break: break-word;
+}
+
 #general-settings .general-settings-field-divider {
     flex: 0 0 auto;
     width: calc(100% - 48px);
@@ -729,12 +852,6 @@
     border-radius: 999px;
     background: var(--settings-primary-action-text);
     opacity: 0.9;
-}
-
-#general-settings .general-settings-card .card-field p {
-    margin: 0;
-    font-size: 13px !important;
-    line-height: 1.6 !important;
 }
 
 #general-settings .general-settings-card input,
@@ -856,6 +973,13 @@
     margin-top: 4px;
 }
 
+#general-settings .general-settings-meta-text {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
 #general-settings .general-settings-update-actions .btn {
     min-height: 40px;
 }
@@ -966,6 +1090,10 @@
 @media (max-width: 900px) {
     #general-settings .general-settings-grid {
         grid-template-columns: 1fr;
+    }
+
+    .general-settings-floating-help {
+        width: min(280px, calc(100vw - 56px));
     }
 }
 

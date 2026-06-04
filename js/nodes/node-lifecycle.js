@@ -7,6 +7,11 @@ import {
     normalizeConcurrentRequestStatusPayload,
     renderConcurrentRequestStatusPanel
 } from '../features/execution/concurrent-request-status-ui.js';
+import {
+    getCanonicalImageList,
+    normalizeImageList,
+    setCanonicalImageOutput
+} from '../features/execution/execution-data-utils.js';
 import { getReferenceImageCount } from './reference-image-ports.js';
 
 export function createNodeLifecycleApi({
@@ -37,6 +42,7 @@ export function createNodeLifecycleApi({
     onConnectionsChanged = () => {},
     getCacheSidebarActive,
     updateCacheUsage,
+    canvasContainer = null,
     documentRef = document
 }) {
     const view = documentRef.defaultView || window;
@@ -44,17 +50,135 @@ export function createNodeLifecycleApi({
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview';
     const NODE_SCROLL_CONTENT_SELECTOR = '.chat-response-area, .text-display-box, .node-error-msg';
     const NODE_SCROLLABLE_RESULT_SELECTOR = `${NODE_SCROLL_CONTENT_SELECTOR}, .text-split-preview`;
-    const IMAGE_RESTORE_DELAY_MS = 24;
+    const IMAGE_RESTORE_DELAY_MS = 0;
     const FALLBACK_DEFAULT_NODE_WIDTH = 180;
     const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
+    const IMAGE_RESTORE_VIEWPORT_PREFETCH_PADDING = 360;
     const pendingImageRestoreTasks = [];
     let imageRestoreQueueRunning = false;
+    let activeImageRestoreNodeId = '';
+    let imageRestoreSequence = 0;
     const imageRestoreWaiters = new Set();
 
+    function normalizeImageRestoreNodeIds(nodeIds = null) {
+        if (nodeIds === null || nodeIds === undefined) return null;
+        const rawIds = nodeIds instanceof Set
+            ? Array.from(nodeIds)
+            : (Array.isArray(nodeIds) ? nodeIds : [nodeIds]);
+        return new Set(rawIds.filter(Boolean).map((id) => String(id)));
+    }
+
+    function hasPendingImageRestoreForNodes(nodeIds = null) {
+        if (!(nodeIds instanceof Set)) {
+            return imageRestoreQueueRunning || pendingImageRestoreTasks.length > 0;
+        }
+        if (nodeIds.size === 0) return false;
+        if (activeImageRestoreNodeId && nodeIds.has(activeImageRestoreNodeId)) return true;
+        return pendingImageRestoreTasks.some((entry) => entry?.nodeId && nodeIds.has(entry.nodeId));
+    }
+
     function resolveImageRestoreWaiters() {
-        if (imageRestoreQueueRunning || pendingImageRestoreTasks.length > 0) return;
-        imageRestoreWaiters.forEach((resolve) => resolve());
-        imageRestoreWaiters.clear();
+        imageRestoreWaiters.forEach((entry) => {
+            if (hasPendingImageRestoreForNodes(entry.nodeIds)) return;
+            entry.resolve();
+            imageRestoreWaiters.delete(entry);
+        });
+    }
+
+    function prioritizeImageRestoreTasks(nodeIds) {
+        if (!(nodeIds instanceof Set) || nodeIds.size === 0 || pendingImageRestoreTasks.length < 2) return;
+        pendingImageRestoreTasks.forEach((entry) => {
+            if (entry?.nodeId && nodeIds.has(entry.nodeId)) {
+                entry.explicitPriority = true;
+            }
+        });
+        sortPendingImageRestoreTasks();
+    }
+
+    function getImageRestoreCanvasContainer() {
+        return canvasContainer || nodesLayer?.parentElement || null;
+    }
+
+    function getImageRestoreViewport() {
+        const container = getImageRestoreCanvasContainer();
+        if (!container) return null;
+        const rect = typeof container.getBoundingClientRect === 'function'
+            ? container.getBoundingClientRect()
+            : null;
+        const width = rect?.width || container.clientWidth || 0;
+        const height = rect?.height || container.clientHeight || 0;
+        const zoom = Number(state.canvas?.zoom) > 0 ? Number(state.canvas.zoom) : 1;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || zoom <= 0) {
+            return null;
+        }
+        const x = Number(state.canvas?.x) || 0;
+        const y = Number(state.canvas?.y) || 0;
+        return {
+            left: -x / zoom,
+            top: -y / zoom,
+            right: (width - x) / zoom,
+            bottom: (height - y) / zoom,
+            centerX: (width / 2 - x) / zoom,
+            centerY: (height / 2 - y) / zoom
+        };
+    }
+
+    function getImageRestoreNodeBounds(node) {
+        const width = Number(node?.width) || node?.el?.offsetWidth || FALLBACK_DEFAULT_NODE_WIDTH;
+        const height = Number(node?.height) || node?.el?.offsetHeight || FALLBACK_DEFAULT_NODE_HEIGHT;
+        const left = Number(node?.x) || 0;
+        const top = Number(node?.y) || 0;
+        return {
+            left,
+            top,
+            right: left + Math.max(width, 1),
+            bottom: top + Math.max(height, 1),
+            centerX: left + Math.max(width, 1) / 2,
+            centerY: top + Math.max(height, 1) / 2
+        };
+    }
+
+    function imageRestoreBoundsIntersect(bounds, viewport, padding = 0) {
+        if (!bounds || !viewport) return false;
+        return !(
+            bounds.right < viewport.left - padding ||
+            bounds.left > viewport.right + padding ||
+            bounds.bottom < viewport.top - padding ||
+            bounds.top > viewport.bottom + padding
+        );
+    }
+
+    function getImageRestoreEntryPriority(entry, viewport) {
+        if (entry?.explicitPriority === true) {
+            return { group: 0, distance: 0, sequence: entry.sequence || 0 };
+        }
+        const node = entry?.nodeId ? state.nodes.get(entry.nodeId) : null;
+        if (!node || !viewport) {
+            return { group: viewport ? 4 : 1, distance: 0, sequence: entry?.sequence || 0 };
+        }
+        const bounds = getImageRestoreNodeBounds(node);
+        const visible = imageRestoreBoundsIntersect(bounds, viewport, 0);
+        const nearVisible = visible || imageRestoreBoundsIntersect(bounds, viewport, IMAGE_RESTORE_VIEWPORT_PREFETCH_PADDING);
+        const dx = bounds.centerX - viewport.centerX;
+        const dy = bounds.centerY - viewport.centerY;
+        return {
+            group: visible ? 1 : (nearVisible ? 2 : 3),
+            distance: dx * dx + dy * dy,
+            sequence: entry.sequence || 0
+        };
+    }
+
+    function sortPendingImageRestoreTasks() {
+        if (pendingImageRestoreTasks.length < 2) return;
+        const viewport = getImageRestoreViewport();
+        if (!viewport && !pendingImageRestoreTasks.some((entry) => entry?.explicitPriority === true)) return;
+        pendingImageRestoreTasks.sort((a, b) => {
+            const priorityA = getImageRestoreEntryPriority(a, viewport);
+            const priorityB = getImageRestoreEntryPriority(b, viewport);
+            if (priorityA.group !== priorityB.group) return priorityA.group - priorityB.group;
+            if (priorityA.distance !== priorityB.distance) return priorityA.distance - priorityB.distance;
+            return priorityA.sequence - priorityB.sequence;
+        });
     }
 
     function scheduleNodeSizeConnectionRefresh() {
@@ -116,53 +240,86 @@ export function createNodeLifecycleApi({
         }
     }
 
-    function scheduleAfterIdle(callback, timeout = 600) {
-        if (typeof view.requestIdleCallback === 'function') {
-            return view.requestIdleCallback(callback, { timeout });
+    function scheduleImageRestoreQueue(callback) {
+        if (typeof view.requestAnimationFrame === 'function') {
+            return view.requestAnimationFrame(callback);
         }
-        return view.setTimeout(() => callback({
-            didTimeout: true,
-            timeRemaining: () => 0
-        }), 16);
+        return view.setTimeout(callback, 0);
     }
 
-    function enqueueImageRestoreTask(task) {
+    function runBackgroundImageTask(task, label = 'Background image task failed:') {
         if (typeof task !== 'function') return;
-        pendingImageRestoreTasks.push(task);
+        try {
+            const result = task();
+            if (result && typeof result.catch === 'function') {
+                result.catch((error) => console.warn(label, error));
+            }
+        } catch (error) {
+            console.warn(label, error);
+        }
+    }
+
+    function updateResolutionBadgeSoon(nodeId, dataUrl) {
+        if (!dataUrl || typeof showResolutionBadge !== 'function') return;
+        runBackgroundImageTask(() => showResolutionBadge(nodeId, dataUrl), 'Show image resolution failed:');
+    }
+
+    function enqueueImageRestoreTask(task, options = {}) {
+        if (typeof task !== 'function') return;
+        pendingImageRestoreTasks.push({
+            task,
+            nodeId: options.nodeId ? String(options.nodeId) : '',
+            sequence: imageRestoreSequence += 1,
+            explicitPriority: options.explicitPriority === true
+        });
+        sortPendingImageRestoreTasks();
         if (imageRestoreQueueRunning) return;
         imageRestoreQueueRunning = true;
-        scheduleAfterIdle(runNextImageRestoreTask);
+        scheduleImageRestoreQueue(runNextImageRestoreTask);
     }
 
     async function runNextImageRestoreTask() {
-        const task = pendingImageRestoreTasks.shift();
-        if (!task) {
+        sortPendingImageRestoreTasks();
+        const entry = pendingImageRestoreTasks.shift();
+        if (!entry?.task) {
+            activeImageRestoreNodeId = '';
             imageRestoreQueueRunning = false;
             resolveImageRestoreWaiters();
             return;
         }
 
+        activeImageRestoreNodeId = entry.nodeId || '';
         try {
-            await task();
+            await entry.task();
         } catch (error) {
             console.warn('Image node restore failed:', error);
+        } finally {
+            activeImageRestoreNodeId = '';
+            resolveImageRestoreWaiters();
         }
 
         if (pendingImageRestoreTasks.length > 0) {
-            view.setTimeout(() => scheduleAfterIdle(runNextImageRestoreTask), IMAGE_RESTORE_DELAY_MS);
+            view.setTimeout(() => scheduleImageRestoreQueue(runNextImageRestoreTask), IMAGE_RESTORE_DELAY_MS);
             return;
         }
         imageRestoreQueueRunning = false;
         resolveImageRestoreWaiters();
     }
 
-    function waitForImageRestores() {
-        if (!imageRestoreQueueRunning && pendingImageRestoreTasks.length === 0) {
+    function waitForImageRestores(nodeIds = null) {
+        const normalizedNodeIds = normalizeImageRestoreNodeIds(nodeIds);
+        prioritizeImageRestoreTasks(normalizedNodeIds);
+        if (!hasPendingImageRestoreForNodes(normalizedNodeIds)) {
             return Promise.resolve();
         }
         return new Promise((resolve) => {
-            imageRestoreWaiters.add(resolve);
+            imageRestoreWaiters.add({ resolve, nodeIds: normalizedNodeIds });
         });
+    }
+
+    function cancelPendingImageRestores() {
+        pendingImageRestoreTasks.length = 0;
+        resolveImageRestoreWaiters();
     }
 
     function isRemoteImageUrl(value) {
@@ -210,6 +367,76 @@ export function createNodeLifecycleApi({
 
     function isDisplayImageNodeType(type) {
         return type === 'ImagePreview' || type === 'ImageSave';
+    }
+
+    function isCanonicalImageNodeType(type) {
+        return type === 'ImageGenerate' || type === 'ImageMerge' || isDisplayImageNodeType(type);
+    }
+
+    function isRecoverableImageAssetNodeType(type) {
+        return isCanonicalImageNodeType(type) || type === 'ImageResize' || type === 'ImageCompare';
+    }
+
+    function getNodePersistedPreviewThumbnail(node, restoreData = null) {
+        const nodeThumbnail = typeof node?.data?.imagePreviewThumbnail === 'string' ? node.data.imagePreviewThumbnail.trim() : '';
+        if (nodeThumbnail) return nodeThumbnail;
+        const restoreThumbnail = typeof restoreData?.imagePreviewThumbnail === 'string' ? restoreData.imagePreviewThumbnail.trim() : '';
+        return restoreThumbnail || '';
+    }
+
+    function renderRecoverableNodePreviewThumbnail(type, nodeId, nodeData, thumbnail, restoreData = null) {
+        const previewThumbnail = typeof thumbnail === 'string' ? thumbnail.trim() : '';
+        if (!previewThumbnail) return false;
+
+        if (nodeData?.data) {
+            nodeData.data.imagePreviewThumbnail = previewThumbnail;
+        }
+
+        if (type === 'ImageImport') {
+            if (typeof renderImageImportUploadState === 'function') {
+                renderImageImportUploadState(nodeId, previewThumbnail);
+                updateResolutionBadgeSoon(nodeId, previewThumbnail);
+                return true;
+            }
+            return false;
+        }
+
+        if (type === 'ImageResize') {
+            restoreImageResizePreview(nodeId, previewThumbnail, {
+                outputWidth: restoreData?.outputWidth || 0,
+                outputHeight: restoreData?.outputHeight || 0,
+                outputQuality: restoreData?.outputQuality || null,
+                estimatedBytes: restoreData?.estimatedBytes || null
+            });
+            updateResolutionBadgeSoon(nodeId, previewThumbnail);
+            if (nodeData?.data) {
+                delete nodeData.data.image;
+            }
+            nodeData.imageData = null;
+            nodeData.imageDataList = [];
+            nodeData.resizePreviewData = null;
+            return true;
+        }
+
+        if (type === 'ImageCompare') {
+            const previewA = nodeData?.compareImageA || nodeData?.data?.compareImageA || null;
+            if (typeof renderImageComparePreview === 'function') {
+                renderImageComparePreview(nodeId, previewA, previewThumbnail);
+                updateResolutionBadgeSoon(nodeId, previewThumbnail);
+                if (nodeData?.data) {
+                    delete nodeData.data.image;
+                    delete nodeData.data.compareImageB;
+                }
+                nodeData.compareImageB = null;
+                nodeData.imageData = null;
+                return true;
+            }
+            return false;
+        }
+
+        if (type === 'ImageGenerate') return false;
+
+        return false;
     }
 
     function clampNodeWidthToDefault(width, config) {
@@ -886,14 +1113,22 @@ export function createNodeLifecycleApi({
                 nodeData.textPreviewIndex = 0;
             }
         }
-        const restoredImages = Array.isArray(effectiveRestoreData?.images)
-            ? effectiveRestoreData.images.filter((item) => typeof item === 'string' && item.trim())
-            : [];
-        if (effectiveRestoreData?.imageMemoryReleased === true && typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey) {
+        const restoredImages = normalizeImageList([
+            effectiveRestoreData?.imageList,
+            effectiveRestoreData?.images,
+            isCanonicalImageNodeType(normalizedType) ? effectiveRestoreData?.imageData : null
+        ]);
+        const restoredPreviewThumbnail = typeof effectiveRestoreData?.imagePreviewThumbnail === 'string'
+            ? effectiveRestoreData.imagePreviewThumbnail.trim()
+            : '';
+        const restoredAssetKey = typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey
+            ? effectiveRestoreData.imageAssetKey
+            : '';
+        if (restoredImages.length === 0 && effectiveRestoreData?.imageMemoryReleased === true && typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey) {
             nodeData.data.imageMemoryReleased = true;
             nodeData.data.imageAssetKey = effectiveRestoreData.imageAssetKey;
         }
-        if (isDisplayImageNodeType(normalizedType)) {
+        if (isRecoverableImageAssetNodeType(normalizedType)) {
             const restoredImageCount = Math.max(
                 restoredImages.length,
                 Math.max(0, parseInt(effectiveRestoreData?.imageCount || '0', 10) || 0)
@@ -901,32 +1136,43 @@ export function createNodeLifecycleApi({
             if (restoredImageCount > 0) {
                 nodeData.data.imageCount = restoredImageCount;
             }
-            if (typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey) {
-                nodeData.data.imageAssetKey = effectiveRestoreData.imageAssetKey;
+            if (restoredAssetKey) {
+                nodeData.data.imageAssetKey = restoredAssetKey;
+            }
+            if (effectiveRestoreData?.imageAssetReady === true) {
+                nodeData.data.imageAssetReady = true;
+            }
+            if (effectiveRestoreData?.imageHydratedAt) {
+                nodeData.data.imageHydratedAt = effectiveRestoreData.imageHydratedAt;
+            }
+            if (restoredPreviewThumbnail) {
+                nodeData.data.imagePreviewThumbnail = restoredPreviewThumbnail;
             }
         }
         if (restoredImages.length > 0) {
-            if (isDisplayImageNodeType(normalizedType)) {
-                nodeData.imageDataList = [];
-                nodeData.imagePreviewIndex = Math.max(0, Math.min(
-                    restoredImages.length - 1,
-                    parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0
-                ));
-                nodeData.data.image = restoredImages[nodeData.imagePreviewIndex] || restoredImages[0];
-                nodeData.data.imageCount = restoredImages.length;
-                nodeData.data.imageAssetKey = nodeData.data.imageAssetKey || id;
-                delete nodeData.data.images;
+            if (isCanonicalImageNodeType(normalizedType)) {
+                const restoredIndex = isDisplayImageNodeType(normalizedType)
+                    ? Math.max(0, Math.min(restoredImages.length - 1, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0))
+                    : restoredImages.length - 1;
+                setCanonicalImageOutput(nodeData, restoredImages, {
+                    currentIndex: restoredIndex,
+                    assetKey: restoredAssetKey || id,
+                    imageCount: Math.max(restoredImages.length, Math.max(0, parseInt(effectiveRestoreData?.imageCount || '0', 10) || 0)),
+                    assetReady: effectiveRestoreData?.imageAssetReady === true,
+                    hydratedAt: effectiveRestoreData?.imageHydratedAt || undefined
+                });
             } else {
                 nodeData.data.images = restoredImages.slice();
                 nodeData.imageDataList = restoredImages.slice();
                 nodeData.data.image = restoredImages[restoredImages.length - 1];
+                nodeData.imageData = nodeData.data.image;
             }
-            nodeData.imageData = nodeData.data.image;
         } else if (isDisplayImageNodeType(normalizedType)) {
             nodeData.imagePreviewIndex = 0;
+        } else if (restoredPreviewThumbnail && (normalizedType === 'ImageGenerate' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare' || normalizedType === 'ImageImport')) {
+            renderRecoverableNodePreviewThumbnail(normalizedType, id, nodeData, restoredPreviewThumbnail, effectiveRestoreData);
         }
         if (normalizedType === 'ImageGenerate' && restoredImages.length > 0) {
-            nodeData.generatedImages = restoredImages.slice();
             nodeData.generationCompletedCount = restoredImages.length;
         }
         if (normalizedType === 'ImageSave' && effectiveRestoreData?.video && typeof effectiveRestoreData.video === 'object') {
@@ -1048,10 +1294,37 @@ export function createNodeLifecycleApi({
         }, true);
         bindNodeSizeObserver(nodeData);
 
-        if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare' || normalizedType === 'ImageGenerate') {
+        if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare' || normalizedType === 'ImageGenerate' || normalizedType === 'ImageMerge') {
             enqueueImageRestoreTask(async () => {
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
+                const previewThumbnail = getNodePersistedPreviewThumbnail(nodeData, effectiveRestoreData);
+                const canUseThumbnailOnly = Boolean(
+                    previewThumbnail
+                    && (nodeData.data?.imageAssetReady === true || nodeData.data?.imageMemoryReleased === true)
+                    && (normalizedType === 'ImageGenerate'
+                        || normalizedType === 'ImageResize'
+                        || normalizedType === 'ImageCompare'
+                        || (normalizedType === 'ImageImport' && !isImportUrlMode))
+                );
+                console.info('[media-restore]', {
+                    nodeId: id,
+                    type: normalizedType,
+                    hasInitialData: !!(effectiveRestoreData && effectiveRestoreData.imageData),
+                    restoredImages: restoredImages.length,
+                    hasPreviewThumbnail: !!previewThumbnail,
+                    imageAssetReady: nodeData.data?.imageAssetReady === true,
+                    imageMemoryReleased: nodeData.data?.imageMemoryReleased === true,
+                    canUseThumbnailOnly
+                });
+                if (canUseThumbnailOnly) {
+                    if (canUseThumbnailOnly) {
+                        renderRecoverableNodePreviewThumbnail(normalizedType, id, nodeData, previewThumbnail, effectiveRestoreData);
+                        onConnectionsChanged();
+                    }
+                    scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
+                    return;
+                }
                 if (nodeData.data?.imageMemoryReleased === true && nodeData.data?.imageAssetKey) {
                     scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                     return;
@@ -1059,30 +1332,44 @@ export function createNodeLifecycleApi({
                 const hasInitialData = !!(effectiveRestoreData && effectiveRestoreData.imageData);
                 const hasInitialImageList = restoredImages.length > 0;
                 const imageImportAssetKey = normalizedType === 'ImageImport' ? (nodeData.imageImportAssetKey || effectiveRestoreData?.imageImportAssetKey || '') : '';
-                const displayImageAssetKey = isDisplayImageNodeType(normalizedType)
+                const recoverableImageAssetKey = isRecoverableImageAssetNodeType(normalizedType)
                     ? (nodeData.data?.imageAssetKey || effectiveRestoreData?.imageAssetKey || id)
                     : '';
-                const shouldRestoreDisplayBatch = isDisplayImageNodeType(normalizedType)
+                const canonicalImageAssetKey = isCanonicalImageNodeType(normalizedType) ? recoverableImageAssetKey : '';
+                const canonicalImageCount = Math.max(0, parseInt(nodeData.data?.imageCount || effectiveRestoreData?.imageCount || '0', 10) || 0);
+                const shouldRestoreCanonicalBatch = isCanonicalImageNodeType(normalizedType)
                     && !hasInitialImageList
-                    && !!displayImageAssetKey;
-                const storedImages = isImportUrlMode || imageImportAssetKey || (hasInitialData && !shouldRestoreDisplayBatch) || hasInitialImageList
+                    && (!hasInitialData || canonicalImageCount > 1)
+                    && !!canonicalImageAssetKey;
+                const shouldRestoreRecoverableAsset = !isCanonicalImageNodeType(normalizedType)
+                    && !!recoverableImageAssetKey
+                    && !hasInitialImageList
+                    && !hasInitialData;
+                const storedImageAssetKey = shouldRestoreCanonicalBatch
+                    ? canonicalImageAssetKey
+                    : (shouldRestoreRecoverableAsset ? recoverableImageAssetKey : '');
+                const storedImages = isImportUrlMode || imageImportAssetKey || !storedImageAssetKey
                     ? []
-                    : await getImageAssetList(displayImageAssetKey || id);
+                    : await getImageAssetList(storedImageAssetKey);
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const sourceImages = hasInitialImageList ? restoredImages : storedImages;
                 if (sourceImages.length > 0) {
-                    if (isDisplayImageNodeType(normalizedType)) {
-                        await saveImageAssetList(id, sourceImages);
-                        nodeData.data.imageAssetKey = id;
-                        nodeData.data.imageCount = sourceImages.length;
-                        nodeData.imageDataList = [];
-                        nodeData.imagePreviewIndex = Math.max(0, Math.min(
-                            sourceImages.length - 1,
-                            Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0
-                        ));
-                        nodeData.data.image = sourceImages[nodeData.imagePreviewIndex] || sourceImages[0];
-                        nodeData.imageData = nodeData.data.image;
-                        delete nodeData.data.images;
+                    if (isCanonicalImageNodeType(normalizedType)) {
+                        const assetKey = canonicalImageAssetKey || id;
+                        const currentIndex = isDisplayImageNodeType(normalizedType)
+                            ? Math.max(0, Math.min(
+                                sourceImages.length - 1,
+                                Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0
+                            ))
+                            : sourceImages.length - 1;
+                        setCanonicalImageOutput(nodeData, sourceImages, {
+                            currentIndex,
+                            assetKey,
+                            imageCount: Math.max(sourceImages.length, canonicalImageCount),
+                            assetReady: storedImages.length > 0 || effectiveRestoreData?.imageAssetReady === true ? true : undefined,
+                            hydratedAt: storedImages.length > 0 ? Date.now() : (effectiveRestoreData?.imageHydratedAt || undefined)
+                        });
+                        runBackgroundImageTask(() => saveImageAssetList(assetKey, sourceImages), 'Save restored image list failed:');
                     } else {
                         nodeData.data.images = sourceImages.slice();
                         nodeData.imageDataList = sourceImages.slice();
@@ -1091,7 +1378,6 @@ export function createNodeLifecycleApi({
                     }
                 }
                 if (normalizedType === 'ImageGenerate' && sourceImages.length > 0) {
-                    nodeData.generatedImages = sourceImages.slice();
                     nodeData.generationCompletedCount = sourceImages.length;
                 }
                 const data = isImportUrlMode
@@ -1100,7 +1386,7 @@ export function createNodeLifecycleApi({
                             ? await getImageAsset(imageImportAssetKey)
                             : (hasInitialData
                                 ? effectiveRestoreData.imageData
-                                : (sourceImages[0] || await getImageAsset(displayImageAssetKey || id))));
+                                : (sourceImages[0] || await getImageAsset(recoverableImageAssetKey || id))));
 
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
 
@@ -1115,7 +1401,16 @@ export function createNodeLifecycleApi({
                 }
 
                 if (data) {
-                    if (!isDisplayImageNodeType(normalizedType) || !nodeData.data?.imageCount || nodeData.data.imageCount <= 1) {
+                    console.info('[media-restore-render]', {
+                        nodeId: id,
+                        type: normalizedType,
+                        dataLength: typeof data === 'string' ? data.length : 0,
+                        sourceImages: sourceImages.length,
+                        imageImportAssetKey: !!imageImportAssetKey,
+                        recoverableImageAssetKey: recoverableImageAssetKey || '',
+                        canonicalImageAssetKey: canonicalImageAssetKey || ''
+                    });
+                    if (!isCanonicalImageNodeType(normalizedType)) {
                         nodeData.imageData = data;
                         nodeData.data.image = data;
                     }
@@ -1129,7 +1424,11 @@ export function createNodeLifecycleApi({
                             await saveImageAsset(id, data);
                         }
                     } else if (hasInitialData && !isRemoteImageUrl(data)) {
-                        await saveImageAsset(id, data);
+                        if (isDisplayImageNodeType(normalizedType)) {
+                            runBackgroundImageTask(() => saveImageAsset(id, data), 'Save restored display image asset failed:');
+                        } else {
+                            await saveImageAsset(id, data);
+                        }
                     }
 
                     if (normalizedType === 'ImageImport') {
@@ -1140,34 +1439,16 @@ export function createNodeLifecycleApi({
                             dropZone.classList.add('has-image');
                             dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
                         }
-                        showResolutionBadge(id, data);
+                        updateResolutionBadgeSoon(id, data);
                         onConnectionsChanged();
-                    } else if (normalizedType === 'ImagePreview' || normalizedType === 'ImageGenerate') {
-                        const previewContainer = el.querySelector(`#${id}-preview`);
-                        if (normalizedType === 'ImagePreview' && typeof renderImagePreviewImage === 'function') {
-                            renderImagePreviewImage(id, nodeData.imageDataList?.length > 0 ? nodeData.imageDataList : data);
-                        } else if (previewContainer) {
-                            if (normalizedType === 'ImagePreview' && Array.isArray(nodeData.imageDataList) && nodeData.imageDataList.length > 1) {
-                                const index = Math.max(0, Math.min(nodeData.imageDataList.length - 1, Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0));
-                                const currentImage = nodeData.imageDataList[index];
-                                previewContainer.classList.add('has-multiple-images');
-                                previewContainer.innerHTML = `
-                                    <img src="${currentImage}" alt="预览 ${index + 1}/${nodeData.imageDataList.length}" draggable="false" style="pointer-events: none;" />
-                                    <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-                                    </button>
-                                    <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-                                    </button>
-                                    <div class="image-save-preview-counter">${index + 1}/${nodeData.imageDataList.length}</div>
-                                `;
-                            } else {
-                                previewContainer.innerHTML = `<img src="${data}" alt="预览" draggable="false" style="pointer-events: none;" />`;
-                            }
+                    } else if (normalizedType === 'ImagePreview') {
+                        if (typeof renderImagePreviewImage === 'function') {
+                            const previewImages = getCanonicalImageList(nodeData, { includeResizePreview: false });
+                            renderImagePreviewImage(id, previewImages.length > 0 ? previewImages : data);
                         }
                         const controls = el.querySelector(`#${id}-controls`);
                         if (controls) controls.style.display = 'flex';
-                        showResolutionBadge(id, data);
+                        updateResolutionBadgeSoon(id, data);
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageSave' && nodeData.data.video?.url && !data) {
                         const savePreview = el.querySelector(`#${id}-save-preview`);
@@ -1182,33 +1463,15 @@ export function createNodeLifecycleApi({
                         if (viewFullBtn) viewFullBtn.disabled = false;
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageSave') {
-                        const savePreview = el.querySelector(`#${id}-save-preview`);
                         if (typeof renderImageSavePreview === 'function') {
-                            renderImageSavePreview(id, nodeData.imageDataList?.length > 0 ? nodeData.imageDataList : data);
-                        } else if (savePreview) {
-                            if (Array.isArray(nodeData.imageDataList) && nodeData.imageDataList.length > 1) {
-                                const index = Math.max(0, Math.min(nodeData.imageDataList.length - 1, Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0));
-                                const currentImage = nodeData.imageDataList[index];
-                                savePreview.classList.add('has-multiple-images');
-                                savePreview.innerHTML = `
-                                    <img src="${currentImage}" alt="待保存 ${index + 1}/${nodeData.imageDataList.length}" draggable="false" style="pointer-events: none;" />
-                                    <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-                                    </button>
-                                    <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-                                    </button>
-                                    <div class="image-save-preview-counter">${index + 1}/${nodeData.imageDataList.length}</div>
-                                `;
-                            } else {
-                                savePreview.innerHTML = `<img src="${data}" alt="待保存" draggable="false" style="pointer-events: none;" />`;
-                            }
+                            const saveImages = getCanonicalImageList(nodeData, { includeResizePreview: false });
+                            renderImageSavePreview(id, saveImages.length > 0 ? saveImages : data);
                         }
                         const manualSaveBtn = el.querySelector(`#${id}-manual-save`);
                         const viewFullBtn = el.querySelector(`#${id}-view-full`);
                         if (manualSaveBtn) manualSaveBtn.disabled = false;
                         if (viewFullBtn) viewFullBtn.disabled = false;
-                        showResolutionBadge(id, data);
+                        updateResolutionBadgeSoon(id, data);
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageResize') {
                         restoreImageResizePreview(id, data, {
@@ -1217,6 +1480,9 @@ export function createNodeLifecycleApi({
                             outputQuality: effectiveRestoreData?.outputQuality || null,
                             estimatedBytes: effectiveRestoreData?.estimatedBytes || null
                         });
+                        if (nodeData.data?.imagePreviewThumbnail !== data) {
+                            nodeData.data.imagePreviewThumbnail = data;
+                        }
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageCompare') {
                         const restoredCompareA = nodeData.compareImageA || null;
@@ -1224,6 +1490,9 @@ export function createNodeLifecycleApi({
                         nodeData.compareImageB = restoredCompareB;
                         nodeData.data.compareImageB = restoredCompareB;
                         if (restoredCompareA) nodeData.data.compareImageA = restoredCompareA;
+                        if (nodeData.data?.imagePreviewThumbnail !== restoredCompareB) {
+                            nodeData.data.imagePreviewThumbnail = restoredCompareB;
+                        }
                         const compareContainer = el.querySelector(`#${id}-compare`);
                         if (typeof renderImageComparePreview === 'function') {
                             renderImageComparePreview(id, restoredCompareA, restoredCompareB);
@@ -1231,12 +1500,12 @@ export function createNodeLifecycleApi({
                             compareContainer.classList.add('has-images');
                             compareContainer.innerHTML = `<img class="image-compare-img image-compare-b" src="${restoredCompareB}" alt="B 输入图片" draggable="false" />`;
                         }
-                        showResolutionBadge(id, restoredCompareB);
+                        updateResolutionBadgeSoon(id, restoredCompareB);
                         onConnectionsChanged();
                     }
                     scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                 }
-            });
+            }, { nodeId: id });
         }
 
         try {
@@ -1584,6 +1853,7 @@ export function createNodeLifecycleApi({
         renameNode,
         cloneNode,
         detachCloneNode,
-        waitForImageRestores
+        waitForImageRestores,
+        cancelPendingImageRestores
     };
 }

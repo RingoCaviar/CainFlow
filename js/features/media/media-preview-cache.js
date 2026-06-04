@@ -8,10 +8,10 @@ export function createMediaPreviewCache({
     getImageResolution,
     documentRef = document,
     windowRef = window,
-    resolutionCacheLimit = 160,
-    dataUrlResolutionCacheLimit = 32,
+    resolutionCacheLimit = 120,
+    dataUrlResolutionCacheLimit = 24,
     previewThumbnailMaxEdge = 480,
-    previewThumbnailCacheLimit = 48
+    previewThumbnailCacheLimit = 24
 }) {
     const resolutionCache = new Map();
     const previewThumbnailCache = new Map();

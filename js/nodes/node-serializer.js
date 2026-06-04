@@ -2,6 +2,12 @@
  * 负责节点与连接的序列化和反序列化，为保存、导入、撤销和工作流复制提供数据结构转换。
  */
 import { normalizeConcurrentRequestStatusPayload } from '../features/execution/concurrent-request-status-ui.js';
+import {
+    getCanonicalImage,
+    getCanonicalImageList
+} from '../features/execution/execution-data-utils.js';
+
+const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
 export function createNodeSerializer({ state, documentRef }) {
     function getNodeTextareaHeights(id) {
@@ -42,33 +48,48 @@ export function createNodeSerializer({ state, documentRef }) {
             const textareaHeights = getNodeTextareaHeights(id);
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
 
-            if (includeImages && node.imageData) {
-                serialized.imageData = node.imageData;
-            }
-            const images = Array.isArray(node.data?.images)
-                ? node.data.images.filter((item) => typeof item === 'string' && item.trim())
-                : (Array.isArray(node.imageDataList) ? node.imageDataList.filter((item) => typeof item === 'string' && item.trim()) : []);
+            const usesCanonicalImages = CANONICAL_IMAGE_NODE_TYPES.has(node.type);
+            const images = getCanonicalImageList(node, { includeResizePreview: false });
+            const imageData = getCanonicalImage(node, { includeResizePreview: false });
             const imageCount = Math.max(
                 images.length,
                 Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0)
             );
-            if (includeImages && images.length > 1) {
-                serialized.images = images.slice();
-            }
-            if (node.data?.imageMemoryReleased === true && typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
-                serialized.imageMemoryReleased = true;
-                serialized.imageAssetKey = node.data.imageAssetKey;
-            }
-            if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
-                if (typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
-                    serialized.imageAssetKey = node.data.imageAssetKey;
+            const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+                ? node.data.imageAssetKey
+                : '';
+            const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
+                ? node.imageImportAssetKey
+                : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+            const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
+            const shouldInlineResultImage = includeImages || !hasRecoverableImageAsset || node.data?.imageAssetReady !== true;
+            if (usesCanonicalImages) {
+                if (shouldInlineResultImage && images.length > 0) {
+                    serialized.imageList = images.slice();
                 }
-                if (imageCount > 0) {
-                    serialized.imageCount = imageCount;
-                }
+                if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+                if (imageCount > 0) serialized.imageCount = imageCount;
                 if (imageCount > 1) {
                     serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
                 }
+            } else if (shouldInlineResultImage && imageData) {
+                serialized.imageData = imageData;
+            }
+            if (hasRecoverableImageAsset) {
+                if (!usesCanonicalImages && imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+                if (imageCount > 0 && !usesCanonicalImages) serialized.imageCount = imageCount;
+                if (imageCount > 1 && !usesCanonicalImages) {
+                    serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+                }
+                if (typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()) {
+                    serialized.imagePreviewThumbnail = node.data.imagePreviewThumbnail.trim();
+                }
+                if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
+                if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
+            }
+            if (node.data?.imageMemoryReleased === true && hasRecoverableImageAsset) {
+                serialized.imageMemoryReleased = true;
+                if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
             }
             if (node.type === 'ImageCompare') {
                 const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
@@ -77,16 +98,19 @@ export function createNodeSerializer({ state, documentRef }) {
                 const compareImageB = typeof node.compareImageB === 'string' && node.compareImageB.trim()
                     ? node.compareImageB
                     : (typeof node.data?.compareImageB === 'string' ? node.data.compareImageB : '');
-                if (compareImageA) serialized.compareImageA = compareImageA;
-                if (compareImageB) serialized.compareImageB = compareImageB;
-                if (compareImageB && !serialized.imageData) serialized.imageData = compareImageB;
+                if (compareImageA && shouldInlineResultImage) serialized.compareImageA = compareImageA;
+                if (compareImageB && shouldInlineResultImage) serialized.compareImageB = compareImageB;
+                if (compareImageB && shouldInlineResultImage && !serialized.imageData) serialized.imageData = compareImageB;
             }
 
             if (node.type === 'ImageImport') {
                 serialized.importMode = documentRef.getElementById(`${id}-import-mode`)?.value || node.importMode || 'upload';
                 serialized.imageUrl = documentRef.getElementById(`${id}-url-input`)?.value || node.imageUrl || '';
                 if (serialized.importMode !== 'url') {
-                    serialized.imageImportAssetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || '';
+                    serialized.imageImportAssetKey = imageImportAssetKey;
+                    if (typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()) {
+                        serialized.imagePreviewThumbnail = node.data.imagePreviewThumbnail.trim();
+                    }
                 }
             }
 

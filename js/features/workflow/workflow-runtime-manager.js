@@ -10,6 +10,14 @@ import {
     removeConcurrentRequestStatusPanel,
     renderConcurrentRequestStatusPanel
 } from '../execution/concurrent-request-status-ui.js';
+import {
+    clearCanonicalImageOutput,
+    getCanonicalImage,
+    getCanonicalImageList,
+    normalizeImageList,
+    setCanonicalImageOutput
+} from '../execution/execution-data-utils.js';
+import { createDisplayImageRenderer } from '../media/display-image-renderer.js';
 import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
 
@@ -29,14 +37,34 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
 ];
 
 const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
+const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
 function clonePlainValue(value) {
     if (value === undefined) return undefined;
-    try {
-        return JSON.parse(JSON.stringify(value));
-    } catch {
-        return value;
-    }
+    if (value === null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map((item) => clonePlainValue(item));
+    const cloned = {};
+    Object.entries(value).forEach(([key, item]) => {
+        cloned[key] = clonePlainValue(item);
+    });
+    return cloned;
+}
+
+function cloneWorkflowNode(node = {}) {
+    const cloned = {};
+    Object.entries(node || {}).forEach(([key, value]) => {
+        cloned[key] = clonePlainValue(value);
+    });
+    return cloned;
+}
+
+function cloneWorkflowConnection(connection = {}) {
+    return {
+        id: connection.id,
+        from: clonePlainValue(connection.from || {}),
+        to: clonePlainValue(connection.to || {}),
+        type: connection.type
+    };
 }
 
 function cloneWorkflowData(data = {}) {
@@ -46,8 +74,8 @@ function cloneWorkflowData(data = {}) {
             y: Number(data?.canvas?.y) || 0,
             zoom: Number(data?.canvas?.zoom) || 1
         },
-        nodes: Array.isArray(data?.nodes) ? clonePlainValue(data.nodes) : [],
-        connections: Array.isArray(data?.connections) ? clonePlainValue(data.connections) : [],
+        nodes: Array.isArray(data?.nodes) ? data.nodes.map((node) => cloneWorkflowNode(node)) : [],
+        connections: Array.isArray(data?.connections) ? data.connections.map((connection) => cloneWorkflowConnection(connection)) : [],
         version: data?.version || '1.3'
     };
 }
@@ -127,30 +155,44 @@ function serializeRuntimeNode(node, doc) {
         serialized.cloneSourceId = node.cloneSourceId;
     }
     if (node.customTitle) serialized.customTitle = node.customTitle;
-    if (node.data?.imageMemoryReleased === true && node.data?.imageAssetKey) {
-        serialized.imageMemoryReleased = true;
-        serialized.imageAssetKey = node.data.imageAssetKey;
-    }
-    const images = normalizeRuntimeImageList(
-        Array.isArray(node.data?.images)
-            ? node.data.images
-            : (Array.isArray(node.imageDataList) ? node.imageDataList : [])
-    );
+    const usesCanonicalImages = CANONICAL_IMAGE_NODE_TYPES.has(node.type);
+    const images = getCanonicalImageList(node, { includeResizePreview: false });
+    const imageData = getCanonicalImage(node, { includeResizePreview: false });
     const imageCount = Math.max(images.length, Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0));
+    const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+        ? node.data.imageAssetKey
+        : '';
+    const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
+        ? node.imageImportAssetKey
+        : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+    const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
+    const shouldInlineResultImage = !hasRecoverableImageAsset || node.data?.imageAssetReady !== true;
     if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
-        if (images.length > 0) {
-            serialized.images = images.slice();
-        }
-        const imageData = typeof node.data?.image === 'string' && node.data.image.trim()
-            ? node.data.image
-            : (typeof node.imageData === 'string' && node.imageData.trim() ? node.imageData : images[0]);
-        if (imageData) serialized.imageData = imageData;
-        if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
-            if (node.data?.imageAssetKey) serialized.imageAssetKey = node.data.imageAssetKey;
+        if (usesCanonicalImages) {
+            if (shouldInlineResultImage && images.length > 0) serialized.imageList = images.slice();
+            if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
             if (imageCount > 0) serialized.imageCount = imageCount;
             if (imageCount > 1) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
             }
+        } else if (shouldInlineResultImage && imageData) {
+            serialized.imageData = imageData;
+        }
+        if (hasRecoverableImageAsset) {
+            if (!usesCanonicalImages && imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+            if (imageCount > 0 && !usesCanonicalImages) serialized.imageCount = imageCount;
+            if (imageCount > 1 && !usesCanonicalImages) {
+                serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
+            }
+            if (typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()) {
+                serialized.imagePreviewThumbnail = node.data.imagePreviewThumbnail.trim();
+            }
+            if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
+            if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
+        }
+        if (node.data?.imageMemoryReleased === true && hasRecoverableImageAsset) {
+            serialized.imageMemoryReleased = true;
+            if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
         }
         if (node.type === 'ImageCompare') {
             const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
@@ -159,16 +201,21 @@ function serializeRuntimeNode(node, doc) {
             const compareImageB = typeof node.compareImageB === 'string' && node.compareImageB.trim()
                 ? node.compareImageB
                 : (typeof node.data?.compareImageB === 'string' ? node.data.compareImageB : '');
-            if (compareImageA) serialized.compareImageA = compareImageA;
-            if (compareImageB) serialized.compareImageB = compareImageB;
-            if (compareImageB && !serialized.imageData) serialized.imageData = compareImageB;
+            if (compareImageA && shouldInlineResultImage) serialized.compareImageA = compareImageA;
+            if (compareImageB && shouldInlineResultImage) serialized.compareImageB = compareImageB;
+            if (compareImageB && shouldInlineResultImage && !serialized.imageData) serialized.imageData = compareImageB;
         }
     }
 
     if (node.type === 'ImageImport') {
         serialized.importMode = readElementControlValue(doc, `${node.id}-import-mode`, node.importMode || 'upload');
         serialized.imageUrl = readElementControlValue(doc, `${node.id}-url-input`, node.imageUrl || '');
-        serialized.imageImportAssetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || '';
+        serialized.imageImportAssetKey = imageImportAssetKey;
+        if (typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()) {
+            serialized.imagePreviewThumbnail = node.data.imagePreviewThumbnail.trim();
+        }
+        if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
+        if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
     }
     if (node.type === 'ImageResize') {
         serialized.resizeMode = readElementControlValue(doc, `${node.id}-resize-mode`, node.resizeMode || 'scale');
@@ -332,17 +379,30 @@ async function getAvailableRuntimeFileHandle(directoryHandle, baseName, extensio
 }
 
 function normalizeRuntimeImageList(value) {
-    if (Array.isArray(value)) return value.filter((item) => typeof item === 'string' && item.trim());
-    if (typeof value === 'string' && value.trim()) return [value];
-    return [];
+    return normalizeImageList(value);
 }
 
 function getRuntimeDisplayImageCount(node) {
     return Math.max(
-        normalizeRuntimeImageList(node?.data?.images).length,
-        normalizeRuntimeImageList(node?.imageDataList).length,
+        getCanonicalImageList(node, { includeResizePreview: false }).length,
         Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0)
     );
+}
+
+function getPlanImageRestoreNodeIds(plan = {}) {
+    const nodeIds = new Set();
+    const planNodeIds = plan?.executionOrder || plan?.nodeIds || [];
+    planNodeIds.forEach((nodeId) => {
+        if (nodeId) nodeIds.add(String(nodeId));
+    });
+    Object.values(plan?.inputConnectionsByNode || {}).forEach((connections) => {
+        if (!Array.isArray(connections)) return;
+        connections.forEach((connection) => {
+            if (connection?.from?.nodeId) nodeIds.add(String(connection.from.nodeId));
+            if (connection?.to?.nodeId) nodeIds.add(String(connection.to.nodeId));
+        });
+    });
+    return nodeIds;
 }
 
 export function createWorkflowRuntimeManager({
@@ -389,6 +449,29 @@ export function createWorkflowRuntimeManager({
     const workflowRunViewTimers = new Map();
     const workflowRunViewNodeIds = new Set();
     let workflowRunContextSeq = 0;
+
+    function runBackgroundRuntimeMediaTask(task, label = 'Background runtime media task failed:') {
+        if (typeof task !== 'function') return;
+        try {
+            const result = task();
+            if (result && typeof result.catch === 'function') {
+                result.catch((error) => console.warn(label, error));
+            }
+        } catch (error) {
+            console.warn(label, error);
+        }
+    }
+
+    function saveRuntimeDisplayImageAssetSoon(nodeId, images) {
+        const imageList = normalizeRuntimeImageList(images);
+        if (imageList.length > 1) {
+            runBackgroundRuntimeMediaTask(() => saveImageAssetList(nodeId, imageList), 'Save runtime display image list failed:');
+            return;
+        }
+        if (imageList[0] && typeof saveImageAsset === 'function') {
+            runBackgroundRuntimeMediaTask(() => saveImageAsset(nodeId, imageList[0]), 'Save runtime display image asset failed:');
+        }
+    }
 
     function syncGlobalRunToolbarState() {
         let activeRunCount = workflowRunContexts.size;
@@ -661,47 +744,48 @@ export function createWorkflowRuntimeManager({
 
     function createRuntimeMediaApi(runtimeState, doc) {
         const getRuntimeNode = (nodeId) => runtimeState.nodes.get(nodeId);
+        const {
+            createPreviewPlaceholder,
+            ensureElement,
+            removeElements,
+            renderDisplayImagePreview,
+            renderReusableComparePreview,
+            renderReusableMultiImagePreview,
+            updatePlaceholderText
+        } = createDisplayImageRenderer({
+            documentRef: doc,
+            previewCache: {
+                getCachedPreviewThumbnail: () => '',
+                createPreviewThumbnail: () => Promise.resolve('')
+            },
+            normalizeImages: normalizeRuntimeImageList
+        });
         const renderImagePreviewImage = (nodeId, images, emptyMessage = '无输入图片') => {
             const node = getRuntimeNode(nodeId);
             if (!node) return;
             const previewContainer = doc.getElementById(`${nodeId}-preview`);
             if (!previewContainer) return;
-            const imageList = Array.isArray(images) ? images.filter(Boolean) : (images ? [images] : []);
-            const totalCount = Math.max(imageList.length, getRuntimeDisplayImageCount(node));
-            node.imagePreviewIndex = totalCount > 0
-                ? Math.max(0, Math.min(totalCount - 1, parseInt(node.imagePreviewIndex || '0', 10) || 0))
-                : 0;
-            if (imageList.length === 0 && totalCount === 0) {
-                previewContainer.classList.remove('has-multiple-images');
-                previewContainer.innerHTML = `<div class="preview-placeholder">${emptyMessage}</div>`;
-                return;
-            }
-            const image = imageList.length > 1
-                ? (imageList[node.imagePreviewIndex] || imageList[0])
-                : (imageList[0] || '');
-            previewContainer.classList.toggle('has-multiple-images', totalCount > 1);
-            previewContainer.innerHTML = `<img src="${image}" alt="预览" draggable="false" />`;
+            renderDisplayImagePreview(previewContainer, node, images, {
+                totalCount: getRuntimeDisplayImageCount(node),
+                altPrefix: '预览',
+                placeholderClass: 'preview-placeholder',
+                emptyMessage,
+                cursor: 'pointer',
+                placeholderWithIcon: true
+            });
         };
         const renderImageSavePreview = (nodeId, images, emptyMessage = '无输入图片') => {
             const node = getRuntimeNode(nodeId);
             if (!node) return;
             const previewContainer = doc.getElementById(`${nodeId}-save-preview`);
             if (!previewContainer) return;
-            const imageList = Array.isArray(images) ? images.filter(Boolean) : (images ? [images] : []);
-            const totalCount = Math.max(imageList.length, getRuntimeDisplayImageCount(node));
-            node.imagePreviewIndex = totalCount > 0
-                ? Math.max(0, Math.min(totalCount - 1, parseInt(node.imagePreviewIndex || '0', 10) || 0))
-                : 0;
-            if (imageList.length === 0 && totalCount === 0) {
-                previewContainer.classList.remove('has-multiple-images');
-                previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
-                return;
-            }
-            const image = imageList.length > 1
-                ? (imageList[node.imagePreviewIndex] || imageList[0])
-                : (imageList[0] || '');
-            previewContainer.classList.toggle('has-multiple-images', totalCount > 1);
-            previewContainer.innerHTML = `<img src="${image}" alt="待保存" draggable="false" />`;
+            renderDisplayImagePreview(previewContainer, node, images, {
+                totalCount: getRuntimeDisplayImageCount(node),
+                altPrefix: '待保存',
+                placeholderClass: 'save-preview-placeholder',
+                emptyMessage,
+                placeholderWithIcon: false
+            });
         };
         return {
             restoreImageResizePreview: (nodeId, dataUrl, meta = {}) => {
@@ -713,8 +797,13 @@ export function createWorkflowRuntimeManager({
                 node.data = node.data || {};
                 if (dataUrl) node.data.image = dataUrl;
                 const preview = doc.getElementById(`${nodeId}-resize-preview`);
-                if (preview && dataUrl) {
-                    preview.innerHTML = `<img src="${dataUrl}" alt="缩放预览" draggable="false" />`;
+                if (preview) {
+                    renderReusableMultiImagePreview(preview, dataUrl || '', 0, dataUrl ? 1 : 0, {
+                        altPrefix: '缩放结果',
+                        placeholderClass: 'preview-placeholder',
+                        emptyMessage: '等待上游图片',
+                        placeholderWithIcon: true
+                    });
                 }
             },
             renderImagePreviewImage,
@@ -736,59 +825,58 @@ export function createWorkflowRuntimeManager({
                 const container = doc.getElementById(`${nodeId}-compare`);
                 if (container) {
                     container.classList.toggle('has-images', !!imageB);
-                    container.innerHTML = imageB ? `<img class="image-compare-img image-compare-b" src="${imageB}" alt="B 输入图片" draggable="false" />` : '<div class="image-compare-empty">等待 B 输入</div>';
+                    container.classList.toggle('has-a-image', Boolean(imageA));
+                    container.classList.remove('is-comparing');
+                    container.style.setProperty('--compare-x', '50%');
+                    if (imageB) {
+                        removeElements(container, '.preview-placeholder');
+                        renderReusableComparePreview(container, imageA, imageB);
+                    } else {
+                        removeElements(container, '.image-compare-img, .image-compare-divider');
+                        const message = imageA ? '等待 B 输入' : '等待 A / B 输入';
+                        const placeholder = ensureElement(container, '.preview-placeholder', () => createPreviewPlaceholder('preview-placeholder', message));
+                        updatePlaceholderText(placeholder, message);
+                    }
                 }
             },
             syncImagePreviewNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImagePreview') return;
-                const imageList = Array.isArray(imageData) ? imageData.filter(Boolean) : (imageData ? [imageData] : []);
+                const imageList = normalizeRuntimeImageList(imageData);
                 node.previewZoom = 1;
-                node.imagePreviewIndex = 0;
-                node.imageDataList = [];
-                node.imageData = imageList[0] || null;
-                node.data = node.data || {};
-                if (node.imageData) {
-                    node.data.image = node.imageData;
-                    node.data.imageAssetKey = nodeId;
-                    node.data.imageCount = imageList.length;
-                    delete node.data.images;
-                    if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-                    else await saveImageAsset(nodeId, node.imageData);
+                if (imageList.length > 0) {
+                    setCanonicalImageOutput(node, imageList, {
+                        currentIndex: 0,
+                        assetKey: nodeId,
+                        trackImageCount: true,
+                        hydratedAt: Date.now(),
+                        assetReady: false
+                    });
+                    saveRuntimeDisplayImageAssetSoon(nodeId, imageList);
                 } else {
-                    delete node.data.image;
-                    delete node.data.imageAssetKey;
-                    delete node.data.imageCount;
-                    delete node.data.images;
+                    clearCanonicalImageOutput(node);
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
                 }
-                renderImagePreviewImage(nodeId, node.imageData ? [node.imageData] : []);
             },
             syncImageSaveNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImageSave') return;
-                const imageList = Array.isArray(imageData?.images ?? imageData)
-                    ? (imageData?.images ?? imageData).filter(Boolean)
-                    : ((imageData?.images ?? imageData) ? [imageData?.images ?? imageData] : []);
+                const imageList = normalizeRuntimeImageList(imageData?.images ?? imageData);
                 const video = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
-                node.imagePreviewIndex = 0;
-                node.imageDataList = [];
-                node.imageData = imageList[0] || null;
                 node.data = node.data || {};
-                if (node.imageData) {
-                    node.data.image = node.imageData;
-                    node.data.imageAssetKey = nodeId;
-                    node.data.imageCount = imageList.length;
-                    delete node.data.images;
+                if (imageList.length > 0) {
+                    setCanonicalImageOutput(node, imageList, {
+                        currentIndex: 0,
+                        assetKey: nodeId,
+                        trackImageCount: true,
+                        hydratedAt: Date.now(),
+                        assetReady: false
+                    });
                     delete node.data.video;
-                    if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-                    else await saveImageAsset(nodeId, node.imageData);
-                    renderImageSavePreview(nodeId, [node.imageData]);
+                    saveRuntimeDisplayImageAssetSoon(nodeId, imageList);
+                    renderImageSavePreview(nodeId, imageList);
                 } else if (video?.url) {
-                    delete node.data.image;
-                    delete node.data.imageAssetKey;
-                    delete node.data.imageCount;
-                    delete node.data.images;
+                    clearCanonicalImageOutput(node);
                     node.data.video = {
                         id: video.id || '',
                         url: video.url,
@@ -799,10 +887,7 @@ export function createWorkflowRuntimeManager({
                     const preview = doc.getElementById(`${nodeId}-save-preview`);
                     if (preview) preview.innerHTML = `<video src="${video.url}" controls preload="metadata" playsinline></video>`;
                 } else {
-                    delete node.data.image;
-                    delete node.data.imageAssetKey;
-                    delete node.data.imageCount;
-                    delete node.data.images;
+                    clearCanonicalImageOutput(node);
                     delete node.data.video;
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
                     renderImageSavePreview(nodeId, []);
@@ -856,6 +941,7 @@ export function createWorkflowRuntimeManager({
         const contextId = `${workflowName}::${Date.now()}::${workflowRunContextSeq += 1}`;
         const runtimeState = createInitialState();
         const runtimeDocument = documentRef.implementation.createHTMLDocument(`CainFlow Runtime - ${workflowName}`);
+        const skipHiddenConnectionRefresh = () => {};
         WORKFLOW_RUNTIME_STATE_KEYS.forEach((key) => {
             runtimeState[key] = state[key];
         });
@@ -976,8 +1062,8 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             enforceNodeContentMinimum: () => {},
             getNodeMinimumSizeFromLifecycle: () => ({ minWidth: 120, minHeight: 80 }),
-            updateAllConnections: () => runtimeConnectionsApi.updateAllConnections(),
-            updatePortStyles: () => runtimeConnectionsApi.updatePortStyles(),
+            updateAllConnections: skipHiddenConnectionRefresh,
+            updatePortStyles: skipHiddenConnectionRefresh,
             onConnectionsChanged: () => {},
             documentRef: runtimeDocument
         });
@@ -1004,8 +1090,8 @@ export function createWorkflowRuntimeManager({
             pushHistory: () => {},
             scheduleSave: () => {},
             showToast,
-            updateAllConnections: () => runtimeConnectionsApi.updateAllConnections(),
-            updatePortStyles: () => runtimeConnectionsApi.updatePortStyles(),
+            updateAllConnections: skipHiddenConnectionRefresh,
+            updatePortStyles: skipHiddenConnectionRefresh,
             onConnectionsChanged: () => {},
             getCacheSidebarActive: () => false,
             updateCacheUsage: () => {},
@@ -1029,6 +1115,7 @@ export function createWorkflowRuntimeManager({
             saveHistoryEntry,
             renderHistoryList,
             showResolutionBadge: async () => {},
+            getImageAsset,
             saveImageAsset,
             saveImageAssetList,
             deleteImageAsset,
@@ -1037,6 +1124,7 @@ export function createWorkflowRuntimeManager({
             resizeImageData,
             autoSaveToDir: runtimeAutoSaveToDir,
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
+            renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,
             syncImageSaveNode: runtimeMediaApi.syncImageSaveNode,
@@ -1045,7 +1133,7 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
             getAbortMessage,
-            updateAllConnections: () => runtimeConnectionsApi.updateAllConnections(),
+            updateAllConnections: skipHiddenConnectionRefresh,
             getImageHistorySidebarActive: () => documentRef.getElementById('history-sidebar')?.classList.contains('active')
         });
         const context = {
@@ -1060,7 +1148,10 @@ export function createWorkflowRuntimeManager({
             runResult: '',
             abortReason: null,
             dispose() {
+                runtimeNodeLifecycleApi.cancelPendingImageRestores?.();
                 runtimeState.nodes.forEach((node) => cleanupElementResources(node.el));
+                runtimeState.nodes.clear();
+                runtimeState.connections = [];
                 runtimeElements.wrapper?.remove();
                 workflowRunContexts.delete(contextId);
             },
@@ -1070,8 +1161,8 @@ export function createWorkflowRuntimeManager({
             resolveExecutionPlan(runInput) {
                 return runtimeExecutionCoreApi.resolveExecutionPlan(runInput);
             },
-            waitForImageRestores() {
-                return runtimeNodeLifecycleApi.waitForImageRestores?.() || Promise.resolve();
+            waitForImageRestores(nodeIds = null) {
+                return runtimeNodeLifecycleApi.waitForImageRestores?.(nodeIds) || Promise.resolve();
             }
         };
         runtimeRunnerApi = createWorkflowRunnerApi({
@@ -1090,8 +1181,8 @@ export function createWorkflowRuntimeManager({
             showToast,
             addLog,
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
-            updateAllConnections: () => runtimeConnectionsApi.updateAllConnections(),
-            updatePortStyles: () => runtimeConnectionsApi.updatePortStyles(),
+            updateAllConnections: skipHiddenConnectionRefresh,
+            updatePortStyles: skipHiddenConnectionRefresh,
             getImageAsset,
             getImageAssetList,
             saveImageAsset,
@@ -1133,8 +1224,6 @@ export function createWorkflowRuntimeManager({
                 });
             }
         });
-        runtimeConnectionsApi.updateAllConnections();
-        runtimeConnectionsApi.updatePortStyles();
         workflowRunContexts.set(contextId, context);
         return context;
     }
@@ -1164,7 +1253,7 @@ export function createWorkflowRuntimeManager({
         context.promise = (async () => {
             let runError = null;
             try {
-                await context.waitForImageRestores();
+                await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan));
                 await context.runner.runWorkflow(runInput);
                 syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
             } catch (error) {

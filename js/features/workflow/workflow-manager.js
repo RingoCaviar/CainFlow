@@ -37,6 +37,9 @@ export function createWorkflowManagerApi({
     onWorkflowViewApplied = () => {},
     refreshRecoverableMediaNodes = async () => {},
     waitForImageRestores = async () => {},
+    beginMediaRestoreBatch = () => {},
+    endMediaRestoreBatch = () => {},
+    finalizeMediaRestoreBatch = async () => {},
     documentRef = document,
     windowRef = window,
     localStorageRef = localStorage
@@ -1595,41 +1598,45 @@ export function createWorkflowManagerApi({
             showToast(`已自动匹配 ${modelResolution.remappedModels.length} 个模型引用`, 'info', 6000);
         }
 
-        state.connections = [];
-        for (const [, node] of state.nodes) {
-            cleanupElementResources(node.el);
-            node.el.remove();
-        }
-        state.nodes.clear();
-        state.selectedNodes.clear();
-        clearUndoStack();
+        beginMediaRestoreBatch();
+        try {
+            state.connections = [];
+            for (const [, node] of state.nodes) {
+                cleanupElementResources(node.el);
+                node.el.remove();
+            }
+            state.nodes.clear();
+            state.selectedNodes.clear();
+            clearUndoStack();
 
-        if (data.canvas) {
-            state.canvas.x = data.canvas.x || 0;
-            state.canvas.y = data.canvas.y || 0;
-            state.canvas.zoom = data.canvas.zoom || 1;
-        }
+            if (data.canvas) {
+                state.canvas.x = data.canvas.x || 0;
+                state.canvas.y = data.canvas.y || 0;
+                state.canvas.zoom = data.canvas.zoom || 1;
+            }
 
-        if (modelResolution.nodes?.length) {
-            for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
-        }
+            if (modelResolution.nodes?.length) {
+                for (const nodeData of modelResolution.nodes) addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
+            }
 
-        if (data.connections?.length) {
-            for (const conn of data.connections) {
-                if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
-                    if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
-                    state.connections.push(conn);
+            if (data.connections?.length) {
+                for (const conn of data.connections) {
+                    if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
+                        if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
+                        state.connections.push(conn);
+                    }
                 }
             }
-        }
 
-        updateAllConnections();
-        updatePortStyles();
-        onConnectionsChanged();
-        viewportApi.updateCanvasTransform();
+            updateAllConnections();
+            updatePortStyles();
+            onConnectionsChanged();
+            viewportApi.updateCanvasTransform();
+        } finally {
+            endMediaRestoreBatch();
+        }
         try {
-            await waitForImageRestores();
-            await refreshRecoverableMediaNodes();
+            await finalizeMediaRestoreBatch();
         } catch (error) {
             console.warn('Refresh recoverable media nodes after workflow load failed:', error);
         }
@@ -2148,6 +2155,10 @@ export function createWorkflowManagerApi({
         getActiveWorkflowSnapshot: () => {
             const tab = snapshotActiveWorkflow();
             return tab ? cloneWorkflowData(tab.data) : getWorkflowPayload();
+        },
+        getActiveWorkflowRuntimeData: () => {
+            const tab = snapshotActiveWorkflow();
+            return tab ? tab.data : getWorkflowPayload();
         },
         getWorkflowTabSnapshot: (name) => {
             const tab = getWorkflowTab(name);

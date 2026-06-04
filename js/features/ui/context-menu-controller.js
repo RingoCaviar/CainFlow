@@ -57,10 +57,13 @@ export function createContextMenuControllerApi({
         const divider = documentRef.getElementById('context-menu-node-divider');
         const targetNode = state.contextMenuNodeId ? state.nodes.get(state.contextMenuNodeId) : null;
         const isCloneTarget = targetNode?.isClone === true;
+        const hasMultiSelection = state.selectedNodes.size > 1;
+        const showRunToHere = hasNodeTarget && !hasMultiSelection;
+        const showRunSelected = hasMultiSelection;
         const targetRunConflict = hasNodeTarget
             ? getRunConflictInfo({ mode: 'target-node', targetNodeId: state.contextMenuNodeId })
             : { blocked: false, count: 0 };
-        const selectedRunConflict = hasSelection
+        const selectedRunConflict = showRunSelected
             ? getRunConflictInfo({ mode: 'selected-only', selectedNodeIds: Array.from(state.selectedNodes) })
             : { blocked: false, count: 0 };
 
@@ -74,10 +77,10 @@ export function createContextMenuControllerApi({
                 : defaultTitle;
         };
 
-        setElementVisible(runToHereItem, hasNodeTarget);
-        setElementVisible(runSelectedItem, hasSelection);
-        applyRunActionState(runToHereItem, targetRunConflict, '运行到此节点');
-        applyRunActionState(runSelectedItem, selectedRunConflict, '只运行选中的节点');
+        setElementVisible(runToHereItem, showRunToHere);
+        setElementVisible(runSelectedItem, showRunSelected);
+        applyRunActionState(runToHereItem, showRunToHere ? targetRunConflict : null, '运行到此节点');
+        applyRunActionState(runSelectedItem, showRunSelected ? selectedRunConflict : null, '只运行选中的节点');
         setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));

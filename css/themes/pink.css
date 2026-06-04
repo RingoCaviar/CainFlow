@@ -784,6 +784,11 @@ html[data-app-theme="pink"] .preview-placeholder svg {
     stroke: #d9b6c8;
 }
 
+html[data-app-theme="pink"] .preview-placeholder-memory-released svg {
+    color: var(--accent-primary);
+    stroke: currentColor;
+}
+
 html[data-app-theme="pink"] .history-card.selected .selection-checkbox {
     background: var(--accent-primary);
     border-color: var(--accent-primary);

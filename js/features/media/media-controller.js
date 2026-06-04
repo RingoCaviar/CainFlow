@@ -10,6 +10,16 @@ import {
     createMediaPreviewCache,
     TRANSPARENT_PREVIEW_PIXEL
 } from './media-preview-cache.js';
+import { createDisplayImageMemoryManager } from './display-image-memory-manager.js';
+import { createDisplayImageRenderer } from './display-image-renderer.js';
+import {
+    clearCanonicalImageOutput,
+    getFirstNonEmptyImageList,
+    getCanonicalImage,
+    getCanonicalImageList,
+    normalizeImageList,
+    setCanonicalImageOutput
+} from '../execution/execution-data-utils.js';
 
 export function createMediaControllerApi({
     state,
@@ -40,8 +50,10 @@ export function createMediaControllerApi({
     getProxyHeaders = null,
     formatProxyErrorMessage = null,
     documentRef = document,
-    windowRef = window
+    windowRef = window,
+    canvasContainer = null
 }) {
+    const PERSISTED_PREVIEW_THUMBNAIL_MAX_LENGTH = 220000;
     const pendingFitNodeIds = new Set();
     let fitRequestFrame = null;
     const videoAutoSaveToasts = new Map();
@@ -51,6 +63,51 @@ export function createMediaControllerApi({
         getImageResolution,
         documentRef,
         windowRef
+    });
+    const displayImageRenderer = createDisplayImageRenderer({
+        documentRef,
+        previewCache,
+        isInlineImageData,
+        normalizeImages: normalizeImageList
+    });
+    const {
+        createPreviewNavButton,
+        createPreviewPlaceholder,
+        ensureElement,
+        removeElements,
+        renderDisplayImagePreview,
+        renderReusableComparePreview,
+        setImageElementSource,
+        updatePlaceholderText,
+        updatePreviewPlaceholder
+    } = displayImageRenderer;
+
+    const displayImageMemoryManager = createDisplayImageMemoryManager({
+        state,
+        getNodeById,
+        getImageAsset,
+        getImageAssetList,
+        saveImageAsset,
+        saveImageAssetList,
+        deleteImageAsset,
+        normalizeImageList,
+        isInlineImageData,
+        getNodeOutputImageListAsync,
+        getImagePreviewIndex,
+        renderImagePreviewImage,
+        renderImageSavePreview,
+        renderImageImportUploadState,
+        renderImageResizeResult,
+        renderImageComparePreview,
+        showResolutionBadge,
+        ensureElement,
+        removeElements,
+        createPreviewPlaceholder,
+        updatePreviewPlaceholder,
+        createPreviewNavButton,
+        documentRef,
+        windowRef,
+        canvasContainer
     });
 
     function schedulePreviewIndexSave(nodeId) {
@@ -76,6 +133,40 @@ export function createMediaControllerApi({
             return true;
         }
         return false;
+    }
+
+    function markNodeImageAssetPending(node, assetKey, imageCount = 1) {
+        if (!node) return;
+        node.data = node.data || {};
+        if (assetKey) node.data.imageAssetKey = assetKey;
+        node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
+        delete node.data.imageAssetReady;
+        delete node.data.imageMemoryReleased;
+    }
+
+    function markNodeImageAssetReady(node, assetKey, imageCount = 1) {
+        if (!node) return;
+        markNodeImageAssetPending(node, assetKey, imageCount);
+        node.data.imageAssetReady = true;
+        node.data.imageHydratedAt = Date.now();
+    }
+
+    function markImageImportAssetReady(node, assetKey, imageCount = 1) {
+        if (!node) return;
+        node.data = node.data || {};
+        node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
+        node.data.imageAssetReady = true;
+        node.data.imageHydratedAt = Date.now();
+        delete node.data.imageMemoryReleased;
+        if (typeof assetKey === 'string' && assetKey) {
+            if (assetKey.startsWith('image-import:')) {
+                node.imageImportAssetKey = assetKey;
+                node.data.imageImportAssetKey = assetKey;
+                delete node.data.imageAssetKey;
+            } else {
+                node.data.imageAssetKey = assetKey;
+            }
+        }
     }
 
     function requestNodeFit(nodeId) {
@@ -124,7 +215,7 @@ export function createMediaControllerApi({
         if (node.type === 'ImageCompare') {
             return node.data?.image || node.compareImageB || node.imageData || null;
         }
-        return node.resizePreviewData || node.data?.image || node.imageData || null;
+        return getCanonicalImage(node) || node.resizePreviewData || null;
     }
 
     function isInlineImageData(value) {
@@ -133,6 +224,70 @@ export function createMediaControllerApi({
 
     function isRemoteImageUrl(value) {
         return typeof value === 'string' && /^https?:\/\//i.test(value);
+    }
+
+    function choosePersistedPreviewThumbnail(source, thumbnail) {
+        const normalizedSource = typeof source === 'string' ? source.trim() : '';
+        const normalizedThumbnail = typeof thumbnail === 'string' ? thumbnail.trim() : '';
+        if (normalizedThumbnail && normalizedThumbnail !== normalizedSource) {
+            return normalizedThumbnail;
+        }
+        if (normalizedSource && normalizedSource.length <= PERSISTED_PREVIEW_THUMBNAIL_MAX_LENGTH) {
+            return normalizedSource;
+        }
+        return '';
+    }
+
+    function setNodePreviewThumbnailValue(node, source, thumbnail = '') {
+        if (!node?.data) return '';
+        const nextThumbnail = choosePersistedPreviewThumbnail(source, thumbnail);
+        if (nextThumbnail) {
+            node.data.imagePreviewThumbnail = nextThumbnail;
+        } else {
+            delete node.data.imagePreviewThumbnail;
+        }
+        return nextThumbnail;
+    }
+
+    function clearNodePreviewThumbnail(nodeOrId) {
+        const node = typeof nodeOrId === 'string' ? getNodeById(nodeOrId) : nodeOrId;
+        if (!node?.data?.imagePreviewThumbnail) return false;
+        delete node.data.imagePreviewThumbnail;
+        return true;
+    }
+
+    function cacheNodePreviewThumbnail(nodeOrId, source) {
+        const node = typeof nodeOrId === 'string' ? getNodeById(nodeOrId) : nodeOrId;
+        const normalizedSource = typeof source === 'string' ? source.trim() : '';
+        if (!node?.data) return Promise.resolve('');
+        if (!isInlineImageData(normalizedSource)) {
+            clearNodePreviewThumbnail(node);
+            return Promise.resolve('');
+        }
+        const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        node.previewThumbnailToken = token;
+        const previousThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' ? node.data.imagePreviewThumbnail : '';
+        return Promise.resolve(previewCache.createPreviewThumbnail(normalizedSource))
+            .then((thumbnail) => {
+                const latestNode = getNodeById(node.id);
+                if (!latestNode || latestNode !== node || latestNode.previewThumbnailToken !== token) {
+                    return '';
+                }
+                const nextThumbnail = setNodePreviewThumbnailValue(latestNode, normalizedSource, thumbnail);
+                if (nextThumbnail !== previousThumbnail) {
+                    scheduleSave();
+                }
+                return nextThumbnail;
+            })
+            .catch(() => {
+                const latestNode = getNodeById(node.id);
+                if (!latestNode || latestNode !== node || latestNode.previewThumbnailToken !== token) {
+                    return '';
+                }
+                const nextThumbnail = setNodePreviewThumbnailValue(latestNode, normalizedSource, '');
+                if (nextThumbnail !== previousThumbnail) scheduleSave();
+                return nextThumbnail;
+            });
     }
 
     function sanitizeFilenamePart(value, fallback = 'image') {
@@ -160,7 +315,7 @@ export function createMediaControllerApi({
     }
 
     function getImagePromptsFromNode(node, images) {
-        const imageList = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages || node?.data?.image || node?.imageData);
+        const imageList = getCanonicalImageList(node);
         const promptList = Array.isArray(node?.data?.imagePromptList)
             ? node.data.imagePromptList
             : (Array.isArray(node?.imagePromptList) ? node.imagePromptList : []);
@@ -685,82 +840,48 @@ export function createMediaControllerApi({
         throw new Error('无法生成不重复的文件名');
     }
 
-    function normalizeImageList(value) {
-        if (typeof value === 'string') {
-            return value.trim() ? [value] : [];
-        }
-        if (Array.isArray(value)) {
-            return value.flatMap((item) => normalizeImageList(item));
-        }
-        if (value && typeof value === 'object') {
-            return normalizeImageList(
-                value.images ??
-                value.image ??
-                value.dataUrl ??
-                value.url ??
-                []
-            );
-        }
-        return [];
-    }
-
-    function isDisplayImageNode(node) {
-        return node?.type === 'ImagePreview' || node?.type === 'ImageSave';
-    }
-
-    function getStoredImageAssetKey(node) {
-        return typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
-            ? node.data.imageAssetKey
-            : '';
-    }
-
     function getStoredImageCount(node) {
-        const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
-        const inMemoryCount = Math.max(
-            normalizeImageList(node?.data?.images).length,
-            normalizeImageList(node?.imageDataList).length
-        );
-        const currentCount = normalizeImageList(node?.data?.image || node?.imageData).length;
-        return Math.max(explicitCount, inMemoryCount, currentCount);
+        return displayImageMemoryManager.getStoredImageCount(node);
     }
 
     async function restoreStoredImageList(node) {
-        const inMemoryList = normalizeImageList(node?.data?.images || node?.imageDataList);
-        if (inMemoryList.length > 0) {
-            return inMemoryList;
-        }
+        return displayImageMemoryManager.restoreStoredImageList(node);
+    }
 
-        const currentImageList = normalizeImageList(node?.data?.image || node?.imageData);
-        if (!isDisplayImageNode(node)) {
-            return currentImageList;
-        }
+    function isDisplayImageNode(node) {
+        return displayImageMemoryManager.isDisplayImageNode(node);
+    }
 
-        const assetKey = getStoredImageAssetKey(node);
-        if (!assetKey) {
-            return currentImageList;
-        }
+    function isManagedImageNode(node) {
+        return displayImageMemoryManager.isManagedImageNode(node);
+    }
 
-        let restoredImages = [];
-        try {
-            restoredImages = typeof getImageAssetList === 'function'
-                ? await getImageAssetList(assetKey)
-                : [];
-            if (restoredImages.length === 0 && typeof getImageAsset === 'function') {
-                const image = await getImageAsset(assetKey);
-                if (image) restoredImages = [image];
-            }
-        } catch (error) {
-            console.warn('Restore display image list failed:', error);
-        }
+    function saveDisplayImageAssetSoon(nodeId, images) {
+        displayImageMemoryManager.saveAssetSoon(nodeId, images);
+    }
 
-        if (restoredImages.length > 0) {
-            return restoredImages;
-        }
-        return currentImageList;
+    function updateResolutionBadgeSoon(nodeId, dataUrl) {
+        displayImageMemoryManager.updateResolutionBadgeSoon(nodeId, dataUrl);
+    }
+
+    function clearDisplayImageAssetState(nodeId) {
+        displayImageMemoryManager.clearAssetState(nodeId);
+    }
+
+    function scheduleDisplayImageMemorySweep(options = {}) {
+        displayImageMemoryManager.scheduleSweep(options);
+    }
+
+    function sweepDisplayImageMemory(options = {}) {
+        return displayImageMemoryManager.sweep(options);
+    }
+
+    function releaseNodeImageData(nodeId) {
+        return displayImageMemoryManager.releaseNodeImageData(nodeId);
     }
 
     function getStoredImageSaveList(node) {
-        return normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
+        return getCanonicalImageList(node, { includeResizePreview: false });
     }
 
     function getStoredSaveVideo(node) {
@@ -771,7 +892,7 @@ export function createMediaControllerApi({
     }
 
     function getStoredImagePreviewList(node) {
-        return normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
+        return getCanonicalImageList(node, { includeResizePreview: false });
     }
 
     async function getStoredImageSaveListAsync(node) {
@@ -783,19 +904,16 @@ export function createMediaControllerApi({
     }
 
     function getGeneratedImageList(node) {
-        const images = normalizeImageList(node?.data?.images || node?.generatedImages);
-        return images.length > 0 ? images : normalizeImageList(node?.data?.image || node?.imageData);
+        return getCanonicalImageList(node, { includeResizePreview: false });
     }
 
     function getNodeOutputImageList(node) {
-        const images = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
-        if (images.length > 0) return images;
-        return normalizeImageList(node?.resizePreviewData || node?.data?.image || node?.imageData);
+        return getCanonicalImageList(node);
     }
 
     async function getNodeOutputImageListAsync(node) {
         if (!node) return [];
-        if (isDisplayImageNode(node)) {
+        if (isManagedImageNode(node)) {
             return restoreStoredImageList(node);
         }
         return getNodeOutputImageList(node);
@@ -831,229 +949,24 @@ export function createMediaControllerApi({
         return prevSignature !== nextSignature;
     }
 
-    function createSvgElement(tagName) {
-        return documentRef.createElementNS('http://www.w3.org/2000/svg', tagName);
-    }
-
-    function ensureElement(parent, selector, createElement) {
-        let element = parent.querySelector(selector);
-        if (!element) {
-            element = createElement();
-            parent.appendChild(element);
-        }
-        return element;
-    }
-
-    function removeElements(parent, selector) {
-        parent.querySelectorAll(selector).forEach((element) => element.remove());
-    }
-
-    function setImageElementSource(img, src, alt, options = {}) {
-        if (!img) return;
-        const { cursor = '', className = '', useThumbnail = true } = options;
-        const shouldUseThumbnail = useThumbnail && isInlineImageData(src);
-        if (className) img.className = className;
-        img.draggable = false;
-        img.loading = 'lazy';
-        img.decoding = 'async';
-        img.alt = alt;
-        delete img.dataset.originalSrc;
-        if (cursor) img.style.cursor = cursor;
-        else img.style.removeProperty('cursor');
-        if (shouldUseThumbnail) {
-            const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            img.dataset.previewThumbnailToken = token;
-            const cachedThumbnail = previewCache.getCachedPreviewThumbnail(src);
-            const initialSrc = cachedThumbnail || TRANSPARENT_PREVIEW_PIXEL;
-            if (img.getAttribute('src') !== initialSrc) {
-                img.src = initialSrc;
-            }
-            void previewCache.createPreviewThumbnail(src).then((thumbnail) => {
-                if (!img.isConnected) return;
-                if (img.dataset.previewThumbnailToken !== token) return;
-                if (thumbnail && img.getAttribute('src') !== thumbnail) {
-                    img.src = thumbnail;
-                }
-            });
-        } else {
-            delete img.dataset.previewThumbnailToken;
-            if (img.getAttribute('src') !== src) {
-                img.src = src;
-            }
-        }
-    }
-
-    function createPreviewPlaceholder(className, message, { withIcon = true } = {}) {
-        const placeholder = documentRef.createElement('div');
-        placeholder.className = className;
-
-        if (withIcon) {
-            const svg = createSvgElement('svg');
-            svg.setAttribute('width', '32');
-            svg.setAttribute('height', '32');
-            svg.setAttribute('viewBox', '0 0 24 24');
-            svg.setAttribute('fill', 'none');
-            svg.setAttribute('stroke', 'currentColor');
-            svg.setAttribute('stroke-width', '1.5');
-
-            const rect = createSvgElement('rect');
-            rect.setAttribute('x', '3');
-            rect.setAttribute('y', '3');
-            rect.setAttribute('width', '18');
-            rect.setAttribute('height', '18');
-            rect.setAttribute('rx', '2');
-            rect.setAttribute('ry', '2');
-
-            const circle = createSvgElement('circle');
-            circle.setAttribute('cx', '8.5');
-            circle.setAttribute('cy', '8.5');
-            circle.setAttribute('r', '1.5');
-
-            const polyline = createSvgElement('polyline');
-            polyline.setAttribute('points', '21 15 16 10 5 21');
-
-            svg.append(rect, circle, polyline);
-            placeholder.appendChild(svg);
-        }
-
-        placeholder.appendChild(documentRef.createTextNode(message));
-        return placeholder;
-    }
-
-    function updatePlaceholderText(placeholder, message) {
-        if (!placeholder) return;
-        const textNode = Array.from(placeholder.childNodes).find((node) => node.nodeType === 3);
-        if (textNode) {
-            textNode.textContent = message;
-        } else {
-            placeholder.appendChild(documentRef.createTextNode(message));
-        }
-    }
-
-    function createPreviewNavButton(direction) {
-        const button = documentRef.createElement('button');
-        button.type = 'button';
-        button.className = `image-save-preview-nav ${direction < 0 ? 'image-save-preview-prev' : 'image-save-preview-next'}`;
-        button.dataset.direction = String(direction);
-        button.title = direction < 0 ? '上一张' : '下一张';
-        button.setAttribute('aria-label', direction < 0 ? '上一张' : '下一张');
-
-        const svg = createSvgElement('svg');
-        svg.setAttribute('width', '14');
-        svg.setAttribute('height', '14');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2.4');
-
-        const polyline = createSvgElement('polyline');
-        polyline.setAttribute('points', direction < 0 ? '15 18 9 12 15 6' : '9 18 15 12 9 6');
-        svg.appendChild(polyline);
-        button.appendChild(svg);
-        return button;
-    }
-
-    function renderReusableMultiImagePreview(container, image, index, total, {
-        altPrefix,
-        placeholderClass,
-        emptyMessage,
-        cursor = '',
-        placeholderWithIcon = true
-    }) {
-        if (!container) return;
-
-        const hasImage = typeof image === 'string' && image.trim();
-        const hasMultiple = total > 1;
-        container.classList.toggle('has-multiple-images', hasMultiple);
-
-        if (!hasImage) {
-            removeElements(container, 'img, .image-save-preview-nav, .image-save-preview-counter');
-            const placeholder = ensureElement(container, `.${placeholderClass}`, () => createPreviewPlaceholder(placeholderClass, emptyMessage, { withIcon: placeholderWithIcon }));
-            updatePlaceholderText(placeholder, emptyMessage);
-            return;
-        }
-
-        removeElements(container, `.${placeholderClass}`);
-        const img = ensureElement(container, 'img', () => documentRef.createElement('img'));
-        setImageElementSource(img, image, `${altPrefix} ${index + 1}/${total}`, { cursor });
-
-        if (hasMultiple) {
-            ensureElement(container, '.image-save-preview-prev', () => createPreviewNavButton(-1));
-            ensureElement(container, '.image-save-preview-next', () => createPreviewNavButton(1));
-            const counter = ensureElement(container, '.image-save-preview-counter', () => {
-                const el = documentRef.createElement('div');
-                el.className = 'image-save-preview-counter';
-                return el;
-            });
-            counter.textContent = `${index + 1}/${total}`;
-        } else {
-            removeElements(container, '.image-save-preview-nav, .image-save-preview-counter');
-        }
-    }
-
-    function renderReusableComparePreview(container, imageA, imageB) {
-        if (!container) return;
-
-        removeElements(container, '.preview-placeholder');
-        const imageBEl = ensureElement(container, '.image-compare-b', () => documentRef.createElement('img'));
-        setImageElementSource(imageBEl, imageB, 'B 输入图片', {
-            className: 'image-compare-img image-compare-b'
-        });
-
-        if (typeof imageA === 'string' && imageA.trim()) {
-            const imageAEl = ensureElement(container, '.image-compare-a', () => documentRef.createElement('img'));
-            setImageElementSource(imageAEl, imageA, 'A 输入图片', {
-                className: 'image-compare-img image-compare-a'
-            });
-            ensureElement(container, '.image-compare-divider', () => {
-                const divider = documentRef.createElement('div');
-                divider.className = 'image-compare-divider';
-                divider.setAttribute('aria-hidden', 'true');
-                return divider;
-            });
-        } else {
-            removeElements(container, '.image-compare-a, .image-compare-divider');
-        }
-    }
-
     function renderImagePreviewImage(nodeId, images, emptyMessage = '无输入图片') {
         const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
         const node = getNodeById(nodeId);
+        if (node?.type === 'ImageGenerate') return;
         if (!previewContainer) return;
 
-        const imageList = normalizeImageList(images);
-        const totalCount = Math.max(imageList.length, getStoredImageCount(node));
-        if (imageList.length === 0 && totalCount === 0) {
-            renderReusableMultiImagePreview(previewContainer, '', 0, 0, {
-                altPrefix: '预览',
-                placeholderClass: 'preview-placeholder',
-                emptyMessage,
-                cursor: 'pointer',
-                placeholderWithIcon: true
-            });
-            if (node) node.imagePreviewIndex = 0;
-            return;
-        }
-
-        const index = totalCount > 0
-            ? Math.max(0, Math.min(totalCount - 1, Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0))
-            : 0;
-        const image = imageList.length > 1
-            ? (imageList[index] || imageList[0])
-            : (imageList[0] || '');
-        if (node) {
-            node.imagePreviewIndex = index;
-            node.data = node.data || {};
-            node.data.image = image || '';
-            node.imageData = image || null;
-        }
-        renderReusableMultiImagePreview(previewContainer, image, index, totalCount, {
+        const rendered = renderDisplayImagePreview(previewContainer, node, images, {
+            totalCount: getStoredImageCount(node),
             altPrefix: '预览',
             placeholderClass: 'preview-placeholder',
             emptyMessage,
             cursor: 'pointer',
             placeholderWithIcon: true
         });
+        if (node?.type === 'ImageGenerate') {
+            if (rendered.image) void cacheNodePreviewThumbnail(node, rendered.image);
+            else clearNodePreviewThumbnail(node);
+        }
     }
 
     function renderImageSavePreview(nodeId, images, emptyMessage = '无输入图片') {
@@ -1061,34 +974,8 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (!previewContainer) return;
 
-        const imageList = normalizeImageList(images);
-        const totalCount = Math.max(imageList.length, getStoredImageCount(node));
-        if (imageList.length === 0 && totalCount === 0) {
-            renderReusableMultiImagePreview(previewContainer, '', 0, 0, {
-                altPrefix: '待保存',
-                placeholderClass: 'save-preview-placeholder',
-                emptyMessage,
-                placeholderWithIcon: false
-            });
-            if (node) node.imagePreviewIndex = 0;
-            return;
-        }
-
-        const index = totalCount > 0
-            ? Math.max(0, Math.min(totalCount - 1, Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0))
-            : 0;
-        if (node) {
-            node.imagePreviewIndex = index;
-            node.data = node.data || {};
-        }
-        const image = imageList.length > 1
-            ? (imageList[index] || imageList[0])
-            : (imageList[0] || '');
-        if (node) {
-            node.data.image = image || '';
-            node.imageData = image || null;
-        }
-        renderReusableMultiImagePreview(previewContainer, image, index, totalCount, {
+        renderDisplayImagePreview(previewContainer, node, images, {
+            totalCount: getStoredImageCount(node),
             altPrefix: '待保存',
             placeholderClass: 'save-preview-placeholder',
             emptyMessage,
@@ -1104,12 +991,7 @@ export function createMediaControllerApi({
         previewContainer.classList.remove('has-multiple-images');
         previewContainer.dataset.saveMode = video?.url ? 'video' : 'image';
         if (node) {
-            node.imagePreviewIndex = 0;
-            node.data = node.data || {};
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            node.imageData = null;
+            clearCanonicalImageOutput(node);
         }
 
         if (!video?.url) {
@@ -1143,9 +1025,7 @@ export function createMediaControllerApi({
 
     async function getNodeFullscreenImageContext(nodeId, fallbackSrc = '') {
         const node = getNodeById(nodeId);
-        const images = node?.type === 'ImageSave'
-            ? await getStoredImageSaveListAsync(node)
-            : await getStoredImagePreviewListAsync(node);
+        const images = await restoreStoredImageList(node);
         const normalizedFallback = typeof fallbackSrc === 'string' ? fallbackSrc.trim() : '';
         const imageList = images.length > 0
             ? images
@@ -1158,6 +1038,42 @@ export function createMediaControllerApi({
             images: imageList,
             index: imageList.length > 0 ? Math.max(0, Math.min(imageList.length - 1, currentIndex)) : 0
         };
+    }
+
+    async function openStoredImageNodeFullscreen(nodeId, fallbackSrc = '') {
+        const context = await getNodeFullscreenImageContext(nodeId, fallbackSrc);
+        if (!Array.isArray(context.images) || context.images.length === 0) {
+            return false;
+        }
+        if (context.node?.type === 'ImagePreview' || context.node?.type === 'ImageGenerate') {
+            renderImagePreviewImage(nodeId, context.images);
+        } else if (context.node?.type === 'ImageSave') {
+            renderImageSavePreview(nodeId, context.images);
+        } else if (context.node?.type === 'ImageResize') {
+            const image = context.images[context.index] || context.images[0];
+            renderImageResizeResult(nodeId, {
+                ...(context.node.resizePreviewMeta || {}),
+                dataUrl: image,
+                outputWidth: context.node.outputWidth || context.node.resizePreviewMeta?.outputWidth || 0,
+                outputHeight: context.node.outputHeight || context.node.resizePreviewMeta?.outputHeight || 0,
+                outputQuality: context.node.outputQuality || context.node.resizePreviewMeta?.outputQuality || null,
+                estimatedBytes: context.node.estimatedBytes || context.node.resizePreviewMeta?.estimatedBytes || estimateDataUrlSize(image)
+            });
+        } else if (context.node?.type === 'ImageImport') {
+            renderImageImportUploadState(nodeId, context.images[0]);
+        } else if (context.node?.type === 'ImageCompare') {
+            renderImageComparePreview(
+                nodeId,
+                context.node.compareImageA || context.node.data?.compareImageA || null,
+                context.images[context.index] || context.images[0]
+            );
+        }
+        const currentImage = context.images[context.index] || context.images[0];
+        if (!currentImage) {
+            return false;
+        }
+        await openFullscreenPreview(currentImage, nodeId);
+        return true;
     }
 
     function bindPreviewKeyboardNavigation(container, getImages, getIndex, onChange) {
@@ -1249,13 +1165,13 @@ export function createMediaControllerApi({
 
             const selectedNodeId = Array.from(state.selectedNodes)[0];
             const node = getNodeById(selectedNodeId);
-            if (!node || (node.type !== 'ImagePreview' && node.type !== 'ImageSave')) return;
+            if (!node || (node.type !== 'ImagePreview' && node.type !== 'ImageGenerate' && node.type !== 'ImageSave')) return;
 
             const delta = event.key === 'ArrowLeft' ? -1 : 1;
             event.preventDefault();
             event.stopPropagation();
 
-            if (node.type === 'ImagePreview') {
+            if (node.type === 'ImagePreview' || node.type === 'ImageGenerate') {
                 void stepImagePreviewNodeByDelta(selectedNodeId, delta);
             } else {
                 void stepImageSaveNodeByDelta(selectedNodeId, delta);
@@ -1386,9 +1302,10 @@ export function createMediaControllerApi({
             dropZone.innerHTML = '';
             const img = documentRef.createElement('img');
             img.style.pointerEvents = 'none';
-            setImageElementSource(img, imageData, '已导入图片');
+            setImageElementSource(img, imageData, '已导入图片', { preferImmediateSrc: false });
             dropZone.appendChild(img);
             showResolutionBadge(nodeId, imageData);
+            void cacheNodePreviewThumbnail(nodeId, imageData);
         } else {
             dropZone.classList.remove('has-image');
             dropZone.innerHTML = `<div class="drop-text">
@@ -1396,6 +1313,7 @@ export function createMediaControllerApi({
                 拖拽图片到此处
             </div>`;
             clearImageImportBadge(nodeId);
+            clearNodePreviewThumbnail(nodeId);
         }
 
         requestNodeFit(nodeId);
@@ -1417,20 +1335,30 @@ export function createMediaControllerApi({
         if (node.importMode === 'url') {
             if (node.imageUrl) node.data.image = node.imageUrl;
             else delete node.data.image;
+            delete node.data.imagePreviewThumbnail;
             renderImageImportUrlState(nodeId, node.imageUrl || '');
         } else {
-            const imageList = normalizeImageList([
+            const imageList = getFirstNonEmptyImageList(
                 node.imageData,
                 node.data?.image,
                 node.imageDataList,
                 node.data?.images
-            ]);
+            );
             const imageData = imageList[0] || null;
+            const previewThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()
+                ? node.data.imagePreviewThumbnail
+                : '';
             if (imageData) {
                 node.imageData = imageData;
                 node.imageDataList = imageList;
                 node.data.image = imageData;
                 node.data.images = imageList.slice();
+                void cacheNodePreviewThumbnail(node, imageData);
+            } else if (previewThumbnail) {
+                node.imageData = null;
+                node.imageDataList = [];
+                delete node.data.image;
+                delete node.data.images;
             } else {
                 node.imageData = null;
                 node.imageDataList = [];
@@ -1438,7 +1366,7 @@ export function createMediaControllerApi({
                 delete node.data.images;
             }
             if (node.imageImportAssetKey) node.data.imageImportAssetKey = node.imageImportAssetKey;
-            renderImageImportUploadState(nodeId, imageData);
+            renderImageImportUploadState(nodeId, imageData || previewThumbnail || null);
         }
 
         if (refreshDependents) {
@@ -1466,6 +1394,7 @@ export function createMediaControllerApi({
     }
 
     function renderImageResizeEmptyState(nodeId, message = '等待上游图片') {
+        clearNodePreviewThumbnail(nodeId);
         const preview = documentRef.getElementById(`${nodeId}-resize-preview`);
         const sizeLabel = documentRef.getElementById(`${nodeId}-resize-size-label`);
         const bytesLabel = documentRef.getElementById(`${nodeId}-resize-bytes-label`);
@@ -1488,8 +1417,13 @@ export function createMediaControllerApi({
         if (preview) {
             preview.innerHTML = '';
             const img = documentRef.createElement('img');
-            setImageElementSource(img, result.dataUrl, '缩放结果预览');
+            setImageElementSource(img, result.dataUrl, '缩放结果预览', { preferImmediateSrc: false });
             preview.appendChild(img);
+        }
+        if (result?.dataUrl) {
+            void cacheNodePreviewThumbnail(nodeId, result.dataUrl);
+        } else {
+            clearNodePreviewThumbnail(nodeId);
         }
         if (sizeLabel) {
             sizeLabel.textContent = sizeText;
@@ -1543,6 +1477,14 @@ export function createMediaControllerApi({
         return getNodePreviewSourceData(sourceNode);
     }
 
+    async function getResizeSourceImageAsync(nodeId) {
+        const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === 'image');
+        if (!incoming) return null;
+        const sourceNode = getNodeById(incoming.from.nodeId);
+        const images = await getNodeOutputImageListAsync(sourceNode);
+        return images[0] || getNodePreviewSourceData(sourceNode);
+    }
+
     async function syncImagePreviewNode(nodeId, imageData) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImagePreview') return;
@@ -1553,30 +1495,23 @@ export function createMediaControllerApi({
         const imageList = normalizeImageList(imageData);
 
         node.previewZoom = 1;
-        node.imagePreviewIndex = 0;
-        node.data = node.data || {};
-        node.imageDataList = [];
         const currentImage = imageList[0] || null;
-        node.imageData = currentImage;
 
         if (currentImage) {
-            node.data.image = currentImage;
-            node.data.imageAssetKey = nodeId;
-            node.data.imageCount = imageList.length;
-            delete node.data.images;
-            renderImagePreviewImage(nodeId, [currentImage]);
+            setCanonicalImageOutput(node, imageList, {
+                currentIndex: 0,
+                assetKey: nodeId,
+                trackImageCount: true,
+                hydratedAt: Date.now(),
+                assetReady: false
+            });
+            renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
-            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-            else if (isInlineImageData(currentImage)) await saveImageAsset(nodeId, currentImage);
-            else if (deleteImageAsset) await deleteImageAsset(nodeId);
-            await showResolutionBadge(nodeId, currentImage);
+            saveDisplayImageAssetSoon(nodeId, imageList);
+            updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            delete node.data.images;
-            node.imageDataList = [];
-            node.imageData = null;
+            clearCanonicalImageOutput(node);
+            clearDisplayImageAssetState(nodeId);
             if (previewContainer) {
                 previewContainer.classList.remove('has-multiple-images');
                 previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
@@ -1588,6 +1523,7 @@ export function createMediaControllerApi({
                 resolutionBadge.style.display = 'none';
             }
         }
+        scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
 
         if (shouldRequestFit(node, getPreviewLayoutSignature(imageList))) {
             requestNodeFit(nodeId);
@@ -1606,8 +1542,6 @@ export function createMediaControllerApi({
         const videoData = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
         const currentImage = imageList.length > 0 ? imageList[0] : null;
 
-        node.imageDataList = [];
-        node.imageData = currentImage || null;
         node.data = node.data || {};
         if (videoData?.url) {
             node.data.video = {
@@ -1621,13 +1555,9 @@ export function createMediaControllerApi({
         }
 
         if (imageList.some((image) => isRemoteImageUrl(image))) {
-            node.imageData = null;
-            node.imageDataList = [];
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            delete node.data.images;
+            clearCanonicalImageOutput(node);
             delete node.data.video;
+            clearDisplayImageAssetState(nodeId);
             renderImageSavePreview(nodeId, [], 'URL 图片不支持保存节点');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
@@ -1643,37 +1573,34 @@ export function createMediaControllerApi({
         }
 
         if (currentImage) {
-            node.data.image = currentImage;
-            node.data.imageAssetKey = nodeId;
-            node.data.imageCount = imageList.length;
-            delete node.data.images;
-            node.imagePreviewIndex = 0;
             delete node.data.video;
-            renderImageSavePreview(nodeId, [currentImage]);
+            setCanonicalImageOutput(node, imageList, {
+                currentIndex: 0,
+                assetKey: nodeId,
+                trackImageCount: true,
+                hydratedAt: Date.now(),
+                assetReady: false
+            });
+            renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            if (imageList.length > 1) await saveImageAssetList(nodeId, imageList);
-            else await saveImageAsset(nodeId, currentImage);
-            await showResolutionBadge(nodeId, currentImage);
+            saveDisplayImageAssetSoon(nodeId, imageList);
+            updateResolutionBadgeSoon(nodeId, currentImage);
         } else if (videoData?.url) {
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            delete node.data.images;
+            clearCanonicalImageOutput(node);
             renderVideoSavePreview(nodeId, videoData);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = true;
             if (deleteImageAsset) await deleteImageAsset(nodeId);
+            clearDisplayImageAssetState(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
             }
         } else {
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            delete node.data.images;
+            clearCanonicalImageOutput(node);
             delete node.data.video;
+            clearDisplayImageAssetState(nodeId);
             renderImageSavePreview(nodeId, [], '无输入图片或视频');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
@@ -1683,6 +1610,7 @@ export function createMediaControllerApi({
                 resolutionBadge.style.display = 'none';
             }
         }
+        scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
 
         if (shouldRequestFit(node, getPreviewLayoutSignature(imageList), 'savePreviewLayoutSignature')) {
             requestNodeFit(nodeId);
@@ -1693,6 +1621,14 @@ export function createMediaControllerApi({
         const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === portName);
         if (!incoming) return null;
         return getNodePreviewSourceData(getNodeById(incoming.from.nodeId));
+    }
+
+    async function getConnectedImageInputAsync(nodeId, portName) {
+        const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === portName);
+        if (!incoming) return null;
+        const sourceNode = getNodeById(incoming.from.nodeId);
+        const images = await getNodeOutputImageListAsync(sourceNode);
+        return images[0] || getNodePreviewSourceData(sourceNode);
     }
 
     function renderImageCompareEmptyState(nodeId, message = '等待 B 输入') {
@@ -1720,6 +1656,7 @@ export function createMediaControllerApi({
         if (!container) return;
         if (!imageB) {
             renderImageCompareEmptyState(nodeId, imageA ? '等待 B 输入' : '等待 A / B 输入');
+            clearNodePreviewThumbnail(nodeId);
             return;
         }
         container.classList.add('has-images');
@@ -1727,6 +1664,7 @@ export function createMediaControllerApi({
         container.classList.remove('is-comparing');
         container.style.setProperty('--compare-x', '50%');
         renderReusableComparePreview(container, imageA, imageB);
+        void cacheNodePreviewThumbnail(nodeId, imageB);
     }
 
     async function syncImageCompareNode(nodeId, imageA = null, imageB = null) {
@@ -1735,10 +1673,10 @@ export function createMediaControllerApi({
 
         const nextImageA = Object.prototype.hasOwnProperty.call(arguments, 1)
             ? imageA
-            : getConnectedImageInput(nodeId, 'imageA');
+            : await getConnectedImageInputAsync(nodeId, 'imageA');
         const nextImageB = Object.prototype.hasOwnProperty.call(arguments, 2)
             ? imageB
-            : getConnectedImageInput(nodeId, 'imageB');
+            : await getConnectedImageInputAsync(nodeId, 'imageB');
 
         node.compareImageA = nextImageA || null;
         node.compareImageB = nextImageB || null;
@@ -1751,16 +1689,29 @@ export function createMediaControllerApi({
         if (!nextImageB) {
             node.imageData = null;
             delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
+            delete node.data.imageAssetReady;
+            delete node.data.imageMemoryReleased;
             if (deleteImageAsset) await deleteImageAsset(nodeId);
+            clearDisplayImageAssetState(nodeId);
             renderImageCompareEmptyState(nodeId, nextImageA ? '等待 B 输入' : '等待 A / B 输入');
             return;
         }
 
         node.data.image = nextImageB;
         node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
-        if (!(await clearRecoverableDisplayAsset(nodeId))) {
-            if (node.imageData) await saveImageAsset(nodeId, node.imageData);
-            else if (deleteImageAsset) await deleteImageAsset(nodeId);
+        if (node.imageData) {
+            markNodeImageAssetPending(node, nodeId, 1);
+            const ok = await saveImageAsset(nodeId, node.imageData);
+            if (ok) markNodeImageAssetReady(node, nodeId, 1);
+        } else {
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
+            delete node.data.imageAssetReady;
+            delete node.data.imageMemoryReleased;
+            if (deleteImageAsset) await deleteImageAsset(nodeId);
+            clearDisplayImageAssetState(nodeId);
         }
 
         renderImageComparePreview(nodeId, nextImageA, nextImageB);
@@ -1868,19 +1819,27 @@ export function createMediaControllerApi({
         for (const nodeId of sourceNodeIds) {
             await refreshDependentImageResizePreviews(nodeId, options);
         }
+        scheduleDisplayImageMemorySweep({ restoreLimit: displayImageMemoryManager.maxRestorePerSweep });
     }
 
     async function refreshImageResizePreview(nodeId, options = {}) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImageResize') return null;
+        node.data = node.data || {};
 
-        const sourceImage = options.sourceImage || getResizeSourceImage(nodeId);
+        const sourceImage = options.sourceImage || await getResizeSourceImageAsync(nodeId);
         updateImageResizeModeState(nodeId);
         updateImageResizeQualityVisibility(nodeId, sourceImage);
 
         if (!sourceImage) {
             node.resizePreviewData = null;
             node.resizePreviewMeta = null;
+            delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
+            delete node.data.imageAssetReady;
+            delete node.data.imageMemoryReleased;
+            clearDisplayImageAssetState(nodeId);
             renderImageResizeEmptyState(nodeId, '等待上游图片');
             if (options.cascade !== false) await refreshDependentImageResizePreviews(nodeId, options);
             return null;
@@ -1889,6 +1848,12 @@ export function createMediaControllerApi({
         if (isRemoteImageUrl(sourceImage)) {
             node.resizePreviewData = null;
             node.resizePreviewMeta = null;
+            delete node.data.image;
+            delete node.data.imageAssetKey;
+            delete node.data.imageCount;
+            delete node.data.imageAssetReady;
+            delete node.data.imageMemoryReleased;
+            clearDisplayImageAssetState(nodeId);
             renderImageResizeEmptyState(nodeId, 'URL 图片不支持缩放节点');
             if (options.cascade !== false) await refreshDependentImageResizePreviews(nodeId, options);
             return null;
@@ -1918,7 +1883,14 @@ export function createMediaControllerApi({
 
             node.resizePreviewData = result.dataUrl;
             node.resizePreviewMeta = result;
+            node.data.image = result.dataUrl;
+            node.imageData = result.dataUrl;
+            node.imageDataList = [result.dataUrl];
+            markNodeImageAssetPending(node, nodeId, 1);
+            const saved = await saveImageAsset(nodeId, result.dataUrl);
+            if (saved) markNodeImageAssetReady(node, nodeId, 1);
             renderImageResizeResult(nodeId, result);
+            scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
 
             if (options.cascade !== false) {
                 await refreshDependentImageResizePreviews(nodeId, options);
@@ -1937,7 +1909,7 @@ export function createMediaControllerApi({
         const keepAspect = documentRef.getElementById(`${nodeId}-keep-aspect`)?.checked;
         if (!keepAspect) return;
 
-        const sourceImage = getResizeSourceImage(nodeId);
+        const sourceImage = await getResizeSourceImageAsync(nodeId);
         if (!sourceImage) return;
 
         const res = parseResolutionText(await getImageResolution(sourceImage));
@@ -2008,8 +1980,10 @@ export function createMediaControllerApi({
         dropZone.addEventListener('click', () => {
             if (state.justDragged) return;
             const node = getNodeById(id);
-            if (node && node.importMode === 'upload' && node.imageData) {
-                openFullscreenPreview(node.imageData, id);
+            if (node && node.importMode === 'upload') {
+                void openStoredImageNodeFullscreen(id).then((opened) => {
+                    if (!opened) openImagePicker();
+                });
                 return;
             }
             openImagePicker();
@@ -2101,10 +2075,13 @@ export function createMediaControllerApi({
             if (assetKey) {
                 node.imageImportAssetKey = assetKey;
                 node.data.imageImportAssetKey = assetKey;
+                markImageImportAssetReady(node, assetKey, 1);
             } else {
-                await saveImageAsset(nodeId, data);
+                const saved = await saveImageAsset(nodeId, data);
+                if (saved) markImageImportAssetReady(node, nodeId, 1);
             }
             await syncImageImportSourceState(nodeId, { refreshDependents: true });
+            scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
             scheduleSave();
         };
         reader.readAsDataURL(file);
@@ -2127,10 +2104,13 @@ export function createMediaControllerApi({
         if (assetKey) {
             node.imageImportAssetKey = assetKey;
             node.data.imageImportAssetKey = assetKey;
+            markImageImportAssetReady(node, assetKey, 1);
         } else {
-            await saveImageAsset(nodeId, imageData);
+            const saved = await saveImageAsset(nodeId, imageData);
+            if (saved) markImageImportAssetReady(node, nodeId, 1);
         }
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
+        scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
         scheduleSave();
         return true;
     }
@@ -2256,10 +2236,12 @@ export function createMediaControllerApi({
         previewContainer?.addEventListener('click', (e) => {
             e.stopPropagation();
             if (state.justDragged) return;
-            const img = previewContainer.querySelector('img');
-            const source = getNodePreviewSourceData(getNodeById(id)) || img?.getAttribute('src') || '';
-            if (source) openFullscreenPreview(source, id);
+            void openStoredImageNodeFullscreen(id);
         });
+
+        const persistedPreviewThumbnail = typeof node?.data?.imagePreviewThumbnail === 'string'
+            ? node.data.imagePreviewThumbnail.trim()
+            : '';
 
         if (node?.imageData) {
             renderImageResizeResult(id, {
@@ -2268,6 +2250,14 @@ export function createMediaControllerApi({
                 outputHeight: node.outputHeight || 0,
                 outputQuality: node.outputQuality || null,
                 estimatedBytes: node.estimatedBytes || estimateDataUrlSize(node.imageData)
+            });
+        } else if (persistedPreviewThumbnail) {
+            renderImageResizeResult(id, {
+                dataUrl: persistedPreviewThumbnail,
+                outputWidth: node?.outputWidth || 0,
+                outputHeight: node?.outputHeight || 0,
+                outputQuality: node?.outputQuality || null,
+                estimatedBytes: node?.estimatedBytes || null
             });
         } else {
             queuePreviewRefresh(0);
@@ -2292,6 +2282,10 @@ export function createMediaControllerApi({
         };
         node.resizePreviewData = dataUrl;
         node.resizePreviewMeta = result;
+        node.data = node.data || {};
+        node.data.image = dataUrl;
+        node.imageData = dataUrl;
+        node.imageDataList = [dataUrl];
         renderImageResizeResult(nodeId, result);
     }
 
@@ -2302,6 +2296,21 @@ export function createMediaControllerApi({
         const stepPreview = (delta, event) => {
             event?.stopPropagation();
             void stepImageSaveNodeByDelta(id, delta);
+        };
+
+        const openSaveImagePreview = async () => {
+            const node = getNodeById(id);
+            const video = getStoredSaveVideo(node);
+            if (video?.url) {
+                windowRef.open(video.url, '_blank', 'noopener,noreferrer');
+                return;
+            }
+            const image = getCurrentImageSavePreviewImage(node);
+            if (image) {
+                await openFullscreenPreview(image, id);
+                return;
+            }
+            await openStoredImageNodeFullscreen(id);
         };
 
         bindPreviewKeyboardNavigation(
@@ -2317,6 +2326,10 @@ export function createMediaControllerApi({
                 void showResolutionBadge(id, images[nextIndex]);
             }
         );
+
+        previewContainer.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
 
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {
@@ -2386,28 +2399,14 @@ export function createMediaControllerApi({
         previewContainer.addEventListener('click', (e) => {
             e.stopPropagation();
             if (state.justDragged) return;
-            const node = getNodeById(id);
             if (e.target.closest('.image-save-preview-nav')) return;
-            const video = getStoredSaveVideo(node);
-            if (video?.url) {
-                if (e.target.closest('video')) return;
-                windowRef.open(video.url, '_blank', 'noopener,noreferrer');
-                return;
-            }
-            const image = getCurrentImageSavePreviewImage(node);
-            if (image) openFullscreenPreview(image, id);
+            if (e.target.closest('video')) return;
+            void openSaveImagePreview();
         });
 
         el.querySelector(`#${id}-view-full`).addEventListener('click', (e) => {
             e.stopPropagation();
-            const node = getNodeById(id);
-            const video = getStoredSaveVideo(node);
-            if (video?.url) {
-                windowRef.open(video.url, '_blank', 'noopener,noreferrer');
-                return;
-            }
-            const image = getCurrentImageSavePreviewImage(node);
-            if (image) openFullscreenPreview(image, id);
+            void openSaveImagePreview();
         });
     }
 
@@ -2524,6 +2523,15 @@ export function createMediaControllerApi({
             await stepImagePreviewNodeByDelta(id, delta);
         };
 
+        const openPreviewImage = async () => {
+            const image = getCurrentImagePreviewImage(getNodeById(id));
+            if (image) {
+                await openFullscreenPreview(image, id);
+                return;
+            }
+            await openStoredImageNodeFullscreen(id);
+        };
+
         bindPreviewKeyboardNavigation(
             previewContainer,
             () => getStoredImagePreviewListAsync(getNodeById(id)),
@@ -2545,6 +2553,10 @@ export function createMediaControllerApi({
                 scheduleSave();
             }
         );
+
+        previewContainer.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
 
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {
@@ -2577,13 +2589,11 @@ export function createMediaControllerApi({
             e.stopPropagation();
             if (state.justDragged) return;
             if (e.target.closest('.image-save-preview-nav')) return;
-            const image = getCurrentImagePreviewImage(getNodeById(id));
-            if (image) openFullscreenPreview(image, id);
+            void openPreviewImage();
         });
         fullscreenBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
-            const image = getCurrentImagePreviewImage(getNodeById(id));
-            if (image) openFullscreenPreview(image, id);
+            void openPreviewImage();
         });
     }
 
@@ -2921,8 +2931,7 @@ export function createMediaControllerApi({
         container.addEventListener('click', (e) => {
             e.stopPropagation();
             if (state.justDragged) return;
-            const node = getNodeById(id);
-            if (node?.compareImageB) openFullscreenPreview(node.compareImageB, id);
+            void openStoredImageNodeFullscreen(id);
         });
         advancedBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2931,13 +2940,33 @@ export function createMediaControllerApi({
         });
 
         const node = getNodeById(id);
-        if (node?.compareImageB || node?.data?.compareImageB || node?.data?.image) {
+        const persistedPreviewThumbnail = typeof node?.data?.imagePreviewThumbnail === 'string'
+            ? node.data.imagePreviewThumbnail.trim()
+            : '';
+        if (node?.compareImageB || node?.data?.compareImageB || node?.data?.image || persistedPreviewThumbnail) {
             const imageA = node.compareImageA || node.data?.compareImageA || null;
-            const imageB = node.compareImageB || node.data?.compareImageB || node.data?.image || node.imageData || null;
+            const imageB = node.compareImageB || node.data?.compareImageB || node.data?.image || node.imageData || persistedPreviewThumbnail || null;
             node.compareImageA = imageA || null;
-            node.compareImageB = imageB || null;
+            if (node.compareImageB || node.data?.compareImageB || node.data?.image || node.imageData) {
+                node.compareImageB = imageB || null;
+            }
             renderImageComparePreview(id, imageA, imageB);
             if (imageB) void showResolutionBadge(id, imageB);
+            if (!imageA && persistedPreviewThumbnail && state.connections.some((conn) => conn.to?.nodeId === id && conn.to?.port === 'imageA')) {
+                void getConnectedImageInputAsync(id, 'imageA').then((resolvedA) => {
+                    const latestNode = getNodeById(id);
+                    if (!latestNode || latestNode.type !== 'ImageCompare') return;
+                    const latestPreviewThumbnail = typeof latestNode.data?.imagePreviewThumbnail === 'string'
+                        ? latestNode.data.imagePreviewThumbnail.trim()
+                        : '';
+                    const latestImageB = latestNode.compareImageB || latestNode.data?.compareImageB || latestNode.data?.image || latestNode.imageData || latestPreviewThumbnail || null;
+                    if (!latestImageB) return;
+                    latestNode.compareImageA = resolvedA || null;
+                    if (resolvedA) latestNode.data.compareImageA = resolvedA;
+                    else delete latestNode.data.compareImageA;
+                    renderImageComparePreview(id, resolvedA || null, latestImageB);
+                }).catch(() => {});
+            }
         } else {
             void syncImageCompareNode(id);
         }
@@ -2977,6 +3006,7 @@ export function createMediaControllerApi({
     }
 
     async function openFullscreenPreview(src, nodeId = null) {
+        displayImageMemoryManager.beginFullscreenPreview(nodeId);
         const overlay = documentRef.createElement('div');
         overlay.className = `fullscreen-overlay${shouldIgnoreChromeOffsetForPreview() ? ' fullscreen-ignore-chrome' : ''}`;
         const context = nodeId ? await getNodeFullscreenImageContext(nodeId, src) : {
@@ -3041,7 +3071,7 @@ export function createMediaControllerApi({
         const flushNodePreviewState = () => {
             if (!nodeId || !context.node || !previewIndexDirty) return;
             context.node.imagePreviewIndex = currentIndex;
-            if (context.node.type === 'ImagePreview') {
+            if (context.node.type === 'ImagePreview' || context.node.type === 'ImageGenerate') {
                 context.node.previewZoom = 1;
                 renderImagePreviewImage(nodeId, images);
             } else if (context.node.type === 'ImageSave') {
@@ -3177,6 +3207,9 @@ export function createMediaControllerApi({
         windowRef.addEventListener('mousemove', onMove);
         windowRef.addEventListener('mouseup', onUp);
         const cleanup = () => {
+            if (nodeId) {
+                displayImageMemoryManager.endFullscreenPreview(nodeId);
+            }
             flushNodePreviewState();
             cropper?.cleanup();
             overlay.remove();
@@ -3235,7 +3268,10 @@ export function createMediaControllerApi({
         renderImagePreviewImage,
         renderImageSavePreview,
         renderImageComparePreview,
+        releaseNodeImageData,
         clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
+        scheduleDisplayImageMemorySweep,
+        sweepDisplayImageMemory,
         syncImagePreviewNode,
         syncImageSaveNode,
         setupImageSave,

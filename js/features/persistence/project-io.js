@@ -36,7 +36,10 @@ export function createProjectIoApi({
     trimHistoryCache = async () => true,
     cleanupRecoverableNodeAssetCache = null,
     clearUndoStack = () => {},
-    updateCacheUsage = () => {}
+    updateCacheUsage = () => {},
+    beginMediaRestoreBatch = () => {},
+    endMediaRestoreBatch = () => {},
+    finalizeMediaRestoreBatch = async () => {}
 }) {
     function isImageImportAssetKey(key) {
         return typeof key === 'string' && key.startsWith('image-import:');
@@ -427,21 +430,33 @@ export function createProjectIoApi({
             }
 
             await restoreHandles();
-            if (data.nodes?.length) {
-                for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd, true);
-            }
-            if (data.connections?.length) {
-                for (const conn of data.connections) {
-                    if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
-                        if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
-                        state.connections.push(conn);
+            beginMediaRestoreBatch();
+            try {
+                if (data.nodes?.length) {
+                    for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd, true);
+                }
+                if (data.connections?.length) {
+                    for (const conn of data.connections) {
+                        if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
+                            if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
+                            state.connections.push(conn);
+                        }
                     }
                 }
-                updateAllConnections();
-                updatePortStyles();
-                onConnectionsChanged();
+                if (data.connections?.length) {
+                    updateAllConnections();
+                    updatePortStyles();
+                    onConnectionsChanged();
+                }
+            } finally {
+                endMediaRestoreBatch();
             }
             viewportApi.updateCanvasTransform();
+            try {
+                await finalizeMediaRestoreBatch();
+            } catch (error) {
+                console.warn('Finalize media restore after session load failed:', error);
+            }
             scheduleStartupCacheCleanup(data);
             return data.nodes?.length > 0;
         } catch (e) {

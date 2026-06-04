@@ -18,11 +18,14 @@ import {
     validateOpenAiImageSize
 } from './provider-request-utils.js';
 import {
+    clearCanonicalImageOutput,
+    getCanonicalImage,
+    getCanonicalImageList,
     getPrimaryImageInput,
-    getLastImageInput,
     getPrimaryTextInput,
     getTextInputList,
-    normalizeImageList
+    normalizeImageList,
+    setCanonicalImageOutput
 } from './execution-data-utils.js';
 import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
@@ -45,6 +48,7 @@ export function createExecutionCoreApi({
     saveHistoryEntry,
     renderHistoryList,
     showResolutionBadge,
+    getImageAsset = async () => null,
     saveImageAsset,
     saveImageAssetList = async () => false,
     deleteImageAsset,
@@ -53,6 +57,8 @@ export function createExecutionCoreApi({
     resizeImageData,
     autoSaveToDir,
     restoreImageResizePreview,
+    renderImagePreviewImage = () => {},
+    releaseNodeImageData = async () => false,
     refreshDependentImageResizePreviews,
     syncImagePreviewNode = async () => {},
     syncImageSaveNode = async () => {},
@@ -64,6 +70,8 @@ export function createExecutionCoreApi({
     updateAllConnections,
     getImageHistorySidebarActive = () => false
 }) {
+    const imageAssetSaveChains = new Map();
+
     function propagateImagesToDownstreamPreview(sourceNodeId, images = []) {
         const imageList = normalizeImageList(images);
         if (!sourceNodeId || imageList.length === 0) return;
@@ -196,31 +204,100 @@ export function createExecutionCoreApi({
         }
     }
 
+    function markNodeImageAssetPending(node, assetKey, imageCount = 1) {
+        if (!node) return 0;
+        node.data = node.data || {};
+        if (assetKey) node.data.imageAssetKey = assetKey;
+        node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
+        delete node.data.imageAssetReady;
+        delete node.data.imageMemoryReleased;
+        const token = (parseInt(node.data.imageAssetSaveToken || '0', 10) || 0) + 1;
+        node.data.imageAssetSaveToken = token;
+        return token;
+    }
+
+    function markNodeImageAssetReady(node, assetKey, imageCount = 1, token = null) {
+        if (!node) return;
+        node.data = node.data || {};
+        if (token !== null && node.data.imageAssetSaveToken !== token) return;
+        if (assetKey) node.data.imageAssetKey = assetKey;
+        node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
+        node.data.imageAssetReady = true;
+        node.data.imageHydratedAt = Date.now();
+        delete node.data.imageMemoryReleased;
+        delete node.data.imageAssetSaveToken;
+    }
+
+    function markNodeImageAssetFailed(node, token = null) {
+        if (!node?.data) return;
+        if (token !== null && node.data.imageAssetSaveToken !== token) return;
+        delete node.data.imageAssetReady;
+        delete node.data.imageAssetSaveToken;
+    }
+
+    function saveNodeImageAssetInBackground(node, images, assetKey = node?.id) {
+        const imageList = normalizeImageList(images);
+        if (!node || !assetKey || imageList.length === 0) return;
+        const token = markNodeImageAssetPending(node, assetKey, imageList.length);
+        const saveTask = async () => {
+            const saved = imageList.length > 1
+                ? await saveImageAssetList(assetKey, imageList)
+                : await saveImageAsset(assetKey, imageList[0]);
+            if (saved) {
+                markNodeImageAssetReady(node, assetKey, imageList.length, token);
+                await releaseNodeImageData(node.id);
+            } else {
+                markNodeImageAssetFailed(node, token);
+            }
+        };
+        const previous = imageAssetSaveChains.get(assetKey) || Promise.resolve();
+        const queued = previous
+            .catch(() => {})
+            .then(saveTask)
+            .catch(() => markNodeImageAssetFailed(node, token));
+        const tracked = queued.finally(() => {
+            if (imageAssetSaveChains.get(assetKey) === tracked) {
+                imageAssetSaveChains.delete(assetKey);
+            }
+        });
+        imageAssetSaveChains.set(assetKey, tracked);
+    }
+
+    async function saveNodeImageAssetNow(node, images, assetKey = node?.id) {
+        const imageList = normalizeImageList(images);
+        if (!node || !assetKey || imageList.length === 0) return false;
+        const token = markNodeImageAssetPending(node, assetKey, imageList.length);
+        try {
+            const previous = imageAssetSaveChains.get(assetKey);
+            if (previous) await previous.catch(() => {});
+            const saved = imageList.length > 1
+                ? await saveImageAssetList(assetKey, imageList)
+                : await saveImageAsset(assetKey, imageList[0]);
+            if (saved) {
+                markNodeImageAssetReady(node, assetKey, imageList.length, token);
+                await releaseNodeImageData(node.id);
+                return true;
+            }
+        } catch {
+            // Fall through to mark the current save as failed.
+        }
+        markNodeImageAssetFailed(node, token);
+        return false;
+    }
+
     function commitImageGenerateOutputs(node, images = [], prompt = '') {
         const normalizedImages = normalizeImageList(images);
-        node.data = node.data || {};
-        if (normalizedImages.length > 0) {
-            node.data.images = normalizedImages.slice();
-            node.data.image = normalizedImages[normalizedImages.length - 1];
-            node.data.imagePromptList = normalizedImages.map(() => prompt || '');
-            delete node.data.imageAssetKey;
-            delete node.data.imageMemoryReleased;
-        } else {
-            delete node.data.images;
-            delete node.data.image;
-            delete node.data.imagePromptList;
-            delete node.data.imageAssetKey;
-            delete node.data.imageMemoryReleased;
-        }
-        node.imageDataList = normalizedImages.slice();
-        node.imageData = normalizedImages[normalizedImages.length - 1] || null;
-        node.generatedImages = normalizedImages.slice();
+        setCanonicalImageOutput(node, normalizedImages, {
+            currentIndex: normalizedImages.length - 1,
+            assetKey: node.id,
+            imagePromptList: normalizedImages.map(() => prompt || ''),
+            imageCount: normalizedImages.length,
+            assetReady: false
+        });
         node.imagePromptList = normalizedImages.map(() => prompt || '');
         node.generationCompletedCount = normalizedImages.length;
-        if (normalizedImages.length > 1) {
-            void saveImageAssetList(node.id, normalizedImages);
-        } else if (normalizedImages.length === 1) {
-            void saveImageAsset(node.id, normalizedImages[0]);
+        if (normalizedImages.length > 0) {
+            saveNodeImageAssetInBackground(node, normalizedImages, node.id);
         } else if (deleteImageAsset) {
             void deleteImageAsset(node.id);
         }
@@ -231,15 +308,7 @@ export function createExecutionCoreApi({
 
     function resetImageGenerateRunOutputs(node) {
         if (!node) return;
-        node.data = node.data || {};
-        delete node.data.images;
-        delete node.data.image;
-        delete node.data.imagePromptList;
-        delete node.data.imageAssetKey;
-        delete node.data.imageMemoryReleased;
-        node.imageDataList = [];
-        node.imageData = null;
-        node.generatedImages = [];
+        clearCanonicalImageOutput(node);
         node.imagePromptList = [];
         node.generationCompletedCount = 0;
     }
@@ -728,14 +797,46 @@ export function createExecutionCoreApi({
         if (node.importMode === 'url') {
             return node.imageUrl || node.data?.image || undefined;
         }
-        const imageList = normalizeImageList([
-            node.imageData,
-            node.data?.image,
-            node.imageDataList,
-            node.data?.images,
-            node.generatedImages
-        ]);
+        const imageList = getCanonicalImageList(node);
         return imageList[0] || undefined;
+    }
+
+    async function restoreImageImportOutputValue(node) {
+        const cachedValue = getImageImportOutputValue(node);
+        if (cachedValue) return cachedValue;
+        if (!node || node.type !== 'ImageImport' || node.importMode === 'url') return undefined;
+
+        const candidateKeys = [
+            node.imageImportAssetKey,
+            node.data?.imageImportAssetKey,
+            node.data?.imageAssetKey,
+            node.id ? `image-import:${node.id}` : '',
+            node.id
+        ].filter((key, index, list) => typeof key === 'string' && key && list.indexOf(key) === index);
+
+        for (const key of candidateKeys) {
+            const imageValue = await getImageAsset(key);
+            if (!imageValue) continue;
+
+            node.data = node.data || {};
+            node.imageData = imageValue;
+            node.imageDataList = [imageValue];
+            node.data.image = imageValue;
+            delete node.data.images;
+            node.data.imageCount = 1;
+            node.data.imageAssetReady = true;
+            delete node.data.imageMemoryReleased;
+            if (key.startsWith('image-import:')) {
+                node.imageImportAssetKey = key;
+                node.data.imageImportAssetKey = key;
+                delete node.data.imageAssetKey;
+            } else {
+                node.data.imageAssetKey = key;
+            }
+            return imageValue;
+        }
+
+        return undefined;
     }
 
     function isFixedTextChatWithCachedResult(node) {
@@ -882,7 +983,7 @@ export function createExecutionCoreApi({
             return getImageImportOutputValue(node);
         }
         if (portName === 'image') {
-            const imageList = normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages);
+            const imageList = getCanonicalImageList(node);
             if (imageList.length > 1) return imageList;
             if (imageList.length === 1) return imageList[0];
 
@@ -891,7 +992,7 @@ export function createExecutionCoreApi({
             }
 
             if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
-                return node.imageData || undefined;
+                return getCanonicalImage(node) || undefined;
             }
         }
         if (portName === 'video') {
@@ -1202,73 +1303,6 @@ export function createExecutionCoreApi({
         return normalizeImageList(value).some((image) => isRemoteImageUrl(image));
     }
 
-    function getImagePreviewIndex(node, images) {
-        if (!images.length) return 0;
-        const rawIndex = Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0;
-        return Math.max(0, Math.min(images.length - 1, rawIndex));
-    }
-
-    function renderImagePreviewImage(nodeId, images) {
-        const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
-        if (!previewContainer) return;
-
-        const imageList = normalizeImageList(images);
-        if (imageList.length === 0) {
-            previewContainer.classList.remove('has-multiple-images');
-            previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
-            return;
-        }
-
-        const node = state.nodes.get(nodeId);
-        const index = getImagePreviewIndex(node, imageList);
-        if (node) node.imagePreviewIndex = index;
-        const image = imageList[index];
-        previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
-        previewContainer.innerHTML = `
-            <img src="${image}" alt="棰勮 ${index + 1}/${imageList.length}" style="cursor:pointer" draggable="false" />
-            ${imageList.length > 1 ? `
-                <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-                <div class="image-save-preview-counter">${index + 1}/${imageList.length}</div>
-            ` : ''}
-        `;
-    }
-
-    function renderImageSavePreview(nodeId, images, emptyMessage = '无输入图片') {
-        const previewContainer = documentRef.getElementById(`${nodeId}-save-preview`);
-        if (!previewContainer) return;
-
-        const imageList = normalizeImageList(images);
-        if (imageList.length === 0) {
-            previewContainer.classList.remove('has-multiple-images');
-            previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
-            return;
-        }
-
-        const node = state.nodes.get(nodeId);
-        const rawIndex = Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0;
-        const index = Math.max(0, Math.min(imageList.length - 1, rawIndex));
-        if (node) node.imagePreviewIndex = index;
-        const image = imageList[index];
-        previewContainer.classList.toggle('has-multiple-images', imageList.length > 1);
-        previewContainer.innerHTML = `
-            <img src="${image}" alt="待保存 ${index + 1}/${imageList.length}" draggable="false" />
-            ${imageList.length > 1 ? `
-                <button type="button" class="image-save-preview-nav image-save-preview-prev" data-direction="-1" title="上一张" aria-label="上一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <button type="button" class="image-save-preview-nav image-save-preview-next" data-direction="1" title="下一张" aria-label="下一张">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-                <div class="image-save-preview-counter">${index + 1}/${imageList.length}</div>
-            ` : ''}
-        `;
-    }
-
     function hasRemoteImageInput(inputs = {}) {
         return Object.values(inputs).some((value) => hasRemoteImageValue(value));
     }
@@ -1404,7 +1438,7 @@ export function createExecutionCoreApi({
 
     const nodeHandlers = {
         ImageImport: async (node) => {
-            const imageValue = getImageImportOutputValue(node);
+            const imageValue = await restoreImageImportOutputValue(node);
             if (!imageValue) throw new Error('未导入图片');
             node.data.image = imageValue;
             if (node.importMode !== 'url') node.imageData = imageValue;
@@ -1445,7 +1479,7 @@ export function createExecutionCoreApi({
 
             restoreImageResizePreview(id, result.dataUrl, result);
             showResolutionBadge(id, result.dataUrl);
-            await saveImageAsset(id, result.dataUrl);
+            await saveNodeImageAssetNow(node, result.dataUrl, id);
             await refreshDependentImageResizePreviews(id);
         },
         ImageGenerate: async (node, inputs, signal, executionContext = {}) => {
@@ -1811,9 +1845,9 @@ export function createExecutionCoreApi({
 
                     const imageData = requestResult.imageData;
                     if (requestResult.recovered) {
-                        node.generatedImages = normalizeImageList(node.generatedImages);
-                        node.generatedImages[nextGenerationIndex - 1] = imageData;
-                        commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
+                        const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
+                        generatedImages[nextGenerationIndex - 1] = imageData;
+                        commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt);
                         executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                         incrementNodeApiGenerationProgress(node, 1, {
                             current: nextGenerationIndex,
@@ -1832,9 +1866,9 @@ export function createExecutionCoreApi({
                         continue;
                     }
 
-                    node.generatedImages = normalizeImageList(node.generatedImages);
-                    node.generatedImages[nextGenerationIndex - 1] = imageData;
-                    commitImageGenerateOutputs(node, node.generatedImages.slice(0, nextGenerationIndex), prompt);
+                    const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
+                    generatedImages[nextGenerationIndex - 1] = imageData;
+                    commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt);
                     executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
@@ -2093,10 +2127,10 @@ export function createExecutionCoreApi({
                 .sort(([a], [b]) => parseInt(a.replace('image_', ''), 10) - parseInt(b.replace('image_', ''), 10))
                 .flatMap(([, value]) => normalizeImageList(value));
             if (images.length === 0) throw new Error('请至少连接一张图片');
-            node.data.images = images.slice();
-            node.data.image = images[images.length - 1];
-            node.imageDataList = images.slice();
-            node.imageData = node.data.image;
+            setCanonicalImageOutput(node, images, {
+                currentIndex: images.length - 1,
+                assetKey: node.id
+            });
             await saveImageAssetList(node.id, images);
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
@@ -2225,14 +2259,28 @@ export function createExecutionCoreApi({
 
     async function executeNode(node, inputs, signal, executionContext = {}) {
         if (node.type === 'ImageImport') {
-            const imageValue = getImageImportOutputValue(node);
+            const imageValue = await restoreImageImportOutputValue(node);
             if (!imageValue) {
                 delete node.data.image;
                 throw new Error('未导入图片');
             }
             node.data.image = imageValue;
-            if (node.importMode !== 'url') node.imageData = imageValue;
-            delete node.data.imageAssetKey;
+            if (node.importMode !== 'url') {
+                node.imageData = imageValue;
+                node.data.imageCount = Math.max(1, parseInt(node.data.imageCount || '1', 10) || 1);
+                if (node.imageImportAssetKey || node.data.imageImportAssetKey) {
+                    node.data.imageImportAssetKey = node.imageImportAssetKey || node.data.imageImportAssetKey;
+                    delete node.data.imageAssetKey;
+                } else if (node.data.imageAssetKey) {
+                    node.data.imageAssetKey = node.data.imageAssetKey;
+                }
+                if (node.data.imageImportAssetKey || node.data.imageAssetKey) {
+                    node.data.imageAssetReady = true;
+                }
+            } else {
+                delete node.data.imageAssetKey;
+                delete node.data.imageAssetReady;
+            }
             delete node.data.imageMemoryReleased;
             await refreshDependentImageResizePreviews(node.id);
             return;

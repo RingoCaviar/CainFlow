@@ -297,8 +297,42 @@ function refreshAllCameraControlPreviews() {
     cameraControlNodeApi.refreshAllCameraControlPreviews();
 }
 
-function handleNodeGraphChanged() {
+function beginMediaRestoreBatch() {
+    state.mediaRestoreBatchDepth = Math.max(0, parseInt(state.mediaRestoreBatchDepth || '0', 10) || 0) + 1;
+}
+
+function endMediaRestoreBatch() {
+    state.mediaRestoreBatchDepth = Math.max(0, (parseInt(state.mediaRestoreBatchDepth || '0', 10) || 0) - 1);
+}
+
+function isMediaRestoreBatchActive() {
+    return (parseInt(state.mediaRestoreBatchDepth || '0', 10) || 0) > 0;
+}
+
+async function finalizeMediaRestoreBatch() {
+    try {
+        await getNodeLifecycleApi().waitForImageRestores();
+        await mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true });
+    } finally {
+        handleNodeGraphChanged({ force: true });
+    }
+}
+
+async function runWithMediaRestoreBatch(task) {
+    beginMediaRestoreBatch();
+    try {
+        return await task();
+    } finally {
+        endMediaRestoreBatch();
+    }
+}
+
+function handleNodeGraphChanged(options = {}) {
+    const { force = false } = options;
     nodeDomBindingsApi?.syncImageMergeNodes?.();
+    if (!force && isMediaRestoreBatchActive()) {
+        return;
+    }
     refreshAllImageResizePreviews();
     refreshAllCameraControlPreviews();
 }
@@ -318,7 +352,7 @@ function hasIncomingImageConnectionInWorkflow(nodeId, connections = []) {
 }
 
 function collectRetainedNodeAssetIds() {
-    const recoverableDisplayTypes = new Set(['ImagePreview', 'ImageSave', 'ImageCompare']);
+    const recoverableDisplayTypes = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare']);
     const ids = new Set(Array.from(state.nodes.values())
         .filter((node) => {
             if (!node?.id) return false;
@@ -329,6 +363,12 @@ function collectRetainedNodeAssetIds() {
     Array.from(state.nodes.values()).forEach((node) => {
         if (typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
             ids.add(node.data.imageAssetKey);
+        }
+        const importAssetKey = typeof node?.imageImportAssetKey === 'string' && node.imageImportAssetKey
+            ? node.imageImportAssetKey
+            : (typeof node?.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+        if (importAssetKey) {
+            ids.add(importAssetKey);
         }
     });
 
@@ -342,6 +382,12 @@ function collectRetainedNodeAssetIds() {
             }
             if (typeof node.imageAssetKey === 'string' && node.imageAssetKey) {
                 ids.add(node.imageAssetKey);
+            }
+            const importAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
+                ? node.imageImportAssetKey
+                : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+            if (importAssetKey) {
+                ids.add(importAssetKey);
             }
         });
     });
@@ -442,6 +488,8 @@ function getSystemNotificationApi() {
 
 function initFloatingNotices() {
     const notices = getFloatingNoticesApi();
+    const workflowBackupDismissStorageKey = 'cainflow_workflow_backup_notice_dismissed';
+    const refreshTipDismissStorageKey = 'cainflow_refresh_notice_dismissed';
 
     notices.upsertNotice({
         id: 'workflow-backup',
@@ -449,6 +497,7 @@ function initFloatingNotices() {
         className: 'workflow-backup-notice',
         icon: '!',
         content: ['及时备份 ', { code: true, text: 'workflows文件夹' }, ' 里的工作流，防止更新后丢失'],
+        dismissStorageKey: workflowBackupDismissStorageKey,
         dismissible: true,
         closeLabel: '关闭工作流备份提醒'
     });
@@ -459,6 +508,7 @@ function initFloatingNotices() {
         priority: 20,
         icon: '💡',
         content: ['本APP更新频繁，建议使用 ', { highlight: true, text: 'Ctrl + F5' }, ' 强制刷新以加载最新版'],
+        dismissStorageKey: refreshTipDismissStorageKey,
         dismissible: true,
         closeLabel: '关闭刷新提示'
     });
@@ -519,7 +569,8 @@ const mediaControllerApi = createMediaControllerApi({
     fitNodeToContent,
     fetchRef: fetch,
     getProxyHeaders,
-    formatProxyErrorMessage: formatProxyErrorMessageService
+    formatProxyErrorMessage: formatProxyErrorMessageService,
+    canvasContainer
 });
 const connectionsApi = createConnectionsApi({
     state,
@@ -657,18 +708,32 @@ function topologicalSort(runInput = null) {
     return getExecutionCoreApi().topologicalSort(runInput);
 }
 
+function waitForRunStartFrame() {
+    return new Promise((resolve) => {
+        const view = document.defaultView || window;
+        const requestFrame = view?.requestAnimationFrame;
+        if (typeof requestFrame === 'function') {
+            requestFrame(() => resolve());
+        } else {
+            setTimeout(resolve, 16);
+        }
+    });
+}
+
 async function runWorkflow(runInput = null) {
     if (state.isRunStarting) return false;
     state.isRunStarting = true;
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     try {
+        await waitForRunStartFrame();
         if (!(await workflowManagerApi.ensureOpenWorkflow())) return false;
         const workflowName = workflowManagerApi.getActiveWorkflowName();
         if (!workflowName) {
             showToast('请先打开或新建一个工作流', 'warning');
             return false;
         }
-        const workflowData = workflowManagerApi.getActiveWorkflowSnapshot();
+        const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
+            || workflowManagerApi.getActiveWorkflowSnapshot();
         return getWorkflowRuntimeManagerApi().runWorkflowInContext(workflowName, workflowData, runInput);
     } finally {
         state.isRunStarting = false;
@@ -714,7 +779,10 @@ function getSessionManagerApi() {
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
-            clearOrphanedNodeAssets
+            clearOrphanedNodeAssets,
+            beginMediaRestoreBatch,
+            endMediaRestoreBatch,
+            finalizeMediaRestoreBatch
         });
         sessionManagerApi.setBeforeSave((options) => {
             workflowManagerApi?.syncActiveWorkflowBeforeSessionSave?.(options);
@@ -751,7 +819,10 @@ function getProjectIoApi() {
                 state.undoStack = [];
                 updateUndoButton();
             },
-            updateCacheUsage: () => settingsControllerApi?.updateCacheUsage()
+            updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
+            beginMediaRestoreBatch,
+            endMediaRestoreBatch,
+            finalizeMediaRestoreBatch
         });
     }
     return projectIoApi;
@@ -862,7 +933,8 @@ function getCanvasInteractionsApi() {
             getNodeMinimumSize: (nodeOrId, options) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId, options),
             enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
             checkLineIntersection: checkLineIntersectionService,
-            getConnectionSamplePoints: getConnectionSamplePointsService
+            getConnectionSamplePoints: getConnectionSamplePointsService,
+            onViewportSettled: () => mediaControllerApi.scheduleDisplayImageMemorySweep?.()
         });
     }
     return canvasInteractionsApi;
@@ -942,7 +1014,8 @@ function getContextMenuControllerApi() {
             getRunConflictInfo: (runInput) => {
                 const workflowName = workflowManagerApi.getActiveWorkflowName();
                 if (!workflowName) return { blocked: false, count: 0, nodeIds: [] };
-                const workflowData = workflowManagerApi.getActiveWorkflowSnapshot();
+                const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
+                    || workflowManagerApi.getActiveWorkflowSnapshot();
                 return getWorkflowRuntimeManagerApi().getRunConflictInfo(workflowName, workflowData, runInput);
             },
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
@@ -1015,7 +1088,8 @@ function getNodeLifecycleApi() {
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
             getCacheSidebarActive: () => document.getElementById('cache-sidebar')?.classList.contains('active'),
-            updateCacheUsage: () => settingsControllerApi?.updateCacheUsage()
+            updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
+            canvasContainer
         });
     }
     return nodeLifecycleApi;
@@ -1082,6 +1156,7 @@ function getExecutionCoreApi() {
             saveHistoryEntry,
             renderHistoryList,
             showResolutionBadge,
+            getImageAsset,
             saveImageAsset,
             saveImageAssetList,
             deleteImageAsset,
@@ -1089,18 +1164,20 @@ function getExecutionCoreApi() {
             blobToDataUrl,
             resizeImageData,
             autoSaveToDir,
-    restoreImageResizePreview,
-    refreshDependentImageResizePreviews,
-    syncImagePreviewNode: (nodeId, imageValue) => mediaControllerApi.syncImagePreviewNode(nodeId, imageValue),
-    syncImageSaveNode: (nodeId, imageValue) => mediaControllerApi.syncImageSaveNode(nodeId, imageValue),
-    syncImageCompareNode,
-    syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
-    fitNodeToContent,
-    scheduleSave,
-    getAbortMessage: getAbortMessageService,
-    updateAllConnections,
-    getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')
-});
+            restoreImageResizePreview,
+            renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
+            releaseNodeImageData: (nodeId) => mediaControllerApi.releaseNodeImageData(nodeId),
+            refreshDependentImageResizePreviews,
+            syncImagePreviewNode: (nodeId, imageValue) => mediaControllerApi.syncImagePreviewNode(nodeId, imageValue),
+            syncImageSaveNode: (nodeId, imageValue) => mediaControllerApi.syncImageSaveNode(nodeId, imageValue),
+            syncImageCompareNode,
+            syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
+            fitNodeToContent,
+            scheduleSave,
+            getAbortMessage: getAbortMessageService,
+            updateAllConnections,
+            getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')
+        });
     }
     return executionCoreApi;
 }
@@ -1141,6 +1218,9 @@ function getWorkflowRunnerApi() {
             onNodeRunStateChange: (payload) => {
                 if (state.activeWorkflowName) {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState(state.activeWorkflowName, payload);
+                }
+                if (payload?.status === 'completed' && payload.nodeId) {
+                    mediaControllerApi?.scheduleDisplayImageMemorySweep?.({ delayMs: 4200 });
                 }
             }
         });
@@ -1252,7 +1332,10 @@ const workflowManagerApi = createWorkflowManagerApi({
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
     onWorkflowViewApplied: (workflowName) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflowName),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
-    waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores()
+    waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
+    beginMediaRestoreBatch,
+    endMediaRestoreBatch,
+    finalizeMediaRestoreBatch
 });
 settingsControllerApi = createSettingsControllerApi({
     appVersion: APP_VERSION,

@@ -95,6 +95,9 @@ export function createSettingsControllerApi({
     const IMAGE_IMPORT_ASSET_KEY_PREFIX = 'image-import:';
     let activeModelFetchRequestId = 0;
     let openModelProviderPanelId = '';
+    let generalSettingsHelpDismissBound = false;
+    let generalSettingsHelpOverlay = null;
+    let activeGeneralSettingsHelpTrigger = null;
 
     function getEndpointHost(endpoint) {
         const raw = String(endpoint || '').trim();
@@ -159,6 +162,175 @@ export function createSettingsControllerApi({
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function formatGeneralSettingsHelpContent(value) {
+        return escapeHtml(value).replace(/\n/g, '<br>');
+    }
+
+    function renderGeneralSettingsHelpLabel(title, description, options = {}) {
+        const labelClass = options.emphasis ? 'general-settings-toggle-title' : 'general-settings-label-text';
+        const safeTitle = escapeHtml(title);
+        const safeDescriptionAttr = escapeHtml(description).replace(/\n/g, '&#10;');
+        return `
+            <div class="general-settings-label-main">
+                <span class="${labelClass}">${safeTitle}</span>
+                <div class="general-settings-help">
+                    <button
+                        type="button"
+                        class="general-settings-help-trigger"
+                        aria-expanded="false"
+                        aria-label="查看“${safeTitle}”说明"
+                        data-help-title="${safeTitle}"
+                        data-help-description="${safeDescriptionAttr}"
+                    >?</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function ensureGeneralSettingsHelpOverlay() {
+        if (generalSettingsHelpOverlay?.isConnected) return generalSettingsHelpOverlay;
+
+        const overlay = documentRef.createElement('div');
+        overlay.className = 'general-settings-floating-help hidden';
+        overlay.setAttribute('role', 'tooltip');
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.innerHTML = `
+            <strong class="general-settings-floating-help-title"></strong>
+            <span class="general-settings-floating-help-body"></span>
+        `;
+        (documentRef.body || documentRef.documentElement).appendChild(overlay);
+        generalSettingsHelpOverlay = overlay;
+        return overlay;
+    }
+
+    function syncGeneralSettingsHelpState(container, activeTrigger = null) {
+        if (!container) return;
+        container.querySelectorAll('.general-settings-help').forEach((helpRoot) => {
+            const trigger = helpRoot.querySelector('.general-settings-help-trigger');
+            const shouldOpen = !!trigger && trigger === activeTrigger;
+            helpRoot.classList.toggle('is-open', shouldOpen);
+            if (trigger) trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+        });
+    }
+
+    function positionGeneralSettingsHelpOverlay(trigger, overlay) {
+        if (!trigger || !overlay) return;
+
+        const triggerRect = trigger.getBoundingClientRect();
+        const viewportWidth = Math.max(windowRef.innerWidth || 0, documentRef.documentElement?.clientWidth || 0);
+        const viewportHeight = Math.max(windowRef.innerHeight || 0, documentRef.documentElement?.clientHeight || 0);
+        const margin = 12;
+        const gap = 10;
+        const maxWidth = Math.min(320, Math.max(220, viewportWidth - (margin * 2)));
+
+        overlay.style.maxWidth = `${maxWidth}px`;
+        overlay.style.left = '0px';
+        overlay.style.top = '0px';
+
+        const overlayRect = overlay.getBoundingClientRect();
+        const preferTop = triggerRect.bottom + gap + overlayRect.height > viewportHeight - margin
+            && triggerRect.top - gap - overlayRect.height >= margin;
+        const naturalTop = preferTop
+            ? triggerRect.top - overlayRect.height - gap
+            : triggerRect.bottom + gap;
+        const top = Math.min(
+            Math.max(margin, naturalTop),
+            Math.max(margin, viewportHeight - overlayRect.height - margin)
+        );
+        const preferredLeft = triggerRect.left - 10;
+        const left = Math.min(
+            Math.max(margin, preferredLeft),
+            Math.max(margin, viewportWidth - overlayRect.width - margin)
+        );
+        const arrowLeft = Math.min(
+            Math.max(20, (triggerRect.left + (triggerRect.width / 2)) - left),
+            overlayRect.width - 20
+        );
+
+        overlay.dataset.placement = preferTop ? 'top' : 'bottom';
+        overlay.style.left = `${left}px`;
+        overlay.style.top = `${top}px`;
+        overlay.style.setProperty('--general-settings-floating-help-arrow-left', `${arrowLeft}px`);
+    }
+
+    function closeGeneralSettingsHelpPopovers(container) {
+        activeGeneralSettingsHelpTrigger = null;
+        syncGeneralSettingsHelpState(container, null);
+        if (!generalSettingsHelpOverlay) return;
+        generalSettingsHelpOverlay.classList.add('hidden');
+        generalSettingsHelpOverlay.setAttribute('aria-hidden', 'true');
+    }
+
+    function openGeneralSettingsHelpPopover(trigger, container) {
+        if (!trigger || !container) return;
+
+        const overlay = ensureGeneralSettingsHelpOverlay();
+        const title = trigger.getAttribute('data-help-title') || '';
+        const description = trigger.getAttribute('data-help-description') || '';
+        const titleEl = overlay.querySelector('.general-settings-floating-help-title');
+        const bodyEl = overlay.querySelector('.general-settings-floating-help-body');
+
+        if (titleEl) titleEl.textContent = title;
+        if (bodyEl) bodyEl.innerHTML = formatGeneralSettingsHelpContent(description);
+
+        overlay.classList.remove('hidden');
+        overlay.setAttribute('aria-hidden', 'false');
+        activeGeneralSettingsHelpTrigger = trigger;
+        syncGeneralSettingsHelpState(container, trigger);
+        positionGeneralSettingsHelpOverlay(trigger, overlay);
+    }
+
+    function refreshGeneralSettingsHelpPopoverPosition() {
+        if (!activeGeneralSettingsHelpTrigger || !generalSettingsHelpOverlay || generalSettingsHelpOverlay.classList.contains('hidden')) return;
+        if (!activeGeneralSettingsHelpTrigger.isConnected) {
+            closeGeneralSettingsHelpPopovers(documentRef.getElementById('general-settings'));
+            return;
+        }
+        positionGeneralSettingsHelpOverlay(activeGeneralSettingsHelpTrigger, generalSettingsHelpOverlay);
+    }
+
+    function initGeneralSettingsHelpInteractions(container) {
+        if (!container || container.dataset.generalSettingsHelpBound === '1') return;
+
+        container.addEventListener('click', (event) => {
+            const trigger = event.target.closest('.general-settings-help-trigger');
+            if (!trigger || !container.contains(trigger)) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const shouldOpen = (
+                activeGeneralSettingsHelpTrigger !== trigger ||
+                !generalSettingsHelpOverlay ||
+                generalSettingsHelpOverlay.classList.contains('hidden')
+            );
+
+            if (!shouldOpen) {
+                closeGeneralSettingsHelpPopovers(container);
+                return;
+            }
+
+            openGeneralSettingsHelpPopover(trigger, container);
+        });
+
+        if (!generalSettingsHelpDismissBound) {
+            documentRef.addEventListener('click', (event) => {
+                const activeContainer = documentRef.getElementById('general-settings');
+                if (!activeContainer) return;
+
+                const helpRoot = event.target.closest('.general-settings-help');
+                if (helpRoot && activeContainer.contains(helpRoot)) return;
+                if (generalSettingsHelpOverlay?.contains(event.target)) return;
+
+                closeGeneralSettingsHelpPopovers(activeContainer);
+            });
+            windowRef.addEventListener('resize', refreshGeneralSettingsHelpPopoverPosition);
+            generalSettingsHelpDismissBound = true;
+        }
+
+        container.dataset.generalSettingsHelpBound = '1';
     }
 
     async function probeNetworkTargetFromBackend(target, timeoutSeconds = 5) {
@@ -806,7 +978,6 @@ export function createSettingsControllerApi({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(proxyConfig)
             });
-            console.log('Restored proxy config from localStorage to server.');
         } catch (e) {
             console.error('Failed to sync proxy state to server on startup:', e);
         }
@@ -1863,12 +2034,26 @@ export function createSettingsControllerApi({
             updateDownloadSnapshot = null;
         }
         const serverVersionText = latestVer || (updateStatus === 'checking' ? '检查中...' : '尚未获取');
-        const escapeHtml = (value) => String(value || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
+        const generalHelpText = {
+            updateStatus: '显示本地版本、服务端版本和当前更新状态，也可以在这里执行检查、下载或取消下载。',
+            autoCheckUpdatesOnLoad: '默认开启。关闭后，页面加载时不会再自动倒计时检查更新，但仍可手动检查。',
+            autoResize: '开启后，超出阈值的大图会在导入时自动缩小；关闭后将保留原图。',
+            maxSide: '阈值按边长换算为总像素上限，仅在自动缩放开启时生效。',
+            globalSaveDir: [
+                '设置全局目录可统一管理生成的图片。',
+                '注意：受浏览器安全限制，无法读取完整路径，请自行记住所使用的文件夹位置。',
+                '局域网其他设备访问时无法使用自动保存功能。'
+            ].join('\n'),
+            promptFilename: '开启后，保存节点会用生成该图片时的提示词加时间作为文件名。注意：如果提示词过长，可能导致部分环境下出现文件名相关问题。',
+            maxRetries: '初始失败后，最多允许再尝试执行多少轮。',
+            concurrentRequestMode: '默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。',
+            timeout: '默认关闭。关闭时会一直等待服务器返回；开启后超过设定秒数仍未返回则判定超时失败。',
+            connectionLineType: '切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。',
+            toolbarPinned: '默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。',
+            sidebarPinned: '默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。',
+            globalAnimation: '默认开启。关闭后会禁用全局动画效果，包括连线流动箭头、弹窗渐入渐出、按钮过渡和提示动画，以释放最大性能。',
+            notificationVolume: '调整工作流完成时通知音效的播放音量，可用“测试音效”立即预览当前设置。'
+        };
 
         const formatBytes = (bytes) => {
             const value = Number(bytes) || 0;
@@ -1966,7 +2151,9 @@ export function createSettingsControllerApi({
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
-                        <label>当前版本与检查结果</label>
+                        <div class="general-settings-label-row">
+                            ${renderGeneralSettingsHelpLabel('当前版本与检查结果', generalHelpText.updateStatus)}
+                        </div>
                         <div style="display:flex; flex-direction:column; gap:12px; width:100%;">
                             <div class="general-settings-update-header" style="display:flex; align-items:center; justify-content:space-between; width:100%;">
                                 <span class="version-badge">${appVersion}</span>
@@ -1985,17 +2172,16 @@ export function createSettingsControllerApi({
                             </div>
                             <div class="general-settings-field-divider" aria-hidden="true"></div>
                             <div class="card-field">
-                                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                                    <label class="general-settings-toggle-title" style="margin:0;">加载页面时自动检查更新</label>
+                                <div class="general-settings-control-row">
+                                    ${renderGeneralSettingsHelpLabel('加载页面时自动检查更新', generalHelpText.autoCheckUpdatesOnLoad, { emphasis: true })}
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="setting-auto-check-updates-on-load" ${autoCheckUpdatesOnLoad ? 'checked' : ''}>
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </div>
-                                <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。关闭后，页面加载时不会再自动倒计时检查更新，但仍可手动检查。</p>
                             </div>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px;">最后检查: ${timeStr}</p>
+                        <div class="general-settings-meta-text">最后检查: ${timeStr}</div>
                     </div>
                 </div>
             </div>
@@ -2009,23 +2195,23 @@ export function createSettingsControllerApi({
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">导入时自动缩放</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('导入时自动缩放', generalHelpText.autoResize, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-auto-resize-enabled" ${autoResizeEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height: 1.4;">开启后，超出阈值的大图会在导入时自动缩小；关闭后将保留原图。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <label>图片导入自适应缩放阈值 (边长)</label>
+                        <div class="general-settings-label-row">
+                            ${renderGeneralSettingsHelpLabel('图片导入自适应缩放阈值 (边长)', generalHelpText.maxSide)}
+                        </div>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${autoResizeEnabled ? '1' : '0.55'};">
                             <input type="number" id="setting-max-side" value="${currentSide}" placeholder="如: 2048" style="flex:1" ${autoResizeEnabled ? '' : 'disabled'} />
                             <span id="pixels-hint" style="font-size:11px; color:var(--text-dim); min-width:60px;">${(state.imageMaxPixels / 1000000).toFixed(1)} MP</span>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：阈值按边长换算为总像素上限，仅在自动缩放开启时生效。</p>
                     </div>
                 </div>
             </div>
@@ -2036,7 +2222,9 @@ export function createSettingsControllerApi({
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
-                        <label>全局图片保存目录</label>
+                        <div class="general-settings-label-row">
+                            ${renderGeneralSettingsHelpLabel('全局图片保存目录', generalHelpText.globalSaveDir)}
+                        </div>
                         <div class="general-settings-dir-row" style="display:flex; align-items:center; gap:8px;">
                             <span id="global-dir-badge" style="font-size:12px; color:var(--text-primary); padding:6px 10px; border-radius:6px; flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; ${state.globalSaveDirHandle ? 'background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);' : 'background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.2);'}">
                                 ${state.globalSaveDirHandle ? `已选择: ${state.globalSaveDirHandle.name}` : '<span style="color:var(--accent-red); font-weight:500;">⚠️ 未设置</span>'}
@@ -2044,20 +2232,16 @@ export function createSettingsControllerApi({
                             <button id="btn-set-global-dir" class="btn btn-secondary btn-xs" style="padding: 4px 8px;">更改</button>
                             ${state.globalSaveDirHandle ? `<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs" style="color:var(--accent-red); padding: 4px 8px;">清除</button>` : ''}
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：设置全局目录可统一管理生成的图片。</p>
-                        <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">⚠️ 注意：受浏览器安全限制，无法读取完整路径，请自行记住所使用的文件夹位置。</p>
-                        <p style="font-size:11px; color:var(--accent-orange); opacity:0.8; margin-top:4px; line-height: 1.3;">局域网其他设备访问时无法使用自动保存功能。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">保存图片时使用提示词命名</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('保存图片时使用提示词命名', generalHelpText.promptFilename, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-image-save-use-prompt-filename" ${imageSaveUsePromptFilename ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">开启后，保存节点会用生成该图片时的提示词加时间作为文件名。⚠️但如果提示词过长可能导致一些未知问题。</p>
                     </div>
                 </div>
             </div>
@@ -2068,7 +2252,9 @@ export function createSettingsControllerApi({
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
-                        <label>最大自动重试次数</label>
+                        <div class="general-settings-label-row">
+                            ${renderGeneralSettingsHelpLabel('最大自动重试次数', generalHelpText.maxRetries)}
+                        </div>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px;">
                             <div class="retry-input-group" style="display:flex; align-items:center; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:6px; overflow:hidden; flex:1;">
                                 <button class="btn-retry-step" data-step="-1" style="background:transparent; border:none; color:var(--text-secondary); width:32px; height:32px; cursor:pointer; font-size:16px; transition:all 0.2s; display:flex; align-items:center; justify-content:center;">-</button>
@@ -2077,23 +2263,21 @@ export function createSettingsControllerApi({
                             </div>
                             <span style="font-size:11px; color:var(--text-dim); min-width:20px;">轮</span>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">提示：初始失败后，最多允许再尝试执行多少轮。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">并发请求模式</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('并发请求模式', generalHelpText.concurrentRequestMode, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-concurrent-request-mode" ${concurrentRequestMode ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">请求超时设置</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('请求超时设置', generalHelpText.timeout, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-timeout-enabled" ${state.requestTimeoutEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -2103,7 +2287,6 @@ export function createSettingsControllerApi({
                             <input type="number" id="setting-timeout-seconds" value="${state.requestTimeoutSeconds || 60}" min="1" step="1" ${state.requestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
                             <span style="font-size:11px; color:var(--text-dim); min-width:20px;">秒</span>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height: 1.4;">默认关闭。关闭时会一直等待服务器返回；开启后超过设定秒数仍未返回则判定超时失败。</p>
                     </div>
                 </div>
             </div>
@@ -2113,45 +2296,43 @@ export function createSettingsControllerApi({
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
-                        <label>连线类型</label>
+                        <div class="general-settings-label-row">
+                            ${renderGeneralSettingsHelpLabel('连线类型', generalHelpText.connectionLineType)}
+                        </div>
                         <select id="setting-connection-line-type" style="width:100%;">
                             <option value="bezier" ${connectionLineType === 'bezier' ? 'selected' : ''}>贝塞尔曲线</option>
                             <option value="orthogonal" ${connectionLineType === 'orthogonal' ? 'selected' : ''}>直角连线（圆角）</option>
                         </select>
-                        <p style="font-size:11px; color:var(--text-dim); margin-top:8px; line-height:1.4;">切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">顶部菜单栏固定显示</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('顶部菜单栏固定显示', generalHelpText.toolbarPinned, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-toolbar-pinned" ${toolbarPinned ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">左侧工具栏固定显示</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('左侧工具栏固定显示', generalHelpText.sidebarPinned, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-sidebar-pinned" ${sidebarPinned ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。</p>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                            <label class="general-settings-toggle-title" style="margin:0;">全局动画开关</label>
+                        <div class="general-settings-control-row">
+                            ${renderGeneralSettingsHelpLabel('全局动画开关', generalHelpText.globalAnimation, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-global-animation-enabled" ${globalAnimationEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <p style="font-size:11px; color:var(--text-dim); line-height:1.4;">默认开启。关闭后会禁用全局动画效果，包括连线流动箭头、弹窗渐入渐出、按钮过渡和提示动画，以释放最大性能。</p>
                     </div>
                 </div>
             </div>
@@ -2161,7 +2342,9 @@ export function createSettingsControllerApi({
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
-                        <label>完成音效音量</label>
+                        <div class="general-settings-label-row">
+                            ${renderGeneralSettingsHelpLabel('完成音效音量', generalHelpText.notificationVolume)}
+                        </div>
                         <div class="general-settings-volume-row" style="display:flex; align-items:center; gap:12px;">
                             <input type="range" id="setting-notify-volume" class="notification-volume-slider" min="0" max="1" step="0.05" value="${state.notificationVolume}" style="flex:1" />
                             <span id="volume-hint" style="font-size:12px; color:var(--text-dim); min-width:40px;">${Math.round(state.notificationVolume * 100)}%</span>
@@ -2174,6 +2357,8 @@ export function createSettingsControllerApi({
             ${updateSettingsCardHtml}
         </div>
     `;
+        initGeneralSettingsHelpInteractions(list);
+        closeGeneralSettingsHelpPopovers(list);
 
         const input = documentRef.getElementById('setting-max-side');
         const hint = documentRef.getElementById('pixels-hint');
@@ -2619,6 +2804,7 @@ export function createSettingsControllerApi({
             closeApiSettingsHelpDialog();
             closeProviderModelsDialog();
             closeNetworkProxyHintDialog();
+            closeGeneralSettingsHelpPopovers(documentRef.getElementById('general-settings'));
             settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
         });
         settingsModal.addEventListener('click', (e) => {
@@ -2626,16 +2812,19 @@ export function createSettingsControllerApi({
                 closeApiSettingsHelpDialog();
                 closeProviderModelsDialog();
                 closeNetworkProxyHintDialog();
+                closeGeneralSettingsHelpPopovers(documentRef.getElementById('general-settings'));
                 settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
             }
         });
 
         documentRef.getElementById('btn-api-settings-help')?.addEventListener('click', renderApiSettingsHelpDialog);
+        documentRef.getElementById('settings-body')?.addEventListener('scroll', refreshGeneralSettingsHelpPopoverPosition, { passive: true });
 
         documentRef.querySelectorAll('.modal-tab-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 if (btn.classList.contains('active')) return;
                 const targetTab = btn.dataset.tab;
+                closeGeneralSettingsHelpPopovers(documentRef.getElementById('general-settings'));
                 documentRef.querySelectorAll('.modal-tab-btn').forEach((button) => button.classList.remove('active'));
                 btn.classList.add('active');
                 documentRef.querySelectorAll('.settings-tab-pane').forEach((pane) => {

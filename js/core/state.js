@@ -121,7 +121,8 @@ export function createInitialState() {
         isSpacePressed: false,
         isCutting: false,
         cutPath: [],
-        justCut: false
+        justCut: false,
+        mediaRestoreBatchDepth: 0
     };
 }
 /**

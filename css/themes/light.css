@@ -1400,6 +1400,11 @@ html[data-app-theme="light"] .preview-placeholder svg {
     stroke: #b6bfcd;
 }
 
+html[data-app-theme="light"] .preview-placeholder-memory-released svg {
+    color: var(--accent-cyan);
+    stroke: currentColor;
+}
+
 html[data-app-theme="light"] .history-card.selected .selection-checkbox {
     background: var(--accent-blue);
     border-color: var(--accent-blue);

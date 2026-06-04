@@ -802,7 +802,16 @@ function renderTextChatBody(id, restoreData, models, providers) {
 
 function normalizeRestoreImageList(value) {
     if (Array.isArray(value)) {
-        return value.filter((item) => typeof item === 'string' && item.trim());
+        return value.flatMap((item) => normalizeRestoreImageList(item));
+    }
+    if (value && typeof value === 'object') {
+        return normalizeRestoreImageList(
+            value.imageList ??
+            value.images ??
+            value.image ??
+            value.imageData ??
+            []
+        );
     }
     return typeof value === 'string' && value.trim() ? [value] : [];
 }
@@ -827,7 +836,7 @@ function renderRestoredMultiImagePreview(imageList, previewIndex, altPrefix, pla
 
 function renderImagePreviewBody(id, restoreData) {
     const rd = restoreData || {};
-    const imageList = normalizeRestoreImageList(rd.images || rd.imageData);
+    const imageList = normalizeRestoreImageList(rd.imageList ?? rd.images ?? rd.imageData);
     const totalCount = Math.max(imageList.length, Math.max(0, parseInt(rd.imageCount || '0', 10) || 0));
     const previewIndex = Math.max(0, parseInt(rd.imagePreviewIndex || '0', 10) || 0);
     const hasMultipleImages = totalCount > 1;
@@ -1024,7 +1033,7 @@ function renderTextSplitBody(id, restoreData) {
 function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
     const rd = restoreData || {};
     const showWarning = !hasGlobalSaveDirHandle;
-    const imageList = normalizeRestoreImageList(rd.images || rd.imageData);
+    const imageList = normalizeRestoreImageList(rd.imageList ?? rd.images ?? rd.imageData);
     const totalCount = Math.max(imageList.length, Math.max(0, parseInt(rd.imageCount || '0', 10) || 0));
     const previewIndex = Math.max(0, parseInt(rd.imagePreviewIndex || '0', 10) || 0);
     const hasMultipleImages = totalCount > 1;

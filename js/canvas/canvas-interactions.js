@@ -25,6 +25,7 @@ export function createCanvasInteractionsApi({
     checkLineIntersection,
     getConnectionSamplePoints,
     onConnectionsChanged = () => {},
+    onViewportSettled = () => {},
     getConnectionCreateCandidates = null,
     openConnectionCreatePopup = null,
     documentRef = document,
@@ -45,6 +46,8 @@ export function createCanvasInteractionsApi({
     const PORT_LANE_GAP = 6;
     const NODE_LANE_GAP = 4;
     const MAX_LANE_OFFSET = 42;
+    const FALLBACK_NODE_WIDTH = 180;
+    const FALLBACK_NODE_HEIGHT = 120;
 
     function scheduleUIUpdate() {
         if (rafUpdate) return;
@@ -56,6 +59,15 @@ export function createCanvasInteractionsApi({
             }
             rafUpdate = null;
         });
+    }
+
+    function notifyViewportSettled() {
+        if (typeof onViewportSettled !== 'function') return;
+        try {
+            onViewportSettled();
+        } catch (error) {
+            console.warn('Viewport settled callback failed:', error);
+        }
     }
 
     function isNodeFormControlActive() {
@@ -88,6 +100,86 @@ export function createCanvasInteractionsApi({
         });
     }
 
+    function getFirstPositiveNumber(...values) {
+        for (const value of values) {
+            const parsed = typeof value === 'string' ? parseFloat(value) : Number(value);
+            if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return 0;
+    }
+
+    function getNodeCanvasBounds(node) {
+        const left = Number(node?.x);
+        const top = Number(node?.y);
+        if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+
+        const width = getFirstPositiveNumber(
+            node.width,
+            node.observedWidth,
+            node.el?.style?.width,
+            node.defaultWidth,
+            FALLBACK_NODE_WIDTH
+        );
+        const height = getFirstPositiveNumber(
+            node.height,
+            node.observedHeight,
+            node.el?.style?.height,
+            node.defaultHeight,
+            FALLBACK_NODE_HEIGHT
+        );
+
+        return {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height
+        };
+    }
+
+    function getMarqueeCanvasRect(marquee) {
+        const startX = Number(marquee?.startCanvasX);
+        const startY = Number(marquee?.startCanvasY);
+        const endX = Number(marquee?.endCanvasX);
+        const endY = Number(marquee?.endCanvasY);
+        if (![startX, startY, endX, endY].every(Number.isFinite)) return null;
+
+        return {
+            left: Math.min(startX, endX),
+            right: Math.max(startX, endX),
+            top: Math.min(startY, endY),
+            bottom: Math.max(startY, endY)
+        };
+    }
+
+    function rectsIntersect(a, b) {
+        return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    }
+
+    function syncMarqueeSelection(marquee) {
+        const marqueeRect = getMarqueeCanvasRect(marquee);
+        if (!marqueeRect) return false;
+
+        let changed = false;
+        state.nodes.forEach((node, id) => {
+            const nodeBounds = getNodeCanvasBounds(node);
+            const intersects = nodeBounds ? rectsIntersect(marqueeRect, nodeBounds) : false;
+
+            if (intersects) {
+                if (!state.selectedNodes.has(id)) {
+                    state.selectedNodes.add(id);
+                    node.el?.classList.add('selected');
+                    changed = true;
+                }
+            } else if (!marquee.initialSelection.has(id) && state.selectedNodes.has(id)) {
+                state.selectedNodes.delete(id);
+                node.el?.classList.remove('selected');
+                changed = true;
+            }
+        });
+
+        return changed;
+    }
+
     function finishZoomInteraction() {
         if (state.zoomSettleControlLock) {
             state.pendingZoomVisualRefresh = true;
@@ -110,6 +202,7 @@ export function createCanvasInteractionsApi({
         requestAnimationFrameRef(() => {
             viewportApi.refreshNodeTextRendering();
             scheduleSave();
+            notifyViewportSettled();
         });
     }
 
@@ -339,11 +432,16 @@ export function createCanvasInteractionsApi({
                 }
 
                 e.preventDefault();
+                const startCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 state.marquee = {
                     startX: e.clientX,
                     startY: e.clientY,
                     endX: e.clientX,
                     endY: e.clientY,
+                    startCanvasX: startCanvas.x,
+                    startCanvasY: startCanvas.y,
+                    endCanvasX: startCanvas.x,
+                    endCanvasY: startCanvas.y,
                     initialSelection: new Set(state.selectedNodes)
                 };
                 const box = documentRef.getElementById('selection-box');
@@ -406,6 +504,8 @@ export function createCanvasInteractionsApi({
             if (state.marquee) {
                 state.marquee.endX = e.clientX;
                 state.marquee.endY = e.clientY;
+                state.marquee.endCanvasX = state.mouseCanvas.x;
+                state.marquee.endCanvasY = state.mouseCanvas.y;
                 const box = documentRef.getElementById('selection-box');
                 const x = Math.min(state.marquee.startX, state.marquee.endX);
                 const y = Math.min(state.marquee.startY, state.marquee.endY);
@@ -416,26 +516,9 @@ export function createCanvasInteractionsApi({
                 box.style.width = w + 'px';
                 box.style.height = h + 'px';
 
-                const mX1 = Math.min(state.marquee.startX, state.marquee.endX);
-                const mX2 = Math.max(state.marquee.startX, state.marquee.endX);
-                const mY1 = Math.min(state.marquee.startY, state.marquee.endY);
-                const mY2 = Math.max(state.marquee.startY, state.marquee.endY);
-
-                state.nodes.forEach((node, id) => {
-                    const nRect = node.el.getBoundingClientRect();
-                    if (mX1 < nRect.right && mX2 > nRect.left && mY1 < nRect.bottom && mY2 > nRect.top) {
-                        if (!state.selectedNodes.has(id)) {
-                            state.selectedNodes.add(id);
-                            node.el.classList.add('selected');
-                        }
-                    } else if (!state.marquee.initialSelection.has(id)) {
-                        if (state.selectedNodes.has(id)) {
-                            state.selectedNodes.delete(id);
-                            node.el.classList.remove('selected');
-                        }
-                    }
-                });
-                updateAllConnections();
+                if (syncMarqueeSelection(state.marquee)) {
+                    updateAllConnections();
+                }
             }
             if (state.dragging) {
                 if (state.dragging.isCloneDrag && !state.dragging.cloned) {
@@ -590,29 +673,17 @@ export function createCanvasInteractionsApi({
                 state.canvas.isPanning = false;
                 canvasContainer.classList.remove('grabbing');
                 viewportApi.updateCanvasTransform();
+                notifyViewportSettled();
             }
             if (state.marquee) {
                 state.marquee.endX = e.clientX;
                 state.marquee.endY = e.clientY;
-                const mX1 = Math.min(state.marquee.startX, state.marquee.endX);
-                const mX2 = Math.max(state.marquee.startX, state.marquee.endX);
-                const mY1 = Math.min(state.marquee.startY, state.marquee.endY);
-                const mY2 = Math.max(state.marquee.startY, state.marquee.endY);
-
-                state.nodes.forEach((node, id) => {
-                    const nRect = node.el.getBoundingClientRect();
-                    if (mX1 < nRect.right && mX2 > nRect.left && mY1 < nRect.bottom && mY2 > nRect.top) {
-                        if (!state.selectedNodes.has(id)) {
-                            state.selectedNodes.add(id);
-                            node.el.classList.add('selected');
-                        }
-                    } else if (!state.marquee.initialSelection.has(id)) {
-                        if (state.selectedNodes.has(id)) {
-                            state.selectedNodes.delete(id);
-                            node.el.classList.remove('selected');
-                        }
-                    }
-                });
+                const endCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
+                state.marquee.endCanvasX = endCanvas.x;
+                state.marquee.endCanvasY = endCanvas.y;
+                if (syncMarqueeSelection(state.marquee)) {
+                    updateAllConnections();
+                }
 
                 const dw = Math.abs(state.marquee.startX - e.clientX);
                 const dh = Math.abs(state.marquee.startY - e.clientY);

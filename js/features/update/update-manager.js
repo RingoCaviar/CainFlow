@@ -26,6 +26,7 @@ export function createUpdateManager({
     let updateCheckProgressToast = null;
     let activeUpdateJobId = '';
     let handledTerminalUpdateJobId = '';
+    const refreshNoticeDismissStorageKey = 'cainflow_refresh_notice_dismissed';
     const updateDownloadTextKey = 'cainflow_update_download_text';
     const updateDownloadSnapshotKey = 'cainflow_update_download_snapshot';
     const activeDownloadStatuses = new Set(['starting', 'resolving', 'downloading', 'proxy_testing', 'proxy_switching', 'extracting', 'replacing', 'canceling']);
@@ -1482,11 +1483,11 @@ export function createUpdateManager({
     }
 
     function checkRefreshNotice() {
-        localStorageRef.removeItem('cainflow_refresh_notice_dismissed');
+        return localStorageRef.getItem(refreshNoticeDismissStorageKey) !== 'true';
     }
 
     function initRefreshNotice() {
-        checkRefreshNotice();
+        return checkRefreshNotice();
     }
 
     initUpdateDownloadWindowGuards();

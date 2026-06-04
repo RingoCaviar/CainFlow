@@ -14,7 +14,10 @@ export function createSessionManagerApi({
     updateAllConnections,
     updatePortStyles,
     onConnectionsChanged = () => {},
-    clearOrphanedNodeAssets = async () => true
+    clearOrphanedNodeAssets = async () => true,
+    beginMediaRestoreBatch = () => {},
+    endMediaRestoreBatch = () => {},
+    finalizeMediaRestoreBatch = async () => {}
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
@@ -112,6 +115,24 @@ export function createSessionManagerApi({
     function sanitizeNodeForSessionCache(node, options = {}) {
         if (!node || typeof node !== 'object') return node;
         const sanitized = { ...node };
+        const data = sanitized.data && typeof sanitized.data === 'object'
+            ? { ...sanitized.data }
+            : {};
+        sanitized.data = data;
+
+        const preserveCanonicalImageList = (
+            sanitized.type === 'ImagePreview'
+            || sanitized.type === 'ImageSave'
+            || sanitized.type === 'ImageGenerate'
+        ) && (
+            sanitized.data?.imageAssetReady !== true
+            || !sanitized.data?.imageAssetKey
+            || Math.max(0, parseInt(sanitized.data?.imageCount || '0', 10) || 0) <= 0
+        );
+
+        if (!preserveCanonicalImageList) {
+            delete sanitized.imageList;
+        }
         delete sanitized.images;
         delete sanitized.imageData;
         if (options.stripCompareImages === true) {
@@ -212,14 +233,29 @@ export function createSessionManagerApi({
 
     function collectActiveNodeAssetIds() {
         const ids = new Set(state.nodes.keys());
+        Array.from(state.nodes.values()).forEach((node) => {
+            const imageAssetKey = typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+                ? node.data.imageAssetKey
+                : (typeof node?.imageAssetKey === 'string' ? node.imageAssetKey : '');
+            if (imageAssetKey) ids.add(imageAssetKey);
+            const importAssetKey = typeof node?.imageImportAssetKey === 'string' && node.imageImportAssetKey
+                ? node.imageImportAssetKey
+                : (typeof node?.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+            if (importAssetKey) ids.add(importAssetKey);
+        });
         (state.workflowTabs || []).forEach((tab) => {
             if (!Array.isArray(tab?.data?.nodes)) return;
             tab.data.nodes.forEach((node) => {
                 if (!node?.id) return;
                 ids.add(node.id);
-                if (typeof node.imageAssetKey === 'string' && node.imageAssetKey) {
-                    ids.add(node.imageAssetKey);
-                }
+                const imageAssetKey = typeof node.imageAssetKey === 'string' && node.imageAssetKey
+                    ? node.imageAssetKey
+                    : (typeof node.data?.imageAssetKey === 'string' ? node.data.imageAssetKey : '');
+                if (imageAssetKey) ids.add(imageAssetKey);
+                const importAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
+                    ? node.imageImportAssetKey
+                    : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+                if (importAssetKey) ids.add(importAssetKey);
             });
         });
         state.undoStack.forEach((raw) => {
@@ -228,6 +264,14 @@ export function createSessionManagerApi({
                 if (!Array.isArray(snapshot?.nodes)) return;
                 snapshot.nodes.forEach((node) => {
                     if (node?.id) ids.add(node.id);
+                    const imageAssetKey = typeof node?.imageAssetKey === 'string' && node.imageAssetKey
+                        ? node.imageAssetKey
+                        : (typeof node?.data?.imageAssetKey === 'string' ? node.data.imageAssetKey : '');
+                    if (imageAssetKey) ids.add(imageAssetKey);
+                    const importAssetKey = typeof node?.imageImportAssetKey === 'string' && node.imageImportAssetKey
+                        ? node.imageImportAssetKey
+                        : (typeof node?.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+                    if (importAssetKey) ids.add(importAssetKey);
                 });
             } catch {
                 // Ignore invalid legacy undo entries.
@@ -267,27 +311,37 @@ export function createSessionManagerApi({
         const raw = state.undoStack.pop();
         const snapshot = JSON.parse(raw);
 
-        state.selectedNodes.clear();
-        state.nodes.forEach((node) => {
-            cleanupElementResources(node.el);
-            node.el.remove();
-        });
-        state.nodes.clear();
-        state.connections = [];
+        beginMediaRestoreBatch();
+        try {
+            state.selectedNodes.clear();
+            state.nodes.forEach((node) => {
+                cleanupElementResources(node.el);
+                node.el.remove();
+            });
+            state.nodes.clear();
+            state.connections = [];
 
-        if (snapshot.nodes && snapshot.nodes.length) {
-            for (const nodeData of snapshot.nodes) {
-                addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
+            if (snapshot.nodes && snapshot.nodes.length) {
+                for (const nodeData of snapshot.nodes) {
+                    addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
+                }
             }
-        }
 
-        if (snapshot.connections && snapshot.connections.length) {
-            state.connections = snapshot.connections;
-        }
+            if (snapshot.connections && snapshot.connections.length) {
+                state.connections = snapshot.connections;
+            }
 
-        updateAllConnections();
-        updatePortStyles();
-        onConnectionsChanged();
+            updateAllConnections();
+            updatePortStyles();
+            onConnectionsChanged();
+        } finally {
+            endMediaRestoreBatch();
+        }
+        try {
+            await finalizeMediaRestoreBatch();
+        } catch (error) {
+            console.warn('Finalize media restore after undo failed:', error);
+        }
         updateUndoButton();
         onBeforeSave({ dirty: true });
         saveState();

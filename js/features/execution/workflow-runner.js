@@ -1,5 +1,12 @@
 import { getResolvedProviderForModel } from './provider-request-utils.js';
-import { normalizeImageList, normalizeTextList } from './execution-data-utils.js';
+import {
+    clearCanonicalImageOutput,
+    getFirstNonEmptyImageList,
+    getCanonicalImageList,
+    setCanonicalImageOutput,
+    normalizeImageList,
+    normalizeTextList
+} from './execution-data-utils.js';
 import { removeConcurrentRequestStatusPanel } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
 
@@ -206,7 +213,7 @@ export function createWorkflowRunnerApi({
             data: {}
         };
 
-        const imageList = normalizeImageList(data.images || node?.imageDataList || node?.generatedImages || data.image || node?.imageData);
+        const imageList = getCanonicalImageList(node);
         if (imageList.length > 0) {
             details.data.images = summarizeMediaList(imageList);
             details.data.imageAssetKey = node?.id || '';
@@ -494,14 +501,6 @@ export function createWorkflowRunnerApi({
         return outputs.some((output) => output.name === connection.from.port && output.type === 'text');
     }
 
-    function getFirstNonEmptyImageList(...values) {
-        for (const value of values) {
-            const images = normalizeImageList(value);
-            if (images.length > 0) return images;
-        }
-        return [];
-    }
-
     function isDisplayImageNode(node) {
         return node?.type === 'ImagePreview' || node?.type === 'ImageSave';
     }
@@ -509,23 +508,91 @@ export function createWorkflowRunnerApi({
     function getDisplayNodeImageCount(node) {
         const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
         const inMemoryCount = Math.max(
-            normalizeImageList(node?.data?.images).length,
-            normalizeImageList(node?.imageDataList).length
+            getCanonicalImageList(node, { includeResizePreview: false }).length,
+            normalizeImageList(node?.data?.image).length,
+            normalizeImageList(node?.imageData).length
         );
-        const currentCount = normalizeImageList(node?.data?.image || node?.imageData).length;
-        return Math.max(explicitCount, inMemoryCount, currentCount);
+        return Math.max(explicitCount, inMemoryCount);
     }
 
     function getNodeImageOutputList(node) {
-        const images = getFirstNonEmptyImageList(
-            node?.data?.images,
-            node?.imageDataList,
-            node?.generatedImages,
-            node?.data?.image,
-            node?.imageData,
-            node?.resizePreviewData
-        );
+        const images = getCanonicalImageList(node);
         return images.length > 0 ? images : null;
+    }
+
+    function getRecoverableImageList(node) {
+        if (!node) return [];
+        if (node.type === 'ImageResize') {
+            return getFirstNonEmptyImageList(
+                node.data?.imageList,
+                node.data?.images,
+                node.imageDataList,
+                node.generatedImages,
+                node.data?.image,
+                node.imageData,
+                node.resizePreviewData
+            );
+        }
+        if (node.type === 'ImageCompare') {
+            return getFirstNonEmptyImageList(
+                node.data?.image,
+                node.data?.compareImageB,
+                node.compareImageB,
+                node.imageData
+            );
+        }
+        return getCanonicalImageList(node, { includeResizePreview: false });
+    }
+
+    function markRecoverableImageAssetReady(node, assetKey, imageCount = 1) {
+        if (!node?.data || !assetKey) return;
+        node.data.imageAssetKey = assetKey;
+        node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
+        node.data.imageAssetReady = true;
+        node.data.imageHydratedAt = Date.now();
+        delete node.data.imageMemoryReleased;
+    }
+
+    async function ensureRecoverableImageAsset(node, assetKey = node?.id) {
+        if (!node?.data || !assetKey) return false;
+
+        if (node.data.imageAssetSaveToken && node.data.imageAssetReady !== true) {
+            return false;
+        }
+
+        if (node.data.imageAssetReady === true || node.data.imageMemoryReleased === true) {
+            return true;
+        }
+
+        try {
+            const storedImages = typeof getImageAssetList === 'function'
+                ? await getImageAssetList(assetKey)
+                : [];
+            if (storedImages.length > 0) {
+                markRecoverableImageAssetReady(node, assetKey, storedImages.length);
+                return true;
+            }
+        } catch {
+            // Try saving the in-memory copy below.
+        }
+
+        const imageList = getRecoverableImageList(node);
+        if (imageList.length === 0) return false;
+
+        let saved = false;
+        try {
+            if (imageList.length > 1 && typeof saveImageAssetList === 'function') {
+                saved = await saveImageAssetList(assetKey, imageList);
+            } else if (typeof saveImageAsset === 'function') {
+                saved = await saveImageAsset(assetKey, imageList[0]);
+            }
+        } catch {
+            saved = false;
+        }
+
+        if (!saved) return false;
+        markRecoverableImageAssetReady(node, assetKey, imageList.length);
+        return true;
     }
 
     async function restoreDisplayNodeImageOutput(node) {
@@ -566,12 +633,13 @@ export function createWorkflowRunnerApi({
 
     function hasImageResultInMemory(node) {
         if (!node) return false;
-        return normalizeImageList(node?.data?.images || node?.imageDataList || node?.generatedImages || node?.data?.image || node?.imageData || node?.resizePreviewData).length > 0;
+        return getCanonicalImageList(node).length > 0;
     }
 
     function estimateNodeImageMemoryBytes(node) {
         if (!node) return 0;
         const fields = [
+            node.data?.imageList,
             node.data?.images,
             node.data?.image,
             node.imageDataList,
@@ -622,16 +690,11 @@ export function createWorkflowRunnerApi({
                 delete img.dataset.originalSrc;
             }
         });
+        clearCanonicalImageOutput(node, { clearPromptList: true });
         if (node.data && typeof node.data === 'object') {
-            delete node.data.images;
-            delete node.data.image;
-            delete node.data.imagePromptList;
             delete node.data.compareImageA;
             delete node.data.compareImageB;
         }
-        node.imageData = null;
-        node.imageDataList = [];
-        node.generatedImages = [];
         node.imagePromptList = [];
         node.resizePreviewData = null;
         node.resizePreviewMeta = null;
@@ -654,10 +717,17 @@ export function createWorkflowRunnerApi({
             if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave') continue;
             if (isNodeResultFixed(nodeId)) continue;
 
+            if (!(await ensureRecoverableImageAsset(node, nodeId))) continue;
+            const imageCount = Math.max(
+                getRecoverableImageList(node).length,
+                Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0)
+            );
             const bytes = clearIntermediateImageResult(node);
             if (bytes <= 0) continue;
             node.data = node.data || {};
             node.data.imageAssetKey = nodeId;
+            node.data.imageCount = Math.max(1, imageCount || 1);
+            node.data.imageAssetReady = true;
             node.data.imageMemoryReleased = true;
             released.push({
                 nodeId,
@@ -687,10 +757,16 @@ export function createWorkflowRunnerApi({
     }
 
     async function restoreReleasedImageOutput(node) {
-        if (!node?.data?.imageMemoryReleased || !node.data.imageAssetKey) {
+        const assetKey = typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+            ? node.data.imageAssetKey
+            : '';
+        if (!assetKey) {
             return null;
         }
-        const assetKey = node.data.imageAssetKey;
+        const inMemoryImages = getRecoverableImageList(node);
+        if (inMemoryImages.length > 0 && node.data?.imageMemoryReleased !== true) {
+            return null;
+        }
         let restoredImages = [];
         try {
             if (typeof getImageAssetList === 'function') {
@@ -709,15 +785,32 @@ export function createWorkflowRunnerApi({
 
         if (restoredImages.length === 0) return null;
 
-        node.data.images = restoredImages.slice();
-        node.data.image = restoredImages[restoredImages.length - 1];
-        node.imageDataList = restoredImages.slice();
-        node.imageData = node.data.image;
+        setCanonicalImageOutput(node, restoredImages, {
+            currentIndex: restoredImages.length - 1,
+            assetKey,
+            imageCount: Math.max(
+                restoredImages.length,
+                Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0)
+            ),
+            assetReady: true,
+            hydratedAt: Date.now()
+        });
+        const currentImage = restoredImages[restoredImages.length - 1] || restoredImages[0] || '';
         if (node.type === 'ImageGenerate') {
-            node.generatedImages = restoredImages.slice();
             node.generationCompletedCount = restoredImages.length;
+        } else if (node.type === 'ImageResize') {
+            node.data.image = currentImage;
+            node.imageData = currentImage;
+            node.imageDataList = restoredImages.slice();
+            node.resizePreviewData = currentImage;
+        } else if (node.type === 'ImageCompare') {
+            node.data.image = currentImage;
+            node.data.compareImageB = currentImage;
+            node.imageData = currentImage;
+            node.compareImageB = currentImage;
         }
         delete node.data.imageMemoryReleased;
+        node.data.imageAssetReady = true;
         return restoredImages;
     }
 
@@ -731,7 +824,9 @@ export function createWorkflowRunnerApi({
         const candidateKeys = [
             node.imageImportAssetKey,
             node.data?.imageImportAssetKey,
-            node.id ? `image-import:${node.id}` : ''
+            node.data?.imageAssetKey,
+            node.id ? `image-import:${node.id}` : '',
+            node.id
         ].filter((key, index, arr) => typeof key === 'string' && key && arr.indexOf(key) === index);
 
         for (const key of candidateKeys) {
@@ -743,8 +838,16 @@ export function createWorkflowRunnerApi({
             node.imageDataList = [image];
             node.data.image = image;
             delete node.data.images;
-            node.imageImportAssetKey = key;
-            node.data.imageImportAssetKey = key;
+            node.data.imageCount = 1;
+            node.data.imageAssetReady = true;
+            delete node.data.imageMemoryReleased;
+            if (key.startsWith('image-import:')) {
+                node.imageImportAssetKey = key;
+                node.data.imageImportAssetKey = key;
+                delete node.data.imageAssetKey;
+            } else {
+                node.data.imageAssetKey = key;
+            }
             return image;
         }
 
@@ -958,22 +1061,25 @@ export function createWorkflowRunnerApi({
         if (!node) return;
         if (node.type === 'ImageGenerate') {
             const images = results.flatMap((result) => normalizeImageList(result?.images || result?.image));
-            node.data = node.data || {};
-            if (images.length > 0) {
-                node.data.images = images.slice();
-                node.data.image = images[images.length - 1];
-            } else {
-                delete node.data.images;
-                delete node.data.image;
-            }
-            node.imageDataList = images.slice();
-            node.imageData = images[images.length - 1] || null;
-            node.generatedImages = images.slice();
+            setCanonicalImageOutput(node, images, {
+                currentIndex: images.length - 1,
+                assetKey: node.id,
+                imageCount: images.length,
+                assetReady: false
+            });
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
-            if (images.length > 1) await saveImageAssetList(node.id, images);
-            else if (images.length === 1) await saveImageAsset(node.id, images[0]);
-            else await deleteImageAsset(node.id);
+            if (images.length > 1) {
+                if (await saveImageAssetList(node.id, images)) {
+                    markRecoverableImageAssetReady(node, node.id, images.length);
+                }
+            } else if (images.length === 1) {
+                if (await saveImageAsset(node.id, images[0])) {
+                    markRecoverableImageAssetReady(node, node.id, 1);
+                }
+            } else {
+                await deleteImageAsset(node.id);
+            }
             await propagateImagesToDownstreamPreview(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
             updateAllConnections();
@@ -1296,13 +1402,8 @@ export function createWorkflowRunnerApi({
 
     function resetNodeImageOutputsForBatch(node) {
         if (!node) return;
-        node.data = node.data || {};
-        delete node.data.images;
-        delete node.data.image;
-        node.imageData = null;
-        node.imageDataList = [];
+        clearCanonicalImageOutput(node);
         if (node.type === 'ImageGenerate') {
-            node.generatedImages = [];
             node.generationCompletedCount = 0;
         }
     }
@@ -1428,7 +1529,7 @@ export function createWorkflowRunnerApi({
             }
 
             if (shouldAggregateImages) {
-                const imageOutputs = normalizeImageList(node?.data?.images || node?.imageDataList || node?.data?.image || node?.imageData);
+                const imageOutputs = getCanonicalImageList(node);
                 aggregatedImages.push(...imageOutputs);
             }
             if (shouldAggregateTexts) {
@@ -1442,18 +1543,18 @@ export function createWorkflowRunnerApi({
         }
 
         if (shouldAggregateImages && aggregatedImages.length > 0) {
-            node.data = node.data || {};
-            node.data.images = aggregatedImages.slice();
-            node.data.image = aggregatedImages[aggregatedImages.length - 1];
-            delete node.data.imageAssetKey;
-            delete node.data.imageMemoryReleased;
-            node.imageDataList = aggregatedImages.slice();
-            node.imageData = node.data.image;
+            setCanonicalImageOutput(node, aggregatedImages, {
+                currentIndex: aggregatedImages.length - 1,
+                assetKey: node.id,
+                imageCount: aggregatedImages.length,
+                assetReady: false
+            });
             if (node.type === 'ImageGenerate') {
-                node.generatedImages = aggregatedImages.slice();
                 node.generationCompletedCount = aggregatedImages.length;
             }
-            await saveImageAssetList(node.id, aggregatedImages);
+            if (await saveImageAssetList(node.id, aggregatedImages)) {
+                markRecoverableImageAssetReady(node, node.id, aggregatedImages.length);
+            }
             await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
             await refreshDependentImageResizePreviews(node.id);
             updateAllConnections();
@@ -2289,11 +2390,11 @@ export function createWorkflowRunnerApi({
             }
 
             for (const [id, node] of state.nodes) {
-                if (node.type === 'ImageSave' && (node.data.image || node.data.video?.url)) {
+                if (node.type === 'ImageSave' && (getCanonicalImageList(node, { includeResizePreview: false }).length > 0 || node.data.video?.url)) {
                     const btnSave = node.el.querySelector(`#${id}-manual-save`);
                     const btnView = node.el.querySelector(`#${id}-view-full`);
                     if (btnSave) btnSave.disabled = false;
-                    if (btnView) btnView.disabled = !node.data.image;
+                    if (btnView) btnView.disabled = getCanonicalImageList(node, { includeResizePreview: false }).length === 0;
                 }
             }
 
