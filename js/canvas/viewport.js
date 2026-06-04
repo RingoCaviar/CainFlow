@@ -38,6 +38,9 @@ export function createViewportApi({
         if (elements.zoomLevel) {
             elements.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
         }
+        elements.canvasContainer?.ownerDocument?.dispatchEvent(new CustomEvent('cainflow:canvas-transform', {
+            detail: { x, y, zoom }
+        }));
     }
 
     function updateCanvasTransform(options = {}) {

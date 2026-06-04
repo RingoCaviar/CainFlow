@@ -20,10 +20,118 @@ export function normalizeConcurrentRequestStatusPayload(statusPayload = {}) {
     };
 }
 
+export function getConcurrentStatusPopoverController({
+    documentRef = document,
+    windowRef = documentRef.defaultView || window
+} = {}) {
+    if (documentRef._concurrentStatusPopoverController) {
+        return documentRef._concurrentStatusPopoverController;
+    }
+
+    const errorPopover = documentRef.createElement('div');
+    errorPopover.className = 'node-concurrent-status-error-popover hidden';
+    documentRef.body.appendChild(errorPopover);
+
+    const state = {
+        activePanel: null,
+        activeDot: null,
+        canvasZoom: 1
+    };
+
+    const resolveCanvasZoom = () => {
+        const canvasContainer = documentRef.getElementById('canvas-container')
+            || documentRef.querySelector('.canvas-container');
+        if (!canvasContainer || typeof windowRef.getComputedStyle !== 'function') return 1;
+        const rawZoom = windowRef.getComputedStyle(canvasContainer)
+            .getPropertyValue('--canvas-zoom')
+            .trim();
+        const parsedZoom = Number.parseFloat(rawZoom);
+        return Number.isFinite(parsedZoom) && parsedZoom > 0 ? parsedZoom : 1;
+    };
+
+    const positionErrorPopover = (dot) => {
+        const dotRect = dot.getBoundingClientRect();
+        const viewportWidth = windowRef.innerWidth || documentRef.documentElement.clientWidth || 0;
+        const viewportHeight = windowRef.innerHeight || documentRef.documentElement.clientHeight || 0;
+        const zoomScale = Math.max(0.72, Math.min(state.canvasZoom || 1, 1));
+        const popoverWidth = Math.min(480, Math.max(280, viewportWidth - 32));
+        const visibleWidth = popoverWidth * zoomScale;
+        const preferredTop = dotRect.bottom + 8;
+        const left = Math.max(16, Math.min(dotRect.right - visibleWidth, viewportWidth - visibleWidth - 16));
+        errorPopover.style.left = `${left}px`;
+        errorPopover.style.top = `${Math.min(preferredTop, viewportHeight - 24)}px`;
+        errorPopover.style.width = `${popoverWidth}px`;
+        errorPopover.style.maxWidth = `${popoverWidth}px`;
+        errorPopover.style.maxHeight = `${Math.max(160, (viewportHeight - preferredTop - 24) / zoomScale)}px`;
+        errorPopover.style.transform = `scale(${zoomScale})`;
+        errorPopover.style.transformOrigin = 'top left';
+    };
+
+    const hideErrorPopover = () => {
+        errorPopover.classList.add('hidden');
+        errorPopover.textContent = '';
+        errorPopover.style.left = '';
+        errorPopover.style.top = '';
+        errorPopover.style.width = '';
+        errorPopover.style.maxWidth = '';
+        errorPopover.style.maxHeight = '';
+        errorPopover.style.transform = '';
+        errorPopover.style.transformOrigin = '';
+        state.activePanel = null;
+        state.activeDot = null;
+    };
+
+    const showErrorPopover = (panel, dot, message) => {
+        if (!message || !dot) return;
+        state.activePanel = panel || null;
+        state.activeDot = dot;
+        state.canvasZoom = resolveCanvasZoom();
+        positionErrorPopover(dot);
+        errorPopover.textContent = message;
+        errorPopover.classList.remove('hidden');
+    };
+
+    const repositionActivePopover = () => {
+        if (errorPopover.classList.contains('hidden')) return;
+        if (!state.activeDot?.isConnected) {
+            hideErrorPopover();
+            return;
+        }
+        positionErrorPopover(state.activeDot);
+    };
+
+    const handleDocumentClick = (event) => {
+        if (errorPopover.contains(event.target)) return;
+        if (state.activePanel?.contains?.(event.target)) return;
+        hideErrorPopover();
+    };
+
+    const handleCanvasTransform = () => {
+        state.canvasZoom = resolveCanvasZoom();
+        repositionActivePopover();
+    };
+
+    documentRef.addEventListener('click', handleDocumentClick);
+    documentRef.addEventListener('cainflow:canvas-transform', handleCanvasTransform);
+    windowRef.addEventListener('resize', handleCanvasTransform);
+    windowRef.addEventListener('scroll', handleCanvasTransform, true);
+
+    const controller = {
+        errorPopover,
+        hideErrorPopover,
+        showErrorPopover,
+        repositionActivePopover
+    };
+    documentRef._concurrentStatusPopoverController = controller;
+    return controller;
+}
+
 export function removeConcurrentRequestStatusPanel(node) {
     const panel = Array.from(node?.el?.children || [])
         .find((child) => child.classList?.contains('node-concurrent-status-panel'));
-    if (panel) panel.remove();
+    if (panel) {
+        panel.remove();
+    }
     node?.el?.classList?.remove('has-concurrent-status');
 }
 
@@ -47,9 +155,7 @@ export function renderConcurrentRequestStatusPanel(node, statusPayload = {}, {
     grid.className = 'node-concurrent-status-grid';
     panel.appendChild(grid);
 
-    const errorPopover = documentRef.createElement('div');
-    errorPopover.className = 'node-concurrent-status-error-popover hidden';
-    panel.appendChild(errorPopover);
+    const { showErrorPopover } = getConcurrentStatusPopoverController({ documentRef });
 
     normalized.requests.forEach((request) => {
         const dot = documentRef.createElement('span');
@@ -57,38 +163,29 @@ export function renderConcurrentRequestStatusPanel(node, statusPayload = {}, {
         dot.dataset.status = request.status;
         dot.title = `Request ${request.index + 1}: ${request.status}`;
         if (request.status === 'failed') {
-            const errorMessage = request.error || '请求失败，但没有返回具体错误信息。';
+            const errorMessage = request.error || 'Request failed, but no detailed error message was returned.';
             dot.dataset.error = errorMessage;
-            dot.title = `Request ${request.index + 1}: failed\n${errorMessage}`;
+            dot.title = `Request ${request.index + 1}: failed (click to view details)`;
             dot.setAttribute('role', 'button');
             dot.tabIndex = 0;
         }
         grid.appendChild(dot);
     });
 
-    const showErrorPopover = (dot) => {
-        if (!dot?.dataset?.error) return;
-        errorPopover.textContent = dot.dataset.error;
-        errorPopover.classList.remove('hidden');
-    };
-    const hideErrorPopover = () => {
-        errorPopover.classList.add('hidden');
-        errorPopover.textContent = '';
-    };
     grid.addEventListener('click', (event) => {
         const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
         if (!dot || !grid.contains(dot)) return;
         event.stopPropagation();
-        showErrorPopover(dot);
+        showErrorPopover(panel, dot, dot.dataset.error || '');
     });
+
     grid.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
         if (!dot) return;
         event.preventDefault();
-        showErrorPopover(dot);
+        showErrorPopover(panel, dot, dot.dataset.error || '');
     });
-    panel.addEventListener('mouseleave', hideErrorPopover);
 
     node.el.appendChild(panel);
     node.el.classList.add('has-concurrent-status');

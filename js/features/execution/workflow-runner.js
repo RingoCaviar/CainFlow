@@ -7,7 +7,10 @@ import {
     normalizeImageList,
     normalizeTextList
 } from './execution-data-utils.js';
-import { removeConcurrentRequestStatusPanel } from './concurrent-request-status-ui.js';
+import {
+    getConcurrentStatusPopoverController,
+    removeConcurrentRequestStatusPanel
+} from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
 
 /**
@@ -1248,10 +1251,7 @@ export function createWorkflowRunnerApi({
 
         node.el.appendChild(panel);
         node.el.classList.add('has-concurrent-status');
-
-        const errorPopover = documentRef.createElement('div');
-        errorPopover.className = 'node-concurrent-status-error-popover hidden';
-        panel.appendChild(errorPopover);
+        const { showErrorPopover } = getConcurrentStatusPopoverController({ documentRef });
 
         const formatErrorMessage = (error) => {
             if (!error) return '请求失败，但没有返回具体错误信息。';
@@ -1259,11 +1259,6 @@ export function createWorkflowRunnerApi({
             if (error?.serverResponse?.body) return String(error.serverResponse.body);
             if (error?.message) return String(error.message);
             return String(error);
-        };
-
-        const hideErrorPopover = () => {
-            errorPopover.classList.add('hidden');
-            errorPopover.textContent = '';
         };
 
         const setDotStatus = (index, status, error = null) => {
@@ -1274,7 +1269,7 @@ export function createWorkflowRunnerApi({
             if (normalizedStatus === 'failed') {
                 const errorMessage = formatErrorMessage(error);
                 dot.dataset.error = errorMessage;
-                dot.title = `Request ${index + 1}: failed\n${errorMessage}`;
+                dot.title = `Request ${index + 1}: failed (click to view details)`;
                 dot.setAttribute('role', 'button');
                 dot.tabIndex = 0;
             } else {
@@ -1291,8 +1286,7 @@ export function createWorkflowRunnerApi({
             if (!dot || !grid.contains(dot)) return;
             event.stopPropagation();
             const message = dot.dataset.error || '请求失败，但没有返回具体错误信息。';
-            errorPopover.textContent = message;
-            errorPopover.classList.remove('hidden');
+            showErrorPopover(panel, dot, message);
         });
 
         grid.addEventListener('keydown', (event) => {
@@ -1303,7 +1297,6 @@ export function createWorkflowRunnerApi({
             dot.click();
         });
 
-        panel.addEventListener('mouseleave', hideErrorPopover);
         emitConcurrentRequestStatus(node, dots);
 
         return {
