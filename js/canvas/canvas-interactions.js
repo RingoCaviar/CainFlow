@@ -802,6 +802,11 @@ export function createCanvasInteractionsApi({
         canvasContainer.addEventListener('mouseleave', () => { state.isMouseOverCanvas = false; });
 
         canvasContainer.addEventListener('wheel', (e) => {
+            if (state.canvas.isPanning && (e.buttons & 4) === 4) {
+                e.preventDefault();
+                return;
+            }
+
             e.preventDefault();
             canvasContainer.classList.add('is-zooming');
 

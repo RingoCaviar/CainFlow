@@ -416,7 +416,7 @@ html[data-app-theme="glass-dark"] .node-glass-bg::before {
 html[data-app-theme="glass-dark"] .node.selected .node-glass-bg {
     background: var(--glass-card-surface-hover);
     border-color: var(--glass-border-strong);
-    box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.1);
+    box-shadow: none;
 }
 
 html[data-app-theme="glass-dark"] .node.is-interacting .node-glass-bg,

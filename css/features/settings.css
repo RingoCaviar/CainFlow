@@ -415,6 +415,7 @@
 
 #models-list .api-config-card {
     z-index: 0;
+    overflow: visible;
 }
 
 #providers-list .provider-config-card.is-collapsed,
@@ -434,7 +435,7 @@
 }
 
 #models-list .api-config-card:has(.provider-multiselect-trigger[aria-expanded="true"]) {
-    z-index: 90;
+    z-index: 12020;
 }
 
 .provider-multiselect-trigger {
@@ -480,11 +481,13 @@
     top: calc(100% + 6px);
     left: 0;
     right: 0;
-    z-index: 100;
+    z-index: 12030;
     max-height: min(280px, 42vh);
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: stable;
     padding: 8px;
     background: var(--settings-dialog-panel-bg);
     border: 1px solid var(--settings-dialog-panel-border);
@@ -495,8 +498,30 @@
     gap: 6px;
 }
 
+.provider-multiselect-panel::-webkit-scrollbar {
+    width: 8px;
+}
+
+.provider-multiselect-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+}
+
+.provider-multiselect-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
 .provider-multiselect-panel.hidden {
     display: none;
+}
+
+.provider-multiselect-panel-floating {
+    position: fixed;
+    left: 0;
+    top: 0;
+    right: auto;
+    width: var(--provider-panel-width, 240px);
+    z-index: 13040;
 }
 
 .provider-multiselect-option {

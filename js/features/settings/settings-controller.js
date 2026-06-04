@@ -95,6 +95,8 @@ export function createSettingsControllerApi({
     const IMAGE_IMPORT_ASSET_KEY_PREFIX = 'image-import:';
     let activeModelFetchRequestId = 0;
     let openModelProviderPanelId = '';
+    let floatingModelProviderPanel = null;
+    let floatingModelProviderPanelCleanup = [];
     let generalSettingsHelpDismissBound = false;
     let generalSettingsHelpOverlay = null;
     let activeGeneralSettingsHelpTrigger = null;
@@ -162,6 +164,126 @@ export function createSettingsControllerApi({
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function cleanupFloatingModelProviderPanelListeners() {
+        floatingModelProviderPanelCleanup.forEach((cleanup) => {
+            try {
+                cleanup();
+            } catch {}
+        });
+        floatingModelProviderPanelCleanup = [];
+    }
+
+    function closeFloatingModelProviderPanel({ preserveOpenState = false } = {}) {
+        cleanupFloatingModelProviderPanelListeners();
+        if (floatingModelProviderPanel) {
+            floatingModelProviderPanel.remove();
+            floatingModelProviderPanel = null;
+        }
+        if (!preserveOpenState) {
+            openModelProviderPanelId = '';
+            modelsList?.querySelectorAll?.('.provider-multiselect-trigger')
+                .forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
+        }
+    }
+
+    function getModelProviderTrigger(modelId) {
+        if (!modelId) return null;
+        return modelsList?.querySelector?.(`.provider-multiselect-trigger[data-id="${modelId}"]`) || null;
+    }
+
+    function syncFloatingModelProviderPanelPosition() {
+        if (!floatingModelProviderPanel || !openModelProviderPanelId) return;
+        const trigger = getModelProviderTrigger(openModelProviderPanelId);
+        if (!trigger) {
+            closeFloatingModelProviderPanel();
+            return;
+        }
+        const rect = trigger.getBoundingClientRect();
+        const viewportWidth = windowRef.innerWidth || documentRef.documentElement.clientWidth || 0;
+        const viewportHeight = windowRef.innerHeight || documentRef.documentElement.clientHeight || 0;
+        const width = Math.max(rect.width, 220);
+        const maxHeight = Math.min(280, Math.floor(viewportHeight * 0.42));
+        floatingModelProviderPanel.style.setProperty('--provider-panel-width', `${width}px`);
+        floatingModelProviderPanel.style.maxHeight = `${Math.max(160, maxHeight)}px`;
+
+        const panelHeight = Math.min(floatingModelProviderPanel.scrollHeight, Math.max(160, maxHeight));
+        const spaceBelow = viewportHeight - rect.bottom - 6;
+        const spaceAbove = rect.top - 6;
+        const top = (spaceBelow >= panelHeight || spaceBelow >= spaceAbove)
+            ? rect.bottom + 6
+            : Math.max(8, rect.top - panelHeight - 6);
+        const left = Math.min(
+            Math.max(8, rect.left),
+            Math.max(8, viewportWidth - width - 8)
+        );
+
+        floatingModelProviderPanel.style.top = `${Math.round(top)}px`;
+        floatingModelProviderPanel.style.left = `${Math.round(left)}px`;
+    }
+
+    function renderFloatingModelProviderPanel(modelId, onToggleProvider) {
+        closeFloatingModelProviderPanel({ preserveOpenState: true });
+        if (!modelId) return;
+        const model = state.models.find((candidate) => candidate.id === modelId);
+        const trigger = getModelProviderTrigger(modelId);
+        if (!model || !trigger) {
+            openModelProviderPanelId = '';
+            return;
+        }
+        const visibleProviders = getVisibleSettingsProviders();
+        if (visibleProviders.length === 0) {
+            openModelProviderPanelId = '';
+            return;
+        }
+        const boundProviderIds = new Set(getModelProviderIds(model));
+        const panel = documentRef.createElement('div');
+        panel.className = 'provider-multiselect-panel provider-multiselect-panel-floating';
+        panel.dataset.id = modelId;
+        panel.innerHTML = visibleProviders.map((providerItem) => `
+            <div class="provider-multiselect-option" role="option" aria-selected="${boundProviderIds.has(providerItem.id) ? 'true' : 'false'}" data-id="${modelId}" data-provider-id="${providerItem.id}">
+                <input type="checkbox" tabindex="-1" aria-hidden="true" data-id="${modelId}" data-field="providerIds" value="${providerItem.id}" ${boundProviderIds.has(providerItem.id) ? 'checked' : ''} />
+                <span>${escapeHtml(providerItem.name || providerItem.id)}</span>
+            </div>
+        `).join('');
+        panel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const option = e.target.closest('.provider-multiselect-option');
+            if (!option) return;
+            e.preventDefault();
+            onToggleProvider(option.dataset.id, option.dataset.providerId);
+        });
+        documentRef.body.appendChild(panel);
+        floatingModelProviderPanel = panel;
+        syncFloatingModelProviderPanelPosition();
+
+        const handlePointerDown = (event) => {
+            if (panel.contains(event.target)) return;
+            const activeTrigger = getModelProviderTrigger(openModelProviderPanelId);
+            if (activeTrigger?.contains(event.target)) return;
+            closeFloatingModelProviderPanel();
+            renderModels();
+        };
+        const handleReposition = () => {
+            syncFloatingModelProviderPanelPosition();
+        };
+        const handleEscape = (event) => {
+            if (event.key !== 'Escape') return;
+            closeFloatingModelProviderPanel();
+            renderModels();
+        };
+
+        documentRef.addEventListener('pointerdown', handlePointerDown, true);
+        windowRef.addEventListener('resize', handleReposition);
+        windowRef.addEventListener('scroll', handleReposition, true);
+        documentRef.addEventListener('keydown', handleEscape);
+        floatingModelProviderPanelCleanup = [
+            () => documentRef.removeEventListener('pointerdown', handlePointerDown, true),
+            () => windowRef.removeEventListener('resize', handleReposition),
+            () => windowRef.removeEventListener('scroll', handleReposition, true),
+            () => documentRef.removeEventListener('keydown', handleEscape)
+        ];
     }
 
     function formatGeneralSettingsHelpContent(value) {
@@ -1809,14 +1931,6 @@ export function createSettingsControllerApi({
                             <span class="provider-multiselect-summary">${escapeHtml(getModelProviderSummary(mod))}</span>
                             <span class="provider-multiselect-caret">▾</span>
                         </button>
-                        <div class="provider-multiselect-panel ${isProviderPanelOpen ? '' : 'hidden'}" data-id="${mod.id}">
-                            ${visibleProviders.map((providerItem) => `
-                                <div class="provider-multiselect-option" role="option" aria-selected="${boundProviderIds.includes(providerItem.id) ? 'true' : 'false'}" data-id="${mod.id}" data-provider-id="${providerItem.id}">
-                                    <input type="checkbox" tabindex="-1" aria-hidden="true" data-id="${mod.id}" data-field="providerIds" value="${providerItem.id}" ${boundProviderIds.includes(providerItem.id) ? 'checked' : ''} />
-                                    <span>${escapeHtml(providerItem.name || providerItem.id)}</span>
-                                </div>
-                            `).join('')}
-                        </div>
                     </div>
                 `
                 : '<div style="font-size:11px;color:var(--text-dim);padding-top:8px;">请先添加供应商</div>';
@@ -1909,45 +2023,15 @@ export function createSettingsControllerApi({
             updateAllNodeModelDropdowns();
         };
 
-        modelsList.querySelectorAll('.provider-multiselect-option').forEach((option) => {
-            option.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                toggleModelProviderSelection(option.dataset.id, option.dataset.providerId);
-            });
-        });
-
         modelsList.querySelectorAll('.provider-multiselect-trigger').forEach((button) => {
             button.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const { id } = e.currentTarget.dataset;
-                const wrapper = modelsList.querySelector(`.provider-multiselect[data-id="${id}"]`);
-                if (!wrapper) return;
-                const panel = wrapper.querySelector('.provider-multiselect-panel');
-                const willOpen = panel?.classList.contains('hidden');
-                modelsList.querySelectorAll('.provider-multiselect-panel').forEach((element) => element.classList.add('hidden'));
-                modelsList.querySelectorAll('.provider-multiselect-trigger').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
-                openModelProviderPanelId = '';
-                if (panel && willOpen) {
-                    panel.classList.remove('hidden');
-                    e.currentTarget.setAttribute('aria-expanded', 'true');
-                    openModelProviderPanelId = id;
-                }
+                openModelProviderPanelId = openModelProviderPanelId === id ? '' : id;
+                renderModels();
             });
         });
-
-        modelsList.querySelectorAll('.provider-multiselect-panel').forEach((panel) => {
-            panel.addEventListener('click', (e) => {
-                e.stopPropagation();
-            });
-        });
-
-        documentRef.addEventListener('click', () => {
-            modelsList.querySelectorAll('.provider-multiselect-panel').forEach((element) => element.classList.add('hidden'));
-            modelsList.querySelectorAll('.provider-multiselect-trigger').forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
-            openModelProviderPanelId = '';
-        }, { once: true });
 
         modelsList.querySelectorAll('.card-btn-delete').forEach((btn) => {
             btn.addEventListener('click', (e) => {
@@ -1974,6 +2058,14 @@ export function createSettingsControllerApi({
                 toggleConfigCard(modelCollapseState, id, renderModels);
             });
         });
+
+        if (openModelProviderPanelId) {
+            windowRef.requestAnimationFrame(() => {
+                renderFloatingModelProviderPanel(openModelProviderPanelId, toggleModelProviderSelection);
+            });
+        } else {
+            closeFloatingModelProviderPanel();
+        }
     }
 
     function playNotificationSound(isTest = false) {

@@ -29,8 +29,8 @@
     --accent-primary: #5d7cff;
     --port-image: #8b7dff;
     --port-text: #4db8d7;
-    --shadow-node: 0 18px 40px rgba(3, 7, 18, 0.34), 0 4px 14px rgba(3, 7, 18, 0.22);
-    --shadow-node-hover: 0 24px 52px rgba(3, 7, 18, 0.42), 0 10px 22px rgba(3, 7, 18, 0.28);
+    --shadow-node: 0 2px 10px rgba(3, 7, 18, 0.22);
+    --shadow-node-hover: 0 4px 14px rgba(3, 7, 18, 0.26);
     --bg-modal: rgba(18, 24, 36, 0.98);
     --bg-drawer: rgba(18, 24, 36, 0.98);
     --bg-log-item: rgba(255, 255, 255, 0.035);

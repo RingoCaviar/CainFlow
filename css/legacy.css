@@ -35,8 +35,8 @@
     --port-image: #a855f7;
     --port-text: #22d3ee;
     --port-params: #f59e0b;
-    --shadow-node: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
-    --shadow-node-hover: 0 12px 48px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-node: 0 2px 10px rgba(0, 0, 0, 0.16);
+    --shadow-node-hover: 0 4px 14px rgba(0, 0, 0, 0.2);
     --bg-modal: #1e1e34;
     --bg-drawer: rgba(22, 22, 42, 0.98);
     --bg-log-item: rgba(255, 255, 255, 0.03);
@@ -57,8 +57,8 @@
     --panel-bg-muted: rgba(0, 0, 0, 0.2);
     --panel-border: rgba(255, 255, 255, 0.08);
     --panel-border-strong: rgba(255, 255, 255, 0.1);
-    --panel-shadow-soft: 0 12px 40px rgba(0, 0, 0, 0.5);
-    --panel-shadow-strong: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 20px rgba(168, 85, 247, 0.1);
+    --panel-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.18);
+    --panel-shadow-strong: 0 10px 28px rgba(0, 0, 0, 0.22);
     --panel-hover-bg: rgba(255, 255, 255, 0.07);
     --panel-hover-border: rgba(168, 85, 247, 0.4);
     --panel-active-bg: rgba(168, 85, 247, 0.16);
@@ -76,7 +76,7 @@
     --panel-accent-text: var(--accent-primary);
     --notice-bg: rgba(16, 16, 32, 0.85);
     --notice-border: rgba(255, 255, 255, 0.08);
-    --notice-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --notice-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
     --notice-inline-bg: rgba(245, 158, 11, 0.1);
     --notice-inline-text: var(--accent-orange);
     --notice-inline-border: rgba(245, 158, 11, 0.18);
@@ -295,8 +295,8 @@ body {
 /* ===== Toolbar ===== */
 #toolbar {
     background: var(--bg-toolbar);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border-bottom: 1px solid var(--panel-border);
     display: flex;
     align-items: center;
@@ -315,7 +315,7 @@ body {
     flex-shrink: 0;
     transform: translateY(-100%);
     opacity: 0.9;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0);
+    box-shadow: none;
     transition:
         transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         opacity 0.18s ease,
@@ -351,9 +351,9 @@ body.toolbar-pinned #toolbar + #main-layout #side-bar {
     width: 92px;
     height: 10px;
     border-radius: 999px;
-    background: var(--accent-purple);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--accent-purple) 40%, transparent);
-    opacity: 0.38;
+    background: color-mix(in srgb, var(--accent-purple) 72%, transparent);
+    box-shadow: none;
+    opacity: 0.22;
     transform: translateX(-50%);
     pointer-events: none;
     transition:
@@ -369,7 +369,7 @@ body.toolbar-peek-active #toolbar,
 body.toolbar-pinned #toolbar {
     transform: translateY(0);
     opacity: 1;
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
 }
 
 #toolbar:hover::after,
@@ -383,7 +383,7 @@ body.toolbar-pinned #toolbar::after {
 }
 
 html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active)):not(:has([aria-expanded="true"])) {
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0);
+    box-shadow: none;
 }
 
 .toolbar-left,
@@ -472,7 +472,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all var(--transition);
+    transition: background var(--transition), border-color var(--transition), color var(--transition), transform var(--transition);
     color: var(--text-primary);
     background: rgba(255, 255, 255, 0.06);
     white-space: nowrap; /* Single line text as requested */
@@ -505,7 +505,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 
 /* Button Variants */
 .btn-primary {
-    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    background: var(--accent-purple);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -529,14 +529,14 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 }
 
 .btn-run {
-    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    background: var(--accent-purple);
     color: white;
     font-weight: 600;
-    box-shadow: 0 2px 12px rgba(168, 85, 247, 0.3);
+    box-shadow: none;
 }
 
 .btn-run:hover {
-    box-shadow: 0 4px 20px rgba(168, 85, 247, 0.45);
+    box-shadow: none;
     transform: translateY(-1px);
 }
 
@@ -550,33 +550,33 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    background: var(--accent-purple);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .btn-danger {
-    background: linear-gradient(135deg, #ef4444, #b91c1c);
+    background: #dc2626;
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .btn-danger:hover {
-    background: linear-gradient(135deg, #f87171, #dc2626);
-    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    background: #ef4444;
+    box-shadow: none;
     transform: translateY(-1px);
 }
 
 .btn-stop {
-    background: linear-gradient(135deg, #451a1a, #2a0a0a);
+    background: rgba(239, 68, 68, 0.12);
     color: #fca5a5;
     border: 1px solid rgba(239, 68, 68, 0.15);
 }
 
 .btn-stop:not(:disabled):hover {
-    background: linear-gradient(135deg, #ef4444, #dc2626);
+    background: rgba(239, 68, 68, 0.2);
     color: white;
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+    box-shadow: none;
 }
 
 .btn-stop.running {
@@ -1124,10 +1124,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 
 .node.selected {
     z-index: 2000 !important;
-    box-shadow:
-        0 0 0 calc(3px / var(--canvas-zoom, 1)) var(--accent-primary),
-        0 0 30px rgba(168, 85, 247, 0.4),
-        0 0 60px rgba(168, 85, 247, 0.2) !important;
+    box-shadow: 0 0 0 calc(2px / var(--canvas-zoom, 1)) var(--accent-primary) !important;
 }
 
 /* Only degrade heavy content for the node that is actively being dragged/resized. */
@@ -1182,7 +1179,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 
 .node.selected .node-glass-bg {
     border-color: var(--accent-primary);
-    box-shadow: 0 0 40px rgba(168, 85, 247, 0.6);
+    box-shadow: none;
 }
 
 .node.connection-insert-candidate .node-glass-bg {

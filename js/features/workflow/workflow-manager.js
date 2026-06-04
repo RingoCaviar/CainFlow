@@ -54,6 +54,11 @@ export function createWorkflowManagerApi({
     const WORKFLOW_SIDEBAR_MAX_WIDTH = 680;
     let workflowSelectionMode = false;
     let draggingWorkflowName = '';
+    let pendingAssetCleanupIncludeCanvas = false;
+    let assetCleanupRunning = false;
+    let assetCleanupQueued = false;
+    let cachedWorkflowEntries = { workflows: [], folders: [] };
+    let hasCachedWorkflowEntries = false;
     const selectedWorkflowNames = new Set();
 
     function normalizeWorkflowSidebarWidth(value) {
@@ -127,6 +132,29 @@ export function createWorkflowManagerApi({
 
     async function fetchWorkflowEntries() {
         return fetchWorkflowEntriesService();
+    }
+
+    function updateWorkflowEntriesCache(entries) {
+        cachedWorkflowEntries = {
+            workflows: Array.from(new Set(Array.isArray(entries?.workflows) ? entries.workflows.filter(Boolean) : [])),
+            folders: Array.from(new Set(Array.isArray(entries?.folders) ? entries.folders.filter(Boolean) : []))
+        };
+        hasCachedWorkflowEntries = true;
+        return cachedWorkflowEntries;
+    }
+
+    async function getWorkflowEntriesForRender({ forceReload = false } = {}) {
+        if (!forceReload && hasCachedWorkflowEntries) return cachedWorkflowEntries;
+        return updateWorkflowEntriesCache(await fetchWorkflowEntries());
+    }
+
+    function removeWorkflowEntriesFromCache(names = []) {
+        if (!hasCachedWorkflowEntries || !Array.isArray(names) || names.length === 0) return;
+        const deleted = new Set(names.filter(Boolean));
+        cachedWorkflowEntries = {
+            workflows: cachedWorkflowEntries.workflows.filter((name) => !deleted.has(name)),
+            folders: cachedWorkflowEntries.folders.slice()
+        };
     }
 
     async function saveWorkflowToFile(name, data) {
@@ -413,6 +441,31 @@ export function createWorkflowManagerApi({
             return ok;
         }
         return true;
+    }
+
+    function scheduleOpenWorkflowAssetCleanup({ includeCanvas = true } = {}) {
+        pendingAssetCleanupIncludeCanvas = pendingAssetCleanupIncludeCanvas || includeCanvas;
+        assetCleanupQueued = true;
+        if (assetCleanupRunning) return;
+
+        assetCleanupRunning = true;
+        windowRef.setTimeout(async () => {
+            try {
+                while (assetCleanupQueued) {
+                    const nextIncludeCanvas = pendingAssetCleanupIncludeCanvas;
+                    assetCleanupQueued = false;
+                    pendingAssetCleanupIncludeCanvas = false;
+                    await cleanupOpenWorkflowAssets({ includeCanvas: nextIncludeCanvas });
+                }
+            } catch (error) {
+                console.warn('Deferred workflow asset cleanup failed:', error);
+            } finally {
+                assetCleanupRunning = false;
+                if (assetCleanupQueued) {
+                    scheduleOpenWorkflowAssetCleanup({ includeCanvas: pendingAssetCleanupIncludeCanvas });
+                }
+            }
+        }, 0);
     }
 
     function getWorkflowTab(name) {
@@ -1176,9 +1229,9 @@ export function createWorkflowManagerApi({
         }
     }
 
-    async function renderWorkflowList() {
+    async function renderWorkflowList({ forceReload = true } = {}) {
         const list = documentRef.getElementById('workflow-list');
-        const workflowEntries = await fetchWorkflowEntries();
+        const workflowEntries = await getWorkflowEntriesForRender({ forceReload });
         if (!list) return;
         const workflowNames = Array.from(new Set(workflowEntries.workflows || []));
         pruneWorkflowStateToNames(workflowNames);
@@ -1542,12 +1595,13 @@ export function createWorkflowManagerApi({
 
         if (deletedNames.length === 0) return false;
         await applyDeletedWorkflowNames(deletedNames);
+        removeWorkflowEntriesFromCache(deletedNames);
         if (deletedNames.length === names.length) {
             showToast(`已删除 ${deletedNames.length} 个工作流`, 'info');
         } else {
             showToast(`已删除 ${deletedNames.length} 个工作流，${names.length - deletedNames.length} 个删除失败`, 'warning');
         }
-        renderWorkflowList();
+        renderWorkflowList({ forceReload: false });
         scheduleSave({ dirty: false });
         return true;
     }
@@ -1574,8 +1628,9 @@ export function createWorkflowManagerApi({
 
         if (await deleteWorkflowFile(name)) {
             await applyDeletedWorkflowNames([name]);
+            removeWorkflowEntriesFromCache([name]);
             showToast('已删除', 'info');
-            renderWorkflowList();
+            renderWorkflowList({ forceReload: false });
             scheduleSave({ dirty: false });
             return true;
         }
@@ -1640,8 +1695,8 @@ export function createWorkflowManagerApi({
         } catch (error) {
             console.warn('Refresh recoverable media nodes after workflow load failed:', error);
         }
-        await cleanupOpenWorkflowAssets({ includeCanvas: true });
         onWorkflowViewApplied(state.activeWorkflowName || '');
+        scheduleOpenWorkflowAssetCleanup({ includeCanvas: true });
         if (saveSession) scheduleSave();
         return true;
     }
@@ -1650,7 +1705,7 @@ export function createWorkflowManagerApi({
         if (!name) return false;
         if (state.activeWorkflowName === name) {
             if (clearWorkflowRunResult(name)) {
-                renderWorkflowList();
+                refreshWorkflowCardState(name);
                 scheduleSave({ dirty: false });
             }
             return true;
@@ -1677,7 +1732,12 @@ export function createWorkflowManagerApi({
         clearWorkflowRunResult(name);
         if (await applyWorkflowData(tab.data, { saveSession: false })) {
             showToast(`已打开工作流: ${name}`, 'success');
-            renderWorkflowList();
+            if (createdTab) {
+                renderWorkflowList();
+            } else {
+                refreshWorkflowCardState(previousActiveName);
+                refreshWorkflowCardState(name);
+            }
             scheduleSave({ dirty: false });
             return true;
         }

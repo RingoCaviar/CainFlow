@@ -1302,7 +1302,7 @@ export function createMediaControllerApi({
             dropZone.innerHTML = '';
             const img = documentRef.createElement('img');
             img.style.pointerEvents = 'none';
-            setImageElementSource(img, imageData, '已导入图片', { preferImmediateSrc: false });
+            setImageElementSource(img, imageData, '已导入图片', { preferImmediateSrc: true });
             dropZone.appendChild(img);
             showResolutionBadge(nodeId, imageData);
             void cacheNodePreviewThumbnail(nodeId, imageData);
@@ -1338,13 +1338,23 @@ export function createMediaControllerApi({
             delete node.data.imagePreviewThumbnail;
             renderImageImportUrlState(nodeId, node.imageUrl || '');
         } else {
-            const imageList = getFirstNonEmptyImageList(
+            let imageList = getFirstNonEmptyImageList(
                 node.imageData,
                 node.data?.image,
                 node.imageDataList,
                 node.data?.images
             );
-            const imageData = imageList[0] || null;
+            let imageData = imageList[0] || null;
+            const importAssetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || '';
+            if (!imageData && importAssetKey) {
+                const restoredImage = await getImageAsset(importAssetKey);
+                if (restoredImage) {
+                    imageData = restoredImage;
+                    imageList = [restoredImage];
+                    node.imageImportAssetKey = importAssetKey;
+                    node.data.imageImportAssetKey = importAssetKey;
+                }
+            }
             const previewThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()
                 ? node.data.imagePreviewThumbnail
                 : '';
