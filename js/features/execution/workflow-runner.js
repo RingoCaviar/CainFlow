@@ -1443,12 +1443,6 @@ export function createWorkflowRunnerApi({
             delete node.apiGenerationProgress;
             prepareApiNodeGenerationProgress(node, batches.length);
             const retryEnabled = state.autoRetry === true && getConcurrentRequestRetryLimit() > 0;
-            addLog('info', `并发执行节点: ${getNodeDisplayTitle(node)}`, retryEnabled
-                ? `检测到 ${batches.length} 组输入，将并发发起请求，并仅在自动重试开启时重试失败项。`
-                : `检测到 ${batches.length} 组输入，将并发发起请求；失败项不会自动重试，成功结果会继续传递到下游。`, {
-                nodeId: node.id,
-                batchCount: batches.length
-            });
 
             const requestStatusTracker = createConcurrentRequestStatusTracker(
                 node,
@@ -1495,10 +1489,6 @@ export function createWorkflowRunnerApi({
         const sequentialImageRequestStatusTracker = shouldTrackSequentialImageRequests
             ? createConcurrentRequestStatusTracker(node, getApiNodeRunCount(node, batches.length))
             : null;
-        addLog('info', `批量执行节点: ${getNodeDisplayTitle(node)}`, `检测到多图输入，将顺序运行 ${batches.length} 次`, {
-            nodeId: node.id,
-            batchCount: batches.length
-        });
 
         for (let index = 0; index < batches.length; index += 1) {
             if (signal?.aborted) {
@@ -2169,7 +2159,6 @@ export function createWorkflowRunnerApi({
         }
 
         const totalWorkflowStartTime = Date.now();
-        addLog('info', '并发工作流启动', `开始运行 ${order.length} 个节点...`);
         executed = order.length > 0;
 
         let retryAttempt = 0;

@@ -664,13 +664,6 @@ export function createMediaControllerApi({
         let response = null;
         let postErrorMessage = '';
 
-        addLog('info', '后端视频下载开始', `准备下载${videoUrlMeta.label}`, {
-            sourceVideoUrl: videoUrl,
-            videoUrlType: videoUrlMeta.kind,
-            videoUrlLabel: videoUrlMeta.label,
-            filenameBase
-        });
-
         try {
             response = await fetchRef('/api/media/download', {
                 method: 'POST',

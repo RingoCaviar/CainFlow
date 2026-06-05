@@ -732,15 +732,6 @@ export function createAsyncMediaExecutionApi({
                     continue;
                 }
                 const { createResult, imageTaskId, responseStatus } = createResultPayload;
-                addLog('info', generationCount > 1 ? `图片异步创建响应: ${modelCfg.name} (${index + 1}/${generationCount})` : `图片异步创建响应: ${modelCfg.name}`, '已收到创建任务返回', {
-                    url,
-                    method: 'POST',
-                    status: responseStatus,
-                    providerType: protocol,
-                    contentType: createResponseContext.__responseContentType || '',
-                    rawResponseBody: createResponseContext.__rawResponseText || '',
-                    responseBody: createResult
-                });
 
                 const createStatus = extractAsyncImageStatus(createResult) || 'submitted';
                 const createProgress = createResult?.progress ?? createResult?.data?.progress ?? '';
@@ -1128,15 +1119,6 @@ export function createAsyncMediaExecutionApi({
                 };
             }, { nodeType: 'VideoGenerate' });
             const { createResult, videoId, responseStatus } = createResultPayload;
-            addLog('info', generationCount > 1 ? `视频创建响应: ${modelCfg.name} (${index + 1}/${generationCount})` : `视频创建响应: ${modelCfg.name}`, '已收到创建任务返回', {
-                url,
-                method: 'POST',
-                status: responseStatus,
-                providerType: protocol,
-                contentType: createResponseContext.__responseContentType || '',
-                rawResponseBody: createResponseContext.__rawResponseText || '',
-                responseBody: createResult
-            });
             const createSummary = getVideoCreateResponseSummary(createResult, videoId);
             commitVideoGenerateOutputs(node, {
                 videoId: createSummary.videoId || videoId,
