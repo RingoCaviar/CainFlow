@@ -121,6 +121,7 @@ export function createClipboardControllerApi({
                 serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
                 serialized.background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                 serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
+                serialized.systemPrompt = documentRef.getElementById(`${id}-system-prompt`)?.value || '';
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
             } else if (node.type === 'VideoGenerate') {
                 serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';

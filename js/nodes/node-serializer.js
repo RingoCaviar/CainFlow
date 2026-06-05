@@ -147,6 +147,7 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
                     serialized.background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
+                    serialized.systemPrompt = documentRef.getElementById(`${id}-system-prompt`)?.value || '';
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                     serialized.imageTaskId = node.data?.imageTaskId || '';
                     serialized.imageTaskStatus = node.data?.imageTaskStatus || '';

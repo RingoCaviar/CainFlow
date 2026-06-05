@@ -375,6 +375,13 @@ export function createContextMenuControllerApi({
                         <input id="clone-node-count-input" type="number" min="1" max="${maxCloneNodeCount}" step="1" value="${defaultCloneNodeCount}" />
                         <button type="button" class="reference-image-count-step" data-clone-node-count-delta="1" title="增加" aria-label="增加克隆节点数量">+</button>
                     </div>
+                    <label class="clone-node-option-row" for="clone-node-include-upstream">
+                        <span class="clone-node-option-text">携带上游连接线</span>
+                        <span class="toggle-switch">
+                            <input id="clone-node-include-upstream" type="checkbox" />
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
                     <p>一次最多创建 ${maxCloneNodeCount} 个克隆节点；克隆节点会继续同步源节点参数，如需单独编辑可右键独立化。</p>
                 </div>
                 <div class="reference-image-count-footer">
@@ -385,6 +392,7 @@ export function createContextMenuControllerApi({
         `;
         dialog.classList.remove('hidden');
         const input = dialog.querySelector('#clone-node-count-input');
+        const includeUpstreamInput = dialog.querySelector('#clone-node-include-upstream');
         input?.focus();
         input?.select();
         dialog.querySelectorAll('[data-close-clone-node-count="true"]').forEach((element) => {
@@ -392,7 +400,7 @@ export function createContextMenuControllerApi({
         });
         dialog.querySelector('#btn-confirm-clone-node-count')?.addEventListener('click', () => {
             const count = normalizeCloneNodeCount(input?.value);
-            cloneNode(nodeId, count);
+            cloneNode(nodeId, count, { includeUpstreamConnections: includeUpstreamInput?.checked === true });
             closeCloneNodeCountDialog();
         });
         dialog.querySelectorAll('[data-clone-node-count-delta]').forEach((button) => {

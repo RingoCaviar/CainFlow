@@ -55,6 +55,7 @@ export function createNodeDomBindingsApi({
     const ZOOM_SETTLE_GUARD_MS = 220;
     const NODE_CANCEL_HOLD_MS = 2000;
     const NODE_CANCEL_DRAG_THRESHOLD = 8;
+    const pendingConnectedInputLayoutFrames = new Map();
 
     function postponeZoomSettle() {
         state.zoomSettleBlockedUntil = Date.now() + ZOOM_SETTLE_GUARD_MS;
@@ -110,7 +111,7 @@ export function createNodeDomBindingsApi({
         ports.forEach((portEl) => {
             const direction = portEl.dataset.direction || '';
             const portName = portEl.dataset.port || '';
-            const shouldHideForCollapse = isCollapsed && !hasPortConnection(nodeId, portName, direction);
+            const shouldHideForCollapse = direction === 'input' && isCollapsed && !hasPortConnection(nodeId, portName, direction);
             portEl.classList.toggle('is-hidden-by-collapse', shouldHideForCollapse);
             portEl.setAttribute('aria-hidden', shouldHideForCollapse ? 'true' : 'false');
         });
@@ -118,6 +119,61 @@ export function createNodeDomBindingsApi({
 
     function syncAllCollapsedUnusedPorts() {
         state.nodes.forEach((_, nodeId) => syncCollapsedUnusedPorts(nodeId));
+    }
+
+    function hasIncomingConnection(nodeId, portName) {
+        if (!nodeId || !portName) return false;
+        return state.connections.some((connection) => (
+            connection.to.nodeId === nodeId &&
+            connection.to.port === portName
+        ));
+    }
+
+    function setNodeInputFieldConnectedVisibility(nodeId, portName, fieldSuffix) {
+        const node = state.nodes.get(nodeId);
+        const field = node?.el?.querySelector(`#${nodeId}-${fieldSuffix}`);
+        if (!field) return false;
+        const shouldHide = hasIncomingConnection(nodeId, portName);
+        const changed = field.classList.contains('hidden') !== shouldHide;
+        field.classList.toggle('hidden', shouldHide);
+        field.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
+        return changed;
+    }
+
+    function scheduleConnectedInputFieldLayout(nodeId) {
+        const view = documentRef.defaultView || window;
+        if (pendingConnectedInputLayoutFrames.has(nodeId)) {
+            return;
+        }
+        const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
+        const frameId = requestFrame(() => {
+            pendingConnectedInputLayoutFrames.delete(nodeId);
+            fitNodeToContent(nodeId, {
+                allowShrink: true,
+                preserveCurrentWidth: true,
+                reason: 'element-resize'
+            });
+            updateAllConnections();
+        });
+        pendingConnectedInputLayoutFrames.set(nodeId, frameId);
+    }
+
+    function syncConnectedInputFieldVisibility(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node?.el) return false;
+        let changed = false;
+        if (node.type === 'ImageGenerate') {
+            changed = setNodeInputFieldConnectedVisibility(nodeId, 'prompt', 'prompt-field') || changed;
+            changed = setNodeInputFieldConnectedVisibility(nodeId, 'system_prompt', 'system-prompt-field') || changed;
+        }
+        if (changed) {
+            scheduleConnectedInputFieldLayout(nodeId);
+        }
+        return changed;
+    }
+
+    function syncAllConnectedInputFieldVisibility() {
+        state.nodes.forEach((_, nodeId) => syncConnectedInputFieldVisibility(nodeId));
     }
 
     function syncTextNodeData(id) {
@@ -808,6 +864,7 @@ export function createNodeDomBindingsApi({
         }
         if (cloneNode.type === 'Text') renderTextMultiPreview(cloneNode.id);
         if (cloneNode.type === 'TextSplit') syncTextSplitNodeData(cloneNode.id);
+        syncNodeFormData(cloneNode.id, cloneNode.type);
     }
 
     function syncClonesFromSource(sourceNodeId) {
@@ -1231,6 +1288,59 @@ export function createNodeDomBindingsApi({
         const providerSelect = documentRef.getElementById(`${id}-provider`);
         defaults.apiConfigId = modelSelect?.value || '';
         defaults.providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
+    }
+
+    function syncNodeFormData(id, type) {
+        const node = state.nodes.get(id);
+        if (!node) return;
+        node.data = node.data || {};
+
+        const readValue = (suffix, fallback = '') => (
+            documentRef.getElementById(`${id}-${suffix}`)?.value ?? fallback
+        );
+        const readChecked = (suffix, fallback = false) => {
+            const input = documentRef.getElementById(`${id}-${suffix}`);
+            return input ? input.checked === true : fallback;
+        };
+
+        if (type === 'ImageGenerate' || type === 'VideoGenerate' || type === 'TextChat') {
+            node.apiConfigId = readValue('apiconfig', node.apiConfigId || 'default');
+            node.providerId = readValue('provider', node.providerId || '');
+            node.data.apiConfigId = node.apiConfigId;
+            node.data.providerId = node.providerId;
+            node.data.prompt = readValue('prompt', node.data.prompt || '');
+            node.data.search = readChecked('search', node.data.search === true);
+        }
+
+        if (type === 'ImageGenerate') {
+            node.data.systemPrompt = readValue('system-prompt', node.data.systemPrompt || '');
+            node.data.aspect = readValue('aspect', node.data.aspect || '');
+            node.data.resolution = readValue('resolution', node.data.resolution || '');
+            node.data.customWidth = readValue('custom-resolution-width', node.data.customWidth || '');
+            node.data.customHeight = readValue('custom-resolution-height', node.data.customHeight || '');
+            node.data.quality = readValue('quality', node.data.quality || 'auto');
+            node.data.moderation = readValue('moderation', node.data.moderation || 'auto');
+            node.data.background = readValue('background', node.data.background || 'auto');
+            node.data.generationCount = Math.max(1, parseInt(readValue('generation-count', node.data.generationCount || '1'), 10) || 1);
+        }
+
+        if (type === 'VideoGenerate') {
+            node.data.aspect = readValue('aspect', node.data.aspect || '16:9');
+            node.data.useVideoSizeParam = readChecked('use-size-param', node.data.useVideoSizeParam === true);
+            node.data.enhancePrompt = readChecked('enhance-prompt', node.data.enhancePrompt === true);
+            node.data.enableUpsample = readChecked('enable-upsample', node.data.enableUpsample === true);
+            node.data.doubaoResolution = readValue('doubao-resolution', node.data.doubaoResolution || '720p');
+            node.data.doubaoDuration = readValue('doubao-duration', node.data.doubaoDuration || '5');
+            node.data.doubaoCameraFixed = readChecked('doubao-camera-fixed', node.data.doubaoCameraFixed === true);
+            node.data.doubaoGenerateAudio = readChecked('doubao-generate-audio', node.data.doubaoGenerateAudio === true);
+            node.data.doubaoWatermark = readChecked('doubao-watermark', node.data.doubaoWatermark === true);
+            node.data.doubaoSeed = readValue('doubao-seed', node.data.doubaoSeed || '');
+        }
+
+        if (type === 'TextChat') {
+            node.data.sysprompt = readValue('sysprompt', node.data.sysprompt || '');
+            node.data.fixed = readChecked('fixed', node.data.fixed === true);
+        }
     }
 
     function isNodeRunning(id) {
@@ -1793,7 +1903,7 @@ export function createNodeDomBindingsApi({
 
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
-            const interactiveSelector = 'input, textarea, select, button, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
+            const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
             const isInteractive = target.closest(interactiveSelector);
 
             const dragAreaSelector = '.node-header, .node-glass-bg';
@@ -1964,6 +2074,7 @@ export function createNodeDomBindingsApi({
         bindCustomNodeSelects(el);
         lockCloneNodeEditing(id, el);
         syncCollapsedUnusedPorts(id);
+        syncConnectedInputFieldVisibility(id);
 
         if (type === 'ImageImport') setupImageImport(id, el);
         else if (type === 'Text') {
@@ -1981,12 +2092,14 @@ export function createNodeDomBindingsApi({
             modelSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
+                syncNodeFormData(id, type);
                 fitNodeToContent(id);
             });
             const providerSelect = el.querySelector(`#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
+                syncNodeFormData(id, type);
                 fitNodeToContent(id);
             });
             const resolutionSelect = el.querySelector(`#${id}-resolution`);
@@ -2069,6 +2182,7 @@ export function createNodeDomBindingsApi({
             });
             syncResumeButtonState();
             syncImageGenerateCount(id);
+            syncNodeFormData(id, type);
             fitNodeToContent(id);
         }
         else if (type === 'VideoGenerate') {
@@ -2079,6 +2193,7 @@ export function createNodeDomBindingsApi({
                 syncNodeProviderOptions(id, type);
                 syncVideoGenerateProtocolFields(id);
                 persistNodeModelSelection(id, type);
+                syncNodeFormData(id, type);
                 fitNodeToContent(id);
             });
             const providerSelect = el.querySelector(`#${id}-provider`);
@@ -2086,6 +2201,7 @@ export function createNodeDomBindingsApi({
                 syncNodeProviderOptions(id, type);
                 syncVideoGenerateProtocolFields(id);
                 persistNodeModelSelection(id, type);
+                syncNodeFormData(id, type);
                 fitNodeToContent(id);
             });
             const generationCountInput = el.querySelector(`#${id}-generation-count`);
@@ -2189,6 +2305,7 @@ export function createNodeDomBindingsApi({
             });
             syncResumeButtonState();
             syncImageGenerateCount(id);
+            syncNodeFormData(id, type);
             fitNodeToContent(id);
         }
         else if (type === 'ImageResize') setupImageResize(id, el);
@@ -2259,12 +2376,14 @@ export function createNodeDomBindingsApi({
             modelSelect?.addEventListener('change', () => {
                 syncNodeProviderOptions(id, type);
                 persistNodeModelSelection(id, type);
+                syncNodeFormData(id, type);
                 fitNodeToContent(id);
             });
             const providerSelect = el.querySelector(`#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
                 syncNodeProviderOptions(id, type);
                 persistNodeModelSelection(id, type);
+                syncNodeFormData(id, type);
             });
             const copyBtn = el.querySelector(`#${id}-copy-btn`);
             if (copyBtn) {
@@ -2277,6 +2396,7 @@ export function createNodeDomBindingsApi({
                     }
                 };
             }
+            syncNodeFormData(id, type);
         } else if (type === 'Text') {
             syncTextNodeData(id);
         } else if (type === 'TextSplit') {
@@ -2308,10 +2428,12 @@ export function createNodeDomBindingsApi({
 
         el.querySelectorAll('input, select, textarea').forEach((input) => {
             input.addEventListener('change', () => {
+                syncNodeFormData(id, type);
                 if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
                 scheduleSave();
             });
             input.addEventListener('input', debounce(() => {
+                syncNodeFormData(id, type);
                 if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
                 scheduleSave();
             }, 500));
@@ -2345,6 +2467,7 @@ export function createNodeDomBindingsApi({
         bindNodeInteractions,
         syncTextSplitNodeData,
         syncImageMergeNodes,
+        syncAllConnectedInputFieldVisibility,
         syncClonesFromSource
     };
 }

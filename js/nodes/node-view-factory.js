@@ -503,8 +503,15 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality；NEW API 原生异步模式会走 /v1/videos 并通过任务 ID 轮询。')}
         ${renderNodeFormField({
             label: '提示词',
+            fieldId: `${id}-prompt-field`,
             fieldClass: 'node-field-expand',
             content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
+        })}
+        ${renderNodeFormField({
+            label: '系统提示词',
+            fieldId: `${id}-system-prompt-field`,
+            fieldClass: 'node-field-expand',
+            content: `<textarea class="image-generate-system-prompt" id="${id}-system-prompt" placeholder="设定生成规则、风格或限制..." rows="2"${getTextareaHeightStyle(rd, 'systemPrompt')}>${rd.systemPrompt || ''}</textarea>`
         })}
         <div class="node-field ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-image-async-result-field">
             <label>异步任务</label>

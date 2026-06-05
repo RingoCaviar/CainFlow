@@ -333,6 +333,7 @@ function handleNodeGraphChanged(options = {}) {
     const { force = false } = options;
     getNodeLifecycleApi().refreshNodeRelationCache?.();
     nodeDomBindingsApi?.syncImageMergeNodes?.();
+    nodeDomBindingsApi?.syncAllConnectedInputFieldVisibility?.();
     if (!force && isMediaRestoreBatchActive()) {
         return;
     }
@@ -1041,7 +1042,7 @@ function getContextMenuControllerApi() {
             connectionCreatePopup,
             viewportApi,
             addNode,
-            cloneNode: (nodeId, count) => getNodeLifecycleApi().cloneNode(nodeId, count),
+            cloneNode: (nodeId, count, options) => getNodeLifecycleApi().cloneNode(nodeId, count, options),
             detachCloneNode: (nodeId) => getNodeLifecycleApi().detachCloneNode(nodeId),
             renameNode,
             runWorkflow,

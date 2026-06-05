@@ -8,7 +8,7 @@ import {
     normalizeTextList
 } from './execution-data-utils.js';
 import {
-    getConcurrentStatusPopoverController,
+    bindConcurrentRequestStatusPanelInteractions,
     removeConcurrentRequestStatusPanel
 } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
@@ -1251,8 +1251,6 @@ export function createWorkflowRunnerApi({
 
         node.el.appendChild(panel);
         node.el.classList.add('has-concurrent-status');
-        const { showErrorPopover } = getConcurrentStatusPopoverController({ documentRef });
-
         const formatErrorMessage = (error) => {
             if (!error) return '请求失败，但没有返回具体错误信息。';
             if (typeof error === 'string') return error;
@@ -1281,20 +1279,9 @@ export function createWorkflowRunnerApi({
             emitConcurrentRequestStatus(node, dots);
         };
 
-        grid.addEventListener('click', (event) => {
-            const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
-            if (!dot || !grid.contains(dot)) return;
-            event.stopPropagation();
-            const message = dot.dataset.error || '请求失败，但没有返回具体错误信息。';
-            showErrorPopover(panel, dot, message);
-        });
-
-        grid.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
-            if (!dot) return;
-            event.preventDefault();
-            dot.click();
+        bindConcurrentRequestStatusPanelInteractions(panel, grid, {
+            documentRef,
+            getErrorMessage: (dot) => dot.dataset.error || '请求失败，但没有返回具体错误信息。'
         });
 
         emitConcurrentRequestStatus(node, dots);

@@ -11,7 +11,7 @@
     right: auto;
     bottom: calc(100% + 10px);
     transform: translateX(-50%);
-    z-index: 90;
+    z-index: 300;
     box-sizing: border-box;
     min-height: 30px;
     padding: 7px 9px;
@@ -23,6 +23,7 @@
     -webkit-backdrop-filter: blur(10px);
     pointer-events: auto;
     max-width: min(220px, calc(100% - 16px));
+    overflow: visible;
 }
 
 .node-concurrent-status-grid {
@@ -65,13 +66,14 @@
 }
 
 .node-concurrent-status-error-popover {
-    position: fixed;
-    left: 16px;
-    top: 16px;
-    width: min(480px, calc(100vw - 32px));
-    min-width: min(320px, calc(100vw - 32px));
-    max-width: min(480px, calc(100vw - 32px));
-    max-height: min(320px, calc(100vh - 32px));
+    position: absolute;
+    left: 0;
+    bottom: 100%;
+    transform-origin: left bottom;
+    width: 480px;
+    min-width: 320px;
+    max-width: 480px;
+    max-height: 320px;
     overflow: auto;
     box-sizing: border-box;
     z-index: 2147483647;

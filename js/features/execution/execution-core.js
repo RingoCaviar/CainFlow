@@ -1176,9 +1176,7 @@ export function createExecutionCoreApi({
         const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
         const mask = getImageGenerateMask(inputs);
         const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
-        const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
-        const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
-        const prompt = [cameraPrompt, userPrompt].filter((part) => typeof part === 'string' && part.trim()).join(', ');
+        const prompt = buildImageGeneratePrompt(node, inputs);
         const isGoogle = protocol === 'google';
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
         const url = resolveProviderUrl(apiCfg, modelCfg, 'image', {
@@ -1349,6 +1347,16 @@ export function createExecutionCoreApi({
         };
     }
 
+    function buildImageGeneratePrompt(node, inputs = {}) {
+        const id = node?.id || '';
+        const systemPrompt = (getPrimaryTextInput(inputs.system_prompt) || documentRef.getElementById(`${id}-system-prompt`)?.value || '').trim();
+        const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
+        const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
+        return [systemPrompt, userPrompt, cameraPrompt]
+            .filter((part) => typeof part === 'string' && part.trim())
+            .join(', ');
+    }
+
     async function getOpenAiMaskBlob(mask, signal) {
         if (!mask?.data) return null;
         const blob = await getReferenceImageBlob(mask.data, signal);
@@ -1514,9 +1522,7 @@ export function createExecutionCoreApi({
                 const moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
                 const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
-                const userPrompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`).value;
-                const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
-                const prompt = [cameraPrompt, userPrompt].filter((part) => typeof part === 'string' && part.trim()).join(', ');
+                const prompt = buildImageGeneratePrompt(node, inputs);
 
                 if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
                 if (!prompt) throw new Error('请输入提示词');

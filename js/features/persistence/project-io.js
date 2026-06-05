@@ -271,7 +271,6 @@ export function createProjectIoApi({
             const globalHandle = await getHandle('GLOBAL_SAVE_DIR');
             if (!globalHandle) return null;
             state.globalSaveDirHandle = globalHandle;
-            addLog('info', '全局保存目录已恢复', `已恢复目录: ${globalHandle.name}`);
             return globalHandle;
         } catch (error) {
             console.warn('Restore global save dir handle failed:', error);

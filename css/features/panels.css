@@ -1118,6 +1118,30 @@ body.workflow-sidebar-resizing * {
     background: rgba(255, 255, 255, 0.14);
 }
 
+.clone-node-option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 36px;
+    margin-top: 2px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--input-border, rgba(255, 255, 255, 0.16)) 64%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--input-bg, rgba(255, 255, 255, 0.08)) 72%, transparent);
+    cursor: pointer;
+}
+
+.clone-node-option-row .clone-node-option-text {
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.clone-node-option-row .toggle-switch {
+    flex: 0 0 auto;
+}
+
 .reference-image-count-body p {
     margin: 0;
     line-height: 1.6;

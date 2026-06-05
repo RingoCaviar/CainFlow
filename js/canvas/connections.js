@@ -901,6 +901,7 @@ export function createConnectionsApi({
         state.nodes.forEach((node) => {
             if (!node?.el || !(node.collapsed === true || node.el.classList.contains('collapsed'))) return;
             node.el.querySelectorAll('.node-port').forEach((portEl) => {
+                if (portEl.dataset.direction !== 'input') return;
                 const dot = portEl.querySelector('.port-dot');
                 const isConnected = dot?.classList.contains('connected') === true;
                 if (isConnected) return;

@@ -30,41 +30,25 @@ export function getConcurrentStatusPopoverController({
 
     const errorPopover = documentRef.createElement('div');
     errorPopover.className = 'node-concurrent-status-error-popover hidden';
-    documentRef.body.appendChild(errorPopover);
 
     const state = {
         activePanel: null,
-        activeDot: null,
-        canvasZoom: 1
+        activeDot: null
     };
 
-    const resolveCanvasZoom = () => {
-        const canvasContainer = documentRef.getElementById('canvas-container')
-            || documentRef.querySelector('.canvas-container');
-        if (!canvasContainer || typeof windowRef.getComputedStyle !== 'function') return 1;
-        const rawZoom = windowRef.getComputedStyle(canvasContainer)
-            .getPropertyValue('--canvas-zoom')
-            .trim();
-        const parsedZoom = Number.parseFloat(rawZoom);
-        return Number.isFinite(parsedZoom) && parsedZoom > 0 ? parsedZoom : 1;
-    };
-
-    const positionErrorPopover = (dot) => {
-        const dotRect = dot.getBoundingClientRect();
-        const viewportWidth = windowRef.innerWidth || documentRef.documentElement.clientWidth || 0;
-        const viewportHeight = windowRef.innerHeight || documentRef.documentElement.clientHeight || 0;
-        const zoomScale = Math.max(0.72, Math.min(state.canvasZoom || 1, 1));
-        const popoverWidth = Math.min(480, Math.max(280, viewportWidth - 32));
-        const visibleWidth = popoverWidth * zoomScale;
-        const preferredTop = dotRect.bottom + 8;
-        const left = Math.max(16, Math.min(dotRect.right - visibleWidth, viewportWidth - visibleWidth - 16));
-        errorPopover.style.left = `${left}px`;
-        errorPopover.style.top = `${Math.min(preferredTop, viewportHeight - 24)}px`;
-        errorPopover.style.width = `${popoverWidth}px`;
-        errorPopover.style.maxWidth = `${popoverWidth}px`;
-        errorPopover.style.maxHeight = `${Math.max(160, (viewportHeight - preferredTop - 24) / zoomScale)}px`;
-        errorPopover.style.transform = `scale(${zoomScale})`;
-        errorPopover.style.transformOrigin = 'top left';
+    const positionErrorPopover = (panel, dot) => {
+        if (!panel || !dot) return;
+        const dotCenterX = dot.offsetLeft + dot.offsetWidth / 2;
+        const bottom = Math.max(0, panel.offsetHeight - dot.offsetTop + 4);
+        errorPopover.style.left = `${dotCenterX}px`;
+        errorPopover.style.top = '';
+        errorPopover.style.right = '';
+        errorPopover.style.bottom = `${bottom}px`;
+        errorPopover.style.width = '';
+        errorPopover.style.maxWidth = '';
+        errorPopover.style.maxHeight = '';
+        errorPopover.style.transform = '';
+        errorPopover.style.transformOrigin = '';
     };
 
     const hideErrorPopover = () => {
@@ -72,6 +56,8 @@ export function getConcurrentStatusPopoverController({
         errorPopover.textContent = '';
         errorPopover.style.left = '';
         errorPopover.style.top = '';
+        errorPopover.style.right = '';
+        errorPopover.style.bottom = '';
         errorPopover.style.width = '';
         errorPopover.style.maxWidth = '';
         errorPopover.style.maxHeight = '';
@@ -85,10 +71,12 @@ export function getConcurrentStatusPopoverController({
         if (!message || !dot) return;
         state.activePanel = panel || null;
         state.activeDot = dot;
-        state.canvasZoom = resolveCanvasZoom();
-        positionErrorPopover(dot);
+        if (panel && errorPopover.parentNode !== panel) {
+            panel.appendChild(errorPopover);
+        }
         errorPopover.textContent = message;
         errorPopover.classList.remove('hidden');
+        positionErrorPopover(panel, dot);
     };
 
     const repositionActivePopover = () => {
@@ -97,7 +85,7 @@ export function getConcurrentStatusPopoverController({
             hideErrorPopover();
             return;
         }
-        positionErrorPopover(state.activeDot);
+        positionErrorPopover(state.activePanel, state.activeDot);
     };
 
     const handleDocumentClick = (event) => {
@@ -109,7 +97,6 @@ export function getConcurrentStatusPopoverController({
     let transformFrame = null;
     const handleCanvasTransformNow = () => {
         transformFrame = null;
-        state.canvasZoom = resolveCanvasZoom();
         repositionActivePopover();
     };
     const handleCanvasTransform = () => {
@@ -120,6 +107,8 @@ export function getConcurrentStatusPopoverController({
     };
 
     documentRef.addEventListener('click', handleDocumentClick);
+    errorPopover.addEventListener('mousedown', (event) => event.stopPropagation());
+    errorPopover.addEventListener('click', (event) => event.stopPropagation());
     documentRef.addEventListener('cainflow:canvas-transform', handleCanvasTransform);
     windowRef.addEventListener('resize', handleCanvasTransform);
     windowRef.addEventListener('scroll', handleCanvasTransform, true);
@@ -132,6 +121,41 @@ export function getConcurrentStatusPopoverController({
     };
     documentRef._concurrentStatusPopoverController = controller;
     return controller;
+}
+
+export function bindConcurrentRequestStatusPanelInteractions(panel, grid, {
+    documentRef = document,
+    getErrorMessage = (dot) => dot?.dataset?.error || '请求失败，但没有返回具体错误信息。'
+} = {}) {
+    if (!panel || !grid) return null;
+    const { showErrorPopover } = getConcurrentStatusPopoverController({ documentRef });
+
+    const stopCanvasInteraction = (event) => {
+        event.stopPropagation();
+    };
+
+    const openErrorPopoverFromEvent = (event) => {
+        const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
+        if (!dot || !grid.contains(dot)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showErrorPopover(panel, dot, getErrorMessage(dot));
+    };
+
+    panel.addEventListener('pointerdown', stopCanvasInteraction);
+    panel.addEventListener('mousedown', stopCanvasInteraction);
+    grid.addEventListener('click', openErrorPopoverFromEvent);
+
+    grid.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
+        if (!dot) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showErrorPopover(panel, dot, getErrorMessage(dot));
+    });
+
+    return { showErrorPopover };
 }
 
 export function removeConcurrentRequestStatusPanel(node) {
@@ -163,8 +187,6 @@ export function renderConcurrentRequestStatusPanel(node, statusPayload = {}, {
     grid.className = 'node-concurrent-status-grid';
     panel.appendChild(grid);
 
-    const { showErrorPopover } = getConcurrentStatusPopoverController({ documentRef });
-
     normalized.requests.forEach((request) => {
         const dot = documentRef.createElement('span');
         dot.className = 'node-concurrent-status-dot';
@@ -180,19 +202,9 @@ export function renderConcurrentRequestStatusPanel(node, statusPayload = {}, {
         grid.appendChild(dot);
     });
 
-    grid.addEventListener('click', (event) => {
-        const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
-        if (!dot || !grid.contains(dot)) return;
-        event.stopPropagation();
-        showErrorPopover(panel, dot, dot.dataset.error || '');
-    });
-
-    grid.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        const dot = event.target.closest('.node-concurrent-status-dot[data-status="failed"]');
-        if (!dot) return;
-        event.preventDefault();
-        showErrorPopover(panel, dot, dot.dataset.error || '');
+    bindConcurrentRequestStatusPanelInteractions(panel, grid, {
+        documentRef,
+        getErrorMessage: (dot) => dot.dataset.error || ''
     });
 
     node.el.appendChild(panel);

@@ -562,7 +562,20 @@ export function createNodeLifecycleApi({
             };
         }
 
-        if (el.matches?.(NODE_SCROLL_CONTENT_SELECTOR)) {
+        if (el.classList.contains('text-split-preview') && el.querySelector('.text-split-preview-empty')) {
+            const children = Array.from(el.children).filter(isVisibleElement);
+            const childSizes = children.map((child) => getElementMinimumSize(child));
+            const gapY = getLayoutGap(style, 'y');
+            const contentHeight = childSizes.reduce((total, size) => total + size.height, 0) +
+                Math.max(0, childSizes.length - 1) * gapY;
+            const contentWidth = Math.max(0, ...childSizes.map((size) => size.width));
+            return {
+                width: Math.ceil(Math.max(minWidth, contentWidth + getBoxExtras(style, 'x')) + marginX),
+                height: Math.ceil(Math.max(minHeight, contentHeight + getBoxExtras(style, 'y')) + marginY)
+            };
+        }
+
+        if (el.matches?.(NODE_SCROLLABLE_RESULT_SELECTOR)) {
             const explicitHeightValue = String(el.style?.height || '');
             const explicitHeight = /px$/i.test(explicitHeightValue) ? parseFloat(explicitHeightValue) : NaN;
             const contentHeight = el.classList.contains('chat-response-area')
@@ -653,8 +666,11 @@ export function createNodeLifecycleApi({
 
         const display = style.display || '';
         const flexDirection = style.flexDirection || 'row';
+        const isTextSplitBodyGrid = el.classList.contains('node-body') &&
+            el.closest?.('.node-text-split') &&
+            display.includes('grid');
         const isRowLayout = (display.includes('flex') && !flexDirection.startsWith('column')) ||
-            display.includes('grid') ||
+            (display.includes('grid') && !isTextSplitBodyGrid) ||
             el.classList.contains('save-btn-group') ||
             el.classList.contains('image-resize-mode-group') ||
             el.classList.contains('generation-count-control') ||
@@ -849,15 +865,16 @@ export function createNodeLifecycleApi({
     function fitNodeToContent(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
-        const { allowShrink = false, reason = '' } = options;
-        const minimum = getNodeMinimumSize(node);
-        const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
+        const { allowShrink = false, preserveCurrentWidth = false, reason = '' } = options;
+        const baseMinimum = getNodeMinimumSize(node);
+        const currentWidth = node.el.offsetWidth || Number(node.width) || baseMinimum.minWidth;
+        const minimum = getNodeMinimumSize(node, { width: currentWidth });
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
         const shouldShrink = allowShrink && reason === 'element-resize';
         const respectsUserWidth = node.userResized === true && currentWidth >= minimum.minWidth;
         const respectsUserHeight = node.userResized === true && currentHeight >= minimum.minHeight;
         const nextWidth = shouldShrink
-            ? minimum.minWidth
+            ? (preserveCurrentWidth ? currentWidth : minimum.minWidth)
             : (respectsUserWidth ? currentWidth : Math.max(currentWidth, minimum.minWidth));
         const nextHeight = shouldShrink
             ? minimum.minHeight
@@ -1850,7 +1867,49 @@ export function createNodeLifecycleApi({
         return true;
     }
 
-    function cloneNode(sourceNodeId, count = 1) {
+    function appendIncomingConnectionsToClone(sourceNodeId, cloneNodeId) {
+        let added = 0;
+        const incomingConnections = state.connections.filter((connection) => (
+            connection?.to?.nodeId === sourceNodeId &&
+            connection?.from?.nodeId &&
+            connection?.from?.port &&
+            connection?.to?.port
+        ));
+
+        incomingConnections.forEach((connection) => {
+            const from = {
+                nodeId: connection.from.nodeId,
+                port: connection.from.port
+            };
+            const to = {
+                nodeId: cloneNodeId,
+                port: connection.to.port
+            };
+            const hasSameConnection = state.connections.some((candidate) => (
+                candidate.from.nodeId === from.nodeId &&
+                candidate.from.port === from.port &&
+                candidate.to.nodeId === to.nodeId &&
+                candidate.to.port === to.port
+            ));
+            const hasInputConnection = state.connections.some((candidate) => (
+                candidate.to.nodeId === to.nodeId &&
+                candidate.to.port === to.port
+            ));
+            if (hasSameConnection || hasInputConnection) return;
+
+            state.connections.push({
+                id: createConnectionId(),
+                from,
+                to,
+                type: connection.type || getConnectionDataType(connection)
+            });
+            added += 1;
+        });
+
+        return added;
+    }
+
+    function cloneNode(sourceNodeId, count = 1, options = {}) {
         const sourceNode = state.nodes.get(sourceNodeId);
         if (!sourceNode) return null;
         if (sourceNode.isClone) {
@@ -1863,10 +1922,12 @@ export function createNodeLifecycleApi({
         }
 
         const cloneCount = Math.max(1, Math.min(64, parseInt(count, 10) || 1));
+        const includeUpstreamConnections = options?.includeUpstreamConnections === true;
         const snapshot = serializeOneNode(sourceNodeId);
         if (!snapshot) return null;
         pushHistory();
         const newIds = [];
+        let addedConnectionCount = 0;
         for (let index = 0; index < cloneCount; index += 1) {
             const offset = 36 * (index + 1);
             const newId = addNode(sourceNode.type, sourceNode.x + offset, sourceNode.y + offset, {
@@ -1877,7 +1938,12 @@ export function createNodeLifecycleApi({
                 isClone: true,
                 cloneSourceId: sourceNodeId
             }, true);
-            if (newId) newIds.push(newId);
+            if (newId) {
+                newIds.push(newId);
+                if (includeUpstreamConnections) {
+                    addedConnectionCount += appendIncomingConnectionsToClone(sourceNodeId, newId);
+                }
+            }
         }
         if (!newIds.length) return null;
 
@@ -1891,6 +1957,8 @@ export function createNodeLifecycleApi({
             state.nodes.get(newId)?.el.classList.add('selected');
         });
         updateAllConnections();
+        updatePortStyles();
+        if (addedConnectionCount > 0) onConnectionsChanged();
         scheduleSave();
         showToast(cloneCount > 1 ? `已创建 ${newIds.length} 个克隆节点` : '已创建克隆节点', 'success');
         return cloneCount > 1 ? newIds : newIds[0];
