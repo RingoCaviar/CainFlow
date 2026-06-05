@@ -293,6 +293,7 @@ export function createNodeDomBindingsApi({
         if (!dot) return;
 
         dot.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
             e.stopPropagation();
@@ -1755,6 +1756,8 @@ export function createNodeDomBindingsApi({
         el.addEventListener('dblclick', stopBatchConnectionFollowupClick, true);
 
         el.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+
             if (typeof handleBatchConnectionNodeMouseDown === 'function' &&
                 handleBatchConnectionNodeMouseDown(e, id)) {
                 return;
@@ -1886,6 +1889,7 @@ export function createNodeDomBindingsApi({
         });
 
         el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
             e.stopPropagation();

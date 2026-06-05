@@ -728,6 +728,15 @@ export function createContextMenuControllerApi({
     }
 
     function initContextMenu() {
+        documentRef.querySelectorAll('#toolbar, #side-bar').forEach((chromeElement) => {
+            chromeElement.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeContextMenu();
+                closeConnectionCreatePopup();
+            });
+        });
+
         canvasContainer.addEventListener('contextmenu', (e) => {
             openCanvasContextMenu(e);
         });
