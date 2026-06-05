@@ -9,10 +9,12 @@
 ### 多主题系统约定
 
 - 主题系统已从固定 `dark/light` 切换升级为多主题架构。运行态状态字段使用 `themeId`，启动时 `index.html` 会优先从本地状态恢复 `themeId`，并兼容旧 `themeMode`；主题应用和主题菜单交互统一收口在 `js/features/ui/theme-controller.js`。
-- 主题样式文件采用“入口 + 共享层 + 单主题文件”结构：`css/themes.css` 只负责聚合，`css/themes/shared.css` 放主题菜单和公共主题壳子，单个主题分别放在 `css/themes/dark.css`、`css/themes/light.css`、`css/themes/pro.css`、`css/themes/pink.css`。后续新增主题时，优先新增 `css/themes/<theme>.css` 并在 `css/themes.css` 中接入，不要把新主题规则重新堆回 `css/legacy.css` 或一个巨大的总主题文件。
+- 主题样式文件采用“入口 + 共享层 + 单主题文件”结构：`css/themes.css` 只负责聚合，`css/themes/shared.css` 放主题菜单和公共主题壳子，单个主题分别放在 `css/themes/dark.css`、`css/themes/light.css`、`css/themes/pro.css`、`css/themes/pink.css`、`css/themes/glass-light.css`、`css/themes/glass-dark.css`。后续新增主题时，优先新增 `css/themes/<theme>.css` 并在 `css/themes.css` 中接入，不要把新主题规则重新堆回 `css/legacy.css` 或一个巨大的总主题文件。
+- 主题注册表是 `js/features/ui/theme-controller.js` 的 `THEME_IDS` / `THEMES`，按钮图标和菜单公共视觉在 `css/themes/shared.css`；新增主题必须同步注册表、`css/themes.css` import、主题按钮图标/标签、主题文件 token、以及 `index.html` 早期恢复脚本里的浅色主题列表（如果新主题是浅色）。
 - 当前主题系统已经从“每个主题自己覆盖所有面板”转向“共享语义 token 驱动”模式：`css/legacy.css` 维护抽屉、帮助面板、侧边栏、工作流列表、缓存抽屉、左上角悬浮通知等共享 token；`css/features/panels.css` 维护提示词库、提示词导入、全屏历史、历史预览等功能面板 token。新增主题时优先在 `:root[data-app-theme="..."]` 中补 `--panel-*`、`--workflow-card-*`、`--cache-*`、`--notice-*`、`--prompt-*`、`--history-*`，只在确有必要时再写组件级覆盖。
 - 工具栏主题入口已改为下拉菜单而不是循环切换按钮：结构在 `index.html`，样式在 `css/themes/shared.css`，主题注册表、菜单渲染、打开/关闭、主题切换和持久化触发都在 `js/features/ui/theme-controller.js`。
-- `pink` 属于浅色主题：启动阶段 `index.html` 里的主题恢复脚本会把 `light` 和 `pink` 一起按浅色 `color-scheme` 处理。后续如果再引入其他浅色主题，需要同步更新这条启动链，而不是只改主题 CSS。
+- `pink` 和 `glass-light` 属于浅色主题：启动阶段 `index.html` 里的主题恢复脚本会把 `light`、`pink`、`glass-light` 一起按浅色 `color-scheme` 处理。后续如果再引入其他浅色主题，需要同步更新这条启动链，而不是只改主题 CSS。
+- `glass-light` / `glass-dark` 是玻璃态主题，除了普通 token 外还会影响 `.node-glass-bg`、工具栏 hover/固定态、面板透明度、模糊半径和节点背景层级。修改玻璃态时要额外检查非 glass 主题是否仍通过 `html:not([data-app-theme^="glass"]) .node-glass-bg` 正常隐藏玻璃层，避免把透明/模糊规则泄漏给普通主题。
 - 新增主题或修改主题时，一定要做全链路检查，不允许只改主页或工具栏颜色。至少同时覆盖和验证：主页、工具栏、侧边栏、抽屉、弹窗、右键菜单、Toast、设置页、历史记录面板、帮助面板、更新面板、节点内部控件、全屏预览、主题菜单本身。凡是已有 `html[data-app-theme="..."]` 覆盖的区域，都要一起考虑，避免出现“主页主题改了，但某些面板没改”的遗漏。
 - 主题验收时，主界面之外的细节面板也应默认纳入最小检查集，包括设置页、提示词库、历史全屏、缓存抽屉、主题菜单、相机编辑器、Toast、弹窗和相关按钮态。
 - 设置面板主题适配不是单纯“控件变暗”即可：设置弹窗表面、设置卡片、tab、toolbar 强调按钮、供应商类型 badge、更新状态、版本摘要等都需要和主页保持同一套主色体系与高亮节奏。如果主题看起来“能用但不像同一套皮肤”，优先检查对应 `css/themes/<theme>.css` 里的设置面板专属覆盖是否仍缺少这一层整体对齐。
@@ -48,6 +50,13 @@
 - 并发请求模式是通用设置里的全局开关，状态字段为 `concurrentRequestMode`，默认开启。修改该能力时同步 `js/core/state.js`、`js/features/settings/settings-controller.js`、`js/features/ui/ui-controller.js`、`js/features/persistence/project-io.js`、`js/nodes/node-serializer.js` 与 `index.js` 注入链，避免刷新、导入导出或会话恢复后设置丢失。
 - 开关打开后，`workflow-runner.js` 负责识别 `ImageGenerate` / `TextChat` 因数组输入即将运行多次的场景，用 `executeConcurrentBatchRequest` 并发发起各组请求；失败项按自动重试次数独立重试，只有所有 batch 成功后才用 `commitConcurrentBatchResults` 一次性提交到节点输出并运行下游。
 - `ImageGenerate` 的单节点 `generationCount > 1` 也在 `execution-core.js` 内部并发执行。内部并发只用局部数组收集结果；普通运行失败时先提交已成功图片和 `generationCompletedCount`，自动重试只补剩余；批量并发运行时不得提前写共享 `node.data.image` / `node.data.images`，避免多个 batch 互相覆盖。
+
+### 请求统计约定
+
+- 请求统计面板统计的是前端节点发起的 provider 请求，不是后端访问日志聚合。侧边栏结构和按钮在 `index.html`，面板开关、排序、保留天数、日期切换事件在 `js/features/ui/ui-controller.js`，数据记录、localStorage 持久化、保留天数裁剪和渲染在 `js/features/statistics/request-statistics.js`。
+- 统计记录默认存储键是 `cainflow_request_statistics`，保留天数默认 7 天，可配置范围 1 到 365 天，最多保留 5000 条。修改存储结构时要兼容旧记录的 `timestamp`、`dayKey`、`providerId`、`providerName`、`modelName`、`nodeId`、`nodeType`、`status`、`success` 字段。
+- 统计注入点应靠近实际 provider 请求成功/失败结果，避免把预检查失败、缓存命中、固定结果复用或未真正发起上游请求的行为记成 provider 请求。若调整 `api-client.js`、`execution-core.js` 或并发 batch 提交链路，要同步确认统计只记真实请求且失败项按实际失败独立记录。
+- 统计面板属于左侧抽屉，新增控件要同时检查 `index.html`、`panel-manager.js`、`ui-controller.js` 和 `css/legacy.css` / `css/themes/*.css` 的抽屉样式与主题 token。
 
 ### 错误提示中文化
 
@@ -161,6 +170,7 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 画布交互总线 | `js/canvas/canvas-interactions.js` | 鼠标事件总线、拖拽与交互调度；拖拽时节点晃动摘取连线的识别入口；已连接输入端口改线拖拽松到空白处只断开、不弹创建候选的判定；滚轮缩放结束后的 settle delay 也在这里 |
+| 批量连线模式 | `js/canvas/batch-connection-mode.js` | 从单个锚点节点出发批量点击其他节点自动连接；进入/退出状态写入 `state.batchConnectionMode`，使用左上角悬浮通知提示，连接时按可见端口、类型兼容、输入口空闲和已存在连线判断；运行中节点不能进入或参与自动连接 |
 | 连线绘制 | `js/canvas/connections.js` | 节点连线绘制、连线可见性裁剪、选中态流动箭头动画、孤立节点拖入兼容连线的插入预览与提交，以及从端口拖到空白处松手后的“创建并自动连接节点”候选匹配；流动箭头受全局动画开关控制。像 `ImageGenerate` 这类多同型输入口节点，候选创建时不要机械使用第一个兼容端口：`CameraControl` 文本输出默认接 `camera_prompt`，其他文本输出默认接 `prompt` |
 | 节点自动整理 | `js/canvas/node-auto-layout.js` | 自动整理选中节点或全画布节点；只改变节点坐标，负责连通组件拆分、拓扑分层、按上下游端口顺序排序、按依赖中心线松弛、无连线节点网格排列，并保留运行中节点跳过、历史、连线刷新和保存链路 |
 | 几何计算 | `js/canvas/geometry.js` | 贝塞尔曲线、直角圆角连线、剪线采样、坐标相关几何工具 |
@@ -189,8 +199,14 @@
 | 提示词库管理 | `js/features/prompts/prompt-library.js` | 提示词预设的全屏管理界面行为、本地 `localStorage` 持久化、多选删除、导入/导出、导入前格式校验、导入项选择，以及导入画布时创建不重叠的 Text 节点 |
 | **日志** | | |
 | 日志面板 | `js/features/logs/log-panel.js` | 日志面板 UI、日志渲染、错误详情入口 |
+| **请求统计** | | |
+| 请求统计面板 | `js/features/statistics/request-statistics.js`, `index.html`, `js/features/ui/ui-controller.js` | 今日/历史日期节点请求统计、供应商排行、成功率、排序、保留天数和本地持久化；只记录真实 provider 请求，不从后端日志反推 |
 | **媒体** | | |
-| 图片绘制 | `js/features/media/image-painter.js` | Canvas 图片绘制与合成 |
+| 图片裁剪 | `js/features/media/image-cropper.js` | 全屏图片裁剪 helper，主要服务本地 ImageImport / 全屏预览裁切；裁剪态会影响全屏预览的点击、拖拽和按钮可用性 |
+| 图片涂鸦 | `js/features/media/image-painter.js` | Canvas 图片绘制与合成，全屏预览内的局部绘制/编辑入口 |
+| 图片显示渲染 | `js/features/media/display-image-renderer.js` | 图片节点显示渲染、透明占位像素和解码失败兜底；与 `media-preview-cache.js` 配合避免重复解码大图 |
+| 图片显示内存管理 | `js/features/media/display-image-memory-manager.js` | 图片显示对象 URL、解码资源或预览缓存的释放策略；改大图预览或大量历史图显示时要同步检查 |
+| 媒体预览缓存 | `js/features/media/media-preview-cache.js` | 媒体预览缓存、透明占位像素和图片预览复用；长期增长的缓存必须有上限或清理点 |
 | 媒体控制 | `js/features/media/media-controller.js` | 媒体资源生命周期管理、图片/视频预览与保存、缩放/对比节点的运行态同步与交互；保存节点多图预览切换、视频预览、手动下载、自动保存、下载进度/速度通知与编号文件名；图片对比高级模式的全屏界面、A/B 选图、历史图片汇总、缩略图选择区展开、鼠标切割、滚轮缩放与左键平移；提供文件导入与 data URL 直接写入入口；图片预览源和下游级联刷新必须跳过禁用节点并向下游传递空输入 |
 | 媒体工具 | `js/features/media/media-utils.js` | 图片格式转换、Blob 处理等工具函数 |
 | **相机** | | |
@@ -205,6 +221,7 @@
 | **UI 控制器** | | |
 | 剪贴板 | `js/features/ui/clipboard-controller.js` | 节点复制粘贴、剪贴板操作、节点配置字段复制 |
 | 右键菜单 | `index.html`, `js/features/ui/context-menu-controller.js`, `css/legacy.css`, `css/themes.css` | 画布/节点右键菜单结构、分类二级菜单、节点项事件分发、视口避让、悬停延迟关闭与主题样式；分类入口用 `data-submenu-target`，二级菜单用 `data-context-submenu`，具体节点创建项仍用 `data-type` |
+| 通用输入弹窗 | `js/features/ui/dialog-style-1.js`, `css/components/dialog-style-1.css` | 统一的小型确认/输入弹窗组件，适合复用到简单命令；新增一次性弹窗前先看这里，避免继续复制右键菜单里的专用 dialog 结构 |
 | 错误弹窗 | `js/features/ui/error-modal-controller.js` | 错误详情弹窗 UI |
 | 全局交互 | `js/features/ui/global-interactions.js` | 键盘快捷键、全局点击、粘贴、全局图片拖拽/drop 等顶层事件 |
 | 面板管理 | `js/features/ui/panel-manager.js` | 侧边栏面板展开收起管理 |
@@ -264,6 +281,7 @@
 | 更新路由 | `backend/routes/update_routes.py` | 在线更新下载启动、状态查询与取消接口 |
 | 媒体路由 | `backend/routes/media_routes.py` | 视频/媒体下载接口与 `/api/media/recover-image` 响应兜底恢复入口 |
 | HTTP 工具 | `backend/services/http_helpers.py` | JSON 请求体解析与 JSON / 错误响应 |
+| 下载服务 | `backend/services/download_service.py` | 媒体/视频下载等后端下载辅助能力，保存节点处理视频 URL 或远程媒体下载时优先看这里 |
 | 日志服务 | `backend/services/log_service.py` | 服务端日志收集与管理 |
 | 媒体恢复服务 | `backend/services/media_recovery_service.py` | 从异常、截断或嵌套响应文本中尝试提取 data URL、Gemini inlineData、OpenAI b64_json 等图片数据；失败时返回 attempted/message 供前端日志说明 |
 | 代理服务 | `backend/services/proxy_service.py` | 上游代理与请求转发 |
@@ -279,9 +297,9 @@
 | --- | --- | --- |
 | 样式入口 | `index.css` | 分层样式入口，@import 各子目录 |
 | Layout | `css/layout/layout.css` | 应用整体布局与面板排布 |
-| Components | `css/components/nodes.css` | 可复用的节点与组件样式；图片对比节点、高级全屏对比、A/B 互斥裁切、缩略图选择网格、展开选图态和对比舞台缩放/平移光标样式 |
-| Features | `css/features/panels.css`, `css/features/settings.css` | 功能区或面板专属样式；`panels.css` 承接提示词库、提示词导入、全屏历史、历史预览等共享面板结构与 token 消费；设置面板新增交互（如供应商模型列表弹窗、API 设置帮助弹窗、获取模型列表按钮、通用设置卡片 grid、统一滑动开关样式）放 `settings.css` |
-| Themes | `css/themes.css` | 主题切换相关样式（明暗模式等） |
+| Components | `css/components/nodes.css`, `css/components/dialog-style-1.css` | 可复用的节点与组件样式；图片对比节点、高级全屏对比、A/B 互斥裁切、缩略图选择网格、展开选图态、对比舞台缩放/平移光标，以及通用 `dialog-style-1` 弹窗样式 |
+| Features | `css/features/panels.css`, `css/features/settings.css`, `css/features/image-cropper.css` | 功能区或面板专属样式；`panels.css` 承接提示词库、提示词导入、全屏历史、历史预览等共享面板结构与 token 消费；设置面板新增交互放 `settings.css`；全屏图片裁剪相关布局和交互态放 `image-cropper.css` |
+| Themes | `css/themes.css`, `css/themes/shared.css`, `css/themes/*.css` | 主题入口、主题菜单共享层和单主题文件；当前包含 dark/light/pro/pink/glass-light/glass-dark，新增主题时同步 import、注册表和启动浅色判定 |
 | Legacy | `css/legacy.css` | 兼容层与遗留样式承接；同时维护抽屉、帮助、工作流、缓存、侧边栏、左上角悬浮通知等共享主题 token |
 
 ---
@@ -293,6 +311,7 @@
 | 修复工作流保存、加载、列表、重命名、删除、分组或拖拽排序 | `js/features/workflow/workflow-manager.js`, `js/features/persistence/workflow-model-resolver.js`, `js/services/workflow-api.js`, `backend/routes/workflow_routes.py`, `backend/services/workflow_service.py`, `backend/services/security_service.py`, `css/legacy.css` |
 | 修改 workflow JSON 契约、导入旧工作流模型匹配或缺失模型提示 | `js/nodes/node-serializer.js`, `js/features/workflow/workflow-manager.js`, `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `workflows/Default.json` |
 | 修复工作流执行、节点调度 | `js/features/execution/workflow-runner.js`, `js/features/execution/execution-core.js`, `js/features/execution/provider-request-utils.js` |
+| 修复节点请求统计、今日请求统计侧边栏、供应商排行或保留天数 | `js/features/statistics/request-statistics.js`, `index.html`, `js/features/ui/ui-controller.js`, `js/features/ui/panel-manager.js`, `css/legacy.css`, `css/themes/*.css` |
 | 修复工作流停止、手动取消、超时或自然完成的日志文案 | `js/features/execution/workflow-runner.js`, `js/services/api-client.js`, `js/features/ui/toolbar-controller.js` |
 | 修改图片/视频异步任务、轮询、恢复任务 ID 或继续下游 | `js/features/execution/async-media-execution.js`, `js/features/execution/execution-core.js`, `js/features/execution/workflow-runner.js`, `js/nodes/types/video-generate.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js` |
 | 新增模型兼容格式、协议选项、模型用途或模型卡片协议展示 | `js/features/execution/model-protocol-registry.js`, `js/features/execution/provider-request-utils.js`, `js/features/settings/settings-controller.js` |
@@ -327,6 +346,7 @@
 | 修改 TextSplit 输出数量、自动端口、多合一输出、节点内预览或输出字段序列化 | `js/nodes/types/text-split.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `js/features/execution/execution-core.js`, `css/legacy.css` |
 | 修改文本框高度缓存、TextSplit 预览区滚动或 TextChat 回复框布局 | `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/nodes/node-lifecycle.js`, `js/nodes/node-serializer.js`, `js/features/ui/clipboard-controller.js`, `css/legacy.css` |
 | 新增或修改图片对比/预览/缩放/保存类节点 | `js/nodes/types/*.js`, `js/nodes/registry.js`, `js/nodes/node-view-factory.js`, `js/nodes/node-dom-bindings.js`, `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `css/components/nodes.css` |
+| 修改全屏图片裁剪、涂鸦、透明预览占位、大图解码缓存或显示内存释放 | `js/features/media/media-controller.js`, `js/features/media/image-cropper.js`, `js/features/media/image-painter.js`, `js/features/media/display-image-renderer.js`, `js/features/media/display-image-memory-manager.js`, `js/features/media/media-preview-cache.js`, `css/features/image-cropper.css`, `css/components/nodes.css` |
 | 修改节点内下拉菜单与画布缩放的交互方式 | `js/nodes/node-dom-bindings.js`, `js/nodes/node-view-factory.js`, `css/legacy.css`, `css/themes.css`, `js/canvas/canvas-interactions.js` |
 | 修改图片对比高级模式（全屏对比、A/B 选图、历史图片、展开选择、滚轮缩放、左键平移） | `js/nodes/node-view-factory.js`, `js/features/media/media-controller.js`, `index.js`, `js/services/storage-idb.js`, `css/components/nodes.css` |
 | 修改 `ImageGenerate` 节点内进度区 / 结果区显示 | `js/nodes/node-view-factory.js`, `js/features/execution/execution-core.js`, `js/nodes/node-dom-bindings.js`, `css/legacy.css` |
@@ -334,6 +354,7 @@
 | 修复画布拖拽、框选、缩放、几何绘制、晃动摘取节点交互 | `js/canvas/canvas-interactions.js`, `js/canvas/selection.js`, `js/canvas/viewport.js`, `js/canvas/geometry.js` |
 | 修复连线绘制、孤立节点拖入连线插入预览、拖线到空白处创建候选节点后的默认接线 | `js/canvas/connections.js` |
 | 修复已连接输入端口拖拽改线、拖到空白处断开连接 | `js/nodes/node-dom-bindings.js`, `js/canvas/canvas-interactions.js`, `js/canvas/connections.js` |
+| 修改批量连线模式、批量连线提示或批量自动匹配端口 | `js/canvas/batch-connection-mode.js`, `js/features/ui/context-menu-controller.js`, `index.html`, `js/core/state.js`, `js/features/ui/floating-notices-controller.js`, `css/legacy.css`, `css/themes/*.css` |
 | 调整滚轮缩放结束后的文字锐化延迟或缩放手感 | `js/canvas/canvas-interactions.js`, `js/canvas/viewport.js`, `js/features/ui/toolbar-controller.js` |
 | 修复节点删除、摘取节点、节点尺寸显示不全兜底 | `js/nodes/node-lifecycle.js`, `js/nodes/node-dom-bindings.js` |
 | 更新左侧工具栏“帮助”面板内容、快捷键说明或帮助字体 | `js/features/help/help-panel.js`, `index.html`, `css/legacy.css` |
@@ -348,9 +369,10 @@
 | 图片节点的运行态预览、对比、下游级联刷新 | `js/features/media/media-controller.js`, `js/features/execution/execution-core.js`, `js/nodes/node-dom-bindings.js` |
 | 项目文件导入导出 | `js/features/persistence/project-io.js`, `js/features/persistence/workflow-model-resolver.js`, `js/nodes/node-serializer.js` |
 | 自动保存 / 会话恢复 | `js/features/persistence/session-manager.js` |
-| 主题切换 | `js/features/ui/theme-controller.js`, `css/themes.css`, `css/themes/shared.css`, `css/themes/*.css`, `index.html` 启动主题恢复脚本 |
+| 主题切换、新增主题或玻璃态主题 | `js/features/ui/theme-controller.js`, `css/themes.css`, `css/themes/shared.css`, `css/themes/*.css`, `index.html` 启动主题恢复脚本 |
 | Toast 通知 | `js/features/ui/toast-controller.js` |
 | 画布左上角悬浮通知 | `index.js` 的 `initFloatingNotices()`, `js/features/ui/floating-notices-controller.js`, `js/features/update/update-manager.js`, `css/legacy.css`, `css/themes/*.css`；颜色优先由 `--notice-*` token 驱动 |
+| 通用确认/输入弹窗样式 | `js/features/ui/dialog-style-1.js`, `css/components/dialog-style-1.css`, `js/features/ui/shortcut-guard.js` |
 | 键盘快捷键 / 全局事件 | `js/features/ui/global-interactions.js` |
 | 剪贴板操作 | `js/features/ui/clipboard-controller.js` |
 | 右键菜单 / 添加节点分类二级菜单 | `index.html`, `js/features/ui/context-menu-controller.js`, `css/legacy.css`, `css/themes.css` |
