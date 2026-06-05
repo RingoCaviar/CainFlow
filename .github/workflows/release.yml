@@ -275,6 +275,21 @@ jobs:
             Remove-Item -LiteralPath $smokeLog -Force
           }
 
+          function Stop-SmokeServer {
+            param([object]$Process)
+
+            if ($Process -and !$Process.HasExited) {
+              Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            }
+
+            $portPids = & lsof -tiTCP:8767 -sTCP:LISTEN 2>$null
+            foreach ($portPid in $portPids) {
+              if (![string]::IsNullOrWhiteSpace($portPid)) {
+                & kill -9 $portPid 2>$null
+              }
+            }
+          }
+
           New-Item -ItemType Directory -Path $smokeDir | Out-Null
           Push-Location $smokeDir
           try {
@@ -302,11 +317,8 @@ jobs:
 
             try {
               $healthy = $false
+              $exitDetail = ""
               for ($attempt = 1; $attempt -le 20; $attempt++) {
-                if ($process.HasExited) {
-                  throw "CainFlow exited during smoke test with code $($process.ExitCode)."
-                }
-
                 try {
                   $response = Invoke-WebRequest -Uri "http://127.0.0.1:8767/" -UseBasicParsing -TimeoutSec 2
                   if ($response.StatusCode -eq 200 -and "$($response.Content)" -match "CainFlow") {
@@ -316,17 +328,19 @@ jobs:
                 } catch {
                   Start-Sleep -Seconds 1
                 }
+
+                if ($process.HasExited -and !$exitDetail) {
+                  $exitDetail = " CainFlow launcher process exited with code $($process.ExitCode)."
+                }
               }
 
               if (!$healthy) {
-                throw "CainFlow did not serve http://127.0.0.1:8767/ during smoke test."
+                throw "CainFlow did not serve http://127.0.0.1:8767/ during smoke test.$exitDetail"
               }
 
               Write-Host "macOS package smoke test passed."
             } finally {
-              if (!$process.HasExited) {
-                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-              }
+              Stop-SmokeServer -Process $process
             }
           } catch {
             if (Test-Path -LiteralPath $smokeLog) {
