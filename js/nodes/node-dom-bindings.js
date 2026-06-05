@@ -29,6 +29,7 @@ export function createNodeDomBindingsApi({
     selectNode,
     toggleNodesEnabled,
     cancelRunningNode = null,
+    handleBatchConnectionNodeMouseDown = null,
     finishConnection,
     resumeVideoGeneration = async () => {},
     resumeImageGeneration = async () => {},
@@ -968,19 +969,19 @@ export function createNodeDomBindingsApi({
         });
     }
 
-    function toggleNodeCollapsed(id) {
+    function applyNodeCollapsedState(id, nextCollapsed) {
         const node = state.nodes.get(id);
-        if (!node?.el) return;
-        if (isNodeRunning(id)) {
-            showToast('节点正在运行，暂不能折叠或展开', 'warning');
-            return;
-        }
+        if (!node?.el) return false;
 
         const body = node.el.querySelector('.node-body');
-        if (!body) return;
+        if (!body) return false;
+
+        if (node.collapsed === nextCollapsed && node.el.classList.contains('collapsed') === nextCollapsed) {
+            syncCollapsedUnusedPorts(id);
+            return false;
+        }
 
         const currentHeight = node.el.offsetHeight || Number(node.height) || 0;
-        const nextCollapsed = !node.collapsed;
         if (!nextCollapsed && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
             node.el.style.height = `${Math.round(node.collapsedExpandedHeight)}px`;
             node.height = Math.round(node.collapsedExpandedHeight);
@@ -1019,12 +1020,39 @@ export function createNodeDomBindingsApi({
         node.observedWidth = Math.round(currentWidth);
         node.observedHeight = Math.round(nextHeight);
 
+        return true;
+    }
+
+    function getNodeCollapseTargetIds(id) {
+        if (!state.selectedNodes?.has(id)) return [id];
+        return Array.from(state.selectedNodes).filter((nodeId) => state.nodes.has(nodeId));
+    }
+
+    function toggleNodeCollapsed(id) {
+        const node = state.nodes.get(id);
+        if (!node?.el) return;
+
+        const targetIds = getNodeCollapseTargetIds(id);
+        const blockedIds = targetIds.filter((nodeId) => isNodeRunning(nodeId));
+        if (blockedIds.length > 0) {
+            showToast(blockedIds.length === targetIds.length
+                ? '节点正在运行，暂不能折叠或展开'
+                : `已跳过 ${blockedIds.length} 个正在运行的节点`, 'warning');
+        }
+
+        const nextCollapsed = !node.collapsed;
+        const changedIds = targetIds
+            .filter((nodeId) => !blockedIds.includes(nodeId))
+            .filter((nodeId) => applyNodeCollapsedState(nodeId, nextCollapsed));
+
+        if (changedIds.length === 0) return;
+
         updateAllConnections();
         updatePortStyles();
         const requestFrame = documentRef.defaultView?.requestAnimationFrame;
         if (typeof requestFrame === 'function') {
             requestFrame(() => {
-                syncCollapsedUnusedPorts(id);
+                changedIds.forEach((nodeId) => syncCollapsedUnusedPorts(nodeId));
                 updateAllConnections();
                 updatePortStyles();
             });
@@ -1717,7 +1745,21 @@ export function createNodeDomBindingsApi({
     }
 
     function bindNodeInteractions({ id, type, el }) {
+        const stopBatchConnectionFollowupClick = (event) => {
+            if (!state.batchConnectionMode?.sourceNodeId) return;
+            event.preventDefault();
+            event.stopPropagation();
+        };
+
+        el.addEventListener('click', stopBatchConnectionFollowupClick, true);
+        el.addEventListener('dblclick', stopBatchConnectionFollowupClick, true);
+
         el.addEventListener('mousedown', (e) => {
+            if (typeof handleBatchConnectionNodeMouseDown === 'function' &&
+                handleBatchConnectionNodeMouseDown(e, id)) {
+                return;
+            }
+
             const target = e.target;
 
             if (target.closest('.node-delete, .node-bypass-btn')) return;

@@ -60,6 +60,9 @@ export function createNodeSerializer({ state, documentRef }) {
                 isFailed: node.isFailed === true || node.el?.classList?.contains('error') === true,
                 lastDuration: node.lastDuration || null
             };
+            if (node.collapsed === true && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
+                serialized.collapsedExpandedHeight = Math.round(node.collapsedExpandedHeight);
+            }
             if (node.isClone === true && typeof node.cloneSourceId === 'string' && node.cloneSourceId) {
                 serialized.isClone = true;
                 serialized.cloneSourceId = node.cloneSourceId;

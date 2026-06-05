@@ -81,7 +81,7 @@ export function createRuntimeControllerApi({
         }
 
         function updatePeekState(event) {
-            if (isImmersivePreviewOpen()) {
+            if (state.batchConnectionMode?.sourceNodeId || isImmersivePreviewOpen()) {
                 body.classList.remove('toolbar-peek-active', 'sidebar-peek-active');
                 lastToolbarPeek = false;
                 lastSidebarPeek = false;

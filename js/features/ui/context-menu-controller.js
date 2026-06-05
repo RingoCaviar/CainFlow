@@ -11,6 +11,7 @@ export function createContextMenuControllerApi({
     cloneNode = null,
     detachCloneNode = null,
     renameNode = null,
+    enterBatchConnectionMode = null,
     runWorkflow,
     getRunConflictInfo = () => ({ blocked: false, count: 0 }),
     buildNodeRequestPreview = null,
@@ -26,6 +27,8 @@ export function createContextMenuControllerApi({
     const requestPreviewNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const defaultReferenceImageCount = 5;
     const maxReferenceImageCount = 64;
+    const defaultCloneNodeCount = 1;
+    const maxCloneNodeCount = 64;
 
     function setElementVisible(element, visible) {
         if (!element) return;
@@ -53,6 +56,7 @@ export function createContextMenuControllerApi({
         const runSelectedItem = documentRef.getElementById('context-menu-run-selected');
         const requestBodyItem = documentRef.getElementById('context-menu-preview-request-body');
         const renameNodeItem = documentRef.getElementById('context-menu-rename-node');
+        const batchConnectionItem = documentRef.getElementById('context-menu-batch-connection-mode');
         const referenceImageCountItem = documentRef.getElementById('context-menu-reference-image-count');
         const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
         const detachCloneNodeItem = documentRef.getElementById('context-menu-detach-clone-node');
@@ -85,6 +89,7 @@ export function createContextMenuControllerApi({
         applyRunActionState(runSelectedItem, showRunSelected ? selectedRunConflict : null, '只运行选中的节点');
         setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
+        setElementVisible(batchConnectionItem, state.selectedNodes.size === 1);
         setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));
         setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(detachCloneNodeItem, hasNodeTarget && isCloneTarget);
@@ -106,6 +111,12 @@ export function createContextMenuControllerApi({
         const parsed = parseInt(value ?? fallback, 10);
         if (!Number.isFinite(parsed)) return fallback;
         return Math.max(0, Math.min(maxReferenceImageCount, parsed));
+    }
+
+    function normalizeCloneNodeCount(value, fallback = defaultCloneNodeCount) {
+        const parsed = parseInt(value ?? fallback, 10);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.max(1, Math.min(maxCloneNodeCount, parsed));
     }
 
     function escapeHtml(value) {
@@ -180,6 +191,20 @@ export function createContextMenuControllerApi({
 
     function closeReferenceImageCountDialog() {
         getReferenceImageCountDialog().classList.add('hidden');
+    }
+
+    function getCloneNodeCountDialog() {
+        let dialog = documentRef.getElementById('clone-node-count-dialog');
+        if (dialog) return dialog;
+        dialog = documentRef.createElement('div');
+        dialog.id = 'clone-node-count-dialog';
+        dialog.className = 'reference-image-count-dialog clone-node-count-dialog hidden';
+        (documentRef.body || canvasContainer).appendChild(dialog);
+        return dialog;
+    }
+
+    function closeCloneNodeCountDialog() {
+        getCloneNodeCountDialog().classList.add('hidden');
     }
 
     function getNodeRenameDialog() {
@@ -332,6 +357,56 @@ export function createContextMenuControllerApi({
         });
     }
 
+    function openCloneNodeCountDialog(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node || node.isClone === true || typeof cloneNode !== 'function') return;
+        const dialog = getCloneNodeCountDialog();
+        dialog.innerHTML = `
+            <div class="reference-image-count-backdrop" data-close-clone-node-count="true"></div>
+            <div class="reference-image-count-panel" role="dialog" aria-modal="true" aria-labelledby="clone-node-count-title">
+                <div class="reference-image-count-header">
+                    <h3 id="clone-node-count-title">克隆节点</h3>
+                    <button type="button" class="reference-image-count-close" data-close-clone-node-count="true" title="关闭">×</button>
+                </div>
+                <div class="reference-image-count-body">
+                    <label for="clone-node-count-input">克隆数量</label>
+                    <div class="reference-image-count-stepper">
+                        <button type="button" class="reference-image-count-step" data-clone-node-count-delta="-1" title="减少" aria-label="减少克隆节点数量">−</button>
+                        <input id="clone-node-count-input" type="number" min="1" max="${maxCloneNodeCount}" step="1" value="${defaultCloneNodeCount}" />
+                        <button type="button" class="reference-image-count-step" data-clone-node-count-delta="1" title="增加" aria-label="增加克隆节点数量">+</button>
+                    </div>
+                    <p>一次最多创建 ${maxCloneNodeCount} 个克隆节点；克隆节点会继续同步源节点参数，如需单独编辑可右键独立化。</p>
+                </div>
+                <div class="reference-image-count-footer">
+                    <button type="button" class="btn btn-secondary" data-close-clone-node-count="true">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-confirm-clone-node-count">确定</button>
+                </div>
+            </div>
+        `;
+        dialog.classList.remove('hidden');
+        const input = dialog.querySelector('#clone-node-count-input');
+        input?.focus();
+        input?.select();
+        dialog.querySelectorAll('[data-close-clone-node-count="true"]').forEach((element) => {
+            element.addEventListener('click', closeCloneNodeCountDialog);
+        });
+        dialog.querySelector('#btn-confirm-clone-node-count')?.addEventListener('click', () => {
+            const count = normalizeCloneNodeCount(input?.value);
+            cloneNode(nodeId, count);
+            closeCloneNodeCountDialog();
+        });
+        dialog.querySelectorAll('[data-clone-node-count-delta]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const delta = parseInt(button.dataset.cloneNodeCountDelta || '0', 10) || 0;
+                const nextCount = normalizeCloneNodeCount((parseInt(input?.value || '1', 10) || 1) + delta);
+                if (input) input.value = String(nextCount);
+            });
+        });
+        input?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') dialog.querySelector('#btn-confirm-clone-node-count')?.click();
+        });
+    }
+
     function openReferenceImageCountDialog(nodeId) {
         const node = state.nodes.get(nodeId);
         if (!node || !referenceImageNodeTypes.has(node.type)) return;
@@ -465,6 +540,16 @@ export function createContextMenuControllerApi({
                 return;
             }
 
+            if (item.id === 'context-menu-batch-connection-mode') {
+                const nodeId = state.selectedNodes.size === 1
+                    ? Array.from(state.selectedNodes)[0]
+                    : state.contextMenuNodeId;
+                if (nodeId && typeof enterBatchConnectionMode === 'function') {
+                    enterBatchConnectionMode(nodeId);
+                }
+                return;
+            }
+
             if (item.id === 'context-menu-reference-image-count') {
                 const nodeId = state.contextMenuNodeId;
                 if (nodeId) openReferenceImageCountDialog(nodeId);
@@ -474,7 +559,7 @@ export function createContextMenuControllerApi({
             if (item.id === 'context-menu-clone-node') {
                 const nodeId = state.contextMenuNodeId;
                 if (nodeId && typeof cloneNode === 'function') {
-                    cloneNode(nodeId);
+                    openCloneNodeCountDialog(nodeId);
                 }
                 return;
             }

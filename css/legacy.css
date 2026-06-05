@@ -1187,6 +1187,66 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     box-shadow: none;
 }
 
+.node.batch-connection-source,
+.node.selected.batch-connection-source {
+    box-shadow: var(--shadow-node) !important;
+}
+
+.node.batch-connection-source::before {
+    content: "";
+    position: absolute;
+    inset: calc(-8px / var(--canvas-zoom, 1));
+    z-index: 70;
+    box-sizing: border-box;
+    border: calc(6px / var(--canvas-zoom, 1)) solid var(--accent-green, #10b981);
+    border-radius: calc(var(--radius-node) + 8px);
+    box-shadow:
+        0 0 0 calc(3px / var(--canvas-zoom, 1)) color-mix(in srgb, var(--accent-green, #10b981) 26%, transparent),
+        0 0 calc(28px / var(--canvas-zoom, 1)) color-mix(in srgb, var(--accent-green, #10b981) 62%, transparent);
+    pointer-events: none;
+}
+
+.node.batch-connection-source .node-glass-bg,
+.node.selected.batch-connection-source .node-glass-bg {
+    border-color: var(--accent-green, #10b981);
+    border-width: 3px;
+    box-shadow:
+        inset 0 0 0 2px color-mix(in srgb, var(--accent-green, #10b981) 58%, transparent),
+        0 0 calc(18px / var(--canvas-zoom, 1)) color-mix(in srgb, var(--accent-green, #10b981) 46%, transparent);
+}
+
+.node.batch-connection-source::after {
+    content: "批量连线源节点";
+    position: absolute;
+    left: 50%;
+    top: calc(-34px / var(--canvas-zoom, 1));
+    z-index: 80;
+    transform: translateX(-50%);
+    box-sizing: border-box;
+    min-width: max-content;
+    height: calc(26px / var(--canvas-zoom, 1));
+    padding: 0 calc(10px / var(--canvas-zoom, 1));
+    border: calc(1px / var(--canvas-zoom, 1)) solid color-mix(in srgb, var(--accent-green, #10b981) 72%, white);
+    border-radius: calc(999px / var(--canvas-zoom, 1));
+    background: color-mix(in srgb, var(--accent-green, #10b981) 24%, rgba(8, 18, 14, 0.96));
+    color: color-mix(in srgb, var(--accent-green, #10b981) 72%, white);
+    box-shadow: 0 calc(8px / var(--canvas-zoom, 1)) calc(18px / var(--canvas-zoom, 1)) rgba(0, 0, 0, 0.28);
+    font-size: calc(12px / var(--canvas-zoom, 1));
+    font-weight: 800;
+    line-height: calc(24px / var(--canvas-zoom, 1));
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.node.batch-connection-dimmed {
+    opacity: 0.38;
+    filter: grayscale(1) saturate(0.45);
+}
+
+.node.batch-connection-dimmed .node-glass-bg {
+    border-color: color-mix(in srgb, var(--text-dim) 42%, transparent);
+}
+
 /* Only degrade heavy content for the node that is actively being dragged/resized. */
 .node.is-interacting {
     transition: none !important;
@@ -5935,6 +5995,16 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
 .workflow-backup-notice {
     border-color: var(--notice-highlight-border);
     background: var(--notice-highlight-bg);
+}
+
+.batch-connection-mode-notice {
+    border-color: color-mix(in srgb, var(--accent-green, #10b981) 44%, transparent);
+    background: color-mix(in srgb, var(--accent-green, #10b981) 14%, var(--notice-bg));
+}
+
+.batch-connection-mode-notice .notice-icon {
+    background: color-mix(in srgb, var(--accent-green, #10b981) 18%, transparent);
+    color: var(--accent-green, #10b981);
 }
 
 .update-canvas-notice {

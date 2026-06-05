@@ -55,6 +55,7 @@ export function createInitialState() {
         dragging: null,
         connectionInsertPreview: null,
         connectionCreatePopup: null,
+        batchConnectionMode: null,
         connecting: null,
         resizing: null,
         marquee: null,

@@ -34,6 +34,7 @@ import {
     getConnectionSamplePoints as getConnectionSamplePointsService
 } from './js/canvas/geometry.js';
 import { createConnectionsApi } from './js/canvas/connections.js';
+import { createBatchConnectionModeApi } from './js/canvas/batch-connection-mode.js';
 import { createSelectionApi } from './js/canvas/selection.js';
 import { createViewportApi } from './js/canvas/viewport.js';
 import { createCanvasInteractionsApi } from './js/canvas/canvas-interactions.js';
@@ -280,6 +281,7 @@ let clipboardControllerApi = null;
 let globalInteractionsApi = null;
 let toolbarControllerApi = null;
 let canvasInteractionsApi = null;
+let batchConnectionModeApi = null;
 let nodeAutoLayoutApi = null;
 let nodeLifecycleApi = null;
 let contextMenuControllerApi = null;
@@ -638,6 +640,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     selectNode: (nodeId, isMulti) => selectNode(nodeId, isMulti),
     toggleNodesEnabled: (nodeIds, referenceNodeId) => toggleNodesEnabled(nodeIds, referenceNodeId),
     cancelRunningNode: (nodeId) => cancelRunningNode(nodeId),
+    handleBatchConnectionNodeMouseDown: (event, nodeId) => getBatchConnectionModeApi().handleNodeMouseDown(event, nodeId),
     finishConnection: (src, tgt) => finishConnection(src, tgt),
     resumeVideoGeneration: (nodeId) => getWorkflowRunnerApi().resumeVideoNodeBranch(nodeId),
     resumeImageGeneration: (nodeId) => getWorkflowRunnerApi().resumeImageNodeBranch(nodeId),
@@ -671,10 +674,29 @@ const {
     updatePortStyles
 } = connectionsApi;
 
+function getBatchConnectionModeApi() {
+    if (!batchConnectionModeApi) {
+        batchConnectionModeApi = createBatchConnectionModeApi({
+            state,
+            canvasContainer,
+            pushHistory,
+            updateAllConnections,
+            updatePortStyles,
+            enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
+            scheduleSave,
+            showToast,
+            floatingNoticesApi: getFloatingNoticesApi(),
+            onConnectionsChanged: () => handleNodeGraphChanged()
+        });
+    }
+    return batchConnectionModeApi;
+}
+
 // ===== 平移、选择与焦点管理 =====
 getCanvasInteractionsApi().initCanvasInteractions();
 
 getContextMenuControllerApi().initContextMenu();
+getBatchConnectionModeApi().initBatchConnectionMode();
 
 // ===== 节点配置 =====
 /**
@@ -1019,7 +1041,7 @@ function getContextMenuControllerApi() {
             connectionCreatePopup,
             viewportApi,
             addNode,
-            cloneNode: (nodeId) => getNodeLifecycleApi().cloneNode(nodeId),
+            cloneNode: (nodeId, count) => getNodeLifecycleApi().cloneNode(nodeId, count),
             detachCloneNode: (nodeId) => getNodeLifecycleApi().detachCloneNode(nodeId),
             renameNode,
             runWorkflow,
@@ -1031,6 +1053,7 @@ function getContextMenuControllerApi() {
                 return getWorkflowRuntimeManagerApi().getRunConflictInfo(workflowName, workflowData, runInput);
             },
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
+            enterBatchConnectionMode: (nodeId) => getBatchConnectionModeApi().enter(nodeId),
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             fitNodeToContent,
             updateAllConnections,

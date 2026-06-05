@@ -1000,12 +1000,20 @@ export function createNodeLifecycleApi({
         const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config);
         el.style.width = initialWidth + 'px';
 
+        const restoredHeight = Number(effectiveRestoreData?.height);
+        const hasRestoredHeight = Number.isFinite(restoredHeight) && restoredHeight > 0;
+        const isRestoringCollapsed = effectiveRestoreData?.collapsed === true;
+        const initialHeightSource = isRestoringCollapsed && hasRestoredHeight
+            ? restoredHeight
+            : Math.max(hasRestoredHeight ? restoredHeight : 0, getDefaultNodeHeight(config));
         const clampedInitialHeight = clampNodeHeight(
-            Math.max(Number(effectiveRestoreData?.height) || 0, getDefaultNodeHeight(config)),
+            initialHeightSource,
             config,
-            { isRestore: Boolean(effectiveRestoreData?.height) }
+            { isRestore: hasRestoredHeight }
         );
-        const initialHeight = Math.max(clampedInitialHeight || 0, getDefaultNodeHeight(config));
+        const initialHeight = isRestoringCollapsed && hasRestoredHeight
+            ? Math.max(clampedInitialHeight || 0, 1)
+            : Math.max(clampedInitialHeight || 0, getDefaultNodeHeight(config));
         if (initialHeight) el.style.height = initialHeight + 'px';
 
         try {
@@ -1065,6 +1073,10 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        const restoredCollapsedExpandedHeight = Number(effectiveRestoreData?.collapsedExpandedHeight);
+        if (nodeData.collapsed && Number.isFinite(restoredCollapsedExpandedHeight) && restoredCollapsedExpandedHeight > 0) {
+            nodeData.collapsedExpandedHeight = Math.round(restoredCollapsedExpandedHeight);
+        }
         if (normalizedType === 'ImageCompare') {
             const restoredCompareA = typeof effectiveRestoreData?.compareImageA === 'string' && effectiveRestoreData.compareImageA.trim()
                 ? effectiveRestoreData.compareImageA
@@ -1280,10 +1292,14 @@ export function createNodeLifecycleApi({
         state.nodes.set(id, nodeData);
         if (nodeData.collapsed) {
             const collapsedMinimum = getNodeMinimumSize(nodeData);
-            if (collapsedMinimum?.minHeight) {
-                el.style.height = `${Math.round(collapsedMinimum.minHeight)}px`;
-                nodeData.height = Math.round(collapsedMinimum.minHeight);
-                nodeData.observedHeight = Math.round(collapsedMinimum.minHeight);
+            const restoredCollapsedHeight = hasRestoredHeight ? Math.round(restoredHeight) : 0;
+            const nextCollapsedHeight = restoredCollapsedHeight > 0
+                ? restoredCollapsedHeight
+                : Math.round(collapsedMinimum?.minHeight || 0);
+            if (nextCollapsedHeight > 0) {
+                el.style.height = `${nextCollapsedHeight}px`;
+                nodeData.height = nextCollapsedHeight;
+                nodeData.observedHeight = nextCollapsedHeight;
             }
         }
         el.addEventListener('load', (event) => {
@@ -1844,7 +1860,7 @@ export function createNodeLifecycleApi({
         return true;
     }
 
-    function cloneNode(sourceNodeId) {
+    function cloneNode(sourceNodeId, count = 1) {
         const sourceNode = state.nodes.get(sourceNodeId);
         if (!sourceNode) return null;
         if (sourceNode.isClone) {
@@ -1856,30 +1872,38 @@ export function createNodeLifecycleApi({
             return null;
         }
 
-        pushHistory();
+        const cloneCount = Math.max(1, Math.min(64, parseInt(count, 10) || 1));
         const snapshot = serializeOneNode(sourceNodeId);
         if (!snapshot) return null;
-        const newId = addNode(sourceNode.type, sourceNode.x + 36, sourceNode.y + 36, {
-            ...snapshot,
-            id: null,
-            x: sourceNode.x + 36,
-            y: sourceNode.y + 36,
-            isClone: true,
-            cloneSourceId: sourceNodeId
-        }, true);
-        if (!newId) return null;
+        pushHistory();
+        const newIds = [];
+        for (let index = 0; index < cloneCount; index += 1) {
+            const offset = 36 * (index + 1);
+            const newId = addNode(sourceNode.type, sourceNode.x + offset, sourceNode.y + offset, {
+                ...snapshot,
+                id: null,
+                x: sourceNode.x + offset,
+                y: sourceNode.y + offset,
+                isClone: true,
+                cloneSourceId: sourceNodeId
+            }, true);
+            if (newId) newIds.push(newId);
+        }
+        if (!newIds.length) return null;
 
         state.selectedNodes.forEach((nid) => {
             const node = state.nodes.get(nid);
             if (node) node.el.classList.remove('selected');
         });
         state.selectedNodes.clear();
-        state.selectedNodes.add(newId);
-        state.nodes.get(newId)?.el.classList.add('selected');
+        newIds.forEach((newId) => {
+            state.selectedNodes.add(newId);
+            state.nodes.get(newId)?.el.classList.add('selected');
+        });
         updateAllConnections();
         scheduleSave();
-        showToast('已创建克隆节点', 'success');
-        return newId;
+        showToast(cloneCount > 1 ? `已创建 ${newIds.length} 个克隆节点` : '已创建克隆节点', 'success');
+        return cloneCount > 1 ? newIds : newIds[0];
     }
 
     function detachCloneNode(nodeId) {

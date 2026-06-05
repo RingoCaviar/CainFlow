@@ -42,6 +42,9 @@ export function createClipboardControllerApi({
             userResized: node.userResized === true,
             collapsed: node.collapsed === true
         };
+        if (node.collapsed === true && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
+            serialized.collapsedExpandedHeight = Math.round(node.collapsedExpandedHeight);
+        }
         if (typeof node.customTitle === 'string' && node.customTitle.trim()) {
             serialized.customTitle = node.customTitle.trim();
         }
