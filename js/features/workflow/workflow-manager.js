@@ -1088,9 +1088,18 @@ export function createWorkflowManagerApi({
         list.innerHTML = `<div class="workflow-empty">${escapeHtml(text)}</div>`;
     }
 
+    function getCenteredCanvasState() {
+        const canvasContainer = documentRef.getElementById('canvas-container');
+        return {
+            x: (canvasContainer?.clientWidth || windowRef.innerWidth || 0) / 2,
+            y: (canvasContainer?.clientHeight || windowRef.innerHeight || 0) / 2,
+            zoom: 1
+        };
+    }
+
     function getEmptyWorkflowData() {
         return {
-            canvas: { x: 0, y: 0, zoom: 1 },
+            canvas: getCenteredCanvasState(),
             nodes: [],
             connections: [],
             version: WORKFLOW_VERSION
@@ -1108,10 +1117,10 @@ export function createWorkflowManagerApi({
     }
 
     function centerEmptyWorkflowCanvas() {
-        const canvasContainer = documentRef.getElementById('canvas-container');
-        state.canvas.x = (canvasContainer?.clientWidth || windowRef.innerWidth || 0) / 2;
-        state.canvas.y = (canvasContainer?.clientHeight || windowRef.innerHeight || 0) / 2;
-        state.canvas.zoom = 1;
+        const centered = getCenteredCanvasState();
+        state.canvas.x = centered.x;
+        state.canvas.y = centered.y;
+        state.canvas.zoom = centered.zoom;
         viewportApi.updateCanvasTransform();
     }
 
@@ -2034,7 +2043,7 @@ export function createWorkflowManagerApi({
     async function createNewWorkflow() {
         const names = await fetchWorkflows();
         const name = findNextUnsavedName(names);
-        const shouldInheritCanvas = !getActiveWorkflowTab();
+        const shouldInheritCanvas = false;
         const data = getNewWorkflowData({ inheritCurrentCanvas: shouldInheritCanvas });
         if (!(await saveWorkflowToFile(name, data))) return false;
         snapshotActiveWorkflow();

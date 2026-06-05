@@ -1,5 +1,9 @@
 /* Glass Dark theme: quiet blue-black glass surfaces for low-light work. */
 :root[data-app-theme="glass-dark"] {
+    --glass-node-opacity: 0.1;
+    --glass-node-blur-radius: 6px;
+    --glass-node-surface-rgb: 13, 21, 32;
+    --glass-node-surface-hover-rgb: 19, 30, 44;
     --glass-surface: rgba(16, 24, 37, 0.76);
     --glass-surface-soft: rgba(21, 31, 46, 0.58);
     --glass-surface-hover: rgba(30, 43, 61, 0.82);
@@ -402,11 +406,11 @@ html[data-app-theme="glass-dark"] #btn-theme-toggle {
 
 html[data-app-theme="glass-dark"] .node-glass-bg {
     overflow: hidden;
-    background: var(--glass-card-surface);
+    background: rgba(var(--glass-node-surface-rgb), var(--glass-node-opacity));
     border-color: var(--border-node);
     box-shadow: var(--shadow-node);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: blur(var(--glass-node-blur-radius));
+    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius));
 }
 
 html[data-app-theme="glass-dark"] .node-glass-bg::before {
@@ -414,15 +418,15 @@ html[data-app-theme="glass-dark"] .node-glass-bg::before {
 }
 
 html[data-app-theme="glass-dark"] .node.selected .node-glass-bg {
-    background: var(--glass-card-surface-hover);
+    background: rgba(var(--glass-node-surface-hover-rgb), var(--glass-node-opacity));
     border-color: var(--glass-border-strong);
     box-shadow: none;
 }
 
 html[data-app-theme="glass-dark"] .node.is-interacting .node-glass-bg,
 html[data-app-theme="glass-dark"] #canvas-container.is-zooming .node-glass-bg {
-    backdrop-filter: var(--glass-blur) !important;
-    -webkit-backdrop-filter: var(--glass-blur) !important;
+    backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
+    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
 }
 
 html[data-app-theme="glass-dark"] .node.running .node-glass-bg {

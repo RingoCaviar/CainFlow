@@ -1,5 +1,9 @@
 /* Glass Light theme: soft translucent light surfaces. */
 :root[data-app-theme="glass-light"] {
+    --glass-node-opacity: 0.1;
+    --glass-node-blur-radius: 6px;
+    --glass-node-surface-rgb: 255, 255, 255;
+    --glass-node-surface-hover-rgb: 236, 254, 255;
     --bg-canvas: #eef7fb;
     --bg-grid-dot: rgba(48, 82, 112, 0.13);
     --canvas-bg-color: #eef7fb;
@@ -604,6 +608,29 @@ html[data-app-theme="glass-light"] #settings-modal .general-settings-card:hover 
     border-color: rgba(37, 99, 235, 0.24) !important;
 }
 
+html[data-app-theme="glass-light"] .image-resize-mode-shell {
+    background: var(--panel-bg-soft);
+    border-color: var(--panel-border);
+    box-shadow: none;
+}
+
+html[data-app-theme="glass-light"] .image-resize-mode-btn {
+    color: var(--panel-control-text);
+}
+
+html[data-app-theme="glass-light"] .image-resize-mode-btn:hover {
+    background: var(--panel-control-hover-bg);
+    border-color: var(--panel-control-hover-border);
+    color: var(--panel-control-hover-text);
+}
+
+html[data-app-theme="glass-light"] .image-resize-mode-btn.active {
+    background: var(--panel-active-bg);
+    border-color: var(--panel-active-border);
+    color: var(--panel-accent-text);
+    box-shadow: none;
+}
+
 html[data-app-theme="glass-light"] #cache-sidebar .cache-drawer-content {
     display: flex;
     flex-direction: column;
@@ -1097,23 +1124,23 @@ html[data-app-theme="glass-light"] .btn-stop {
 }
 
 html[data-app-theme="glass-light"] .node-glass-bg {
-    background: var(--glass-card-surface);
+    background: rgba(var(--glass-node-surface-rgb), var(--glass-node-opacity));
     border-color: var(--glass-border);
     box-shadow: var(--shadow-node);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: blur(var(--glass-node-blur-radius));
+    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius));
 }
 
 html[data-app-theme="glass-light"] .node.selected .node-glass-bg {
-    background: var(--glass-card-surface-hover);
+    background: rgba(var(--glass-node-surface-hover-rgb), var(--glass-node-opacity));
     border-color: var(--glass-border-strong);
     box-shadow: none;
 }
 
 html[data-app-theme="glass-light"] .node.is-interacting .node-glass-bg,
 html[data-app-theme="glass-light"] #canvas-container.is-zooming .node-glass-bg {
-    backdrop-filter: var(--glass-blur) !important;
-    -webkit-backdrop-filter: var(--glass-blur) !important;
+    backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
+    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
 }
 
 html[data-app-theme="glass-light"] .node-header,

@@ -10,6 +10,29 @@ import {
 const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
 export function createNodeSerializer({ state, documentRef }) {
+    function getOrderedNodes() {
+        const nodesLayer = documentRef.getElementById('nodes-layer');
+        if (!nodesLayer) return Array.from(state.nodes.entries());
+
+        const orderedEntries = [];
+        const seenIds = new Set();
+
+        Array.from(nodesLayer.children).forEach((child) => {
+            const nodeId = child?.id;
+            if (!nodeId || !state.nodes.has(nodeId)) return;
+            orderedEntries.push([nodeId, state.nodes.get(nodeId)]);
+            seenIds.add(nodeId);
+        });
+
+        for (const entry of state.nodes.entries()) {
+            if (!seenIds.has(entry[0])) {
+                orderedEntries.push(entry);
+            }
+        }
+
+        return orderedEntries;
+    }
+
     function getNodeTextareaHeights(id) {
         const heights = {};
         documentRef.querySelectorAll(`#${id} textarea[id^="${id}-"]`).forEach((textarea) => {
@@ -24,7 +47,7 @@ export function createNodeSerializer({ state, documentRef }) {
 
     function serializeNodes(includeImages = false) {
         const nodes = [];
-        for (const [id, node] of state.nodes) {
+        for (const [id, node] of getOrderedNodes()) {
             const serialized = {
                 id,
                 type: node.type,
@@ -62,7 +85,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 ? node.imageImportAssetKey
                 : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
             const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
-            const shouldInlineResultImage = includeImages || !hasRecoverableImageAsset || node.data?.imageAssetReady !== true;
+            const shouldInlineResultImage = includeImages === true;
             if (usesCanonicalImages) {
                 if (shouldInlineResultImage && images.length > 0) {
                     serialized.imageList = images.slice();
@@ -288,7 +311,7 @@ export function createNodeSerializer({ state, documentRef }) {
     function buildWorkflowExport(version = '1.3') {
         return {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
-            nodes: serializeNodes(),
+            nodes: serializeNodes(true),
             connections: state.connections.map((connection) => ({
                 id: connection.id,
                 from: connection.from,

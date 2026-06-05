@@ -329,6 +329,7 @@ async function runWithMediaRestoreBatch(task) {
 
 function handleNodeGraphChanged(options = {}) {
     const { force = false } = options;
+    getNodeLifecycleApi().refreshNodeRelationCache?.();
     nodeDomBindingsApi?.syncImageMergeNodes?.();
     if (!force && isMediaRestoreBatchActive()) {
         return;

@@ -1722,10 +1722,10 @@ export function createNodeDomBindingsApi({
 
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
-            const interactiveSelector = 'input, textarea, select, button, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
+            const interactiveSelector = 'input, textarea, select, button, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn, .preview-container, .save-preview-container, .file-drop-zone';
             const isInteractive = target.closest(interactiveSelector);
 
-            const dragAreaSelector = '.file-drop-zone, .preview-container, .save-preview-container, .node-header, .node-glass-bg';
+            const dragAreaSelector = '.node-header, .node-glass-bg';
             const isForceDrag = target.matches(dragAreaSelector) || (target.parentElement && target.parentElement.matches(dragAreaSelector));
 
             if (isInteractive && !isForceDrag) return;

@@ -1155,9 +1155,8 @@ export function createMediaControllerApi({
             if (isTypingIntoField()) return;
             if (hasBlockingImmersiveOverlay()) return;
             if (!(event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return;
-            if (state.selectedNodes?.size !== 1) return;
-
-            const selectedNodeId = Array.from(state.selectedNodes)[0];
+            const selectedNodeId = getFocusedNodeId();
+            if (!selectedNodeId) return;
             const node = getNodeById(selectedNodeId);
             if (!node || (node.type !== 'ImagePreview' && node.type !== 'ImageGenerate' && node.type !== 'ImageSave')) return;
 
@@ -2414,6 +2413,16 @@ export function createMediaControllerApi({
         });
     }
 
+    function getFocusedNodeId() {
+        if (state.selectedNodes?.size === 1) {
+            const selectedNodeId = Array.from(state.selectedNodes)[0];
+            if (state.nodes?.has(selectedNodeId)) return selectedNodeId;
+        }
+        return state.activeNodeId && state.nodes?.has(state.activeNodeId)
+            ? state.activeNodeId
+            : null;
+    }
+
     async function autoSaveToDir(nodeId, dataUrl) {
         const node = getNodeById(nodeId);
         if (!node) return;
@@ -3014,6 +3023,7 @@ export function createMediaControllerApi({
         const overlay = documentRef.createElement('div');
         overlay.className = 'fullscreen-overlay fullscreen-ignore-chrome';
         overlay.tabIndex = -1;
+        documentRef.body?.classList.add('preview-active');
         const context = nodeId ? await getNodeFullscreenImageContext(nodeId, src) : {
             node: null,
             images: normalizeImageList(src),
@@ -3218,6 +3228,9 @@ export function createMediaControllerApi({
             flushNodePreviewState();
             cropper?.cleanup();
             overlay.remove();
+            if (!documentRef.querySelector('.fullscreen-overlay') && documentRef.getElementById('history-preview-modal')?.classList.contains('hidden') !== false) {
+                documentRef.body?.classList.remove('preview-active');
+            }
             windowRef.removeEventListener('mousemove', onMove);
             windowRef.removeEventListener('mouseup', onUp);
             documentRef.removeEventListener('keydown', onEsc);

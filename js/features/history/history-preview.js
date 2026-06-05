@@ -360,6 +360,9 @@ export function createHistoryPreviewApi({
             modal.classList.add('hidden');
             modal.classList.remove('history-preview-from-fullscreen', 'history-preview-ignore-chrome');
         }
+        if (!documentRef.querySelector('.fullscreen-overlay')) {
+            documentRef.body?.classList.remove('preview-active');
+        }
         if (img) {
             img.onload = null;
             img.removeAttribute('src');
@@ -405,6 +408,7 @@ export function createHistoryPreviewApi({
         const modal = documentRef.getElementById('history-preview-modal');
         const viewport = documentRef.getElementById('preview-viewport');
         if (!modal) return;
+        documentRef.body?.classList.add('preview-active');
         modal.classList.toggle('history-preview-from-fullscreen', options.fromFullscreen === true);
         modal.classList.add('history-preview-ignore-chrome');
         modal.classList.remove('hidden');

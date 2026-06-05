@@ -707,7 +707,16 @@ export function createConnectionsApi({
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
             const pathStr = createBezierPath(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
-            const isSelected = state.selectedNodes.has(conn.from.nodeId) || state.selectedNodes.has(conn.to.nodeId);
+            const relationCache = state.activeNodeRelationCache || {};
+            const activeNodeId = relationCache.anchorNodeId || state.activeNodeId || null;
+            const incomingConnectionIds = new Set(relationCache.incomingConnectionIds || []);
+            const outgoingConnectionIds = new Set(relationCache.outgoingConnectionIds || []);
+            const isSelected = state.selectedNodes.has(conn.from.nodeId) ||
+                state.selectedNodes.has(conn.to.nodeId) ||
+                conn.from.nodeId === activeNodeId ||
+                conn.to.nodeId === activeNodeId ||
+                incomingConnectionIds.has(conn.id) ||
+                outgoingConnectionIds.has(conn.id);
             const shouldAnimateFlow = hasRunningEndpoint(conn);
 
             if (!path) {

@@ -1681,6 +1681,12 @@ export function createNodeLifecycleApi({
         if (getCacheSidebarActive()) {
             updateCacheUsage();
         }
+        if (state.activeNodeId && !state.nodes.has(state.activeNodeId)) {
+            state.activeNodeId = state.selectedNodes.size === 1
+                ? Array.from(state.selectedNodes)[0]
+                : null;
+        }
+        refreshNodeRelationCache();
     }
 
     function selectNode(id, isMulti) {
@@ -1698,10 +1704,71 @@ export function createNodeLifecycleApi({
             if (node) node.el.classList.remove('selected');
         } else {
             state.selectedNodes.add(id);
+            state.activeNodeId = id;
             const node = state.nodes.get(id);
-            if (node) node.el.classList.add('selected');
+            if (node) {
+                node.el.classList.add('selected');
+                if (node.el.parentElement === nodesLayer) {
+                    nodesLayer.appendChild(node.el);
+                }
+            }
+            scheduleSave();
         }
+        refreshNodeRelationCache();
         updateAllConnections();
+    }
+
+    function getRelationAnchorNodeId() {
+        if (state.selectedNodes.size === 1) {
+            const selectedNodeId = Array.from(state.selectedNodes)[0];
+            if (state.nodes.has(selectedNodeId)) return selectedNodeId;
+        }
+        if (state.activeNodeId && state.nodes.has(state.activeNodeId)) {
+            return state.activeNodeId;
+        }
+        return null;
+    }
+
+    function refreshNodeRelationCache() {
+        const anchorNodeId = getRelationAnchorNodeId();
+        if (!anchorNodeId) {
+            state.activeNodeRelationCache = {
+                anchorNodeId: null,
+                incomingNodeIds: [],
+                outgoingNodeIds: [],
+                incomingConnectionIds: [],
+                outgoingConnectionIds: [],
+                updatedAt: Date.now()
+            };
+            return state.activeNodeRelationCache;
+        }
+
+        const incomingNodeIds = [];
+        const outgoingNodeIds = [];
+        const incomingConnectionIds = [];
+        const outgoingConnectionIds = [];
+
+        state.connections.forEach((connection) => {
+            if (connection?.to?.nodeId === anchorNodeId) {
+                incomingNodeIds.push(connection.from.nodeId);
+                incomingConnectionIds.push(connection.id);
+            }
+            if (connection?.from?.nodeId === anchorNodeId) {
+                outgoingNodeIds.push(connection.to.nodeId);
+                outgoingConnectionIds.push(connection.id);
+            }
+        });
+
+        state.activeNodeId = anchorNodeId;
+        state.activeNodeRelationCache = {
+            anchorNodeId,
+            incomingNodeIds,
+            outgoingNodeIds,
+            incomingConnectionIds,
+            outgoingConnectionIds,
+            updatedAt: Date.now()
+        };
+        return state.activeNodeRelationCache;
     }
 
     function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
@@ -1849,6 +1916,7 @@ export function createNodeLifecycleApi({
         removeNode,
         detachNodesFromConnections,
         selectNode,
+        refreshNodeRelationCache,
         toggleNodesEnabled,
         renameNode,
         cloneNode,
