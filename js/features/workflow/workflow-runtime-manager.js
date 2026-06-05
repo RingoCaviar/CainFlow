@@ -282,10 +282,10 @@ function serializeRuntimeNode(node, doc) {
         serialized.text = node.data?.text || '';
         serialized.delimiter = readElementControlValue(doc, `${node.id}-delimiter`, node.data?.delimiter || '');
         const mergeOutputEnabled = readElementControlValue(doc, `${node.id}-merge-output-enabled`, node.data?.mergeOutputEnabled === true) === true;
-        const parsedOutputCount = parseInt(readElementControlValue(doc, `${node.id}-output-count`, node.data?.outputCount ?? '1'), 10);
-        serialized.outputCount = mergeOutputEnabled ? 0 : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1);
+        const parsedOutputCount = parseInt(readElementControlValue(doc, `${node.id}-output-count`, node.data?.outputCount ?? '0'), 10);
+        serialized.outputCount = mergeOutputEnabled ? 0 : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 0);
         serialized.removeEmptyLines = readElementControlValue(doc, `${node.id}-remove-empty-lines`, node.data?.removeEmptyLines === true) === true;
-        serialized.previewEnabled = readElementControlValue(doc, `${node.id}-preview-enabled`, node.data?.previewEnabled === true) === true;
+        serialized.previewEnabled = readElementControlValue(doc, `${node.id}-preview-enabled`, node.data?.previewEnabled !== false) !== false;
         serialized.mergeOutputEnabled = mergeOutputEnabled;
         serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];
     }

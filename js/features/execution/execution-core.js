@@ -1045,9 +1045,12 @@ export function createExecutionCoreApi({
             if (node.data && node.data[portName] !== undefined) return node.data[portName];
             const text = node.data?.text || '';
             const delimiter = documentRef.getElementById(`${node.id}-delimiter`)?.value || '';
-            const parsedOutputCount = parseInt(documentRef.getElementById(`${node.id}-output-count`)?.value ?? node.data?.outputCount ?? '1', 10);
-            const outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
-            const removeEmptyLines = documentRef.getElementById(`${node.id}-remove-empty-lines`)?.checked === true;
+            const parsedOutputCount = parseInt(documentRef.getElementById(`${node.id}-output-count`)?.value ?? node.data?.outputCount ?? '0', 10);
+            const outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 0;
+            const removeEmptyLinesInput = documentRef.getElementById(`${node.id}-remove-empty-lines`);
+            const removeEmptyLines = removeEmptyLinesInput
+                ? removeEmptyLinesInput.checked === true
+                : node.data?.removeEmptyLines === true;
             const rawParts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines });
             const parts = outputCount === 0 ? rawParts : rawParts.slice(0, outputCount);
             const index = Math.max(0, parseInt(portName.replace('part_', ''), 10) - 1);
@@ -2217,12 +2220,16 @@ export function createExecutionCoreApi({
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
             const text = hasIncomingText ? getPrimaryTextInput(inputs.text) : (node.data.text || '');
             const delimiter = delimiterInput?.value ?? node.data.delimiter ?? '';
-            const parsedOutputCount = parseInt(outputCountInput?.value ?? node.data.outputCount ?? '1', 10);
-            const removeEmptyLines = removeEmptyLinesInput?.checked === true;
-            const mergeOutputEnabled = mergeOutputEnabledInput?.checked === true;
+            const parsedOutputCount = parseInt(outputCountInput?.value ?? node.data.outputCount ?? '0', 10);
+            const removeEmptyLines = removeEmptyLinesInput
+                ? removeEmptyLinesInput.checked === true
+                : node.data?.removeEmptyLines === true;
+            const mergeOutputEnabled = mergeOutputEnabledInput
+                ? mergeOutputEnabledInput.checked === true
+                : node.data?.mergeOutputEnabled === true;
             const outputCount = mergeOutputEnabled
                 ? 0
-                : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1);
+                : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 0);
             const rawParts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines });
             const parts = outputCount === 0 ? rawParts : rawParts.slice(0, outputCount);
             node.data.text = text;
@@ -2244,7 +2251,12 @@ export function createExecutionCoreApi({
             });
             syncTextSplitNodeData(node.id);
             updateAllConnections();
-            return mergeOutputEnabled ? { text: parts.slice() } : {};
+            return mergeOutputEnabled
+                ? { text: parts.slice() }
+                : parts.reduce((outputs, part, index) => {
+                    outputs[`part_${index + 1}`] = part;
+                    return outputs;
+                }, {});
         },
         TextDisplay: async (node, inputs) => {
             const text = getPrimaryTextInput(inputs.text);

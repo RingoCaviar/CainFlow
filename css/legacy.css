@@ -4844,8 +4844,24 @@ input[type=number] {
 }
 
 .node-text-split .text-split-delimiter {
-    min-height: 44px;
-    resize: vertical;
+    flex: 0 0 auto;
+    height: 48px;
+    min-height: 48px;
+    max-height: 48px;
+    resize: none;
+    overflow-y: auto;
+}
+
+.node-text-split .text-split-delimiter-field {
+    flex: 0 0 auto;
+    min-height: 72px;
+}
+
+.node-text-split .text-split-delimiter-field,
+.node-text-split .text-split-preview-field {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .node-text-split .text-split-output-hint {
@@ -4865,22 +4881,31 @@ input[type=number] {
 }
 
 .node-text-split .node-body {
+    display: grid;
+    grid-template-rows: auto auto auto auto auto auto minmax(0, 1fr);
+    align-content: stretch;
     overflow: hidden;
+}
+
+.node-text-split .text-split-preview-field {
+    min-height: 0;
 }
 
 .node-text-split .text-split-preview {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1 1 0;
+    flex: 1 1 auto;
     min-height: 0;
     max-height: none;
     overflow-y: auto;
     overflow-x: hidden;
+    scroll-padding-block: 8px;
 }
 
 .node-text-split .text-split-preview-item {
     flex: 0 0 auto;
+    overflow: hidden;
     border: 1px solid var(--border-input);
     background: var(--bg-input);
     border-radius: var(--radius-sm);
@@ -4897,13 +4922,19 @@ input[type=number] {
 
 .node-text-split .text-split-preview-text {
     margin: 0;
+    display: block;
+    width: 100%;
+    height: 54px;
+    min-height: 54px;
     white-space: pre-wrap;
     word-break: break-word;
     overflow-wrap: break-word;
+    overflow: auto;
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-secondary);
+    scrollbar-gutter: stable;
 }
 
 .node-text-split .text-split-preview-empty {

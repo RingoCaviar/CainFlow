@@ -2,7 +2,7 @@
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
  */
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
-import { cleanupElementResources, splitTextForTextSplitNode } from '../core/common-utils.js';
+import { cleanupElementResources } from '../core/common-utils.js';
 import {
     normalizeConcurrentRequestStatusPayload,
     renderConcurrentRequestStatusPanel
@@ -555,13 +555,6 @@ export function createNodeLifecycleApi({
         const minWidth = getPx(style, 'min-width');
         const minHeight = getPx(style, 'min-height');
 
-        if (el.classList.contains('text-split-preview')) {
-            return {
-                width: Math.ceil(minWidth + marginX),
-                height: Math.ceil(minHeight + marginY)
-            };
-        }
-
         if (isResizableMediaElement(el)) {
             return {
                 width: Math.ceil(minWidth + marginX),
@@ -745,7 +738,9 @@ export function createNodeLifecycleApi({
         }
         const bodySize = body && !isCollapsed ? getElementMinimumSize(body) : { width: 0, height: 0 };
         const bodyRenderedHeight = body && !isCollapsed
-            ? Math.max(body.offsetHeight || 0, body.scrollHeight || 0)
+            ? (hasScrollableResultContent(body)
+                ? bodySize.height
+                : Math.max(body.offsetHeight || 0, body.scrollHeight || 0))
             : 0;
 
         el.style.height = originalElHeight;
@@ -1248,21 +1243,16 @@ export function createNodeLifecycleApi({
             nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';
             nodeData.data.delimiter = effectiveRestoreData?.delimiter || '';
             const restoredParts = Array.isArray(effectiveRestoreData?.parts) ? effectiveRestoreData.parts.slice() : [];
-            const fallbackOutputCount = Math.max(1, restoredParts.length || splitTextForTextSplitNode(
-                nodeData.data.text,
-                effectiveRestoreData?.delimiter !== undefined ? effectiveRestoreData.delimiter : '\n\n',
-                { removeEmptyLines: effectiveRestoreData?.removeEmptyLines === true }
-            ).length);
             if (effectiveRestoreData?.mergeOutputEnabled === true) {
                 nodeData.data.outputCount = 0;
             } else if (effectiveRestoreData?.outputCount !== undefined && effectiveRestoreData.outputCount !== '') {
                 const parsedOutputCount = parseInt(effectiveRestoreData.outputCount, 10);
-                nodeData.data.outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1;
+                nodeData.data.outputCount = Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 0;
             } else {
-                nodeData.data.outputCount = fallbackOutputCount;
+                nodeData.data.outputCount = 0;
             }
             nodeData.data.removeEmptyLines = effectiveRestoreData?.removeEmptyLines === true;
-            nodeData.data.previewEnabled = effectiveRestoreData?.previewEnabled === true;
+            nodeData.data.previewEnabled = effectiveRestoreData?.previewEnabled !== false;
             nodeData.data.mergeOutputEnabled = effectiveRestoreData?.mergeOutputEnabled === true;
             nodeData.data.parts = nodeData.data.outputCount === 0
                 ? restoredParts

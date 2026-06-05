@@ -108,14 +108,18 @@ export function createCanvasInteractionsApi({
         }, 0) || targets.length;
 
         targets.forEach((target) => {
-            const textarea = target?.el;
-            if (!textarea?.isConnected) return;
+            const resizeEl = target?.el;
+            if (!resizeEl?.isConnected) return;
             const weight = Math.max(1, Number(target.weight) || Number(target.startHeight) || 1);
             const ratio = weight / totalWeight;
             const minHeight = Math.max(0, Number(target.minHeight) || 0);
             const startHeight = Math.max(minHeight, Number(target.startHeight) || minHeight);
-            const nextHeight = Math.max(minHeight, startHeight + delta * ratio);
-            textarea.style.height = `${Math.round(nextHeight)}px`;
+            const rawMaxHeight = Number(target.maxHeight);
+            const maxHeight = Number.isFinite(rawMaxHeight) && rawMaxHeight > 0
+                ? rawMaxHeight
+                : Infinity;
+            const nextHeight = Math.min(maxHeight, Math.max(minHeight, startHeight + delta * ratio));
+            resizeEl.style.height = `${Math.round(nextHeight)}px`;
         });
     }
 

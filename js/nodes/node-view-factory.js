@@ -63,7 +63,7 @@ function getTextSplitRemoveEmptyLinesValue(restoreData = {}) {
 
 function getTextSplitPreviewEnabledValue(restoreData = {}) {
     const rd = restoreData || {};
-    return rd.previewEnabled === true;
+    return rd.previewEnabled !== false;
 }
 
 function getTextSplitMergeOutputEnabledValue(restoreData = {}) {
@@ -92,7 +92,7 @@ function getTextSplitOutputCountSettingValue(restoreData = {}) {
     if (rd.outputCount !== undefined && rd.outputCount !== '') {
         return normalizeTextSplitOutputCountValue(rd.outputCount);
     }
-    return Math.max(1, getTextSplitPartsFromRestoreData(rd).length);
+    return 0;
 }
 
 function getTextSplitRenderedOutputCountValue(restoreData = {}) {
@@ -991,7 +991,7 @@ function renderTextSplitBody(id, restoreData) {
     const previewEnabled = getTextSplitPreviewEnabledValue(rd);
     const mergeOutputEnabled = getTextSplitMergeOutputEnabledValue(rd);
     return `
-        <div class="node-field">
+        <div class="node-field node-field-expand text-split-delimiter-field">
             <label>分隔字符串</label>
             <textarea id="${id}-delimiter" class="text-split-delimiter" placeholder="输入用于分割文本的字符串" rows="2"${getTextareaHeightStyle(rd, 'delimiter')}>${delimiter}</textarea>
         </div>
@@ -1026,7 +1026,10 @@ function renderTextSplitBody(id, restoreData) {
             </label>
         </div>
         <div class="text-split-summary" id="${id}-split-summary"></div>
-        <div class="text-split-preview ${previewEnabled ? '' : 'hidden'}" id="${id}-split-preview"></div>
+        <div class="node-field node-field-expand text-split-preview-field ${previewEnabled ? '' : 'hidden'}">
+            <label>片段预览</label>
+            <div class="text-split-preview" id="${id}-split-preview"></div>
+        </div>
     `;
 }
 

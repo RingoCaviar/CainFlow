@@ -216,12 +216,12 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.text = node.data?.text || '';
                 serialized.delimiter = documentRef.getElementById(`${id}-delimiter`)?.value || '';
                 const mergeOutputEnabled = documentRef.getElementById(`${id}-merge-output-enabled`)?.checked === true;
-                const parsedOutputCount = parseInt(documentRef.getElementById(`${id}-output-count`)?.value ?? node.data?.outputCount ?? '1', 10);
+                const parsedOutputCount = parseInt(documentRef.getElementById(`${id}-output-count`)?.value ?? node.data?.outputCount ?? '0', 10);
                 serialized.outputCount = mergeOutputEnabled
                     ? 0
-                    : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 1);
+                    : (Number.isFinite(parsedOutputCount) ? Math.max(0, parsedOutputCount) : 0);
                 serialized.removeEmptyLines = documentRef.getElementById(`${id}-remove-empty-lines`)?.checked === true;
-                serialized.previewEnabled = documentRef.getElementById(`${id}-preview-enabled`)?.checked === true;
+                serialized.previewEnabled = documentRef.getElementById(`${id}-preview-enabled`)?.checked !== false;
                 serialized.mergeOutputEnabled = mergeOutputEnabled;
                 serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];
             }

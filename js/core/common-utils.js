@@ -22,9 +22,17 @@ export function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+export function normalizeTextSplitDelimiter(delimiter) {
+    return String(delimiter ?? '')
+        .replace(/\\r\\n/g, '\r\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t');
+}
+
 export function splitTextForTextSplitNode(text, delimiter, options = {}) {
     const source = String(text || '');
-    const separator = String(delimiter || '');
+    const separator = normalizeTextSplitDelimiter(delimiter);
     const removeEmptyLines = options.removeEmptyLines === true;
     const parts = !source
         ? []
