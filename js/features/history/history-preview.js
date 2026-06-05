@@ -406,7 +406,7 @@ export function createHistoryPreviewApi({
         const viewport = documentRef.getElementById('preview-viewport');
         if (!modal) return;
         modal.classList.toggle('history-preview-from-fullscreen', options.fromFullscreen === true);
-        modal.classList.toggle('history-preview-ignore-chrome', options.fromFullscreen !== true && shouldIgnoreChromeOffsetForPreview());
+        modal.classList.add('history-preview-ignore-chrome');
         modal.classList.remove('hidden');
         modal.onclick = (e) => {
             if (e.target === modal || e.target === viewport) {

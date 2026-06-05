@@ -611,6 +611,12 @@ const imagePainterApi = createImagePainterApi({
     state,
     dirHandles,
     autoSaveToDir,
+    applyEditedImage: async ({ nodeId, dataUrl, node }) => {
+        if (node?.type === 'ImageImport') {
+            return loadImageData(nodeId, dataUrl);
+        }
+        return false;
+    },
     scheduleSave,
     showToast
 });
@@ -1020,7 +1026,9 @@ function getContextMenuControllerApi() {
             },
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
+            fitNodeToContent,
             updateAllConnections,
+            updatePortStyles,
             scheduleSave,
             showToast
         });

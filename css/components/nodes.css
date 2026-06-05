@@ -1,5 +1,9 @@
 /* Component entry point for node-specific styling. */
 
+.node-port.is-hidden-by-collapse {
+    display: none;
+}
+
 .node-concurrent-status-panel {
     position: absolute;
     top: -42px;

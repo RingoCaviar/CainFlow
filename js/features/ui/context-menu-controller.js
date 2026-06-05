@@ -15,7 +15,9 @@ export function createContextMenuControllerApi({
     getRunConflictInfo = () => ({ blocked: false, count: 0 }),
     buildNodeRequestPreview = null,
     createNodeFromConnectionCandidate,
+    fitNodeToContent = null,
     updateAllConnections,
+    updatePortStyles = () => {},
     scheduleSave = () => {},
     showToast = null,
     documentRef = document
@@ -151,7 +153,18 @@ export function createContextMenuControllerApi({
         node.referenceImageCount = count;
         node.data = node.data || {};
         node.data.referenceImageCount = count;
+        if (typeof fitNodeToContent === 'function') {
+            fitNodeToContent(nodeId, { reason: 'reference-image-port-count-change' });
+        }
         updateAllConnections();
+        updatePortStyles();
+        const requestFrame = documentRef.defaultView?.requestAnimationFrame;
+        if (typeof requestFrame === 'function') {
+            requestFrame(() => {
+                updateAllConnections();
+                updatePortStyles();
+            });
+        }
         scheduleSave();
     }
 

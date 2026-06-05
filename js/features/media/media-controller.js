@@ -1099,6 +1099,7 @@ export function createMediaControllerApi({
             container.focus({ preventScroll: true });
         });
         container.addEventListener('keydown', (event) => {
+            if (hasBlockingImmersiveOverlay()) return;
             if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
                 handleStep(-1, event);
             } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
@@ -3018,7 +3019,8 @@ export function createMediaControllerApi({
     async function openFullscreenPreview(src, nodeId = null) {
         displayImageMemoryManager.beginFullscreenPreview(nodeId);
         const overlay = documentRef.createElement('div');
-        overlay.className = `fullscreen-overlay${shouldIgnoreChromeOffsetForPreview() ? ' fullscreen-ignore-chrome' : ''}`;
+        overlay.className = 'fullscreen-overlay fullscreen-ignore-chrome';
+        overlay.tabIndex = -1;
         const context = nodeId ? await getNodeFullscreenImageContext(nodeId, src) : {
             node: null,
             images: normalizeImageList(src),
@@ -3258,6 +3260,7 @@ export function createMediaControllerApi({
         };
         documentRef.addEventListener('keydown', onEsc);
         requestAnimationFrame(() => overlay.classList.add('active'));
+        overlay.focus({ preventScroll: true });
     }
 
     bindSelectedNodeKeyboardNavigation();

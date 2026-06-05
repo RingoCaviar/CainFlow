@@ -5,6 +5,7 @@ export function createImagePainterApi({
     state,
     dirHandles,
     autoSaveToDir,
+    applyEditedImage = async () => false,
     scheduleSave,
     showToast,
     documentRef = document,
@@ -413,23 +414,40 @@ export function createImagePainterApi({
             const data = canvas.toDataURL('image/png');
             const node = state.nodes.get(nodeId);
             if (node) {
-                if (node.imageData !== undefined) {
+                const handledByExternalApply = await applyEditedImage({
+                    nodeId,
+                    dataUrl: data,
+                    node,
+                    source: src
+                });
+                if (handledByExternalApply) {
+                    showToast('图片已更新', 'success');
+                } else if (node.imageData !== undefined) {
                     node.imageData = data;
+                    node.imageDataList = [data];
+                    node.data = node.data || {};
+                    node.data.image = data;
+                    node.data.images = [data];
                     const dropZone = node.el.querySelector(`#${nodeId}-drop`);
                     if (dropZone) {
                         dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
                     }
                 } else if (node.data && node.data.image !== undefined) {
                     node.data.image = data;
+                    node.data.images = [data];
+                    node.imageData = data;
+                    node.imageDataList = [data];
                     const nodeImage = node.el.querySelector('img');
                     if (nodeImage) nodeImage.src = data;
                 }
 
-                if (node.dirHandle || dirHandles.get(nodeId)) {
+                if (!handledByExternalApply && (node.dirHandle || dirHandles.get(nodeId))) {
                     await autoSaveToDir(nodeId, data);
                 }
                 scheduleSave();
-                showToast('图片已更新', 'success');
+                if (!handledByExternalApply) {
+                    showToast('图片已更新', 'success');
+                }
             }
             cleanup();
         }

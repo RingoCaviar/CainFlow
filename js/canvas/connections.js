@@ -874,6 +874,10 @@ export function createConnectionsApi({
 
     function updatePortStyles() {
         documentRef.querySelectorAll('.port-dot').forEach((dot) => dot.classList.remove('connected'));
+        documentRef.querySelectorAll('.node-port').forEach((portEl) => {
+            portEl.classList.remove('is-hidden-by-collapse');
+            portEl.setAttribute('aria-hidden', 'false');
+        });
         for (const conn of state.connections) {
             const fromNode = getNodeById(conn.from.nodeId);
             const toNode = getNodeById(conn.to.nodeId);
@@ -886,6 +890,16 @@ export function createConnectionsApi({
                 if (toDot) toDot.classList.add('connected');
             }
         }
+        state.nodes.forEach((node) => {
+            if (!node?.el || !(node.collapsed === true || node.el.classList.contains('collapsed'))) return;
+            node.el.querySelectorAll('.node-port').forEach((portEl) => {
+                const dot = portEl.querySelector('.port-dot');
+                const isConnected = dot?.classList.contains('connected') === true;
+                if (isConnected) return;
+                portEl.classList.add('is-hidden-by-collapse');
+                portEl.setAttribute('aria-hidden', 'true');
+            });
+        });
     }
 
     return {

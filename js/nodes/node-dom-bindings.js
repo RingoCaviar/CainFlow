@@ -83,6 +83,42 @@ export function createNodeDomBindingsApi({
         }
     }
 
+    function hasPortConnection(nodeId, portName, direction) {
+        if (!nodeId || !portName || !direction) return false;
+        if (direction === 'input') {
+            return state.connections.some((connection) => (
+                connection.to.nodeId === nodeId &&
+                connection.to.port === portName
+            ));
+        }
+        if (direction === 'output') {
+            return state.connections.some((connection) => (
+                connection.from.nodeId === nodeId &&
+                connection.from.port === portName
+            ));
+        }
+        return false;
+    }
+
+    function syncCollapsedUnusedPorts(nodeId) {
+        const node = state.nodes.get(nodeId);
+        const ports = node?.el?.querySelectorAll?.('.node-port');
+        if (!ports?.length) return;
+
+        const isCollapsed = node.collapsed === true || node.el.classList.contains('collapsed');
+        ports.forEach((portEl) => {
+            const direction = portEl.dataset.direction || '';
+            const portName = portEl.dataset.port || '';
+            const shouldHideForCollapse = isCollapsed && !hasPortConnection(nodeId, portName, direction);
+            portEl.classList.toggle('is-hidden-by-collapse', shouldHideForCollapse);
+            portEl.setAttribute('aria-hidden', shouldHideForCollapse ? 'true' : 'false');
+        });
+    }
+
+    function syncAllCollapsedUnusedPorts() {
+        state.nodes.forEach((_, nodeId) => syncCollapsedUnusedPorts(nodeId));
+    }
+
     function syncTextNodeData(id) {
         const node = state.nodes.get(id);
         const textarea = documentRef.getElementById(`${id}-text`);
@@ -300,6 +336,7 @@ export function createNodeDomBindingsApi({
 
                 pushHistory();
                 state.connections = state.connections.filter((connection) => connection.id !== existingInputConnection.id);
+                syncAllCollapsedUnusedPorts();
                 updateAllConnections();
                 updatePortStyles();
                 scheduleSave();
@@ -817,6 +854,7 @@ export function createNodeDomBindingsApi({
             connection.from.nodeId !== nodeId || validPortSet.has(connection.from.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
+        syncCollapsedUnusedPorts(nodeId);
         updateAllConnections();
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
@@ -874,6 +912,7 @@ export function createNodeDomBindingsApi({
             connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
+        syncCollapsedUnusedPorts(nodeId);
         updateAllConnections();
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
@@ -915,6 +954,7 @@ export function createNodeDomBindingsApi({
             connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
+        syncCollapsedUnusedPorts(nodeId);
         updateAllConnections();
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
@@ -952,6 +992,7 @@ export function createNodeDomBindingsApi({
         node.collapsed = nextCollapsed;
         node.el.classList.toggle('collapsed', nextCollapsed);
         body.classList.toggle('is-collapsed', nextCollapsed);
+        syncCollapsedUnusedPorts(id);
         const collapseButton = node.el.querySelector('.node-collapse-btn');
         if (collapseButton) {
             collapseButton.classList.toggle('is-collapsed', nextCollapsed);
@@ -979,9 +1020,14 @@ export function createNodeDomBindingsApi({
         node.observedHeight = Math.round(nextHeight);
 
         updateAllConnections();
+        updatePortStyles();
         const requestFrame = documentRef.defaultView?.requestAnimationFrame;
         if (typeof requestFrame === 'function') {
-            requestFrame(() => updateAllConnections());
+            requestFrame(() => {
+                syncCollapsedUnusedPorts(id);
+                updateAllConnections();
+                updatePortStyles();
+            });
         }
         scheduleSave();
     }
@@ -1841,6 +1887,7 @@ export function createNodeDomBindingsApi({
         bindZoomSettleGuard(el);
         bindCustomNodeSelects(el);
         lockCloneNodeEditing(id, el);
+        syncCollapsedUnusedPorts(id);
 
         if (type === 'ImageImport') setupImageImport(id, el);
         else if (type === 'Text') {
