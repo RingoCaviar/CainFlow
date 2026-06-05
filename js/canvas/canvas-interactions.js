@@ -401,6 +401,16 @@ export function createCanvasInteractionsApi({
         canvasContainer.addEventListener('mousedown', (e) => {
             canvasContainer.focus();
 
+            if (e.ctrlKey && e.button === 2) {
+                state.isCutting = true;
+                const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
+                state.cutPath = [pos];
+                canvasContainer.style.cursor = 'crosshair';
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
             if (e.target === canvasContainer || e.target === nodesLayer || e.target.id === 'connections-layer') {
                 if (documentRef.activeElement && ['INPUT', 'TEXTAREA'].includes(documentRef.activeElement.tagName)) {
                     documentRef.activeElement.blur();

@@ -169,7 +169,7 @@ export function createGlobalInteractionsApi({
                 e.stopImmediatePropagation();
 
                 let targetNodeId = null;
-                const selectedId = getFocusedNodeId();
+                const selectedId = getSingleSelectedNodeId();
                 if (selectedId) {
                     const node = state.nodes.get(selectedId);
                     if (node && node.type === 'ImageImport') {
@@ -212,14 +212,12 @@ export function createGlobalInteractionsApi({
         });
     }
 
-    function getFocusedNodeId() {
+    function getSingleSelectedNodeId() {
         if (state.selectedNodes.size === 1) {
             const selectedId = Array.from(state.selectedNodes)[0];
             if (state.nodes.has(selectedId)) return selectedId;
         }
-        return state.activeNodeId && state.nodes.has(state.activeNodeId)
-            ? state.activeNodeId
-            : null;
+        return null;
     }
 
     return {

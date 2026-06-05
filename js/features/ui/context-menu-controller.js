@@ -688,7 +688,7 @@ export function createContextMenuControllerApi({
 
     function openCanvasContextMenu(event, target = event.target) {
         event.preventDefault();
-        if (state.justCut) return;
+        if (state.isCutting || state.justCut) return;
 
         closeConnectionCreatePopup();
         state.contextMenu = { x: event.clientX, y: event.clientY };
