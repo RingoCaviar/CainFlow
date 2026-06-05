@@ -1,121 +1,115 @@
-﻿# CainFlow
+# CainFlow
 
-**CainFlow** 是一款受 ComfyUI 启发的轻量级节点式 AI 编排工具。基于原生网页技术构建，支持 Windows 与 macOS 发布版，开箱即用、依赖简单、交互流畅，适合快速搭建与运行节点式 AI 工作流。
-
-[📖 查看使用手册](USER_GUIDE.md)
-
----
-
-## 📥 下载体验
-
-### [点击此处下载最新完整版 ZIP](https://github.com/RingoCaviar/CainFlow/releases/latest)
-
-- **推荐普通用户**：直接下载发布版，解压后即可启动
-- **推荐开发者**：下载源码后使用 Python 本地运行
-
----
-
-## 🖼️ 界面预览
+**CainFlow** 是一款受 ComfyUI 启发的轻量级节点式 AI 编排工具。项目基于原生网页技术构建，配合本地 Python 服务提供工作流、设置、媒体恢复、更新与下载等能力，适合快速搭建图片与视频相关的 AI 工作流。
 
 ![CainFlow 效果演示](.github/show.jpg)
 
----
+## 下载
 
-## ✨ 项目亮点
+- 发布版下载：<https://github.com/RingoCaviar/CainFlow/releases/latest>
+- 推荐普通用户直接下载发布版 ZIP，解压后启动即可
+- 推荐开发者克隆源码后本地运行，便于调试前端与后端逻辑
 
-CainFlow 是一款完全开源的 AI 节点式工作流工具，专注于让图片生成、视频生成和批量创作变得更直观、更高效。
+## 功能特点
 
-- 🎨 **优秀的 UI 设计与交互体验**：界面简洁清爽，节点操作直观顺手，适合快速搭建复杂工作流。
-- 🧩 **强大的兼容能力**：支持多种图片生成与视频生成模式，兼容不同供应商、不同模型格式，灵活适配实际使用场景。
-- 🖥️ **支持 macOS 运行**：提供 macOS 发行版本，也可继续在 Windows 环境中直接使用发布版。
-- 🕘 **完善的历史记录管理**：生成结果可自动进入历史记录，支持预览、下载、管理图片和视频素材，方便回溯与复用。
-- ⚙️ **强大的节点工作流能力**：通过节点连接实现自动化处理，支持批量生成、批量保存、上下游联动，轻松完成重复性创作任务。
-- 🌍 **完全开源，自由可控**：CainFlow 保持完全开源，用户可以自由使用、部署、修改和扩展，真正掌握自己的 AI 工作流。
+- 节点式工作流编排，适合串联图片、文本、视频等多种处理流程
+- 原生前端实现，启动轻量，易于按模块扩展
+- 本地保存工作流与历史数据，默认不依赖云端托管
+- 内置工作流管理、媒体恢复、下载、更新和日志能力
+- 提供 Windows 发布版，并支持构建 macOS 发布包
 
-🔥 CainFlow 让 AI 创作不止是“生成一次”，而是变成一套可复用、可扩展、可自动化的创作系统。
+## 当前版本
 
----
-## 🆕 最新版本更新内容
+- 最新版本：`v3.0.8`
+- 版本来源：[js/core/constants.js](D:/mygithub/CainFlow/js/core/constants.js)
+- 最近版本变更日期：`2026-06-04`
 
-🎉 CainFlow 2.9.9 版本发布⭐
+> 仓库内统一以 `js/core/constants.js` 中的 `APP_VERSION_NUMBER` 为准。
 
-### 更新内容
+## 运行方式
 
-- 🖥️ 增加了 macOS 的发行版本，可以在 macOS 运行，未测试。
-- 🌐 去除了 API 供应商网址的格式限制，现在可以直接填写 IP 地址。
-- 🧭 工作流管理面板增加了更多功能，例如右键可以进行更多工作流操作。
-- 📡 增加了网络检测模块，刷新后会自动检测国内网络是否畅通。
-- 🛠️ 修复多项细节问题，提升整体使用体验与工作流管理稳定性。
+### 方式一：使用发布版
 
-### 总结
+1. 前往 [Releases](https://github.com/RingoCaviar/CainFlow/releases/latest) 下载最新压缩包。
+2. Windows 用户解压后运行 `CainFlow.exe`。
+3. macOS 用户解压后运行 `CainFlow`，首次运行如被系统拦截，需要在系统安全设置中手动放行。
 
-这次更新让 CainFlow 从“图片工作流工具”进一步扩展为更完整的 **AI 图片 + 视频自动化创作平台**：能生成、能恢复、能保存、能管理，也更适合批量化工作需求。
+### 方式二：源码运行
 
----
+适合需要修改前端、后端或打包脚本的开发者。
 
-## 🚀 使用方式
+1. 安装 Python 3。
+2. 克隆或下载本仓库源码。
+3. 在项目根目录运行 [start_cainflow.bat](D:/mygithub/CainFlow/start_cainflow.bat)。
+4. 启动后访问 `http://127.0.0.1:8767`。
 
-本项目提供两种运行方式，推荐优先使用 **方式一**。
+说明：
 
-### 方式一：下载发布版（推荐，无需 Python）
-1. 前往 [Releases](https://github.com/RingoCaviar/CainFlow/releases/latest) 页面下载最新 `.zip`。
-2. 根据系统选择对应压缩包：
-   - Windows：下载 `Cainflow_<版本号>.zip`，解压后双击目录中的 **`CainFlow.exe`** 启动。
-   - macOS：下载 `Cainflow_<版本号>_macos.zip`，解压后双击目录中的 **`CainFlow`** 启动。
+- 启动脚本会优先使用 `python_runtime\python.exe`，否则回退到系统中的 `python` 或 `py`
+- 当前仓库未提供根目录 `requirements.txt`，如果你新增了 Python 依赖，记得同步补充安装说明
+- 启动脚本包含端口 `8767` 占用检测，避免重复启动 CainFlow
 
-> 该版本已内置完整运行环境，无需额外安装 Python。
+## 项目结构
 
-> [!NOTE]
-> macOS 首次运行如提示“无法验证开发者”或被系统阻止，请在「系统设置」→「隐私与安全性」中允许打开，或右键点击 **`CainFlow`** 后选择「打开」。
+```text
+CainFlow/
+|- index.html              # 页面结构与主要 UI 容器
+|- index.js                # 前端装配入口
+|- index.css               # 样式入口
+|- css/                    # 分层样式与主题
+|- js/                     # 前端核心、节点、画布与功能模块
+|- backend/                # 本地 HTTP 服务、路由与业务服务
+|- workflows/              # 本地工作流 JSON
+|- scripts/                # 构建与维护脚本
+|- .github/workflows/      # 发布与清理工作流
+|- server.py               # Python 启动入口
+|- start_cainflow.bat      # Windows 启动脚本
+```
 
-### 方式二：下载源码运行（适合开发者，需 Python）
-1. 下载源码 ZIP，或通过 Git 克隆本项目。
-2. 确保本机已安装 **Python 3.x**。
-3. 进入项目目录后，双击运行 **`start_cainflow.bat`**。
+主要模块说明：
 
-> 脚本会自动检查依赖并启动本地服务。
+- `js/core/`：版本、常量、共享状态、通用工具
+- `js/features/`：工作流、执行、设置、历史、更新等功能模块
+- `js/nodes/`：节点模板、绑定、序列化与生命周期
+- `js/canvas/`：画布交互、缩放拖拽、连线与几何计算
+- `backend/routes/`：后端接口入口
+- `backend/services/`：工作流、下载、更新、安全、日志等后端逻辑
 
-> [!NOTE]
-> 程序启动后会自动打开 `http://127.0.0.1:8767`。如果浏览器未自动弹出，请手动访问该地址。
+## 开发说明
 
----
+- 前端真实入口是 [index.js](D:/mygithub/CainFlow/index.js)，新增功能优先放到 `js/features/*` 或 `js/core/*`
+- 后端启动入口是 [server.py](D:/mygithub/CainFlow/server.py)，实际运行逻辑在 [backend/main.py](D:/mygithub/CainFlow/backend/main.py)
+- 工作流默认保存在 [workflows](D:/mygithub/CainFlow/workflows) 目录，更新前建议先备份该目录
+- 结构化后端请求日志会写入 [log](D:/mygithub/CainFlow/log) 目录
 
-## 🌟 推荐供应商
+## 打包与发布
 
-本项目默认已配置 **[6789API](https://www.6789api.top/)**，提供稳定、高速的 AI 接口服务，覆盖主流多模态模型。
+- 本地构建脚本： [scripts/build-release-local.ps1](D:/mygithub/CainFlow/scripts/build-release-local.ps1)
+- GitHub Actions 工作流：
+  - [release.yml](D:/mygithub/CainFlow/.github/workflows/release.yml)
+  - [cleanup-releases.yml](D:/mygithub/CainFlow/.github/workflows/cleanup-releases.yml)
+  - [cleanup-workflow-runs.yml](D:/mygithub/CainFlow/.github/workflows/cleanup-workflow-runs.yml)
 
-**快速开始：**
-在设置面板中填入您的 **API 密钥** 后即可直接使用。
+## 默认供应商
 
----
+当前默认供应商配置位于 [js/core/constants.js](D:/mygithub/CainFlow/js/core/constants.js)，预置了 `GXP` 供应商与演示模型。首次使用前请在设置面板中填写自己的 API Key，并根据实际情况修改接口地址。
 
-## 🔒 隐私说明
+## 隐私与数据
 
-所有数据默认保存在本地，本工具不会主动泄露您的 API 密钥与隐私信息。
+- 工作流与大部分配置默认保存在本地
+- API Key 由本地应用保存与使用
+- 更新、下载、代理探测等能力会按你的配置访问外部网络
 
----
+## 开源许可
 
-## 📄 开源许可与第三方组件
+CainFlow 主项目使用 [GNU GPL v3.0](LICENSE)。
 
-CainFlow 主项目使用 **GNU GPL v3.0** 协议，详见 [LICENSE](LICENSE)。
+仓库中包含随源码分发的第三方组件：
 
-项目中包含一个随源码分发的第三方开源组件：
+- `js/vendor/three.module.js`：Three.js，使用 MIT License
 
-- `js/vendor/three.module.js`：Three.js r167，版权归 Three.js Authors 所有，使用 **MIT License**。该文件保留原始 `@license` / `SPDX-License-Identifier: MIT` 文件头，并在 [NOTICE](NOTICE) 中补充了完整第三方版权与许可说明。
+更多第三方版权与许可说明见 [NOTICE](D:/mygithub/CainFlow/NOTICE)。
 
-除上述文件外，本次检查未在源码中发现其他明确的第三方库、压缩包或外部复制代码许可标识。图片、图标、声音等资源文件如非本人原创，建议继续补充来源与授权记录。
-
----
-
-## 📌 当前版本
-
-**最新版本：v2.9.9**
-**发布日期：2026-06-01**
-
-> 版本号以 `js/core/constants.js` 中的 `APP_VERSION_NUMBER` 为准。
-
----
-
-## 📈 Star History
+## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=RingoCaviar/CainFlow&type=Date)](https://star-history.com/#RingoCaviar/CainFlow&Date)
