@@ -2330,10 +2330,6 @@ export function createMediaControllerApi({
             }
         );
 
-        previewContainer.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-        });
-
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {
                 e.stopPropagation();
@@ -2566,10 +2562,6 @@ export function createMediaControllerApi({
                 scheduleSave();
             }
         );
-
-        previewContainer.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-        });
 
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {

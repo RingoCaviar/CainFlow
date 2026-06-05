@@ -1377,38 +1377,6 @@ export function createNodeDomBindingsApi({
         setTimeout(scheduleFit, 0);
     }
 
-    function bindTextareaHeightPersistence(element) {
-        if (!element || element.dataset.heightPersistenceBound === '1' || typeof ResizeObserver === 'undefined') return;
-        element.dataset.heightPersistenceBound = '1';
-
-        let observedHeight = Math.round(element.offsetHeight || 0);
-        let frameId = null;
-        const observer = new ResizeObserver(() => {
-            const nextHeight = Math.round(element.offsetHeight || 0);
-            if (!nextHeight || Math.abs(nextHeight - observedHeight) <= 1) return;
-            observedHeight = nextHeight;
-            const nodeEl = element.closest('.node');
-            const nodeId = nodeEl?.dataset?.id;
-            if (nodeId && state.resizing?.nodeId === nodeId) return;
-            if (frameId !== null) return;
-            frameId = requestAnimationFrame(() => {
-                frameId = null;
-                if (nodeId && state.resizing?.nodeId === nodeId) return;
-                if (nodeId) fitNodeToContent(nodeId, { reason: 'textarea-resize' });
-                scheduleSave();
-            });
-        });
-        observer.observe(element);
-
-        if (!Array.isArray(element._cleanupFns)) {
-            element._cleanupFns = [];
-        }
-        element._cleanupFns.push(() => {
-            observer.disconnect();
-            if (frameId !== null) cancelAnimationFrame(frameId);
-        });
-    }
-
     function syncImageGenerateResolutionOptions(id) {
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
         const providerSelect = documentRef.getElementById(`${id}-provider`);
@@ -1619,13 +1587,12 @@ export function createNodeDomBindingsApi({
             .map((previewText) => {
                 const { style, minHeight, startHeight } = getResizeTargetBaseMetrics(previewText);
                 const borderY = getPx(style, 'border-top-width') + getPx(style, 'border-bottom-width');
-                const maxHeight = Math.max(minHeight, (previewText.scrollHeight || startHeight) + borderY);
-                const growthCapacity = Math.max(0, maxHeight - startHeight);
+                const contentHeight = Math.max(minHeight, (previewText.scrollHeight || startHeight) + borderY);
+                const growthCapacity = Math.max(0, contentHeight - startHeight);
                 return {
                     el: previewText,
                     startHeight,
                     minHeight,
-                    maxHeight,
                     weight: Math.max(1, growthCapacity)
                 };
             })
@@ -1826,7 +1793,7 @@ export function createNodeDomBindingsApi({
 
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
-            const interactiveSelector = 'input, textarea, select, button, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn, .preview-container, .save-preview-container, .file-drop-zone';
+            const interactiveSelector = 'input, textarea, select, button, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
             const isInteractive = target.closest(interactiveSelector);
 
             const dragAreaSelector = '.node-header, .node-glass-bg';
@@ -2365,9 +2332,6 @@ export function createNodeDomBindingsApi({
             const isExpandable = input.closest('.node-field-expand');
             if (input.tagName === 'TEXTAREA' && isExpandable) {
                 bindExpandableElementResize(id, input);
-            }
-            if (input.tagName === 'TEXTAREA') {
-                bindTextareaHeightPersistence(input);
             }
         });
 

@@ -1684,7 +1684,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 .node-field-expand .chat-response-area,
 .node-field-expand .text-display-box {
     overflow-y: auto !important;
-    resize: vertical;
+    resize: none;
     /* Enable manual adjustment for better control */
     /* Ensure UI is always usable for large models like TextChat */
     min-height: 120px;
@@ -1894,7 +1894,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 }
 
 .node-field textarea {
-    resize: vertical;
+    resize: none;
     min-height: 60px;
     line-height: 1.5;
 }
@@ -2392,7 +2392,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     flex: 0 0 auto;
     min-height: 120px;
     height: 120px;
-    resize: vertical;
+    resize: none;
 }
 
 /* Node-specific: Image Preview */
@@ -3478,7 +3478,7 @@ body.is-interacting #canvas-container * {
     flex: 0 0 auto;
     width: 100%;
     min-height: 96px;
-    resize: vertical;
+    resize: none;
 }
 
 .node-video-generate .node-video-result-field {
@@ -3500,7 +3500,7 @@ body.is-interacting #canvas-container * {
     height: 160px;
     min-height: 120px;
     max-height: none;
-    resize: vertical;
+    resize: none;
 }
 
 .toggle-switch {
@@ -4705,7 +4705,7 @@ input[type=number] {
     min-height: 96px;
     max-height: none;
     height: 160px;
-    resize: vertical;
+    resize: none;
     overscroll-behavior: contain;
     min-width: 0;
 }
@@ -4840,7 +4840,7 @@ input[type=number] {
     flex: 1 1 auto;
     min-height: 120px;
     height: 100%;
-    resize: vertical;
+    resize: none;
 }
 
 .node-text-split .text-split-delimiter {
@@ -4904,7 +4904,10 @@ input[type=number] {
 }
 
 .node-text-split .text-split-preview-item {
-    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: hidden;
     border: 1px solid var(--border-input);
     background: var(--bg-input);
@@ -4924,8 +4927,10 @@ input[type=number] {
     margin: 0;
     display: block;
     width: 100%;
-    height: 54px;
+    flex: 1 1 auto;
+    height: auto;
     min-height: 54px;
+    max-height: none;
     white-space: pre-wrap;
     word-break: break-word;
     overflow-wrap: break-word;
@@ -6159,7 +6164,7 @@ body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
     font-size: 11px;
     padding: 8px;
     margin-top: 8px;
-    resize: vertical;
+    resize: none;
     outline: none;
 }
 
