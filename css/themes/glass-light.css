@@ -1137,7 +1137,6 @@ html[data-app-theme="glass-light"] .node.selected .node-glass-bg {
     box-shadow: none;
 }
 
-html[data-app-theme="glass-light"] .node.is-interacting .node-glass-bg,
 html[data-app-theme="glass-light"] #canvas-container.is-zooming .node-glass-bg {
     backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
     -webkit-backdrop-filter: blur(var(--glass-node-blur-radius)) !important;

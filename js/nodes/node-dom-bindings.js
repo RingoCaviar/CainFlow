@@ -1808,7 +1808,6 @@ export function createNodeDomBindingsApi({
                 const node = state.nodes.get(nid);
                 if (node) {
                     startPositions.set(nid, { x: node.x, y: node.y });
-                    node.el.classList.add('is-interacting');
                 }
             });
 
@@ -1852,8 +1851,6 @@ export function createNodeDomBindingsApi({
             };
 
             pushHistory();
-            documentRef.body.classList.add('is-interacting');
-            documentRef.getElementById('connections-group').classList.add('is-interacting');
         });
 
         el.querySelector('.node-delete').addEventListener('click', (e) => {

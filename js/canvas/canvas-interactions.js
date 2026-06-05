@@ -50,6 +50,13 @@ export function createCanvasInteractionsApi({
     const FALLBACK_NODE_WIDTH = 180;
     const FALLBACK_NODE_HEIGHT = 120;
 
+    function alignCanvasDeltaToDevicePixel(delta) {
+        const zoom = Number(state.canvas?.zoom) || 1;
+        const dpr = Number(windowRef.devicePixelRatio) || 1;
+        const scale = zoom * dpr;
+        return scale > 0 ? Math.round(delta * scale) / scale : delta;
+    }
+
     function scheduleUIUpdate() {
         if (rafUpdate) return;
         rafUpdate = requestAnimationFrameRef(() => {
@@ -593,15 +600,28 @@ export function createCanvasInteractionsApi({
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 const dx = pos.x - state.dragging.startX;
                 const dy = pos.y - state.dragging.startY;
+                const hasDragMovement = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+
+                if (hasDragMovement && !state.dragging.interactionVisualsActive) {
+                    state.dragging.interactionVisualsActive = true;
+                    documentRef.body.classList.add('is-interacting');
+                    documentRef.getElementById('connections-group').classList.add('is-interacting');
+                    for (const nodeId of state.dragging.nodes) {
+                        state.nodes.get(nodeId)?.el?.classList.add('is-interacting');
+                    }
+                }
 
                 for (const nodeId of state.dragging.nodes) {
                     const node = state.nodes.get(nodeId);
                     if (state.dragging.isCloneDrag !== true && isNodeRunning(nodeId)) continue;
                     if (node) {
                         const startPos = state.dragging.startPositions.get(nodeId);
-                        node.x = startPos.x + dx;
-                        node.y = startPos.y + dy;
-                        node.el.style.transform = `translate(${dx}px, ${dy}px)`;
+                        const visualDx = alignCanvasDeltaToDevicePixel(dx);
+                        const visualDy = alignCanvasDeltaToDevicePixel(dy);
+                        node.x = startPos.x + visualDx;
+                        node.y = startPos.y + visualDy;
+                        node.el.style.setProperty('--node-drag-x', `${visualDx}px`);
+                        node.el.style.setProperty('--node-drag-y', `${visualDy}px`);
                     }
                 }
                 updateShakeDetach(state.dragging, pos);
@@ -719,7 +739,9 @@ export function createCanvasInteractionsApi({
                     if (node) {
                         node.el.style.left = node.x + 'px';
                         node.el.style.top = node.y + 'px';
-                        node.el.style.transform = '';
+                        node.el.style.setProperty('--node-drag-x', '0px');
+                        node.el.style.setProperty('--node-drag-y', '0px');
+                        node.el.style.removeProperty('transform');
                         node.el.classList.remove('is-interacting', 'connection-shake-armed');
                         node.el.style.removeProperty('--connection-shake-progress');
                     }

@@ -1136,6 +1136,11 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     z-index: 10;
     display: flex;
     flex-direction: column;
+    --node-drag-x: 0px;
+    --node-drag-y: 0px;
+    transform: translate3d(var(--node-drag-x), var(--node-drag-y), 0);
+    -webkit-font-smoothing: none;
+    font-smooth: never;
 }
 
 .node.render-refresh {
@@ -1250,15 +1255,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 /* Only degrade heavy content for the node that is actively being dragged/resized. */
 .node.is-interacting {
     transition: none !important;
-    will-change: transform;
     z-index: 9999;
-}
-
-.node.is-interacting .preview-container img,
-.node.is-interacting .save-preview-container img,
-.node.is-interacting .chat-response-area,
-.node.is-interacting .text-display-box {
-    opacity: 0.7 !important;
 }
 
 /* Ensure images don't steal clicks from the node container (so dragging works everywhere) */
@@ -1378,11 +1375,6 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 
 .node.error .node-glass-bg {
     border-color: var(--accent-red);
-}
-
-.node.is-interacting .node-glass-bg {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
 }
 
 #canvas-container.is-zooming .node-glass-bg {
