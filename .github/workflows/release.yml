@@ -256,6 +256,89 @@ jobs:
           "ZIP_NAME=$($zip.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "macOS release zip: $($zip.FullName)"
 
+      - name: Smoke test macOS package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $zipPath = $env:ZIP_PATH
+          if ([string]::IsNullOrWhiteSpace($zipPath) -or !(Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+            throw "Missing macOS zip for smoke test."
+          }
+
+          $smokeDir = Join-Path (Get-Location) "smoke-test-macos"
+          $smokeLog = Join-Path (Get-Location) "smoke-cainflow.log"
+          if (Test-Path -LiteralPath $smokeDir) {
+            Remove-Item -LiteralPath $smokeDir -Recurse -Force
+          }
+          if (Test-Path -LiteralPath $smokeLog) {
+            Remove-Item -LiteralPath $smokeLog -Force
+          }
+
+          New-Item -ItemType Directory -Path $smokeDir | Out-Null
+          Push-Location $smokeDir
+          try {
+            & unzip -q $zipPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to unzip macOS package."
+            }
+
+            $programPath = Join-Path $smokeDir "CainFlow"
+            if (!(Test-Path -LiteralPath $programPath -PathType Leaf)) {
+              throw "CainFlow executable was not found in the macOS package."
+            }
+
+            & chmod +x $programPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to make CainFlow executable."
+            }
+
+            $quotedProgramPath = "'$($programPath.Replace("'", "'\''"))'"
+            $quotedSmokeLog = "'$($smokeLog.Replace("'", "'\''"))'"
+            $process = Start-Process -FilePath "/bin/sh" `
+              -ArgumentList @("-c", "exec $quotedProgramPath > $quotedSmokeLog 2>&1") `
+              -WorkingDirectory $smokeDir `
+              -PassThru
+
+            try {
+              $healthy = $false
+              for ($attempt = 1; $attempt -le 20; $attempt++) {
+                if ($process.HasExited) {
+                  throw "CainFlow exited during smoke test with code $($process.ExitCode)."
+                }
+
+                try {
+                  $response = Invoke-WebRequest -Uri "http://127.0.0.1:8767/" -UseBasicParsing -TimeoutSec 2
+                  if ($response.StatusCode -eq 200 -and "$($response.Content)" -match "CainFlow") {
+                    $healthy = $true
+                    break
+                  }
+                } catch {
+                  Start-Sleep -Seconds 1
+                }
+              }
+
+              if (!$healthy) {
+                throw "CainFlow did not serve http://127.0.0.1:8767/ during smoke test."
+              }
+
+              Write-Host "macOS package smoke test passed."
+            } finally {
+              if (!$process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              }
+            }
+          } catch {
+            if (Test-Path -LiteralPath $smokeLog) {
+              Write-Host ""
+              Write-Host "CainFlow smoke test log:"
+              Get-Content -LiteralPath $smokeLog
+            }
+            throw
+          } finally {
+            Pop-Location
+          }
+
       - name: Upload macOS package to release with gh
         shell: pwsh
         env:

@@ -60,10 +60,7 @@ def get_process_command_line(pid):
     ]).strip()
 
 
-def get_port_owner(port):
-    if os.name != 'nt':
-        return None
-
+def get_windows_port_owner(port):
     output = run_command(['netstat', '-ano', '-p', 'tcp'])
     for line in output.splitlines():
         parts = line.split()
@@ -81,6 +78,38 @@ def get_port_owner(port):
         }
 
     return None
+
+
+def get_lsof_port_owner(port):
+    output = run_command(['lsof', '-nP', f'-iTCP:{port}', '-sTCP:LISTEN'])
+    lines = [line for line in output.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+
+    parts = lines[1].split()
+    if len(parts) < 2:
+        return None
+
+    pid = parts[1]
+    return {
+        'pid': pid,
+        'name': parts[0] or 'Unknown',
+        'command_line': get_lsof_process_command_line(pid),
+    }
+
+
+def get_lsof_process_command_line(pid):
+    if not pid:
+        return ''
+    if sys.platform == 'darwin':
+        return run_command(['ps', '-p', str(pid), '-o', 'command=']).strip()
+    return run_command(['ps', '-p', str(pid), '-o', 'args=']).strip()
+
+
+def get_port_owner(port):
+    if os.name == 'nt':
+        return get_windows_port_owner(port)
+    return get_lsof_port_owner(port)
 
 
 def is_cainflow_process(owner):
