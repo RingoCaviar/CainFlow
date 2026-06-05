@@ -165,8 +165,7 @@ export function createConnectionsApi({
     }
 
     function updateFlowDecoration(path, connId, isActive) {
-        const canShowFlowDecoration = (state.connectionLineType || 'bezier') !== 'orthogonal';
-        const shouldShow = canShowFlowDecoration && isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
+        const shouldShow = isGlobalAnimationEnabled() && isActive && !!path.getAttribute('d');
         if (!shouldShow) {
             removeFlowDecoration(connId);
             return;

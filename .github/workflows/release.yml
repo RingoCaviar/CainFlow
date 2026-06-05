@@ -268,6 +268,8 @@ jobs:
 
           $smokeDir = Join-Path (Get-Location) "smoke-test-macos"
           $smokeLog = Join-Path (Get-Location) "smoke-cainflow.log"
+          $job = $null
+          $programPath = ""
           if (Test-Path -LiteralPath $smokeDir) {
             Remove-Item -LiteralPath $smokeDir -Recurse -Force
           }
@@ -276,10 +278,10 @@ jobs:
           }
 
           function Stop-SmokeServer {
-            param([object]$Process)
+            param([object]$Job)
 
-            if ($Process -and !$Process.HasExited) {
-              Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            if ($Job) {
+              Stop-Job -Job $Job -ErrorAction SilentlyContinue
             }
 
             $portPids = & lsof -tiTCP:8767 -sTCP:LISTEN 2>$null
@@ -308,12 +310,11 @@ jobs:
               throw "Failed to make CainFlow executable."
             }
 
-            $quotedProgramPath = "'$($programPath.Replace("'", "'\''"))'"
-            $quotedSmokeLog = "'$($smokeLog.Replace("'", "'\''"))'"
-            $process = Start-Process -FilePath "/bin/sh" `
-              -ArgumentList @("-c", "exec $quotedProgramPath > $quotedSmokeLog 2>&1") `
-              -WorkingDirectory $smokeDir `
-              -PassThru
+            $job = Start-Job -ScriptBlock {
+              param($ProgramPath, $SmokeDir, $SmokeLog)
+              Set-Location -LiteralPath $SmokeDir
+              & $ProgramPath *> $SmokeLog
+            } -ArgumentList $programPath, $smokeDir, $smokeLog
 
             try {
               $healthy = $false
@@ -329,8 +330,8 @@ jobs:
                   Start-Sleep -Seconds 1
                 }
 
-                if ($process.HasExited -and !$exitDetail) {
-                  $exitDetail = " CainFlow launcher process exited with code $($process.ExitCode)."
+                if ($job.State -ne "Running" -and !$exitDetail) {
+                  $exitDetail = " CainFlow smoke job ended with state $($job.State)."
                 }
               }
 
@@ -340,17 +341,44 @@ jobs:
 
               Write-Host "macOS package smoke test passed."
             } finally {
-              Stop-SmokeServer -Process $process
+              Stop-SmokeServer -Job $job
             }
           } catch {
+            Write-Host ""
+            Write-Host "Smoke test package directory:"
+            Get-ChildItem -LiteralPath $smokeDir -Force | Format-List Name,Length,Mode
+
+            if (Test-Path -LiteralPath $programPath -PathType Leaf) {
+              Write-Host ""
+              Write-Host "CainFlow executable diagnostics:"
+              & file $programPath 2>$null
+              & ls -l $programPath 2>$null
+              & xattr -l $programPath 2>$null
+              & codesign --verify --verbose $programPath 2>&1
+              & spctl --assess --type execute --verbose $programPath 2>&1
+            }
+
+            Write-Host ""
+            Write-Host "Port 8767 listeners:"
+            & lsof -nP -iTCP:8767 -sTCP:LISTEN 2>&1
+
             if (Test-Path -LiteralPath $smokeLog) {
               Write-Host ""
               Write-Host "CainFlow smoke test log:"
               Get-Content -LiteralPath $smokeLog
             }
+
+            if ($job) {
+              Write-Host ""
+              Write-Host "CainFlow smoke job output:"
+              Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue
+            }
             throw
           } finally {
             Pop-Location
+            if ($job) {
+              Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            }
           }
 
       - name: Upload macOS package to release with gh
