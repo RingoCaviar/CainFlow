@@ -106,9 +106,17 @@ export function getConcurrentStatusPopoverController({
         hideErrorPopover();
     };
 
-    const handleCanvasTransform = () => {
+    let transformFrame = null;
+    const handleCanvasTransformNow = () => {
+        transformFrame = null;
         state.canvasZoom = resolveCanvasZoom();
         repositionActivePopover();
+    };
+    const handleCanvasTransform = () => {
+        if (transformFrame) return;
+        transformFrame = windowRef.requestAnimationFrame
+            ? windowRef.requestAnimationFrame(handleCanvasTransformNow)
+            : windowRef.setTimeout(handleCanvasTransformNow, 16);
     };
 
     documentRef.addEventListener('click', handleDocumentClick);

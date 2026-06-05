@@ -15,6 +15,7 @@ import {
     loadWorkflowFromFile,
     saveWorkflowToFile
 } from '../../services/workflow-api.js';
+import { openDialogStyle1 } from './dialog-style-1.js';
 import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
@@ -1178,10 +1179,13 @@ export function createUiControllerApi({
         return typeof key === 'string' && key.startsWith('history:');
     }
 
+    function isImageImportAssetKey(key) {
+        return typeof key === 'string' && key.startsWith('image-import:');
+    }
+
     async function clearCurrentNodeAssetsOnly() {
-        if (clearOrphanedNodeAssets) {
-            await refreshRecoverableMediaNodes();
-            const cleared = await clearOrphanedNodeAssets(collectRetainedNodeAssetIds());
+        if (clearImageAssets) {
+            const cleared = await clearImageAssets({ preserveHistory: true });
             if (!cleared) return false;
             if (clearOrphanedHistoryAssets) await clearOrphanedHistoryAssets();
             return true;
@@ -1190,12 +1194,11 @@ export function createUiControllerApi({
         const db = await openDB();
         const tx = db.transaction(storeAssetsName, 'readwrite');
         const store = tx.objectStore(storeAssetsName);
-        const retainedNodeIds = collectRetainedNodeAssetIds();
         const req = store.openKeyCursor();
         req.onsuccess = (event) => {
             const cursor = event.target.result;
             if (!cursor) return;
-            if (!isHistoryAssetKey(cursor.key) && !retainedNodeIds.has(String(cursor.key))) store.delete(cursor.key);
+            if (!isHistoryAssetKey(cursor.key) && !isImageImportAssetKey(cursor.key)) store.delete(cursor.key);
             cursor.continue();
         };
         const cleared = await waitForTransaction(tx);
@@ -1225,8 +1228,30 @@ export function createUiControllerApi({
             btnToggle.classList.remove('active');
         });
 
+        const confirmCacheCleanup = async ({ id, title, message, note, confirmLabel = '清理' }) => {
+            const actionId = await openDialogStyle1({
+                id,
+                title,
+                message,
+                note,
+                cancelActionId: 'cancel',
+                actions: [
+                    { id: 'cancel', label: '取消', variant: 'secondary' },
+                    { id: 'confirm', label: confirmLabel, variant: 'danger', autofocus: true }
+                ],
+                documentRef
+            });
+            return actionId === 'confirm';
+        };
+
         btnClear?.addEventListener('click', async () => {
-            if (!confirmRef('确定要清理所有历史记录吗？\n\n这将永久删除浏览器本地存储的历史生成图库，无法撤销。')) return;
+            const confirmed = await confirmCacheCleanup({
+                id: 'cache-clear-history-dialog',
+                title: '清理所有历史记录',
+                message: '确定要清理所有历史记录吗？',
+                note: '这将永久删除浏览器本地存储的历史生成图库，无法撤销。'
+            });
+            if (!confirmed) return;
 
             try {
                 const ok = await clearHistory();
@@ -1243,21 +1268,33 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-clear-assets')?.addEventListener('click', async () => {
-            if (!confirmRef('确定要清理可删除的节点缓存吗？\n\n这只会删除旧节点遗留资产和可由上游重新恢复的重复预览缓存，当前节点中的源图片和生成结果会被保留。')) return;
+            const confirmed = await confirmCacheCleanup({
+                id: 'cache-clear-node-assets-dialog',
+                title: '清理节点资产缓存（当前工作）',
+                message: '确定要清理当前工作的节点资产缓存吗？',
+                note: '这只会删除旧节点遗留资产缓存和可由上游重新恢复的重复预览缓存，当前节点中的源图片和生成结果会被保留。'
+            });
+            if (!confirmed) return;
 
             try {
                 const ok = await clearCurrentNodeAssetsOnly();
                 if (!ok) throw new Error('IndexedDB 节点资产清理未完成');
 
-                showToast('可删除节点缓存已清理，当前节点图片已保留', 'success');
-                settingsControllerApi?.updateCacheUsage();
+                showToast('当前工作的节点资产缓存已清理，当前节点图片已保留', 'success');
+                settingsControllerApi?.updateCacheUsage(true);
             } catch (e) {
                 showToast('资产清理失败: ' + e.message, 'error');
             }
         });
 
         documentRef.getElementById('btn-clear-image-import-assets')?.addEventListener('click', async () => {
-            if (!confirmRef('确定要清理所有图片导入节点缓存吗？\n\n已保存工作流中的图片导入节点可能无法再从本地缓存恢复图片。')) return;
+            const confirmed = await confirmCacheCleanup({
+                id: 'cache-clear-image-import-assets-dialog',
+                title: '清理图片导入节点缓存',
+                message: '确定要清理所有图片导入节点缓存吗？',
+                note: '已保存工作流中的图片导入节点可能无法再从本地缓存恢复图片。'
+            });
+            if (!confirmed) return;
             if (typeof clearImageImportAssets !== 'function') {
                 showToast('当前环境不支持清理图片导入节点缓存', 'warning');
                 return;

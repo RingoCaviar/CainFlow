@@ -119,25 +119,29 @@ export function createSessionManagerApi({
             ? { ...sanitized.data }
             : {};
         sanitized.data = data;
+        const isInlineImageData = (value) => typeof value === 'string' && /^data:image\//i.test(value.trim());
 
-        const preserveCanonicalImageList = (
-            sanitized.type === 'ImagePreview'
-            || sanitized.type === 'ImageSave'
-            || sanitized.type === 'ImageGenerate'
-        ) && (
-            sanitized.data?.imageAssetReady !== true
-            || !sanitized.data?.imageAssetKey
-            || Math.max(0, parseInt(sanitized.data?.imageCount || '0', 10) || 0) <= 0
-        );
-
-        if (!preserveCanonicalImageList) {
-            delete sanitized.imageList;
-        }
+        delete sanitized.imageList;
         delete sanitized.images;
         delete sanitized.imageData;
+        delete sanitized.imageDataList;
+        delete sanitized.imagePreviewThumbnail;
+        delete data.images;
+        delete data.imageData;
+        delete data.imageDataList;
+        delete data.imageList;
+        delete data.imagePreviewThumbnail;
+        if (isInlineImageData(data.image)) delete data.image;
         if (options.stripCompareImages === true) {
             delete sanitized.compareImageA;
             delete sanitized.compareImageB;
+            delete data.compareImageA;
+            delete data.compareImageB;
+        } else {
+            if (isInlineImageData(sanitized.compareImageA)) delete sanitized.compareImageA;
+            if (isInlineImageData(sanitized.compareImageB)) delete sanitized.compareImageB;
+            if (isInlineImageData(data.compareImageA)) delete data.compareImageA;
+            if (isInlineImageData(data.compareImageB)) delete data.compareImageB;
         }
         return sanitized;
     }
@@ -290,7 +294,7 @@ export function createSessionManagerApi({
 
     function pushHistory() {
         const snapshot = {
-            nodes: nodeSerializer.serializeNodes(false),
+            nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map((connection) => ({ ...connection }))
         };
         state.undoStack.push(JSON.stringify(snapshot));

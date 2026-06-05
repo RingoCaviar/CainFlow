@@ -23,7 +23,7 @@ export function createViewportApi({
             : DEFAULT_CANVAS_DOT_SPACING;
     }
 
-    function applyCanvasVisualTransform() {
+    function applyCanvasVisualTransform(options = {}) {
         const { x, y, zoom } = state.canvas;
         elements.nodesLayer.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
         elements.nodesLayer.style.transformOrigin = '0 0';
@@ -38,13 +38,15 @@ export function createViewportApi({
         if (elements.zoomLevel) {
             elements.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
         }
-        elements.canvasContainer?.ownerDocument?.dispatchEvent(new CustomEvent('cainflow:canvas-transform', {
-            detail: { x, y, zoom }
-        }));
+        if (options.dispatchTransformEvent !== false) {
+            elements.canvasContainer?.ownerDocument?.dispatchEvent(new CustomEvent('cainflow:canvas-transform', {
+                detail: { x, y, zoom }
+            }));
+        }
     }
 
     function updateCanvasTransform(options = {}) {
-        applyCanvasVisualTransform();
+        applyCanvasVisualTransform(options);
         if (options.updateConnections !== false) {
             updateAllConnections();
         }

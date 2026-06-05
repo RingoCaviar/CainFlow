@@ -12,7 +12,6 @@ import {
 } from '../execution/concurrent-request-status-ui.js';
 import {
     clearCanonicalImageOutput,
-    getCanonicalImage,
     getCanonicalImageList,
     normalizeImageList,
     setCanonicalImageOutput
@@ -157,7 +156,6 @@ function serializeRuntimeNode(node, doc) {
     if (node.customTitle) serialized.customTitle = node.customTitle;
     const usesCanonicalImages = CANONICAL_IMAGE_NODE_TYPES.has(node.type);
     const images = getCanonicalImageList(node, { includeResizePreview: false });
-    const imageData = getCanonicalImage(node, { includeResizePreview: false });
     const imageCount = Math.max(images.length, Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0));
     const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
         ? node.data.imageAssetKey
@@ -166,26 +164,19 @@ function serializeRuntimeNode(node, doc) {
         ? node.imageImportAssetKey
         : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
     const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
-    const shouldInlineResultImage = !hasRecoverableImageAsset || node.data?.imageAssetReady !== true;
     if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
         if (usesCanonicalImages) {
-            if (shouldInlineResultImage && images.length > 0) serialized.imageList = images.slice();
             if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
             if (imageCount > 0) serialized.imageCount = imageCount;
             if (imageCount > 1) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
             }
-        } else if (shouldInlineResultImage && imageData) {
-            serialized.imageData = imageData;
         }
         if (hasRecoverableImageAsset) {
             if (!usesCanonicalImages && imageAssetKey) serialized.imageAssetKey = imageAssetKey;
             if (imageCount > 0 && !usesCanonicalImages) serialized.imageCount = imageCount;
             if (imageCount > 1 && !usesCanonicalImages) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
-            }
-            if (typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()) {
-                serialized.imagePreviewThumbnail = node.data.imagePreviewThumbnail.trim();
             }
             if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
             if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
@@ -194,26 +185,12 @@ function serializeRuntimeNode(node, doc) {
             serialized.imageMemoryReleased = true;
             if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
         }
-        if (node.type === 'ImageCompare') {
-            const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
-                ? node.compareImageA
-                : (typeof node.data?.compareImageA === 'string' ? node.data.compareImageA : '');
-            const compareImageB = typeof node.compareImageB === 'string' && node.compareImageB.trim()
-                ? node.compareImageB
-                : (typeof node.data?.compareImageB === 'string' ? node.data.compareImageB : '');
-            if (compareImageA && shouldInlineResultImage) serialized.compareImageA = compareImageA;
-            if (compareImageB && shouldInlineResultImage) serialized.compareImageB = compareImageB;
-            if (compareImageB && shouldInlineResultImage && !serialized.imageData) serialized.imageData = compareImageB;
-        }
     }
 
     if (node.type === 'ImageImport') {
         serialized.importMode = readElementControlValue(doc, `${node.id}-import-mode`, node.importMode || 'upload');
         serialized.imageUrl = readElementControlValue(doc, `${node.id}-url-input`, node.imageUrl || '');
         serialized.imageImportAssetKey = imageImportAssetKey;
-        if (typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()) {
-            serialized.imagePreviewThumbnail = node.data.imagePreviewThumbnail.trim();
-        }
         if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
         if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
     }

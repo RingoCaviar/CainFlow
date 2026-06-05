@@ -48,7 +48,6 @@ export function createProjectIoApi({
     function getImageImportAssetKeyFromNode(node) {
         const key = node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
         if (isImageImportAssetKey(key)) return key;
-        if (node?.type === 'ImageImport' && node?.id) return `image-import:${String(node.id).trim()}`;
         return '';
     }
 
@@ -179,7 +178,7 @@ export function createProjectIoApi({
             a.download = `CainFlow_Project_${time}.json`;
             a.click();
             URL.revokeObjectURL(url);
-            showToast('工作流已导出，API 供应商与模型配置不会写入文件', 'success');
+            showToast('工作流已导出，API 供应商、模型配置与图片原始数据不会写入文件', 'success');
         } catch (e) {
             showToast('导出失败: ' + e.message, 'error');
         }
@@ -283,7 +282,10 @@ export function createProjectIoApi({
     async function loadState() {
         try {
             const raw = localStorageRef.getItem(storageKey);
-            if (!raw) return false;
+            if (!raw) {
+                scheduleStartupCacheCleanup(null);
+                return false;
+            }
             const data = JSON.parse(raw);
                 if (data.apiConfigs && Array.isArray(data.apiConfigs)) {
                     const newProviders = [];
@@ -461,6 +463,7 @@ export function createProjectIoApi({
             return data.nodes?.length > 0;
         } catch (e) {
             console.warn('Load failed:', e);
+            scheduleStartupCacheCleanup(null);
             return false;
         }
     }

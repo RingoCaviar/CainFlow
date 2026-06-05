@@ -33,6 +33,7 @@ export function createCanvasInteractionsApi({
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     let rafUpdate = null;
+    let panTransformRaf = null;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -58,6 +59,17 @@ export function createCanvasInteractionsApi({
                 updateAllConnections();
             }
             rafUpdate = null;
+        });
+    }
+
+    function schedulePanTransformUpdate() {
+        if (panTransformRaf) return;
+        panTransformRaf = requestAnimationFrameRef(() => {
+            panTransformRaf = null;
+            viewportApi.updateCanvasTransform({
+                updateConnections: false,
+                dispatchTransformEvent: false
+            });
         });
     }
 
@@ -454,8 +466,9 @@ export function createCanvasInteractionsApi({
         });
 
         windowRef.addEventListener('mousemove', (e) => {
-            state.mouseCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
-
+            if (!state.canvas.isPanning) {
+                state.mouseCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
+            }
             if (state.isCutting) {
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 const prevPos = state.cutPath[state.cutPath.length - 1];
@@ -499,7 +512,7 @@ export function createCanvasInteractionsApi({
             if (state.canvas.isPanning) {
                 state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
                 state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
-                viewportApi.updateCanvasTransform({ updateConnections: false });
+                schedulePanTransformUpdate();
             }
             if (state.marquee) {
                 state.marquee.endX = e.clientX;
