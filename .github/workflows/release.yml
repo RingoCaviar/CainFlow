@@ -284,12 +284,22 @@ jobs:
               Stop-Job -Job $Job -ErrorAction SilentlyContinue
             }
 
-            $portPids = & lsof -tiTCP:8767 -sTCP:LISTEN 2>$null
+            $portPids = @()
+            try {
+              $portPids = & lsof -tiTCP:8767 -sTCP:LISTEN 2>$null
+            } catch {
+              $portPids = @()
+            }
             foreach ($portPid in $portPids) {
               if (![string]::IsNullOrWhiteSpace($portPid)) {
-                & kill -9 $portPid 2>$null
+                try {
+                  & kill -9 $portPid 2>$null
+                } catch {
+                  Write-Host "Failed to stop port listener PID ${portPid}: $_"
+                }
               }
             }
+            $global:LASTEXITCODE = 0
           }
 
           New-Item -ItemType Directory -Path $smokeDir | Out-Null
@@ -379,6 +389,7 @@ jobs:
             if ($job) {
               Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
             }
+            $global:LASTEXITCODE = 0
           }
 
       - name: Upload macOS package to release with gh
