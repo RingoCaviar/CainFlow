@@ -19,6 +19,7 @@ import {
 import { createDisplayImageRenderer } from '../media/display-image-renderer.js';
 import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
+import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 
 const WORKFLOW_RUNTIME_STATE_KEYS = [
     'autoRetry',
@@ -67,6 +68,7 @@ function cloneWorkflowConnection(connection = {}) {
 }
 
 function cloneWorkflowData(data = {}) {
+    data = migrateLegacyWorkflowData(data);
     return {
         canvas: {
             x: Number(data?.canvas?.x) || 0,

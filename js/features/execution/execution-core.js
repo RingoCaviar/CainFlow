@@ -1014,7 +1014,7 @@ export function createExecutionCoreApi({
                 return node.data.texts.filter((item) => typeof item === 'string' && item.trim());
             }
 
-            if (node.type === 'Text' || node.type === 'TextInput') {
+            if (node.type === 'Text') {
                 return documentRef.getElementById(`${node.id}-text`)?.value;
             }
 
@@ -1029,12 +1029,6 @@ export function createExecutionCoreApi({
                 return responseText || undefined;
             }
 
-            if (node.type === 'TextDisplay') {
-                const display = documentRef.getElementById(`${node.id}-display`);
-                const text = display?.textContent?.trim() || '';
-                if (!text || text === '等待输入文本...' || text === '当前无输入文本') return undefined;
-                return text;
-            }
         }
 
         if (node.data && node.data[portName] !== undefined) {
@@ -2176,9 +2170,6 @@ export function createExecutionCoreApi({
                 await refreshDependentImageResizePreviews(id);
             }
         },
-        TextInput: async (node) => {
-            node.data.text = documentRef.getElementById(`${node.id}-text`).value;
-        },
         Text: async (node, inputs = {}) => {
             const textarea = documentRef.getElementById(`${node.id}-text`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
@@ -2263,15 +2254,6 @@ export function createExecutionCoreApi({
                     outputs[`part_${index + 1}`] = part;
                     return outputs;
                 }, {});
-        },
-        TextDisplay: async (node, inputs) => {
-            const text = getPrimaryTextInput(inputs.text);
-            const display = documentRef.getElementById(`${node.id}-display`);
-            if (display) {
-                display.textContent = text || '当前无输入文本';
-                node.data.text = text;
-                updateAllConnections();
-            }
         }
     };
 

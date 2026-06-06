@@ -16,6 +16,7 @@ import {
     buildWorkflowModelWarningMessage,
     resolveWorkflowModelReferences
 } from '../persistence/workflow-model-resolver.js';
+import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import { openDialogStyle1 } from '../ui/dialog-style-1.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 
@@ -1694,6 +1695,7 @@ export function createWorkflowManagerApi({
     }
 
     async function applyWorkflowData(data, options = {}) {
+        data = migrateLegacyWorkflowData(data);
         const { saveSession = true } = options;
         const modelResolution = resolveWorkflowModelReferences(data, state);
         const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
@@ -1775,7 +1777,7 @@ export function createWorkflowManagerApi({
             if (!data) return false;
             tab = {
                 name,
-                data,
+                data: migrateLegacyWorkflowData(data),
                 dirty: false,
                 colorIndex: (state.workflowTabs || []).length % TAB_COLORS
             };

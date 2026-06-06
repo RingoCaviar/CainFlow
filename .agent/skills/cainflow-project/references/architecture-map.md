@@ -245,7 +245,7 @@
 | --- | --- | --- |
 | 节点注册中心 | `js/nodes/registry.js` | 节点类型定义注册中心 |
 | 节点 DOM 绑定 | `js/nodes/node-dom-bindings.js` | 节点 DOM 事件绑定与输入监听、节点内控件值归一化；端口 `mousedown` 也在这里区分未连接输入口普通拖线和已连接输入口改线/断线；Text / TextSplit 节点编辑和右下角快速缩放时只同步数据与保存，不接入 textarea ResizeObserver shrink；Text 多文本切换与当前项编辑、可输入 textarea 的手动高度在这里通过 `textareaHeights` 记录并触发保存；TextSplit 节点在这里绑定“输出数量”步进控件、限制数字输入、处理 `0 = 自动生成端口`、处理“多合一输出”开关、动态重建输出端口、渲染可滚动节点内预览并清理失效连线；ImageMerge/TextMerge 的备用输入口同步和失效连线清理也在这里；TextChat 回复区滚动与复制按钮事件也在这里接入；ImageGenerate 等可扩展 textarea 只能在真实尺寸变化时触发 fit，点击/聚焦提示词框不得触发 shrink；运行中节点浮动取消按钮的 2 秒长按、拖动阈值取消长按、事件阻止冒泡也在这里绑定；节点内自定义下拉（用于画布缩放场景）也在这里绑定 |
-| 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 创建时映射为 Text；Text 节点尺寸测量、非文本内容显示不全兜底、Alt 删除保留上下游连接、拖拽晃动摘取节点后的连线保留逻辑在这里；TextSplit 预览区、TextChat 回复区和文本显示框这类可滚动长内容不得按完整内容 `scrollHeight` 撑高最小尺寸；节点类型的 `defaultHeight` 与 `minHeight` 在这里分开使用，支持默认较高但手动缩小到独立最小高度；删除、摘取、启用/禁用必须跳过运行中节点；启用/禁用后要刷新连线、端口状态与依赖预览 |
+| 节点生命周期 | `js/nodes/node-lifecycle.js` | 节点创建、销毁、状态更新；旧 TextInput/TextDisplay 在载入旧数据或创建时统一映射为 Text；Text 节点尺寸测量、非文本内容显示不全兜底、Alt 删除保留上下游连接、拖拽晃动摘取节点后的连线保留逻辑在这里；TextSplit 预览区、TextChat 回复区和文本显示框这类可滚动长内容不得按完整内容 `scrollHeight` 撑高最小尺寸；节点类型的 `defaultHeight` 与 `minHeight` 在这里分开使用，支持默认较高但手动缩小到独立最小高度；删除、摘取、启用/禁用必须跳过运行中节点；启用/禁用后要刷新连线、端口状态与依赖预览 |
 | 序列化 | `js/nodes/node-serializer.js` | 节点序列化、会话状态 payload、workflow 导出结构；workflow 导出只含画布、节点、连线和版本号；TextSplit 的 `delimiter` / `outputCount` / `removeEmptyLines` / `previewEnabled` / `mergeOutputEnabled` / `parts`、Text 的 `texts` / `textPreviewIndex`、ImageMerge/TextMerge 的 `inputCount` 以及输入框手动高度缓存 `textareaHeights` 也在这里保存 |
 | 节点视图工厂 | `js/nodes/node-view-factory.js` | 节点 HTML 模板生成，含 Text 文本框和多文本切换控件、TextSplit 分隔符、输出数量步进控件、删除空行、多合一输出与节点内预览控件、TextChat 回复框内部左上角小复制按钮、ImageGenerate 分辨率与生成次数控件、ImageCompare 高级对比入口按钮，以及运行中节点卡片外浮动取消按钮结构；TextSplit 不再渲染内部长文本输入框，输出数量为 `0` 时按分割结果自动生成端口并显示提示，开启 `mergeOutputEnabled` 时只生成单个 `text` 输出端口；ImageMerge/TextMerge 初始端口数量从 `inputCount` 恢复并遵守备用输入口；ImageGenerate 当前在节点内只显示 `xx/xx` 生成进度，不再显示结果预览；textarea 初始高度从 `textareaHeights` 恢复；节点端口区当前由顶部并排的 `.node-ports-row` 统一生成，输入/输出两列顶部对齐 |
 | 视角控制节点 | `js/nodes/types/camera-control.js` | CameraControl 节点定义、端口、默认尺寸与最小尺寸；固定结构节点不要把最小尺寸散落到私有逻辑里 |
@@ -261,8 +261,6 @@
 | 文本节点 | `js/nodes/types/text.js` | Text 节点正式定义，包含 1 个文本输入口和 1 个文本输出口 |
 | 多文本合一节点 | `js/nodes/types/text-merge.js` | TextMerge 节点定义，多个 `text_N` 输入按端口顺序展平成一个文本数组，由单个 `text` 输出口输出；输入端口遵守备用输入口规则 |
 | 文本分割节点 | `js/nodes/types/text-split.js` | TextSplit 节点定义，按自定义分隔字符串把上游文本切成多段；输出口数量可由 `outputCount` 固定控制，`0` 表示根据分割结果自动生成 `part_N` 端口；开启 `mergeOutputEnabled` 时收敛为单个 `text` 输出端口并输出多文本数组；可开启删除空行和节点内预览，预览区滚动展示且不锁定节点高度 |
-| 文本显示兼容节点 | `js/nodes/types/text-display.js` | TextDisplay 旧缓存/旧工作流兼容 shim，不在注册表中作为新节点注册 |
-| 文本输入兼容节点 | `js/nodes/types/text-input.js` | TextInput 旧缓存/旧工作流兼容 shim，不在注册表中作为新节点注册 |
 
 ---
 
@@ -438,7 +436,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 媒体处理放 `js/features/media/`，不要堆回节点类型文件。
 - 图片类节点的定义、模板、DOM 绑定、媒体同步和执行输出要分层处理：`js/nodes/types/*.js` 只放元数据和端口；`js/nodes/node-view-factory.js` 只生成结构；`js/nodes/node-dom-bindings.js` 只接入节点事件；`js/features/media/media-controller.js` 负责图片显示状态、交互与依赖刷新；`js/features/execution/execution-core.js` 负责运行时输入校验、输出写入和向下游分发。
 - 节点端口位置先看 `js/nodes/node-view-factory.js` 与 `css/legacy.css`：当前输入/输出端口在顶部同一行并排展开，最上方端口需要左右对齐。`js/canvas/connections.js` 只负责按端口圆点实际 DOM 坐标取点，除非连线命中或路径本身有问题，不要为端口视觉位置改连线几何。
-- 文本节点统一使用 `Text`。`TextInput` / `TextDisplay` 只保留兼容 shim 和创建时映射，不要重新暴露为新建节点。Text 节点运行后不要自动设置大小；编辑文本时也不要自动缩放节点。若要改尺寸策略，先同时检查 `node-dom-bindings.js`、`node-lifecycle.js`、`execution-core.js` 和 `css/legacy.css`。
+- 文本节点统一使用 `Text`。`TextInput` / `TextDisplay` 只在载入旧工作流时迁移为 `Text`，不要重新暴露为新建节点或恢复运行态专用分支。Text 节点运行后不要自动设置大小；编辑文本时也不要自动缩放节点。若要改尺寸策略，先同时检查 `node-dom-bindings.js`、`node-lifecycle.js`、`execution-core.js` 和 `css/legacy.css`。
 - 文本输入框的手动高度持久化统一走 `textareaHeights`：节点模板恢复、输入监听后的保存、工作流序列化和复制粘贴都要同步更新；`ResizeObserver` 只记录高度变化并触发保存，不负责 shrink fit。
 - ImageGenerate / TextChat / Text 等带 textarea 的节点若出现“点击输入框后节点变小”，优先检查 `js/nodes/node-dom-bindings.js` 里的可扩展元素尺寸监听。只允许 `ResizeObserver` 等真实尺寸变化触发 fit，不要把 `mouseup`、`touchend`、focus/click 这类交互事件接到 shrink fit。
 - TextSplit 输出数量控件是节点内步进控件：左右按钮增减，中间输入框只能输入数字；`outputCount > 0` 时固定生成对应数量 `part_N` 端口，`outputCount = 0` 时按分割结果自动生成 `part_N` 端口。开启“多合一输出”时保存 `mergeOutputEnabled`，端口收敛为单个 `text` 输出口，输出值是分割片段组成的多文本数组，并应通过 `node.data.texts` / `getCachedOutputValue(node, 'text')` 向下游传递。保存、复制、恢复和运行都要保留 `outputCount` 与 `mergeOutputEnabled`，旧工作流缺少这些字段时应从 `parts` 或分割结果推导普通端口数量，避免已有 `part_N` 连线失效。

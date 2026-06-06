@@ -501,7 +501,7 @@ export function classifyProviderError(status, body, context = {}) {
     };
 }
 
-export function sanitizeRequestPayload(payload, options = {}) {
+function sanitizeRequestPayload(payload, options = {}) {
     const { truncate = true } = options;
     if (!payload || typeof payload !== 'object') return payload;
     try {

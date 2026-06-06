@@ -48,7 +48,7 @@ export function splitTextForTextSplitNode(text, delimiter, options = {}) {
         .filter((part) => part.trim().length > 0);
 }
 
-export function releaseElementImageSources(root) {
+function releaseElementImageSources(root) {
     if (!root?.querySelectorAll) return;
     const images = root.matches?.('img')
         ? [root, ...Array.from(root.querySelectorAll('img'))]

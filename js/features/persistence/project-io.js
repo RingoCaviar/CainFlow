@@ -9,6 +9,7 @@ import {
     buildWorkflowModelWarningMessage,
     resolveWorkflowModelReferences
 } from './workflow-model-resolver.js';
+import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 
 export function createProjectIoApi({
     state,
@@ -188,7 +189,7 @@ export function createProjectIoApi({
         const reader = new FileReader();
         reader.onload = async (event) => {
             try {
-                const importedData = JSON.parse(event.target.result);
+                const importedData = migrateLegacyWorkflowData(JSON.parse(event.target.result));
                 if (!importedData.nodes || !Array.isArray(importedData.nodes)) {
                     throw new Error('无效的 CainFlow 项目文件格式');
                 }
@@ -285,7 +286,7 @@ export function createProjectIoApi({
                 scheduleStartupCacheCleanup(null);
                 return false;
             }
-            const data = JSON.parse(raw);
+            const data = migrateLegacyWorkflowData(JSON.parse(raw));
                 if (data.apiConfigs && Array.isArray(data.apiConfigs)) {
                     const newProviders = [];
                     const newModels = [];

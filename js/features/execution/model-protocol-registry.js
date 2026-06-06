@@ -1,7 +1,7 @@
 /**
  * 维护模型兼容格式的统一注册表，作为设置页、节点 UI 与执行层的单一来源。
  */
-export const MODEL_PROTOCOLS = Object.freeze({
+const MODEL_PROTOCOLS = Object.freeze({
     google: Object.freeze({
         id: 'google',
         label: 'Google / Gemini',

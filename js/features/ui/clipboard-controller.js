@@ -5,6 +5,7 @@ import {
     appendMappedConnectionSnapshots,
     collectConnectionSnapshotsForNodes
 } from '../../canvas/connection-copy-utils.js';
+import { migrateLegacyNodeData, migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 
 export function createClipboardControllerApi({
     state,
@@ -237,9 +238,10 @@ export function createClipboardControllerApi({
         state.selectedNodes.clear();
 
         clip.nodes.forEach((data) => {
+            const migratedData = migrateLegacyNodeData({ ...data, id: null });
             const offsetX = data.x - clip.center.x;
             const offsetY = data.y - clip.center.y;
-            const newId = addNode(data.type, mousePos.x + offsetX, mousePos.y + offsetY, { ...data, id: null }, true);
+            const newId = addNode(migratedData.type, mousePos.x + offsetX, mousePos.y + offsetY, migratedData, true);
             if (newId) {
                 idMap.set(data.id, newId);
                 state.selectedNodes.add(newId);
@@ -274,6 +276,12 @@ export function createClipboardControllerApi({
     return {
         serializeOneNode,
         copySelectedNode,
-        pasteNode
+        pasteNode,
+        hydrateClipboard(data = null) {
+            if (!data || typeof data !== 'object') return null;
+            const migrated = migrateLegacyWorkflowData(data);
+            state.clipboard = migrated;
+            return migrated;
+        }
     };
 }
