@@ -9,6 +9,8 @@ import {
 
 const DISPLAY_IMAGE_RELEASE_PADDING = 900;
 const DISPLAY_IMAGE_HYDRATE_PADDING = 420;
+const DISPLAY_VIDEO_RELEASE_PADDING = 1200;
+const DISPLAY_VIDEO_HYDRATE_PADDING = 520;
 const DISPLAY_IMAGE_SWEEP_DELAY_MS = 180;
 const DISPLAY_IMAGE_RELEASE_GRACE_MS = 3500;
 const DISPLAY_IMAGE_MAX_RESTORE_PER_SWEEP = 4;
@@ -33,6 +35,7 @@ export function createDisplayImageMemoryManager({
     },
     renderImagePreviewImage = () => {},
     renderImageSavePreview = () => {},
+    renderVideoSavePreview = () => {},
     renderImageImportUploadState = () => {},
     renderImageResizeResult = () => {},
     renderImageComparePreview = () => {},
@@ -79,6 +82,17 @@ export function createDisplayImageMemoryManager({
             || node?.type === 'ImageResize'
             || node?.type === 'ImageCompare'
             || isImageImportUploadNode(node);
+    }
+
+    function getStoredVideo(node) {
+        const video = node?.data?.video;
+        return video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim()
+            ? video
+            : null;
+    }
+
+    function isManagedVideoNode(node) {
+        return node?.type === 'ImageSave' && !!getStoredVideo(node);
     }
 
     function getStoredImageAssetKey(node) {
@@ -340,6 +354,10 @@ export function createDisplayImageMemoryManager({
         );
     }
 
+    function isDisplayVideoNodeProtected(node) {
+        return isDisplayImageNodeProtected(node);
+    }
+
     function shouldReleaseDisplayNodeImages(node, viewport, now = Date.now()) {
         if (!isManagedImageNode(node) || !viewport) return false;
         if (node.data?.imageMemoryReleased === true) return false;
@@ -370,6 +388,58 @@ export function createDisplayImageMemoryManager({
         if (!getStoredImageAssetKey(node)) return false;
         const bounds = getDisplayImageNodeBounds(node);
         return displayImageBoundsIntersect(bounds, viewport, DISPLAY_IMAGE_HYDRATE_PADDING);
+    }
+
+    function getVideoPreviewContainer(node) {
+        if (!node?.id) return null;
+        return documentRef.getElementById(`${node.id}-save-preview`);
+    }
+
+    function hasHydratedDisplayVideo(node) {
+        const videoEl = getVideoPreviewContainer(node)?.querySelector('video');
+        return Boolean(videoEl?.getAttribute('src'));
+    }
+
+    function shouldReleaseDisplayVideo(node, viewport) {
+        if (!isManagedVideoNode(node) || !viewport) return false;
+        if (node.data?.videoPreviewReleased === true) return false;
+        if (isDisplayVideoNodeProtected(node)) return false;
+        if (!hasHydratedDisplayVideo(node)) return false;
+        const bounds = getDisplayImageNodeBounds(node);
+        return !displayImageBoundsIntersect(bounds, viewport, DISPLAY_VIDEO_RELEASE_PADDING);
+    }
+
+    function shouldHydrateDisplayVideo(node, viewport) {
+        if (!isManagedVideoNode(node) || !viewport) return false;
+        if (node.data?.videoPreviewReleased !== true) return false;
+        const bounds = getDisplayImageNodeBounds(node);
+        return displayImageBoundsIntersect(bounds, viewport, DISPLAY_VIDEO_HYDRATE_PADDING);
+    }
+
+    function releaseDisplayVideoPreview(node) {
+        const video = getStoredVideo(node);
+        const container = getVideoPreviewContainer(node);
+        const videoEl = container?.querySelector('video');
+        if (!video || !container || !videoEl) return false;
+        try {
+            videoEl.pause?.();
+            videoEl.removeAttribute('src');
+            videoEl.load?.();
+        } catch {
+            // Browser media teardown can fail for transient decode states; the preview can still be replaced.
+        }
+        container.dataset.saveMode = 'video';
+        container.innerHTML = '<div class="save-preview-placeholder">视频预览已释放，移入视野后自动恢复</div>';
+        node.data.videoPreviewReleased = true;
+        return true;
+    }
+
+    function hydrateDisplayVideoPreview(node) {
+        const video = getStoredVideo(node);
+        if (!video || !node?.id) return false;
+        renderVideoSavePreview(node.id, video, '无输入视频');
+        delete node.data.videoPreviewReleased;
+        return true;
     }
 
     function markManagedImageAssetReady(node, assetKey = getStoredImageAssetKey(node)) {
@@ -534,7 +604,15 @@ export function createDisplayImageMemoryManager({
         if (count <= 0) return false;
         if (!(await ensureManagedImageAssetReady(node))) return false;
         const assetKey = getStoredImageAssetKey(node);
-        if (assetKey && node.type !== 'ImageImport') node.data.imageAssetKey = assetKey;
+        if (assetKey) {
+            if (isImageImportUploadNode(node)) {
+                node.imageImportAssetKey = assetKey;
+                node.data.imageImportAssetKey = assetKey;
+                delete node.data.imageAssetKey;
+            } else {
+                node.data.imageAssetKey = assetKey;
+            }
+        }
         node.data.imageCount = count;
         node.data.imageMemoryReleased = true;
         node.data.imageAssetReady = true;
@@ -595,6 +673,8 @@ export function createDisplayImageMemoryManager({
         let restored = 0;
         let released = 0;
         let softReleased = 0;
+        let releasedVideos = 0;
+        let restoredVideos = 0;
         const restoreLimit = Math.max(0, Number(options.restoreLimit ?? DISPLAY_IMAGE_MAX_RESTORE_PER_SWEEP) || 0);
         if (viewport) {
             for (const { node } of entries) {
@@ -602,6 +682,11 @@ export function createDisplayImageMemoryManager({
                 if (!shouldHydrateDisplayNodeImages(node, viewport)) continue;
                 if (await hydrateReleasedDisplayNodeImages(node)) restored += 1;
             }
+            state.nodes.forEach((node) => {
+                if (shouldHydrateDisplayVideo(node, viewport) && hydrateDisplayVideoPreview(node)) {
+                    restoredVideos += 1;
+                }
+            });
         }
         const now = Date.now();
         for (const { node } of entries) {
@@ -612,7 +697,14 @@ export function createDisplayImageMemoryManager({
             if (!shouldSoftReleaseDisplayNodeImages(node, now)) continue;
             if (await softReleaseDisplayNodeImages(node)) softReleased += 1;
         }
-        return { released, restored, softReleased };
+        if (viewport) {
+            state.nodes.forEach((node) => {
+                if (shouldReleaseDisplayVideo(node, viewport) && releaseDisplayVideoPreview(node)) {
+                    releasedVideos += 1;
+                }
+            });
+        }
+        return { released, restored, softReleased, releasedVideos, restoredVideos };
     }
 
     function scheduleSweep(options = {}) {
@@ -763,7 +855,9 @@ export function createDisplayImageMemoryManager({
             const node = getNodeById(nodeId);
             if (!node) return false;
             if (options.force !== true && isDisplayImageNodeProtected(node)) return false;
-            return softReleaseDisplayNodeImages(node);
+            return options.force === true
+                ? releaseDisplayNodeImages(node)
+                : softReleaseDisplayNodeImages(node);
         },
         saveAssetSoon,
         updateResolutionBadgeSoon,

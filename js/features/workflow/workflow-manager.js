@@ -36,6 +36,7 @@ export function createWorkflowManagerApi({
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
     onWorkflowViewApplied = () => {},
+    releaseNodeImageData = async () => false,
     refreshRecoverableMediaNodes = async () => {},
     waitForImageRestores = async () => {},
     beginMediaRestoreBatch = () => {},
@@ -53,6 +54,8 @@ export function createWorkflowManagerApi({
     const WORKFLOW_SIDEBAR_DEFAULT_WIDTH = 320;
     const WORKFLOW_SIDEBAR_MIN_WIDTH = 260;
     const WORKFLOW_SIDEBAR_MAX_WIDTH = 680;
+    const WORKFLOW_LIST_DEFERRED_RENDER_THRESHOLD = 200;
+    const WORKFLOW_LIST_RENDER_CHUNK_SIZE = 80;
     let workflowSelectionMode = false;
     let draggingWorkflowName = '';
     let pendingAssetCleanupIncludeCanvas = false;
@@ -60,6 +63,7 @@ export function createWorkflowManagerApi({
     let assetCleanupQueued = false;
     let cachedWorkflowEntries = { workflows: [], folders: [] };
     let hasCachedWorkflowEntries = false;
+    let workflowListRenderSequence = 0;
     const selectedWorkflowNames = new Set();
 
     function normalizeWorkflowSidebarWidth(value) {
@@ -483,6 +487,22 @@ export function createWorkflowManagerApi({
         tab.data = getWorkflowPayload();
         if (markDirty) tab.dirty = true;
         return tab;
+    }
+
+    async function releaseActiveWorkflowImageMemoryBeforeDeactivation() {
+        const tab = getActiveWorkflowTab();
+        if (!tab || tab.running === true) return;
+        if (typeof releaseNodeImageData !== 'function') return;
+        const nodeIds = Array.from(state.nodes.keys());
+        if (nodeIds.length === 0) return;
+        await Promise.allSettled(
+            nodeIds.map((nodeId) => releaseNodeImageData(nodeId, { force: true }))
+        );
+    }
+
+    async function snapshotActiveWorkflowForDeactivation({ markDirty = false } = {}) {
+        await releaseActiveWorkflowImageMemoryBeforeDeactivation();
+        return snapshotActiveWorkflow({ markDirty });
     }
 
     function refreshWorkflowCardState(name) {
@@ -1058,10 +1078,21 @@ export function createWorkflowManagerApi({
         }
     }
 
+    function releaseWorkflowTabMemory(tab) {
+        if (!tab || typeof tab !== 'object') return;
+        tab.data = null;
+        tab.runResult = '';
+        tab.running = false;
+    }
+
     function pruneWorkflowStateToNames(names = []) {
         normalizeWorkflowTabs();
         const validNames = new Set(names.filter((name) => typeof name === 'string' && name));
-        state.workflowTabs = (state.workflowTabs || []).filter((tab) => validNames.has(tab.name));
+        state.workflowTabs = (state.workflowTabs || []).filter((tab) => {
+            const keep = validNames.has(tab.name);
+            if (!keep) releaseWorkflowTabMemory(tab);
+            return keep;
+        });
         state.workflowOrder = (state.workflowOrder || []).filter((entry) => (
             entry.startsWith('folder:') || validNames.has(entry)
         ));
@@ -1219,7 +1250,11 @@ export function createWorkflowManagerApi({
 
     async function removeWorkflowTab(name) {
         const wasActive = state.activeWorkflowName === name;
-        state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
+        state.workflowTabs = (state.workflowTabs || []).filter((item) => {
+            const keep = item.name !== name;
+            if (!keep) releaseWorkflowTabMemory(item);
+            return keep;
+        });
         if (wasActive) {
             if (state.workflowTabs.length > 0) {
                 await activateFallbackWorkflow();
@@ -1286,10 +1321,283 @@ export function createWorkflowManagerApi({
         }
     }
 
+    function bindWorkflowListEvents(list) {
+        if (!list || list.dataset.workflowEventsBound === '1') return;
+        list.dataset.workflowEventsBound = '1';
+
+        const getEventWorkflowItem = (event) => {
+            const item = event.target?.closest?.('.workflow-item');
+            return item && list.contains(item) ? item : null;
+        };
+        const getEventWorkflowFolder = (event) => {
+            const folderEl = event.target?.closest?.('.workflow-folder');
+            return folderEl && list.contains(folderEl) ? folderEl : null;
+        };
+        const getEventWorkflowFolderChildren = (event) => {
+            const childrenEl = event.target?.closest?.('.workflow-folder-children');
+            return childrenEl && list.contains(childrenEl) ? childrenEl : null;
+        };
+        const getDragSourceName = (event) => draggingWorkflowName || event.dataTransfer?.getData('text/plain') || '';
+        const findWorkflowItemByName = (name) => Array.from(list.querySelectorAll('.workflow-item'))
+            .find((candidate) => candidate.dataset.name === name) || null;
+        const toggleFolder = (folderId) => {
+            const folder = getWorkflowFolderById(folderId);
+            if (!folder) return;
+            folder.collapsed = !folder.collapsed;
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+        };
+
+        list.addEventListener('click', async (event) => {
+            const item = getEventWorkflowItem(event);
+            if (item) {
+                const name = item.dataset.name || '';
+                if (!name) return;
+                if (workflowSelectionMode) {
+                    toggleWorkflowSelection(name);
+                    return;
+                }
+                await openWorkflow(name);
+                return;
+            }
+
+            const folderEl = getEventWorkflowFolder(event);
+            if (!folderEl) return;
+            if (event.target?.closest?.('.workflow-folder-toggle')) event.preventDefault();
+            toggleFolder(folderEl.dataset.folderId || '');
+        });
+
+        list.addEventListener('contextmenu', (event) => {
+            const item = getEventWorkflowItem(event);
+            if (item) {
+                const name = item.dataset.name || '';
+                if (!name) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const menu = documentRef.getElementById('workflow-context-menu');
+                if (!menu) return;
+                documentRef.getElementById('workflow-folder-context-menu')?.classList.add('hidden');
+                menu.dataset.targetName = name;
+                menu.style.left = `${event.clientX}px`;
+                menu.style.top = `${event.clientY}px`;
+                menu.classList.remove('hidden');
+                refreshWorkflowSelectionUi();
+                return;
+            }
+
+            const folderEl = getEventWorkflowFolder(event);
+            if (!folderEl) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const menu = documentRef.getElementById('workflow-folder-context-menu');
+            documentRef.getElementById('workflow-context-menu')?.classList.add('hidden');
+            if (!menu) return;
+            menu.dataset.folderId = folderEl.dataset.folderId || '';
+            menu.style.left = `${event.clientX}px`;
+            menu.style.top = `${event.clientY}px`;
+            menu.classList.remove('hidden');
+        });
+
+        list.addEventListener('dragstart', (event) => {
+            const item = getEventWorkflowItem(event);
+            if (!item) return;
+            const name = item.dataset.name || '';
+            if (!name) return;
+            draggingWorkflowName = name;
+            item.classList.add('is-dragging');
+            list.classList.add('workflow-list-dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', name);
+        });
+
+        list.addEventListener('dragover', (event) => {
+            const sourceName = getDragSourceName(event);
+            if (!sourceName) return;
+
+            const item = getEventWorkflowItem(event);
+            if (item) {
+                const name = item.dataset.name || '';
+                const draggedNames = getDraggedWorkflowNames(sourceName);
+                if (!name || draggedNames.includes(name)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'move';
+                clearWorkflowRootDropTargets(list);
+                const rect = item.getBoundingClientRect();
+                const placement = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+                const sourceItem = findWorkflowItemByName(sourceName);
+                const sameContainer = sourceItem?.parentElement === item.parentElement;
+                const sourceItems = sameContainer
+                    ? getDraggedWorkflowItemsInContainer(sourceName, item.parentElement)
+                    : [];
+                const moved = sourceItems.length > 1
+                    ? moveWorkflowItemGroupElements(sourceItems, item, placement)
+                    : sameContainer && moveWorkflowItemElement(sourceItem, item, placement);
+                if (moved) syncWorkflowLayoutFromDom();
+                return;
+            }
+
+            const folderEl = getEventWorkflowFolder(event);
+            if (folderEl) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'move';
+                if (canDropDraggedWorkflowsToRoot(sourceName) && isFolderTopRootDropZone(event, folderEl)) {
+                    folderEl.classList.remove('is-drop-target');
+                    markWorkflowRootDropTarget(folderEl, list);
+                    return;
+                }
+                clearWorkflowRootDropTargets(list);
+                const folderId = folderEl.dataset.folderId || '';
+                const folder = getWorkflowFolderById(folderId);
+                if (folder?.collapsed === true) {
+                    folder.collapsed = false;
+                    folderEl.classList.remove('is-collapsed');
+                    const childrenEl = list.querySelector(`.workflow-folder-children[data-folder-id="${folderId}"]`);
+                    childrenEl?.classList.remove('hidden');
+                }
+                folderEl.classList.add('is-drop-target');
+                return;
+            }
+
+            const childrenEl = getEventWorkflowFolderChildren(event);
+            if (childrenEl) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'move';
+                const folderId = childrenEl.dataset.folderId || '';
+                if (isFolderChildrenRootDropZone(event, childrenEl, sourceName, folderId)) {
+                    childrenEl.classList.remove('is-drop-target');
+                    markWorkflowRootDropTarget(getWorkflowFolderElement(folderId, list), list);
+                    return;
+                }
+                clearWorkflowRootDropTargets(list);
+                childrenEl.classList.add('is-drop-target');
+                return;
+            }
+
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            markWorkflowRootDropTarget(
+                canDropDraggedWorkflowsToRoot(sourceName) ? getFolderRootGapTarget(event, list) : null,
+                list
+            );
+        });
+
+        list.addEventListener('dragleave', (event) => {
+            const folderEl = getEventWorkflowFolder(event);
+            if (folderEl) {
+                folderEl.classList.remove('is-drop-target');
+                folderEl.classList.remove('is-root-drop-target');
+            }
+            const childrenEl = getEventWorkflowFolderChildren(event);
+            if (childrenEl) {
+                childrenEl.classList.remove('is-drop-target');
+                clearWorkflowRootDropTargets(list);
+            }
+        });
+
+        list.addEventListener('drop', async (event) => {
+            const sourceName = getDragSourceName(event);
+            if (!sourceName) return;
+
+            const item = getEventWorkflowItem(event);
+            if (item) {
+                const name = item.dataset.name || '';
+                if (!name || getDraggedWorkflowNames(sourceName).includes(name)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const sourceItem = findWorkflowItemByName(sourceName);
+                const sameContainer = sourceItem?.parentElement === item.parentElement;
+                const targetFolderId = item.dataset.folderId || '';
+                const movedAcrossFolder = !sameContainer && (
+                    targetFolderId
+                        ? await moveWorkflowsToFolder(getDraggedWorkflowNames(sourceName), targetFolderId)
+                        : await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))
+                );
+                if (movedAcrossFolder) {
+                    clearWorkflowDragState(list);
+                    renderWorkflowList();
+                    scheduleSave({ dirty: false });
+                    return;
+                }
+                if (syncWorkflowLayoutFromDom()) scheduleSave({ dirty: false });
+                return;
+            }
+
+            const folderEl = getEventWorkflowFolder(event);
+            if (folderEl) {
+                event.preventDefault();
+                event.stopPropagation();
+                folderEl.classList.remove('is-drop-target');
+                folderEl.classList.remove('is-root-drop-target');
+                if (canDropDraggedWorkflowsToRoot(sourceName) && isFolderTopRootDropZone(event, folderEl)) {
+                    if (await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))) {
+                        clearWorkflowDragState(list);
+                        renderWorkflowList();
+                        scheduleSave({ dirty: false });
+                    }
+                    return;
+                }
+                if (await moveWorkflowsToFolder(getDraggedWorkflowNames(sourceName), folderEl.dataset.folderId || '')) {
+                    clearWorkflowDragState(list);
+                    renderWorkflowList();
+                    scheduleSave({ dirty: false });
+                }
+                return;
+            }
+
+            const childrenEl = getEventWorkflowFolderChildren(event);
+            if (childrenEl) {
+                event.preventDefault();
+                event.stopPropagation();
+                childrenEl.classList.remove('is-drop-target');
+                const folderId = childrenEl.dataset.folderId || '';
+                if (isFolderChildrenRootDropZone(event, childrenEl, sourceName, folderId)) {
+                    clearWorkflowRootDropTargets(list);
+                    if (await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))) {
+                        clearWorkflowDragState(list);
+                        renderWorkflowList();
+                        scheduleSave({ dirty: false });
+                    }
+                    return;
+                }
+                if (await moveWorkflowsToFolder(getDraggedWorkflowNames(sourceName), folderId)) {
+                    clearWorkflowDragState(list);
+                    renderWorkflowList();
+                    scheduleSave({ dirty: false });
+                }
+                return;
+            }
+
+            event.preventDefault();
+            clearWorkflowRootDropTargets(list);
+            if (await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))) {
+                clearWorkflowDragState(list);
+                renderWorkflowList();
+                scheduleSave({ dirty: false });
+            }
+        });
+
+        list.addEventListener('dragend', () => {
+            clearWorkflowDragState(list);
+            if (syncWorkflowLayoutFromDom()) scheduleSave({ dirty: false });
+        });
+    }
+
+    function waitForWorkflowListRenderFrame() {
+        return new Promise((resolve) => {
+            const requestFrame = windowRef.requestAnimationFrame || ((callback) => windowRef.setTimeout(callback, 16));
+            requestFrame(() => resolve());
+        });
+    }
+
     async function renderWorkflowList({ forceReload = true } = {}) {
         const list = documentRef.getElementById('workflow-list');
         const workflowEntries = await getWorkflowEntriesForRender({ forceReload });
         if (!list) return;
+        bindWorkflowListEvents(list);
+        const renderSequence = ++workflowListRenderSequence;
         const workflowNames = Array.from(new Set(workflowEntries.workflows || []));
         pruneWorkflowStateToNames(workflowNames);
         const rootEntries = normalizeWorkflowOrder(workflowNames, workflowEntries.folders);
@@ -1327,10 +1635,9 @@ export function createWorkflowManagerApi({
     `;
         };
 
-        const renderFolder = (folder) => {
+        const renderFolderStart = (folder) => {
             const itemCount = Array.isArray(folder.items) ? folder.items.length : 0;
             const collapsed = folder.collapsed === true;
-            const children = folder.items.map((name) => renderWorkflowItem(name, folder.id)).join('');
             return `
         <div class="workflow-folder ${collapsed ? 'is-collapsed' : ''}" data-folder-id="${escapeHtml(folder.id)}">
             <button type="button" class="workflow-folder-toggle" title="${collapsed ? '展开文件夹' : '折叠文件夹'}" aria-label="${collapsed ? '展开文件夹' : '折叠文件夹'}">
@@ -1346,257 +1653,61 @@ export function createWorkflowManagerApi({
             <span class="workflow-folder-count">${itemCount}</span>
         </div>
         <div class="workflow-folder-children ${collapsed ? 'hidden' : ''}" data-folder-id="${escapeHtml(folder.id)}">
+    `;
+        };
+
+        const renderFolder = (folder) => {
+            const children = folder.items.map((name) => renderWorkflowItem(name, folder.id)).join('');
+            return `${renderFolderStart(folder)}
             ${children}
         </div>
     `;
         };
 
-        list.innerHTML = rootEntries.map((entry) => {
+        const renderEntry = (entry) => {
             if (entry.startsWith('folder:')) {
                 const folder = getWorkflowFolderById(entry.slice('folder:'.length));
                 return folder ? renderFolder(folder) : '';
             }
             return workflowNames.includes(entry) ? renderWorkflowItem(entry) : '';
-        }).join('');
+        };
 
-        list.querySelectorAll('.workflow-folder').forEach((folderEl) => {
-            const folderId = folderEl.dataset.folderId || '';
-            const toggleFolder = () => {
-                const folder = getWorkflowFolderById(folderId);
+        if (workflowNames.length <= WORKFLOW_LIST_DEFERRED_RENDER_THRESHOLD) {
+            list.innerHTML = rootEntries.map((entry) => renderEntry(entry)).join('');
+            refreshWorkflowSelectionUi();
+            return;
+        }
+
+        const workflowNameSet = new Set(workflowNames);
+        const segments = [];
+        rootEntries.forEach((entry) => {
+            if (entry.startsWith('folder:')) {
+                const folder = getWorkflowFolderById(entry.slice('folder:'.length));
                 if (!folder) return;
-                folder.collapsed = !folder.collapsed;
-                renderWorkflowList();
-                scheduleSave({ dirty: false });
-            };
-
-            folderEl.addEventListener('click', () => {
-                toggleFolder();
-            });
-
-            folderEl.addEventListener('contextmenu', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                const menu = documentRef.getElementById('workflow-folder-context-menu');
-                documentRef.getElementById('workflow-context-menu')?.classList.add('hidden');
-                if (!menu) return;
-                menu.dataset.folderId = folderId;
-                menu.style.left = `${event.clientX}px`;
-                menu.style.top = `${event.clientY}px`;
-                menu.classList.remove('hidden');
-            });
-
-            folderEl.querySelector('.workflow-folder-toggle')?.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                toggleFolder();
-            });
-
-            folderEl.addEventListener('dragover', (event) => {
-                const sourceName = draggingWorkflowName || event.dataTransfer.getData('text/plain');
-                if (!sourceName) return;
-                event.preventDefault();
-                event.stopPropagation();
-                event.dataTransfer.dropEffect = 'move';
-                if (canDropDraggedWorkflowsToRoot(sourceName) && isFolderTopRootDropZone(event, folderEl)) {
-                    folderEl.classList.remove('is-drop-target');
-                    markWorkflowRootDropTarget(folderEl, list);
-                    return;
-                }
-                clearWorkflowRootDropTargets(list);
-                const folder = getWorkflowFolderById(folderId);
-                if (folder?.collapsed === true) {
-                    folder.collapsed = false;
-                    folderEl.classList.remove('is-collapsed');
-                    const childrenEl = list.querySelector(`.workflow-folder-children[data-folder-id="${folderId}"]`);
-                    childrenEl?.classList.remove('hidden');
-                }
-                folderEl.classList.add('is-drop-target');
-            });
-
-            folderEl.addEventListener('dragleave', () => {
-                folderEl.classList.remove('is-drop-target');
-                folderEl.classList.remove('is-root-drop-target');
-            });
-
-            folderEl.addEventListener('drop', async (event) => {
-                const sourceName = draggingWorkflowName || event.dataTransfer.getData('text/plain');
-                if (!sourceName) return;
-                event.preventDefault();
-                event.stopPropagation();
-                folderEl.classList.remove('is-drop-target');
-                folderEl.classList.remove('is-root-drop-target');
-                if (canDropDraggedWorkflowsToRoot(sourceName) && isFolderTopRootDropZone(event, folderEl)) {
-                    if (await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))) {
-                        clearWorkflowDragState(list);
-                        renderWorkflowList();
-                        scheduleSave({ dirty: false });
-                    }
-                    return;
-                }
-                if (await moveWorkflowsToFolder(getDraggedWorkflowNames(sourceName), folderId)) {
-                    clearWorkflowDragState(list);
-                    renderWorkflowList();
-                    scheduleSave({ dirty: false });
-                }
-            });
-        });
-
-        list.querySelectorAll('.workflow-folder-children').forEach((childrenEl) => {
-            const folderId = childrenEl.dataset.folderId || '';
-            childrenEl.addEventListener('dragover', (event) => {
-                const sourceName = draggingWorkflowName || event.dataTransfer.getData('text/plain');
-                if (!sourceName) return;
-                event.preventDefault();
-                event.stopPropagation();
-                event.dataTransfer.dropEffect = 'move';
-                if (isFolderChildrenRootDropZone(event, childrenEl, sourceName, folderId)) {
-                    childrenEl.classList.remove('is-drop-target');
-                    markWorkflowRootDropTarget(getWorkflowFolderElement(folderId, list), list);
-                    return;
-                }
-                clearWorkflowRootDropTargets(list);
-                childrenEl.classList.add('is-drop-target');
-            });
-
-            childrenEl.addEventListener('dragleave', () => {
-                childrenEl.classList.remove('is-drop-target');
-                clearWorkflowRootDropTargets(list);
-            });
-
-            childrenEl.addEventListener('drop', async (event) => {
-                const sourceName = draggingWorkflowName || event.dataTransfer.getData('text/plain');
-                if (!sourceName) return;
-                event.preventDefault();
-                event.stopPropagation();
-                childrenEl.classList.remove('is-drop-target');
-                if (isFolderChildrenRootDropZone(event, childrenEl, sourceName, folderId)) {
-                    clearWorkflowRootDropTargets(list);
-                    if (await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))) {
-                        clearWorkflowDragState(list);
-                        renderWorkflowList();
-                        scheduleSave({ dirty: false });
-                    }
-                    return;
-                }
-                if (await moveWorkflowsToFolder(getDraggedWorkflowNames(sourceName), folderId)) {
-                    clearWorkflowDragState(list);
-                    renderWorkflowList();
-                    scheduleSave({ dirty: false });
-                }
-            });
-        });
-
-        list.ondragover = (event) => {
-            const sourceName = draggingWorkflowName || event.dataTransfer.getData('text/plain');
-            if (!sourceName || event.target.closest('.workflow-item, .workflow-folder, .workflow-folder-children')) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-            markWorkflowRootDropTarget(
-                canDropDraggedWorkflowsToRoot(sourceName) ? getFolderRootGapTarget(event, list) : null,
-                list
-            );
-        };
-
-        list.ondrop = async (event) => {
-            const sourceName = draggingWorkflowName || event.dataTransfer.getData('text/plain');
-            if (!sourceName || event.target.closest('.workflow-item, .workflow-folder, .workflow-folder-children')) return;
-            event.preventDefault();
-            clearWorkflowRootDropTargets(list);
-            if (await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))) {
-                clearWorkflowDragState(list);
-                renderWorkflowList();
-                scheduleSave({ dirty: false });
+                segments.push(() => renderFolderStart(folder));
+                (Array.isArray(folder.items) ? folder.items : []).forEach((name) => {
+                    segments.push(() => renderWorkflowItem(name, folder.id));
+                });
+                segments.push(() => '</div>');
+                return;
             }
-        };
-
-        list.querySelectorAll('.workflow-item').forEach((item) => {
-            const name = item.dataset.name;
-            item.addEventListener('dragstart', (e) => {
-                draggingWorkflowName = name;
-                item.classList.add('is-dragging');
-                list.classList.add('workflow-list-dragging');
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', name);
-            });
-
-            item.addEventListener('dragover', (e) => {
-                const sourceName = draggingWorkflowName || e.dataTransfer.getData('text/plain');
-                if (!sourceName) return;
-                const draggedNames = getDraggedWorkflowNames(sourceName);
-                if (draggedNames.includes(name)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = 'move';
-                clearWorkflowRootDropTargets(list);
-                const rect = item.getBoundingClientRect();
-                const placement = e.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
-                const sourceItem = Array.from(list.querySelectorAll('.workflow-item'))
-                    .find((candidate) => candidate.dataset.name === sourceName);
-                const sameContainer = sourceItem?.parentElement === item.parentElement;
-                const sourceItems = sameContainer
-                    ? getDraggedWorkflowItemsInContainer(sourceName, item.parentElement)
-                    : [];
-                const moved = sourceItems.length > 1
-                    ? moveWorkflowItemGroupElements(sourceItems, item, placement)
-                    : sameContainer && moveWorkflowItemElement(sourceItem, item, placement);
-                if (moved) {
-                    syncWorkflowLayoutFromDom();
-                }
-            });
-
-            item.addEventListener('drop', async (e) => {
-                const sourceName = draggingWorkflowName || e.dataTransfer.getData('text/plain');
-                if (!sourceName || getDraggedWorkflowNames(sourceName).includes(name)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const sourceItem = Array.from(list.querySelectorAll('.workflow-item'))
-                    .find((candidate) => candidate.dataset.name === sourceName);
-                const sameContainer = sourceItem?.parentElement === item.parentElement;
-                const targetFolderId = item.dataset.folderId || '';
-                const movedAcrossFolder = !sameContainer && (
-                    targetFolderId
-                        ? await moveWorkflowsToFolder(getDraggedWorkflowNames(sourceName), targetFolderId)
-                        : await moveWorkflowsToRoot(getDraggedWorkflowNames(sourceName))
-                );
-                if (movedAcrossFolder) {
-                    clearWorkflowDragState(list);
-                    renderWorkflowList();
-                    scheduleSave({ dirty: false });
-                    return;
-                }
-                if (syncWorkflowLayoutFromDom()) {
-                    scheduleSave({ dirty: false });
-                }
-            });
-
-            item.addEventListener('dragend', () => {
-                clearWorkflowDragState(list);
-                if (syncWorkflowLayoutFromDom()) {
-                    scheduleSave({ dirty: false });
-                }
-            });
-
-            item.addEventListener('click', async (e) => {
-                if (workflowSelectionMode) {
-                    toggleWorkflowSelection(name);
-                    return;
-                }
-                await openWorkflow(name);
-            });
-
-            item.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const menu = documentRef.getElementById('workflow-context-menu');
-                if (!menu) return;
-                documentRef.getElementById('workflow-folder-context-menu')?.classList.add('hidden');
-                menu.dataset.targetName = name;
-                menu.style.left = e.clientX + 'px';
-                menu.style.top = e.clientY + 'px';
-                menu.classList.remove('hidden');
-                refreshWorkflowSelectionUi();
-            });
+            if (workflowNameSet.has(entry)) {
+                segments.push(() => renderWorkflowItem(entry));
+            }
         });
+
+        const htmlParts = [];
+        for (let index = 0; index < segments.length; index += 1) {
+            if (renderSequence !== workflowListRenderSequence) return;
+            if (index > 0 && index % WORKFLOW_LIST_RENDER_CHUNK_SIZE === 0) {
+                await waitForWorkflowListRenderFrame();
+                if (renderSequence !== workflowListRenderSequence) return;
+            }
+            htmlParts.push(segments[index]());
+        }
+        if (renderSequence !== workflowListRenderSequence) return;
+        list.innerHTML = htmlParts.join('');
+
         refreshWorkflowSelectionUi();
     }
 
@@ -1605,7 +1716,11 @@ export function createWorkflowManagerApi({
         const deletedSet = new Set(deletedNames);
         deletedNames.forEach((name) => selectedWorkflowNames.delete(name));
         const wasActive = deletedSet.has(state.activeWorkflowName);
-        state.workflowTabs = (state.workflowTabs || []).filter((item) => !deletedSet.has(item.name));
+        state.workflowTabs = (state.workflowTabs || []).filter((item) => {
+            const keep = !deletedSet.has(item.name);
+            if (!keep) releaseWorkflowTabMemory(item);
+            return keep;
+        });
         state.workflowOrder = (state.workflowOrder || []).filter((entry) => !deletedSet.has(entry));
         (state.workflowFolders || []).forEach((folder) => {
             folder.items = Array.isArray(folder.items) ? folder.items.filter((name) => !deletedSet.has(name)) : [];
@@ -1768,8 +1883,6 @@ export function createWorkflowManagerApi({
             }
             return true;
         }
-        snapshotActiveWorkflow();
-
         let tab = getWorkflowTab(name);
         let createdTab = false;
         if (!tab) {
@@ -1784,6 +1897,8 @@ export function createWorkflowManagerApi({
             state.workflowTabs.push(tab);
             createdTab = true;
         }
+
+        await snapshotActiveWorkflowForDeactivation();
 
         const previousActiveName = state.activeWorkflowName;
         state.activeWorkflowName = name;
@@ -1801,7 +1916,11 @@ export function createWorkflowManagerApi({
         }
         state.activeWorkflowName = previousActiveName;
         if (createdTab) {
-            state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
+            state.workflowTabs = (state.workflowTabs || []).filter((item) => {
+                const keep = item.name !== name;
+                if (!keep) releaseWorkflowTabMemory(item);
+                return keep;
+            });
         }
         return false;
     }
@@ -1904,7 +2023,7 @@ export function createWorkflowManagerApi({
             return false;
         }
 
-        if (state.activeWorkflowName !== name) snapshotActiveWorkflow();
+        if (state.activeWorkflowName !== name) await snapshotActiveWorkflowForDeactivation();
         const data = await loadWorkflowFromFile(name);
         if (!data) return false;
 
@@ -1941,7 +2060,11 @@ export function createWorkflowManagerApi({
 
         state.activeWorkflowName = previousActiveName;
         if (createdTab) {
-            state.workflowTabs = (state.workflowTabs || []).filter((item) => item.name !== name);
+            state.workflowTabs = (state.workflowTabs || []).filter((item) => {
+                const keep = item.name !== name;
+                if (!keep) releaseWorkflowTabMemory(item);
+                return keep;
+            });
         } else if (targetTab) {
             targetTab.data = previousTabData;
             targetTab.dirty = previousDirty;
@@ -2050,7 +2173,9 @@ export function createWorkflowManagerApi({
                 }
             }
 
-            state.workflowTabs = tabs.filter((tab) => tab.name === state.activeWorkflowName);
+            const activeName = state.activeWorkflowName;
+            inactiveTabs.forEach((tab) => releaseWorkflowTabMemory(tab));
+            state.workflowTabs = tabs.filter((tab) => tab.name === activeName);
             await renderWorkflowList();
             scheduleSave({ dirty: false });
             showToast(shouldSaveDirtyTabs ? '已保存并关闭其他工作流' : '已关闭其他工作流', 'info');
@@ -2095,7 +2220,7 @@ export function createWorkflowManagerApi({
         const shouldInheritCanvas = false;
         const data = getNewWorkflowData({ inheritCurrentCanvas: shouldInheritCanvas });
         if (!(await saveWorkflowToFile(name, data))) return false;
-        snapshotActiveWorkflow();
+        await snapshotActiveWorkflowForDeactivation();
         state.workflowTabs.push({
             name,
             data,

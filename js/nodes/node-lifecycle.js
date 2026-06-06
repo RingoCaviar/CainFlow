@@ -38,6 +38,9 @@ export function createNodeLifecycleApi({
     scheduleSave,
     showToast,
     updateAllConnections,
+    updateDirtyConnections = null,
+    invalidateNodePortCache = null,
+    markNodeConnectionsDirty = null,
     updatePortStyles,
     onConnectionsChanged = () => {},
     getCacheSidebarActive,
@@ -47,6 +50,7 @@ export function createNodeLifecycleApi({
 }) {
     const view = documentRef.defaultView || window;
     let pendingNodeSizeConnectionRefresh = null;
+    const pendingNodeSizeConnectionRefreshIds = new Set();
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview';
     const NODE_SCROLL_CONTENT_SELECTOR = '.chat-response-area, .text-display-box, .node-error-msg';
     const NODE_SCROLLABLE_RESULT_SELECTOR = `${NODE_SCROLL_CONTENT_SELECTOR}, .text-split-preview`;
@@ -181,13 +185,44 @@ export function createNodeLifecycleApi({
         });
     }
 
-    function scheduleNodeSizeConnectionRefresh() {
+    function scheduleNodeSizeConnectionRefresh(nodeId = null) {
+        if (nodeId) pendingNodeSizeConnectionRefreshIds.add(nodeId);
         if (pendingNodeSizeConnectionRefresh !== null) return;
         const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
         pendingNodeSizeConnectionRefresh = requestFrame(() => {
             pendingNodeSizeConnectionRefresh = null;
-            updateAllConnections();
+            const nodeIds = Array.from(pendingNodeSizeConnectionRefreshIds);
+            pendingNodeSizeConnectionRefreshIds.clear();
+            nodeIds.forEach((id) => {
+                if (typeof invalidateNodePortCache === 'function') {
+                    invalidateNodePortCache(id);
+                } else if (typeof markNodeConnectionsDirty === 'function') {
+                    markNodeConnectionsDirty(id);
+                }
+            });
+            if (nodeIds.length === 0) {
+                updateAllConnections();
+                return;
+            }
+            if (typeof updateDirtyConnections === 'function') {
+                updateDirtyConnections();
+            } else {
+                updateAllConnections();
+            }
         });
+    }
+
+    function refreshNodeConnectionGeometry(nodeId, { force = false } = {}) {
+        if (typeof invalidateNodePortCache === 'function') {
+            invalidateNodePortCache(nodeId);
+        } else if (typeof markNodeConnectionsDirty === 'function') {
+            markNodeConnectionsDirty(nodeId);
+        }
+        if (!force && typeof updateDirtyConnections === 'function') {
+            updateDirtyConnections();
+            return;
+        }
+        updateAllConnections();
     }
 
     function readObservedNodeSize(entry, el) {
@@ -222,7 +257,7 @@ export function createNodeLifecycleApi({
             nodeData.observedHeight = height;
             if (width > 0) nodeData.width = width;
             if (height > 0) nodeData.height = height;
-            scheduleNodeSizeConnectionRefresh();
+            scheduleNodeSizeConnectionRefresh(nodeData.id);
         });
 
         try {
@@ -868,7 +903,7 @@ export function createNodeLifecycleApi({
             node.observedHeight = nextHeight;
         }
 
-        if (options.updateConnections !== false) updateAllConnections();
+        if (options.updateConnections !== false) refreshNodeConnectionGeometry(node.id, { force: options.forceConnectionRefresh === true });
         if (options.save !== false) scheduleSave();
         return true;
     }
@@ -1159,9 +1194,17 @@ export function createNodeLifecycleApi({
         const restoredAssetKey = typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey
             ? effectiveRestoreData.imageAssetKey
             : '';
-        if (restoredImages.length === 0 && effectiveRestoreData?.imageMemoryReleased === true && typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey) {
+        const releasedImageAssetKey = typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey
+            ? effectiveRestoreData.imageAssetKey
+            : (typeof effectiveRestoreData?.imageImportAssetKey === 'string' ? effectiveRestoreData.imageImportAssetKey : '');
+        if (restoredImages.length === 0 && effectiveRestoreData?.imageMemoryReleased === true && releasedImageAssetKey) {
             nodeData.data.imageMemoryReleased = true;
-            nodeData.data.imageAssetKey = effectiveRestoreData.imageAssetKey;
+            if (normalizedType === 'ImageImport') {
+                nodeData.imageImportAssetKey = releasedImageAssetKey;
+                nodeData.data.imageImportAssetKey = releasedImageAssetKey;
+            } else {
+                nodeData.data.imageAssetKey = releasedImageAssetKey;
+            }
         }
         if (isRecoverableImageAssetNodeType(normalizedType)) {
             const restoredImageCount = Math.max(

@@ -12,7 +12,10 @@ export function createCanvasInteractionsApi({
     getPortPosition,
     drawTempConnection,
     updateAllConnections,
+    updateDirtyConnections = null,
     updateDraggingConnections = null,
+    invalidateNodePortCache = null,
+    markNodeConnectionsDirty = null,
     clearConnectionInsertPreview = null,
     commitConnectionInsertPreview = null,
     detachNodesFromConnections = null,
@@ -67,6 +70,19 @@ export function createCanvasInteractionsApi({
             }
             rafUpdate = null;
         });
+    }
+
+    function refreshNodeConnections(nodeId, { force = false } = {}) {
+        if (typeof invalidateNodePortCache === 'function') {
+            invalidateNodePortCache(nodeId);
+        } else if (typeof markNodeConnectionsDirty === 'function') {
+            markNodeConnectionsDirty(nodeId);
+        }
+        if (!force && typeof updateDirtyConnections === 'function') {
+            updateDirtyConnections();
+            return;
+        }
+        updateAllConnections();
     }
 
     function schedulePanTransformUpdate() {
@@ -761,7 +777,7 @@ export function createCanvasInteractionsApi({
                     node.el.style.height = newH + 'px';
                     distributeNodeTextareaResize(r, newH);
 
-                    updateAllConnections();
+                    refreshNodeConnections(r.nodeId);
                 }
             }
             if (state.connecting) {
@@ -875,7 +891,7 @@ export function createCanvasInteractionsApi({
                     node.userResized = true;
 
                     node.el.classList.remove('is-interacting');
-                    updateAllConnections();
+                    refreshNodeConnections(r.nodeId, { force: true });
                 }
                 state.resizing = null;
                 scheduleSave();

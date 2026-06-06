@@ -659,12 +659,18 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
     getNodeMinimumSizeFromLifecycle: (nodeOrId) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId),
     updateAllConnections: () => updateAllConnections(),
+    updateDirtyConnections: () => updateDirtyConnections(),
+    invalidateNodePortCache: (nodeId) => invalidateNodePortCache(nodeId),
+    markNodeConnectionsDirty: (nodeId) => markNodeConnectionsDirty(nodeId),
     updatePortStyles: () => updatePortStyles(),
     onConnectionsChanged: () => handleNodeGraphChanged()
 });
 const {
     getPortPosition,
+    invalidateNodePortCache,
+    markNodeConnectionsDirty,
     updateAllConnections,
+    updateDirtyConnections,
     updateDraggingConnections,
     clearConnectionInsertPreview,
     commitConnectionInsertPreview,
@@ -954,7 +960,10 @@ function getCanvasInteractionsApi() {
             getPortPosition,
             drawTempConnection,
             updateAllConnections,
+            updateDirtyConnections,
             updateDraggingConnections,
+            invalidateNodePortCache,
+            markNodeConnectionsDirty,
             clearConnectionInsertPreview,
             commitConnectionInsertPreview,
             detachNodesFromConnections: (nodeIds, options) => getNodeLifecycleApi().detachNodesFromConnections(nodeIds, options),
@@ -1123,6 +1132,9 @@ function getNodeLifecycleApi() {
             scheduleSave,
             showToast,
             updateAllConnections,
+            updateDirtyConnections,
+            invalidateNodePortCache,
+            markNodeConnectionsDirty,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
             getCacheSidebarActive: () => document.getElementById('cache-sidebar')?.classList.contains('active'),
@@ -1204,7 +1216,7 @@ function getExecutionCoreApi() {
             autoSaveToDir,
             restoreImageResizePreview,
             renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
-            releaseNodeImageData: (nodeId) => mediaControllerApi.releaseNodeImageData(nodeId),
+            releaseNodeImageData: (nodeId, options) => mediaControllerApi.releaseNodeImageData(nodeId, options),
             refreshDependentImageResizePreviews,
             syncImagePreviewNode: (nodeId, imageValue) => mediaControllerApi.syncImagePreviewNode(nodeId, imageValue),
             syncImageSaveNode: (nodeId, imageValue) => mediaControllerApi.syncImageSaveNode(nodeId, imageValue),
@@ -1369,6 +1381,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
     onWorkflowViewApplied: (workflowName) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflowName),
+    releaseNodeImageData: (nodeId, options) => mediaControllerApi?.releaseNodeImageData?.(nodeId, options),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
     beginMediaRestoreBatch,
@@ -1446,7 +1459,10 @@ getStartupControllerApi().initStartup();
 
 // ===== TEMP STRESS TEST START =====
 // 临时性能压测入口：仅用于在浏览器控制台生成大量节点和大图，发布前可整体删除到 END 标记。
-window.createCanvasStressTestNodes = async function createCanvasStressTestNodes(options = {}) {
+const canvasStressTestEnabled = globalThis.CAINFLOW_ENABLE_STRESS_TEST === true
+    || localStorage.getItem('cainflow_enable_stress_test') === 'true';
+
+async function createCanvasStressTestNodes(options = {}) {
     const total = Number.isFinite(options.total) ? Math.max(0, Math.floor(options.total)) : 100;
     const imageImportCount = Number.isFinite(options.imageImportCount)
         ? Math.max(0, Math.min(total, Math.floor(options.imageImportCount)))
@@ -1531,5 +1547,9 @@ window.createCanvasStressTestNodes = async function createCanvasStressTestNodes(
     showToast(message, 'success');
 
     return createdIds;
-};
+}
+
+if (canvasStressTestEnabled) {
+    window.createCanvasStressTestNodes = createCanvasStressTestNodes;
+}
 // ===== TEMP STRESS TEST END =====

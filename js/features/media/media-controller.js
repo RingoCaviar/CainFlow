@@ -96,6 +96,7 @@ export function createMediaControllerApi({
         getImagePreviewIndex,
         renderImagePreviewImage,
         renderImageSavePreview,
+        renderVideoSavePreview,
         renderImageImportUploadState,
         renderImageResizeResult,
         renderImageComparePreview,
@@ -869,8 +870,8 @@ export function createMediaControllerApi({
         return displayImageMemoryManager.sweep(options);
     }
 
-    function releaseNodeImageData(nodeId) {
-        return displayImageMemoryManager.releaseNodeImageData(nodeId);
+    function releaseNodeImageData(nodeId, options = {}) {
+        return displayImageMemoryManager.releaseNodeImageData(nodeId, options);
     }
 
     function getStoredImageSaveList(node) {
@@ -985,6 +986,7 @@ export function createMediaControllerApi({
         previewContainer.dataset.saveMode = video?.url ? 'video' : 'image';
         if (node) {
             clearCanonicalImageOutput(node);
+            delete node.data.videoPreviewReleased;
         }
 
         if (!video?.url) {

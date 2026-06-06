@@ -47,6 +47,9 @@ export function createNodeDomBindingsApi({
     enforceNodeContentMinimum = () => null,
     getNodeMinimumSizeFromLifecycle = null,
     updateAllConnections = () => {},
+    updateDirtyConnections = null,
+    invalidateNodePortCache = null,
+    markNodeConnectionsDirty = null,
     updatePortStyles = () => {},
     onConnectionsChanged = () => {},
     documentRef = document
@@ -102,19 +105,54 @@ export function createNodeDomBindingsApi({
         return false;
     }
 
+    function refreshNodePortGeometry(nodeId, { force = false } = {}) {
+        if (typeof invalidateNodePortCache === 'function') {
+            invalidateNodePortCache(nodeId);
+        } else if (typeof markNodeConnectionsDirty === 'function') {
+            markNodeConnectionsDirty(nodeId);
+        }
+        if (!force && typeof updateDirtyConnections === 'function') {
+            updateDirtyConnections();
+            return;
+        }
+        updateAllConnections();
+    }
+
+    function refreshNodesPortGeometry(nodeIds = [], { force = false } = {}) {
+        const ids = Array.from(new Set((Array.isArray(nodeIds) ? nodeIds : [nodeIds]).filter(Boolean)));
+        ids.forEach((nodeId) => {
+            if (typeof invalidateNodePortCache === 'function') {
+                invalidateNodePortCache(nodeId);
+            } else if (typeof markNodeConnectionsDirty === 'function') {
+                markNodeConnectionsDirty(nodeId);
+            }
+        });
+        if (!force && typeof updateDirtyConnections === 'function') {
+            updateDirtyConnections();
+            return;
+        }
+        updateAllConnections();
+    }
+
     function syncCollapsedUnusedPorts(nodeId) {
         const node = state.nodes.get(nodeId);
         const ports = node?.el?.querySelectorAll?.('.node-port');
         if (!ports?.length) return;
 
         const isCollapsed = node.collapsed === true || node.el.classList.contains('collapsed');
+        let changed = false;
         ports.forEach((portEl) => {
             const direction = portEl.dataset.direction || '';
             const portName = portEl.dataset.port || '';
             const shouldHideForCollapse = direction === 'input' && isCollapsed && !hasPortConnection(nodeId, portName, direction);
+            if (portEl.classList.contains('is-hidden-by-collapse') !== shouldHideForCollapse) changed = true;
             portEl.classList.toggle('is-hidden-by-collapse', shouldHideForCollapse);
             portEl.setAttribute('aria-hidden', shouldHideForCollapse ? 'true' : 'false');
         });
+        if (changed) {
+            if (typeof invalidateNodePortCache === 'function') invalidateNodePortCache(nodeId);
+            else if (typeof markNodeConnectionsDirty === 'function') markNodeConnectionsDirty(nodeId);
+        }
     }
 
     function syncAllCollapsedUnusedPorts() {
@@ -948,7 +986,7 @@ export function createNodeDomBindingsApi({
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
         syncCollapsedUnusedPorts(nodeId);
-        updateAllConnections();
+        refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
         scheduleSave();
@@ -1006,7 +1044,7 @@ export function createNodeDomBindingsApi({
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
         syncCollapsedUnusedPorts(nodeId);
-        updateAllConnections();
+        refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
         scheduleSave();
@@ -1048,7 +1086,7 @@ export function createNodeDomBindingsApi({
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
         syncCollapsedUnusedPorts(nodeId);
-        updateAllConnections();
+        refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
         scheduleSave();
@@ -1139,13 +1177,13 @@ export function createNodeDomBindingsApi({
 
         if (changedIds.length === 0) return;
 
-        updateAllConnections();
+        refreshNodesPortGeometry(changedIds);
         updatePortStyles();
         const requestFrame = documentRef.defaultView?.requestAnimationFrame;
         if (typeof requestFrame === 'function') {
             requestFrame(() => {
                 changedIds.forEach((nodeId) => syncCollapsedUnusedPorts(nodeId));
-                updateAllConnections();
+                refreshNodesPortGeometry(changedIds);
                 updatePortStyles();
             });
         }

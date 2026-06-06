@@ -294,10 +294,10 @@ export function createSessionManagerApi({
     }
 
     function pushHistory() {
-        const snapshot = {
+        const snapshot = sanitizeWorkflowDataForSessionCache({
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map((connection) => ({ ...connection }))
-        };
+        });
         state.undoStack.push(JSON.stringify(snapshot));
         if (state.undoStack.length > 5) {
             state.undoStack.shift();
