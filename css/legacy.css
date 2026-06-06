@@ -1637,6 +1637,11 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     scrollbar-width: thin;
 }
 
+.node-body-has-generation-progress {
+    position: relative;
+    padding-bottom: 54px;
+}
+
 .node.collapsed .node-body,
 .node-body.is-collapsed {
     display: none;
@@ -2384,6 +2389,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
 }
 
 .node-generate .node-field-expand {
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
 }
@@ -2525,6 +2531,34 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     font-weight: 700;
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
+}
+
+.node-generation-progress-field {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 0;
+    z-index: 2;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.node-body:has(.api-generation-progress) {
+    padding-bottom: 54px;
+}
+
+.node-body:has(.api-generation-progress) .api-generation-progress {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.node-error-msg:empty {
+    display: none;
+}
+
+.node-error-msg.hidden {
+    display: none;
 }
 
 /* Preview Controls */
@@ -4747,7 +4781,7 @@ input[type=number] {
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: 120px;
     max-height: 100%;
     overflow: hidden;
 }
@@ -4763,11 +4797,32 @@ input[type=number] {
 }
 
 .node-chat .chat-response-area {
-    flex: 1 1 auto;
-    min-height: 0;
-    height: 100%;
+    flex: 1 1 0;
+    min-height: 96px;
+    height: 120px;
     max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
     resize: none;
+    align-self: stretch;
+}
+
+.node-chat .node-chat-prompt-field {
+    flex: 0 0 auto;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+}
+
+.node-chat .node-chat-prompt-field textarea {
+    flex: 0 0 auto;
+    min-height: 120px;
+    height: auto;
+}
+
+.node-chat .node-chat-system-field {
+    flex: 0 0 auto;
 }
 
 .node-text-out .node-field:last-child {

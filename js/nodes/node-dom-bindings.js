@@ -1461,6 +1461,7 @@ export function createNodeDomBindingsApi({
         if (!element || typeof ResizeObserver === 'undefined') return;
         const node = state.nodes.get(nodeId);
         if (node?.type === 'Text') return;
+        if (element.classList?.contains('chat-response-area')) return;
 
         let frameId = null;
         const scheduleFit = () => {
@@ -1664,8 +1665,8 @@ export function createNodeDomBindingsApi({
     function getResizeTargetBaseMetrics(el) {
         const style = getComputedStyle(el);
         const minHeight = getPx(style, 'min-height');
-        const measuredHeight = el.getBoundingClientRect?.().height ||
-            el.offsetHeight ||
+        const measuredHeight = el.offsetHeight ||
+            el.getBoundingClientRect?.().height ||
             parseFloat(el.style.height || '0') ||
             minHeight;
         return {
@@ -1678,19 +1679,44 @@ export function createNodeDomBindingsApi({
     function collectNodeTextareaResizeTargets(el) {
         const body = el?.querySelector?.('.node-body');
         if (!body) return [];
+        const isChatNode = el.classList.contains('node-chat');
         const textareaTargets = Array.from(body.querySelectorAll('textarea'))
             .filter(isVisibleElement)
             .filter((textarea) => !textarea.classList.contains('text-split-delimiter'))
+            .filter((textarea) => {
+                if (!isChatNode) return true;
+                return textarea.closest('.node-chat-prompt-field') || textarea.id.endsWith('-prompt');
+            })
             .map((textarea) => {
-                const { minHeight, startHeight } = getResizeTargetBaseMetrics(textarea);
+                const { style, minHeight, startHeight } = getResizeTargetBaseMetrics(textarea);
+                const borderY = getPx(style, 'border-top-width') + getPx(style, 'border-bottom-width');
+                const contentHeight = Math.max(minHeight, (textarea.scrollHeight || startHeight) + borderY);
                 return {
                     el: textarea,
                     startHeight,
                     minHeight,
+                    contentHeight,
                     weight: Math.max(1, startHeight)
                 };
             })
             .filter((target) => target.startHeight > 0);
+
+        const chatResponseTargets = isChatNode
+            ? Array.from(body.querySelectorAll('.chat-response-area'))
+                .filter(isVisibleElement)
+                .map((responseArea) => {
+                    const { minHeight, startHeight } = getResizeTargetBaseMetrics(responseArea);
+                    return {
+                        el: responseArea,
+                        startHeight,
+                        minHeight,
+                        // Chat responses should only resize with the node, not expand to reveal all content.
+                        contentHeight: startHeight,
+                        weight: Math.max(1, startHeight)
+                    };
+                })
+                .filter((target) => target.startHeight > 0)
+            : [];
 
         const textSplitPreviewTargets = Array.from(body.querySelectorAll('.text-split-preview-text'))
             .filter(isVisibleElement)
@@ -1703,12 +1729,13 @@ export function createNodeDomBindingsApi({
                     el: previewText,
                     startHeight,
                     minHeight,
+                    contentHeight,
                     weight: Math.max(1, growthCapacity)
                 };
             })
             .filter((target) => target.startHeight > 0);
 
-        return textareaTargets.concat(textSplitPreviewTargets);
+        return textareaTargets.concat(chatResponseTargets, textSplitPreviewTargets);
     }
 
     function getResizeTargetsMaxNodeHeight(startHeight, targets) {
@@ -1722,6 +1749,17 @@ export function createNodeDomBindingsApi({
             extraHeight += Math.max(0, maxHeight - startTargetHeight);
         }
         return Math.max(0, Number(startHeight) || 0) + extraHeight;
+    }
+
+    function getResizeTargetsMinNodeHeight(startHeight, targets) {
+        if (!Array.isArray(targets) || !targets.length) return Math.max(0, Number(startHeight) || 0);
+        let shrinkCapacity = 0;
+        for (const target of targets) {
+            const minHeight = Math.max(0, Number(target?.minHeight) || 0);
+            const startTargetHeight = Math.max(minHeight, Number(target?.startHeight) || minHeight);
+            shrinkCapacity += Math.max(0, startTargetHeight - minHeight);
+        }
+        return Math.max(0, (Number(startHeight) || 0) - shrinkCapacity);
     }
 
     function measureTextWidth(text, font) {
@@ -1813,7 +1851,13 @@ export function createNodeDomBindingsApi({
         const marginY = getOuterExtras(style, 'y');
 
         if (el.classList.contains('chat-response-wrapper') || el.classList.contains('chat-response-area')) {
-            return Math.ceil(minHeight + marginY);
+            const explicitHeightValue = String(el.style?.height || '');
+            const explicitHeight = /px$/i.test(explicitHeightValue) ? parseFloat(explicitHeightValue) : NaN;
+            const computedHeight = parseFloat(style.height || '0');
+            const fixedHeight = Number.isFinite(explicitHeight) && explicitHeight > 0
+                ? explicitHeight
+                : (Number.isFinite(computedHeight) && computedHeight > 0 ? computedHeight : minHeight);
+            return Math.ceil(Math.max(minHeight, fixedHeight) + marginY);
         }
 
         if (isResizableMediaElement(el)) {
@@ -2039,6 +2083,7 @@ export function createNodeDomBindingsApi({
             const currentHeight = el.offsetHeight || Number(node?.height) || defaultMinimum.minHeight;
 
             const textareaResizeTargets = collectNodeTextareaResizeTargets(el);
+            const resizeTargetMinHeight = getResizeTargetsMinNodeHeight(currentHeight, textareaResizeTargets);
             const resizeTargetMaxHeight = getResizeTargetsMaxNodeHeight(currentHeight, textareaResizeTargets);
             const configuredMaxHeight = Number(node?.maxHeight);
             const maxHeight = Number.isFinite(configuredMaxHeight) && configuredMaxHeight > 0
@@ -2052,7 +2097,7 @@ export function createNodeDomBindingsApi({
                 startWidth: currentWidth,
                 startHeight: currentHeight,
                 minWidth: defaultMinimum.minWidth,
-                minHeight: defaultMinimum.minHeight,
+                minHeight: Math.max(60, Math.min(defaultMinimum.minHeight, resizeTargetMinHeight)),
                 maxHeight,
                 textareaResizeTargets
             };

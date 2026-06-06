@@ -578,12 +578,13 @@ export function createNodeLifecycleApi({
         if (el.matches?.(NODE_SCROLLABLE_RESULT_SELECTOR)) {
             const explicitHeightValue = String(el.style?.height || '');
             const explicitHeight = /px$/i.test(explicitHeightValue) ? parseFloat(explicitHeightValue) : NaN;
-            const contentHeight = el.classList.contains('chat-response-area')
-                ? minHeight
-                : (Number.isFinite(explicitHeight) && explicitHeight > 0 ? explicitHeight : minHeight);
+            const computedHeight = parseFloat(style.height || '0');
+            const fixedHeight = Number.isFinite(explicitHeight) && explicitHeight > 0
+                ? explicitHeight
+                : (Number.isFinite(computedHeight) && computedHeight > 0 ? computedHeight : minHeight);
             return {
                 width: Math.ceil(minWidth + getBoxExtras(style, 'x') + marginX),
-                height: Math.ceil(Math.max(minHeight, contentHeight) + marginY)
+                height: Math.ceil(Math.max(minHeight, fixedHeight) + marginY)
             };
         }
 
@@ -736,6 +737,9 @@ export function createNodeLifecycleApi({
         const originalBodyOverflowX = body?.style.overflowX || '';
         const originalBodyMaxHeight = body?.style.maxHeight || '';
         const originalBodyDisplay = body?.style.display || '';
+        const isTextChatNode = el.classList.contains('node-chat');
+        const responseArea = isTextChatNode ? body?.querySelector('.chat-response-area') : null;
+        const originalResponseHeight = responseArea?.style.height || '';
 
         el.style.height = 'auto';
         if (body && !isCollapsed) {
@@ -744,6 +748,10 @@ export function createNodeLifecycleApi({
             body.style.overflowY = 'visible';
             body.style.overflowX = 'visible';
             body.style.maxHeight = 'none';
+        }
+        if (responseArea) {
+            const currentHeight = responseArea.offsetHeight || parseFloat(responseArea.style.height || '0') || 120;
+            responseArea.style.height = `${Math.round(currentHeight)}px`;
         }
 
         const headerWidth = getHeaderMinimumWidth(header, getDefaultNodeWidth(config));
@@ -767,6 +775,9 @@ export function createNodeLifecycleApi({
             body.style.overflowX = originalBodyOverflowX;
             body.style.maxHeight = originalBodyMaxHeight;
             body.style.display = originalBodyDisplay;
+        }
+        if (responseArea) {
+            responseArea.style.height = originalResponseHeight;
         }
 
         const contentMinHeight = Math.ceil(

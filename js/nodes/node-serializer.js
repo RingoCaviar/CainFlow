@@ -41,6 +41,13 @@ export function createNodeSerializer({ state, documentRef }) {
                 heights[key] = Math.round(height);
             }
         });
+        const responseArea = documentRef.getElementById(`${id}-response`);
+        if (responseArea) {
+            const responseHeight = responseArea.offsetHeight || parseFloat(responseArea.style.height || '0');
+            if (Number.isFinite(responseHeight) && responseHeight > 0) {
+                heights.response = Math.round(responseHeight);
+            }
+        }
         return Object.keys(heights).length > 0 ? heights : null;
     }
 
