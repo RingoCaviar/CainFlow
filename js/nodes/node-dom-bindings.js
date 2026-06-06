@@ -1926,6 +1926,57 @@ export function createNodeDomBindingsApi({
     }
 
     function bindNodeInteractions({ id, type, el }) {
+        const createNodeDraggingState = (nodeIds, pos, isCloneDrag) => {
+            const startPositions = new Map();
+            const draggedNodeIds = new Set(nodeIds);
+
+            nodeIds.forEach((nid) => {
+                const node = state.nodes.get(nid);
+                if (node) {
+                    startPositions.set(nid, { x: node.x, y: node.y });
+                }
+            });
+
+            const portOffsets = new Map();
+            const connectionsToUpdate = [];
+            const {
+                internalConnections,
+                externalConnections
+            } = collectConnectionSnapshotsForNodes(state, nodeIds);
+
+            for (const conn of state.connections) {
+                const isFromDragged = draggedNodeIds.has(conn.from.nodeId);
+                const isToDragged = draggedNodeIds.has(conn.to.nodeId);
+                if (isFromDragged || isToDragged) {
+                    const pathEl = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
+                    if (pathEl) {
+                        connectionsToUpdate.push({ conn, pathEl });
+                        [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach((item) => {
+                            const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
+                            if (!portOffsets.has(key)) {
+                                const portPos = getPortPosition(item.p.nodeId, item.p.port, item.d);
+                                const node = state.nodes.get(item.p.nodeId);
+                                if (node) portOffsets.set(key, { dx: portPos.x - node.x, dy: portPos.y - node.y });
+                            }
+                        });
+                    }
+                }
+            }
+
+            return {
+                nodes: nodeIds,
+                startX: pos.x,
+                startY: pos.y,
+                startPositions,
+                portOffsets,
+                connectionsToUpdate,
+                isCloneDrag,
+                cloned: false,
+                internalConnections,
+                externalConnections
+            };
+        };
+
         const stopBatchConnectionFollowupClick = (event) => {
             if (!state.batchConnectionMode?.sourceNodeId) return;
             event.preventDefault();
@@ -1948,7 +1999,9 @@ export function createNodeDomBindingsApi({
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
             const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
+            const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container';
             const isInteractive = target.closest(interactiveSelector);
+            const mediaSurface = target.closest(mediaSurfaceSelector);
 
             const dragAreaSelector = '.node-header, .node-glass-bg';
             const isForceDrag = target.matches(dragAreaSelector) || (target.parentElement && target.parentElement.matches(dragAreaSelector));
@@ -1970,10 +2023,19 @@ export function createNodeDomBindingsApi({
             }
 
             const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
-            const isMulti = isCloneDrag;
+            if (mediaSurface && !state.selectedNodes.has(id)) {
+                state.dragging = createNodeDraggingState([id], pos, isCloneDrag);
+                state.dragging.deferSelectionOnDrag = true;
+                state.dragging.activateSelection = () => {
+                    selectNode(id, false);
+                    if (state.dragging) state.dragging.selectionActivated = true;
+                    pushHistory();
+                };
+                return;
+            }
 
             if (!state.selectedNodes.has(id)) {
-                selectNode(id, isMulti);
+                selectNode(id, isCloneDrag);
             }
 
             const nodesToDrag = Array.from(state.selectedNodes);
@@ -1981,54 +2043,7 @@ export function createNodeDomBindingsApi({
                 showToast('选区中有节点正在运行，暂不能移动', 'warning');
                 return;
             }
-            const startPositions = new Map();
-            const draggedNodeIds = new Set(nodesToDrag);
-
-            nodesToDrag.forEach((nid) => {
-                const node = state.nodes.get(nid);
-                if (node) {
-                    startPositions.set(nid, { x: node.x, y: node.y });
-                }
-            });
-
-            const portOffsets = new Map();
-            const connectionsToUpdate = [];
-            const {
-                internalConnections,
-                externalConnections
-            } = collectConnectionSnapshotsForNodes(state, nodesToDrag);
-
-            for (const conn of state.connections) {
-                const isFromDragged = draggedNodeIds.has(conn.from.nodeId);
-                const isToDragged = draggedNodeIds.has(conn.to.nodeId);
-                if (isFromDragged || isToDragged) {
-                    const pathEl = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
-                    if (pathEl) {
-                        connectionsToUpdate.push({ conn, pathEl });
-                        [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach((item) => {
-                            const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
-                            if (!portOffsets.has(key)) {
-                                const pos = getPortPosition(item.p.nodeId, item.p.port, item.d);
-                                const node = state.nodes.get(item.p.nodeId);
-                                if (node) portOffsets.set(key, { dx: pos.x - node.x, dy: pos.y - node.y });
-                            }
-                        });
-                    }
-                }
-            }
-
-            state.dragging = {
-                nodes: nodesToDrag,
-                startX: pos.x,
-                startY: pos.y,
-                startPositions,
-                portOffsets,
-                connectionsToUpdate,
-                isCloneDrag: e.ctrlKey || e.metaKey,
-                cloned: false,
-                internalConnections,
-                externalConnections
-            };
+            state.dragging = createNodeDraggingState(nodesToDrag, pos, isCloneDrag);
 
             pushHistory();
         });

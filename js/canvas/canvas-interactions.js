@@ -698,6 +698,10 @@ export function createCanvasInteractionsApi({
                 const dy = pos.y - state.dragging.startY;
                 const hasDragMovement = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
 
+                if (hasDragMovement && state.dragging.deferSelectionOnDrag && !state.dragging.selectionActivated) {
+                    state.dragging.activateSelection?.();
+                }
+
                 if (hasDragMovement && !state.dragging.interactionVisualsActive) {
                     state.dragging.interactionVisualsActive = true;
                     documentRef.body.classList.add('is-interacting');
