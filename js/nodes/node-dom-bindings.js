@@ -1987,17 +1987,15 @@ export function createNodeDomBindingsApi({
                 const isToDragged = draggedNodeIds.has(conn.to.nodeId);
                 if (isFromDragged || isToDragged) {
                     const pathEl = connectionsGroup.querySelector(`path[data-conn-id="${conn.id}"]`);
-                    if (pathEl) {
-                        connectionsToUpdate.push({ conn, pathEl });
-                        [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach((item) => {
-                            const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
-                            if (!portOffsets.has(key)) {
-                                const portPos = getPortPosition(item.p.nodeId, item.p.port, item.d);
-                                const node = state.nodes.get(item.p.nodeId);
-                                if (node) portOffsets.set(key, { dx: portPos.x - node.x, dy: portPos.y - node.y });
-                            }
-                        });
-                    }
+                    connectionsToUpdate.push({ conn, pathEl });
+                    [{ p: conn.from, d: 'output' }, { p: conn.to, d: 'input' }].forEach((item) => {
+                        const key = `${item.p.nodeId}-${item.p.port}-${item.d}`;
+                        if (!portOffsets.has(key)) {
+                            const portPos = getPortPosition(item.p.nodeId, item.p.port, item.d);
+                            const node = state.nodes.get(item.p.nodeId);
+                            if (node) portOffsets.set(key, { dx: portPos.x - node.x, dy: portPos.y - node.y });
+                        }
+                    });
                 }
             }
 

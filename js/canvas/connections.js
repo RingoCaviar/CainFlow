@@ -34,7 +34,6 @@ export function createConnectionsApi({
     const INSERTION_PREVIEW_PADDING = 24;
     const OUTPUT_PORT_TRANSITION = 28;
     const INPUT_PORT_TURN_LEAD = 72;
-    const PORT_EDGE_GAP = 2;
     const PAIR_LANE_GAP = 14;
     const PORT_LANE_GAP = 6;
     const NODE_LANE_GAP = 4;
@@ -212,11 +211,50 @@ export function createConnectionsApi({
         if (!node?.el) return '';
         const bounds = getNodeBounds(node);
         const collapsed = node.collapsed === true || node.el.classList.contains('collapsed') ? '1' : '0';
+        const domWidth = node.el.offsetWidth || 0;
+        const domHeight = node.el.offsetHeight || 0;
+        const scrollWidth = node.el.scrollWidth || 0;
+        const scrollHeight = node.el.scrollHeight || 0;
         const ports = Array.from(node.el.querySelectorAll?.('.node-port[data-direction]') || []);
         const portState = ports.map((portEl) => (
             `${portEl.dataset.direction || ''}:${portEl.dataset.port || ''}:${portEl.classList.contains('hidden') ? 'h' : 'v'}:${portEl.classList.contains('is-hidden-by-collapse') ? 'c' : 'o'}`
         )).join('|');
-        return `${Math.round(bounds.right - bounds.left)}:${Math.round(bounds.bottom - bounds.top)}:${collapsed}:${portState}`;
+        return `${Math.round(bounds.right - bounds.left)}:${Math.round(bounds.bottom - bounds.top)}:${domWidth}:${domHeight}:${scrollWidth}:${scrollHeight}:${collapsed}:${portState}`;
+    }
+
+    function getPortElement(node, portName, direction) {
+        if (!node?.el) return null;
+        return Array.from(node.el.querySelectorAll?.('.node-port[data-direction]') || [])
+            .find((portEl) => (
+                portEl.dataset.port === portName &&
+                portEl.dataset.direction === direction
+            )) || null;
+    }
+
+    function isPortElementVisible(portEl) {
+        if (!portEl) return false;
+        const dot = portEl.querySelector('.port-dot') || portEl;
+        const dotRect = dot.getBoundingClientRect();
+        return !portEl.classList.contains('hidden') &&
+            !portEl.classList.contains('is-hidden-by-collapse') &&
+            portEl.offsetParent !== null &&
+            dotRect.width > 0 &&
+            dotRect.height > 0;
+    }
+
+    function getPortDotWorldPosition(portEl, containerRectOverride = null) {
+        if (!portEl) return null;
+        const dot = portEl.querySelector('.port-dot') || portEl;
+        const dotRect = dot.getBoundingClientRect();
+        if (dotRect.width <= 0 || dotRect.height <= 0) return null;
+
+        const containerRect = containerRectOverride || canvasContainer.getBoundingClientRect();
+        const { x: cx, y: cy } = state.canvas;
+        const zoom = Math.max(0.0001, Number(state.canvas?.zoom) || 1);
+        return {
+            x: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
+            y: (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom
+        };
     }
 
     function invalidateNodePortCache(nodeId = null) {
@@ -236,9 +274,6 @@ export function createConnectionsApi({
         const node = getNodeById(nodeId);
         if (!node?.el) return null;
         const ports = Array.from(node.el.querySelectorAll?.('.node-port[data-direction]') || []);
-        const containerRect = containerRectOverride || canvasContainer.getBoundingClientRect();
-        const { x: cx, y: cy, zoom } = state.canvas;
-        const bounds = getNodeBounds(node);
         const cache = {
             signature: getNodePortCacheSignature(node),
             ports: new Map()
@@ -248,40 +283,19 @@ export function createConnectionsApi({
             const portName = portEl.dataset.port || '';
             const direction = portEl.dataset.direction || '';
             if (!portName || !direction) return;
-            const dot = portEl.querySelector('.port-dot') || portEl;
-            const dotRect = dot.getBoundingClientRect();
-            const visible = !portEl.classList.contains('hidden') &&
-                !portEl.classList.contains('is-hidden-by-collapse') &&
-                portEl.offsetParent !== null &&
-                dotRect.width > 0 &&
-                dotRect.height > 0;
-            const centerX = (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom;
-            const centerY = (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom;
+            const worldPosition = getPortDotWorldPosition(portEl, containerRectOverride);
+            const visible = isPortElementVisible(portEl);
             cache.ports.set(getPortKey(nodeId, portName, direction), {
-                dx: centerX - bounds.left,
-                dy: centerY - bounds.top,
+                dx: worldPosition ? worldPosition.x - node.x : 0,
+                dy: worldPosition ? worldPosition.y - node.y : 0,
                 visible
             });
         });
 
-        node._portPositionCache = cache;
-        return cache;
-    }
-
-    function getNodePortCache(nodeId, containerRectOverride = null) {
-        const node = getNodeById(nodeId);
-        if (!node?.el) return null;
-        const signature = getNodePortCacheSignature(node);
-        const cache = node._portPositionCache;
-        if (!cache || cache.signature !== signature || !(cache.ports instanceof Map)) {
-            return measureNodePorts(nodeId, containerRectOverride);
+        if (!state.dragging && !state.canvas?.isPanning) {
+            node._portPositionCache = cache;
         }
         return cache;
-    }
-
-    function getCachedPortMeta(nodeId, portName, direction, containerRectOverride = null) {
-        const cache = getNodePortCache(nodeId, containerRectOverride);
-        return cache?.ports?.get(getPortKey(nodeId, portName, direction)) || null;
     }
 
     function createFlowArrowElement() {
@@ -462,64 +476,15 @@ export function createConnectionsApi({
             if (offset) return { x: node.x + offset.dx, y: node.y + offset.dy };
         }
 
-        const cachedPort = getCachedPortMeta(nodeId, portName, direction, containerRectOverride);
-        if (cachedPort) {
-            const bounds = getNodeBounds(node);
-            const y = node.y + cachedPort.dy;
-            if (direction === 'input') {
-                return {
-                    x: bounds.left - PORT_EDGE_GAP,
-                    y
-                };
-            }
-            if (direction === 'output') {
-                return {
-                    x: bounds.right + PORT_EDGE_GAP,
-                    y
-                };
-            }
-            return {
-                x: node.x + cachedPort.dx,
-                y
-            };
-        }
-
-        const portEl = node.el.querySelector(`.node-port[data-node-id="${nodeId}"][data-port="${portName}"][data-direction="${direction}"]`);
+        const portEl = getPortElement(node, portName, direction);
         if (!portEl) return { x: node.x, y: node.y };
-        const dot = portEl.querySelector('.port-dot');
-        const dotRect = dot.getBoundingClientRect();
-        const containerRect = containerRectOverride || canvasContainer.getBoundingClientRect();
-        const { x: cx, y: cy, zoom } = state.canvas;
-        const bounds = getNodeBounds(node);
-        const y = (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom;
-        if (direction === 'input') {
-            return {
-                x: bounds.left - PORT_EDGE_GAP,
-                y
-            };
-        }
-        if (direction === 'output') {
-            return {
-                x: bounds.right + PORT_EDGE_GAP,
-                y
-            };
-        }
-        return {
-            x: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
-            y
-        };
+        return getPortDotWorldPosition(portEl, containerRectOverride) || { x: node.x, y: node.y };
     }
 
     function isConnectionEndpointVisible(nodeId, portName, direction) {
         const node = getNodeById(nodeId);
         if (!node?.el) return false;
-        const cachedPort = getCachedPortMeta(nodeId, portName, direction);
-        if (cachedPort) return cachedPort.visible === true;
-        const portEl = node.el.querySelector(`.node-port[data-node-id="${nodeId}"][data-port="${portName}"][data-direction="${direction}"]`);
-        if (!portEl) return false;
-        return !portEl.classList.contains('hidden') &&
-            !portEl.classList.contains('is-hidden-by-collapse') &&
-            portEl.offsetParent !== null;
+        return isPortElementVisible(getPortElement(node, portName, direction));
     }
 
     function getNodeBounds(node) {
