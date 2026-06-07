@@ -148,9 +148,6 @@ export function createUpdateManager({
 
     function getReleaseBodyHtml(release = {}) {
         const body = release.body || '暂无更新日志详情';
-        if (release.source === 'github_releases_feed' && /<\/?[a-z][\s\S]*>/i.test(body)) {
-            return body;
-        }
         return renderMarkdownLikeReleaseBody(body);
     }
 

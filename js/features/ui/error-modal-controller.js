@@ -35,11 +35,15 @@ export function createErrorModalControllerApi({
             ? userFacing.suggestions.filter(Boolean)
             : [];
         if (suggestionBoxEl && suggestionsEl) {
+            suggestionsEl.innerHTML = '';
             if (suggestions.length > 0) {
-                suggestionsEl.innerHTML = suggestions.map((item) => `<li>${item}</li>`).join('');
+                suggestions.forEach((item) => {
+                    const li = documentRef.createElement('li');
+                    li.textContent = item;
+                    suggestionsEl.appendChild(li);
+                });
                 suggestionBoxEl.classList.remove('hidden');
             } else {
-                suggestionsEl.innerHTML = '';
                 suggestionBoxEl.classList.add('hidden');
             }
         }
