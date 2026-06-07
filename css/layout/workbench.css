@@ -1,0 +1,294 @@
+/* Workbench foundation: shared UI tokens and low-cost polish for the main app shell. */
+:root {
+    --surface-panel: var(--panel-bg, var(--bg-drawer));
+    --surface-panel-strong: var(--panel-bg-strong, var(--bg-drawer));
+    --surface-control: var(--panel-control-bg, rgba(255, 255, 255, 0.06));
+    --surface-control-hover: var(--panel-control-hover-bg, rgba(255, 255, 255, 0.1));
+    --surface-node: var(--bg-node);
+    --surface-node-header: var(--bg-node-header);
+    --border-subtle: var(--panel-border, rgba(255, 255, 255, 0.08));
+    --border-strong: var(--panel-border-strong, rgba(255, 255, 255, 0.14));
+    --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 24%, transparent);
+    --elevation-panel: var(--panel-shadow-soft, 0 10px 28px rgba(0, 0, 0, 0.18));
+    --elevation-float: var(--panel-shadow-strong, 0 18px 48px rgba(0, 0, 0, 0.22));
+    --motion-fast: 0.16s ease;
+    --motion-standard: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    --density-control-height: 32px;
+    --density-toolbar-gap: 8px;
+    --node-action-size: 26px;
+    --node-port-hit-size: 18px;
+    --node-port-dot-size: 12px;
+}
+
+#toolbar,
+#side-bar,
+.drawer,
+.drawer-left,
+.context-menu,
+.toast,
+.theme-menu-panel,
+.modal-panel,
+.help-panel {
+    border-color: var(--border-subtle);
+}
+
+#toolbar {
+    gap: var(--density-toolbar-gap) 10px;
+    box-shadow: var(--elevation-panel);
+    transition:
+        transform var(--motion-standard),
+        opacity var(--motion-fast),
+        box-shadow var(--motion-standard),
+        border-color var(--motion-fast);
+    will-change: auto;
+}
+
+#toolbar:hover,
+#toolbar:focus-within,
+#toolbar:has(.btn.active),
+#toolbar:has([aria-expanded="true"]),
+body.toolbar-peek-active #toolbar,
+body.toolbar-pinned #toolbar {
+    will-change: transform;
+}
+
+.toolbar-toggle-group {
+    border-width: 1px;
+    background: var(--surface-control);
+    border-color: transparent;
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast);
+}
+
+.toolbar-toggle-group:hover,
+.toolbar-toggle-group:focus-within {
+    background: var(--surface-control-hover);
+    border-color: var(--border-subtle);
+}
+
+.btn {
+    min-height: var(--density-control-height);
+    border-color: var(--border-subtle);
+    background: var(--surface-control);
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast),
+        transform var(--motion-fast);
+}
+
+.btn:hover {
+    background: var(--surface-control-hover);
+    border-color: var(--border-strong);
+}
+
+.btn:focus-visible,
+.side-bar-btn:focus-visible,
+.context-menu-item:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+#side-bar {
+    background: var(--sidebar-bg);
+    border-color: var(--sidebar-border);
+    box-shadow: var(--elevation-panel);
+    transition:
+        transform var(--motion-standard),
+        top var(--motion-standard),
+        opacity var(--motion-fast),
+        box-shadow var(--motion-standard);
+    will-change: auto;
+}
+
+#side-bar:hover,
+#side-bar:focus-within,
+#side-bar:has(.side-bar-btn.active),
+body.sidebar-peek-active #side-bar,
+body.sidebar-pinned #side-bar {
+    will-change: transform;
+}
+
+.side-bar-btn {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast),
+        transform var(--motion-fast);
+}
+
+.side-bar-btn:hover {
+    border-color: var(--border-subtle);
+}
+
+.side-bar-btn.active {
+    border-color: var(--panel-active-border);
+}
+
+#canvas-container {
+    background-color: var(--canvas-bg-color, var(--bg-canvas));
+}
+
+#canvas-container::before {
+    opacity: var(--canvas-grid-opacity, 1);
+}
+
+.connection-path {
+    transition:
+        stroke-width var(--motion-fast),
+        stroke-opacity var(--motion-fast),
+        stroke var(--motion-fast);
+}
+
+.node-glass-bg {
+    transition:
+        border-color var(--motion-fast),
+        box-shadow var(--motion-fast),
+        background var(--motion-fast);
+}
+
+.node.selected .node-glass-bg {
+    border-color: var(--panel-active-border);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--accent-primary) 28%, transparent),
+        var(--shadow-node-hover);
+}
+
+.node-header {
+    min-height: 40px;
+    background: var(--surface-node-header);
+    border-bottom-color: var(--border-subtle);
+}
+
+.node-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.node-delete,
+.node-bypass-btn,
+.node-collapse-btn {
+    width: var(--node-action-size);
+    height: var(--node-action-size);
+    border: 1px solid transparent;
+    background: var(--surface-control);
+    opacity: 0.52;
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast),
+        opacity var(--motion-fast),
+        transform var(--motion-fast);
+}
+
+.node:hover .node-delete,
+.node:hover .node-bypass-btn,
+.node:hover .node-collapse-btn,
+.node:focus-within .node-delete,
+.node:focus-within .node-bypass-btn,
+.node:focus-within .node-collapse-btn {
+    opacity: 0.86;
+}
+
+.node-delete:hover,
+.node-bypass-btn:hover,
+.node-collapse-btn:hover {
+    border-color: var(--border-subtle);
+}
+
+.node-ports-row {
+    border-bottom-color: var(--border-subtle);
+}
+
+.node-port {
+    min-height: var(--node-port-hit-size);
+}
+
+.port-label {
+    color: var(--text-secondary);
+}
+
+.port-dot {
+    width: var(--node-port-dot-size);
+    height: var(--node-port-dot-size);
+    border-width: 2px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent);
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        box-shadow var(--motion-fast),
+        transform var(--motion-fast);
+}
+
+.port-dot:hover {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.port-dot.connected {
+    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.context-menu {
+    border-radius: 8px;
+    box-shadow: var(--elevation-float);
+}
+
+.context-menu-item {
+    transition:
+        background var(--motion-fast),
+        color var(--motion-fast);
+}
+
+.toast {
+    box-shadow: var(--elevation-float);
+    contain: layout paint;
+}
+
+#selection-box {
+    border-color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+}
+
+.drawer-content,
+.workflow-list-container,
+.cache-drawer-content,
+.history-grid,
+.history-fullscreen-list-virtual,
+.prompt-library-list,
+.settings-tab-content {
+    contain: layout paint;
+}
+
+.history-fullscreen-virtual-row,
+.history-card,
+.workflow-item,
+.cache-item,
+.prompt-card {
+    contain: layout paint;
+}
+
+#canvas-container.is-zooming .node-glass-bg,
+#canvas-container.is-panning .node-glass-bg,
+body.is-interacting .node-glass-bg {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+body.is-interacting .connection-path,
+#connections-group.is-interacting .connection-path,
+#connections-group.is-dragging .connection-path {
+    transition: none !important;
+}
+
+html.animations-disabled #toolbar,
+html.animations-disabled #side-bar,
+html.animations-disabled .btn,
+html.animations-disabled .side-bar-btn {
+    transition: none !important;
+}

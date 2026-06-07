@@ -910,6 +910,11 @@
 }
 
 #general-settings #global-dir-badge {
+    flex: 1 1 140px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 12px;
     max-width: none !important;
     min-height: 40px;
     display: flex;
@@ -919,6 +924,21 @@
     text-overflow: initial;
     overflow-wrap: anywhere;
     line-height: 1.45;
+}
+
+#general-settings #global-dir-badge.is-set {
+    background: var(--settings-control-bg);
+    border: 1px solid var(--settings-control-border);
+}
+
+#general-settings #global-dir-badge.is-missing {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+#general-settings .general-settings-warning-text {
+    color: var(--accent-red);
+    font-weight: 600;
 }
 
 #general-settings .general-settings-dir-row {
@@ -931,19 +951,75 @@
     flex-shrink: 0;
 }
 
+#general-settings .general-settings-dir-action {
+    padding: 4px 8px;
+}
+
+#general-settings .general-settings-dir-action--danger {
+    color: var(--accent-red);
+}
+
 #general-settings .retry-input-group {
+    flex: 1 1 160px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--settings-control-border);
+    border-radius: 6px;
+    background: var(--settings-control-bg);
     min-height: 40px;
 }
 
 #general-settings .retry-input-group .btn-retry-step {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition:
+        background var(--transition),
+        color var(--transition);
     width: 38px !important;
     height: 38px !important;
     font-size: 18px !important;
 }
 
+#general-settings .retry-input-group .btn-retry-step:hover,
+#general-settings .retry-input-group .btn-retry-step:focus-visible {
+    background: var(--settings-control-hover-bg);
+    color: var(--settings-control-hover-text);
+    outline: none;
+}
+
 #general-settings #setting-max-retries {
+    flex: 1 1 auto;
+    min-width: 48px;
+    border: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    background: transparent;
+    color: var(--accent-purple);
+    padding: 0;
+    text-align: center;
+    font-weight: 600;
+    -moz-appearance: textfield;
     height: 38px !important;
     font-size: 14px !important;
+}
+
+#general-settings #setting-max-retries::-webkit-outer-spin-button,
+#general-settings #setting-max-retries::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+}
+
+#general-settings .general-settings-unit {
+    min-width: 20px;
+    color: var(--text-dim);
+    font-size: 11px;
 }
 
 #general-settings .general-settings-volume-row {

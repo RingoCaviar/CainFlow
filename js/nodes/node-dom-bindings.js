@@ -48,6 +48,7 @@ export function createNodeDomBindingsApi({
     getNodeMinimumSizeFromLifecycle = null,
     updateAllConnections = () => {},
     updateDirtyConnections = null,
+    scheduleConnectionRefresh = null,
     invalidateNodePortCache = null,
     markNodeConnectionsDirty = null,
     updatePortStyles = () => {},
@@ -106,6 +107,15 @@ export function createNodeDomBindingsApi({
     }
 
     function refreshNodePortGeometry(nodeId, { force = false } = {}) {
+        if (typeof scheduleConnectionRefresh === 'function') {
+            scheduleConnectionRefresh({
+                nodeIds: nodeId,
+                force,
+                immediate: force,
+                reason: 'node-port-geometry'
+            });
+            return;
+        }
         if (typeof invalidateNodePortCache === 'function') {
             invalidateNodePortCache(nodeId);
         } else if (typeof markNodeConnectionsDirty === 'function') {
@@ -120,6 +130,15 @@ export function createNodeDomBindingsApi({
 
     function refreshNodesPortGeometry(nodeIds = [], { force = false } = {}) {
         const ids = Array.from(new Set((Array.isArray(nodeIds) ? nodeIds : [nodeIds]).filter(Boolean)));
+        if (typeof scheduleConnectionRefresh === 'function') {
+            scheduleConnectionRefresh({
+                nodeIds: ids,
+                force,
+                immediate: force,
+                reason: 'nodes-port-geometry'
+            });
+            return;
+        }
         ids.forEach((nodeId) => {
             if (typeof invalidateNodePortCache === 'function') {
                 invalidateNodePortCache(nodeId);
@@ -191,7 +210,14 @@ export function createNodeDomBindingsApi({
                 preserveCurrentWidth: true,
                 reason: 'element-resize'
             });
-            updateAllConnections();
+            if (typeof scheduleConnectionRefresh === 'function') {
+                scheduleConnectionRefresh({
+                    nodeIds: nodeId,
+                    reason: 'connected-input-field-layout'
+                });
+            } else {
+                updateAllConnections();
+            }
         });
         pendingConnectedInputLayoutFrames.set(nodeId, frameId);
     }

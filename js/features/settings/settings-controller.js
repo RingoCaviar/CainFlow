@@ -2308,21 +2308,21 @@ export function createSettingsControllerApi({
                 </div>
             </div>
 
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">存储设置</span>
+                    <span>存储设置</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                <div class="card-row">
                     <div class="card-field">
                         <div class="general-settings-label-row">
                             ${renderGeneralSettingsHelpLabel('全局图片保存目录', generalHelpText.globalSaveDir)}
                         </div>
-                        <div class="general-settings-dir-row" style="display:flex; align-items:center; gap:8px;">
-                            <span id="global-dir-badge" style="font-size:12px; color:var(--text-primary); padding:6px 10px; border-radius:6px; flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; ${state.globalSaveDirHandle ? 'background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);' : 'background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.2);'}">
-                                ${state.globalSaveDirHandle ? `已选择: ${state.globalSaveDirHandle.name}` : '<span style="color:var(--accent-red); font-weight:500;">⚠️ 未设置</span>'}
+                        <div class="general-settings-dir-row">
+                            <span id="global-dir-badge" class="${state.globalSaveDirHandle ? 'is-set' : 'is-missing'}">
+                                ${state.globalSaveDirHandle ? `已选择: ${state.globalSaveDirHandle.name}` : '<span class="general-settings-warning-text">⚠️ 未设置</span>'}
                             </span>
-                            <button id="btn-set-global-dir" class="btn btn-secondary btn-xs" style="padding: 4px 8px;">更改</button>
-                            ${state.globalSaveDirHandle ? `<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs" style="color:var(--accent-red); padding: 4px 8px;">清除</button>` : ''}
+                            <button id="btn-set-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">更改</button>
+                            ${state.globalSaveDirHandle ? `<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs general-settings-dir-action general-settings-dir-action--danger">清除</button>` : ''}
                         </div>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
@@ -2338,22 +2338,22 @@ export function createSettingsControllerApi({
                 </div>
             </div>
 
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">自动化与重试</span>
+                    <span>自动化与重试</span>
                 </div>
-                <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                <div class="card-row">
                     <div class="card-field">
                         <div class="general-settings-label-row">
                             ${renderGeneralSettingsHelpLabel('最大自动重试次数', generalHelpText.maxRetries)}
                         </div>
-                        <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px;">
-                            <div class="retry-input-group" style="display:flex; align-items:center; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:6px; overflow:hidden; flex:1;">
-                                <button class="btn-retry-step" data-step="-1" style="background:transparent; border:none; color:var(--text-secondary); width:32px; height:32px; cursor:pointer; font-size:16px; transition:all 0.2s; display:flex; align-items:center; justify-content:center;">-</button>
-                                <input type="number" id="setting-max-retries" value="${state.maxRetries || 15}" min="1" max="100" style="flex:1; background:transparent; border:none; border-left:1px solid rgba(255,255,255,0.05); border-right:1px solid rgba(255,255,255,0.05); text-align:center; padding:0; height:32px; color:var(--accent-purple); font-weight:600; -moz-appearance: textfield;" />
-                                <button class="btn-retry-step" data-step="1" style="background:transparent; border:none; color:var(--text-secondary); width:32px; height:32px; cursor:pointer; font-size:16px; transition:all 0.2s; display:flex; align-items:center; justify-content:center;">+</button>
+                        <div class="general-settings-inline-input">
+                            <div class="retry-input-group">
+                                <button class="btn-retry-step" data-step="-1">-</button>
+                                <input type="number" id="setting-max-retries" value="${state.maxRetries || 15}" min="1" max="100" />
+                                <button class="btn-retry-step" data-step="1">+</button>
                             </div>
-                            <span style="font-size:11px; color:var(--text-dim); min-width:20px;">轮</span>
+                            <span class="general-settings-unit">轮</span>
                         </div>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>

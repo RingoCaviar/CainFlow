@@ -5,5 +5,6 @@
 @import './css/features/settings.css';
 @import './css/legacy.css';
 @import './css/features/image-cropper.css';
+@import './css/layout/workbench.css';
 @import './css/themes.css';
 /* CainFlow 的样式总入口，聚合基础层、布局层、组件层和遗留样式。 */

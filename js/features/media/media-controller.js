@@ -866,6 +866,10 @@ export function createMediaControllerApi({
         displayImageMemoryManager.scheduleSweep(options);
     }
 
+    function scheduleMediaMemorySweep(options = {}) {
+        scheduleDisplayImageMemorySweep(options);
+    }
+
     function sweepDisplayImageMemory(options = {}) {
         return displayImageMemoryManager.sweep(options);
     }
@@ -3284,6 +3288,7 @@ export function createMediaControllerApi({
         releaseNodeImageData,
         clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
         scheduleDisplayImageMemorySweep,
+        scheduleMediaMemorySweep,
         sweepDisplayImageMemory,
         syncImagePreviewNode,
         syncImageSaveNode,

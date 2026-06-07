@@ -34,6 +34,7 @@ import {
     getConnectionSamplePoints as getConnectionSamplePointsService
 } from './js/canvas/geometry.js';
 import { createConnectionsApi } from './js/canvas/connections.js';
+import { createConnectionRefreshScheduler } from './js/canvas/connection-refresh-scheduler.js';
 import { createBatchConnectionModeApi } from './js/canvas/batch-connection-mode.js';
 import { createSelectionApi } from './js/canvas/selection.js';
 import { createViewportApi } from './js/canvas/viewport.js';
@@ -110,9 +111,10 @@ function adjustTextareaHeight(textarea) {
     if (!textarea) return;
     // 如果 textarea 位于节点内部，节点高度可能已经变化，
     // 需要同步刷新连线位置。
-    if (typeof updateAllConnections === 'function') {
-        updateAllConnections();
-    }
+    scheduleConnectionRefresh({
+        nodeIds: textarea.closest?.('.node')?.dataset?.id || '',
+        reason: 'textarea-height'
+    });
 }
 
 // 从 data URL 读取分辨率文本
@@ -182,6 +184,16 @@ window.showLogDetail = showLogDetail;
 const uiUtils = createUiUtils({
     showToast
 });
+
+let connectionRefreshSchedulerApi = null;
+
+function scheduleConnectionRefresh(options = {}) {
+    return connectionRefreshSchedulerApi?.scheduleConnectionRefresh(options) || false;
+}
+
+function flushConnectionRefresh(options = {}) {
+    return connectionRefreshSchedulerApi?.flushConnectionRefresh(options) || false;
+}
 
 function applyHistoryGridCols(cols) {
     getHistoryPanelApi().applyHistoryGridCols(cols);
@@ -260,8 +272,17 @@ const cameraControlNodeApi = createCameraControlNodeApi({
     showToast,
     documentRef: document
 });
-const viewportApi = createViewportApi({ state, elements, updateAllConnections: () => updateAllConnections() });
-const selectionApi = createSelectionApi({ state, updateAllConnections: () => updateAllConnections() });
+const viewportApi = createViewportApi({
+    state,
+    elements,
+    updateAllConnections: () => updateAllConnections(),
+    scheduleConnectionRefresh
+});
+const selectionApi = createSelectionApi({
+    state,
+    updateAllConnections: () => updateAllConnections(),
+    scheduleConnectionRefresh
+});
 const nodeSerializer = createNodeSerializer({
     state,
     documentRef: document
@@ -660,6 +681,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     getNodeMinimumSizeFromLifecycle: (nodeOrId) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId),
     updateAllConnections: () => updateAllConnections(),
     updateDirtyConnections: () => updateDirtyConnections(),
+    scheduleConnectionRefresh,
     invalidateNodePortCache: (nodeId) => invalidateNodePortCache(nodeId),
     markNodeConnectionsDirty: (nodeId) => markNodeConnectionsDirty(nodeId),
     updatePortStyles: () => updatePortStyles(),
@@ -668,6 +690,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
 const {
     getPortPosition,
     invalidateNodePortCache,
+    markConnectionDirty,
     markNodeConnectionsDirty,
     updateAllConnections,
     updateDirtyConnections,
@@ -680,6 +703,16 @@ const {
     drawTempConnection,
     updatePortStyles
 } = connectionsApi;
+
+connectionRefreshSchedulerApi = createConnectionRefreshScheduler({
+    updateAllConnections,
+    updateDirtyConnections,
+    invalidateNodePortCache,
+    markConnectionDirty,
+    markNodeConnectionsDirty,
+    requestAnimationFrameRef: requestAnimationFrame,
+    cancelAnimationFrameRef: cancelAnimationFrame
+});
 
 function getBatchConnectionModeApi() {
     if (!batchConnectionModeApi) {
@@ -962,6 +995,7 @@ function getCanvasInteractionsApi() {
             updateAllConnections,
             updateDirtyConnections,
             updateDraggingConnections,
+            scheduleConnectionRefresh,
             invalidateNodePortCache,
             markNodeConnectionsDirty,
             clearConnectionInsertPreview,
@@ -978,7 +1012,7 @@ function getCanvasInteractionsApi() {
             enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
             checkLineIntersection: checkLineIntersectionService,
             getConnectionSamplePoints: getConnectionSamplePointsService,
-            onViewportSettled: () => mediaControllerApi.scheduleDisplayImageMemorySweep?.()
+            onViewportSettled: () => mediaControllerApi.scheduleMediaMemorySweep?.({ reason: 'viewport-settled' })
         });
     }
     return canvasInteractionsApi;
@@ -1133,6 +1167,7 @@ function getNodeLifecycleApi() {
             showToast,
             updateAllConnections,
             updateDirtyConnections,
+            scheduleConnectionRefresh,
             invalidateNodePortCache,
             markNodeConnectionsDirty,
             updatePortStyles,
@@ -1270,7 +1305,7 @@ function getWorkflowRunnerApi() {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState(state.activeWorkflowName, payload);
                 }
                 if (payload?.status === 'completed' && payload.nodeId) {
-                    mediaControllerApi?.scheduleDisplayImageMemorySweep?.({ delayMs: 4200 });
+                    mediaControllerApi?.scheduleMediaMemorySweep?.({ delayMs: 4200, reason: 'node-run-completed' });
                 }
             }
         });

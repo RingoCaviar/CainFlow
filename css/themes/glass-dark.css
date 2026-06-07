@@ -424,8 +424,8 @@ html[data-app-theme="glass-dark"] .node.selected .node-glass-bg {
 }
 
 html[data-app-theme="glass-dark"] #canvas-container.is-zooming .node-glass-bg {
-    backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
-    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 html[data-app-theme="glass-dark"] .node.running .node-glass-bg {

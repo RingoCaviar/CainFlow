@@ -222,8 +222,8 @@ html[data-app-theme="glass-light"] .api-settings-help-panel {
     background: var(--panel-bg);
     border-color: var(--panel-border);
     box-shadow: var(--panel-shadow-soft);
-    backdrop-filter: blur(30px) saturate(1.35);
-    -webkit-backdrop-filter: blur(30px) saturate(1.35);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
 }
 
 html[data-app-theme="glass-light"] #toolbar {
@@ -408,8 +408,8 @@ html[data-app-theme="glass-light"] .node-glass-bg {
         rgba(255, 255, 255, 0.38);
     border-color: var(--border-node);
     box-shadow: var(--shadow-node);
-    backdrop-filter: blur(30px) saturate(1.42);
-    -webkit-backdrop-filter: blur(30px) saturate(1.42);
+    backdrop-filter: blur(var(--glass-node-blur-radius)) saturate(1.18);
+    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius)) saturate(1.18);
 }
 
 html[data-app-theme="glass-light"] .node-glass-bg::before {
@@ -935,8 +935,8 @@ html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::
     --glass-border: rgba(255, 255, 255, 0.58);
     --glass-border-soft: rgba(148, 163, 184, 0.18);
     --glass-border-strong: rgba(255, 255, 255, 0.76);
-    --glass-blur: blur(20px);
-    --glass-blur-strong: blur(24px);
+    --glass-blur: blur(12px) saturate(1.12);
+    --glass-blur-strong: blur(16px) saturate(1.18);
     --bg-toolbar: var(--glass-surface);
     --bg-node: var(--glass-card-surface);
     --bg-node-header: var(--glass-surface-soft);
@@ -1138,8 +1138,8 @@ html[data-app-theme="glass-light"] .node.selected .node-glass-bg {
 }
 
 html[data-app-theme="glass-light"] #canvas-container.is-zooming .node-glass-bg {
-    backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
-    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius)) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 html[data-app-theme="glass-light"] .node-header,

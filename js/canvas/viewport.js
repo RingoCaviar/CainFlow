@@ -5,6 +5,7 @@ export function createViewportApi({
     state,
     elements,
     updateAllConnections,
+    scheduleConnectionRefresh = null,
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
@@ -48,7 +49,15 @@ export function createViewportApi({
     function updateCanvasTransform(options = {}) {
         applyCanvasVisualTransform(options);
         if (options.updateConnections !== false) {
-            updateAllConnections();
+            if (typeof scheduleConnectionRefresh === 'function') {
+                scheduleConnectionRefresh({
+                    force: options.forceConnections === true,
+                    immediate: options.immediateConnections === true,
+                    reason: options.connectionRefreshReason || 'canvas-transform'
+                });
+            } else {
+                updateAllConnections();
+            }
         }
     }
 

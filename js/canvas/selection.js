@@ -1,7 +1,19 @@
 /**
  * 管理画布上的节点选择状态，提供全选与框选结果同步等选择辅助能力。
  */
-export function createSelectionApi({ state, updateAllConnections }) {
+export function createSelectionApi({
+    state,
+    updateAllConnections,
+    scheduleConnectionRefresh = null
+}) {
+    function refreshSelectionConnections(reason) {
+        if (typeof scheduleConnectionRefresh === 'function') {
+            scheduleConnectionRefresh({ force: true, reason });
+            return;
+        }
+        updateAllConnections();
+    }
+
     function selectAllNodes() {
         state.selectedNodes.forEach((nodeId) => {
             const node = state.nodes.get(nodeId);
@@ -13,7 +25,7 @@ export function createSelectionApi({ state, updateAllConnections }) {
             state.selectedNodes.add(id);
             node.el.classList.add('selected');
         });
-        updateAllConnections();
+        refreshSelectionConnections('selection-all');
     }
 
     return {

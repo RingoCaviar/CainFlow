@@ -39,6 +39,7 @@ export function createNodeLifecycleApi({
     showToast,
     updateAllConnections,
     updateDirtyConnections = null,
+    scheduleConnectionRefresh = null,
     invalidateNodePortCache = null,
     markNodeConnectionsDirty = null,
     updatePortStyles,
@@ -193,6 +194,14 @@ export function createNodeLifecycleApi({
             pendingNodeSizeConnectionRefresh = null;
             const nodeIds = Array.from(pendingNodeSizeConnectionRefreshIds);
             pendingNodeSizeConnectionRefreshIds.clear();
+            if (typeof scheduleConnectionRefresh === 'function') {
+                scheduleConnectionRefresh({
+                    nodeIds,
+                    force: nodeIds.length === 0,
+                    reason: 'node-size-observer'
+                });
+                return;
+            }
             nodeIds.forEach((id) => {
                 if (typeof invalidateNodePortCache === 'function') {
                     invalidateNodePortCache(id);
@@ -213,6 +222,15 @@ export function createNodeLifecycleApi({
     }
 
     function refreshNodeConnectionGeometry(nodeId, { force = false } = {}) {
+        if (typeof scheduleConnectionRefresh === 'function') {
+            scheduleConnectionRefresh({
+                nodeIds: nodeId,
+                force,
+                immediate: force,
+                reason: 'node-connection-geometry'
+            });
+            return;
+        }
         if (typeof invalidateNodePortCache === 'function') {
             invalidateNodePortCache(nodeId);
         } else if (typeof markNodeConnectionsDirty === 'function') {
