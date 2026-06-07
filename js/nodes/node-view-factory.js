@@ -771,7 +771,7 @@ function renderCameraControlBody(id, restoreData) {
         : `<div class="camera-control-node-preview-placeholder">${escapeHtml(placeholder)}</div>`}
             </div>
             <div class="camera-control-note" role="note">
-                说明：本节点会生成一段有关视角的提示词，并不是真正传递相机参数，因此控制效果不精确，请不要过度依赖此节点。
+                说明：本节点会输出结构化的英文视角提示词，用来更明确地约束机位、构图、镜头感和翻滚角；它仍然是提示词控制，不是底层相机参数直传。
             </div>
         </div>
     `;

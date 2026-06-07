@@ -1346,9 +1346,17 @@ export function createExecutionCoreApi({
         const systemPrompt = (getPrimaryTextInput(inputs.system_prompt) || documentRef.getElementById(`${id}-system-prompt`)?.value || '').trim();
         const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
         const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
-        return [systemPrompt, userPrompt, cameraPrompt]
-            .filter((part) => typeof part === 'string' && part.trim())
-            .join(', ');
+        const promptSections = [];
+        if (systemPrompt) {
+            promptSections.push(`System instruction:\n${systemPrompt}`);
+        }
+        if (userPrompt) {
+            promptSections.push(`Main subject prompt:\n${userPrompt}`);
+        }
+        if (cameraPrompt) {
+            promptSections.push(`Camera composition instruction:\n${cameraPrompt}`);
+        }
+        return promptSections.join('\n\n');
     }
 
     async function getOpenAiMaskBlob(mask, signal) {

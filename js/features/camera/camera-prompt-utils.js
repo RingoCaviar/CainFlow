@@ -56,116 +56,180 @@ function getSubjectHorizontalDirection(yaw) {
     return yaw >= 0 ? 'right' : 'left';
 }
 
-function getPitchInstruction(pitch) {
-    if (pitch >= 60) {
-        return "bird's-eye top-down view, with the camera looking steeply down at the subject";
-    }
-    if (pitch >= 32) {
-        return 'high-angle view, with the camera above the subject looking down';
-    }
-    if (pitch >= 12) {
-        return 'slightly high-angle view, with the camera a little above eye level';
-    }
-    if (pitch <= -38) {
-        return "worm's-eye low-angle view, with the camera very low and looking up";
-    }
-    if (pitch <= -16) {
-        return 'low-angle view, with the camera below the subject looking up';
-    }
-    if (pitch <= -6) {
-        return 'subtle low-angle view, with the camera just below eye level';
-    }
-    return 'eye-level view';
+function formatNumber(value, digits = 1) {
+    return String(roundTo(value, digits));
 }
 
-function getYawInstruction(yaw) {
+function getPitchLabel(pitch) {
+    if (pitch >= 60) {
+        return "bird's-eye top-down";
+    }
+    if (pitch >= 32) {
+        return 'high-angle';
+    }
+    if (pitch >= 12) {
+        return 'slightly high-angle';
+    }
+    if (pitch <= -38) {
+        return "worm's-eye low-angle";
+    }
+    if (pitch <= -16) {
+        return 'low-angle';
+    }
+    if (pitch <= -6) {
+        return 'slightly low-angle';
+    }
+    return 'eye-level';
+}
+
+function getPitchPlacementInstruction(pitch) {
+    const absPitch = Math.abs(pitch);
+    if (absPitch < 3) {
+        return 'keep the camera at eye level';
+    }
+    if (pitch > 0) {
+        return `raise the camera ${formatNumber(absPitch, 1)}° above eye level`;
+    }
+    return `lower the camera ${formatNumber(absPitch, 1)}° below eye level and aim upward`;
+}
+
+function getYawLabel(yaw) {
     const absYaw = Math.abs(yaw);
     const direction = getSubjectHorizontalDirection(yaw);
     if (absYaw <= 18) {
-        return 'straight-on front view, centered on the subject';
+        return 'front view centered on the subject';
     }
     if (absYaw <= 68) {
-        return `${direction} front three-quarter view, showing the front and ${direction} side of the subject`;
+        return `${direction} front three-quarter view showing the front and ${direction} side of the subject`;
     }
     if (absYaw <= 112) {
-        return `${direction} side profile view, showing the subject mainly from the side`;
+        return `${direction} side profile view showing the subject mainly from the side`;
     }
     if (absYaw <= 162) {
-        return `${direction} rear three-quarter view, showing the back and ${direction} side of the subject`;
+        return `${direction} rear three-quarter view showing the back and ${direction} side of the subject`;
     }
-    return 'straight rear view, showing the back of the subject';
+    return 'straight rear view showing the back of the subject';
 }
 
-function getDistanceInstruction(distance) {
+function getYawPlacementInstruction(yaw) {
+    const absYaw = Math.abs(yaw);
+    const direction = getSubjectHorizontalDirection(yaw);
+    if (absYaw <= 5) {
+        return 'keep the camera centered on the subject front';
+    }
+    if (absYaw >= 175) {
+        return 'move the camera to a full rear view behind the subject';
+    }
+    return `orbit the camera ${formatNumber(absYaw, 1)}° toward the subject's ${direction} side from the front reference`;
+}
+
+function getDistanceProfile(distance) {
     if (distance <= 2.4) {
-        return 'extreme close-up framing, filling the image with the subject details';
+        return {
+            shot: 'an extreme close-up',
+            goal: 'fill almost the entire frame with subject details and leave only minimal background context'
+        };
     }
     if (distance <= 4) {
-        return 'close-up framing, focusing tightly on the subject';
+        return {
+            shot: 'a close-up',
+            goal: 'keep the subject filling most of the frame with a tight crop and limited surrounding space'
+        };
     }
     if (distance <= 5.8) {
-        return 'medium close-up framing, keeping the subject dominant in the composition';
+        return {
+            shot: 'a medium close-up',
+            goal: 'keep the subject dominant in the frame with only a small amount of surrounding context'
+        };
     }
     if (distance <= 8.2) {
-        return 'medium shot framing, showing the subject clearly with some surrounding context';
+        return {
+            shot: 'a medium shot',
+            goal: 'show the subject clearly while retaining some surrounding context'
+        };
     }
     if (distance <= 12) {
-        return 'full-body or full-object framing, keeping the complete subject visible';
+        return {
+            shot: 'a full-body or full-object shot',
+            goal: 'keep the complete subject visible with comfortable margins around it'
+        };
     }
-    return 'long shot wide framing, showing the subject smaller within the environment';
+    return {
+        shot: 'a long shot',
+        goal: 'show the subject smaller within a wider environment and preserve clear environmental context'
+    };
 }
 
-function getFovInstruction(fov) {
+function getFovProfile(fov) {
     if (fov < 28) {
-        return 'super-telephoto lens look with strong perspective compression';
+        return 'a super-telephoto lens look with strong perspective compression';
     }
     if (fov < 42) {
-        return 'telephoto lens look with compressed perspective and minimal distortion';
+        return 'a telephoto lens look with compressed perspective and minimal distortion';
     }
     if (fov < 65) {
-        return 'natural standard-lens perspective';
+        return 'a natural standard-lens perspective';
     }
     if (fov < 86) {
-        return 'wide-angle lens perspective with visible spatial depth';
+        return 'a wide-angle lens perspective with visible spatial depth';
     }
     if (fov < 108) {
-        return 'ultra-wide-angle perspective with expanded space';
+        return 'an ultra-wide-angle perspective with expanded space';
     }
-    return 'fisheye-like ultra-wide perspective with strong edge distortion';
+    return 'a fisheye-like ultra-wide perspective with strong edge distortion';
 }
 
 function getRollInstruction(roll) {
     const absRoll = Math.abs(roll);
-    if (absRoll < 6) {
-        return 'Keep the horizon level.';
+    if (absRoll < 3) {
+        return 'keep roll at 0° and the horizon level';
     }
     const direction = roll > 0 ? 'clockwise' : 'counterclockwise';
-    if (absRoll >= 16) {
-        return `Use a strong Dutch angle, tilted ${direction}.`;
+    if (absRoll < 10) {
+        return `apply a ${formatNumber(absRoll, 1)}° ${direction} roll for a subtle Dutch angle`;
     }
-    return `Use a slight Dutch angle, tilted ${direction}.`;
+    if (absRoll < 20) {
+        return `apply a ${formatNumber(absRoll, 1)}° ${direction} roll for a noticeable Dutch angle`;
+    }
+    return `apply a ${formatNumber(absRoll, 1)}° ${direction} roll for a strong Dutch angle`;
+}
+
+function getSideConsistencyInstruction(yaw) {
+    const absYaw = Math.abs(yaw);
+    if (absYaw <= 18) {
+        return 'Keep the subject front-facing relative to the camera and do not mirror the image.';
+    }
+    if (absYaw >= 162) {
+        return 'Reach the back view by moving the camera around the subject, not by flipping or mirroring the image.';
+    }
+    const direction = getSubjectHorizontalDirection(yaw);
+    return `Reveal the subject's ${direction} side by moving the camera around the subject, not by mirroring the image or swapping left and right details.`;
 }
 
 export function generateCameraPrompt(cameraData = {}) {
-    const pitch = Number(cameraData.pitch) || 0;
-    const yaw = normalizeAngle(cameraData.yaw);
-    const distance = Number(cameraData.distance) || DEFAULT_CAMERA_STATE.distance;
-    const fov = Number(cameraData.fov) || DEFAULT_CAMERA_STATE.fov;
-    const roll = Number(cameraData.roll) || 0;
+    const normalized = normalizeCameraState(cameraData);
+    const { pitch, yaw, distance, fov, roll } = normalized;
 
     const viewpoint = dedupeSegments([
-        getPitchInstruction(pitch),
-        getYawInstruction(yaw)
-    ]).join(', ');
-    const framing = getDistanceInstruction(distance);
-    const lens = getFovInstruction(fov);
+        getPitchLabel(pitch),
+        getYawLabel(yaw)
+    ]).join(' ');
+    const distanceProfile = getDistanceProfile(distance);
+    const lensProfile = getFovProfile(fov);
     const rollInstruction = getRollInstruction(roll);
+    const cameraSpec = [
+        `yaw ${formatNumber(yaw, 1)}°: ${getYawPlacementInstruction(yaw)}`,
+        `pitch ${formatNumber(pitch, 1)}°: ${getPitchPlacementInstruction(pitch)}`,
+        `distance ${formatNumber(distance, 2)}: frame as ${distanceProfile.shot}`,
+        `FOV ${formatNumber(fov, 1)}°: use ${lensProfile}`,
+        `roll ${formatNumber(roll, 1)}°: ${rollInstruction}`
+    ].join('; ');
 
     return [
-        `Camera viewpoint instruction: ${viewpoint}.`,
-        `Frame the subject with ${framing}.`,
-        `Use ${lens}.`,
-        rollInstruction,
-        'Preserve the subject identity and scene content; change only the camera angle, framing, lens perspective, and tilt.'
+        'Camera-only transformation of the same subject and scene.',
+        `Camera specification: ${cameraSpec}.`,
+        `Expected view: ${viewpoint}.`,
+        `Framing goal: ${distanceProfile.goal}.`,
+        `Strict constraints: keep the same subject identity, pose, proportions, outfit or materials, lighting, background, and scene layout. Change only the camera position, viewing angle, framing, lens perspective, and tilt. ${getSideConsistencyInstruction(yaw)}`
     ].join(' ');
 }
