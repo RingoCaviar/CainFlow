@@ -932,19 +932,90 @@ body.workflow-sidebar-resizing * {
     padding: 0 16px 16px 38px;
 }
 
-.update-changelog-body br {
-    line-height: 1.25;
+.update-release-body > :first-child {
+    margin-top: 0;
 }
 
-.update-changelog-body h4 + br,
-.update-changelog-body h4 + br + br,
-.update-changelog-body ul + br,
-.update-changelog-body ul + br + br {
-    display: none;
+.update-release-body > :last-child {
+    margin-bottom: 0;
 }
 
-.update-changelog-body h4 {
+.update-changelog-body h1,
+.update-changelog-body h2,
+.update-changelog-body h3,
+.update-changelog-body h4,
+.update-changelog-body h5,
+.update-changelog-body h6 {
+    margin: 1.1em 0 0.55em;
     color: var(--text-primary);
+    line-height: 1.35;
+}
+
+.update-changelog-body p,
+.update-changelog-body ul,
+.update-changelog-body ol,
+.update-changelog-body blockquote,
+.update-changelog-body pre {
+    margin: 0 0 0.9em;
+}
+
+.update-changelog-body ul,
+.update-changelog-body ol {
+    padding-left: 1.35em;
+}
+
+.update-changelog-body li + li {
+    margin-top: 0.35em;
+}
+
+.update-changelog-body a {
+    color: var(--accent-cyan);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-word;
+}
+
+.update-changelog-body a:hover {
+    color: var(--text-primary);
+}
+
+.update-changelog-body code {
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-size: 0.92em;
+    font-family: "Consolas", "SFMono-Regular", monospace;
+}
+
+.update-changelog-body pre {
+    padding: 12px 14px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.32);
+    overflow-x: auto;
+}
+
+.update-changelog-body pre code {
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    color: inherit;
+    font-size: 0.95em;
+}
+
+.update-changelog-body blockquote {
+    padding: 10px 14px;
+    border-left: 3px solid var(--accent-purple);
+    border-radius: 0 10px 10px 0;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+}
+
+.update-changelog-body hr {
+    border: 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    margin: 1.1em 0;
 }
 
 .network-proxy-hint-panel {

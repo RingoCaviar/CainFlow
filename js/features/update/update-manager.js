@@ -106,49 +106,281 @@ export function createUpdateManager({
         return releases.length > 0 ? releases : [];
     }
 
-    function renderMarkdownLikeReleaseBody(body = '') {
-        const lines = String(body || '暂无更新日志详情').split(/\r?\n/);
-        const html = [];
-        let inList = false;
+    function decodeHtmlEntities(value = '') {
+        const textarea = documentRef.createElement('textarea');
+        textarea.innerHTML = String(value || '');
+        return textarea.value;
+    }
 
-        const closeList = () => {
-            if (inList) {
-                html.push('</ul>');
-                inList = false;
+    function sanitizeReleaseUrl(value = '') {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+
+        try {
+            const baseUrl = windowRef.location?.href || 'https://example.com/';
+            const parsed = new URL(raw, baseUrl);
+            const protocol = String(parsed.protocol || '').toLowerCase();
+            if (protocol !== 'http:' && protocol !== 'https:') return '';
+            return parsed.href;
+        } catch {
+            return '';
+        }
+    }
+
+    function hasEncodedReleaseHtml(value = '') {
+        return /&lt;\s*\/?\s*(?:p|br|ul|ol|li|h[1-6]|pre|code|blockquote|div|a|strong|em|b|i|hr)\b/i.test(String(value || ''));
+    }
+
+    function hasRenderableReleaseHtml(value = '') {
+        return /<\/?\s*(?:p|ul|ol|li|h[1-6]|pre|code|blockquote|div|a|strong|em|b|i|hr)\b/i.test(String(value || ''));
+    }
+
+    function sanitizeReleaseHtml(html = '') {
+        const source = documentRef.createElement('template');
+        source.innerHTML = String(html || '');
+
+        const output = documentRef.createElement('template');
+        const allowedTags = new Set([
+            'A', 'BLOCKQUOTE', 'BR', 'CODE', 'DIV', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+            'HR', 'I', 'LI', 'OL', 'P', 'PRE', 'STRONG', 'B', 'UL', 'DEL'
+        ]);
+        const normalizedTagMap = {
+            B: 'strong',
+            DIV: 'p',
+            I: 'em'
+        };
+
+        const appendSanitizedNode = (node, parent) => {
+            if (!node) return;
+
+            if (node.nodeType === 3) {
+                parent.appendChild(documentRef.createTextNode(node.textContent || ''));
+                return;
             }
+
+            if (node.nodeType !== 1) return;
+
+            const sourceTag = String(node.tagName || '').toUpperCase();
+            if (!allowedTags.has(sourceTag)) {
+                Array.from(node.childNodes || []).forEach((childNode) => appendSanitizedNode(childNode, parent));
+                return;
+            }
+
+            const normalizedTag = normalizedTagMap[sourceTag] || sourceTag.toLowerCase();
+            const element = documentRef.createElement(normalizedTag);
+
+            if (sourceTag === 'A') {
+                const safeHref = sanitizeReleaseUrl(node.getAttribute('href') || '');
+                if (!safeHref) {
+                    Array.from(node.childNodes || []).forEach((childNode) => appendSanitizedNode(childNode, parent));
+                    return;
+                }
+                element.setAttribute('href', safeHref);
+                element.setAttribute('target', '_blank');
+                element.setAttribute('rel', 'noreferrer noopener');
+
+                const title = String(node.getAttribute('title') || '').trim();
+                if (title) {
+                    element.setAttribute('title', title);
+                }
+            }
+
+            Array.from(node.childNodes || []).forEach((childNode) => appendSanitizedNode(childNode, element));
+
+            const textContent = element.textContent?.trim() || '';
+            const hasMeaningfulChild = element.querySelector('br, hr, ul, ol, li, pre, blockquote, h1, h2, h3, h4, h5, h6');
+            if (!textContent && !hasMeaningfulChild && normalizedTag !== 'br' && normalizedTag !== 'hr') {
+                return;
+            }
+
+            parent.appendChild(element);
+        };
+
+        Array.from(source.content.childNodes || []).forEach((childNode) => appendSanitizedNode(childNode, output.content));
+
+        const sanitizedHtml = output.innerHTML.trim();
+        return sanitizedHtml || '<p>暂无更新日志详情</p>';
+    }
+
+    function renderMarkdownInline(text = '') {
+        const raw = String(text || '');
+        const tokens = [];
+        const createToken = (html) => {
+            const token = `@@CF_MD_${tokens.length}@@`;
+            tokens.push({ token, html });
+            return token;
+        };
+
+        let content = raw.replace(/`([^`\n]+)`/g, (_, code) => createToken(`<code>${escapeHtml(code)}</code>`));
+
+        content = content.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, label, url, title = '') => {
+            const safeUrl = sanitizeReleaseUrl(url);
+            if (!safeUrl) return label;
+            const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+            return createToken(
+                `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener"${titleAttr}>${escapeHtml(label)}</a>`
+            );
+        });
+
+        content = escapeHtml(content);
+        content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        content = content.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+        content = content.replace(/(^|[^\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
+        content = content.replace(/(^|[^\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>');
+        content = content.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+        tokens.forEach(({ token, html }) => {
+            content = content.replaceAll(token, html);
+        });
+
+        return content;
+    }
+
+    function renderBasicMarkdownReleaseBody(body = '') {
+        const lines = String(body || '').replace(/\r\n?/g, '\n').split('\n');
+        const html = [];
+        let paragraphLines = [];
+        let listType = '';
+        let listItems = [];
+        let quoteLines = [];
+        let codeFenceOpen = false;
+        let codeFenceLines = [];
+        let codeFenceLanguage = '';
+
+        const flushParagraph = () => {
+            if (paragraphLines.length === 0) return;
+            html.push(`<p>${paragraphLines.map((line) => renderMarkdownInline(line)).join('<br>')}</p>`);
+            paragraphLines = [];
+        };
+
+        const flushList = () => {
+            if (!listType || listItems.length === 0) return;
+            html.push(`<${listType}>${listItems.map((item) => `<li>${renderMarkdownInline(item)}</li>`).join('')}</${listType}>`);
+            listType = '';
+            listItems = [];
+        };
+
+        const flushQuote = () => {
+            if (quoteLines.length === 0) return;
+            html.push(`<blockquote>${renderBasicMarkdownReleaseBody(quoteLines.join('\n'))}</blockquote>`);
+            quoteLines = [];
+        };
+
+        const flushCodeFence = () => {
+            if (!codeFenceOpen) return;
+            const safeLanguage = codeFenceLanguage.replace(/[^\w-]/g, '');
+            const languageClass = safeLanguage ? ` class="language-${escapeHtml(safeLanguage)}"` : '';
+            html.push(`<pre><code${languageClass}>${escapeHtml(codeFenceLines.join('\n'))}</code></pre>`);
+            codeFenceOpen = false;
+            codeFenceLines = [];
+            codeFenceLanguage = '';
         };
 
         lines.forEach((line) => {
             const trimmed = line.trim();
-            const heading = trimmed.match(/^(#{2,4})\s+(.+)$/);
-            const listItem = trimmed.match(/^[-*]\s+(.+)$/);
 
-            if (heading) {
-                closeList();
-                html.push(`<h4>${escapeHtml(heading[2])}</h4>`);
-                return;
-            }
-
-            if (listItem) {
-                if (!inList) {
-                    html.push('<ul>');
-                    inList = true;
+            if (codeFenceOpen) {
+                if (/^```/.test(trimmed)) {
+                    flushCodeFence();
+                } else {
+                    codeFenceLines.push(line);
                 }
-                html.push(`<li>${escapeHtml(listItem[1])}</li>`);
                 return;
             }
 
-            closeList();
-            if (trimmed) html.push(`<p>${escapeHtml(trimmed)}</p>`);
+            if (/^```/.test(trimmed)) {
+                flushParagraph();
+                flushList();
+                flushQuote();
+                codeFenceOpen = true;
+                codeFenceLanguage = trimmed.slice(3).trim();
+                return;
+            }
+
+            if (!trimmed) {
+                flushParagraph();
+                flushList();
+                flushQuote();
+                return;
+            }
+
+            if (/^>\s?/.test(trimmed)) {
+                flushParagraph();
+                flushList();
+                quoteLines.push(trimmed.replace(/^>\s?/, ''));
+                return;
+            }
+
+            flushQuote();
+
+            const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+            if (heading) {
+                flushParagraph();
+                flushList();
+                const level = Math.max(1, Math.min(6, heading[1].length));
+                html.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+                return;
+            }
+
+            const unorderedItem = trimmed.match(/^[-*+]\s+(.+)$/);
+            if (unorderedItem) {
+                flushParagraph();
+                if (listType && listType !== 'ul') flushList();
+                listType = 'ul';
+                listItems.push(unorderedItem[1]);
+                return;
+            }
+
+            const orderedItem = trimmed.match(/^\d+\.\s+(.+)$/);
+            if (orderedItem) {
+                flushParagraph();
+                if (listType && listType !== 'ol') flushList();
+                listType = 'ol';
+                listItems.push(orderedItem[1]);
+                return;
+            }
+
+            flushList();
+            paragraphLines.push(trimmed);
         });
 
-        closeList();
+        flushParagraph();
+        flushList();
+        flushQuote();
+        flushCodeFence();
+
         return html.join('');
     }
 
+    function renderMarkdownReleaseBody(body = '') {
+        const source = String(body || '').trim();
+        if (!source) return '<p>暂无更新日志详情</p>';
+
+        if (windowRef.marked && typeof windowRef.marked.parse === 'function') {
+            try {
+                return sanitizeReleaseHtml(windowRef.marked.parse(source, {
+                    breaks: true,
+                    gfm: true
+                }));
+            } catch (error) {
+                console.warn('Failed to render release body with marked, falling back to basic markdown renderer:', error);
+            }
+        }
+
+        return sanitizeReleaseHtml(renderBasicMarkdownReleaseBody(source));
+    }
+
     function getReleaseBodyHtml(release = {}) {
-        const body = release.body || '暂无更新日志详情';
-        return renderMarkdownLikeReleaseBody(body);
+        const rawBody = String(release.body || '').trim();
+        if (!rawBody) return '<p>暂无更新日志详情</p>';
+
+        const decodedBody = hasEncodedReleaseHtml(rawBody) ? decodeHtmlEntities(rawBody) : rawBody;
+        if (hasRenderableReleaseHtml(decodedBody)) {
+            return sanitizeReleaseHtml(decodedBody);
+        }
+
+        const markdownSource = decodedBody.replace(/<br\s*\/?>/gi, '\n');
+        return renderMarkdownReleaseBody(markdownSource);
     }
 
     function renderReleaseChangelogs(container, releaseData) {
@@ -156,7 +388,7 @@ export function createUpdateManager({
         container.textContent = '';
 
         if (releases.length === 0) {
-            container.innerHTML = renderMarkdownLikeReleaseBody('暂无更新日志详情');
+            container.innerHTML = '<p>暂无更新日志详情</p>';
             return;
         }
 
