@@ -1,0 +1,161 @@
+name: Cleanup Unused Tags
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag_pattern:
+        description: 'Only clean tags matching this shell glob pattern'
+        required: true
+        default: '*'
+        type: string
+      keep_latest:
+        description: 'Number of newest unused tags to keep'
+        required: true
+        default: '0'
+        type: number
+      dry_run:
+        description: 'true = preview only, false = actually delete unused tags'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Cleanup tags that are not used by releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_PATTERN: ${{ github.event.inputs.tag_pattern }}
+          KEEP_LATEST: ${{ github.event.inputs.keep_latest }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$KEEP_LATEST" =~ ^[0-9]+$ ]]; then
+            echo "keep_latest must be a non-negative integer."
+            exit 1
+          fi
+
+          if [ -z "$TAG_PATTERN" ]; then
+            echo "tag_pattern must not be empty."
+            exit 1
+          fi
+
+          echo "Repository: $REPO"
+          echo "Tag pattern: $TAG_PATTERN"
+          echo "Keep latest unused tags: $KEEP_LATEST"
+          echo "Dry run: $DRY_RUN"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::warning::DRY RUN is enabled. This run will only print what would be deleted. Set dry_run=false to actually delete unused tags."
+          fi
+
+          mapfile -t release_tags < <(
+            gh api --paginate "repos/$REPO/releases?per_page=100" \
+              | jq -r '.[].tag_name // empty'
+          )
+
+          declare -A release_tag_set=()
+          for release_tag in "${release_tags[@]}"; do
+            if [ -n "$release_tag" ]; then
+              release_tag_set["$release_tag"]=1
+            fi
+          done
+
+          mapfile -t all_tags < <(
+            gh api --paginate "repos/$REPO/tags?per_page=100" \
+              | jq -c '.[] | {tag: .name, sha: .commit.sha}' \
+              | while IFS= read -r tag_json; do
+                  tag_name="$(echo "$tag_json" | jq -r '.tag')"
+                  if [[ "$tag_name" == $TAG_PATTERN ]]; then
+                    echo "$tag_json" | base64 | tr -d '\n'
+                    echo
+                  fi
+                done
+          )
+
+          total="${#all_tags[@]}"
+          echo "Found $total matching tags."
+
+          if [ "$total" -eq 0 ]; then
+            echo "Nothing to do."
+            exit 0
+          fi
+
+          unused_tags=()
+          for tag_entry in "${all_tags[@]}"; do
+            tag_json="$(echo "$tag_entry" | base64 --decode)"
+            tag_name="$(echo "$tag_json" | jq -r '.tag')"
+
+            if [ -n "${release_tag_set[$tag_name]+x}" ]; then
+              echo "KEEP   release tag: $tag_name"
+              continue
+            fi
+
+            unused_tags+=("$tag_entry")
+          done
+
+          unused_total="${#unused_tags[@]}"
+          echo "Found $unused_total unused tags."
+
+          if [ "$unused_total" -eq 0 ]; then
+            echo "Nothing to delete."
+            exit 0
+          fi
+
+          if [ "$unused_total" -le "$KEEP_LATEST" ]; then
+            echo "Nothing to delete after keep_latest filter."
+            exit 0
+          fi
+
+          mapfile -t sorted_unused_tags < <(
+            printf '%s\n' "${unused_tags[@]}" \
+              | while IFS= read -r tag_entry; do
+                  tag_json="$(echo "$tag_entry" | base64 --decode)"
+                  tag_name="$(echo "$tag_json" | jq -r '.tag')"
+                  tag_sha="$(echo "$tag_json" | jq -r '.sha')"
+                  commit_date="$(
+                    gh api "repos/$REPO/commits/$tag_sha" --jq '.commit.committer.date // .commit.author.date // ""' 2>/dev/null \
+                      || gh api "repos/$REPO/git/tags/$tag_sha" --jq '.tagger.date // ""'
+                  )"
+                  jq -nc --arg tag "$tag_name" --arg sha "$tag_sha" --arg commitDate "$commit_date" \
+                    '{tag: $tag, sha: $sha, commitDate: $commitDate}'
+                done \
+              | jq -s 'sort_by(.commitDate, .tag) | .[] | @base64' \
+              | tr -d '"'
+          )
+
+          delete_count=$((unused_total - KEEP_LATEST))
+
+          for index in "${!sorted_unused_tags[@]}"; do
+            tag_json="$(echo "${sorted_unused_tags[$index]}" | base64 --decode)"
+            tag_name="$(echo "$tag_json" | jq -r '.tag')"
+            tag_sha="$(echo "$tag_json" | jq -r '.sha')"
+            commit_date="$(echo "$tag_json" | jq -r '.commitDate')"
+
+            label="$tag_name ($commit_date) $tag_sha"
+
+            if [ "$index" -ge "$delete_count" ]; then
+              echo "KEEP   [$((index + 1))/$unused_total] $label"
+              continue
+            fi
+
+            echo "DELETE [$((index + 1))/$unused_total] $label"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              continue
+            fi
+
+            gh api --method DELETE "repos/$REPO/git/refs/tags/$tag_name"
+            echo "Deleted tag: $tag_name"
+          done
