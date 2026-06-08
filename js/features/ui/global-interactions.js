@@ -12,6 +12,7 @@ export function createGlobalInteractionsApi({
     loadImageData,
     addNode,
     pasteNode,
+    clipboardControllerApi,
     toggleNodesEnabled,
     showToast,
     scheduleSave,
@@ -158,13 +159,7 @@ export function createGlobalInteractionsApi({
                 y: (windowRef.innerHeight / 2 - state.canvas.y) / state.canvas.zoom
             };
 
-            const isInternalNewer = state.clipboard && state.clipboardTimestamp > state.lastFocusTime;
-
-            if (isInternalNewer) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                pasteNode();
-            } else if (imageFile) {
+            if (imageFile) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
 
@@ -191,7 +186,7 @@ export function createGlobalInteractionsApi({
                         showToast('已从剪贴板导入图片', 'success');
                     }
                 }
-            } else if (state.clipboard && state.clipboard.nodes.length > 0) {
+            } else if (clipboardControllerApi.shouldPreferInternalClipboard()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 pasteNode();
@@ -208,6 +203,10 @@ export function createGlobalInteractionsApi({
                     showToast('已从剪贴板导入文本', 'success');
                     scheduleSave();
                 }
+            } else if (clipboardControllerApi.hasClipboardNodes()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                pasteNode();
             }
         });
     }

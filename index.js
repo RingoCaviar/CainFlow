@@ -182,7 +182,8 @@ window.closeModal = closeModal;
 window.showLogDetail = showLogDetail;
 
 const uiUtils = createUiUtils({
-    showToast
+    showToast,
+    onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite()
 });
 
 let connectionRefreshSchedulerApi = null;
@@ -974,6 +975,7 @@ function getGlobalInteractionsApi() {
             loadImageData,
             addNode,
             pasteNode,
+            clipboardControllerApi: getClipboardControllerApi(),
             toggleNodesEnabled,
             showToast,
             scheduleSave
@@ -1195,6 +1197,7 @@ function getRuntimeControllerApi() {
             undo,
             copySelectedNode,
             pasteNode,
+            clipboardControllerApi: getClipboardControllerApi(),
             removeNode,
             zoomToFit,
             scheduleSave,

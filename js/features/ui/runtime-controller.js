@@ -16,6 +16,7 @@ export function createRuntimeControllerApi({
     undo,
     copySelectedNode,
     pasteNode,
+    clipboardControllerApi,
     removeNode,
     zoomToFit,
     scheduleSave,
@@ -194,6 +195,12 @@ export function createRuntimeControllerApi({
     }
 
     function initWindowBindings() {
+        documentRef.addEventListener('copy', () => {
+            clipboardControllerApi.markNativeClipboardEvent(Date.now());
+        });
+        documentRef.addEventListener('cut', () => {
+            clipboardControllerApi.markNativeClipboardEvent(Date.now());
+        });
         windowRef.addEventListener('focus', () => {
             state.lastFocusTime = Date.now();
         });

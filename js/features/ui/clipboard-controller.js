@@ -17,6 +17,33 @@ export function createClipboardControllerApi({
     scheduleSave,
     onConnectionsChanged = () => {}
 }) {
+    function markNativeClipboardWrite(duration = 200) {
+        const now = Date.now();
+        state.nativeClipboardChangeTimestamp = now;
+        state.ignoreNativeClipboardEventUntil = now + Math.max(0, duration);
+        return now;
+    }
+
+    function markNativeClipboardEvent(timestamp = Date.now()) {
+        if (state.ignoreNativeClipboardEventUntil && timestamp <= state.ignoreNativeClipboardEventUntil) {
+            return false;
+        }
+        state.nativeClipboardChangeTimestamp = timestamp;
+        return true;
+    }
+
+    function hasClipboardNodes() {
+        return Boolean(state.clipboard && Array.isArray(state.clipboard.nodes) && state.clipboard.nodes.length > 0);
+    }
+
+    function shouldPreferInternalClipboard() {
+        if (!hasClipboardNodes()) return false;
+        return state.clipboardTimestamp > Math.max(
+            state.lastFocusTime || 0,
+            state.nativeClipboardChangeTimestamp || 0
+        );
+    }
+
     function getNodeTextareaHeights(id) {
         const heights = {};
         documentRef.querySelectorAll(`#${id} textarea[id^="${id}-"]`).forEach((textarea) => {
@@ -54,6 +81,9 @@ export function createClipboardControllerApi({
         if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageResize' || node.type === 'ImageCompare') {
             serialized.imageData = node.data.image || node.imageData || null;
         }
+        const imagePreviewThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()
+            ? node.data.imagePreviewThumbnail.trim()
+            : '';
         if (node.type === 'ImageCompare') {
             const compareImageA = typeof node.compareImageA === 'string' && node.compareImageA.trim()
                 ? node.compareImageA
@@ -88,6 +118,29 @@ export function createClipboardControllerApi({
             serialized.imageUrl = documentRef.getElementById(`${id}-url-input`)?.value || node.imageUrl || '';
             if (serialized.importMode === 'url') {
                 serialized.imageData = null;
+            } else {
+                const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
+                    ? node.imageImportAssetKey
+                    : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+                const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
+                    ? node.data.imageAssetKey
+                    : '';
+                const recoverableAssetKey = imageImportAssetKey || imageAssetKey;
+                const recoverableImageCount = Math.max(
+                    serialized.imageData ? 1 : 0,
+                    imagePreviewThumbnail ? 1 : 0,
+                    recoverableAssetKey ? 1 : 0,
+                    Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0)
+                );
+                if (imageImportAssetKey) serialized.imageImportAssetKey = imageImportAssetKey;
+                if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+                if (recoverableImageCount > 0) serialized.imageCount = recoverableImageCount;
+                if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
+                if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
+                if (node.data?.imageMemoryReleased === true && recoverableAssetKey) {
+                    serialized.imageMemoryReleased = true;
+                }
+                if (imagePreviewThumbnail) serialized.imagePreviewThumbnail = imagePreviewThumbnail;
             }
         }
         if (node.type === 'ImageResize') {
@@ -217,6 +270,7 @@ export function createClipboardControllerApi({
             center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
         };
         state.clipboardTimestamp = Date.now();
+        state.ignoreNativeClipboardEventUntil = 0;
 
         showToast(`已复制 ${nodes.length} 个节点`, 'success');
     }
@@ -277,10 +331,15 @@ export function createClipboardControllerApi({
         serializeOneNode,
         copySelectedNode,
         pasteNode,
+        hasClipboardNodes,
+        shouldPreferInternalClipboard,
+        markNativeClipboardWrite,
+        markNativeClipboardEvent,
         hydrateClipboard(data = null) {
             if (!data || typeof data !== 'object') return null;
             const migrated = migrateLegacyWorkflowData(data);
             state.clipboard = migrated;
+            state.clipboardTimestamp = Date.now();
             return migrated;
         }
     };

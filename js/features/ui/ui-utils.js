@@ -3,6 +3,7 @@
  */
 export function createUiUtils({
     showToast,
+    onNativeClipboardWrite = null,
     documentRef = document,
     navigatorRef = navigator
 }) {
@@ -17,6 +18,7 @@ export function createUiUtils({
 
     function copyToClipboard(text) {
         navigatorRef.clipboard.writeText(text).then(() => {
+            onNativeClipboardWrite?.();
             showToast('已复制到剪贴板', 'success');
         }).catch((err) => {
             console.error('Copy failed:', err);

@@ -68,6 +68,8 @@ export function createInitialState() {
         concurrentRequestMode: true,
         clipboard: null,
         clipboardTimestamp: 0,
+        nativeClipboardChangeTimestamp: 0,
+        ignoreNativeClipboardEventUntil: 0,
         skipNextClipboardPasteUntil: 0,
         lastFocusTime: Date.now(),
         mouseCanvas: { x: 0, y: 0 },
