@@ -13,6 +13,7 @@ import {
 import {
     clearCanonicalImageOutput,
     getCanonicalImageList,
+    getTextInputList,
     normalizeImageList,
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
@@ -79,6 +80,15 @@ function cloneWorkflowData(data = {}) {
         connections: Array.isArray(data?.connections) ? data.connections.map((connection) => cloneWorkflowConnection(connection)) : [],
         version: data?.version || '1.3'
     };
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function getWorkflowConnectionIdentity(connection, index = 0) {
@@ -419,6 +429,13 @@ export function createWorkflowRuntimeManager({
     copyToClipboard,
     debounce,
     fitNodeToContent,
+    syncImagePreviewNode = async () => {},
+    syncImageSaveNode = async () => {},
+    syncImageCompareNode = async () => {},
+    syncCameraControlNode = () => {},
+    refreshDependentImageResizePreviews = async () => {},
+    restoreImageResizePreview = () => {},
+    showResolutionBadge = async () => {},
     documentRef = document,
     windowRef = window,
     fetchRef = fetch,
@@ -504,6 +521,277 @@ export function createWorkflowRuntimeManager({
         return Array.from(nodeIds).filter((nodeId) => activePlanNodeIds.has(nodeId));
     }
 
+    function syncVisibleGenerationProgress(node, runtimeNode) {
+        if (!node?.id || !runtimeNode) return;
+        const progressEl = documentRef.getElementById(`${node.id}-generation-progress`);
+        if (!progressEl) return;
+        const total = Math.max(
+            1,
+            parseInt(runtimeNode?.apiGenerationProgress?.total ?? runtimeNode?.data?.generationCount ?? runtimeNode?.generationCount ?? progressEl.dataset.total ?? '1', 10) || 1
+        );
+        const completed = Math.max(
+            0,
+            Math.min(
+                total,
+                parseInt(runtimeNode?.apiGenerationProgress?.completed ?? runtimeNode?.generationCompletedCount ?? '0', 10) || 0
+            )
+        );
+        progressEl.textContent = `${completed}/${total}`;
+        progressEl.dataset.total = String(total);
+        progressEl.classList.remove('hidden');
+    }
+
+    function syncVisibleTextNode(runtimeNode, node) {
+        node.data = node.data || {};
+        const texts = getTextInputList(runtimeNode?.data?.texts);
+        if (texts.length > 0) {
+            node.data.texts = texts.slice();
+            node.data.text = texts[texts.length - 1];
+        } else if (typeof runtimeNode?.data?.text === 'string') {
+            delete node.data.texts;
+            node.data.text = runtimeNode.data.text;
+        } else {
+            delete node.data.texts;
+        }
+        if (typeof runtimeNode?.textPreviewIndex === 'number') {
+            node.textPreviewIndex = runtimeNode.textPreviewIndex;
+        }
+        const textarea = documentRef.getElementById(`${node.id}-text`);
+        if (textarea && typeof node.data.text === 'string') {
+            textarea.value = node.data.text;
+        }
+    }
+
+    function syncVisibleTextChatNode(runtimeNode, node) {
+        node.data = node.data || {};
+        const texts = getTextInputList(runtimeNode?.data?.texts);
+        if (texts.length > 0) {
+            node.data.texts = texts.slice();
+            node.data.text = texts[texts.length - 1];
+        } else if (typeof runtimeNode?.data?.text === 'string') {
+            delete node.data.texts;
+            node.data.text = runtimeNode.data.text;
+        }
+        node.lastResponse = runtimeNode?.lastResponse || '';
+        const responseArea = documentRef.getElementById(`${node.id}-response`);
+        if (responseArea) {
+            responseArea.innerHTML = node.lastResponse || '<div class="chat-response-placeholder">运行后显示对话结果</div>';
+        }
+        syncVisibleGenerationProgress(node, runtimeNode);
+    }
+
+    function syncVisibleImageGenerateAsyncUi(runtimeNode, node) {
+        if (!runtimeNode || !node) return;
+        node.data = node.data || {};
+        [
+            'imageTaskId',
+            'imageTaskStatus',
+            'imageTaskStatusText',
+            'imageTaskUrl',
+            'imageTaskCreateHttpStatus',
+            'imageTaskCreateStatus',
+            'imageTaskProgress'
+        ].forEach((key) => {
+            if (typeof runtimeNode?.data?.[key] === 'string') node.data[key] = runtimeNode.data[key];
+            else delete node.data[key];
+        });
+        const statusEl = documentRef.getElementById(`${node.id}-image-async-status`);
+        if (statusEl) {
+            const statusText = node.data.imageTaskStatusText || '异步模式：运行后显示任务状态';
+            statusEl.textContent = statusText;
+            const status = node.data.imageTaskStatus === 'completed'
+                ? 'success'
+                : (node.data.imageTaskId ? 'progress' : 'idle');
+            statusEl.className = `video-generation-status video-generation-status-${status}`;
+        }
+        const responseEl = documentRef.getElementById(`${node.id}-image-async-response`);
+        if (responseEl) {
+            responseEl.innerHTML = node.data.imageTaskUrl
+                ? `<div><strong>图片异步任务</strong></div><div>任务 ID：${escapeHtml(node.data.imageTaskId || '')}</div><div style="margin-top:6px;"><a href="${escapeHtml(node.data.imageTaskUrl)}" target="_blank" rel="noreferrer">打开图片结果</a></div>`
+                : `<div class="chat-response-placeholder">${escapeHtml(node.data.imageTaskStatusText || '创建任务后会自动轮询 /v1/videos/{id}')}</div>`;
+        }
+        const resumeInput = documentRef.getElementById(`${node.id}-resume-image-id`);
+        if (resumeInput) resumeInput.value = node.data.imageTaskId || '';
+        const resumeBtn = documentRef.getElementById(`${node.id}-resume-image`);
+        if (resumeBtn) resumeBtn.disabled = !(node.data.imageTaskId || '').trim();
+        syncVisibleGenerationProgress(node, runtimeNode);
+    }
+
+    function syncVisibleVideoGenerateNode(runtimeNode, node) {
+        node.data = node.data || {};
+        [
+            'videoId',
+            'videoUrl',
+            'videoStatus',
+            'videoStatusText',
+            'videoCreateHttpStatus',
+            'videoCreateStatus',
+            'videoStatusUpdateTime',
+            'videoEnhancedPrompt'
+        ].forEach((key) => {
+            const value = runtimeNode?.data?.[key];
+            if (typeof value === 'string') node.data[key] = value;
+            else delete node.data[key];
+        });
+        if (runtimeNode?.data?.video && typeof runtimeNode.data.video === 'object') {
+            node.data.video = clonePlainValue(runtimeNode.data.video);
+        } else {
+            delete node.data.video;
+        }
+        const statusText = node.data.videoStatusText || '运行后显示视频结果';
+        const statusEl = documentRef.getElementById(`${node.id}-video-status`);
+        if (statusEl) {
+            const stateClass = node.data.videoUrl
+                ? 'success'
+                : ((node.data.videoStatus === 'processing' || node.data.videoStatus === 'queued' || node.data.videoStatus === 'submitted')
+                    ? 'progress'
+                    : 'idle');
+            statusEl.textContent = statusText;
+            statusEl.className = `video-generation-status video-generation-status-${stateClass}`;
+        }
+        const responseArea = documentRef.getElementById(`${node.id}-response`);
+        if (responseArea) {
+            const createSummaryLines = [
+                node.data.videoCreateHttpStatus ? `<div><strong>HTTP 状态：</strong>${escapeHtml(node.data.videoCreateHttpStatus)}</div>` : '',
+                node.data.videoId ? `<div><strong>任务 ID：</strong>${escapeHtml(node.data.videoId)}</div>` : '',
+                node.data.videoCreateStatus ? `<div><strong>创建状态：</strong>${escapeHtml(node.data.videoCreateStatus)}</div>` : '',
+                node.data.videoStatusUpdateTime ? `<div><strong>状态更新时间：</strong>${escapeHtml(node.data.videoStatusUpdateTime)}</div>` : '',
+                node.data.videoEnhancedPrompt ? `<div><strong>增强提示词：</strong>${escapeHtml(node.data.videoEnhancedPrompt)}</div>` : ''
+            ].filter(Boolean).join('');
+            responseArea.innerHTML = node.data.videoUrl
+                ? `${createSummaryLines ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:8px;"></div>` : ''}<div><a href="${escapeHtml(node.data.videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">${escapeHtml(statusText)}</div>`
+                : (createSummaryLines
+                    ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:6px;color:var(--text-dim);">${escapeHtml(statusText)}</div>`
+                    : `<div class="chat-response-placeholder">${escapeHtml(statusText)}</div>`);
+        }
+        const downloadBtn = documentRef.getElementById(`${node.id}-download-video`);
+        if (downloadBtn) downloadBtn.disabled = !(node.data.videoUrl || '').trim();
+        const resumeInput = documentRef.getElementById(`${node.id}-resume-video-id`);
+        if (resumeInput) resumeInput.value = node.data.videoId || '';
+        const resumeBtn = documentRef.getElementById(`${node.id}-resume-video`);
+        if (resumeBtn) resumeBtn.disabled = !(node.data.videoId || '').trim();
+        syncVisibleGenerationProgress(node, runtimeNode);
+    }
+
+    async function syncVisibleNodeResult(workflowName, runtimeNodeId) {
+        if (!workflowName || state.activeWorkflowName !== workflowName || !runtimeNodeId) return false;
+        const context = getWorkflowRunContexts(workflowName)
+            .find((entry) => entry.state?.nodes?.has(runtimeNodeId));
+        const runtimeNode = context?.state?.nodes?.get(runtimeNodeId);
+        const node = state.nodes.get(runtimeNodeId);
+        if (!runtimeNode || !node) return false;
+
+        node.data = node.data || {};
+        node.isSucceeded = runtimeNode.isSucceeded === true;
+        node.isFailed = runtimeNode.isFailed === true;
+        if (Number.isFinite(runtimeNode.lastDuration)) node.lastDuration = runtimeNode.lastDuration;
+        if (typeof runtimeNode.generationCompletedCount === 'number') {
+            node.generationCompletedCount = runtimeNode.generationCompletedCount;
+        }
+        if (runtimeNode?.data?.concurrentRequestStatus?.total > 0) {
+            node.data.concurrentRequestStatus = clonePlainValue(runtimeNode.data.concurrentRequestStatus);
+        } else {
+            delete node.data.concurrentRequestStatus;
+        }
+
+        if (runtimeNode.type === 'ImagePreview') {
+            const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
+            await syncImagePreviewNode(runtimeNodeId, images);
+            if (images[0]) await showResolutionBadge(runtimeNodeId, images[0]);
+        } else if (runtimeNode.type === 'ImageSave') {
+            const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
+            await syncImageSaveNode(runtimeNodeId, {
+                images,
+                video: runtimeNode?.data?.video && typeof runtimeNode.data.video === 'object'
+                    ? clonePlainValue(runtimeNode.data.video)
+                    : null
+            });
+            if (images[0]) await showResolutionBadge(runtimeNodeId, images[0]);
+        } else if (runtimeNode.type === 'ImageCompare') {
+            await syncImageCompareNode(runtimeNodeId, runtimeNode.compareImageA || runtimeNode?.data?.compareImageA || null, runtimeNode.compareImageB || runtimeNode?.data?.compareImageB || runtimeNode?.data?.image || null);
+            const previewImage = runtimeNode.compareImageB || runtimeNode?.data?.compareImageB || runtimeNode?.data?.image || '';
+            if (previewImage) await showResolutionBadge(runtimeNodeId, previewImage);
+        } else if (runtimeNode.type === 'ImageResize') {
+            const images = normalizeImageList(runtimeNode.resizePreviewData || runtimeNode?.data?.imageList || runtimeNode?.data?.image || runtimeNode.imageData);
+            const currentImage = images[0] || '';
+            if (currentImage) {
+                node.resizePreviewData = currentImage;
+                node.resizePreviewMeta = clonePlainValue(runtimeNode.resizePreviewMeta || {});
+                node.outputWidth = runtimeNode.outputWidth || runtimeNode.resizePreviewMeta?.outputWidth || 0;
+                node.outputHeight = runtimeNode.outputHeight || runtimeNode.resizePreviewMeta?.outputHeight || 0;
+                node.outputQuality = runtimeNode.outputQuality || runtimeNode.resizePreviewMeta?.outputQuality || null;
+                node.estimatedBytes = runtimeNode.estimatedBytes || runtimeNode.resizePreviewMeta?.estimatedBytes || null;
+                node.imageData = currentImage;
+                node.imageDataList = images.slice();
+                node.data.image = currentImage;
+                node.data.imageList = images.slice();
+                restoreImageResizePreview(runtimeNodeId, currentImage, {
+                    outputWidth: node.outputWidth,
+                    outputHeight: node.outputHeight,
+                    outputQuality: node.outputQuality,
+                    estimatedBytes: node.estimatedBytes
+                });
+                await refreshDependentImageResizePreviews(runtimeNodeId, { sourceImage: currentImage });
+                await showResolutionBadge(runtimeNodeId, currentImage);
+            }
+        } else if (runtimeNode.type === 'ImageGenerate') {
+            const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
+            if (images.length > 0) {
+                setCanonicalImageOutput(node, images, {
+                    currentIndex: runtimeNode.imagePreviewIndex ?? Math.max(0, images.length - 1),
+                    assetKey: runtimeNode?.data?.imageAssetKey || runtimeNode.id,
+                    imageCount: Math.max(images.length, parseInt(runtimeNode?.data?.imageCount || images.length, 10) || images.length),
+                    imagePromptList: Array.isArray(runtimeNode?.data?.imagePromptList) ? runtimeNode.data.imagePromptList.slice() : undefined,
+                    assetReady: runtimeNode?.data?.imageAssetReady === true,
+                    hydratedAt: runtimeNode?.data?.imageHydratedAt || undefined
+                });
+                node.imagePromptList = Array.isArray(runtimeNode.imagePromptList) ? runtimeNode.imagePromptList.slice() : [];
+                node.previewZoom = 1;
+                await showResolutionBadge(runtimeNodeId, images[node.imagePreviewIndex || 0] || images[0]);
+            } else {
+                clearCanonicalImageOutput(node);
+                node.imagePromptList = [];
+            }
+            syncVisibleImageGenerateAsyncUi(runtimeNode, node);
+            syncVisibleGenerationProgress(node, runtimeNode);
+        } else if (runtimeNode.type === 'TextChat') {
+            syncVisibleTextChatNode(runtimeNode, node);
+        } else if (runtimeNode.type === 'VideoGenerate') {
+            syncVisibleVideoGenerateNode(runtimeNode, node);
+        } else if (runtimeNode.type === 'Text') {
+            syncVisibleTextNode(runtimeNode, node);
+        } else if (runtimeNode.type === 'TextMerge' || runtimeNode.type === 'ImageMerge') {
+            const summary = documentRef.getElementById(`${runtimeNodeId}-merge-summary`);
+            if (summary) {
+                if (runtimeNode.type === 'ImageMerge') {
+                    const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
+                    summary.textContent = images.length > 0
+                        ? `已合并 ${images.length} 张图片`
+                        : '连接多个图片输入后，输出合并后的多图数据';
+                } else {
+                    const texts = getTextInputList(runtimeNode?.data?.texts);
+                    summary.textContent = texts.length > 0
+                        ? `已合并 ${texts.length} 段文本`
+                        : '连接多个文本输入后，输出合并后的多文本数据';
+                }
+            }
+        } else if (runtimeNode.type === 'CameraControl') {
+            const imageValue = typeof runtimeNode?.data?.image === 'string'
+                ? runtimeNode.data.image
+                : (typeof runtimeNode.imageData === 'string' ? runtimeNode.imageData : '');
+            if (imageValue) {
+                node.data.image = imageValue;
+                node.imageData = imageValue;
+            }
+            if (typeof runtimeNode?.data?.cameraPreviewImage === 'string') {
+                node.data.cameraPreviewImage = runtimeNode.data.cameraPreviewImage;
+            }
+            syncCameraControlNode(runtimeNodeId, imageValue);
+        }
+
+        return true;
+    }
+
     function isWorkflowRunning(workflowName) {
         return getWorkflowRunContexts(workflowName).length > 0;
     }
@@ -524,13 +812,29 @@ export function createWorkflowRuntimeManager({
         }
     }
 
+    function getWorkflowRunResultNodes(context) {
+        if (!context?.state?.nodes) return [];
+        const scopedNodeIds = context.activePlanNodeIds instanceof Set && context.activePlanNodeIds.size > 0
+            ? context.activePlanNodeIds
+            : null;
+        if (!scopedNodeIds) {
+            return Array.from(context.state.nodes.values());
+        }
+        const nodes = [];
+        scopedNodeIds.forEach((nodeId) => {
+            const node = context.state.nodes.get(nodeId);
+            if (node) nodes.push(node);
+        });
+        return nodes;
+    }
+
     function deriveWorkflowRunResult(context, caughtError = null) {
         if (!context) return '';
         if (caughtError || context.runResult === 'error' || context.abortReason) return 'error';
 
         let hasFailedNode = false;
         let hasCompletedNode = false;
-        context.state.nodes.forEach((node) => {
+        getWorkflowRunResultNodes(context).forEach((node) => {
             if (node?.isFailed === true || node?.el?.classList?.contains('error')) {
                 hasFailedNode = true;
             }
@@ -1174,7 +1478,7 @@ export function createWorkflowRuntimeManager({
             playNotificationSound: () => getSettingsControllerApi()?.playNotificationSound?.(),
             systemNotificationApi: getSystemNotificationApi(),
             onAutoSaveNodeInjected: () => {
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true });
+                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             },
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
@@ -1182,8 +1486,9 @@ export function createWorkflowRuntimeManager({
                 if (payload?.status === 'completed' && payload.nodeId) {
                     syncRuntimeNodeSnapshot(context, payload.nodeId, {
                         dirty: true,
-                        applyToCanvas: true
+                        applyToCanvas: false
                     });
+                    void syncVisibleNodeResult(workflowName, payload.nodeId);
                 }
             }
         });
@@ -1234,14 +1539,14 @@ export function createWorkflowRuntimeManager({
             try {
                 await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan));
                 await context.runner.runWorkflow(runInput);
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
+                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             } catch (error) {
                 runError = error;
                 addLog('error', `工作流运行异常: ${workflowName}`, error?.message || String(error), {
                     workflowName,
                     error: error?.stack || error
                 });
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: true, mergeRunResults: true });
+                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             } finally {
                 const runResult = deriveWorkflowRunResult(context, runError);
                 context.activePlanNodeIds.clear();

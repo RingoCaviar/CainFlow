@@ -2409,7 +2409,6 @@ export function createWorkflowManagerApi({
         },
         updateWorkflowTabData: (name, data, options = {}) => {
             if (!name || !data) return false;
-            const shouldApplyToCanvas = state.activeWorkflowName === name && options.applyToCanvas === true;
             const sourceData = state.activeWorkflowName === name && options.mergeWithCanvas === true
                 ? getWorkflowPayload()
                 : getWorkflowTab(name)?.data;
@@ -2435,9 +2434,9 @@ export function createWorkflowManagerApi({
                 if (options.dirty === true) tab.dirty = true;
                 if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);
             }
-            if (shouldApplyToCanvas) {
-                void applyWorkflowData(tab.data, { saveSession: false, keepRunningLock: true });
-            }
+            // Keep current-canvas mutations and workflow switching separate.
+            // Rebuilding the canvas belongs to explicit workflow activation paths,
+            // not background tab-data sync during edits or runtime updates.
             refreshWorkflowCardState(name);
             return true;
         },

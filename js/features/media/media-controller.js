@@ -1640,6 +1640,18 @@ export function createMediaControllerApi({
         return images[0] || getNodePreviewSourceData(sourceNode);
     }
 
+    async function resolveAdvancedCompareInputImages(nodeId, node = getNodeById(nodeId)) {
+        const [connectedImageA, connectedImageB] = await Promise.all([
+            getConnectedImageInputAsync(nodeId, 'imageA'),
+            getConnectedImageInputAsync(nodeId, 'imageB')
+        ]);
+
+        return {
+            imageA: connectedImageA || node?.compareImageA || node?.data?.compareImageA || null,
+            imageB: connectedImageB || node?.compareImageB || node?.data?.compareImageB || node?.data?.image || node?.imageData || null
+        };
+    }
+
     function renderImageCompareEmptyState(nodeId, message = '等待 B 输入') {
         const container = documentRef.getElementById(`${nodeId}-compare`);
         const badge = documentRef.getElementById(`${nodeId}-res`);
@@ -2619,11 +2631,15 @@ export function createMediaControllerApi({
         return '节点图片';
     }
 
-    async function collectAdvancedCompareImages(nodeId) {
+    async function collectAdvancedCompareImages(nodeId, compareInputs = null) {
         const node = getNodeById(nodeId);
+        const resolvedInputs = compareInputs || await resolveAdvancedCompareInputImages(nodeId, node);
         const items = [];
         const seen = new Set();
-        const addItem = ({ image, thumb = null, label, source = '', historyId = null }) => {
+        const sceneNodes = state.nodes instanceof Map
+            ? Array.from(state.nodes.values())
+            : Array.from(state.nodes || []);
+        const addItem = ({ image, thumb = null, label, source = '', historyId = null, role = '', group = 'input' }) => {
             const key = typeof image === 'string' && image.trim()
                 ? image.trim()
                 : (historyId !== null && historyId !== undefined ? `history:${historyId}` : '');
@@ -2635,21 +2651,47 @@ export function createMediaControllerApi({
                 thumb: thumb || image || '',
                 label: label || '图片',
                 source,
-                historyId
+                historyId,
+                role,
+                group
             });
         };
 
-        addItem({ image: node?.compareImageA || getConnectedImageInput(nodeId, 'imageA'), label: '当前 A', source: '图片对比节点' });
-        addItem({ image: node?.compareImageB || getConnectedImageInput(nodeId, 'imageB'), label: '当前 B', source: '图片对比节点' });
+        addItem({ image: resolvedInputs.imageA, label: '当前 A', source: '图片对比节点', role: 'A', group: 'input' });
+        addItem({ image: resolvedInputs.imageB, label: '当前 B', source: '图片对比节点', role: 'B', group: 'input' });
 
-        state.nodes.forEach((entry) => {
-            const image = getNodePreviewSourceData(entry);
-            addItem({
-                image,
-                label: getAdvancedCompareSourceLabel(entry),
-                source: entry.id === nodeId ? '当前节点' : `节点 ${entry.id}`
+        try {
+            const nodeImageGroups = await Promise.all(sceneNodes.map(async (entry) => {
+                try {
+                    const imageList = normalizeImageList(await getStoredImagePreviewListAsync(entry));
+                    return { entry, imageList };
+                } catch (error) {
+                    console.warn('Load cached compare input images failed:', error);
+                    return { entry, imageList: [] };
+                }
+            }));
+
+            nodeImageGroups.forEach(({ entry, imageList }) => {
+                if (!imageList.length) return;
+                const baseLabel = getAdvancedCompareSourceLabel(entry);
+                const sourceLabel = entry.id === nodeId ? '当前节点缓存' : `节点 ${entry.id} 缓存`;
+                const persistedThumb = typeof entry?.data?.imagePreviewThumbnail === 'string'
+                    ? entry.data.imagePreviewThumbnail.trim()
+                    : '';
+
+                imageList.forEach((image, index) => {
+                    addItem({
+                        image,
+                        thumb: imageList.length === 1 && persistedThumb ? persistedThumb : image,
+                        label: imageList.length > 1 ? `${baseLabel} ${index + 1}/${imageList.length}` : baseLabel,
+                        source: sourceLabel,
+                        group: 'input'
+                    });
+                });
             });
-        });
+        } catch (error) {
+            console.warn('Collect scene compare input images failed:', error);
+        }
 
         try {
             const historyItems = typeof getHistoryMetadata === 'function'
@@ -2662,7 +2704,8 @@ export function createMediaControllerApi({
                     thumb: item.thumb || '',
                     label: '历史记录',
                     source: item.timestamp ? new Date(item.timestamp).toLocaleString() : `第 ${index + 1} 张`,
-                    historyId: item.id ?? null
+                    historyId: item.id ?? null,
+                    group: 'history'
                 });
             });
         } catch (error) {
@@ -2676,6 +2719,9 @@ export function createMediaControllerApi({
     function openAdvancedImageCompare(nodeId) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImageCompare') return;
+        const persistedPreviewThumbnail = typeof node?.data?.imagePreviewThumbnail === 'string'
+            ? node.data.imagePreviewThumbnail.trim()
+            : '';
 
         const overlay = documentRef.createElement('div');
         overlay.className = 'image-compare-advanced-overlay';
@@ -2708,8 +2754,14 @@ export function createMediaControllerApi({
         const thumbs = overlay.querySelector('.image-compare-advanced-thumbs');
         const expandButton = overlay.querySelector('.image-compare-expand-btn');
         const setButtons = Array.from(overlay.querySelectorAll('.image-compare-set-btn'));
-        let compareA = node.compareImageA || getConnectedImageInput(nodeId, 'imageA') || null;
-        let compareB = node.compareImageB || getConnectedImageInput(nodeId, 'imageB') || null;
+        let compareA = node.compareImageA || node.data?.compareImageA || getConnectedImageInput(nodeId, 'imageA') || null;
+        let compareB = node.compareImageB
+            || node.data?.compareImageB
+            || node.data?.image
+            || node.imageData
+            || persistedPreviewThumbnail
+            || getConnectedImageInput(nodeId, 'imageB')
+            || null;
         let selectedIndex = -1;
         let items = [];
         let isPickerExpanded = false;
@@ -2723,6 +2775,47 @@ export function createMediaControllerApi({
             stage.style.setProperty('--compare-zoom', compareZoom.toFixed(4));
             stage.style.setProperty('--compare-pan-x', `${compareOffsetX.toFixed(2)}px`);
             stage.style.setProperty('--compare-pan-y', `${compareOffsetY.toFixed(2)}px`);
+        };
+
+        const createThumbButton = (item, index) => {
+            const button = documentRef.createElement('button');
+            button.type = 'button';
+            button.className = `image-compare-thumb${index === selectedIndex ? ' selected' : ''}`;
+            button.title = `${item.label}${item.source ? ` - ${item.source}` : ''}`;
+            button.addEventListener('click', () => {
+                selectedIndex = index;
+                renderThumbs();
+            });
+
+            const img = documentRef.createElement('img');
+            img.src = item.thumb || TRANSPARENT_PREVIEW_PIXEL;
+            img.alt = item.label;
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            button.appendChild(img);
+
+            const roleBadges = [];
+            if (item.image && compareA && item.image === compareA) roleBadges.push('A');
+            if (item.image && compareB && item.image === compareB) roleBadges.push('B');
+            if (roleBadges.length) {
+                const badgeWrap = documentRef.createElement('div');
+                badgeWrap.className = 'image-compare-thumb-badges';
+                roleBadges.forEach((roleBadge) => {
+                    const badge = documentRef.createElement('span');
+                    badge.className = `image-compare-thumb-badge image-compare-thumb-badge-${roleBadge.toLowerCase()}`;
+                    const badgeText = documentRef.createElement('span');
+                    badgeText.className = 'image-compare-thumb-badge-text';
+                    badgeText.textContent = roleBadge;
+                    badge.appendChild(badgeText);
+                    badgeWrap.appendChild(badge);
+                });
+                button.appendChild(badgeWrap);
+            }
+
+            const label = documentRef.createElement('span');
+            label.innerHTML = escapeHtml(item.label);
+            button.appendChild(label);
+            return button;
         };
 
         const updateStagePosition = (event) => {
@@ -2784,30 +2877,41 @@ export function createMediaControllerApi({
             setButtons.forEach((button) => { button.disabled = selectedIndex < 0; });
             const selectedItem = selectedIndex >= 0 ? items[selectedIndex] : null;
             status.textContent = selectedItem
-                ? `${selectedItem.label}${selectedItem.source ? ` · ${selectedItem.source}` : ''}`
+                ? `${selectedItem.label}`
                 : `共 ${items.length} 张图片`;
 
-            items.forEach((item, index) => {
-                const button = documentRef.createElement('button');
-                button.type = 'button';
-                button.className = `image-compare-thumb${index === selectedIndex ? ' selected' : ''}`;
-                button.title = `${item.label}${item.source ? ` - ${item.source}` : ''}`;
-                button.addEventListener('click', () => {
-                    selectedIndex = index;
-                    renderThumbs();
+            if (!isPickerExpanded) {
+                items.forEach((item, index) => {
+                    thumbs.appendChild(createThumbButton(item, index));
                 });
+                return;
+            }
 
-                const img = documentRef.createElement('img');
-                img.src = item.thumb || TRANSPARENT_PREVIEW_PIXEL;
-                img.alt = item.label;
-                img.loading = 'lazy';
-                img.decoding = 'async';
-                button.appendChild(img);
+            [
+                { key: 'input', title: '输入' },
+                { key: 'history', title: '历史记录' }
+            ].forEach((groupConfig) => {
+                const groupEntries = items
+                    .map((item, index) => ({ item, index }))
+                    .filter(({ item }) => item.group === groupConfig.key);
+                if (!groupEntries.length) return;
 
-                const label = documentRef.createElement('span');
-                label.innerHTML = escapeHtml(item.label);
-                button.appendChild(label);
-                thumbs.appendChild(button);
+                const section = documentRef.createElement('section');
+                section.className = 'image-compare-advanced-group';
+                section.dataset.group = groupConfig.key;
+
+                const heading = documentRef.createElement('div');
+                heading.className = 'image-compare-advanced-group-title';
+                heading.textContent = groupConfig.title;
+                section.appendChild(heading);
+
+                const list = documentRef.createElement('div');
+                list.className = 'image-compare-advanced-group-list';
+                groupEntries.forEach(({ item, index }) => {
+                    list.appendChild(createThumbButton(item, index));
+                });
+                section.appendChild(list);
+                thumbs.appendChild(section);
             });
         };
 
@@ -2833,6 +2937,7 @@ export function createMediaControllerApi({
             if (role === 'A') compareA = image;
             if (role === 'B') compareB = image;
             renderStage();
+            renderThumbs();
         };
 
         setButtons.forEach((button) => {
@@ -2848,6 +2953,7 @@ export function createMediaControllerApi({
             if (shell) shell.classList.toggle('is-picker-expanded', isPickerExpanded);
             expandButton.textContent = isPickerExpanded ? '收起选择' : '展开选择';
             expandButton.title = isPickerExpanded ? '收起图片选择' : '展开图片选择';
+            renderThumbs();
         });
 
         stage.addEventListener('mousemove', updateStagePosition);
@@ -2908,13 +3014,37 @@ export function createMediaControllerApi({
         documentRef.addEventListener('keydown', onKeyDown);
 
         requestAnimationFrame(() => overlay.classList.add('active'));
+        applyStageTransform();
         renderStage();
-        collectAdvancedCompareImages(nodeId).then((nextItems) => {
+        const compareInputsPromise = resolveAdvancedCompareInputImages(nodeId, node);
+        const compareItemsPromise = compareInputsPromise.then((resolvedInputs) => collectAdvancedCompareImages(nodeId, resolvedInputs));
+
+        compareInputsPromise.then((resolvedInputs) => {
+            compareA = resolvedInputs.imageA || compareA || null;
+            compareB = resolvedInputs.imageB || compareB || null;
+            renderStage();
+        }).catch((error) => {
+            console.warn('Resolve advanced compare inputs failed:', error);
+        });
+
+        compareItemsPromise.then((nextItems) => {
             items = nextItems;
-            if (!compareB && items[0]?.image) compareB = items[0].image;
-            if (!compareA && items[1]?.image) compareA = items[1].image;
+
+            const currentAItem = items.find((item) => item.role === 'A' && item.image);
+            const currentBItem = items.find((item) => item.role === 'B' && item.image);
+            if (!compareA && currentAItem?.image) compareA = currentAItem.image;
+            if (!compareB && currentBItem?.image) compareB = currentBItem.image;
+            if (!compareA && !compareB) {
+                const firstImageItem = items.find((item) => item.image);
+                if (firstImageItem?.image) compareB = firstImageItem.image;
+            }
+
             selectedIndex = items.length ? 0 : -1;
             renderStage();
+            renderThumbs();
+        }).catch((error) => {
+            console.warn('Load advanced compare images failed:', error);
+            if (!items.length) selectedIndex = -1;
             renderThumbs();
         });
     }
