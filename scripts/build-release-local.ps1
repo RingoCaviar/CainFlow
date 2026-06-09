@@ -2,6 +2,7 @@ param(
   [string]$TagName,
   [string]$Python = "python",
   [switch]$SkipDependencyInstall,
+  [switch]$SkipReadinessValidation,
   [ValidateSet("auto", "windows", "macos")]
   [string]$TargetPlatform = "auto"
 )
@@ -172,6 +173,16 @@ Write-Step "Using repository root: $repoRoot"
 
 if (!(Test-Path -LiteralPath "server.py")) {
   throw "server.py was not found. Run this script from the CainFlow repository checkout."
+}
+
+if (!$SkipReadinessValidation) {
+  Write-Step "Running release readiness validation"
+  & "$repoRoot\scripts\validate-release-readiness.ps1" -TagName $TagName -Python $Python
+  if ($LASTEXITCODE -ne 0) {
+    throw "Release readiness validation failed."
+  }
+} else {
+  Write-Step "Skipping release readiness validation"
 }
 
 if (!$SkipDependencyInstall) {

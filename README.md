@@ -20,9 +20,9 @@
 
 ## 当前版本
 
-- 最新版本：`v3.0.8`
-- 版本来源：[js/core/constants.js](D:/mygithub/CainFlow/js/core/constants.js)
-- 最近版本变更日期：`2026-06-04`
+- 版本来源：[js/core/constants.js](D:/mygithub/CainFlow/js/core/constants.js) 中的 `APP_VERSION_NUMBER`
+- 最新发布版请以 [GitHub Releases](https://github.com/RingoCaviar/CainFlow/releases/latest) 为准
+- 发布前统一校验命令：`pwsh ./scripts/validate-release-readiness.ps1`
 
 > 仓库内统一以 `js/core/constants.js` 中的 `APP_VERSION_NUMBER` 为准。
 

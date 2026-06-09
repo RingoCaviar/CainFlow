@@ -118,7 +118,14 @@ jobs:
         shell: pwsh
         run: |
           python --version
+          node --version
           python -m PyInstaller --version
+
+      - name: Validate release readiness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./scripts/validate-release-readiness.ps1 -TagName "${{ needs.prepare.outputs.release_tag }}" -Python python -Node node
 
       - name: Build release zip
         id: build_zip
@@ -138,7 +145,7 @@ jobs:
 
           $tagName = "${{ needs.prepare.outputs.release_tag }}"
 
-          ./scripts/build-release-local.ps1 -TagName $tagName -Python python -SkipDependencyInstall -TargetPlatform windows
+          ./scripts/build-release-local.ps1 -TagName $tagName -Python python -SkipDependencyInstall -SkipReadinessValidation -TargetPlatform windows
           $zipName = "Cainflow_$(Get-SafeFileNamePart $tagName).zip"
           if (!(Test-Path -LiteralPath $zipName -PathType Leaf)) {
             throw "Release zip was not found for tag $tagName (expected $zipName)"
@@ -150,6 +157,12 @@ jobs:
           "ZIP_NAME=$($zip.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Release tag: $tagName"
           Write-Host "Release zip: $($zip.FullName)"
+
+      - name: Smoke test Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./scripts/smoke-test-cainflow.ps1 -Mode release -ZipPath $env:ZIP_PATH
 
       - name: Create or update release with gh
         shell: pwsh
@@ -225,8 +238,16 @@ jobs:
         run: |
           $macPython = "./.build-venv/bin/python"
           & $macPython --version
+          node --version
           & $macPython -m PyInstaller --version
           sw_vers
+
+      - name: Validate release readiness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $macPython = "./.build-venv/bin/python"
+          ./scripts/validate-release-readiness.ps1 -TagName "${{ needs.prepare.outputs.release_tag }}" -Python $macPython -Node node
 
       - name: Build macOS release zip
         shell: pwsh
@@ -245,7 +266,7 @@ jobs:
 
           $tagName = "${{ needs.prepare.outputs.release_tag }}"
           $macPython = "./.build-venv/bin/python"
-          ./scripts/build-release-local.ps1 -TagName $tagName -Python $macPython -SkipDependencyInstall -TargetPlatform macos
+          ./scripts/build-release-local.ps1 -TagName $tagName -Python $macPython -SkipDependencyInstall -SkipReadinessValidation -TargetPlatform macos
           $zipName = "Cainflow_$(Get-SafeFileNamePart $tagName)_macos.zip"
           if (!(Test-Path -LiteralPath $zipName -PathType Leaf)) {
             throw "macOS release zip was not found for tag $tagName (expected $zipName)"

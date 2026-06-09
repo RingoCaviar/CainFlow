@@ -234,7 +234,8 @@ def run():
     try:
         with socketserver.ThreadingTCPServer((config.HOST, config.PORT), ProxyHTTPRequestHandler) as httpd:
             print_banner()
-            webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')
+            if os.environ.get('CAINFLOW_SKIP_BROWSER_AUTO_OPEN') != '1':
+                webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')
             httpd.serve_forever()
     except Exception as exc:
         print_startup_error_and_exit(exc)

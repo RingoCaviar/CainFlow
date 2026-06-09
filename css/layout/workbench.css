@@ -18,6 +18,24 @@
     --node-action-size: 26px;
     --node-port-hit-size: 18px;
     --node-port-dot-size: 12px;
+    --floating-notices-top-offset: 14px;
+    --floating-notices-left-offset: 14px;
+    --floating-notices-width-limit: min(420px, calc(100% - 28px));
+    --floating-notices-left-drawer-offset: 400px;
+    --floating-notices-left-drawer-width: min(420px, calc(100% - 414px));
+    --floating-notices-workflow-offset: calc(60px + var(--workflow-sidebar-width, 320px) + 20px);
+    --floating-notices-workflow-width: min(420px, calc(100% - (var(--workflow-sidebar-width, 320px) + 94px)));
+    --toast-right-offset: 20px;
+    --toast-bottom-offset: 20px;
+    --toast-settings-bottom-offset: clamp(128px, 18vh, 220px);
+}
+
+body {
+    --floating-notices-top-offset: 14px;
+    --floating-notices-left-offset: 14px;
+    --floating-notices-width-limit: min(420px, calc(100% - 28px));
+    --toast-right-offset: 20px;
+    --toast-bottom-offset: 20px;
 }
 
 #toolbar,
@@ -247,6 +265,77 @@ body.sidebar-pinned #side-bar {
 .toast {
     box-shadow: var(--elevation-float);
     contain: layout paint;
+}
+
+/*
+ * Overlay avoidance contract:
+ * - Keep avoidance state on body-level custom properties so floating notices and toasts read one source of truth.
+ * - New left-edge drawers or help panels with top-left close/actions should extend
+ *   --floating-notices-left-offset / --floating-notices-width-limit via body:has(#panel.active).
+ * - New bottom-right modal footer actions should extend --toast-bottom-offset via the modal's visible state
+ *   selector, for example body:has(#modal:not(.hidden)) or body:has(#modal.active).
+ * - If a legacy direct-positioning selector still overrides the variable result, add one bridge rule here on the
+ *   real container instead of scattering new hard-coded offsets back into legacy.css or feature-local CSS.
+ */
+#toolbar + #main-layout #canvas-container #floating-notices-container {
+    top: var(--floating-notices-top-offset);
+    left: var(--floating-notices-left-offset);
+    width: var(--floating-notices-width-limit);
+}
+
+body:has(#toolbar:hover),
+body:has(#toolbar:focus-within),
+body:has(#toolbar .btn.active),
+body:has(#toolbar [aria-expanded="true"]),
+body.toolbar-peek-active,
+body.toolbar-pinned {
+    --floating-notices-top-offset: calc(var(--toolbar-height, 48px) + 12px);
+}
+
+body:has(#side-bar:hover),
+body:has(#side-bar:focus-within),
+body:has(#side-bar .side-bar-btn.active),
+body.sidebar-peek-active,
+body.sidebar-pinned {
+    --floating-notices-left-offset: 76px;
+    --floating-notices-width-limit: min(420px, calc(100% - 90px));
+}
+
+#toast-container {
+    right: var(--toast-right-offset);
+    bottom: var(--toast-bottom-offset);
+    transition:
+        top var(--motion-standard),
+        right var(--motion-standard),
+        bottom var(--motion-standard),
+        left var(--motion-standard);
+}
+
+/* Keep transient overlays clear of active feature chrome before they can obscure controls. */
+body:has(#statistics-sidebar.active),
+body:has(#cache-sidebar.active) {
+    --floating-notices-left-offset: var(--floating-notices-left-drawer-offset);
+    --floating-notices-width-limit: var(--floating-notices-left-drawer-width);
+}
+
+body:has(#workflow-sidebar.active) {
+    --floating-notices-left-offset: var(--floating-notices-workflow-offset);
+    --floating-notices-width-limit: var(--floating-notices-workflow-width);
+}
+
+body:has(#statistics-sidebar.active) #toolbar + #main-layout #canvas-container #floating-notices-container,
+body:has(#cache-sidebar.active) #toolbar + #main-layout #canvas-container #floating-notices-container {
+    left: var(--floating-notices-left-drawer-offset);
+    width: var(--floating-notices-left-drawer-width);
+}
+
+body:has(#workflow-sidebar.active) #toolbar + #main-layout #canvas-container #floating-notices-container {
+    left: var(--floating-notices-workflow-offset);
+    width: var(--floating-notices-workflow-width);
+}
+
+body:has(#settings-modal:not(.hidden)) {
+    --toast-bottom-offset: var(--toast-settings-bottom-offset);
 }
 
 #selection-box {
