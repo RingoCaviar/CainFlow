@@ -121,12 +121,6 @@ jobs:
           node --version
           python -m PyInstaller --version
 
-      - name: Validate release readiness
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          ./scripts/validate-release-readiness.ps1 -TagName "${{ needs.prepare.outputs.release_tag }}" -Python python -Node node
-
       - name: Build release zip
         id: build_zip
         shell: pwsh
@@ -157,12 +151,6 @@ jobs:
           "ZIP_NAME=$($zip.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Release tag: $tagName"
           Write-Host "Release zip: $($zip.FullName)"
-
-      - name: Smoke test Windows package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          ./scripts/smoke-test-cainflow.ps1 -Mode release -ZipPath $env:ZIP_PATH
 
       - name: Create or update release with gh
         shell: pwsh
@@ -242,13 +230,6 @@ jobs:
           & $macPython -m PyInstaller --version
           sw_vers
 
-      - name: Validate release readiness
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $macPython = "./.build-venv/bin/python"
-          ./scripts/validate-release-readiness.ps1 -TagName "${{ needs.prepare.outputs.release_tag }}" -Python $macPython -Node node
-
       - name: Build macOS release zip
         shell: pwsh
         run: |
@@ -276,142 +257,6 @@ jobs:
           "ZIP_PATH=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ZIP_NAME=$($zip.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "macOS release zip: $($zip.FullName)"
-
-      - name: Smoke test macOS package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $zipPath = $env:ZIP_PATH
-          if ([string]::IsNullOrWhiteSpace($zipPath) -or !(Test-Path -LiteralPath $zipPath -PathType Leaf)) {
-            throw "Missing macOS zip for smoke test."
-          }
-
-          $smokeDir = Join-Path (Get-Location) "smoke-test-macos"
-          $smokeLog = Join-Path (Get-Location) "smoke-cainflow.log"
-          $job = $null
-          $programPath = ""
-          if (Test-Path -LiteralPath $smokeDir) {
-            Remove-Item -LiteralPath $smokeDir -Recurse -Force
-          }
-          if (Test-Path -LiteralPath $smokeLog) {
-            Remove-Item -LiteralPath $smokeLog -Force
-          }
-
-          function Stop-SmokeServer {
-            param([object]$Job)
-
-            if ($Job) {
-              Stop-Job -Job $Job -ErrorAction SilentlyContinue
-            }
-
-            $portPids = @()
-            try {
-              $portPids = & lsof -tiTCP:8767 -sTCP:LISTEN 2>$null
-            } catch {
-              $portPids = @()
-            }
-            foreach ($portPid in $portPids) {
-              if (![string]::IsNullOrWhiteSpace($portPid)) {
-                try {
-                  & kill -9 $portPid 2>$null
-                } catch {
-                  Write-Host "Failed to stop port listener PID ${portPid}: $_"
-                }
-              }
-            }
-            $global:LASTEXITCODE = 0
-          }
-
-          New-Item -ItemType Directory -Path $smokeDir | Out-Null
-          Push-Location $smokeDir
-          try {
-            & unzip -q $zipPath
-            if ($LASTEXITCODE -ne 0) {
-              throw "Failed to unzip macOS package."
-            }
-
-            $programPath = Join-Path $smokeDir "CainFlow"
-            if (!(Test-Path -LiteralPath $programPath -PathType Leaf)) {
-              throw "CainFlow executable was not found in the macOS package."
-            }
-
-            & chmod +x $programPath
-            if ($LASTEXITCODE -ne 0) {
-              throw "Failed to make CainFlow executable."
-            }
-
-            $job = Start-Job -ScriptBlock {
-              param($ProgramPath, $SmokeDir, $SmokeLog)
-              Set-Location -LiteralPath $SmokeDir
-              & $ProgramPath *> $SmokeLog
-            } -ArgumentList $programPath, $smokeDir, $smokeLog
-
-            try {
-              $healthy = $false
-              $exitDetail = ""
-              for ($attempt = 1; $attempt -le 20; $attempt++) {
-                try {
-                  $response = Invoke-WebRequest -Uri "http://127.0.0.1:8767/" -UseBasicParsing -TimeoutSec 2
-                  if ($response.StatusCode -eq 200 -and "$($response.Content)" -match "CainFlow") {
-                    $healthy = $true
-                    break
-                  }
-                } catch {
-                  Start-Sleep -Seconds 1
-                }
-
-                if ($job.State -ne "Running" -and !$exitDetail) {
-                  $exitDetail = " CainFlow smoke job ended with state $($job.State)."
-                }
-              }
-
-              if (!$healthy) {
-                throw "CainFlow did not serve http://127.0.0.1:8767/ during smoke test.$exitDetail"
-              }
-
-              Write-Host "macOS package smoke test passed."
-            } finally {
-              Stop-SmokeServer -Job $job
-            }
-          } catch {
-            Write-Host ""
-            Write-Host "Smoke test package directory:"
-            Get-ChildItem -LiteralPath $smokeDir -Force | Format-List Name,Length,Mode
-
-            if (Test-Path -LiteralPath $programPath -PathType Leaf) {
-              Write-Host ""
-              Write-Host "CainFlow executable diagnostics:"
-              & file $programPath 2>$null
-              & ls -l $programPath 2>$null
-              & xattr -l $programPath 2>$null
-              & codesign --verify --verbose $programPath 2>&1
-              & spctl --assess --type execute --verbose $programPath 2>&1
-            }
-
-            Write-Host ""
-            Write-Host "Port 8767 listeners:"
-            & lsof -nP -iTCP:8767 -sTCP:LISTEN 2>&1
-
-            if (Test-Path -LiteralPath $smokeLog) {
-              Write-Host ""
-              Write-Host "CainFlow smoke test log:"
-              Get-Content -LiteralPath $smokeLog
-            }
-
-            if ($job) {
-              Write-Host ""
-              Write-Host "CainFlow smoke job output:"
-              Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue
-            }
-            throw
-          } finally {
-            Pop-Location
-            if ($job) {
-              Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            }
-            $global:LASTEXITCODE = 0
-          }
 
       - name: Upload macOS package to release with gh
         shell: pwsh

@@ -31,6 +31,83 @@ function Remove-PathIfExists {
   }
 }
 
+function Read-LogTail {
+  param(
+    [string]$Path,
+    [int]$MaxLines = 40
+  )
+
+  if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return ""
+  }
+
+  try {
+    $lines = Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $lines) {
+      return ""
+    }
+
+    return (($lines | Select-Object -Last $MaxLines) -join [Environment]::NewLine).Trim()
+  } catch {
+    return ""
+  }
+}
+
+function Format-DiagnosticText {
+  param(
+    [string]$Text,
+    [int]$MaxChars = 1500
+  )
+
+  $normalized = if ($null -eq $Text) { "" } else { [string]$Text }
+  $normalized = $normalized.Trim()
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    return ""
+  }
+
+  $normalized = $normalized -replace "\r?\n", " | "
+  if ($normalized.Length -le $MaxChars) {
+    return $normalized
+  }
+
+  return $normalized.Substring(0, $MaxChars - 3) + "..."
+}
+
+function Get-SmokeFailureDetails {
+  param(
+    [System.Diagnostics.Process]$Process,
+    [string]$StdoutPath,
+    [string]$StderrPath
+  )
+
+  $details = @()
+
+  if ($Process) {
+    try {
+      $Process.Refresh()
+      if ($Process.HasExited) {
+        $details += "Background launcher exited with code $($Process.ExitCode)."
+      } else {
+        $details += "Background launcher is still running (PID $($Process.Id))."
+      }
+    } catch {
+      $details += "Background launcher state could not be read."
+    }
+  }
+
+  $stdoutTail = Format-DiagnosticText (Read-LogTail -Path $StdoutPath)
+  if ($stdoutTail) {
+    $details += "stdout tail: $stdoutTail"
+  }
+
+  $stderrTail = Format-DiagnosticText (Read-LogTail -Path $StderrPath)
+  if ($stderrTail) {
+    $details += "stderr tail: $stderrTail"
+  }
+
+  return ($details -join " ")
+}
+
 function Stop-CainFlowProcessTree {
   param([System.Diagnostics.Process]$Process)
 
@@ -59,19 +136,21 @@ function Start-BackgroundProcess {
     [string]$StderrPath
   )
 
-  $commandLiteral = "'" + $CommandPath.Replace("'", "''") + "'"
+  $workingDirectoryLiteral = $WorkingDirectory.Replace("'", "''")
+  $commandPathLiteral = $CommandPath.Replace("'", "''")
   $argumentLiteral = if ($CommandArguments.Count -gt 0) {
     ($CommandArguments | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }) -join ", "
   } else {
     ""
   }
 
-  $bootstrap = @"
+$bootstrap = @"
 $env:CAINFLOW_SKIP_BROWSER_AUTO_OPEN = '1'
 $env:CAINFLOW_SKIP_FATAL_PAUSE = '1'
-Set-Location -LiteralPath '$WorkingDirectory'
+Set-Location -LiteralPath '$workingDirectoryLiteral'
+`$commandPath = '$commandPathLiteral'
 `$argsList = @($argumentLiteral)
-& $commandLiteral @argsList
+& `$commandPath @argsList
 "@
 
   $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($bootstrap))
@@ -152,6 +231,12 @@ function Invoke-ReleaseMode {
       -StderrPath $stderrPath
 
     $null = Wait-ForCainFlowHealthy -BaseUrl "http://127.0.0.1:8767/" -TimeoutSeconds $TimeoutSeconds
+  } catch {
+    $details = Get-SmokeFailureDetails -Process $process -StdoutPath $stdoutPath -StderrPath $stderrPath
+    if ($details) {
+      throw "$($_.Exception.Message) Diagnostics: $details"
+    }
+    throw
   } finally {
     Stop-CainFlowProcessTree -Process $process
     Remove-PathIfExists -Path $tempRoot
@@ -181,6 +266,12 @@ function Invoke-SourceMode {
       -StderrPath $stderrPath
 
     $null = Wait-ForCainFlowHealthy -BaseUrl "http://127.0.0.1:8767/" -TimeoutSeconds $TimeoutSeconds
+  } catch {
+    $details = Get-SmokeFailureDetails -Process $process -StdoutPath $stdoutPath -StderrPath $stderrPath
+    if ($details) {
+      throw "$($_.Exception.Message) Diagnostics: $details"
+    }
+    throw
   } finally {
     Stop-CainFlowProcessTree -Process $process
     Remove-PathIfExists -Path $tempRoot
