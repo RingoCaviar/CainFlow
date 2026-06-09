@@ -2747,6 +2747,7 @@ export function createMediaControllerApi({
             </div>
         `;
         documentRef.body.appendChild(overlay);
+        documentRef.body?.classList.add('image-compare-advanced-active');
 
         const shell = overlay.querySelector('.image-compare-advanced-shell');
         const stage = overlay.querySelector('.image-compare-advanced-stage');
@@ -2955,6 +2956,22 @@ export function createMediaControllerApi({
             expandButton.title = isPickerExpanded ? '收起图片选择' : '展开图片选择';
             renderThumbs();
         });
+        thumbs.addEventListener('wheel', (event) => {
+            if (isPickerExpanded) return;
+            if (thumbs.scrollWidth <= thumbs.clientWidth + 1) return;
+
+            const primaryDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+                ? event.deltaX
+                : event.deltaY;
+            if (!primaryDelta) return;
+
+            const maxScrollLeft = Math.max(0, thumbs.scrollWidth - thumbs.clientWidth);
+            const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, thumbs.scrollLeft + primaryDelta));
+            if (Math.abs(nextScrollLeft - thumbs.scrollLeft) < 0.5) return;
+
+            event.preventDefault();
+            thumbs.scrollLeft = nextScrollLeft;
+        }, { passive: false });
 
         stage.addEventListener('mousemove', updateStagePosition);
         stage.addEventListener('mouseenter', () => {
@@ -3003,6 +3020,9 @@ export function createMediaControllerApi({
 
         const cleanup = () => {
             overlay.remove();
+            if (!documentRef.querySelector('.image-compare-advanced-overlay')) {
+                documentRef.body?.classList.remove('image-compare-advanced-active');
+            }
             documentRef.removeEventListener('keydown', onKeyDown);
             windowRef.removeEventListener('mousemove', onPanMove);
             windowRef.removeEventListener('mouseup', stopPanning);
