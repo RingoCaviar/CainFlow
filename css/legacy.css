@@ -1642,6 +1642,10 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     padding-bottom: 54px;
 }
 
+.node-generate .node-body-has-generation-progress {
+    padding-bottom: 10px;
+}
+
 .node.collapsed .node-body,
 .node-body.is-collapsed {
     display: none;
@@ -2505,12 +2509,12 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     line-height: 1.5;
 }
 
-.node-image-generate textarea.image-generate-prompt {
+.node-generate textarea.image-generate-prompt {
     font-size: 11px;
     line-height: 1.45;
 }
 
-.node-image-generate textarea.image-generate-prompt::placeholder {
+.node-generate textarea.image-generate-prompt::placeholder {
     font-size: 11px;
     line-height: 1.45;
 }
@@ -2544,8 +2548,19 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     padding-bottom: 0;
 }
 
+.node-generate .node-generation-progress-field {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+}
+
 .node-body:has(.api-generation-progress) {
     padding-bottom: 54px;
+}
+
+.node-generate .node-body:has(.api-generation-progress) {
+    padding-bottom: 10px;
 }
 
 .node-body:has(.api-generation-progress) .api-generation-progress {
