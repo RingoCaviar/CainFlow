@@ -1,5 +1,6 @@
 import { createElements } from '../core/elements.js';
 import { createInitialState } from '../core/state.js';
+import { API_PROVIDERS_LOCKED, STORAGE_KEY } from '../core/constants.js';
 import { createProxyHeadersGetter } from '../services/api-client.js';
 import { createIndexedDbApi } from '../services/storage-idb.js';
 import { createMediaUtils } from '../features/media/media-utils.js';
@@ -12,12 +13,23 @@ import { createUiUtils } from '../features/ui/ui-utils.js';
  */
 export function createAppContext({
     documentRef = document,
+    localStorageRef = localStorage,
     showToast = () => {},
     onNativeClipboardWrite = () => {}
 } = {}) {
     const elements = createElements(documentRef);
     const panelManager = createPanelManager(documentRef, elements.canvasContainer);
-    const state = createInitialState();
+    const hasStoredProjectState = (() => {
+        try {
+            const raw = localStorageRef?.getItem?.(STORAGE_KEY);
+            return typeof raw === 'string' && raw.trim().length > 0;
+        } catch {
+            return false;
+        }
+    })();
+    const state = createInitialState({
+        includeDefaultProviders: !(API_PROVIDERS_LOCKED && !hasStoredProjectState)
+    });
     const dirHandles = new Map();
     const proxyHeadersGetter = createProxyHeadersGetter(() => state);
     const indexedDbApi = createIndexedDbApi(() => state);

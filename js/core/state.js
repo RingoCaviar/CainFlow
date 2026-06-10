@@ -47,7 +47,38 @@ export function normalizeNodeDefaults(raw = {}) {
     return defaults;
 }
 
-export function createInitialState() {
+function cloneInitialProviders(includeDefaultProviders = true) {
+    if (!includeDefaultProviders) return [];
+    return DEFAULT_PROVIDERS.map((provider) => ({ ...provider }));
+}
+
+function bindInitialModelProviders(model, providers = []) {
+    const availableProviderIds = new Set(
+        providers
+            .map((provider) => String(provider?.id || '').trim())
+            .filter(Boolean)
+    );
+    const configuredProviderIds = Array.isArray(model?.providerIds)
+        ? model.providerIds
+            .map((providerId) => String(providerId || '').trim())
+            .filter((providerId, index, ids) => providerId && ids.indexOf(providerId) === index)
+        : [];
+    const nextProviderIds = configuredProviderIds.length > 0
+        ? configuredProviderIds.filter((providerId) => availableProviderIds.has(providerId))
+        : (providers[0]?.id ? [providers[0].id] : []);
+    return {
+        ...model,
+        providerIds: nextProviderIds,
+        providerId: nextProviderIds[0] || ''
+    };
+}
+
+function cloneInitialModels(providers = []) {
+    return DEFAULT_MODELS.map((model) => bindInitialModelProviders(model, providers));
+}
+
+export function createInitialState({ includeDefaultProviders = true } = {}) {
+    const providers = cloneInitialProviders(includeDefaultProviders);
     return {
         nodes: new Map(),
         connections: [],
@@ -92,8 +123,8 @@ export function createInitialState() {
         historySelectionMode: false,
         selectedHistoryIds: new Set(),
         draggedHistoryImage: null,
-        providers: DEFAULT_PROVIDERS.map((provider) => ({ ...provider })),
-        models: DEFAULT_MODELS.map((model) => ({ ...model })),
+        providers,
+        models: cloneInitialModels(providers),
         logs: [],
         logRetentionDays: 1,
         requestStatistics: [],

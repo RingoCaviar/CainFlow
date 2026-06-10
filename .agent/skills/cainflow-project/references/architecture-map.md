@@ -151,10 +151,11 @@
 | --- | --- | --- |
 | 启动入口 | `index.js` | 前端真实入口与总装配层，负责模块初始化与依赖注入 |
 | 页面骨架 | `index.html` | 页面结构、面板容器、弹窗结构、脚本与样式入口 |
+| 应用上下文 | `js/app/create-app-context.js` | 创建装配期共享上下文；启动时判断本地是否已有 `nodeflow_ai_state`，在 `API_PROVIDERS_LOCKED` 开启且首次打开项目时阻止默认 6789 / GXP 供应商注入 |
 | 应用启动控制 | `js/features/app/startup-controller.js` | 应用初始化流程、模块装载编排；`loadState()` 后始终同步代理到后端 |
 | 共享常量 | `js/core/constants.js` | `APP_VERSION_NUMBER`、`APP_VERSION`、`APP_ASSET_VERSION`、GITHUB_REPO、STORAGE_KEY、DB_VERSION、默认供应商/默认模型，以及 `API_PROVIDERS_LOCKED` 这类前端共享策略常量 |
 | DOM 引用 | `js/core/elements.js` | 跨模块共用的顶层 DOM 元素查找 |
-| 全局状态 | `js/core/state.js` | 前端运行时共享状态与初始值 |
+| 全局状态 | `js/core/state.js` | 前端运行时共享状态与初始值；初始 providers/models 的默认注入与默认模型供应商绑定也在这里收口 |
 | 通用工具 | `js/core/common-utils.js` | 多模块共用的纯函数工具集 |
 
 ### Services（服务层）
@@ -357,8 +358,8 @@
 | 修复节点删除、摘取节点、节点尺寸显示不全兜底 | `js/nodes/node-lifecycle.js`, `js/nodes/node-dom-bindings.js` |
 | 更新左侧工具栏“帮助”面板内容、快捷键说明或帮助字体 | `js/features/help/help-panel.js`, `index.html`, `css/legacy.css` |
 | 修改共享常量或默认值 | `js/core/constants.js`, `js/core/state.js` |
-| 修改默认 API 供应商或默认模型 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/execution/provider-request-utils.js` |
-| 新增或调整“锁定 API 供应商”能力 | `js/core/constants.js`, `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js` |
+| 修改默认 API 供应商或默认模型 | `js/core/constants.js`, `js/core/state.js`, `js/app/create-app-context.js`, `js/features/settings/settings-controller.js`, `js/features/execution/provider-request-utils.js` |
+| 新增或调整“锁定 API 供应商”能力 | `js/core/constants.js`, `js/core/state.js`, `js/app/create-app-context.js`, `js/features/settings/settings-controller.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js` |
 | 修改连线类型 | `js/features/settings/settings-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `js/canvas/geometry.js`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js` |
 | 修改全局动画开关或禁用动画性能模式 | `js/features/settings/settings-controller.js`, `js/features/ui/animation-controller.js`, `js/core/state.js`, `js/canvas/connections.js`, `css/legacy.css`, `js/features/ui/ui-controller.js`, `js/features/persistence/project-io.js`, `js/nodes/node-serializer.js`, `index.html` |
 | 修改 DOM 获取或顶层元素引用 | `js/core/elements.js`, `index.html` |
@@ -420,7 +421,7 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - API 设置帮助属于设置面板内的轻量弹窗能力：标题旁入口只在 `index.html` 放静态按钮，弹窗内容和事件由 `settings-controller.js` 渲染管理，关闭按钮、遮罩关闭和设置弹窗关闭时的清理都应在同一控制器中处理；样式集中到 `css/features/settings.css` 并补浅色主题覆盖。
 - 通用设置是设置面板里的独立视觉区域：卡片结构继续由 `js/features/settings/settings-controller.js` 渲染，布局和视觉收敛到 `css/features/settings.css`。优先使用统一 grid（例如 `general-settings-grid` / `general-settings-card`）和统一的滑动开关 `toggle-switch` / `toggle-slider`，不要在通用设置里继续堆内联布局、混用 checkbox 外观或把样式加回 `css/legacy.css`。
 - 并发请求模式属于通用设置中的“自动化与重试”能力，状态字段是 `concurrentRequestMode`，默认开启。该开关影响执行调度和 API 节点结果提交，新增或迁移时必须同步状态默认值、设置页 UI、导入导出、会话恢复、节点序列化和 `index.js` 依赖注入。
-- 供应商锁定属于“共享常量 + 设置页 + 持久化”的联合约束：`API_PROVIDERS_LOCKED` 放 `js/core/constants.js`，设置页按钮显隐和供应商 `endpoint` 只读在 `js/features/settings/settings-controller.js`，配置导入旁路保护在 `js/features/ui/ui-controller.js`，会话恢复旁路保护在 `js/features/persistence/project-io.js`。锁定后模型管理仍可用，但不能让导入配置或本地恢复替换默认供应商 URL。
+- 供应商锁定属于“共享常量 + 启动初始化 + 设置页 + 持久化”的联合约束：`API_PROVIDERS_LOCKED` 放 `js/core/constants.js`，首次打开项目时是否注入默认供应商由 `js/app/create-app-context.js` 与 `js/core/state.js` 决定，设置页按钮显隐和供应商 `endpoint` 只读在 `js/features/settings/settings-controller.js`，配置导入旁路保护在 `js/features/ui/ui-controller.js`，会话恢复旁路保护在 `js/features/persistence/project-io.js`。锁定后模型管理仍可用，但不能让导入配置或本地恢复替换默认供应商 URL；同时锁定开启且本地没有项目状态时，启动阶段也不应默认补出 6789 / GXP 供应商。
 - 代理安全策略的职责边界要固定：允许域名、内置默认放行域名、私网/本机阻断、`allowPrivateNetworkTargets` 逻辑都收在 `backend/services/security_service.py`；`backend/services/proxy_service.py` 只负责读取请求头并调用校验；前端安全开关与允许域名维护入口在 `js/features/settings/settings-controller.js`；统一中文错误提示在 `js/services/api-client.js`；更新检查如需复用这套提示，走 `js/features/update/update-manager.js`。
 - 项目内建功能依赖的官方域名也属于默认允许名单的一部分，而不只是第三方 API 供应商域名。当前更新检查依赖 `api.github.com` / `github.com`，调整 SSRF 默认策略时要把这些项目自用域名一起纳入考虑，避免误拦截。
 - 启动冲突提示需要同时照顾源码运行和打包运行：`start_cainflow.bat` 是源码双击入口，`backend/main.py` 是后端真实启动入口。端口占用时不要自动 `taskkill`，应识别占用进程并在黑色窗口中停留提示，区分 CainFlow 已运行和其他程序占用；测试冲突分支时可临时监听 `0.0.0.0:8767` 或模拟 CainFlow 命令行，结束后必须释放端口并清理临时缓存。
