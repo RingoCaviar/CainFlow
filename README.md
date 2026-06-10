@@ -22,9 +22,7 @@
 
 - 版本来源：[js/core/constants.js](D:/mygithub/CainFlow/js/core/constants.js) 中的 `APP_VERSION_NUMBER`
 - 最新发布版请以 [GitHub Releases](https://github.com/RingoCaviar/CainFlow/releases/latest) 为准
-- 发布前统一校验命令：`pwsh ./scripts/validate-release-readiness.ps1`
 
-> 仓库内统一以 `js/core/constants.js` 中的 `APP_VERSION_NUMBER` 为准。
 
 ## 运行方式
 
@@ -49,50 +47,9 @@
 - 当前仓库未提供根目录 `requirements.txt`，如果你新增了 Python 依赖，记得同步补充安装说明
 - 启动脚本包含端口 `8767` 占用检测，避免重复启动 CainFlow
 
-## 项目结构
-
-```text
-CainFlow/
-|- index.html              # 页面结构与主要 UI 容器
-|- index.js                # 前端装配入口
-|- index.css               # 样式入口
-|- css/                    # 分层样式与主题
-|- js/                     # 前端核心、节点、画布与功能模块
-|- backend/                # 本地 HTTP 服务、路由与业务服务
-|- workflows/              # 本地工作流 JSON
-|- scripts/                # 构建与维护脚本
-|- .github/workflows/      # 发布与清理工作流
-|- server.py               # Python 启动入口
-|- start_cainflow.bat      # Windows 启动脚本
-```
-
-主要模块说明：
-
-- `js/core/`：版本、常量、共享状态、通用工具
-- `js/features/`：工作流、执行、设置、历史、更新等功能模块
-- `js/nodes/`：节点模板、绑定、序列化与生命周期
-- `js/canvas/`：画布交互、缩放拖拽、连线与几何计算
-- `backend/routes/`：后端接口入口
-- `backend/services/`：工作流、下载、更新、安全、日志等后端逻辑
-
-## 开发说明
-
-- 前端真实入口是 [index.js](D:/mygithub/CainFlow/index.js)，新增功能优先放到 `js/features/*` 或 `js/core/*`
-- 后端启动入口是 [server.py](D:/mygithub/CainFlow/server.py)，实际运行逻辑在 [backend/main.py](D:/mygithub/CainFlow/backend/main.py)
-- 工作流默认保存在 [workflows](D:/mygithub/CainFlow/workflows) 目录，更新前建议先备份该目录
-- 结构化后端请求日志会写入 [log](D:/mygithub/CainFlow/log) 目录
-
-## 打包与发布
-
-- 本地构建脚本： [scripts/build-release-local.ps1](D:/mygithub/CainFlow/scripts/build-release-local.ps1)
-- GitHub Actions 工作流：
-  - [release.yml](D:/mygithub/CainFlow/.github/workflows/release.yml)
-  - [cleanup-releases.yml](D:/mygithub/CainFlow/.github/workflows/cleanup-releases.yml)
-  - [cleanup-workflow-runs.yml](D:/mygithub/CainFlow/.github/workflows/cleanup-workflow-runs.yml)
-
 ## 默认供应商
 
-当前默认供应商配置位于 [js/core/constants.js](D:/mygithub/CainFlow/js/core/constants.js)，预置了 `GXP` 供应商与演示模型。首次使用前请在设置面板中填写自己的 API Key，并根据实际情况修改接口地址。
+首次使用前请在设置面板中填写自己的 API Key，并根据实际情况修改接口地址。
 
 ## 隐私与数据
 
