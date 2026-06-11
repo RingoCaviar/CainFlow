@@ -57,6 +57,11 @@
 - API Key 由本地应用保存与使用
 - 更新、下载、代理探测等能力会按你的配置访问外部网络
 
+## 🙏 致谢
+感谢真诚、友善、团结、专业的 Linuxdo 社区，让我用到那么多Token
+
+[LinuxDo](https://linux.do/)
+
 ## 开源许可
 
 CainFlow 主项目使用 [GNU GPL v3.0](LICENSE)。
