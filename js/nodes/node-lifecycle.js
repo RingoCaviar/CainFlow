@@ -59,6 +59,7 @@ export function createNodeLifecycleApi({
     const FALLBACK_DEFAULT_NODE_WIDTH = 180;
     const FALLBACK_DEFAULT_NODE_HEIGHT = 120;
     const IMAGE_RESTORE_VIEWPORT_PREFETCH_PADDING = 360;
+    const IMAGE_IMPORT_ASSET_KEY_PREFIX = 'image-import:';
     const pendingImageRestoreTasks = [];
     let imageRestoreQueueRunning = false;
     let activeImageRestoreNodeId = '';
@@ -141,6 +142,38 @@ export function createNodeLifecycleApi({
             centerX: left + Math.max(width, 1) / 2,
             centerY: top + Math.max(height, 1) / 2
         };
+    }
+
+    function getExpectedImageImportAssetKey(nodeId) {
+        return `${IMAGE_IMPORT_ASSET_KEY_PREFIX}${String(nodeId || '').trim()}`;
+    }
+
+    function getNodeImageImportAssetKey(node) {
+        if (typeof node?.imageImportAssetKey === 'string' && node.imageImportAssetKey) {
+            return node.imageImportAssetKey;
+        }
+        if (typeof node?.data?.imageImportAssetKey === 'string' && node.data.imageImportAssetKey) {
+            return node.data.imageImportAssetKey;
+        }
+        return '';
+    }
+
+    function isImageImportAssetKeyReferenced(assetKey, excludedNodeIds = new Set()) {
+        const key = String(assetKey || '').trim();
+        if (!key) return false;
+
+        for (const node of state.nodes.values()) {
+            if (!node?.id || excludedNodeIds.has(node.id)) continue;
+            if (getNodeImageImportAssetKey(node) === key) return true;
+        }
+
+        return (state.workflowTabs || []).some((tab) => {
+            const workflowNodes = Array.isArray(tab?.data?.nodes) ? tab.data.nodes : [];
+            return workflowNodes.some((node) => {
+                if (!node?.id || excludedNodeIds.has(node.id)) return false;
+                return getNodeImageImportAssetKey(node) === key;
+            });
+        });
     }
 
     function imageRestoreBoundsIntersect(bounds, viewport, padding = 0) {
@@ -1511,10 +1544,16 @@ export function createNodeLifecycleApi({
                     }
 
                     if (normalizedType === 'ImageImport' && !isRemoteImageUrl(data)) {
-                        const savedImportKey = await saveImageImportAsset(id, data, nodeData.imageImportAssetKey);
+                        const preferredImportKey = nodeData.imageImportAssetKey === getExpectedImageImportAssetKey(id)
+                            ? nodeData.imageImportAssetKey
+                            : '';
+                        const savedImportKey = await saveImageImportAsset(id, data, preferredImportKey);
                         if (savedImportKey) {
+                            const keyChanged = savedImportKey !== nodeData.imageImportAssetKey
+                                || savedImportKey !== nodeData.data.imageImportAssetKey;
                             nodeData.imageImportAssetKey = savedImportKey;
                             nodeData.data.imageImportAssetKey = savedImportKey;
+                            if (keyChanged) scheduleSave();
                         } else if (hasInitialData) {
                             await saveImageAsset(id, data);
                         }
@@ -1745,6 +1784,7 @@ export function createNodeLifecycleApi({
             ? buildPreservedConnections(idsToRemove)
             : [];
         let removedConnections = false;
+        const removingIds = new Set(idsToRemove);
         idsToRemove.forEach((nid) => {
             const node = state.nodes.get(nid);
             if (!node) return;
@@ -1757,7 +1797,11 @@ export function createNodeLifecycleApi({
             state.nodes.delete(nid);
             state.selectedNodes.delete(nid);
             if (node.type === 'ImageImport') {
-                void deleteImageImportAsset(node.imageImportAssetKey || node.data?.imageImportAssetKey || nid);
+                const importAssetKey = getNodeImageImportAssetKey(node);
+                const ownedAssetKey = importAssetKey || getExpectedImageImportAssetKey(nid);
+                if (!isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
+                    void deleteImageImportAsset(ownedAssetKey);
+                }
             }
         });
         const preservedConnectionCount = appendPreservedConnections(preservedConnectionCandidates);
