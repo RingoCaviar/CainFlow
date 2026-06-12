@@ -33,6 +33,7 @@
     --port-image: #7c3aed;
     --port-text: #0891b2;
     --port-params: #d97706;
+    --port-any: #059669;
     --shadow-node: 0 24px 60px rgba(44, 71, 97, 0.16), 0 6px 18px rgba(44, 71, 97, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.74);
     --shadow-node-hover: 0 30px 74px rgba(44, 71, 97, 0.2), 0 10px 24px rgba(44, 71, 97, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.82);
     --bg-modal: rgba(255, 255, 255, 0.7);

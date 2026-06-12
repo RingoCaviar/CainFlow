@@ -1071,12 +1071,40 @@ export function createExecutionCoreApi({
     function getCustomParamsFromNode(node) {
         const rows = Array.from(documentRef.querySelectorAll(`#${node.id}-params-list [data-param-row]`));
         const params = {};
+        const validKeys = new Set(); // 记录当前有效的参数名
+
+        // 首先从UI输入框获取参数
         rows.forEach((row) => {
             const key = row.querySelector('.custom-param-key')?.value?.trim() || '';
             if (!key) return;
+            validKeys.add(key);
             const value = row.querySelector('.custom-param-value')?.value || '';
             params[key] = coerceCustomParamValue(value);
         });
+
+        // 然后从端口连接覆盖参数值（但只处理当前有效的参数）
+        const inputs = collectCachedInputsForNode(node.id);
+        Object.keys(inputs).forEach((portName) => {
+            // 端口名格式为 param_{key}
+            const match = portName.match(/^param_(.+)$/);
+            if (!match) return;
+            const key = match[1];
+
+            // 只有当这个参数在UI中存在时，才使用端口连接的值
+            if (!validKeys.has(key)) return;
+
+            const value = inputs[portName];
+
+            // 如果是图片数据（base64字符串），直接使用
+            if (typeof value === 'string' && value.startsWith('data:image/')) {
+                params[key] = value;
+            } else if (typeof value === 'string') {
+                params[key] = coerceCustomParamValue(value);
+            } else {
+                params[key] = value;
+            }
+        });
+
         node.data = node.data || {};
         node.data.params = Object.entries(params).map(([key, value]) => ({ key, value }));
         return params;

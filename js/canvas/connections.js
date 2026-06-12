@@ -1077,7 +1077,13 @@ export function createConnectionsApi({
         if (src.nodeId === tgt.nodeId) return showToast('不能连接同一节点', 'warning');
         if (src.isOutput && tgt.dir === 'output') return showToast('不能连接两个输出', 'warning');
         if (!src.isOutput && tgt.dir === 'input') return showToast('不能连接两个输入', 'warning');
-        if (src.dataType !== (tgt.type || tgt.dataType)) return showToast('类型不匹配', 'warning');
+
+        // 类型检查：如果目标类型是 'any'，则接受任何输入；否则必须类型匹配
+        const targetType = tgt.type || tgt.dataType;
+        const sourceType = src.dataType;
+        if (targetType !== 'any' && sourceType !== targetType) {
+            return showToast('类型不匹配', 'warning');
+        }
 
         const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
         const fromPort = src.isOutput ? src.portName : tgt.port;

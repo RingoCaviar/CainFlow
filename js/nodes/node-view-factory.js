@@ -16,6 +16,7 @@ import {
 } from '../features/execution/provider-request-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
+import { getCustomParamsInputPorts } from './types/custom-params.js';
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -1154,6 +1155,8 @@ export function createNodeMarkup({ type, id, config, restoreData, state }) {
         effectiveConfig = { ...config, inputs: getImageMergeInputPorts(restoreData) };
     } else if (type === 'ImageGenerate' || type === 'VideoGenerate' || type === 'TextChat') {
         effectiveConfig = applyReferenceImagePorts(config, restoreData);
+    } else if (type === 'CustomParams') {
+        effectiveConfig = { ...config, inputs: getCustomParamsInputPorts(restoreData) };
     }
     const isCollapsed = restoreData?.collapsed === true;
     const isClone = restoreData?.isClone === true && typeof restoreData?.cloneSourceId === 'string' && restoreData.cloneSourceId;

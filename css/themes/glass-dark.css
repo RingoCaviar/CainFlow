@@ -50,6 +50,7 @@
     --port-image: #b5a7ee;
     --port-text: #7dd3fc;
     --port-params: #f0c36a;
+    --port-any: #6ee7b7;
     --shadow-node: none;
     --shadow-node-hover: none;
     --bg-modal: var(--glass-surface);

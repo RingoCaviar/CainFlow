@@ -1,6 +1,25 @@
 /**
  * 定义请求自定义参数节点的元数据、端口配置与默认尺寸。
  */
+
+/**
+ * 根据参数行生成输入端口
+ */
+export function getCustomParamsInputPorts(restoreData = {}) {
+    const rd = restoreData || {};
+    const rows = Array.isArray(rd.params)
+        ? rd.params
+        : (Array.isArray(rd.customParams) ? rd.customParams : []);
+
+    return rows
+        .filter((row) => row?.key && typeof row.key === 'string')
+        .map((row) => ({
+            name: `param_${row.key}`,
+            type: 'any',
+            label: row.key
+        }));
+}
+
 export const customParamsNode = {
     type: 'CustomParams',
     title: '自定义参数',

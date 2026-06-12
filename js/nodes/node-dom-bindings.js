@@ -2453,7 +2453,147 @@ export function createNodeDomBindingsApi({
                     if (valueInput) valueInput.id = `${id}-param-value-${index}`;
                 });
             };
+            const refreshCustomParamsPorts = () => {
+                const node = state.nodes.get(id);
+                if (!node) return;
+                const rows = Array.from(list?.querySelectorAll('[data-param-row]') || []);
+
+                // 保存旧的参数列表（包括空的），用于检测重命名
+                const oldParams = (node.data?.params || []).slice();
+
+                const params = rows
+                    .map((row) => {
+                        const key = row.querySelector('.custom-param-key')?.value?.trim() || '';
+                        const value = row.querySelector('.custom-param-value')?.value || '';
+                        return { key, value };
+                    })
+                    .filter((row) => row.key);
+
+                node.data = node.data || {};
+                node.data.params = params;
+
+                const inputs = params.map((row) => ({
+                    name: `param_${row.key}`,
+                    type: 'any',
+                    label: row.key
+                }));
+
+                // 尝试通过索引匹配来更新连接中的端口名（处理重命名情况）
+                const portRenameMap = new Map(); // oldPortName -> newPortName
+                params.forEach((newParam, index) => {
+                    if (index < oldParams.length && oldParams[index].key) {
+                        const oldPortName = `param_${oldParams[index].key}`;
+                        const newPortName = `param_${newParam.key}`;
+                        if (oldPortName !== newPortName) {
+                            portRenameMap.set(oldPortName, newPortName);
+                        }
+                    }
+                });
+
+                // 更新连接中的端口名
+                if (portRenameMap.size > 0) {
+                    let updated = false;
+                    state.connections.forEach((conn) => {
+                        if (conn.to.nodeId === id && portRenameMap.has(conn.to.port)) {
+                            conn.to.port = portRenameMap.get(conn.to.port);
+                            updated = true;
+                        }
+                    });
+                    if (updated) {
+                        console.log(`[CustomParams] Updated ${portRenameMap.size} port names in connections`);
+                    }
+                }
+
+                // 检测被完全删除的端口（不在新参数列表中的旧参数）
+                const newPortNames = new Set(inputs.map(p => p.name));
+                const removedPorts = oldParams
+                    .filter(p => p.key)
+                    .map(p => `param_${p.key}`)
+                    .filter(name => !newPortNames.has(name) && !Array.from(portRenameMap.keys()).includes(name));
+
+                if (removedPorts.length > 0) {
+                    const before = state.connections.length;
+                    state.connections = state.connections.filter((conn) => {
+                        if (conn.to.nodeId === id && removedPorts.includes(conn.to.port)) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    if (state.connections.length !== before) {
+                        console.log(`[CustomParams] Removed ${before - state.connections.length} connections for deleted ports`);
+                    }
+                }
+
+                const portsRow = node.el?.querySelector('.node-ports-row');
+                if (!portsRow) return;
+
+                // 查找或创建 inputs section
+                let inputsSection = portsRow.querySelector('.node-inputs-section');
+                if (!inputsSection && inputs.length > 0) {
+                    inputsSection = documentRef.createElement('div');
+                    inputsSection.className = 'node-inputs-section';
+                    // 插入到 outputs section 之前
+                    const outputsSection = portsRow.querySelector('.node-outputs-section');
+                    if (outputsSection) {
+                        portsRow.insertBefore(inputsSection, outputsSection);
+                    } else {
+                        portsRow.appendChild(inputsSection);
+                    }
+                }
+
+                if (inputsSection) {
+                    inputsSection.innerHTML = inputs.map((port) => `
+                        <div class="node-port input" data-node-id="${id}" data-port="${port.name}" data-type="${port.type}" data-direction="input">
+                            <div class="port-dot type-${port.type}"></div>
+                            <span class="port-label">${port.label}</span>
+                        </div>
+                    `).join('');
+
+                    // 为新创建的端口绑定交互事件
+                    inputsSection.querySelectorAll('.node-port').forEach((portEl) => {
+                        bindPortInteraction(portEl);
+                    });
+
+                    // 如果没有端口了，删除 section
+                    if (inputs.length === 0) {
+                        inputsSection.remove();
+                    }
+                }
+
+                if (inputs.length > 0) {
+                    portsRow.classList.add('has-inputs');
+                    portsRow.classList.add('has-outputs');
+                } else {
+                    portsRow.classList.remove('has-inputs');
+                    portsRow.classList.add('has-outputs-only');
+                }
+
+                // 清除端口缓存，这样连接系统会重新读取端口
+                if (node._portPositionCache) {
+                    delete node._portPositionCache;
+                }
+
+                // 强制刷新端口几何位置和连接
+                if (typeof invalidateNodePortCache === 'function') {
+                    invalidateNodePortCache(id);
+                }
+                refreshNodesPortGeometry([id], { force: true });
+                updatePortStyles();
+                onConnectionsChanged();
+                scheduleSave();
+            };
             const bindRow = (row) => {
+                const keyInput = row.querySelector('.custom-param-key');
+                const valueInput = row.querySelector('.custom-param-value');
+                keyInput?.addEventListener('input', debounce(() => {
+                    refreshCustomParamsPorts();
+                }, 300));
+                keyInput?.addEventListener('change', () => {
+                    refreshCustomParamsPorts();
+                });
+                valueInput?.addEventListener('change', () => {
+                    scheduleSave();
+                });
                 row.querySelector('.custom-param-remove')?.addEventListener('click', () => {
                     if (!list) return;
                     const rows = list.querySelectorAll('[data-param-row]');
@@ -2464,6 +2604,7 @@ export function createNodeDomBindingsApi({
                         row.remove();
                     }
                     renumberRows();
+                    refreshCustomParamsPorts();
                     fitNodeToContent(id);
                 });
             };
