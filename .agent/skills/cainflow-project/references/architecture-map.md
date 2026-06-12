@@ -150,7 +150,7 @@
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
 | 启动入口 | `index.js` | 前端真实入口与总装配层，负责模块初始化与依赖注入 |
-| 页面骨架 | `index.html` | 页面结构、面板容器、弹窗结构、脚本与样式入口 |
+| 页面骨架 | `index.html` | 页面结构、面板容器、弹窗结构、CSS 并行加载链（22 个 `<link>` 标签按 foundation → modules → layout → components → features → themes 顺序加载）、启动脚本 |
 | 应用上下文 | `js/app/create-app-context.js` | 创建装配期共享上下文；启动时判断本地是否已有 `nodeflow_ai_state`，在 `API_PROVIDERS_LOCKED` 开启且首次打开项目时阻止默认 6789 / GXP 供应商注入 |
 | 应用启动控制 | `js/features/app/startup-controller.js` | 应用初始化流程、模块装载编排；`loadState()` 后始终同步代理到后端 |
 | 共享常量 | `js/core/constants.js` | `APP_VERSION_NUMBER`、`APP_VERSION`、`APP_ASSET_VERSION`、GITHUB_REPO、STORAGE_KEY、DB_VERSION、默认供应商/默认模型，以及 `API_PROVIDERS_LOCKED` 这类前端共享策略常量 |
@@ -294,8 +294,9 @@
 
 | 区域 | 主要文件 | 作用 |
 | --- | --- | --- |
-| 样式入口 | `index.css` | 分层样式入口，@import 各子目录 |
-| Layout | `css/layout/layout.css` | 应用整体布局与面板排布 |
+| 样式加载 | `index.html` 中的 `<link>` 标签 | 22 个 CSS 模块通过 `<link rel="stylesheet">` 并行加载，消除 `@import` 串行瀑布链；加载顺序：foundation → toolbar → buttons → canvas → node-core → node-media → node-text → node-controls → context-menu → toasts → fullscreen-preview → image-painter → settings-config → drawers-history-log → sidebar-notices-errors → workbench → nodes → dialog-style-1 → panels → settings → image-cropper → themes |
+| Workbench | `css/layout/workbench.css` | 应用整体布局、工具栏/侧边栏/画布/抽屉的交互态过渡、共享 token、悬浮通知与 toast 位置契约 |
+| Modules | `css/modules/*.css` | 按数字前缀排序的核心模块样式（00-foundation 到 14-sidebar-notices-errors），每个模块独立职责明确 |
 | Components | `css/components/nodes.css`, `css/components/dialog-style-1.css` | 可复用的节点与组件样式；图片对比节点、高级全屏对比、A/B 互斥裁切、缩略图选择网格、展开选图态、对比舞台缩放/平移光标，以及通用 `dialog-style-1` 弹窗样式 |
 | Features | `css/features/panels.css`, `css/features/settings.css`, `css/features/image-cropper.css` | 功能区或面板专属样式；`panels.css` 承接提示词库、提示词导入、全屏历史、历史预览等共享面板结构与 token 消费；设置面板新增交互放 `settings.css`；全屏图片裁剪相关布局和交互态放 `image-cropper.css` |
 | Themes | `css/themes.css`, `css/themes/shared.css`, `css/themes/*.css` | 主题入口、主题菜单共享层和单主题文件；当前包含 dark/light/pro/pink/glass-light/glass-dark，新增主题时同步 import、注册表和启动浅色判定 |
@@ -477,3 +478,24 @@ grep -r "handle_get\|handle_post\|handle_delete\|def " backend --include="*.py"
 - 优先使用分层后的 `css/` 目录，不要继续扩张 `index.css` 或 `css/legacy.css`。设置面板专属新增样式放 `css/features/settings.css`，只在 `index.css` 中接入入口。
 - 主题相关改动优先落在 `css/themes/*` 与 `js/features/ui/theme-controller.js`。如果主题变更影响面板、节点、弹窗、菜单或预览区的视觉，必须同步补对应主题文件里的覆盖，而不是只改基础样式后假设所有区域都会自动正确继承。
 - 保留当前启动流程中已经对外暴露的兼容钩子。
+
+
+## 代码质量与性能优化
+
+### CSS 加载优化
+
+- **并行加载替代串行 `@import`**：所有 CSS 模块通过 `index.html` 中的独立 `<link rel="stylesheet">` 标签加载，消除 `@import` 导致的瀑布链延迟。浏览器可同时发起所有 CSS 请求，显著降低首屏渲染时间。
+- **加载顺序**：foundation → toolbar → buttons → canvas → node-core → node-media → node-text → node-controls → context-menu → toasts → fullscreen-preview → image-painter → settings-config → drawers-history-log → sidebar-notices-errors → workbench → nodes → dialog-style-1 → panels → settings → image-cropper → themes。这个顺序保证基础样式先加载，避免 FOUC（无样式内容闪烁）。
+- **新增 CSS 模块**：在 `css/modules/`、`css/features/` 或 `css/components/` 下新增模块后，必须同步在 `index.html` 中添加对应的 `<link>` 标签，并按职责插入正确位置。
+- **移除空文件**：已删除空的 `css/layout/layout.css`（仅含注释），相关职责已合并到 `css/layout/workbench.css`。
+
+### ID 生成优化
+
+- **`generateId()` 升级**：从 `Math.random().toString(36)` 改为 `crypto.getRandomValues(new Uint8Array(7))`，保持 `n_` 前缀和 9 字符长度格式，但提供密码学级别的唯一性保证，消除碰撞隐患。
+- **使用场景**：节点 ID、连接 ID、工作流内部标识等需要唯一性的场景。升级后向后兼容，现有 ID 格式不受影响。
+
+### 性能最佳实践
+
+- **HTTP/2 并行请求**：现代浏览器在 HTTP/2 下可并行请求多个资源，22 个 CSS 文件通过 `<link>` 并行加载比串行 `@import` 快数倍。
+- **避免 `@import` 嵌套**：`@import` 必须等待父文件下载并解析后才能发起子文件请求，形成串行瀑布链。`<link>` 标签在 HTML 解析时立即可见，浏览器可同时发起所有请求。
+- **缓存策略**：CSS 文件使用 `Cache-Control: public, max-age=0, must-revalidate`，确保每次访问都验证新鲜度，但允许缓存复用。后续可考虑引入 content hash 做长缓存优化。
