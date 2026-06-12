@@ -1,0 +1,186 @@
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08); /* Unified border */
+    border-radius: var(--radius-sm);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition), color var(--transition), transform var(--transition);
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    white-space: nowrap; /* Single line text as requested */
+}
+
+.btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+.btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.btn:active {
+    transform: scale(0.97);
+}
+
+/* Button Sizes */
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.btn-xs {
+    padding: 4px 10px;
+    font-size: 11px;
+    height: 28px;
+}
+
+/* Button Variants */
+.btn-primary {
+    background: var(--accent-purple);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-icon {
+    padding: 6px;
+    background: transparent;
+}
+
+.btn-icon:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.btn-run {
+    background: var(--accent-purple);
+    color: white;
+    font-weight: 600;
+    box-shadow: none;
+}
+
+.btn-run:hover {
+    box-shadow: none;
+    transform: translateY(-1px);
+}
+
+.btn-run:active {
+    transform: translateY(0) scale(0.97);
+}
+
+.btn-run.running {
+    animation: common-pulse 1.5s ease-in-out infinite;
+    --pulse-shadow: 0 4px 24px rgba(168, 85, 247, 0.6);
+}
+
+.btn-danger {
+    background: #dc2626;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-danger:hover {
+    background: #ef4444;
+    box-shadow: none;
+    transform: translateY(-1px);
+}
+
+.btn-stop {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.btn-stop:not(:disabled):hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: white;
+    box-shadow: none;
+}
+
+.btn-stop.running {
+    animation: common-pulse 1.2s ease-in-out infinite;
+    --pulse-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+    --pulse-border: rgba(239, 68, 68, 0.4);
+}
+
+.btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+#btn-undo {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#btn-undo:not(:disabled):hover {
+    color: var(--accent-cyan);
+    background: rgba(34, 211, 238, 0.1);
+}
+
+#btn-undo:active:not(:disabled) {
+    transform: scale(0.9) rotate(-30deg);
+}
+
+/* 日志按钮红点提示 */
+#btn-logs {
+    position: relative;
+}
+
+#btn-logs.has-new-error::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-red);
+    border-radius: 50%;
+    border: 2px solid var(--bg-dark);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+    animation: common-scale-pulse 2s infinite;
+    --pulse-color: rgba(239, 68, 68, 0.7);
+}
+
+@keyframes common-pulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 5px rgba(255, 255, 255, 0.1);
+    }
+
+    50% {
+        box-shadow: var(--pulse-shadow);
+        border-color: var(--pulse-border, transparent);
+    }
+}
+
+@keyframes common-scale-pulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 var(--pulse-color);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(0, 0, 0, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    }
+}

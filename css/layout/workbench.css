@@ -275,7 +275,7 @@ body.sidebar-pinned #side-bar {
  * - New bottom-right modal footer actions should extend --toast-bottom-offset via the modal's visible state
  *   selector, for example body:has(#modal:not(.hidden)) or body:has(#modal.active).
  * - If a legacy direct-positioning selector still overrides the variable result, add one bridge rule here on the
- *   real container instead of scattering new hard-coded offsets back into legacy.css or feature-local CSS.
+ *   real container instead of scattering new hard-coded offsets back into legacy modules or feature-local CSS.
  */
 #toolbar + #main-layout #canvas-container #floating-notices-container {
     top: var(--floating-notices-top-offset);

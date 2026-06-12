@@ -1,0 +1,113 @@
+/* ===== Context Menu ===== */
+.context-menu {
+    position: fixed;
+    min-width: 200px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    background: var(--bg-context-menu);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--panel-shadow-soft);
+    z-index: 2000;
+    padding: 4px;
+    animation: context-menu-in 0.15s ease-out;
+}
+
+@keyframes context-menu-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.context-menu.hidden {
+    display: none;
+}
+
+#workflow-context-menu,
+#workflow-folder-context-menu {
+    z-index: 12000;
+}
+
+.context-menu-header {
+    padding: 8px 12px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+    transition: background var(--transition);
+}
+
+.context-menu-item:hover {
+    background: var(--panel-accent-bg);
+}
+
+.context-menu-item.is-disabled,
+.context-menu-item.is-disabled:hover {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: transparent;
+}
+
+.context-menu-item.is-open {
+    background: var(--panel-active-bg);
+}
+
+.context-menu-item-submenu {
+    justify-content: space-between;
+}
+
+.context-menu-item-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.context-menu-submenu-arrow {
+    margin-left: 16px;
+    opacity: 0.78;
+    transition: transform var(--transition), opacity var(--transition);
+}
+
+.context-menu-item-submenu.is-open .context-menu-submenu-arrow,
+.context-menu-item-submenu:hover .context-menu-submenu-arrow {
+    opacity: 1;
+    transform: translateX(2px);
+}
+
+.context-menu-submenu {
+    z-index: 2001;
+    min-width: 210px;
+}
+
+.context-menu-item svg {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* ===== Context Menu Divider ===== */
+.context-menu-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 4px 8px;
+}

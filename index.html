@@ -64,7 +64,29 @@
             }
         })();
     </script>
-    <link id="app-stylesheet" rel="stylesheet" href="index.css">
+    <!-- CSS files loaded in parallel for faster initial render -->
+    <link rel="stylesheet" href="css/modules/00-foundation.css">
+    <link rel="stylesheet" href="css/modules/01-toolbar.css">
+    <link rel="stylesheet" href="css/modules/02-buttons.css">
+    <link rel="stylesheet" href="css/modules/03-canvas.css">
+    <link rel="stylesheet" href="css/modules/04-node-core.css">
+    <link rel="stylesheet" href="css/modules/05-node-media.css">
+    <link rel="stylesheet" href="css/modules/06-node-text.css">
+    <link rel="stylesheet" href="css/modules/07-node-controls.css">
+    <link rel="stylesheet" href="css/modules/08-context-menu.css">
+    <link rel="stylesheet" href="css/modules/09-toasts.css">
+    <link rel="stylesheet" href="css/modules/10-fullscreen-preview.css">
+    <link rel="stylesheet" href="css/modules/11-image-painter.css">
+    <link rel="stylesheet" href="css/modules/12-settings-config.css">
+    <link rel="stylesheet" href="css/modules/13-drawers-history-log.css">
+    <link rel="stylesheet" href="css/modules/14-sidebar-notices-errors.css">
+    <link rel="stylesheet" href="css/layout/workbench.css">
+    <link rel="stylesheet" href="css/components/nodes.css">
+    <link rel="stylesheet" href="css/components/dialog-style-1.css">
+    <link rel="stylesheet" href="css/features/panels.css">
+    <link rel="stylesheet" href="css/features/settings.css">
+    <link rel="stylesheet" href="css/features/image-cropper.css">
+    <link rel="stylesheet" href="css/themes.css">
     <script type="module">
         import { APP_VERSION, APP_VERSION_NUMBER } from './js/core/constants.js';
 

@@ -1,0 +1,303 @@
+﻿/* ===== CSS Variables & Reset ===== */
+:root {
+    --bg-canvas: #1a1a2e;
+    --bg-grid-dot: rgba(255, 255, 255, 0.06);
+    /* Canvas dot grid: adjust size and spacing here, or override per theme. */
+    --canvas-bg-color: var(--bg-canvas);
+    --canvas-dot-color: var(--bg-grid-dot);
+    --canvas-dot-size: 1.15px;
+    --canvas-dot-spacing: 22px;
+    --canvas-dot-spacing-scaled: var(--canvas-dot-spacing);
+    --canvas-dot-offset-x: 0px;
+    --canvas-dot-offset-y: 0px;
+    --canvas-bg-layers:
+        linear-gradient(135deg, rgba(99, 102, 241, 0.06), transparent 42%),
+        linear-gradient(315deg, rgba(34, 211, 238, 0.04), transparent 46%);
+    --bg-toolbar: rgba(16, 16, 32, 0.92);
+    --bg-node: #1e1e34;
+    --bg-node-header: rgba(255, 255, 255, 0.06);
+    --bg-input: rgba(0, 0, 0, 0.3);
+    --bg-context-menu: rgba(22, 22, 42, 0.96);
+    --border-node: rgba(255, 255, 255, 0.08);
+    --border-input: rgba(255, 255, 255, 0.1);
+    --text-primary: #e8e8f0;
+    --text-secondary: #9999b8;
+    --text-dim: #666688;
+    --accent-purple: #a855f7;
+    --accent-blue: #6366f1;
+    --accent-cyan: #22d3ee;
+    --accent-green: #10b981;
+    --accent-orange: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-pink: #ec4899;
+    --accent-primary: var(--accent-purple);
+    /* Global primary accent for nodes and UI */
+    --port-image: #a855f7;
+    --port-text: #22d3ee;
+    --port-params: #f59e0b;
+    --shadow-node: 0 2px 10px rgba(0, 0, 0, 0.16);
+    --shadow-node-hover: 0 4px 14px rgba(0, 0, 0, 0.2);
+    --bg-modal: #1e1e34;
+    --bg-drawer: rgba(22, 22, 42, 0.98);
+    --bg-log-item: rgba(255, 255, 255, 0.03);
+    --bg-log-item-hover: rgba(255, 255, 255, 0.06);
+    --shadow-drawer: -8px 0 32px rgba(0, 0, 0, 0.5);
+    --radius-node: 12px;
+    --radius-sm: 6px;
+    --radius-xs: 4px;
+    --conn-color: 168, 85, 247;
+    /* Purple RGB */
+    --conn-opacity: 0.2;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    --font-mono: Consolas, "SFMono-Regular", Menlo, Monaco, "Courier New", monospace;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --panel-bg: var(--bg-drawer);
+    --panel-bg-strong: var(--bg-drawer);
+    --panel-bg-soft: rgba(255, 255, 255, 0.03);
+    --panel-bg-muted: rgba(0, 0, 0, 0.2);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --panel-border-strong: rgba(255, 255, 255, 0.1);
+    --panel-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.18);
+    --panel-shadow-strong: 0 10px 28px rgba(0, 0, 0, 0.22);
+    --panel-hover-bg: rgba(255, 255, 255, 0.07);
+    --panel-hover-border: rgba(168, 85, 247, 0.4);
+    --panel-active-bg: rgba(168, 85, 247, 0.16);
+    --panel-active-border: rgba(168, 85, 247, 0.28);
+    --panel-control-bg: rgba(255, 255, 255, 0.06);
+    --panel-control-border: rgba(255, 255, 255, 0.1);
+    --panel-control-text: var(--text-dim);
+    --panel-control-hover-bg: rgba(255, 255, 255, 0.08);
+    --panel-control-hover-border: rgba(168, 85, 247, 0.32);
+    --panel-control-hover-text: var(--text-primary);
+    --panel-input-bg: rgba(255, 255, 255, 0.05);
+    --panel-input-border: rgba(255, 255, 255, 0.1);
+    --panel-accent-bg: rgba(168, 85, 247, 0.12);
+    --panel-accent-border: rgba(168, 85, 247, 0.26);
+    --panel-accent-text: var(--accent-primary);
+    --notice-bg: rgba(16, 16, 32, 0.85);
+    --notice-border: rgba(255, 255, 255, 0.08);
+    --notice-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+    --notice-inline-bg: rgba(245, 158, 11, 0.1);
+    --notice-inline-text: var(--accent-orange);
+    --notice-inline-border: rgba(245, 158, 11, 0.18);
+    --notice-highlight-bg: rgba(28, 22, 12, 0.9);
+    --notice-highlight-border: rgba(245, 158, 11, 0.26);
+    --notice-update-bg: rgba(23, 20, 36, 0.9);
+    --notice-update-border: rgba(168, 85, 247, 0.28);
+    --notice-update-icon-bg: rgba(168, 85, 247, 0.18);
+    --notice-update-icon-text: var(--accent-purple);
+    --notice-action-bg: rgba(168, 85, 247, 0.12);
+    --notice-action-border: rgba(168, 85, 247, 0.26);
+    --notice-action-hover-bg: rgba(168, 85, 247, 0.2);
+    --notice-action-hover-border: rgba(168, 85, 247, 0.42);
+    --notice-close-hover-bg: rgba(255, 255, 255, 0.06);
+    --app-chrome-top-offset: 0px;
+    --app-chrome-left-offset: 0px;
+    --app-chrome-gap: 8px;
+    --painter-board-bg: #050510;
+    --painter-board-check-a: rgba(255, 255, 255, 0.052);
+    --painter-board-check-b: rgba(0, 0, 0, 0.12);
+    --painter-board-glow: rgba(34, 211, 238, 0.08);
+    --painter-board-sheen: rgba(255, 255, 255, 0.035);
+    --painter-board-check-size: 28px;
+    --node-select-bg: var(--bg-input);
+    --node-select-border: var(--border-input);
+    --node-select-text: var(--text-primary);
+    --node-select-caret: var(--text-dim);
+    --node-select-focus-border: var(--accent-primary);
+    --node-select-focus-shadow: none;
+    --node-select-panel-bg: rgba(22, 22, 42, 0.98);
+    --node-select-panel-border: rgba(255, 255, 255, 0.1);
+    --node-select-panel-shadow: 0 16px 44px rgba(0, 0, 0, 0.3);
+    --node-select-option-hover-bg: rgba(168, 85, 247, 0.14);
+    --node-select-option-selected-bg: rgba(168, 85, 247, 0.18);
+    --workflow-card-bg: rgba(255, 255, 255, 0.03);
+    --workflow-card-border: rgba(255, 255, 255, 0.06);
+    --workflow-card-hover-bg: rgba(255, 255, 255, 0.07);
+    --workflow-card-hover-border: rgba(168, 85, 247, 0.4);
+    --workflow-card-shadow: none;
+    --cache-card-bg: rgba(255, 255, 255, 0.03);
+    --cache-card-border: rgba(255, 255, 255, 0.06);
+    --cache-card-shadow: none;
+    --cache-row-border: rgba(255, 255, 255, 0.05);
+    --sidebar-bg: #0d0d16;
+    --sidebar-border: rgba(255, 255, 255, 0.06);
+    --sidebar-btn-hover-bg: rgba(255, 255, 255, 0.05);
+    --sidebar-btn-active-bg: rgba(168, 85, 247, 0.15);
+    --sidebar-btn-active-text: var(--accent-primary);
+    --prompt-overlay-bg: rgba(5, 8, 18, 0.78);
+    --prompt-panel-bg: rgba(18, 22, 38, 0.98);
+    --prompt-panel-border: rgba(255, 255, 255, 0.1);
+    --prompt-panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+    --prompt-section-border: rgba(255, 255, 255, 0.08);
+    --prompt-header-bg: transparent;
+    --prompt-empty-bg: rgba(255, 255, 255, 0.03);
+    --prompt-empty-border: rgba(255, 255, 255, 0.12);
+    --prompt-card-bg: rgba(255, 255, 255, 0.045);
+    --prompt-card-border: rgba(255, 255, 255, 0.08);
+    --prompt-card-shadow: none;
+    --prompt-card-hover-bg: rgba(255, 255, 255, 0.065);
+    --prompt-card-hover-border: rgba(34, 211, 238, 0.35);
+    --prompt-card-hover-shadow: none;
+    --prompt-card-selected-border: rgba(34, 211, 238, 0.78);
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
+    --prompt-card-actions-bg: rgba(0, 0, 0, 0.12);
+    --prompt-editor-bg: rgba(0, 0, 0, 0.18);
+    --prompt-editor-border: rgba(255, 255, 255, 0.08);
+    --prompt-import-dialog-bg: rgba(5, 8, 18, 0.66);
+    --prompt-import-panel-bg: rgba(18, 22, 38, 0.98);
+    --prompt-import-panel-border: rgba(255, 255, 255, 0.12);
+    --prompt-import-panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+    --prompt-import-item-bg: rgba(255, 255, 255, 0.045);
+    --prompt-import-item-border: rgba(255, 255, 255, 0.08);
+    --prompt-import-item-shadow: none;
+    --prompt-import-item-selected-border: rgba(34, 211, 238, 0.72);
+    --prompt-import-item-selected-shadow: 0 0 0 2px rgba(34, 211, 238, 0.16);
+    --history-overlay-bg:
+        radial-gradient(circle at top left, rgba(25, 86, 140, 0.18), transparent 30%),
+        radial-gradient(circle at top right, rgba(13, 148, 136, 0.12), transparent 26%),
+        rgba(3, 6, 14, 0.88);
+    --history-panel-bg: linear-gradient(180deg, rgba(14, 18, 28, 0.98), rgba(8, 11, 18, 0.98));
+    --history-panel-border: rgba(255, 255, 255, 0.08);
+    --history-panel-shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+    --history-section-border: rgba(255, 255, 255, 0.06);
+    --history-batch-bg: rgba(255, 255, 255, 0.03);
+    --history-empty-bg: transparent;
+    --history-empty-border: rgba(255, 255, 255, 0.1);
+    --history-group-header-bg: linear-gradient(180deg, rgba(8, 11, 18, 0.98), rgba(8, 11, 18, 0.68));
+    --history-rail-bg: rgba(255, 255, 255, 0.02);
+    --history-rail-border: rgba(255, 255, 255, 0.06);
+    --history-rail-tooltip-bg: rgba(9, 13, 22, 0.94);
+    --history-rail-tooltip-border: rgba(255, 255, 255, 0.08);
+    --history-rail-tooltip-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+    --history-rail-tooltip-text: #eff8ff;
+    --history-card-meta-bg: linear-gradient(180deg, rgba(7, 11, 20, 0) 0%, rgba(7, 11, 20, 0.78) 45%, rgba(7, 11, 20, 0.94) 100%);
+    --history-card-meta-text: #f3f7ff;
+    --history-card-meta-subtext: rgba(226, 235, 255, 0.72);
+    --history-preview-bg: rgba(15, 15, 20, 0.85);
+    --history-preview-border: rgba(255, 255, 255, 0.1);
+    --history-preview-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    --history-preview-meta-border: rgba(255, 255, 255, 0.06);
+}
+
+body.toolbar-pinned {
+    --app-chrome-top-offset: calc(var(--toolbar-height, 48px) + var(--app-chrome-gap, 8px));
+}
+
+body.sidebar-pinned {
+    --app-chrome-left-offset: 60px;
+}
+
+html.animations-disabled,
+html.animations-disabled * {
+    scroll-behavior: auto !important;
+}
+
+html.animations-disabled *,
+html.animations-disabled *::before,
+html.animations-disabled *::after {
+    animation: none !important;
+    transition: none !important;
+}
+
+html.animations-disabled .connection-flow-decoration {
+    display: none !important;
+}
+
+/* Custom Scrollbar for a premium look */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.icon-sm {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+    display: block;
+}
+
+.icon-xs {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2.5;
+}
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font);
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-font-smoothing: subpixel-antialiased;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: geometricPrecision;
+}
+
+html {
+    background: var(--bg-canvas);
+    width: 100%;
+    height: 100%;
+}
+
+#app-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    --toolbar-peek-height: 100px;
+}
+
+#main-layout {
+    display: flex;
+    flex: 1;
+    min-height: 0; /* Allow shrinking below content height in flex column */
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+    /* Context for absolute sidebars/drawers */
+}

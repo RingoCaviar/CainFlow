@@ -1,0 +1,140 @@
+/* ===== Password field ===== */
+.node-field input[type="password"] {
+    font-family: monospace;
+    letter-spacing: 2px;
+}
+
+/* ===== Toggle Switch ===== */
+.node-field-row {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.node-field-row-compact {
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.node-field-inline-label {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.node-video-generate .node-field-row-compact {
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.node-video-generate .node-field-inline-label {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.node-video-generate .toggle-switch {
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+
+.node-video-generate .node-field-note {
+    gap: 0;
+}
+
+.node-video-generate .video-generate-note {
+    display: block;
+    width: 100%;
+    margin-top: 2px;
+    color: var(--text-dim);
+}
+
+.node-video-generate .node-field textarea {
+    min-height: 88px;
+}
+
+.node-video-generate textarea.video-generate-prompt {
+    min-height: 96px;
+    overflow-y: hidden;
+}
+
+.node-video-generate .node-video-prompt-field {
+    flex: 0 0 auto;
+}
+
+.node-video-generate .node-video-prompt-field textarea {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 96px;
+    resize: none;
+}
+
+.node-video-generate .node-video-result-field {
+    flex: 0 0 auto;
+    min-height: 0;
+}
+
+.node-video-generate .node-video-result-field .chat-response-wrapper {
+    display: block;
+    flex: 0 0 auto;
+    min-height: 120px;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+}
+
+.node-video-generate .node-video-result-field .chat-response-area {
+    flex: 0 0 auto;
+    height: 160px;
+    min-height: 120px;
+    max-height: none;
+    resize: none;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    transition: all var(--transition);
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 3px;
+    top: 3px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: all var(--transition);
+}
+
+.toggle-switch input:checked+.toggle-slider {
+    background: var(--accent-purple);
+}
+
+.toggle-switch input:checked+.toggle-slider::before {
+    transform: translateX(16px);
+    background: white;
+}

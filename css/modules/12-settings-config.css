@@ -1,0 +1,459 @@
+/* Tabs */
+.modal-tabs {
+    display: flex;
+    gap: 16px;
+    padding: 0 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.modal-tab-btn {
+    position: relative;
+    padding: 12px 4px 14px;
+    background: transparent;
+    border: 0;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.modal-tab-btn::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 5px;
+    width: 0;
+    height: 3px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0;
+    transform: translateX(-50%);
+    transition: width var(--transition), opacity var(--transition);
+}
+
+.modal-tab-btn:hover {
+    color: var(--text-secondary);
+}
+
+.modal-tab-btn.active {
+    color: var(--accent-cyan);
+}
+
+.modal-tab-btn.active::after {
+    width: 26px;
+    opacity: 1;
+}
+
+.settings-tab-pane {
+    display: none;
+}
+
+.settings-tab-pane.active {
+    display: block;
+}
+
+.settings-toolbar {
+    margin-bottom: 12px;
+}
+
+.btn-accent {
+    padding: 7px 14px;
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    border: none;
+    border-radius: var(--radius-sm);
+    color: white;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.btn-accent:hover {
+    filter: brightness(1.15);
+    box-shadow: 0 4px 16px rgba(168, 85, 247, 0.3);
+}
+
+.api-configs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.config-modal-panel {
+    width: 560px;
+    height: auto;
+}
+
+.config-modal-intro,
+.config-file-hint {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.config-section {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.config-section-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.config-check,
+.config-radio {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.config-check input,
+.config-radio input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
+.api-config-card {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    transition: border-color var(--transition);
+}
+
+.api-config-card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.api-config-card .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+
+.api-config-card .card-header .card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.api-config-card .card-header .card-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    cursor: text;
+}
+
+.api-config-card .card-header .card-type {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.card-type.google {
+    background: rgba(66, 133, 244, 0.15);
+    color: #4285f4;
+}
+
+.card-type.openai {
+    background: rgba(16, 163, 127, 0.15);
+    color: #10a37f;
+}
+
+.api-config-card .card-row {
+    display: flex;
+    gap: 8px;
+}
+
+.api-config-card .card-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    position: relative;
+}
+
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-wrapper input {
+    flex: 1;
+    padding-right: 32px !important;
+}
+
+.eye-toggle-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 0.15s;
+    padding: 0;
+}
+
+.eye-toggle-btn:hover {
+    color: var(--text-primary);
+}
+
+.eye-toggle-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.api-config-card .card-field label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.api-config-card .card-field input,
+.api-config-card .card-field select {
+    padding: 6px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-xs);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 12px;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+.api-config-card .card-field input:focus,
+.api-config-card .card-field select:focus {
+    border-color: var(--accent-purple);
+}
+
+.api-config-card .card-field select {
+    background-color: #111827;
+    color: #f8fafc;
+}
+
+.api-config-card .card-field select option {
+    background: #111827;
+    color: #f8fafc;
+}
+
+.api-config-card .card-field input.notification-volume-slider {
+    --notify-volume-progress: 100%;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.api-config-card .card-field input.notification-volume-slider::-webkit-slider-runnable-track {
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: linear-gradient(
+        90deg,
+        var(--accent-purple) 0%,
+        var(--accent-purple) var(--notify-volume-progress),
+        rgba(255, 255, 255, 0.12) var(--notify-volume-progress),
+        rgba(255, 255, 255, 0.12) 100%
+    );
+}
+
+.api-config-card .card-field input.notification-volume-slider::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -5px;
+    border: 2px solid var(--accent-purple);
+    border-radius: 50%;
+    background: var(--bg-panel);
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.api-config-card .card-field input.notification-volume-slider::-moz-range-track {
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.api-config-card .card-field input.notification-volume-slider::-moz-range-progress {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--accent-purple);
+}
+
+.api-config-card .card-field input.notification-volume-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--accent-purple);
+    border-radius: 50%;
+    background: var(--bg-panel);
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+}
+
+/* Hide number input spinners (up/down arrows) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.card-collapsible {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.card-btn-collapse {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.card-btn-collapse:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-primary);
+    transform: scale(1.08);
+}
+
+.card-btn-delete {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 50%;
+    color: var(--accent-red);
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.card-btn-delete:hover {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.5);
+    transform: scale(1.1);
+}
+
+/* Settings Layout Enhancements */
+.settings-section {
+    margin-bottom: 24px;
+}
+
+.settings-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.settings-toolbar h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--accent-cyan);
+}
+
+#settings-modal .settings-toolbar .btn-accent {
+    min-width: 118px;
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    box-shadow:
+        0 8px 20px rgba(139, 92, 246, 0.24),
+        0 2px 8px rgba(15, 23, 42, 0.16);
+}
+
+#settings-modal .settings-toolbar .btn-accent:hover {
+    background: linear-gradient(135deg, #a78bfa, #7c3aed);
+    transform: translateY(-1px);
+    box-shadow:
+        0 12px 26px rgba(139, 92, 246, 0.32),
+        0 4px 12px rgba(15, 23, 42, 0.2);
+}
+
+#settings-modal .settings-toolbar .btn-accent:focus-visible {
+    outline: none;
+    box-shadow:
+        0 0 0 3px rgba(167, 139, 250, 0.24),
+        0 10px 24px rgba(139, 92, 246, 0.28);
+}
+
+.settings-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 20px 0;
+}
+
+.card-btn-delete:hover {
+    background: rgba(239, 68, 68, 0.2);
+}

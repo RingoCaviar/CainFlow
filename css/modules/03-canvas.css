@@ -1,0 +1,201 @@
+/* ===== Canvas ===== */
+#canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+    background-color: var(--canvas-bg-color, var(--bg-canvas));
+    background-image: var(--canvas-bg-layers, none);
+    background-repeat: no-repeat;
+    background-size: cover;
+    outline: none;
+}
+
+#canvas-container::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        radial-gradient(
+            circle at center,
+            var(--canvas-dot-color, var(--bg-grid-dot)) 0,
+            var(--canvas-dot-color, var(--bg-grid-dot)) var(--canvas-dot-size),
+            transparent calc(var(--canvas-dot-size) + 0.35px)
+        );
+    background-size: var(--canvas-dot-spacing-scaled) var(--canvas-dot-spacing-scaled);
+    background-position: var(--canvas-dot-offset-x) var(--canvas-dot-offset-y);
+}
+
+#canvas-container.grabbing,
+#canvas-container.space-pan-active {
+    cursor: grab;
+}
+
+#canvas-container.is-panning,
+#canvas-container.grabbing:active {
+    cursor: grabbing;
+}
+
+#connections-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+@keyframes connection-pulse {
+    0% {
+        stroke-width: 4;
+        filter: drop-shadow(0 0 2px var(--accent-purple));
+    }
+
+    50% {
+        stroke-opacity: 1;
+        stroke-width: 6;
+        filter: drop-shadow(0 0 8px var(--accent-purple));
+    }
+
+    100% {
+        stroke-width: 4;
+        filter: drop-shadow(0 0 2px var(--accent-purple));
+    }
+}
+
+.connection-path {
+    stroke: rgba(var(--conn-color), var(--conn-opacity));
+    stroke-width: 2;
+    transition: all 0.2s ease;
+    pointer-events: visibleStroke;
+    /* Allow clicking on the path itself */
+    fill: none;
+    cursor: pointer;
+}
+
+.connection-path.selected {
+    stroke: #a855f7 !important;
+    /* Force solid purple for selection as requested */
+    stroke-width: 3.5;
+    stroke-opacity: 1;
+    filter: none !important;
+    /* Remove all glow effects */
+    z-index: 10;
+}
+
+.connection-path.connection-insert-target {
+    stroke: rgba(245, 158, 11, 0.38) !important;
+    stroke-width: 4;
+    stroke-dasharray: 9 7;
+}
+
+.connection-insert-preview-path {
+    stroke: rgba(16, 185, 129, 0.92);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 10 6;
+    filter: drop-shadow(0 0 7px rgba(16, 185, 129, 0.48));
+    pointer-events: none !important;
+    animation: dash-flow 0.7s linear infinite;
+}
+
+.connection-flow-decoration {
+    display: none;
+    pointer-events: none;
+}
+
+.connection-flow-decoration.active {
+    display: block;
+}
+
+.connection-flow-arrow {
+    fill: none;
+    stroke: var(--connection-flow-color, rgba(168, 85, 247, 0.95));
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.28));
+}
+
+.connection-breathing {
+    animation: connection-pulse 2s infinite ease-in-out;
+}
+
+#connections-group path {
+    stroke-width: 2.5;
+    fill: none;
+    pointer-events: stroke;
+    cursor: pointer;
+    transition: stroke-width 0.15s ease, filter 0.1s ease;
+}
+
+#connections-group.is-interacting path {
+    filter: none !important;
+    transition: none !important;
+}
+
+#connections-group path:hover {
+    stroke-width: 4;
+    filter: url(#glow);
+}
+
+#connections-group.is-dragging {
+    pointer-events: none !important;
+}
+
+#connections-group.is-dragging path {
+    filter: none !important;
+    transition: none !important;
+}
+
+.temp-connection {
+    stroke: rgba(168, 85, 247, 0.6);
+    stroke-width: 2;
+    stroke-dasharray: 8 4;
+    animation: dash-flow 0.5s linear infinite;
+}
+
+@keyframes dash-flow {
+    to {
+        stroke-dashoffset: -12;
+    }
+}
+
+/* ===== Origin Crosshairs ===== */
+.origin-axis {
+    stroke: rgba(168, 85, 247, 0.4);
+    stroke-width: 1px;
+    stroke-dasharray: 5, 5;
+    vector-effect: non-scaling-stroke;
+}
+
+.origin-dot {
+    fill: var(--accent-purple);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 4px var(--accent-purple));
+    vector-effect: non-scaling-stroke;
+}
+
+#nodes-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    z-index: 2;
+    will-change: auto;
+}
+
+#canvas-container.is-zooming #nodes-layer {
+    will-change: transform;
+}
+
+body.is-interacting #canvas-container,
+body.is-interacting #canvas-container * {
+    user-select: none !important;
+    cursor: inherit !important;
+}
