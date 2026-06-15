@@ -1569,13 +1569,15 @@ export function createNodeDomBindingsApi({
         resolutionSelect.value = normalizedValue;
         const protocol = getEffectiveProtocol(model, provider);
         const isOpenAiModel = protocol === 'openai';
+        const isTtapiOpenAiModel = protocol === 'ttapi-openai';
+        const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
-        updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage);
-        updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage);
-        updateImageGenerateOpenAiExtraVisibility(id, isOpenAiModel, isNewApiAsyncImage);
-        updateImageGenerateMaskPortVisibility(id, isOpenAiModel && !isNewApiAsyncImage);
-        updateImageGenerateResolutionParamNote(id, isOpenAiModel);
-        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, isOpenAiModel);
+        updateImageGenerateAspectVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
+        updateImageGenerateQualityVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
+        updateImageGenerateOpenAiExtraVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
+        updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && !isNewApiAsyncImage);
+        updateImageGenerateResolutionParamNote(id, usesOpenAiImageControls);
+        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
         updateImageGenerateCustomResolutionVisibility(id);
     }
 

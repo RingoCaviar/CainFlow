@@ -85,9 +85,21 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
         return host === 'vectorengine.ai' || host === 'api.vectorengine.ai' || host.endsWith('.vectorengine.ai');
     }
 
+    function isTtapiEndpoint(endpoint) {
+        const host = getEndpointHost(endpoint);
+        return host === 'ttapi.org' || host === 'api.ttapi.org' || host.endsWith('.ttapi.org');
+    }
+
+    function isTtapiOpenAiEndpoint(endpoint) {
+        const host = getEndpointHost(endpoint);
+        return host === 'ttapi.io' || host === 'api.ttapi.io' || host.endsWith('.ttapi.io');
+    }
+
     function getModelFetchProtocol(provider) {
         if (is6789ApiEndpoint(provider?.endpoint)) return 'openai';
         if (isVectorEngineEndpoint(provider?.endpoint)) return 'openai';
+        if (isTtapiOpenAiEndpoint(provider?.endpoint)) return 'ttapi-openai';
+        if (isTtapiEndpoint(provider?.endpoint)) return 'ttapi';
         return normalizeProviderType(provider?.type, provider, 'openai') || 'openai';
     }
 
@@ -378,6 +390,8 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
         getSafeProviderName,
         is6789ApiEndpoint,
         isVectorEngineEndpoint,
+        isTtapiEndpoint,
+        isTtapiOpenAiEndpoint,
         getModelFetchProtocol,
         sanitizeProviderEndpointInput,
         validateProviderEndpoint,

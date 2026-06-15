@@ -72,8 +72,10 @@ export function sanitizeRequestUrl(url) {
 }
 
 function inferProviderType(url = '', context = {}) {
-    if (context?.providerType === 'google' || context?.providerType === 'openai') return context.providerType;
+    if (context?.providerType === 'google' || context?.providerType === 'openai' || context?.providerType === 'ttapi' || context?.providerType === 'ttapi-openai') return context.providerType;
     const normalizedUrl = String(url || '').toLowerCase();
+    if (normalizedUrl.includes('api.ttapi.io')) return 'ttapi-openai';
+    if (normalizedUrl.includes('api.ttapi.org') || normalizedUrl.includes('/gemini/image/generate')) return 'ttapi';
     if (normalizedUrl.includes('generativelanguage.googleapis.com') || normalizedUrl.includes('/v1beta/models/')) return 'google';
     if (
         normalizedUrl.includes('/chat/completions') ||
@@ -506,7 +508,7 @@ function sanitizeRequestPayload(payload, options = {}) {
     if (!payload || typeof payload !== 'object') return payload;
     try {
         const copy = JSON.parse(JSON.stringify(payload));
-        const maskKeys = ['authorization', 'apikey', 'api_key', 'api-key', 'x-api-key', 'key'];
+        const maskKeys = ['authorization', 'apikey', 'api_key', 'api-key', 'x-api-key', 'tt-api-key', 'key'];
         const traverse = (obj) => {
             if (!obj || typeof obj !== 'object') return;
             if (Array.isArray(obj)) {
@@ -592,6 +594,7 @@ const SENSITIVE_DETAIL_KEYS = new Set([
     'api_key',
     'api-key',
     'x-api-key',
+    'tt-api-key',
     'key',
     'token',
     'access_token',

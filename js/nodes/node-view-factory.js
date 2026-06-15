@@ -387,8 +387,10 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
     const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
     const isOpenAiModel = !!selectedModel && protocol === 'openai';
+    const isTtapiOpenAiModel = !!selectedModel && protocol === 'ttapi-openai';
     const isNewApiAsyncImage = !!selectedModel && protocol === 'newapi-image-async';
-    const showResolutionParamNote = isOpenAiModel;
+    const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
+    const showResolutionParamNote = usesOpenAiImageControls;
     const showCustomResolution = rd.resolution === 'custom';
     const imageQuality = ['low', 'medium', 'high'].includes(String(rd.quality || '').toLowerCase())
         ? String(rd.quality).toLowerCase()
@@ -426,7 +428,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '宽高比',
-            fieldClass: isOpenAiModel ? 'hidden' : '',
+            fieldClass: usesOpenAiImageControls ? 'hidden' : '',
             fieldId: `${id}-aspect-field`,
             content: `<select id="${id}-aspect">
                 <option value="" ${!rd.aspect ? 'selected' : ''}>自动</option>
@@ -458,7 +460,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '质量',
-            fieldClass: isOpenAiModel && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-quality-field`,
             content: `<select id="${id}-quality">
                 <option value="auto" ${imageQuality === 'auto' ? 'selected' : ''}>自动</option>
@@ -469,7 +471,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '内容审核',
-            fieldClass: isOpenAiModel && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-moderation-field`,
             content: `<select id="${id}-moderation">
                 <option value="auto" ${imageModeration === 'auto' ? 'selected' : ''}>自动（auto）</option>
@@ -478,7 +480,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '背景',
-            fieldClass: isOpenAiModel && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-background-field`,
             content: `<select id="${id}-background">
                 <option value="auto" ${imageBackground === 'auto' ? 'selected' : ''}>自动（auto）</option>
@@ -503,10 +505,10 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             label: '启用搜索',
             inputId: `${id}-search`,
             checked: rd.search === true,
-            hidden: isOpenAiModel || isNewApiAsyncImage,
+            hidden: usesOpenAiImageControls || isNewApiAsyncImage,
             fieldId: `${id}-search-field`
         })}
-        ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，OpenAI 兼容图片接口大多只使用提示词、size 和 quality；NEW API 原生异步模式会走 /v1/videos 并通过任务 ID 轮询。')}
+        ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，TTAPI Gemini 会发送 aspect_ratio、image_size、google_search；TTAPI OpenAI 会发送 OpenAI 风格的 size、quality、moderation、background 等字段，有参考图时走 /v1/images/edits；NEW API 原生异步模式会走 /v1/videos 并通过任务 ID 轮询。')}
         ${renderNodeFormField({
             label: '提示词',
             fieldId: `${id}-prompt-field`,

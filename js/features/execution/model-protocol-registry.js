@@ -20,6 +20,18 @@ const MODEL_PROTOCOLS = Object.freeze({
         defaultTaskTypes: ['image'],
         helpText: 'NEW API 原生异步图片模式会提交到 /v1/videos，并通过 /v1/videos/{id} 轮询任务；最终图片会从 image_url、url 或兼容字段 video_url 中读取。'
     }),
+    ttapi: Object.freeze({
+        id: 'ttapi',
+        label: 'TTAPI Gemini 生图',
+        defaultTaskTypes: ['image'],
+        helpText: 'TTAPI Gemini 生图会走 /gemini/image/generate，请求头使用 TT-API-KEY，请求体包含 prompt、model、refer_images、aspect_ratio、image_size、google_search 与 image_search。'
+    }),
+    'ttapi-openai': Object.freeze({
+        id: 'ttapi-openai',
+        label: 'TTAPI OpenAI',
+        defaultTaskTypes: ['image'],
+        helpText: 'TTAPI OpenAI 会走 /v1/images/generations；有参考图输入时改走 /v1/images/edits。请求头使用 TT-API-KEY；生成请求体包含 prompt、model、background、moderation、n、quality、size 等参数，编辑请求体会发送 images、prompt、model、mask 等字段。'
+    }),
     'veo-unified': Object.freeze({
         id: 'veo-unified',
         label: 'VEO 视频 · 统一格式',

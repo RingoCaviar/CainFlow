@@ -88,6 +88,8 @@ function getProtocolValue(protocol) {
 
 function getFingerprintProtocol(model = {}) {
     const fingerprint = `${model?.name || ''} ${model?.modelId || ''}`.toLowerCase();
+    if (fingerprint.includes('ttapi-openai') || fingerprint.includes('ttapi openai')) return 'ttapi-openai';
+    if (fingerprint.includes('ttapi')) return 'ttapi';
     if (fingerprint.includes('gemini')) return 'google';
     if (
         fingerprint.includes('gpt-') ||
@@ -211,6 +213,13 @@ export function inferProtocolFromEndpoint(endpoint) {
     const normalized = String(endpoint || '').trim().toLowerCase();
     if (!normalized) return '';
     if (
+        normalized.includes('/gemini/image/generate')
+    ) {
+        return 'ttapi';
+    }
+    if (normalized.includes('api.ttapi.io')) return 'ttapi-openai';
+    if (normalized.includes('api.ttapi.org')) return 'ttapi';
+    if (
         normalized.includes('generativelanguage.googleapis.com') ||
         normalized.includes('/v1beta/models/') ||
         normalized.includes(':generatecontent')
@@ -251,7 +260,7 @@ export function getImageResolutionOptionsForModel(model = {}, providers = null, 
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
     const protocol = getEffectiveProtocol(model, provider);
     if (protocol === 'newapi-image-async') return NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS;
-    return protocol === 'openai' ? OPENAI_IMAGE_RESOLUTION_OPTIONS : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
+    return (protocol === 'openai' || protocol === 'ttapi-openai') ? OPENAI_IMAGE_RESOLUTION_OPTIONS : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
 }
 
 export function normalizeImageResolutionForModel(resolution, model = {}, providers = null, preferredProviderId = '') {
@@ -358,11 +367,18 @@ function normalizeDoubaoVideoBase(base) {
         .replace(/\/+$/, '');
 }
 
+function normalizeTtapiBase(base) {
+    return String(base || '')
+        .replace(/\/gemini\/image\/generate\/?$/i, '')
+        .replace(/\/+$/, '');
+}
+
 export function normalizeAutoCompleteBase(endpoint, protocol = '') {
     const base = getBaseEndpoint(endpoint);
     if (!base) return '';
     if (protocol === 'google') return normalizeGoogleAutoCompleteBase(base);
-    if (protocol === 'openai' || protocol === 'veo-openai' || protocol === 'newapi-image-async') return normalizeOpenAiAutoCompleteBase(base);
+    if (protocol === 'openai' || protocol === 'ttapi-openai' || protocol === 'veo-openai' || protocol === 'newapi-image-async') return normalizeOpenAiAutoCompleteBase(base);
+    if (protocol === 'ttapi') return normalizeTtapiBase(base);
     if (protocol === 'veo-unified') return normalizeUnifiedVideoBase(base);
     if (protocol === 'doubao-video') return normalizeDoubaoVideoBase(base);
     return base;
@@ -412,7 +428,7 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
             if (action === 'query') return appendOpenAiPath(normalizeOpenAiAutoCompleteBase(endpoint), `/videos/${encodeURIComponent(options.imageTaskId || options.taskId || '')}`);
             return endpoint;
         }
-        if (taskType === 'image' && protocol === 'openai' && hasOpenAiReferenceImages(options.inputs)) {
+        if (taskType === 'image' && (protocol === 'openai' || protocol === 'ttapi-openai') && hasOpenAiReferenceImages(options.inputs)) {
             return replaceOpenAiImageGenerationPath(endpoint);
         }
         if (taskType === 'video') {
@@ -442,6 +458,13 @@ export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
     }
 
     if (taskType === 'image') {
+        if (protocol === 'ttapi') {
+            return `${normalizeTtapiBase(base)}/gemini/image/generate`;
+        }
+        if (protocol === 'ttapi-openai') {
+            const imagePath = hasOpenAiReferenceImages(options.inputs) ? '/images/edits' : '/images/generations';
+            return appendOpenAiPath(base, imagePath);
+        }
         if (protocol === 'newapi-image-async') {
             const action = options.action || 'create';
             if (action === 'query') return appendOpenAiPath(base, `/videos/${encodeURIComponent(options.imageTaskId || options.taskId || '')}`);
@@ -562,6 +585,81 @@ function normalizeOpenAiImageBackground(background) {
 function getOpenAiReferenceImages(inputs = {}) {
     return getImageInputKeys(inputs)
         .flatMap((key) => normalizeImageList(inputs[key]));
+}
+
+function getTtapiOpenAiImageObject(value) {
+    const imageUrl = typeof value === 'string' ? value.trim() : '';
+    return imageUrl ? { file_id: '', image_url: imageUrl } : null;
+}
+
+function getTtapiOpenAiImageObjects(values = []) {
+    return values
+        .map((value) => getTtapiOpenAiImageObject(value))
+        .filter(Boolean);
+}
+
+function getTtapiOpenAiMask(inputs = {}) {
+    return getTtapiOpenAiImageObject(normalizeImageList(inputs.mask)[0] || '');
+}
+
+function normalizeTtapiImageSize(resolution) {
+    const value = String(resolution || '').trim().toUpperCase();
+    if (value === '2K' || value === '4K') return value;
+    return '1K';
+}
+
+export function buildTtapiImageRequest({ modelCfg, prompt, aspect, resolution, inputs = {}, searchEnabled = false }) {
+    return applyCustomRequestParams({
+        prompt,
+        model: modelCfg.modelId,
+        refer_images: getOpenAiReferenceImages(inputs),
+        aspect_ratio: aspect || '1:1',
+        image_size: normalizeTtapiImageSize(resolution),
+        google_search: String(searchEnabled === true),
+        image_search: 'false'
+    }, inputs);
+}
+
+export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs = {} }) {
+    const sharedParams = {
+        background: normalizeOpenAiImageBackground(background) || 'auto',
+        moderation: normalizeOpenAiImageModeration(moderation) || 'auto',
+        n: 1,
+        output_compression: 100,
+        output_format: 'png',
+        partial_images: 0,
+        quality: normalizeOpenAiImageQuality(quality) || 'auto',
+        size: normalizeOpenAiImageSize(resolution) || 'auto',
+        stream: false,
+        user: ''
+    };
+    const referenceImages = getOpenAiReferenceImages(inputs);
+
+    if (referenceImages.length > 0) {
+        const mask = getTtapiOpenAiMask(inputs);
+        return applyCustomRequestParams({
+            images: getTtapiOpenAiImageObjects(referenceImages),
+            prompt,
+            model: modelCfg.modelId,
+            ...(mask ? { mask } : {}),
+            background: sharedParams.background,
+            moderation: sharedParams.moderation,
+            n: sharedParams.n,
+            output_compression: sharedParams.output_compression,
+            output_format: sharedParams.output_format,
+            partial_images: sharedParams.partial_images,
+            quality: sharedParams.quality,
+            size: sharedParams.size,
+            stream: sharedParams.stream,
+            user: sharedParams.user
+        }, inputs);
+    }
+
+    return applyCustomRequestParams({
+        prompt,
+        model: modelCfg.modelId,
+        ...sharedParams
+    }, inputs);
 }
 
 function getImageInputUrl(inputs = {}, key = '') {
@@ -887,6 +985,81 @@ export function extractAsyncImageResult(result) {
     };
 }
 
+function looksLikeBase64ImagePayload(value = '') {
+    const compact = String(value || '').trim().replace(/\s+/g, '');
+    if (compact.length < 100 || compact.length % 4 === 1) return false;
+    return /^[A-Za-z0-9+/=_-]+$/.test(compact);
+}
+
+function buildImageResultFromString(value, mimeType = 'image/png') {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (!normalized) return null;
+    if (/^data:image\//i.test(normalized)) return { dataUrl: normalized };
+    if (/^https?:\/\//i.test(normalized)) return { url: normalized };
+    if (looksLikeBase64ImagePayload(normalized)) {
+        return {
+            dataUrl: `data:${mimeType || 'image/png'};base64,${normalized}`
+        };
+    }
+    return null;
+}
+
+function extractTtapiImageResult(result) {
+    const containers = [
+        result,
+        result?.data,
+        result?.result,
+        result?.output,
+        result?.response
+    ].filter(Boolean);
+
+    for (const container of containers) {
+        if (Array.isArray(container)) {
+            for (const item of container) {
+                const imageResult = typeof item === 'string'
+                    ? buildImageResultFromString(item)
+                    : extractTtapiImageResult(item);
+                if (imageResult) return imageResult;
+            }
+            continue;
+        }
+
+        if (typeof container !== 'object') continue;
+        const mimeType = container.mimeType || container.mime_type || 'image/png';
+        const directValue = [
+            container.image_url,
+            container.imageUrl,
+            container.url,
+            container.content_url,
+            container.b64_json,
+            container.b64Json,
+            container.base64,
+            container.image_base64
+        ].find((value) => typeof value === 'string' && value.trim());
+        const directResult = buildImageResultFromString(directValue, mimeType);
+        if (directResult) return directResult;
+
+        const arrayFields = [
+            container.image_urls,
+            container.imageUrls,
+            container.urls,
+            container.result_urls,
+            container.images,
+            container.outputs
+        ].filter(Array.isArray);
+        for (const items of arrayFields) {
+            for (const item of items) {
+                const imageResult = typeof item === 'string'
+                    ? buildImageResultFromString(item, mimeType)
+                    : extractTtapiImageResult(item);
+                if (imageResult) return imageResult;
+            }
+        }
+    }
+
+    return null;
+}
+
 export function extractImageResult(apiCfg, result, modelCfg = null) {
     if (result?.cainflowRecoveredImage && result?.recoveredImage?.dataUrl) {
         return {
@@ -896,7 +1069,12 @@ export function extractImageResult(apiCfg, result, modelCfg = null) {
         };
     }
 
-    if (getEffectiveProtocol(modelCfg, apiCfg) === 'google') {
+    const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+    if (protocol === 'ttapi' || protocol === 'ttapi-openai') {
+        return extractTtapiImageResult(result);
+    }
+
+    if (protocol === 'google') {
         const candidate = result?.candidates?.[0];
         const parts = candidate?.content?.parts || [];
         for (const part of parts) {

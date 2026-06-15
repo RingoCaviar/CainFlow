@@ -9,6 +9,8 @@ import {
     buildOpenAiImageRequest,
     buildNewApiAsyncImageRequest,
     buildOpenAiVideoRequest,
+    buildTtapiImageRequest,
+    buildTtapiOpenAiImageRequest,
     buildUnifiedVideoRequest,
     extractImageResult,
     getEffectiveProtocol,
@@ -735,6 +737,9 @@ export function createExecutionCoreApi({
 
     function getImageGenerationError(apiCfg, result, modelCfg) {
         if (result?.error?.message) return `API 错误: ${result.error.message}`;
+        if (typeof result?.error === 'string' && result.error.trim()) return `API 错误: ${result.error.trim()}`;
+        if (typeof result?.message === 'string' && result.message.trim()) return `API 错误: ${result.message.trim()}`;
+        if (typeof result?.msg === 'string' && result.msg.trim()) return `API 错误: ${result.msg.trim()}`;
 
         if (getEffectiveProtocol(modelCfg, apiCfg) === 'google') {
             const candidate = result?.candidates?.[0];
@@ -1200,17 +1205,23 @@ export function createExecutionCoreApi({
         const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
         const prompt = buildImageGeneratePrompt(node, inputs);
         const isGoogle = protocol === 'google';
+        const isTtapi = protocol === 'ttapi';
+        const isTtapiOpenAi = protocol === 'ttapi-openai';
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
         const url = resolveProviderUrl(apiCfg, modelCfg, 'image', {
             action: isNewApiAsyncImage ? 'create' : undefined,
             inputs
         });
-        const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
+        const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits(?:$|[?#])/i.test(url);
         const requestBody = isNewApiAsyncImage
             ? buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolution, inputs })
-            : (isGoogle
-                ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                : buildOpenAiImageRequest({
+            : (isTtapi
+                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled })
+                : (isTtapiOpenAi
+                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs })
+                    : (isGoogle
+                        ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                        : buildOpenAiImageRequest({
                     modelCfg,
                     prompt,
                     resolution,
@@ -1219,7 +1230,7 @@ export function createExecutionCoreApi({
                     background,
                     mask: isOpenAiImageEdit ? mask : null,
                     inputs
-                }));
+                }))));
         return {
             nodeId: id,
             nodeType: node.type,
@@ -1559,6 +1570,8 @@ export function createExecutionCoreApi({
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
                 const isGoogle = protocol === 'google';
+                const isTtapi = protocol === 'ttapi';
+                const isTtapiOpenAi = protocol === 'ttapi-openai';
                 const isNewApiAsyncImage = protocol === 'newapi-image-async';
                 const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                 targetGenerationCount = generationCount;
@@ -1579,19 +1592,24 @@ export function createExecutionCoreApi({
                     });
                 }
 
-                if (!isGoogle && selectedResolution === 'custom') {
+                if ((protocol === 'openai' || isTtapiOpenAi) && selectedResolution === 'custom') {
                     const validation = validateOpenAiImageSize(customWidth, customHeight);
                     if (!validation.valid) throw new Error(`自定义分辨率不符合 OpenAI 规范：${validation.errors.join(' ')}`);
                 }
                 const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
-                const isOpenAiImageEdit = !isGoogle && /\/images\/edits(?:$|[?#])/i.test(url);
+                const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits(?:$|[?#])/i.test(url);
                 const mask = isOpenAiImageEdit ? getImageGenerateMask(inputs) : null;
                 const headers = isGoogle
                     ? getProxyHeaders(url, 'POST')
-                    : getProxyHeaders(url, 'POST', {
-                        Authorization: `Bearer ${apiCfg.apikey}`,
-                        'Content-Type': isOpenAiImageEdit ? null : 'application/json'
-                    });
+                    : ((isTtapi || isTtapiOpenAi)
+                        ? getProxyHeaders(url, 'POST', {
+                            'TT-API-KEY': apiCfg.apikey,
+                            'Content-Type': 'application/json'
+                        })
+                        : getProxyHeaders(url, 'POST', {
+                            Authorization: `Bearer ${apiCfg.apikey}`,
+                            'Content-Type': isOpenAiImageEdit ? null : 'application/json'
+                        }));
                 if (!executionContext.concurrentExecution) {
                     resetImageGenerateRunOutputs(node);
                 }
@@ -1609,9 +1627,13 @@ export function createExecutionCoreApi({
 
                     const runSingleGeneration = async (nextGenerationIndex) => {
                         return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
-                            const requestBody = isGoogle
-                                ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                                : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs });
+                            const requestBody = isTtapi
+                                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled })
+                                : (isTtapiOpenAi
+                                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs })
+                                    : (isGoogle
+                                        ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
                             showToast(
                                 generationCount > 1
                                     ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
@@ -1780,9 +1802,13 @@ export function createExecutionCoreApi({
                         current: node.generationCompletedCount,
                         total: generationCount
                     });
-                    const requestBody = isGoogle
-                        ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs });
+                    const requestBody = isTtapi
+                        ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled })
+                        : (isTtapiOpenAi
+                            ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs })
+                            : (isGoogle
+                                ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                                : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
                     showToast(
                         generationCount > 1
                             ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`

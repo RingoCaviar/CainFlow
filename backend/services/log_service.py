@@ -30,6 +30,7 @@ _SENSITIVE_HEADER_KEYS = {
     'proxy-authorization',
     'x-api-key',
     'api-key',
+    'tt-api-key',
     'cookie',
     'set-cookie',
 }
@@ -40,6 +41,7 @@ _SENSITIVE_BODY_KEYS = {
     'api_key',
     'api-key',
     'x-api-key',
+    'tt-api-key',
     'key',
     'token',
     'access_token',

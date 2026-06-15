@@ -89,6 +89,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             const query = provider?.apikey ? `?key=${encodeURIComponent(provider.apikey)}` : '';
             return `${base}/v1beta/models${query}`;
         }
+        if (protocol === 'ttapi' || protocol === 'ttapi-openai') {
+            return '';
+        }
         if (!/\/v\d+(?:beta)?$/i.test(base)) {
             base = `${base}/v1`;
         }
@@ -157,6 +160,8 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
 
     function inferFetchedModelProtocol(provider, fetchedModel = {}) {
         const fingerprint = `${fetchedModel.id || ''} ${fetchedModel.name || ''}`.toLowerCase();
+        if (providerSettings.isTtapiOpenAiEndpoint(provider?.endpoint)) return 'ttapi-openai';
+        if (providerSettings.isTtapiEndpoint(provider?.endpoint)) return 'ttapi';
         const supportedEndpointTypes = Array.isArray(fetchedModel.raw?.supported_endpoint_types)
             ? fetchedModel.raw.supported_endpoint_types.map((type) => String(type || '').toLowerCase())
             : Array.isArray(fetchedModel.supported_endpoint_types)
@@ -369,6 +374,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         showToast(`正在获取 ${providerSettings.getSafeProviderName(provider)} 的模型列表...`, 'info', 4000);
 
         try {
+            if (protocol === 'ttapi' || protocol === 'ttapi-openai') throw new Error('TTAPI 请求格式暂不支持自动获取模型列表，请在模型卡片里手动填写模型 ID');
             if (!url) throw new Error('请先填写供应商 API 地址');
             if (!provider.apikey && protocol === 'google') throw new Error('请先填写供应商 API 密钥');
 
@@ -671,27 +677,29 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         resolutionSelect.value = normalizedValue;
         const protocol = getEffectiveProtocol(model, provider);
         const isOpenAiModel = protocol === 'openai';
+        const isTtapiOpenAiModel = protocol === 'ttapi-openai';
+        const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
-        if (aspectField) aspectField.classList.toggle('hidden', isOpenAiModel);
+        if (aspectField) aspectField.classList.toggle('hidden', usesOpenAiImageControls);
         const qualityField = documentRef.getElementById(`${id}-quality-field`);
-        if (qualityField) qualityField.classList.toggle('hidden', !isOpenAiModel);
+        if (qualityField) qualityField.classList.toggle('hidden', !usesOpenAiImageControls);
         [
             `${id}-moderation-field`,
             `${id}-background-field`
         ].forEach((fieldId) => {
             const field = documentRef.getElementById(fieldId);
-            if (field) field.classList.toggle('hidden', !isOpenAiModel);
+            if (field) field.classList.toggle('hidden', !usesOpenAiImageControls);
         });
         const note = documentRef.getElementById(`${id}-resolution-param-note`);
-        if (note) note.classList.toggle('hidden', !isOpenAiModel);
+        if (note) note.classList.toggle('hidden', !usesOpenAiImageControls);
         const searchField = documentRef.getElementById(`${id}-search-field`);
-        if (searchField) searchField.classList.toggle('hidden', isOpenAiModel || isNewApiAsyncImage);
+        if (searchField) searchField.classList.toggle('hidden', usesOpenAiImageControls || isNewApiAsyncImage);
         const maskPort = documentRef.querySelector(`.node-port[data-node-id="${id}"][data-port="mask"][data-direction="input"]`);
         if (maskPort) {
             const wasHidden = maskPort.classList.contains('hidden');
-            maskPort.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
-            maskPort.setAttribute('aria-hidden', isOpenAiModel && !isNewApiAsyncImage ? 'false' : 'true');
+            maskPort.classList.toggle('hidden', !usesOpenAiImageControls || isNewApiAsyncImage);
+            maskPort.setAttribute('aria-hidden', usesOpenAiImageControls && !isNewApiAsyncImage ? 'false' : 'true');
             if (wasHidden !== maskPort.classList.contains('hidden')) updateAllConnections();
         }
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);

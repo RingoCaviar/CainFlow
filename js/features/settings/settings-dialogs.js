@@ -82,6 +82,9 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
     }
 
     function renderFloatingModelProviderPanel(modelId, onToggleProvider) {
+        const previousScrollTop = store.floatingModelProviderPanel?.dataset?.id === modelId
+            ? store.floatingModelProviderPanel.scrollTop
+            : 0;
         closeFloatingModelProviderPanel({ preserveOpenState: true });
         if (!modelId) return;
 
@@ -119,6 +122,10 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         documentRef.body.appendChild(panel);
         store.floatingModelProviderPanel = panel;
         syncFloatingModelProviderPanelPosition();
+        if (previousScrollTop > 0) {
+            const maxScrollTop = Math.max(0, panel.scrollHeight - panel.clientHeight);
+            panel.scrollTop = Math.min(previousScrollTop, maxScrollTop);
+        }
 
         const handlePointerDown = (event) => {
             if (panel.contains(event.target)) return;
