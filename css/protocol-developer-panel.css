@@ -1,0 +1,1272 @@
+/* 协议开发者面板样式 - 全屏抽屉式 */
+
+.protocol-developer-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    background: var(--bg-primary, #1a1a1a);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+}
+
+.protocol-developer-panel:not(.hidden) {
+    transform: translateX(0);
+}
+
+.protocol-developer-panel.hidden {
+    transform: translateX(100%);
+    pointer-events: none;
+}
+
+/* 头部 */
+.protocol-dev-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-color, #333);
+    background: var(--bg-secondary, #0a0a0a);
+    flex-shrink: 0;
+}
+
+.protocol-dev-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+}
+
+.protocol-dev-header .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.protocol-dev-header .btn-back {
+    padding: 6px 12px;
+    font-size: 14px;
+}
+
+/* 主体区域 - 双栏布局 */
+.protocol-dev-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    gap: 0;
+}
+
+/* 左侧编辑区 */
+.protocol-editor-left {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    border-right: 1px solid var(--border-color, #333);
+}
+
+/* 中间：节点UI预览区 */
+.protocol-editor-middle {
+    width: 400px;
+    overflow-y: auto;
+    padding: 20px 24px;
+    background: var(--bg-tertiary, #0f0f0f);
+    border-right: 1px solid var(--border-color, #333);
+    flex-shrink: 0;
+}
+
+.protocol-editor-middle h3 {
+    position: sticky;
+    top: 0;
+    background: var(--bg-tertiary, #0f0f0f);
+    padding: 8px 0;
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary, #aaa);
+    border-bottom: 1px solid var(--border-color, #333);
+    z-index: 1;
+}
+
+/* 右侧：请求体预览区 */
+.protocol-editor-right {
+    width: 480px;
+    overflow-y: auto;
+    padding: 20px 24px;
+    background: var(--bg-tertiary, #0f0f0f);
+    flex-shrink: 0;
+}
+
+.protocol-editor-right h3 {
+    position: sticky;
+    top: 0;
+    background: var(--bg-tertiary, #0f0f0f);
+    padding: 8px 0;
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary, #aaa);
+    border-bottom: 1px solid var(--border-color, #333);
+    z-index: 1;
+}
+
+/* 底部操作栏 */
+.protocol-dev-footer {
+    flex-shrink: 0;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color, #333);
+    background: var(--bg-secondary, #0a0a0a);
+    display: flex;
+
+/* 协议用途复选框组 */
+.protocol-task-types-checkboxes {
+    display: flex;
+    gap: 16px;
+    padding: 8px 0;
+}
+
+.protocol-task-types-checkboxes label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.protocol-task-types-checkboxes input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* 参数用途复选框组 */
+.parameter-task-types-checkboxes {
+    display: flex;
+    gap: 16px;
+    padding: 4px 0;
+}
+
+.parameter-task-types-checkboxes label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.parameter-task-types-checkboxes input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.protocol-dev-footer .footer-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+/* 协议列表视图 */
+.protocol-dev-section {
+    margin-bottom: 32px;
+}
+
+.protocol-dev-section h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+}
+
+.protocol-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+}
+
+.protocol-card {
+    background: var(--bg-secondary, #242424);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.protocol-card:hover {
+    border-color: var(--accent-color, #3b82f6);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+.protocol-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.protocol-card-header strong {
+    font-size: 15px;
+    color: var(--text-primary, #fff);
+    font-weight: 600;
+}
+
+.protocol-id-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: var(--bg-tertiary, #1a1a1a);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 4px;
+    color: var(--text-secondary, #999);
+    font-family: monospace;
+}
+
+.protocol-card-body {
+    margin-bottom: 12px;
+}
+
+.protocol-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.protocol-task-badges {
+    display: flex;
+    gap: 6px;
+}
+
+.task-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.task-badge-chat {
+    background: rgba(34, 197, 94, 0.15);
+    color: rgb(34, 197, 94);
+}
+
+.task-badge-image {
+    background: rgba(59, 130, 246, 0.15);
+    color: rgb(59, 130, 246);
+}
+
+.task-badge-video {
+    background: rgba(168, 85, 247, 0.15);
+    color: rgb(168, 85, 247);
+}
+
+.protocol-param-count {
+    color: var(--text-secondary, #999);
+}
+
+.protocol-help-preview {
+    font-size: 13px;
+    color: var(--text-secondary, #999);
+    margin: 0;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.protocol-card-footer {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #333);
+}
+
+.protocol-card-footer .btn {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+/* 协议编辑器表单 */
+.protocol-editor {
+    max-width: 100%;
+}
+
+.protocol-field {
+    margin-bottom: 24px;
+}
+
+.protocol-field label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #ddd);
+    letter-spacing: 0.3px;
+}
+
+.protocol-field input[type="text"],
+.protocol-field input[type="url"],
+.protocol-field textarea,
+.protocol-field select {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg-tertiary, #0f0f0f);
+    border: 2px solid var(--border-color, #2a2a2a);
+    border-radius: 10px;
+    color: var(--text-primary, #fff);
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.2s;
+    line-height: 1.5;
+}
+
+.protocol-field input[type="text"]:hover,
+.protocol-field input[type="url"]:hover,
+.protocol-field textarea:hover,
+.protocol-field select:hover {
+    border-color: var(--border-hover, #3a3a3a);
+    background: var(--bg-secondary, #1a1a1a);
+}
+
+.protocol-field input[type="text"]:focus,
+.protocol-field input[type="url"]:focus,
+.protocol-field textarea:focus,
+.protocol-field select:focus {
+    outline: none;
+    border-color: var(--accent-color, #3b82f6);
+    background: var(--bg-secondary, #1a1a1a);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+
+.protocol-field textarea {
+    resize: vertical;
+    min-height: 100px;
+    font-family: inherit;
+    line-height: 1.6;
+}
+
+.protocol-field input[type="text"]:disabled {
+    background: var(--bg-primary, #0a0a0a);
+    color: var(--text-secondary, #666);
+    cursor: not-allowed;
+    border-color: var(--border-color, #222);
+}
+
+/* Select下拉框特殊样式 */
+.protocol-field select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    padding-right: 44px;
+}
+
+/* 参数列表 */
+.parameters-section {
+    margin-top: 32px;
+}
+
+.parameters-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.parameters-section-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+}
+
+#parameters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.no-parameters {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-secondary, #999);
+    font-size: 14px;
+    background: var(--bg-secondary, #1a1a1a);
+    border: 1px dashed var(--border-color, #333);
+    border-radius: 8px;
+}
+
+/* 参数卡片 */
+.parameter-card {
+    background: var(--bg-secondary, #1a1a1a);
+    border: 1px solid var(--border-color, #2a2a2a);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.2s;
+    cursor: move;
+}
+
+.parameter-card.drag-over {
+    border-color: var(--accent-color, #3b82f6);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.parameter-row {
+    margin-bottom: 0;
+}
+
+.parameter-row:last-child {
+    margin-bottom: 0;
+}
+
+.parameter-row > label:first-child {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #999);
+    letter-spacing: 0.3px;
+}
+
+.parameter-row input[type="text"],
+.parameter-row input[type="number"],
+.parameter-row textarea {
+    width: 100%;
+    padding: 11px 14px;
+    background: linear-gradient(to bottom, #0a0a0a, #050505);
+    border: 2px solid var(--border-color, #2a2a2a);
+    border-radius: 9px;
+    color: var(--text-primary, #fff);
+    font-size: 13.5px;
+    font-family: inherit;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    line-height: 1.5;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.parameter-row select {
+    width: 100%;
+    padding: 11px 14px;
+    border: 2px solid var(--border-color, #2a2a2a);
+    border-radius: 9px;
+    color: var(--text-primary, #fff);
+    font-size: 13.5px;
+    font-family: inherit;
+    transition: border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    line-height: 1.5;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.parameter-row input[type="text"]::placeholder,
+.parameter-row input[type="number"]::placeholder,
+.parameter-row textarea::placeholder {
+    color: var(--text-tertiary, #555);
+    opacity: 1;
+}
+
+.parameter-row input[type="text"]:hover,
+.parameter-row input[type="number"]:hover,
+.parameter-row textarea:hover {
+    border-color: var(--border-hover, #3a3a3a);
+    background: linear-gradient(to bottom, #0f0f0f, #0a0a0a);
+}
+
+.parameter-row input[type="text"]:focus,
+.parameter-row input[type="number"]:focus,
+.parameter-row textarea:focus {
+    outline: none;
+    border-color: var(--accent-color, #3b82f6);
+    background: linear-gradient(to bottom, #0f0f0f, #0a0a0a);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12), inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.parameter-row textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    will-change: height;
+    contain: layout;
+}
+
+.parameter-row select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23888' d='M11.293 4.293L7 8.586 2.707 4.293A1 1 0 001.293 5.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E"), linear-gradient(to bottom, #0a0a0a, #050505);
+    background-repeat: no-repeat, no-repeat;
+    background-position: right 14px center, 0 0;
+    background-size: 14px 14px, 100% 100%;
+    padding-right: 40px;
+}
+
+.parameter-row select:hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23888' d='M11.293 4.293L7 8.586 2.707 4.293A1 1 0 001.293 5.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E"), linear-gradient(to bottom, #0f0f0f, #0a0a0a);
+    background-repeat: no-repeat, no-repeat;
+    background-position: right 14px center, 0 0;
+    background-size: 14px 14px, 100% 100%;
+}
+
+.parameter-row select:focus {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23888' d='M11.293 4.293L7 8.586 2.707 4.293A1 1 0 001.293 5.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E"), linear-gradient(to bottom, #0f0f0f, #0a0a0a);
+    background-repeat: no-repeat, no-repeat;
+    background-position: right 14px center, 0 0;
+    background-size: 14px 14px, 100% 100%;
+}
+
+.parameter-row select option {
+    background: var(--bg-secondary, #1a1a1a);
+    color: var(--text-primary, #fff);
+    padding: 8px 12px;
+}
+
+/* 针对下拉选项的特殊优化 */
+.param-field-options {
+    resize: vertical;
+    min-height: 100px;
+    max-height: 400px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    will-change: height;
+    contain: layout style;
+    transition: none;
+}
+
+.parameter-checkboxes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: center;
+}
+
+.parameter-checkboxes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary, #999);
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: 0.3px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.parameter-checkboxes label:hover {
+    color: var(--accent-color, #3b82f6);
+}
+
+.parameter-checkboxes input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+    accent-color: var(--accent-color, #3b82f6);
+    border-radius: 3px;
+    flex-shrink: 0;
+    vertical-align: middle;
+    position: relative;
+    top: 0;
+}
+
+/* 选项编辑器 */
+.options-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.option-item {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px;
+    background: var(--bg-tertiary, #0a0a0a);
+    border: 1px solid var(--border-color, #2a2a2a);
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.option-item:hover {
+    border-color: var(--border-hover, #3a3a3a);
+    background: var(--bg-secondary, #1a1a1a);
+}
+
+.option-item.drag-over {
+    border-color: var(--accent-color, #3b82f6);
+    background: rgba(59, 130, 246, 0.05);
+    transform: translateY(-2px);
+}
+
+.option-item-grip {
+    color: var(--text-tertiary, #555);
+    font-size: 14px;
+    cursor: grab;
+    user-select: none;
+    padding: 0 4px;
+    transition: all 0.2s;
+    opacity: 0.6;
+}
+
+.option-item-grip:hover {
+    color: var(--text-secondary, #888);
+    opacity: 1;
+}
+
+.option-item-grip:active {
+    cursor: grabbing;
+}
+
+.option-item input[type="text"] {
+    padding: 8px 10px;
+    background: var(--bg-primary, #000);
+    border: 1px solid var(--border-color, #2a2a2a);
+    border-radius: 4px;
+    color: var(--text-primary, #fff);
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.option-item input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-color, #3b82f6);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.option-item .btn-remove-option {
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary, #555);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.option-item .btn-remove-option:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: rgb(239, 68, 68);
+}
+
+.btn-add-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--bg-secondary, #1a1a1a);
+    border: 1px dashed var(--border-color, #2a2a2a);
+    border-radius: 6px;
+    color: var(--text-secondary, #999);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-add-option:hover {
+    border-color: var(--accent-color, #3b82f6);
+    color: var(--accent-color, #3b82f6);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.btn-add-option svg {
+    flex-shrink: 0;
+}
+
+
+.parameter-card:hover {
+    border-color: var(--border-hover, #3a3a3a);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.parameter-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
+    transition: background 0.2s;
+    gap: 16px;
+}
+
+.parameter-card-header:hover {
+    background: var(--bg-tertiary, #222);
+}
+
+.parameter-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 60%;
+}
+
+.btn-drag-handle {
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary, #666);
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    border-radius: 4px;
+    opacity: 0.6;
+}
+
+.btn-drag-handle:hover {
+    background: var(--bg-tertiary, #2a2a2a);
+    color: var(--text-secondary, #888);
+    opacity: 1;
+}
+
+.btn-drag-handle:active {
+    cursor: grabbing;
+    background: var(--bg-tertiary, #2a2a2a);
+}
+
+.btn-toggle-param {
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    border-radius: 4px;
+}
+
+.btn-toggle-param:hover {
+    background: var(--bg-tertiary, #2a2a2a);
+    color: var(--text-primary, #fff);
+}
+
+.toggle-icon {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.2s;
+}
+
+.parameter-card.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.parameter-title-display {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary, #fff);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 参数标题输入框（在 header 里的） */
+.param-field-title {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-primary, #fff);
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.param-field-title::placeholder {
+    color: var(--text-tertiary, #555);
+    opacity: 1;
+}
+
+.param-field-title:hover {
+    background: var(--bg-tertiary, #222);
+    border-color: var(--border-color, #2a2a2a);
+}
+
+.param-field-title:focus {
+    outline: none;
+    background: var(--bg-primary, #0a0a0a);
+    border-color: var(--accent-color, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.parameter-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.parameter-id-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    background: var(--bg-primary, #0a0a0a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    color: var(--text-secondary, #888);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    letter-spacing: 0.3px;
+}
+
+.btn-delete-param {
+    padding: 5px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary, #888);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-delete-param:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--danger-color, #ef4444);
+    color: var(--danger-color, #ef4444);
+}
+
+.parameter-card-body {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-height: none; /* 移除高度限制，让内容完整显示 */
+    opacity: 1;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-top: 1px solid var(--border-color, #2a2a2a);
+    background: var(--bg-tertiary, #161616);
+}
+
+.parameter-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.parameter-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-color, #3b82f6);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color, #2a2a2a);
+}
+
+.parameter-card.collapsed .parameter-card-body {
+    max-height: 0;
+    opacity: 0;
+    padding: 0 18px;
+    overflow: hidden;
+    border-top: none;
+}
+
+.param-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.param-field-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #aaa);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.param-field-group input[type="text"],
+.param-field-group input[type="number"],
+.param-field-group textarea,
+.param-field-group select {
+    width: 100%;
+    padding: 11px 14px;
+    background: linear-gradient(to bottom, #0a0a0a, #050505);
+    border: 2px solid var(--border-color, #2a2a2a);
+    border-radius: 9px;
+    color: var(--text-primary, #fff);
+    font-size: 13.5px;
+    font-family: inherit;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    line-height: 1.5;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.param-field-group input[type="text"]::placeholder,
+.param-field-group input[type="number"]::placeholder,
+.param-field-group textarea::placeholder {
+    color: var(--text-tertiary, #555);
+    opacity: 1;
+}
+
+.param-field-group input[type="text"]:hover,
+.param-field-group input[type="number"]:hover,
+.param-field-group textarea:hover,
+.param-field-group select:hover {
+    border-color: var(--border-hover, #3a3a3a);
+    background: linear-gradient(to bottom, #0f0f0f, #0a0a0a);
+}
+
+.param-field-group input[type="text"]:focus,
+.param-field-group input[type="number"]:focus,
+.param-field-group textarea:focus,
+.param-field-group select:focus {
+    outline: none;
+    border-color: var(--accent-color, #3b82f6);
+    background: linear-gradient(to bottom, #0f0f0f, #0a0a0a);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12), inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.param-field-group input[type="text"]:disabled,
+.param-field-group input[type="number"]:disabled,
+.param-field-group textarea:disabled,
+.param-field-group select:disabled {
+    background: var(--bg-primary, #050505);
+    color: var(--text-tertiary, #555);
+    cursor: not-allowed;
+    border-color: var(--border-color, #222);
+    opacity: 0.6;
+}
+
+.param-field-group textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    padding: 12px 14px;
+}
+
+.param-field-group select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23888' d='M11.293 4.293L7 8.586 2.707 4.293A1 1 0 001.293 5.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 40px;
+}
+
+.param-field-group input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: var(--accent-color, #3b82f6);
+    border-radius: 5px;
+}
+
+.param-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-primary, #fff);
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.param-checkbox-label:hover {
+    color: var(--accent-color, #3b82f6);
+}
+
+/* 预览区域 */
+.node-preview-container {
+    background: var(--bg-secondary, #0a0a0a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 24px;
+}
+
+.node-preview-field {
+    margin-bottom: 16px;
+}
+
+.node-preview-field:last-child {
+    margin-bottom: 0;
+}
+
+.node-preview-field label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #aaa);
+}
+
+.node-preview-field input[type="text"],
+.node-preview-field input[type="number"],
+.node-preview-field select,
+.node-preview-field textarea {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-tertiary, #0f0f0f);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    color: var(--text-primary, #fff);
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.node-preview-field input:focus,
+.node-preview-field select:focus,
+.node-preview-field textarea:focus {
+    outline: none;
+    border-color: var(--accent-color, #3b82f6);
+    background: var(--bg-secondary, #0a0a0a);
+}
+
+.node-preview-field textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.node-preview-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.node-preview-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent-color, #3b82f6);
+}
+
+.preview-container {
+    background: var(--bg-secondary, #0a0a0a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    padding: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.preview-section {
+    margin-bottom: 20px;
+}
+
+.preview-section:last-child {
+    margin-bottom: 0;
+}
+
+.preview-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary, #999);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.preview-method {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(34, 197, 94, 0.2);
+    color: rgb(34, 197, 94);
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 11px;
+    margin-right: 8px;
+}
+
+.preview-url {
+    color: var(--accent-color, #3b82f6);
+    word-break: break-all;
+}
+
+.preview-json {
+    background: var(--bg-primary, #000);
+    padding: 12px;
+    border-radius: 4px;
+    overflow-x: auto;
+    color: var(--text-primary, #fff);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.preview-key {
+    color: #8b5cf6;
+}
+
+.preview-string {
+    color: #10b981;
+}
+
+.preview-number {
+    color: #f59e0b;
+}
+
+.preview-boolean {
+    color: #ec4899;
+}
+
+/* 按钮样式 */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-primary {
+    background: var(--accent-color, #3b82f6);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover, #2563eb);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-secondary {
+    background: var(--bg-secondary, #2a2a2a);
+    color: var(--text-primary, #fff);
+    border: 1px solid var(--border-color, #444);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-tertiary, #333);
+    border-color: var(--border-hover, #555);
+}
+
+.btn-danger {
+    background: transparent;
+    color: var(--danger-color, #ef4444);
+    border: 1px solid var(--danger-color, #ef4444);
+}
+
+.btn-danger:hover {
+    background: var(--danger-color, #ef4444);
+    color: white;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text-secondary, #999);
+    border: 1px solid transparent;
+}
+
+.btn-ghost:hover {
+    background: var(--bg-tertiary, #2a2a2a);
+    color: var(--text-primary, #fff);
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 加载状态 */
+.loading-container {
+    padding: 48px;
+    text-align: center;
+    color: var(--text-secondary, #999);
+}
+
+/* 响应式调整 */
+@media (max-width: 1600px) {
+    .protocol-editor-middle {
+        width: 350px;
+    }
+
+    .protocol-editor-right {
+        width: 400px;
+    }
+}
+
+@media (max-width: 1400px) {
+    .protocol-editor-middle {
+        width: 320px;
+    }
+
+    .protocol-editor-right {
+        width: 350px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .protocol-dev-body {
+        flex-direction: column;
+    }
+
+    .protocol-editor-left {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color, #333);
+    }
+
+    .protocol-editor-middle {
+        width: 100%;
+        max-height: 400px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color, #333);
+    }
+
+    .protocol-editor-right {
+        width: 100%;
+        max-height: 400px;
+    }
+}
+
+@media (max-width: 768px) {
+    .protocol-list {
+        grid-template-columns: 1fr;
+    }
+
+    .parameter-card-body {
+        grid-template-columns: 1fr;
+    }
+}
