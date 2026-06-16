@@ -21,6 +21,46 @@ import {
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
 
+// 工具函数模块
+import {
+    formatBytes,
+    formatProgressBytes,
+    formatProgressSpeed,
+    escapeHtml
+} from './utils/format-utils.js';
+import {
+    isInlineImageData,
+    isRemoteImageUrl,
+    parseResolutionText
+} from './utils/image-validation-utils.js';
+import {
+    sanitizeFilenamePart,
+    formatFilenameTimestamp,
+    buildImageSaveFilenameBases,
+    buildVideoSaveFilenameBase,
+    detectVideoExtensionFromSource
+} from './utils/filename-builder.js';
+import {
+    isNodeRunning as isNodeRunningUtil,
+    isTypingIntoField as isTypingIntoFieldUtil,
+    hasBlockingImmersiveOverlay as hasBlockingImmersiveOverlayUtil,
+    getFocusedNodeId as getFocusedNodeIdUtil,
+    isChromeElementExposed as isChromeElementExposedUtil,
+    shouldIgnoreChromeOffsetForPreview as shouldIgnoreChromeOffsetForPreviewUtil
+} from './utils/ui-state-helpers.js';
+
+// 独立功能模块
+import {
+    downloadGeneratedVideo as downloadGeneratedVideoUtil,
+    blobLooksLikeVideo,
+    isLikelyDownloadableVideoUrl as isLikelyDownloadableVideoUrlUtil,
+    classifyVideoUrlForLog as classifyVideoUrlForLogUtil,
+    buildBackendVideoDownloadUrl
+} from './video/video-download.js';
+import { createVideoAutoSaveToastManager } from './video/video-auto-save-toast.js';
+import { createPreviewIndexManager } from './state/preview-index-manager.js';
+import { createThumbnailCacheManager } from './state/thumbnail-cache-manager.js';
+
 export function createMediaControllerApi({
     state,
     getNodeById,
@@ -56,14 +96,15 @@ export function createMediaControllerApi({
     const PERSISTED_PREVIEW_THUMBNAIL_MAX_LENGTH = 220000;
     const pendingFitNodeIds = new Set();
     let fitRequestFrame = null;
-    const videoAutoSaveToasts = new Map();
-    const pendingPreviewIndexSaveNodeIds = new Set();
-    let previewIndexSaveTimer = null;
+
+    // 初始化预览缓存
     const previewCache = createMediaPreviewCache({
         getImageResolution,
         documentRef,
         windowRef
     });
+
+    // 初始化显示图片渲染器
     const displayImageRenderer = createDisplayImageRenderer({
         documentRef,
         previewCache,
@@ -81,6 +122,64 @@ export function createMediaControllerApi({
         updatePlaceholderText,
         updatePreviewPlaceholder
     } = displayImageRenderer;
+
+    // 初始化新的功能模块管理器
+    const videoAutoSaveToastManager = createVideoAutoSaveToastManager({
+        documentRef,
+        windowRef,
+        showToast
+    });
+
+    const previewIndexManager = createPreviewIndexManager({
+        scheduleSave,
+        windowRef
+    });
+
+    const thumbnailCacheManager = createThumbnailCacheManager({
+        previewCache,
+        estimateDataUrlSize,
+        PERSISTED_PREVIEW_THUMBNAIL_MAX_LENGTH,
+        getNodeById,
+        scheduleSave
+    });
+
+    // 包装工具函数以适配本地调用
+    const isNodeRunning = (nodeId) => isNodeRunningUtil(nodeId, state, getNodeById);
+    const isTypingIntoField = () => isTypingIntoFieldUtil(documentRef);
+    const hasBlockingImmersiveOverlay = () => hasBlockingImmersiveOverlayUtil(documentRef);
+    const getFocusedNodeId = () => getFocusedNodeIdUtil(state);
+    const isChromeElementExposed = (element) => isChromeElementExposedUtil(element, documentRef, windowRef);
+    const shouldIgnoreChromeOffsetForPreview = () => shouldIgnoreChromeOffsetForPreviewUtil(documentRef, windowRef);
+    const isLikelyDownloadableVideoUrl = (url) => isLikelyDownloadableVideoUrlUtil(url, windowRef);
+    const classifyVideoUrlForLog = (url) => classifyVideoUrlForLogUtil(url, windowRef);
+
+    // 包装文件名生成函数
+    const buildImageSaveFilenameBases_local = (nodeId, images, fallbackPrefix, options = {}) =>
+        buildImageSaveFilenameBases(nodeId, images, fallbackPrefix, state, getNodeById, options);
+    const buildVideoSaveFilenameBase_local = (nodeId, video, fallbackPrefix, options = {}) =>
+        buildVideoSaveFilenameBase(nodeId, video, fallbackPrefix, state, options);
+
+    // 包装视频下载函数
+    const downloadGeneratedVideo = (videoUrl, options = {}) =>
+        downloadGeneratedVideoUtil(videoUrl, options, { fetchRef, formatProxyErrorMessage, addLog, windowRef });
+
+    // 包装预览索引管理器方法
+    const getImagePreviewIndex = (node, images) => previewIndexManager.getImagePreviewIndex(node, images);
+    const getImageSavePreviewIndex = (node, images) => previewIndexManager.getImageSavePreviewIndex(node, images);
+    const schedulePreviewIndexSave = (nodeId) => previewIndexManager.schedulePreviewIndexSave(nodeId);
+
+    // 包装缩略图缓存管理器方法
+    const cacheNodePreviewThumbnail = (nodeOrId, source) => thumbnailCacheManager.cacheNodePreviewThumbnail(nodeOrId, source);
+    const clearNodePreviewThumbnail = (nodeOrId) => thumbnailCacheManager.clearNodePreviewThumbnail(nodeOrId);
+    const choosePersistedPreviewThumbnail = (source, thumbnail) => thumbnailCacheManager.choosePersistedPreviewThumbnail(source, thumbnail);
+
+    // 包装 Toast 管理器方法
+    const ensureVideoAutoSaveToast = (nodeId, subtitle) => videoAutoSaveToastManager.ensure(nodeId, subtitle);
+    const updateVideoAutoSaveToast = (nodeId, state) => videoAutoSaveToastManager.update(nodeId, state);
+    const completeVideoAutoSaveToast = (nodeId, message) => videoAutoSaveToastManager.complete(nodeId, message);
+    const failVideoAutoSaveToast = (nodeId, message) => videoAutoSaveToastManager.fail(nodeId, message);
+    const getVideoAutoSaveToastRecord = (nodeId) => videoAutoSaveToastManager.get(nodeId);
+    const removeVideoAutoSaveToast = (nodeId) => videoAutoSaveToastManager.remove(nodeId);
 
     const displayImageMemoryManager = createDisplayImageMemoryManager({
         state,
@@ -110,16 +209,6 @@ export function createMediaControllerApi({
         windowRef,
         canvasContainer
     });
-
-    function schedulePreviewIndexSave(nodeId) {
-        if (nodeId) pendingPreviewIndexSaveNodeIds.add(nodeId);
-        if (previewIndexSaveTimer) windowRef.clearTimeout(previewIndexSaveTimer);
-        previewIndexSaveTimer = windowRef.setTimeout(() => {
-            previewIndexSaveTimer = null;
-            pendingPreviewIndexSaveNodeIds.clear();
-            scheduleSave();
-        }, 800);
-    }
 
     function hasIncomingImageConnection(nodeId) {
         return state.connections.some((conn) => (
@@ -185,27 +274,6 @@ export function createMediaControllerApi({
         });
     }
 
-    function isNodeRunning(nodeId) {
-        return state.runningNodeIds?.has(nodeId) || getNodeById(nodeId)?.el?.classList.contains('running');
-    }
-
-    function formatBytes(bytes) {
-        if (!bytes || bytes <= 0) return '';
-        if (bytes >= 1024 * 1024) return `预计 ${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-        if (bytes >= 1024) return `预计 ${(bytes / 1024).toFixed(1)} KB`;
-        return `预计 ${bytes} B`;
-    }
-
-    function parseResolutionText(resolutionText) {
-        if (!resolutionText) return null;
-        const numbers = String(resolutionText).match(/\d+/g);
-        if (!numbers || numbers.length < 2) return null;
-        return {
-            width: parseInt(numbers[0], 10),
-            height: parseInt(numbers[1], 10)
-        };
-    }
-
     function getNodePreviewSourceData(node) {
         if (!node || node.enabled === false) return null;
         if (node.type === 'ImageImport') {
@@ -219,26 +287,6 @@ export function createMediaControllerApi({
         return getCanonicalImage(node) || node.resizePreviewData || null;
     }
 
-    function isInlineImageData(value) {
-        return typeof value === 'string' && /^data:image\//i.test(value);
-    }
-
-    function isRemoteImageUrl(value) {
-        return typeof value === 'string' && /^https?:\/\//i.test(value);
-    }
-
-    function choosePersistedPreviewThumbnail(source, thumbnail) {
-        const normalizedSource = typeof source === 'string' ? source.trim() : '';
-        const normalizedThumbnail = typeof thumbnail === 'string' ? thumbnail.trim() : '';
-        if (normalizedThumbnail && normalizedThumbnail !== normalizedSource) {
-            return normalizedThumbnail;
-        }
-        if (normalizedSource && normalizedSource.length <= PERSISTED_PREVIEW_THUMBNAIL_MAX_LENGTH) {
-            return normalizedSource;
-        }
-        return '';
-    }
-
     function setNodePreviewThumbnailValue(node, source, thumbnail = '') {
         if (!node?.data) return '';
         const nextThumbnail = choosePersistedPreviewThumbnail(source, thumbnail);
@@ -250,70 +298,6 @@ export function createMediaControllerApi({
         return nextThumbnail;
     }
 
-    function clearNodePreviewThumbnail(nodeOrId) {
-        const node = typeof nodeOrId === 'string' ? getNodeById(nodeOrId) : nodeOrId;
-        if (!node?.data?.imagePreviewThumbnail) return false;
-        delete node.data.imagePreviewThumbnail;
-        return true;
-    }
-
-    function cacheNodePreviewThumbnail(nodeOrId, source) {
-        const node = typeof nodeOrId === 'string' ? getNodeById(nodeOrId) : nodeOrId;
-        const normalizedSource = typeof source === 'string' ? source.trim() : '';
-        if (!node?.data) return Promise.resolve('');
-        if (!isInlineImageData(normalizedSource)) {
-            clearNodePreviewThumbnail(node);
-            return Promise.resolve('');
-        }
-        const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        node.previewThumbnailToken = token;
-        const previousThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' ? node.data.imagePreviewThumbnail : '';
-        return Promise.resolve(previewCache.createPreviewThumbnail(normalizedSource))
-            .then((thumbnail) => {
-                const latestNode = getNodeById(node.id);
-                if (!latestNode || latestNode !== node || latestNode.previewThumbnailToken !== token) {
-                    return '';
-                }
-                const nextThumbnail = setNodePreviewThumbnailValue(latestNode, normalizedSource, thumbnail);
-                if (nextThumbnail !== previousThumbnail) {
-                    scheduleSave();
-                }
-                return nextThumbnail;
-            })
-            .catch(() => {
-                const latestNode = getNodeById(node.id);
-                if (!latestNode || latestNode !== node || latestNode.previewThumbnailToken !== token) {
-                    return '';
-                }
-                const nextThumbnail = setNodePreviewThumbnailValue(latestNode, normalizedSource, '');
-                if (nextThumbnail !== previousThumbnail) scheduleSave();
-                return nextThumbnail;
-            });
-    }
-
-    function sanitizeFilenamePart(value, fallback = 'image') {
-        const cleaned = String(value || '')
-            .replace(/[\\/:*?"<>|]/g, ' ')
-            .replace(/[\u0000-\u001f]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .replace(/[. ]+$/g, '');
-        const limited = cleaned.slice(0, 80).trim();
-        return limited || fallback;
-    }
-
-    function formatFilenameTimestamp(date = new Date()) {
-        const pad = (value) => String(value).padStart(2, '0');
-        return [
-            date.getFullYear(),
-            pad(date.getMonth() + 1),
-            pad(date.getDate())
-        ].join('-') + '_' + [
-            pad(date.getHours()),
-            pad(date.getMinutes()),
-            pad(date.getSeconds())
-        ].join('-');
-    }
 
     function getImagePromptsFromNode(node, images) {
         const imageList = getCanonicalImageList(node);
@@ -412,410 +396,8 @@ export function createMediaControllerApi({
         return options.includeTimestamp ? `${base}_${timestamp}` : base;
     }
 
-    function buildBackendVideoDownloadUrl(videoUrl, filenameBase) {
-        const params = new URLSearchParams();
-        params.set('url', String(videoUrl || '').trim());
-        if (filenameBase) params.set('filename', filenameBase);
-        return `/api/media/download?${params.toString()}`;
-    }
 
-    function formatProgressBytes(bytes) {
-        if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-        if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-        if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-        if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-        return `${Math.round(bytes)} B`;
-    }
 
-    function formatProgressSpeed(bytesPerSecond) {
-        const speed = Number(bytesPerSecond) || 0;
-        return speed > 0 ? `${formatProgressBytes(speed)}/s` : '等待数据';
-    }
-
-    async function blobLooksLikeVideo(blob) {
-        if (!blob || typeof blob.slice !== 'function') return false;
-        const headerBlob = blob.slice(0, 64);
-        const buffer = await headerBlob.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        if (bytes.length >= 8 &&
-            bytes[4] === 0x66 &&
-            bytes[5] === 0x74 &&
-            bytes[6] === 0x79 &&
-            bytes[7] === 0x70) {
-            return true;
-        }
-        if (bytes.length >= 4 &&
-            bytes[0] === 0x1a &&
-            bytes[1] === 0x45 &&
-            bytes[2] === 0xdf &&
-            bytes[3] === 0xa3) {
-            return true;
-        }
-        if (bytes.length >= 12 &&
-            bytes[0] === 0x52 &&
-            bytes[1] === 0x49 &&
-            bytes[2] === 0x46 &&
-            bytes[3] === 0x46 &&
-            bytes[8] === 0x41 &&
-            bytes[9] === 0x56 &&
-            bytes[10] === 0x49 &&
-            bytes[11] === 0x20) {
-            return true;
-        }
-        return false;
-    }
-
-    function isLikelyDownloadableVideoUrl(videoUrl = '') {
-        const value = String(videoUrl || '').trim();
-        if (!value) return false;
-        try {
-            const parsed = new URL(value, windowRef.location?.href || 'http://localhost');
-            const pathname = String(parsed.pathname || '').toLowerCase();
-            if (['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'].some((ext) => pathname.endsWith(ext))) {
-                return true;
-            }
-            const query = String(parsed.search || '');
-            if (query.includes('Signature=') || query.includes('Expires=') || query.includes('response-content-disposition=')) {
-                return true;
-            }
-            const host = String(parsed.hostname || '').toLowerCase();
-            if (host.includes('flow-content.google') || host.includes('storage.googleapis.com')) {
-                return true;
-            }
-        } catch (_) {
-            return false;
-        }
-        return false;
-    }
-
-    function classifyVideoUrlForLog(videoUrl = '') {
-        const value = String(videoUrl || '').trim();
-        if (!value) return { kind: 'empty', label: '空链接' };
-        return isLikelyDownloadableVideoUrl(value)
-            ? { kind: 'signed-video-direct', label: '签名视频直链' }
-            : { kind: 'normal-video-url', label: '普通视频链接' };
-    }
-
-    function getVideoAutoSaveToastRecord(nodeId) {
-        return videoAutoSaveToasts.get(nodeId) || null;
-    }
-
-    function removeVideoAutoSaveToast(nodeId) {
-        const record = getVideoAutoSaveToastRecord(nodeId);
-        if (!record) return;
-        record.toastHandle?.dismiss?.(0);
-        videoAutoSaveToasts.delete(nodeId);
-    }
-
-    function ensureVideoAutoSaveToast(nodeId, subtitleText = '正在自动保存视频...') {
-        const existing = getVideoAutoSaveToastRecord(nodeId);
-        if (existing?.toastHandle?.element?.isConnected) return existing;
-
-        const toastHandle = showToast('正在自动保存视频...', 'info', 0);
-        const toastEl = toastHandle?.element;
-        if (!toastEl) return null;
-
-        toastHandle.clearTimer?.();
-        toastEl.className = 'toast info update-download-toast';
-        toastEl.setAttribute('role', 'status');
-        toastEl.setAttribute('aria-live', 'polite');
-        toastEl.innerHTML = '';
-
-        const header = documentRef.createElement('div');
-        header.className = 'update-download-toast__header';
-
-        const titleWrap = documentRef.createElement('div');
-        titleWrap.className = 'update-download-toast__title-wrap';
-
-        const title = documentRef.createElement('div');
-        title.className = 'update-download-toast__title';
-        title.textContent = '视频自动保存';
-        titleWrap.appendChild(title);
-
-        const subtitle = documentRef.createElement('div');
-        subtitle.className = 'update-download-toast__subtitle';
-        subtitle.textContent = subtitleText;
-        titleWrap.appendChild(subtitle);
-        header.appendChild(titleWrap);
-        toastEl.appendChild(header);
-
-        const progress = documentRef.createElement('div');
-        progress.className = 'update-download-progress update-download-progress--toast';
-
-        const row = documentRef.createElement('div');
-        row.className = 'update-download-progress__row';
-
-        const rowTitle = documentRef.createElement('span');
-        rowTitle.className = 'update-download-progress__title';
-        rowTitle.textContent = '后端下载中';
-        row.appendChild(rowTitle);
-
-        const percentText = documentRef.createElement('span');
-        percentText.className = 'update-download-progress__percent';
-        percentText.textContent = '计算中';
-        row.appendChild(percentText);
-        progress.appendChild(row);
-
-        const track = documentRef.createElement('div');
-        track.className = 'update-download-progress__track is-indeterminate';
-
-        const bar = documentRef.createElement('div');
-        bar.className = 'update-download-progress__bar';
-        track.appendChild(bar);
-        progress.appendChild(track);
-
-        const detail = documentRef.createElement('div');
-        detail.className = 'update-download-progress__detail';
-
-        const sizeText = documentRef.createElement('span');
-        sizeText.textContent = '等待服务器返回大小...';
-        detail.appendChild(sizeText);
-
-        const statusText = documentRef.createElement('span');
-        statusText.textContent = '准备中';
-        detail.appendChild(statusText);
-
-        const speedText = documentRef.createElement('span');
-        speedText.textContent = '速度：等待数据';
-        detail.appendChild(speedText);
-        progress.appendChild(detail);
-
-        toastEl.appendChild(progress);
-
-        const record = {
-            toastHandle,
-            toastEl,
-            subtitle,
-            rowTitle,
-            percentText,
-            track,
-            bar,
-            sizeText,
-            statusText,
-            speedText
-        };
-        videoAutoSaveToasts.set(nodeId, record);
-        return record;
-    }
-
-    function updateVideoAutoSaveToast(nodeId, {
-        subtitle = '正在自动保存视频...',
-        stage = '后端下载中',
-        loaded = 0,
-        total = 0,
-        status = '下载中',
-        speedBytesPerSecond = 0
-    } = {}) {
-        const record = ensureVideoAutoSaveToast(nodeId, subtitle);
-        if (!record) return;
-
-        const hasTotal = Number.isFinite(total) && total > 0;
-        const safeLoaded = Math.max(0, Number(loaded) || 0);
-        const percent = hasTotal ? Math.max(0, Math.min(100, (safeLoaded / total) * 100)) : null;
-
-        record.subtitle.textContent = subtitle;
-        record.rowTitle.textContent = stage;
-        record.percentText.textContent = percent === null
-            ? '计算中'
-            : `${percent.toFixed(percent >= 10 || percent === 0 ? 0 : 1)}%`;
-        record.track.classList.toggle('is-indeterminate', percent === null);
-        record.bar.style.width = percent === null ? '' : `${percent}%`;
-        record.sizeText.textContent = hasTotal
-            ? `${formatProgressBytes(safeLoaded)} / ${formatProgressBytes(total)}`
-            : `${formatProgressBytes(safeLoaded)} / 未知大小`;
-        record.statusText.textContent = status;
-        record.speedText.textContent = status === '已完成'
-            ? '速度：完成'
-            : `速度：${formatProgressSpeed(speedBytesPerSecond)}`;
-    }
-
-    function completeVideoAutoSaveToast(nodeId, message = '视频已自动保存到目录') {
-        const record = ensureVideoAutoSaveToast(nodeId, message);
-        if (!record) return;
-        record.toastEl.className = 'toast success update-download-toast is-completed';
-        record.subtitle.textContent = message;
-        record.rowTitle.textContent = '保存完成';
-        record.percentText.textContent = '100%';
-        record.track.classList.remove('is-indeterminate');
-        record.bar.style.width = '100%';
-        record.statusText.textContent = '已完成';
-        record.speedText.textContent = '速度：完成';
-        windowRef.setTimeout(() => removeVideoAutoSaveToast(nodeId), 2600);
-    }
-
-    function failVideoAutoSaveToast(nodeId, message = '视频自动保存失败') {
-        const record = ensureVideoAutoSaveToast(nodeId, message);
-        if (!record) return;
-        record.toastEl.className = 'toast error update-download-toast';
-        record.subtitle.textContent = message;
-        record.rowTitle.textContent = '保存失败';
-        record.statusText.textContent = '失败';
-        record.speedText.textContent = '速度：失败';
-        windowRef.setTimeout(() => removeVideoAutoSaveToast(nodeId), 4000);
-    }
-
-    async function downloadGeneratedVideo(videoUrl, options = {}) {
-        const {
-            filenameBase = '',
-            onProgress = null,
-            signal = null
-        } = options;
-        const backendUrl = buildBackendVideoDownloadUrl(videoUrl, filenameBase);
-        const videoUrlMeta = classifyVideoUrlForLog(videoUrl);
-        let response = null;
-        let postErrorMessage = '';
-
-        try {
-            response = await fetchRef('/api/media/download', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'video/*,application/octet-stream'
-                },
-                signal,
-                body: JSON.stringify({
-                    url: String(videoUrl || '').trim(),
-                    filename: filenameBase || ''
-                })
-            });
-            if (!response.ok) {
-                const bodyText = await response.text();
-                postErrorMessage = typeof formatProxyErrorMessage === 'function'
-                    ? formatProxyErrorMessage(response.status, bodyText, '后端视频下载失败')
-                    : `后端视频下载失败 (${response.status})`;
-                addLog('warning', '后端视频下载失败', postErrorMessage, {
-                    method: 'POST',
-                    url: '/api/media/download',
-                    sourceVideoUrl: videoUrl,
-                    videoUrlType: videoUrlMeta.kind,
-                    videoUrlLabel: videoUrlMeta.label,
-                    filenameBase
-                });
-                response = null;
-            }
-        } catch (error) {
-            postErrorMessage = error?.message || String(error);
-            addLog('warning', '后端视频下载异常', postErrorMessage, {
-                method: 'POST',
-                url: '/api/media/download',
-                sourceVideoUrl: videoUrl,
-                videoUrlType: videoUrlMeta.kind,
-                videoUrlLabel: videoUrlMeta.label,
-                filenameBase
-            });
-            response = null;
-        }
-
-        if (!response) {
-            response = await fetchRef(backendUrl, {
-                method: 'GET',
-                headers: {
-                    Accept: 'video/*,application/octet-stream'
-                },
-                signal
-            });
-            if (!response.ok) {
-                const bodyText = await response.text();
-                const getErrorMessage = typeof formatProxyErrorMessage === 'function'
-                    ? formatProxyErrorMessage(response.status, bodyText, '后端视频下载失败')
-                    : `后端视频下载失败 (${response.status})`;
-                addLog('warning', '后端视频下载回退失败', getErrorMessage, {
-                    method: 'GET',
-                    url: backendUrl,
-                    sourceVideoUrl: videoUrl,
-                    videoUrlType: videoUrlMeta.kind,
-                    videoUrlLabel: videoUrlMeta.label,
-                    previousError: postErrorMessage
-                });
-                throw new Error(postErrorMessage
-                    ? `${postErrorMessage}；GET 回退也失败：${getErrorMessage}`
-                    : getErrorMessage);
-            }
-        }
-
-        const responseContentType = String(response.headers.get('Content-Type') || '').toLowerCase();
-        const allowNonStandardVideoContentType = isLikelyDownloadableVideoUrl(videoUrl);
-        if (!responseContentType.startsWith('video/') && !allowNonStandardVideoContentType) {
-            const invalidBody = await response.text();
-            addLog('warning', '后端视频下载返回了非视频内容', '后端返回的不是视频文件，已阻止写入保存目录。', {
-                sourceVideoUrl: videoUrl,
-                videoUrlType: videoUrlMeta.kind,
-                videoUrlLabel: videoUrlMeta.label,
-                contentType: responseContentType || 'unknown',
-                body: invalidBody
-            });
-            throw new Error(`后端返回的不是视频文件 (${responseContentType || 'unknown'})`);
-        }
-
-        const total = Number(response.headers.get('Content-Length') || 0);
-        const downloadStartedAt = Date.now();
-        const getAverageSpeed = (loadedBytes) => {
-            const elapsedSeconds = Math.max(0.001, (Date.now() - downloadStartedAt) / 1000);
-            return Math.round((Number(loadedBytes) || 0) / elapsedSeconds);
-        };
-        if (!response.body || typeof response.body.getReader !== 'function') {
-            const blob = await response.blob();
-            if (!String(blob.type || '').toLowerCase().startsWith('video/') && !allowNonStandardVideoContentType) {
-                throw new Error(`下载结果不是视频文件 (${blob.type || 'unknown'})`);
-            }
-            if (blob.size < 1024) {
-                throw new Error(`下载结果大小异常 (${blob.size} B)，已阻止保存`);
-            }
-            if (!(await blobLooksLikeVideo(blob))) {
-                throw new Error('下载结果文件头不是有效视频，已阻止保存');
-            }
-            if (typeof onProgress === 'function') {
-                onProgress({
-                    loaded: blob.size || total || 0,
-                    total: total || blob.size || 0,
-                    speedBytesPerSecond: getAverageSpeed(blob.size || total || 0),
-                    done: true
-                });
-            }
-            return blob;
-        }
-
-        const reader = response.body.getReader();
-        const chunks = [];
-        let loaded = 0;
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) {
-                chunks.push(value);
-                loaded += value.byteLength || value.length || 0;
-                if (typeof onProgress === 'function') {
-                    onProgress({
-                        loaded,
-                        total,
-                        speedBytesPerSecond: getAverageSpeed(loaded),
-                        done: false
-                    });
-                }
-            }
-        }
-        if (typeof onProgress === 'function') {
-            onProgress({
-                loaded,
-                total: total || loaded,
-                speedBytesPerSecond: getAverageSpeed(loaded),
-                done: true
-            });
-        }
-        const blob = new Blob(chunks, {
-            type: response.headers.get('Content-Type') || 'application/octet-stream'
-        });
-        if (!String(blob.type || '').toLowerCase().startsWith('video/') && !allowNonStandardVideoContentType) {
-            throw new Error(`下载结果不是视频文件 (${blob.type || 'unknown'})`);
-        }
-        if (blob.size < 1024) {
-            throw new Error(`下载结果大小异常 (${blob.size} B)，已阻止保存`);
-        }
-        if (!(await blobLooksLikeVideo(blob))) {
-            throw new Error('下载结果文件头不是有效视频，已阻止保存');
-        }
-        return blob;
-    }
 
     async function getAvailableFileHandle(directoryHandle, baseName, extension = '.png') {
         let counter = 0;
@@ -915,18 +497,6 @@ export function createMediaControllerApi({
             return restoreStoredImageList(node);
         }
         return getNodeOutputImageList(node);
-    }
-
-    function getImageSavePreviewIndex(node, images) {
-        if (!images.length) return 0;
-        const rawIndex = Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0;
-        return Math.max(0, Math.min(images.length - 1, rawIndex));
-    }
-
-    function getImagePreviewIndex(node, images) {
-        if (!images.length) return 0;
-        const rawIndex = Number.isFinite(node?.imagePreviewIndex) ? node.imagePreviewIndex : 0;
-        return Math.max(0, Math.min(images.length - 1, rawIndex));
     }
 
     function getPreviewLayoutSignature(images, { compareImageA = null, compareImageB = null } = {}) {
@@ -1107,22 +677,6 @@ export function createMediaControllerApi({
         });
     }
 
-    function isTypingIntoField() {
-        const activeElement = documentRef.activeElement;
-        return Boolean(activeElement && (
-            activeElement.tagName === 'INPUT'
-            || activeElement.tagName === 'TEXTAREA'
-            || activeElement.tagName === 'SELECT'
-            || activeElement.isContentEditable
-        ));
-    }
-
-    function hasBlockingImmersiveOverlay() {
-        if (documentRef.querySelector('.fullscreen-overlay')) return true;
-        const historyPreview = documentRef.getElementById('history-preview-modal');
-        return Boolean(historyPreview && !historyPreview.classList.contains('hidden'));
-    }
-
     async function stepImagePreviewNodeByDelta(nodeId, delta) {
         const node = getNodeById(nodeId);
         const images = await getStoredImagePreviewListAsync(node);
@@ -1178,14 +732,6 @@ export function createMediaControllerApi({
         });
     }
 
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
 
     function renderImageImportUrlPreviewContent(imageUrl, options = {}) {
         const { reloading = false, message = '' } = options;
@@ -2427,16 +1973,6 @@ export function createMediaControllerApi({
         });
     }
 
-    function getFocusedNodeId() {
-        if (state.selectedNodes?.size === 1) {
-            const selectedNodeId = Array.from(state.selectedNodes)[0];
-            if (state.nodes?.has(selectedNodeId)) return selectedNodeId;
-        }
-        return state.activeNodeId && state.nodes?.has(state.activeNodeId)
-            ? state.activeNodeId
-            : null;
-    }
-
     async function autoSaveToDir(nodeId, dataUrl) {
         const node = getNodeById(nodeId);
         if (!node) return;
@@ -3141,29 +2677,6 @@ export function createMediaControllerApi({
         node.previewZoom = Math.max(0.2, Math.min(10, (node.previewZoom || 1) * factor));
         img.style.transform = `scale(${node.previewZoom})`;
         img.style.transformOrigin = 'center center';
-    }
-
-    function isChromeElementExposed(element) {
-        if (!element) return false;
-        const rect = element.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return false;
-
-        const x = Math.min(windowRef.innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
-        const y = Math.min(windowRef.innerHeight - 1, Math.max(0, rect.top + rect.height / 2));
-        const topElement = documentRef.elementFromPoint(x, y);
-        return topElement === element || element.contains(topElement);
-    }
-
-    function shouldIgnoreChromeOffsetForPreview() {
-        const body = documentRef.body;
-        if (!body) return false;
-
-        const toolbarCovered = body.classList.contains('toolbar-pinned')
-            && !isChromeElementExposed(documentRef.getElementById('toolbar'));
-        const sidebarCovered = body.classList.contains('sidebar-pinned')
-            && !isChromeElementExposed(documentRef.getElementById('side-bar'));
-
-        return toolbarCovered || sidebarCovered;
     }
 
     async function openFullscreenPreview(src, nodeId = null) {
