@@ -1243,6 +1243,21 @@ const workflowManagerApi = createWorkflowManagerApi({
     endMediaRestoreBatch,
     finalizeMediaRestoreBatch
 });
+
+function refreshImageGenerateNodes(protocolId) {
+    state.nodes.forEach((node, nodeId) => {
+        if (node.type === 'ImageGenerate') {
+            const nodeEl = node.el;
+            if (!nodeEl) return;
+
+            // 触发节点重新渲染以更新协议相关的UI
+            nodeDomBindingsApi?.syncNodeProviderOptions?.(nodeId, 'ImageGenerate');
+            nodeDomBindingsApi?.syncImageGenerateResolutionOptions?.(nodeId);
+        }
+    });
+    updateAllConnections();
+}
+
 settingsFeature = createSettingsFeature({
     appVersion: APP_VERSION,
     githubRepo: GITHUB_REPO,
@@ -1263,6 +1278,7 @@ settingsFeature = createSettingsFeature({
     applyCanvasUiSetting,
     fitNodeToContent,
     floatingNoticesApi: getFloatingNoticesApi(),
+    refreshImageGenerateNodes,
     documentRef: document
 });
 settingsControllerApi = settingsFeature.settingsControllerApi;

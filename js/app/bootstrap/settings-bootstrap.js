@@ -1,5 +1,6 @@
 import { createSettingsModalApi } from '../../features/settings/settings-modal.js';
 import { createSettingsControllerApi } from '../../features/settings/settings-controller.js';
+import { createProtocolDeveloperPanel } from '../../features/settings/protocol-developer-panel.js';
 
 /**
  * Creates the settings feature bootstrap wiring without leaking setup details into the main app bootstrap.
@@ -24,6 +25,7 @@ export function createSettingsFeature({
     applyCanvasUiSetting,
     fitNodeToContent,
     floatingNoticesApi,
+    refreshImageGenerateNodes = null,
     documentRef = document
 }) {
     const settingsModal = documentRef.getElementById('settings-modal');
@@ -67,8 +69,14 @@ export function createSettingsFeature({
         }
     });
 
+    const protocolDeveloperPanelApi = createProtocolDeveloperPanel({
+        documentRef,
+        showToast,
+        refreshImageGenerateNodes
+    });
+
     function initSettingsFeature() {
-        settingsControllerApi.initSettingsUI({ settingsModalApi });
+        settingsControllerApi.initSettingsUI({ settingsModalApi, protocolDeveloperPanelApi });
     }
 
     return {

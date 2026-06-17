@@ -42,12 +42,39 @@ export function createSettingsControllerApi(options) {
         modelSettingsApi.collapseAllModelConfigCards();
     }
 
-    function initSettingsUI({ settingsModalApi }) {
+    function initSettingsUI({ settingsModalApi, protocolDeveloperPanelApi }) {
         const { documentRef, settingsModal, state, showToast, saveState, windowRef } = ctx;
 
         windowRef.__cainflowSettingsModalApi = settingsModalApi;
-        documentRef.getElementById('btn-settings').addEventListener('click', () => {
+
+        // 协议编辑按钮
+        let protocolEditButton = null;
+
+        documentRef.getElementById('btn-settings').addEventListener('click', (event) => {
             settingsModalApi.openSettingsModal();
+
+            // 按住 Ctrl 键时，在设置面板底部显示协议编辑按钮
+            if (event.ctrlKey && protocolDeveloperPanelApi) {
+                if (!protocolEditButton) {
+                    const footer = settingsModal.querySelector('.modal-footer .footer-right');
+                    if (footer) {
+                        protocolEditButton = documentRef.createElement('button');
+                        protocolEditButton.id = 'btn-open-protocol-dev';
+                        protocolEditButton.className = 'btn btn-primary btn-sm';
+                        protocolEditButton.textContent = '🛠️ 协议编辑';
+                        protocolEditButton.style.marginLeft = '8px';
+                        protocolEditButton.addEventListener('click', () => {
+                            protocolDeveloperPanelApi.openPanel();
+                        });
+                        footer.appendChild(protocolEditButton);
+                    }
+                }
+                if (protocolEditButton) {
+                    protocolEditButton.style.display = 'inline-block';
+                }
+            } else if (protocolEditButton) {
+                protocolEditButton.style.display = 'none';
+            }
         });
         documentRef.getElementById('settings-close').addEventListener('click', () => {
             dialogs.closeAllSettingsOverlays();
