@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 根据节点类型与恢复数据生成节点的 HTML 结构。
  */
 import {
@@ -508,7 +508,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             hidden: usesOpenAiImageControls || isNewApiAsyncImage,
             fieldId: `${id}-search-field`
         })}
-        ${renderNodeFormNote('提示：这些额外参数是否生效，取决于所选模型的兼容格式。Google / Gemini 生图通常支持宽高比和搜索，TTAPI Gemini 会发送 aspect_ratio、image_size、google_search；TTAPI OpenAI 会发送 OpenAI 风格的 size、quality、moderation、background 等字段，有参考图时走 /v1/images/edits；NEW API 原生异步模式会走 /v1/videos 并通过任务 ID 轮询。')}
+
         ${renderNodeFormField({
             label: '提示词',
             fieldId: `${id}-prompt-field`,
