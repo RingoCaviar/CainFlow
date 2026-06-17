@@ -97,6 +97,12 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         cleanProtocol.urlTemplate = typeof cleanProtocol.urlTemplate === 'string' ? cleanProtocol.urlTemplate : '{{endpoint}}/v1/endpoint';
         cleanProtocol.apikeyLocation = cleanProtocol.apikeyLocation || 'header';
         cleanProtocol.apikeyField = cleanProtocol.apikeyField || 'Authorization';
+
+        // 处理 urlTemplates（多路径配置）
+        if (protocol.urlTemplates && typeof protocol.urlTemplates === 'object') {
+            cleanProtocol.urlTemplates = { ...protocol.urlTemplates };
+        }
+
         cleanProtocol.parameters = Object.entries(protocol.parameters || {}).reduce((params, [paramId, param]) => {
             const cleanParam = cleanParameterConfig(paramId, param);
             if (cleanParam.id) params[cleanParam.id] = cleanParam;
@@ -211,6 +217,14 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                                         <label>请求路径模板</label>
                                         <input type="text" id="protocol-url-template" placeholder="例如: {{endpoint}}/v1/images/generations" />
                                         <small style="color: var(--text-secondary); font-size: 12px;">支持变量：{{endpoint}}, {{model}}, {{taskType}}</small>
+                                    </div>
+                                    <div class="protocol-field">
+                                        <label>
+                                            图片编辑路径（可选）
+                                            <small style="color: var(--text-secondary); font-size: 12px; font-weight: normal; margin-left: 8px;">当生图节点有参考图输入时使用此路径</small>
+                                        </label>
+                                        <input type="text" id="protocol-url-template-image-edit" placeholder="例如: {{endpoint}}/v1/images/edits" />
+                                        <small style="color: var(--text-secondary); font-size: 12px;">留空则使用默认路径模板。适用于支持图片编辑的API（如 OpenAI 的 /images/edits）</small>
                                     </div>
                                     <div class="protocol-field">
                                         <label>API Key 位置</label>
@@ -395,6 +409,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         documentRef.getElementById('protocol-id').value = draftProtocol.id;
         documentRef.getElementById('protocol-label').value = draftProtocol.label || '';
         documentRef.getElementById('protocol-url-template').value = draftProtocol.urlTemplate || '';
+
+        // 填充图片编辑路径（如果有配置）
+        const imageEditPath = draftProtocol.urlTemplates?.imageEdit || '';
+        documentRef.getElementById('protocol-url-template-image-edit').value = imageEditPath;
 
         // 填充协议用途复选框
         const taskTypes = draftProtocol.taskTypes || [];
@@ -900,6 +918,27 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         if (documentRef.getElementById('task-type-image').checked) taskTypes.push('image');
         if (documentRef.getElementById('task-type-video').checked) taskTypes.push('video');
         nextProtocol.taskTypes = taskTypes;
+
+        // 收集图片编辑路径配置
+        const imageEditPath = documentRef.getElementById('protocol-url-template-image-edit').value.trim();
+        if (imageEditPath) {
+            // 如果配置了图片编辑路径，创建 urlTemplates 对象
+            if (!nextProtocol.urlTemplates) {
+                nextProtocol.urlTemplates = {};
+            }
+            nextProtocol.urlTemplates.imageEdit = imageEditPath;
+            // 同时保存主路径作为 image 路径（生成路径）
+            nextProtocol.urlTemplates.image = nextProtocol.urlTemplate;
+        } else {
+            // 如果清空了图片编辑路径，删除 imageEdit 配置
+            if (nextProtocol.urlTemplates) {
+                delete nextProtocol.urlTemplates.imageEdit;
+                // 如果 urlTemplates 为空对象，删除它
+                if (Object.keys(nextProtocol.urlTemplates).length === 0) {
+                    delete nextProtocol.urlTemplates;
+                }
+            }
+        }
 
         // 参数
         const parameters = {};
@@ -1412,6 +1451,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             const apikeyLocation = documentRef.getElementById('protocol-apikey-location').value;
             const apikeyField = documentRef.getElementById('protocol-apikey-field').value || 'Authorization';
             const urlTemplate = documentRef.getElementById('protocol-url-template').value || '{{endpoint}}/v1/endpoint';
+            const imageEditPath = documentRef.getElementById('protocol-url-template-image-edit').value.trim();
 
             // 收集当前编辑器中的参数定义
             const currentParameters = {};
@@ -1465,6 +1505,14 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 parameters: currentParameters
             };
 
+            // 如果配置了图片编辑路径，添加到 urlTemplates
+            if (imageEditPath) {
+                tempProtocol.urlTemplates = {
+                    image: urlTemplate,
+                    imageEdit: imageEditPath
+                };
+            }
+
             // 重新包装协议
             const wrappedProtocol = wrapConfigProtocol(tempProtocol);
 
@@ -1509,11 +1557,28 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 mockContext.parameters.prompt = '这是一个测试提示词';
             }
 
-            // 构建URL
-            let requestUrl = 'https://api.example.com/v1/endpoint';
+            // 构建URL（两种情况：无参考图和有参考图）
+            let requestUrlNoImages = 'https://api.example.com/v1/endpoint';
+            let requestUrlWithImages = 'https://api.example.com/v1/endpoint';
+            let showImageEditUrl = false;
+
             if (typeof wrappedProtocol.buildUrl === 'function') {
                 try {
-                    requestUrl = wrappedProtocol.buildUrl(mockApiConfig, mockModelConfig, taskType, mockContext);
+                    // 无参考图的情况
+                    const contextNoImages = { ...mockContext, inputs: {} };
+                    requestUrlNoImages = wrappedProtocol.buildUrl(mockApiConfig, mockModelConfig, taskType, contextNoImages);
+
+                    // 有参考图的情况（仅当配置了图片编辑路径时才显示）
+                    if (imageEditPath && taskType === 'image') {
+                        const contextWithImages = {
+                            ...mockContext,
+                            inputs: {
+                                image: 'https://example.com/reference-image.jpg'
+                            }
+                        };
+                        requestUrlWithImages = wrappedProtocol.buildUrl(mockApiConfig, mockModelConfig, taskType, contextWithImages);
+                        showImageEditUrl = requestUrlNoImages !== requestUrlWithImages;
+                    }
                 } catch (error) {
                     console.error('buildUrl 失败:', error);
                 }
@@ -1530,11 +1595,16 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             // 构建完整的请求预览
             const preview = {
                 method: 'POST',
-                url: requestUrl,
+                url: requestUrlNoImages,
                 headers: {},
                 query: {},
                 body: requestBody
             };
+
+            // 如果有图片编辑路径，添加到预览中
+            if (showImageEditUrl) {
+                preview.url_with_reference_images = requestUrlWithImages;
+            }
 
             // 根据API Key位置添加到预览
             const mockApiKey = 'sk-example-api-key-1234567890';
@@ -1630,6 +1700,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         // 监听基本信息变化
         documentRef.getElementById('protocol-label').addEventListener('input', debouncedPreview);
         documentRef.getElementById('protocol-url-template').addEventListener('input', debouncedPreview);
+        documentRef.getElementById('protocol-url-template-image-edit').addEventListener('input', debouncedPreview);
         documentRef.getElementById('protocol-apikey-location').addEventListener('change', refreshPreview);
         documentRef.getElementById('protocol-apikey-field').addEventListener('input', debouncedPreview);
 

@@ -142,6 +142,27 @@ function convertValueByType(value, dataType) {
 }
 
 /**
+ * 检查是否有参考图片输入
+ */
+function hasReferenceImages(inputs = {}) {
+    const imageKeys = Object.keys(inputs).filter(key =>
+        key === 'image' || key === 'referenceImages' || /^image_\d+$/.test(key)
+    );
+
+    for (const key of imageKeys) {
+        const value = inputs[key];
+        if (typeof value === 'string' && value.trim()) {
+            return true;
+        }
+        if (Array.isArray(value) && value.some(v => typeof v === 'string' && v.trim())) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * 从URL模板构建URL
  * @param {Object} protocol - 协议对象
  * @param {Object} context - 执行上下文 { apiConfig, modelConfig, taskType, parameters, inputs }
@@ -150,7 +171,30 @@ function convertValueByType(value, dataType) {
 export function buildUrlFromTemplate(protocol, context) {
     const { apiConfig, modelConfig, taskType, parameters, inputs } = context;
 
-    let template = protocol.urlTemplates?.[taskType] || protocol.urlTemplate || '{{endpoint}}/v1/endpoint';
+    let template = protocol.urlTemplate || '{{endpoint}}/v1/endpoint';
+
+    // 优先级：urlTemplates（对象形式，支持条件路径） > urlTemplate（字符串形式）
+    if (protocol.urlTemplates && typeof protocol.urlTemplates === 'object') {
+        // 对于图片任务，检查是否有参考图片，选择对应的路径
+        if (taskType === 'image') {
+            const hasImages = hasReferenceImages(inputs);
+            // 如果有参考图且定义了 imageEdit 路径，使用编辑路径
+            if (hasImages && protocol.urlTemplates.imageEdit) {
+                template = protocol.urlTemplates.imageEdit;
+            }
+            // 否则使用 image 路径（生成路径）
+            else if (protocol.urlTemplates.image) {
+                template = protocol.urlTemplates.image;
+            }
+            // 最后回退到 taskType 路径
+            else if (protocol.urlTemplates[taskType]) {
+                template = protocol.urlTemplates[taskType];
+            }
+        } else {
+            // 其他任务类型直接按 taskType 查找
+            template = protocol.urlTemplates[taskType] || template;
+        }
+    }
 
     // 替换变量
     const variables = {
