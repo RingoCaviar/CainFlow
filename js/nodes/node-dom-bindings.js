@@ -16,6 +16,10 @@ import {
 } from '../features/execution/provider-request-utils.js';
 import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
+import { getProtocol } from '../features/execution/protocols/index.js';
+import { TtapiProtocol } from '../features/execution/protocols/ttapi.js';
+import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-openai.js';
+import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -60,6 +64,25 @@ export function createNodeDomBindingsApi({
     const NODE_CANCEL_HOLD_MS = 2000;
     const NODE_CANCEL_DRAG_THRESHOLD = 8;
     const pendingConnectedInputLayoutFrames = new Map();
+    const IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
+        'referenceImages',
+        'prompt',
+        'model',
+        'aspect',
+        'aspect_ratio',
+        'resolution',
+        'image_size',
+        'size',
+        'quality',
+        'moderation',
+        'background',
+        'search',
+        'google_search'
+    ]);
+    const IMAGE_GENERATE_BUILTIN_PROTOCOLS = new Map([
+        [TtapiProtocol.id, TtapiProtocol],
+        [TtapiOpenaiProtocol.id, TtapiOpenaiProtocol]
+    ]);
 
     function postponeZoomSettle() {
         state.zoomSettleBlockedUntil = Date.now() + ZOOM_SETTLE_GUARD_MS;
@@ -228,7 +251,6 @@ export function createNodeDomBindingsApi({
         let changed = false;
         if (node.type === 'ImageGenerate') {
             changed = setNodeInputFieldConnectedVisibility(nodeId, 'prompt', 'prompt-field') || changed;
-            changed = setNodeInputFieldConnectedVisibility(nodeId, 'system_prompt', 'system-prompt-field') || changed;
         }
         if (changed) {
             scheduleConnectedInputFieldLayout(nodeId);
@@ -1354,6 +1376,69 @@ export function createNodeDomBindingsApi({
         defaults.providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
     }
 
+    function getImageGenerateExtraProtocol(protocol) {
+        if (!protocol?.parameters) return null;
+        const parameters = Object.entries(protocol.parameters).reduce((acc, [paramId, param]) => {
+            const effectiveId = param?.id || paramId;
+            if (!IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(paramId) && !IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(effectiveId)) {
+                acc[paramId] = param;
+            }
+            return acc;
+        }, {});
+        return Object.keys(parameters).length > 0 ? { ...protocol, parameters } : null;
+    }
+
+    function getImageGenerateSelectedProtocol(id) {
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
+        if (!modelSelect) return null;
+        const model = state.models.find((candidate) => candidate.id === modelSelect.value) || null;
+        const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
+        const provider = getResolvedProviderForModel(model, state.providers, providerId);
+        const protocolId = getEffectiveProtocol(model, provider);
+        return getProtocol(protocolId) || IMAGE_GENERATE_BUILTIN_PROTOCOLS.get(protocolId) || null;
+    }
+
+    function syncImageGenerateProtocolParams(id) {
+        const node = state.nodes.get(id);
+        if (!node) return;
+        const extraProtocol = getImageGenerateExtraProtocol(getImageGenerateSelectedProtocol(id));
+        if (!extraProtocol) return;
+        node.data = node.data || {};
+        node.data.protocolParams = {
+            ...(node.data.protocolParams || {}),
+            ...getProtocolParameterValues(id, extraProtocol, 'image', documentRef)
+        };
+    }
+
+    function bindImageGenerateProtocolParamInputs(id, root) {
+        const container = root || documentRef.getElementById(`${id}-protocol-params`);
+        if (!container) return;
+        container.querySelectorAll('input, select, textarea').forEach((input) => {
+            if (input.dataset.protocolParamBound === '1') return;
+            input.dataset.protocolParamBound = '1';
+            const saveProtocolParams = () => {
+                syncImageGenerateProtocolParams(id);
+                if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
+                scheduleSave();
+            };
+            input.addEventListener('change', saveProtocolParams);
+            input.addEventListener('input', debounce(saveProtocolParams, 500));
+        });
+    }
+
+    function refreshImageGenerateProtocolParams(id) {
+        const container = documentRef.getElementById(`${id}-protocol-params`);
+        const node = state.nodes.get(id);
+        if (!container || !node) return;
+        syncImageGenerateProtocolParams(id);
+        const extraProtocol = getImageGenerateExtraProtocol(getImageGenerateSelectedProtocol(id));
+        container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'image', node.data || {}) : '';
+        bindZoomSettleGuard(container);
+        bindCustomNodeSelects(container);
+        bindImageGenerateProtocolParamInputs(id, container);
+    }
+
     function syncNodeFormData(id, type) {
         const node = state.nodes.get(id);
         if (!node) return;
@@ -1377,7 +1462,6 @@ export function createNodeDomBindingsApi({
         }
 
         if (type === 'ImageGenerate') {
-            node.data.systemPrompt = readValue('system-prompt', node.data.systemPrompt || '');
             node.data.aspect = readValue('aspect', node.data.aspect || '');
             node.data.resolution = readValue('resolution', node.data.resolution || '');
             node.data.customWidth = readValue('custom-resolution-width', node.data.customWidth || '');
@@ -1386,6 +1470,7 @@ export function createNodeDomBindingsApi({
             node.data.moderation = readValue('moderation', node.data.moderation || 'auto');
             node.data.background = readValue('background', node.data.background || 'auto');
             node.data.generationCount = Math.max(1, parseInt(readValue('generation-count', node.data.generationCount || '1'), 10) || 1);
+            syncImageGenerateProtocolParams(id);
         }
 
         if (type === 'VideoGenerate') {
@@ -1579,6 +1664,7 @@ export function createNodeDomBindingsApi({
         updateImageGenerateResolutionParamNote(id, usesOpenAiImageControls);
         updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
         updateImageGenerateCustomResolutionVisibility(id);
+        refreshImageGenerateProtocolParams(id);
     }
 
     function updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {

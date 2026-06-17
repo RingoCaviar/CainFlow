@@ -24,6 +24,21 @@
     word-break: break-word;
 }
 
+.node-protocol-params {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.node-protocol-params:empty {
+    display: none;
+}
+
+.node-protocol-params .node-field-row {
+    flex: 0 0 auto;
+}
+
 .node-video-generate .node-field-row-compact {
     gap: 10px;
     align-items: flex-start;

@@ -608,25 +608,42 @@ function normalizeTtapiImageSize(resolution) {
     return '1K';
 }
 
-export function buildTtapiImageRequest({ modelCfg, prompt, aspect, resolution, inputs = {}, searchEnabled = false }) {
-    return applyCustomRequestParams({
+function normalizeProtocolBoolean(value, fallback = false) {
+    if (value === true || value === false) return value;
+    if (typeof value === 'string') return value.trim().toLowerCase() === 'true';
+    return fallback;
+}
+
+export function buildTtapiImageRequest({ modelCfg, prompt, aspect, resolution, inputs = {}, searchEnabled = false, protocolParams = {} }) {
+    const googleSearchEnabled = normalizeProtocolBoolean(protocolParams.google_search, searchEnabled === true);
+    const imageSearchEnabled = normalizeProtocolBoolean(protocolParams.image_search, false);
+    const requestBody = {
         prompt,
         model: modelCfg.modelId,
         refer_images: getOpenAiReferenceImages(inputs),
         aspect_ratio: aspect || '1:1',
         image_size: normalizeTtapiImageSize(resolution),
-        google_search: String(searchEnabled === true),
-        image_search: 'false'
-    }, inputs);
+        google_search: String(googleSearchEnabled),
+        image_search: String(imageSearchEnabled)
+    };
+    if (protocolParams.thinking_level) {
+        requestBody.thinking_level = String(protocolParams.thinking_level);
+    }
+    return applyCustomRequestParams(requestBody, inputs);
 }
 
-export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs = {} }) {
+export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs = {}, protocolParams = {} }) {
+    const outputCompressionValue = parseInt(protocolParams.output_compression ?? '100', 10);
     const sharedParams = {
         background: normalizeOpenAiImageBackground(background) || 'auto',
         moderation: normalizeOpenAiImageModeration(moderation) || 'auto',
         n: 1,
-        output_compression: 100,
-        output_format: 'png',
+        output_compression: Number.isFinite(outputCompressionValue)
+            ? Math.max(0, Math.min(100, outputCompressionValue))
+            : 100,
+        output_format: ['png', 'jpeg', 'webp'].includes(String(protocolParams.output_format || '').toLowerCase())
+            ? String(protocolParams.output_format).toLowerCase()
+            : 'png',
         partial_images: 0,
         quality: normalizeOpenAiImageQuality(quality) || 'auto',
         size: normalizeOpenAiImageSize(resolution) || 'auto',

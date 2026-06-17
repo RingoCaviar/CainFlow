@@ -56,6 +56,24 @@ export function createClipboardControllerApi({
         return Object.keys(heights).length > 0 ? heights : null;
     }
 
+    function readNodeProtocolParams(id, node) {
+        const params = { ...(node?.data?.protocolParams || {}) };
+        documentRef.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
+            const rawParamId = element.id.slice(`${id}-param-`.length);
+            if (!rawParamId || rawParamId.endsWith('-custom')) return;
+            if (element.type === 'checkbox') {
+                params[rawParamId] = element.checked === true;
+                return;
+            }
+            if (element.tagName === 'SELECT' && element.value === 'custom') {
+                params[rawParamId] = documentRef.getElementById(`${id}-param-${rawParamId}-custom`)?.value || '';
+                return;
+            }
+            params[rawParamId] = element.value;
+        });
+        return params;
+    }
+
     function serializeOneNode(nodeId) {
         const node = state.nodes.get(nodeId);
         if (!node) return null;
@@ -175,7 +193,7 @@ export function createClipboardControllerApi({
                 serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
                 serialized.background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                 serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
-                serialized.systemPrompt = documentRef.getElementById(`${id}-system-prompt`)?.value || '';
+                serialized.protocolParams = readNodeProtocolParams(id, node);
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
             } else if (node.type === 'VideoGenerate') {
                 serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';

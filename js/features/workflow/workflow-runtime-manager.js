@@ -146,6 +146,25 @@ function readElementControlValue(doc, id, fallback = '') {
     return control.value ?? fallback;
 }
 
+function readRuntimeProtocolParams(node, doc) {
+    const id = node?.id || '';
+    const params = { ...(node?.data?.protocolParams || {}) };
+    doc.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
+        const rawParamId = element.id.slice(`${id}-param-`.length);
+        if (!rawParamId || rawParamId.endsWith('-custom')) return;
+        if (element.type === 'checkbox') {
+            params[rawParamId] = element.checked === true;
+            return;
+        }
+        if (element.tagName === 'SELECT' && element.value === 'custom') {
+            params[rawParamId] = doc.getElementById(`${id}-param-${rawParamId}-custom`)?.value || '';
+            return;
+        }
+        params[rawParamId] = element.value;
+    });
+    return params;
+}
+
 function serializeRuntimeNode(node, doc) {
     const serialized = {
         id: node.id,
@@ -237,6 +256,7 @@ function serializeRuntimeNode(node, doc) {
             serialized.moderation = readElementControlValue(doc, `${node.id}-moderation`, 'auto');
             serialized.background = readElementControlValue(doc, `${node.id}-background`, 'auto');
             serialized.search = readElementControlValue(doc, `${node.id}-search`, false) === true;
+            serialized.protocolParams = readRuntimeProtocolParams(node, doc);
             serialized.imageTaskId = node.data?.imageTaskId || '';
             serialized.imageTaskStatus = node.data?.imageTaskStatus || '';
             serialized.imageTaskStatusText = node.data?.imageTaskStatusText || '';

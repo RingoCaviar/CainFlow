@@ -20,11 +20,13 @@ function escapeHtml(str) {
  * 渲染节点表单字段容器
  */
 function renderNodeFormField({ label, content, fieldClass = '', fieldId = '', note = '' }) {
+    const classes = ['node-field', 'node-form-field'];
+    if (fieldClass) classes.push(fieldClass);
     const fieldIdAttr = fieldId ? ` id="${fieldId}"` : '';
     const noteHtml = note ? `<div class="node-field-note">${note}</div>` : '';
     return `
-        <div class="node-field ${fieldClass}"${fieldIdAttr}>
-            <label>${escapeHtml(label)}</label>
+        <div class="${classes.join(' ')}"${fieldIdAttr}>
+            ${label ? `<label>${escapeHtml(label)}</label>` : ''}
             ${content}
             ${noteHtml}
         </div>
@@ -182,12 +184,17 @@ export function renderProtocolParameters(nodeId, protocol, taskType, restoreData
         const controlHtml = renderProtocolParameter(nodeId, param, savedValue, customValues);
 
         if (controlHtml) {
+            const isToggle = param.uiControl === 'toggle';
             // 包装成表单字段
             const fieldHtml = renderNodeFormField({
-                label: param.label || paramId,
-                content: controlHtml,
+                label: isToggle ? '' : (param.label || paramId),
+                content: isToggle
+                    ? `<label class="node-field-inline-label" for="${nodeId}-param-${param.id}">${escapeHtml(param.label || paramId)}</label>${controlHtml}`
+                    : controlHtml,
                 fieldId: param.fieldId || `${nodeId}-${paramId}-field`,
-                fieldClass: param.fieldClass || '',
+                fieldClass: isToggle
+                    ? `node-field-row node-field-row-compact ${param.fieldClass || ''}`.trim()
+                    : (param.fieldClass || ''),
                 note: param.note || ''
             });
 

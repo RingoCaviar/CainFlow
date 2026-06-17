@@ -1204,6 +1204,7 @@ export function createExecutionCoreApi({
         const mask = getImageGenerateMask(inputs);
         const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
         const prompt = buildImageGeneratePrompt(node, inputs);
+        const protocolParams = getImageGenerateProtocolParams(node);
         const isGoogle = protocol === 'google';
         const isTtapi = protocol === 'ttapi';
         const isTtapiOpenAi = protocol === 'ttapi-openai';
@@ -1216,9 +1217,9 @@ export function createExecutionCoreApi({
         const requestBody = isNewApiAsyncImage
             ? buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolution, inputs })
             : (isTtapi
-                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled })
+                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams })
                 : (isTtapiOpenAi
-                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs })
+                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams })
                     : (isGoogle
                         ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                         : buildOpenAiImageRequest({
@@ -1380,15 +1381,30 @@ export function createExecutionCoreApi({
         };
     }
 
+    function getImageGenerateProtocolParams(node) {
+        const id = node?.id || '';
+        const params = { ...(node?.data?.protocolParams || {}) };
+        documentRef.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
+            const rawParamId = element.id.slice(`${id}-param-`.length);
+            if (!rawParamId || rawParamId.endsWith('-custom')) return;
+            if (element.type === 'checkbox') {
+                params[rawParamId] = element.checked === true;
+                return;
+            }
+            if (element.tagName === 'SELECT' && element.value === 'custom') {
+                params[rawParamId] = documentRef.getElementById(`${id}-param-${rawParamId}-custom`)?.value || '';
+                return;
+            }
+            params[rawParamId] = element.value;
+        });
+        return params;
+    }
+
     function buildImageGeneratePrompt(node, inputs = {}) {
         const id = node?.id || '';
-        const systemPrompt = (getPrimaryTextInput(inputs.system_prompt) || documentRef.getElementById(`${id}-system-prompt`)?.value || '').trim();
         const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
         const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
         const promptSections = [];
-        if (systemPrompt) {
-            promptSections.push(`System instruction:\n${systemPrompt}`);
-        }
         if (userPrompt) {
             promptSections.push(`Main subject prompt:\n${userPrompt}`);
         }
@@ -1564,6 +1580,7 @@ export function createExecutionCoreApi({
                 const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
                 const prompt = buildImageGeneratePrompt(node, inputs);
+                const protocolParams = getImageGenerateProtocolParams(node);
 
                 if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
                 if (!prompt) throw new Error('请输入提示词');
@@ -1628,9 +1645,9 @@ export function createExecutionCoreApi({
                     const runSingleGeneration = async (nextGenerationIndex) => {
                         return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
                             const requestBody = isTtapi
-                                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled })
+                                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams })
                                 : (isTtapiOpenAi
-                                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs })
+                                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams })
                                     : (isGoogle
                                         ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                                         : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
@@ -1803,9 +1820,9 @@ export function createExecutionCoreApi({
                         total: generationCount
                     });
                     const requestBody = isTtapi
-                        ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled })
+                        ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams })
                         : (isTtapiOpenAi
-                            ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs })
+                            ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams })
                             : (isGoogle
                                 ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                                 : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));

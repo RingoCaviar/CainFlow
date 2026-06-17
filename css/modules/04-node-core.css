@@ -724,7 +724,8 @@
 }
 
 .generation-count-control,
-.text-split-output-count-control {
+.text-split-output-count-control,
+.number-stepper {
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr) 32px;
     align-items: center;
@@ -732,7 +733,8 @@
 }
 
 .generation-count-btn,
-.text-split-output-count-btn {
+.text-split-output-count-btn,
+.number-step {
     width: 32px;
     height: 32px;
     border: 1px solid var(--border-color);
@@ -746,19 +748,22 @@
 }
 
 .generation-count-btn:hover,
-.text-split-output-count-btn:hover:not(:disabled) {
+.text-split-output-count-btn:hover:not(:disabled),
+.number-step:hover:not(:disabled) {
     border-color: var(--accent-purple);
     background: rgba(168, 85, 247, 0.12);
     color: var(--accent-purple);
 }
 
-.text-split-output-count-btn:disabled {
+.text-split-output-count-btn:disabled,
+.number-step:disabled {
     opacity: 0.55;
     cursor: not-allowed;
 }
 
 .generation-count-input,
-.text-split-output-count-input {
+.text-split-output-count-input,
+.number-stepper input[type="number"] {
     text-align: center;
 }
 
