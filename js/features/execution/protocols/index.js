@@ -7,6 +7,17 @@ import { wrapConfigProtocol } from './request-builder.js';
 
 // 协议存储
 const PROTOCOLS = new Map();
+const BUILT_IN_PROTOCOL_IDS = new Set([
+    'google',
+    'openai',
+    'ttapi',
+    'ttapi-openai',
+    'newapi-image-async',
+    'veo-unified',
+    'veo-openai',
+    'doubao-video',
+    'agnesimage'
+]);
 
 /**
  * 注册一个协议
@@ -118,7 +129,7 @@ export async function loadProtocols() {
 
     // 动态导入所有协议
     // 注意：这些导入会触发各协议文件中的 registerProtocol() 调用
-    const protocolModules = [
+    const builtInModules = [
         import('./google.js'),
         import('./openai.js'),
         import('./ttapi.js'),
@@ -130,6 +141,8 @@ export async function loadProtocols() {
         // 临时方案：直接导入用户创建的协议
         import('./agnesimage.js').catch(err => console.warn('[loadProtocols] agnesimage 协议未找到:', err))
     ];
+    const legacyStaticLoaders = [];
+    const userProtocolLoaders = [];
 
     console.log('[loadProtocols] 内置协议已加入队列，准备加载用户协议...');
 
@@ -145,24 +158,43 @@ export async function loadProtocols() {
             if (result.protocols && Array.isArray(result.protocols)) {
                 console.log('[loadProtocols] 找到', result.protocols.length, '个协议文件');
 
+                const userProtocolIds = Array.isArray(result.userProtocols)
+                    ? result.userProtocols
+                    : [];
+                const userProtocolIdSet = new Set(userProtocolIds);
+
                 result.protocols.forEach(protocolId => {
-                    // 避免重复导入内置协议和已经手动添加的协议
-                    const builtInProtocols = ['google', 'openai', 'ttapi', 'ttapi-openai', 'newapi-image-async', 'veo-unified', 'veo-openai', 'doubao-video', 'agnesimage'];
-                    if (!builtInProtocols.includes(protocolId)) {
-                        console.log('[loadProtocols] 准备导入用户协议:', protocolId);
-                        protocolModules.push(
+                    if (!/^[a-z][a-z0-9\-]*$/.test(protocolId)) return;
+                    if (!BUILT_IN_PROTOCOL_IDS.has(protocolId) && !userProtocolIdSet.has(protocolId)) {
+                        console.log('[loadProtocols] 准备导入静态用户协议:', protocolId);
+                        legacyStaticLoaders.push(() => (
                             import(`./${protocolId}.js`)
                                 .then(module => {
-                                    console.log('[loadProtocols] 成功加载协议:', protocolId);
+                                    console.log('[loadProtocols] 成功加载静态用户协议:', protocolId);
                                     return module;
                                 })
                                 .catch(err => {
-                                    console.error(`[loadProtocols] 加载协议 ${protocolId} 失败:`, err);
+                                    console.error(`[loadProtocols] 加载静态用户协议 ${protocolId} 失败:`, err);
                                 })
-                        );
-                    } else {
+                        ));
+                    } else if (BUILT_IN_PROTOCOL_IDS.has(protocolId)) {
                         console.log('[loadProtocols] 跳过内置协议:', protocolId);
                     }
+                });
+
+                userProtocolIds.forEach(protocolId => {
+                    if (!/^[a-z][a-z0-9\-]*$/.test(protocolId)) return;
+                    console.log('[loadProtocols] 准备导入持久协议:', protocolId);
+                    userProtocolLoaders.push(() => (
+                        import(`/api/protocol/module/${encodeURIComponent(protocolId)}.js`)
+                            .then(module => {
+                                console.log('[loadProtocols] 成功加载持久协议:', protocolId);
+                                return module;
+                            })
+                            .catch(err => {
+                                console.error(`[loadProtocols] 加载持久协议 ${protocolId} 失败:`, err);
+                            })
+                    ));
                 });
             }
         }
@@ -170,7 +202,9 @@ export async function loadProtocols() {
         console.warn('[loadProtocols] 获取协议列表失败，仅加载内置协议:', error);
     }
 
-    await Promise.all(protocolModules);
+    await Promise.all(builtInModules);
+    await Promise.all(legacyStaticLoaders.map(load => load()));
+    await Promise.all(userProtocolLoaders.map(load => load()));
     console.log('[loadProtocols] 所有协议加载完成，当前已注册:', PROTOCOLS.size, '个协议');
     console.log('[loadProtocols] 协议列表:', Array.from(PROTOCOLS.keys()));
 }

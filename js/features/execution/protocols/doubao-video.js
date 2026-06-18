@@ -44,6 +44,69 @@ export const DoubaoVideoProtocol = {
             step: 1
         },
 
+        image_3: {
+            id: 'image_3',
+            exposed: false,
+            inputPort: true,
+            portType: 'image',
+            portOnly: true,
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'array',
+            uiControl: 'number',
+            label: '参考图 3',
+            defaultValue: '',
+            requestField: 'content',
+            taskTypes: ['video']
+        },
+
+        image_4: {
+            id: 'image_4',
+            exposed: false,
+            inputPort: true,
+            portType: 'image',
+            portOnly: true,
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'array',
+            uiControl: 'number',
+            label: '参考图 4',
+            defaultValue: '',
+            requestField: 'content',
+            taskTypes: ['video']
+        },
+
+        image_5: {
+            id: 'image_5',
+            exposed: false,
+            inputPort: true,
+            portType: 'image',
+            portOnly: true,
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'array',
+            uiControl: 'number',
+            label: '参考图 5',
+            defaultValue: '',
+            requestField: 'content',
+            taskTypes: ['video']
+        },
+
+        systemPrompt: {
+            id: 'systemPrompt',
+            requestField: 'prompt',
+            exposed: true,
+            inputPort: false,
+            portType: 'text',
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'string',
+            uiControl: 'textarea',
+            label: '系统提示词',
+            placeholder: '设定生成规则、风格或限制...',
+            rows: 2,
+            taskTypes: ['video']
+        },
         prompt: {
             id: 'prompt',
             label: '提示词',
@@ -102,7 +165,55 @@ export const DoubaoVideoProtocol = {
                 { value: '1:1', label: '1:1' }
             ],
             defaultValue: '16:9',
-            requestField: 'aspect_ratio'
+            requestField: 'ratio'
+        },
+
+        camera_fixed: {
+            id: 'camera_fixed',
+            exposed: false,
+            inputPort: false,
+            dataType: 'boolean',
+            uiControl: 'toggle',
+            label: '固定镜头',
+            taskTypes: ['video'],
+            defaultValue: false,
+            requestField: 'camera_fixed'
+        },
+
+        generate_audio: {
+            id: 'generate_audio',
+            exposed: false,
+            inputPort: false,
+            dataType: 'boolean',
+            uiControl: 'toggle',
+            label: '生成音频',
+            taskTypes: ['video'],
+            defaultValue: false,
+            requestField: 'generate_audio'
+        },
+
+        watermark: {
+            id: 'watermark',
+            exposed: false,
+            inputPort: false,
+            dataType: 'boolean',
+            uiControl: 'toggle',
+            label: '水印',
+            taskTypes: ['video'],
+            defaultValue: false,
+            requestField: 'watermark'
+        },
+
+        seed: {
+            id: 'seed',
+            exposed: false,
+            inputPort: false,
+            dataType: 'number',
+            uiControl: 'number',
+            label: '随机种子',
+            taskTypes: ['video'],
+            defaultValue: '',
+            requestField: 'seed'
         },
 
         loop: {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
  */
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
@@ -1182,7 +1182,10 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
-        const restoredCollapsedExpandedHeight = Number(effectiveRestoreData?.collapsedExpandedHeight);
+        if (effectiveRestoreData?.protocolParams) {
+            nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
+        }
+        const restoredCollapsedExpandedHeight = Number(effectiveRestoreData?.collapsedCollapsedExpandedHeight || effectiveRestoreData?.collapsedExpandedHeight);
         if (nodeData.collapsed && Number.isFinite(restoredCollapsedExpandedHeight) && restoredCollapsedExpandedHeight > 0) {
             nodeData.collapsedExpandedHeight = Math.round(restoredCollapsedExpandedHeight);
         }

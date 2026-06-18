@@ -35,6 +35,20 @@ export const TtapiProtocol = {
             "omitIfEmpty": true,
             "required": false
         },
+        "systemPrompt": {
+            "id": "systemPrompt",
+            "requestField": "prompt",
+            "exposed": true,
+            "inputPort": false,
+            "portType": "text",
+            "required": false,
+            "omitIfEmpty": true,
+            "dataType": "string",
+            "uiControl": "textarea",
+            "label": "系统提示词",
+            "placeholder": "设定生成规则、风格或限制...",
+            "rows": 2
+        },
         "prompt": {
             "id": "prompt",
             "portType": "text",

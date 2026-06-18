@@ -1008,7 +1008,9 @@ export function createAsyncMediaExecutionApi({
         if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
         node.providerId = resolvedProviderId;
 
-        const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
+        const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
+        const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
         const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
         const useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
         const enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;

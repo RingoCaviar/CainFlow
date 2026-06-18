@@ -6,7 +6,7 @@
 import { getAllProtocols, getProtocol, registerProtocol, loadProtocols, deleteProtocol as removeProtocol } from '../execution/protocols/index.js';
 import { wrapConfigProtocol } from '../execution/protocols/request-builder.js';
 
-export function createProtocolDeveloperPanel({ documentRef, showToast, refreshImageGenerateNodes = null }) {
+export function createProtocolDeveloperPanel({ documentRef, showToast, refreshImageGenerateNodes = null, onProtocolRegistryChange = null }) {
     const panelId = 'protocol-developer-panel';
     let currentEditingProtocol = null;
     let draftProtocol = null;
@@ -58,7 +58,9 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'max',
         'step',
         'note',
-        'description'
+        'description',
+        'placeholder',
+        'rows'
     ];
 
     function cloneSerializable(value) {
@@ -119,6 +121,22 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     function setDraftProtocol(protocol) {
         draftProtocol = cleanProtocolConfig(protocol);
         currentEditingProtocol = draftProtocol;
+    }
+
+    function setSaveStatus(message = '', type = '') {
+        const status = documentRef.getElementById('protocol-save-status');
+        if (!status) return;
+        status.textContent = message;
+        status.dataset.status = type;
+    }
+
+    function notifyProtocolRegistryChange(protocolId = '') {
+        if (typeof onProtocolRegistryChange !== 'function') return;
+        try {
+            onProtocolRegistryChange(protocolId);
+        } catch (error) {
+            console.error('刷新模型兼容格式失败:', error);
+        }
     }
 
     function validateProtocolConfig(protocol) {
@@ -272,6 +290,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             <div class="protocol-dev-footer" id="protocol-footer">
                 <div class="footer-actions">
                     <button id="btn-delete-protocol-footer" class="btn btn-danger btn-sm hidden">删除协议</button>
+                    <span id="protocol-save-status" class="protocol-save-status" role="status" aria-live="polite"></span>
                 </div>
                 <div class="footer-actions">
                     <button id="btn-export-protocol" class="btn btn-secondary btn-sm hidden">导出JSON</button>
@@ -367,6 +386,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             showToast('协议不存在', 'error');
             return;
         }
+        setSaveStatus();
 
         // 使用干净草稿编辑，避免直接修改注册表中的运行时协议对象。
         setDraftProtocol(protocol);
@@ -580,6 +600,14 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                         <div class="parameter-row">
                             <label>默认值</label>
                             <input type="text" class="param-field-default" value="${param.defaultValue !== undefined ? param.defaultValue : ''}" data-param-id="${paramId}" placeholder="留空表示无默认值，可使用 {{modelId}} 获取模型ID" />
+                        </div>
+                        <div class="parameter-row">
+                            <label>输入框占位符 (Placeholder)</label>
+                            <input type="text" class="param-field-placeholder" value="${param.placeholder !== undefined ? param.placeholder : ''}" data-param-id="${paramId}" placeholder="如: 设定生成规则、风格或限制..." />
+                        </div>
+                        <div class="parameter-row">
+                            <label>文本框行数 (Rows)</label>
+                            <input type="number" class="param-field-rows" value="${param.rows !== undefined ? param.rows : ''}" data-param-id="${paramId}" placeholder="对多行文本有效，如: 2" min="1" step="1" />
                         </div>
                         <div class="parameter-row">
                             <label>请求体字段名</label>
@@ -950,6 +978,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             const originalParam = currentEditingProtocol.parameters?.[originalParamId] || currentEditingProtocol.parameters?.[paramId] || {};
             const uiControl = card.querySelector('.param-field-ui-control').value;
             const defaultValue = card.querySelector('.param-field-default').value;
+            const placeholder = card.querySelector('.param-field-placeholder')?.value.trim() || '';
+            const rowsVal = card.querySelector('.param-field-rows')?.value.trim() || '';
             const requestField = card.querySelector('.param-field-request-field')?.value.trim() || '';
 
             // 收集参数的适用用途
@@ -982,6 +1012,18 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 newParam.taskTypes = paramTaskTypes;
             } else {
                 delete newParam.taskTypes;
+            }
+
+            // 占位符与文本框行数
+            if (placeholder) {
+                newParam.placeholder = placeholder;
+            } else {
+                delete newParam.placeholder;
+            }
+            if (rowsVal) {
+                newParam.rows = parseInt(rowsVal, 10) || 2;
+            } else {
+                delete newParam.rows;
             }
 
             // 请求体字段名（如果不为空）
@@ -1041,9 +1083,13 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
      * 保存协议
      */
     async function saveProtocol() {
+        setSaveStatus('正在保存配置...', 'saving');
         try {
             const data = collectEditorData();
-            if (!data) return;
+            if (!data) {
+                setSaveStatus();
+                return;
+            }
 
             // 准备覆盖配置数据（只保存可配置的部分）
             const overrideData = {
@@ -1076,13 +1122,17 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
             if (response.ok && result.success) {
                 setDraftProtocol(data);
+                documentRef.getElementById('panel-title').textContent = `编辑协议: ${data.label}`;
+                documentRef.getElementById('protocol-label').value = data.label || '';
 
                 // 重新注册协议（包装后的完整协议对象）
                 registerProtocol(data);
+                notifyProtocolRegistryChange(data.id);
 
                 // 重新渲染参数列表，确保显示最新的保存数据
                 renderParametersList(data.parameters);
 
+                setSaveStatus(`已保存：${data.label}`, 'success');
                 showToast(`协议 ${data.id} 配置已保存到本地文件`, 'success');
 
                 // 刷新所有使用该协议的图片生成节点
@@ -1102,6 +1152,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             }
         } catch (error) {
             console.error('保存协议失败:', error);
+            setSaveStatus(`保存失败：${error.message}`, 'error');
             showToast(`保存失败: ${error.message}`, 'error');
         }
     }
@@ -1150,6 +1201,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         // 恢复标题
         documentRef.getElementById('panel-title').textContent = '🛠️ 协议开发者面板';
 
+        setSaveStatus();
         currentEditingProtocol = null;
         draftProtocol = null;
         renderProtocolList();
@@ -1237,6 +1289,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         // 注册协议
         registerProtocol(newProtocol);
+        notifyProtocolRegistryChange(newProtocol.id);
         showToast(`协议 ${protocolId} 已创建`, 'success');
 
         // 刷新列表并进入编辑模式
@@ -1265,6 +1318,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         // 从注册表中删除
         if (removeProtocol(protocolId)) {
+            notifyProtocolRegistryChange(protocolId);
             showToast(`协议 ${protocolId} 已删除`, 'success');
             renderProtocolList();
         } else {
@@ -1698,7 +1752,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         });
 
         // 监听基本信息变化
-        documentRef.getElementById('protocol-label').addEventListener('input', debouncedPreview);
+        documentRef.getElementById('protocol-label').addEventListener('input', () => {
+            setSaveStatus('显示名称已修改，尚未保存', 'dirty');
+            debouncedPreview();
+        });
         documentRef.getElementById('protocol-url-template').addEventListener('input', debouncedPreview);
         documentRef.getElementById('protocol-url-template-image-edit').addEventListener('input', debouncedPreview);
         documentRef.getElementById('protocol-apikey-location').addEventListener('change', refreshPreview);
@@ -1735,6 +1792,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             try {
                 await loadProtocols();
                 protocolsLoaded = true;
+                notifyProtocolRegistryChange();
                 renderProtocolList();
             } catch (error) {
                 console.error('加载协议失败:', error);

@@ -37,11 +37,14 @@ EXE_DIR = get_exe_dir()
 MAIN_EXE_PATH = sys.executable if hasattr(sys, 'frozen') else os.path.join(EXE_DIR, UPDATE_MAIN_EXE_NAME)
 WORKFLOWS_DIR = os.path.join(EXE_DIR, 'workflows')
 LOG_DIR = os.path.join(EXE_DIR, 'log')
+PROTOCOLS_DIR = os.path.join(EXE_DIR, 'protocols')
 
 
 def ensure_runtime_dirs():
     os.makedirs(WORKFLOWS_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
+    if hasattr(sys, 'frozen'):
+        os.makedirs(PROTOCOLS_DIR, exist_ok=True)
 
 
 def get_log_file_path(now=None):

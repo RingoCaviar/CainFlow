@@ -44,6 +44,21 @@ export const NewapiImageAsyncProtocol = {
             step: 1
         },
 
+        systemPrompt: {
+            id: 'systemPrompt',
+            requestField: 'prompt',
+            exposed: true,
+            inputPort: false,
+            portType: 'text',
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'string',
+            uiControl: 'textarea',
+            label: '系统提示词',
+            placeholder: '设定生成规则、风格或限制...',
+            rows: 2,
+        },
+
         prompt: {
             id: 'prompt',
             label: '提示词',
@@ -103,6 +118,30 @@ export const NewapiImageAsyncProtocol = {
             ],
             defaultValue: 'vivid',
             requestField: 'style'
+        },
+
+        aspect_ratio: {
+            id: 'aspect_ratio',
+            exposed: false,
+            inputPort: false,
+            dataType: 'string',
+            uiControl: 'select',
+            label: '宽高比',
+            taskTypes: ['image'],
+            defaultValue: '',
+            requestField: 'aspect_ratio'
+        },
+
+        resolution: {
+            id: 'resolution',
+            exposed: false,
+            inputPort: false,
+            dataType: 'string',
+            uiControl: 'select',
+            label: '分辨率档位',
+            taskTypes: ['image'],
+            defaultValue: '',
+            requestField: 'resolution'
         }
     },
 

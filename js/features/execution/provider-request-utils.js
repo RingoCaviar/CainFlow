@@ -7,6 +7,7 @@ import {
     isKnownModelProtocol,
     MODEL_PROTOCOL_IDS
 } from './model-protocol-registry.js';
+import { getProtocol } from './protocols/index.js';
 import { normalizeImageList } from './execution-data-utils.js';
 
 const VALID_PROTOCOLS = new Set(MODEL_PROTOCOL_IDS);
@@ -598,8 +599,22 @@ function getTtapiOpenAiImageObjects(values = []) {
         .filter(Boolean);
 }
 
-function getTtapiOpenAiMask(inputs = {}) {
-    return getTtapiOpenAiImageObject(normalizeImageList(inputs.mask)[0] || '');
+function getProtocolReferenceImageConfig(protocolId = '') {
+    const protocol = getProtocol(protocolId);
+    const referenceParam = protocol?.parameters?.referenceImages;
+    if (!referenceParam || referenceParam.id !== 'referenceImages') return null;
+    return {
+        requestField: referenceParam.requestField || '',
+        requestValueFormat: referenceParam.requestValueFormat || ''
+    };
+}
+
+function getProtocolReferenceImageValue(referenceImages = [], referenceConfig = {}) {
+    if (!referenceConfig?.requestField) return null;
+    if (referenceConfig.requestValueFormat === 'ttapi-openai-image-objects') {
+        return getTtapiOpenAiImageObjects(referenceImages);
+    }
+    return referenceImages;
 }
 
 function normalizeTtapiImageSize(resolution) {
@@ -653,12 +668,10 @@ export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, qua
     const referenceImages = getOpenAiReferenceImages(inputs);
 
     if (referenceImages.length > 0) {
-        const mask = getTtapiOpenAiMask(inputs);
-        return applyCustomRequestParams({
-            images: getTtapiOpenAiImageObjects(referenceImages),
+        const referenceConfig = getProtocolReferenceImageConfig('ttapi-openai');
+        const requestBody = {
             prompt,
             model: modelCfg.modelId,
-            ...(mask ? { mask } : {}),
             background: sharedParams.background,
             moderation: sharedParams.moderation,
             n: sharedParams.n,
@@ -669,7 +682,12 @@ export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, qua
             size: sharedParams.size,
             stream: sharedParams.stream,
             user: sharedParams.user
-        }, inputs);
+        };
+        const referenceValue = getProtocolReferenceImageValue(referenceImages, referenceConfig);
+        if (referenceValue !== null) {
+            requestBody[referenceConfig.requestField] = referenceValue;
+        }
+        return applyCustomRequestParams(requestBody, inputs);
     }
 
     return applyCustomRequestParams({
@@ -817,7 +835,7 @@ export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, useSize
     applyVideoRatioParam(requestBody, aspectRatio, useSizeParam);
 
     const frameImages = getUnifiedVideoFrameImages(inputs);
-    if (frameImages.length > 0) requestBody.images = frameImages;
+    if (frameImages.length > 0) requestBody.image = frameImages;
 
     const ingredientImages = getUnifiedVideoIngredientImages(inputs);
     if (ingredientImages.length > 0) requestBody.Ingredients_images = ingredientImages;

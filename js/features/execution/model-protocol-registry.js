@@ -1,6 +1,8 @@
 /**
  * 维护模型兼容格式的统一注册表，作为设置页、节点 UI 与执行层的单一来源。
  */
+import { getProtocol } from './protocols/index.js';
+
 const MODEL_PROTOCOLS = Object.freeze({
     google: Object.freeze({
         id: 'google',
@@ -16,13 +18,13 @@ const MODEL_PROTOCOLS = Object.freeze({
     }),
     'newapi-image-async': Object.freeze({
         id: 'newapi-image-async',
-        label: 'NEW API 原生异步模式',
+        label: 'NEW API 异步图片',
         defaultTaskTypes: ['image'],
         helpText: 'NEW API 原生异步图片模式会提交到 /v1/videos，并通过 /v1/videos/{id} 轮询任务；最终图片会从 image_url、url 或兼容字段 video_url 中读取。'
     }),
     ttapi: Object.freeze({
         id: 'ttapi',
-        label: 'TTAPI Gemini 生图',
+        label: 'TTAPI Gemini',
         defaultTaskTypes: ['image'],
         helpText: 'TTAPI Gemini 生图会走 /gemini/image/generate，请求头使用 TT-API-KEY，请求体包含 prompt、model、refer_images、aspect_ratio、image_size、google_search 与 image_search。'
     }),
@@ -46,7 +48,7 @@ const MODEL_PROTOCOLS = Object.freeze({
     }),
     'veo-openai': Object.freeze({
         id: 'veo-openai',
-        label: 'VEO 视频 · OpenAI 视频格式',
+        label: 'VEO 视频 · OpenAI 格式',
         defaultTaskTypes: ['video'],
         helpText: 'OpenAI 视频格式会创建到 /v1/videos，并通过 /v1/videos/{id} 轮询，最终从 /v1/videos/{id}/content 下载视频。',
         videoMeta: Object.freeze({
@@ -58,7 +60,7 @@ const MODEL_PROTOCOLS = Object.freeze({
     }),
     'doubao-video': Object.freeze({
         id: 'doubao-video',
-        label: '豆包视频生成',
+        label: '豆包视频',
         defaultTaskTypes: ['video'],
         helpText: '豆包视频生成会创建到 /volc/v1/contents/generations/tasks，并通过 /volc/v1/contents/generations/tasks/{id} 轮询任务状态。参数按文档作为顶层字段发送，图片通过 content 中的 role 区分首帧、尾帧与参考图。',
         videoMeta: Object.freeze({
@@ -72,12 +74,40 @@ const MODEL_PROTOCOLS = Object.freeze({
 
 export const MODEL_PROTOCOL_IDS = Object.freeze(Object.keys(MODEL_PROTOCOLS));
 
+function getRegisteredProtocolOverride(protocol = '') {
+    const registeredProtocol = getProtocol(protocol);
+    if (!registeredProtocol) return null;
+
+    const taskTypes = Array.isArray(registeredProtocol.taskTypes)
+        ? registeredProtocol.taskTypes.filter(Boolean)
+        : [];
+
+    return {
+        label: registeredProtocol.label || '',
+        taskTypes,
+        videoMeta: registeredProtocol.videoMeta || null
+    };
+}
+
 export function isKnownModelProtocol(protocol = '') {
     return Object.prototype.hasOwnProperty.call(MODEL_PROTOCOLS, protocol);
 }
 
 export function getModelProtocolConfig(protocol = '') {
-    return MODEL_PROTOCOLS[protocol] || null;
+    const baseConfig = MODEL_PROTOCOLS[protocol] || null;
+    if (!baseConfig) return null;
+
+    const registeredOverride = getRegisteredProtocolOverride(protocol);
+    if (!registeredOverride) return baseConfig;
+
+    return {
+        ...baseConfig,
+        label: registeredOverride.label || baseConfig.label,
+        defaultTaskTypes: registeredOverride.taskTypes.length
+            ? registeredOverride.taskTypes
+            : baseConfig.defaultTaskTypes,
+        videoMeta: registeredOverride.videoMeta || baseConfig.videoMeta
+    };
 }
 
 export function getModelProtocolHelpText(protocol = '', fallback = '') {
@@ -95,7 +125,7 @@ export function getVideoProtocolOptionMeta(protocol = '') {
 
 export function getProtocolSelectOptions(taskType = '') {
     return MODEL_PROTOCOL_IDS
-        .map((id) => MODEL_PROTOCOLS[id])
+        .map((id) => getModelProtocolConfig(id))
         .filter((config) => !taskType || config.defaultTaskTypes.includes(taskType))
         .map((config) => ({
             value: config.id,

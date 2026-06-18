@@ -121,6 +121,39 @@
     border-top: 1px solid var(--border-color, #333);
     background: var(--bg-secondary, #0a0a0a);
     display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.protocol-dev-footer .footer-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.protocol-save-status {
+    min-width: 0;
+    color: var(--text-secondary, #aaa);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.protocol-save-status[data-status="saving"] {
+    color: var(--text-secondary, #aaa);
+}
+
+.protocol-save-status[data-status="dirty"] {
+    color: var(--warning-color, #f59e0b);
+}
+
+.protocol-save-status[data-status="success"] {
+    color: var(--success-color, #22c55e);
+}
+
+.protocol-save-status[data-status="error"] {
+    color: var(--danger-color, #ef4444);
+}
 
 /* 协议用途复选框组 */
 .protocol-task-types-checkboxes {
@@ -164,16 +197,6 @@
     width: 14px;
     height: 14px;
     cursor: pointer;
-}
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-}
-
-.protocol-dev-footer .footer-actions {
-    display: flex;
-    gap: 12px;
-    align-items: center;
 }
 
 /* 协议列表视图 */

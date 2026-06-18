@@ -35,6 +35,20 @@ export const TtapiOpenaiProtocol = {
                 "image"
             ]
         },
+        "systemPrompt": {
+            "id": "systemPrompt",
+            "requestField": "prompt",
+            "exposed": true,
+            "inputPort": false,
+            "portType": "text",
+            "required": false,
+            "omitIfEmpty": true,
+            "dataType": "string",
+            "uiControl": "textarea",
+            "label": "系统提示词",
+            "placeholder": "设定生成规则、风格或限制...",
+            "rows": 2
+        },
         "prompt": {
             "label": "提示词",
             "dataType": "string",
@@ -203,6 +217,54 @@ export const TtapiOpenaiProtocol = {
                     "label": "低"
                 }
             ],
+            "required": false,
+            "inputPort": false
+        },
+        "n": {
+            "label": "生成数量",
+            "dataType": "number",
+            "id": "n",
+            "exposed": false,
+            "omitIfEmpty": false,
+            "uiControl": "number",
+            "defaultValue": 1,
+            "requestField": "n",
+            "required": false,
+            "inputPort": false
+        },
+        "partial_images": {
+            "label": "部分图片数量",
+            "dataType": "number",
+            "id": "partial_images",
+            "exposed": false,
+            "omitIfEmpty": false,
+            "uiControl": "number",
+            "defaultValue": 0,
+            "requestField": "partial_images",
+            "required": false,
+            "inputPort": false
+        },
+        "stream": {
+            "label": "流式响应",
+            "dataType": "boolean",
+            "id": "stream",
+            "exposed": false,
+            "omitIfEmpty": false,
+            "uiControl": "toggle",
+            "defaultValue": false,
+            "requestField": "stream",
+            "required": false,
+            "inputPort": false
+        },
+        "user": {
+            "label": "用户标识",
+            "dataType": "string",
+            "id": "user",
+            "exposed": false,
+            "omitIfEmpty": false,
+            "uiControl": "text",
+            "defaultValue": "",
+            "requestField": "user",
             "required": false,
             "inputPort": false
         }

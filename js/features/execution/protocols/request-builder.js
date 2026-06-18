@@ -55,7 +55,18 @@ export function buildRequestFromConfig(protocol, context) {
 
             // 类型转换，使用 requestField 或参数ID作为请求体字段名
             const requestField = paramDef.requestField || paramId;
-            requestBody[requestField] = convertValueByType(finalValue, paramDef.dataType);
+            const convertedValue = convertValueByType(finalValue, paramDef.dataType);
+
+            // 如果同一个 requestField 已经有值，且两者都是字符串，按参数定义顺序拼接
+            if (requestField in requestBody
+                && typeof requestBody[requestField] === 'string'
+                && typeof convertedValue === 'string') {
+                requestBody[requestField] = requestBody[requestField]
+                    ? requestBody[requestField] + '\n' + convertedValue
+                    : convertedValue;
+            } else {
+                requestBody[requestField] = convertedValue;
+            }
         }
     });
 

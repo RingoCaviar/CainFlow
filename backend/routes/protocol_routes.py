@@ -4,9 +4,51 @@
 import json
 import os
 import re
+from urllib.parse import unquote
 
 from backend import config
-from backend.services.http_helpers import write_error, write_json
+from backend.services.http_helpers import write_error, write_json, write_text
+
+
+EXCLUDED_PROTOCOL_FILES = {'index.js', 'base-protocol.js', 'request-builder.js'}
+
+
+def get_static_protocol_dir():
+    return os.path.join(config.STATIC_ROOT, 'js', 'features', 'execution', 'protocols')
+
+
+def get_user_protocol_dir():
+    import sys
+    if not hasattr(sys, 'frozen'):
+        return os.path.join(config.PROJECT_ROOT, 'protocols_dev_ignored')
+    return config.PROTOCOLS_DIR
+
+
+def get_save_protocol_dir():
+    """获取协议保存目录。开发模式下直接保存到静态文件目录，打包模式下保存到用户协议目录。"""
+    import sys
+    if not hasattr(sys, 'frozen'):
+        return get_static_protocol_dir()
+    return get_user_protocol_dir()
+
+
+def list_protocol_ids(protocol_dir):
+    if not os.path.exists(protocol_dir):
+        return []
+    protocol_ids = []
+    for filename in os.listdir(protocol_dir):
+        if filename.endswith('.js') and filename not in EXCLUDED_PROTOCOL_FILES:
+            protocol_ids.append(filename[:-3])
+    return protocol_ids
+
+
+def rewrite_runtime_protocol_module(content):
+    """让运行目录中的协议模块仍然引用前端真实协议注册中心。"""
+    return re.sub(
+        r"from\s+(['\"])\./index\.js\1",
+        "from '/js/features/execution/protocols/index.js'",
+        content
+    )
 
 
 def handle_post(handler):
@@ -22,34 +64,62 @@ def handle_get(handler):
     if handler.path == '/api/protocol/list':
         list_protocols(handler)
         return True
+    if handler.path.startswith('/api/protocol/module/'):
+        serve_protocol_module(handler)
+        return True
     return False
 
 
 def list_protocols(handler):
     """列出所有协议文件"""
     try:
-        protocol_dir = os.path.join(config.STATIC_ROOT, 'js', 'features', 'execution', 'protocols')
-
-        if not os.path.exists(protocol_dir):
-            write_json(handler, {'success': True, 'protocols': []})
-            return
-
-        # 获取所有 .js 文件（排除工具文件）
-        protocol_files = []
-        excluded_files = {'index.js', 'base-protocol.js', 'request-builder.js'}
-
-        for filename in os.listdir(protocol_dir):
-            if filename.endswith('.js') and filename not in excluded_files:
-                protocol_id = filename[:-3]  # 移除 .js 后缀
-                protocol_files.append(protocol_id)
+        static_protocols = sorted(set(list_protocol_ids(get_static_protocol_dir())))
+        user_protocols = sorted(set(list_protocol_ids(get_user_protocol_dir())))
+        protocol_files = sorted(set(static_protocols + user_protocols))
 
         write_json(handler, {
             'success': True,
-            'protocols': protocol_files
+            'protocols': protocol_files,
+            'staticProtocols': static_protocols,
+            'userProtocols': user_protocols
         })
 
     except Exception as e:
         write_error(handler, 500, f'获取协议列表失败: {str(e)}')
+
+
+def serve_protocol_module(handler):
+    """读取运行目录中的协议模块，供前端动态 import。"""
+    try:
+        raw_name = handler.path.split('/api/protocol/module/', 1)[1].split('?', 1)[0]
+        filename = unquote(raw_name)
+        if not filename.endswith('.js'):
+            write_error(handler, 400, '协议模块路径格式不正确')
+            return
+
+        protocol_id = filename[:-3]
+        if not re.match(r'^[a-z][a-z0-9\-]*$', protocol_id):
+            write_error(handler, 400, '协议ID格式不正确')
+            return
+
+        protocol_dir_abs = os.path.abspath(get_user_protocol_dir())
+        file_path = os.path.abspath(os.path.join(protocol_dir_abs, f'{protocol_id}.js'))
+        if os.path.commonpath([protocol_dir_abs, file_path]) != protocol_dir_abs:
+            write_error(handler, 400, '协议路径不安全')
+            return
+        if not os.path.exists(file_path):
+            write_error(handler, 404, '协议模块不存在')
+            return
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = rewrite_runtime_protocol_module(f.read())
+        write_text(
+            handler,
+            content,
+            content_type='text/javascript; charset=utf-8'
+        )
+    except Exception as e:
+        write_error(handler, 500, f'读取协议模块失败: {str(e)}')
 
 
 def save_protocol(handler):
@@ -73,10 +143,11 @@ def save_protocol(handler):
             return
 
         # 构建文件路径，并确保最终路径仍在协议目录内
-        protocol_dir = os.path.join(config.STATIC_ROOT, 'js', 'features', 'execution', 'protocols')
-        protocol_dir_abs = os.path.abspath(protocol_dir)
-        file_path = os.path.abspath(os.path.join(protocol_dir_abs, f'{protocol_id}.js'))
-        if os.path.commonpath([protocol_dir_abs, file_path]) != protocol_dir_abs:
+        save_dir = get_save_protocol_dir()
+        os.makedirs(save_dir, exist_ok=True)
+        save_dir_abs = os.path.abspath(save_dir)
+        file_path = os.path.abspath(os.path.join(save_dir_abs, f'{protocol_id}.js'))
+        if os.path.commonpath([save_dir_abs, file_path]) != save_dir_abs:
             write_error(handler, 400, '协议路径不安全')
             return
 

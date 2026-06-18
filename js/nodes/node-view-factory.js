@@ -509,18 +509,15 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             fieldId: `${id}-search-field`
         })}
 
+        <div class="node-protocol-params" id="${id}-protocol-params"></div>
+
         ${renderNodeFormField({
             label: '提示词',
             fieldId: `${id}-prompt-field`,
             fieldClass: 'node-field-expand',
             content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
         })}
-        ${renderNodeFormField({
-            label: '系统提示词',
-            fieldId: `${id}-system-prompt-field`,
-            fieldClass: 'node-field-expand',
-            content: `<textarea class="image-generate-system-prompt" id="${id}-system-prompt" placeholder="设定生成规则、风格或限制..." rows="2"${getTextareaHeightStyle(rd, 'systemPrompt')}>${rd.systemPrompt || ''}</textarea>`
-        })}
+
         <div class="node-field ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-image-async-result-field">
             <label>异步任务</label>
             <div class="chat-response-wrapper" id="${id}-image-async-wrapper">
@@ -706,6 +703,9 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             fieldClass: isDoubaoProtocol ? '' : 'hidden',
             fieldId: `${id}-doubao-note-field`
         })}
+
+        <div class="node-protocol-params" id="${id}-protocol-params"></div>
+
         ${renderNodeFormField({
             label: '提示词',
             fieldClass: 'node-video-prompt-field',

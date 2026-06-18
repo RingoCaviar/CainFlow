@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
  */
 import {
@@ -1249,7 +1249,9 @@ export function createExecutionCoreApi({
     function buildVideoGenerateRequestPreview(node, inputs) {
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'video');
-        const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
+        const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
+        const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
         const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
         const useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
         const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
@@ -1404,14 +1406,21 @@ export function createExecutionCoreApi({
         const id = node?.id || '';
         const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
         const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
+        const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
+
         const promptSections = [];
         if (userPrompt) {
-            promptSections.push(`Main subject prompt:\n${userPrompt}`);
+            promptSections.push(userPrompt);
         }
         if (cameraPrompt) {
-            promptSections.push(`Camera composition instruction:\n${cameraPrompt}`);
+            promptSections.push(cameraPrompt);
         }
-        return promptSections.join('\n\n');
+        const combinedPrompt = promptSections.join('\n\n');
+
+        if (systemPrompt) {
+            return systemPrompt + '\n' + combinedPrompt;
+        }
+        return combinedPrompt;
     }
 
     async function getOpenAiMaskBlob(mask, signal) {

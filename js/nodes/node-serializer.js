@@ -195,6 +195,7 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.doubaoGenerateAudio = documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true;
                     serialized.doubaoWatermark = documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true;
                     serialized.doubaoSeed = documentRef.getElementById(`${id}-doubao-seed`)?.value || '';
+                    serialized.protocolParams = readNodeProtocolParams(id, node);
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                     serialized.videoId = node.data?.videoId || '';
                     serialized.videoUrl = node.data?.videoUrl || '';

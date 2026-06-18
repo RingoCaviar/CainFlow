@@ -706,6 +706,7 @@ export function createNodeDomBindingsApi({
         if (!isDoubaoProtocol && doubaoGenerateAudioInput) doubaoGenerateAudioInput.checked = false;
         if (!isDoubaoProtocol && doubaoWatermarkInput) doubaoWatermarkInput.checked = false;
         if (!isDoubaoProtocol && doubaoSeedInput) doubaoSeedInput.value = '';
+        refreshVideoGenerateProtocolParams(id);
     }
 
     function bindNodePorts(container) {
@@ -1439,6 +1440,94 @@ export function createNodeDomBindingsApi({
         bindImageGenerateProtocolParamInputs(id, container);
     }
 
+    const VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
+        'referenceImages',
+        'prompt',
+        'model',
+        'aspect',
+        'aspect_ratio',
+        'resolution',
+        'duration',
+        'camera_fixed',
+        'generate_audio',
+        'watermark',
+        'seed',
+        'loop'
+    ]);
+
+    function getVideoGenerateExtraProtocol(protocol) {
+        if (!protocol?.parameters) return null;
+        const parameters = Object.entries(protocol.parameters).reduce((acc, [paramId, param]) => {
+            const effectiveId = param?.id || paramId;
+            if (!VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS.has(paramId) && !VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS.has(effectiveId)) {
+                acc[paramId] = param;
+            }
+            return acc;
+        }, {});
+        return Object.keys(parameters).length > 0 ? { ...protocol, parameters } : null;
+    }
+
+    function getVideoGenerateSelectedProtocol(id) {
+        const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
+        const providerSelect = documentRef.getElementById(`${id}-provider`);
+        if (!modelSelect) return null;
+        const model = state.models.find((candidate) => candidate.id === modelSelect.value) || null;
+        const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
+        const provider = getResolvedProviderForModel(model, state.providers, providerId);
+        const protocolId = getEffectiveProtocol(model, provider);
+        return getProtocol(protocolId) || null;
+    }
+
+    function syncVideoGenerateProtocolParams(id) {
+        const node = state.nodes.get(id);
+        if (!node) return;
+        const extraProtocol = getVideoGenerateExtraProtocol(getVideoGenerateSelectedProtocol(id));
+        if (!extraProtocol) return;
+        node.data = node.data || {};
+        node.data.protocolParams = {
+            ...(node.data.protocolParams || {}),
+            ...getProtocolParameterValues(id, extraProtocol, 'video', documentRef)
+        };
+    }
+
+    function bindVideoGenerateProtocolParamInputs(id, root) {
+        const container = root || documentRef.getElementById(`${id}-protocol-params`);
+        if (!container) return;
+        container.querySelectorAll('input, select, textarea').forEach((input) => {
+            if (input.dataset.protocolParamBound === '1') return;
+            input.dataset.protocolParamBound = '1';
+            const saveProtocolParams = () => {
+                syncVideoGenerateProtocolParams(id);
+                if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
+                scheduleSave();
+            };
+            input.addEventListener('change', saveProtocolParams);
+            input.addEventListener('input', debounce(saveProtocolParams, 500));
+        });
+    }
+
+    function refreshVideoGenerateProtocolParams(id) {
+        const container = documentRef.getElementById(`${id}-protocol-params`);
+        const node = state.nodes.get(id);
+        if (!container || !node) return;
+
+        // 旧数据兼容
+        node.data = node.data || {};
+        if (node.data.systemPrompt && (!node.data.protocolParams || node.data.protocolParams.systemPrompt === undefined || node.data.protocolParams.systemPrompt === '')) {
+            node.data.protocolParams = node.data.protocolParams || {};
+            node.data.protocolParams.systemPrompt = node.data.systemPrompt;
+            delete node.data.systemPrompt;
+        }
+
+        syncVideoGenerateProtocolParams(id);
+        const extraProtocol = getVideoGenerateExtraProtocol(getVideoGenerateSelectedProtocol(id));
+        container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'video', node.data || {}) : '';
+        bindZoomSettleGuard(container);
+        bindCustomNodeSelects(container);
+        bindVideoGenerateProtocolParamInputs(id, container);
+        fitNodeToContent(id);
+    }
+
     function syncNodeFormData(id, type) {
         const node = state.nodes.get(id);
         if (!node) return;
@@ -1484,6 +1573,7 @@ export function createNodeDomBindingsApi({
             node.data.doubaoGenerateAudio = readChecked('doubao-generate-audio', node.data.doubaoGenerateAudio === true);
             node.data.doubaoWatermark = readChecked('doubao-watermark', node.data.doubaoWatermark === true);
             node.data.doubaoSeed = readValue('doubao-seed', node.data.doubaoSeed || '');
+            syncVideoGenerateProtocolParams(id);
         }
 
         if (type === 'TextChat') {

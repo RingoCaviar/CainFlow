@@ -44,6 +44,69 @@ export const VeoUnifiedProtocol = {
             step: 1
         },
 
+        image_3: {
+            id: 'image_3',
+            exposed: false,
+            inputPort: true,
+            portType: 'image',
+            portOnly: true,
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'array',
+            uiControl: 'number',
+            label: '参考图 3',
+            defaultValue: '',
+            requestField: 'Ingredients_images',
+            taskTypes: ['video']
+        },
+
+        image_4: {
+            id: 'image_4',
+            exposed: false,
+            inputPort: true,
+            portType: 'image',
+            portOnly: true,
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'array',
+            uiControl: 'number',
+            label: '参考图 4',
+            defaultValue: '',
+            requestField: 'Ingredients_images',
+            taskTypes: ['video']
+        },
+
+        image_5: {
+            id: 'image_5',
+            exposed: false,
+            inputPort: true,
+            portType: 'image',
+            portOnly: true,
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'array',
+            uiControl: 'number',
+            label: '参考图 5',
+            defaultValue: '',
+            requestField: 'Ingredients_images',
+            taskTypes: ['video']
+        },
+
+        systemPrompt: {
+            id: 'systemPrompt',
+            requestField: 'prompt',
+            exposed: true,
+            inputPort: false,
+            portType: 'text',
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'string',
+            uiControl: 'textarea',
+            label: '系统提示词',
+            placeholder: '设定生成规则、风格或限制...',
+            rows: 2,
+            taskTypes: ['video']
+        },
         prompt: {
             id: 'prompt',
             label: '提示词',
@@ -86,6 +149,30 @@ export const VeoUnifiedProtocol = {
             ],
             defaultValue: '9:16',
             requestField: 'aspect_ratio'
+        },
+
+        enhance_prompt: {
+            id: 'enhance_prompt',
+            exposed: false,
+            inputPort: false,
+            dataType: 'boolean',
+            uiControl: 'toggle',
+            label: '增强提示词',
+            taskTypes: ['video'],
+            defaultValue: false,
+            requestField: 'enhance_prompt'
+        },
+
+        enable_upsample: {
+            id: 'enable_upsample',
+            exposed: false,
+            inputPort: false,
+            dataType: 'boolean',
+            uiControl: 'toggle',
+            label: '启用超分',
+            taskTypes: ['video'],
+            defaultValue: false,
+            requestField: 'enable_upsample'
         },
 
         loop: {

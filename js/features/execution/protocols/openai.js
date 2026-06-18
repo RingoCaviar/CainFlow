@@ -49,6 +49,20 @@ export const OpenaiProtocol = {
             step: 1,
             taskTypes: ['image']
         },
+        systemPrompt: {
+            id: 'systemPrompt',
+            requestField: 'prompt',
+            exposed: true,
+            inputPort: false,
+            portType: 'text',
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'string',
+            uiControl: 'textarea',
+            label: '系统提示词',
+            placeholder: '设定生成规则、风格或限制...',
+            rows: 2,
+        },
         prompt: {
             id: 'prompt',
             exposed: true,
@@ -62,6 +76,7 @@ export const OpenaiProtocol = {
         },
         resolution: {
             id: 'resolution',
+            requestField: 'size',
             exposed: true,
             inputPort: false,
             portType: 'text',
@@ -227,6 +242,18 @@ export const OpenaiProtocol = {
                                         "label": "不透明"
                     }
 ],
+        },
+        n: {
+            id: 'n',
+            requestField: 'n',
+            exposed: false,
+            inputPort: false,
+            required: false,
+            omitIfEmpty: false,
+            dataType: 'number',
+            uiControl: 'number',
+            label: '生成数量',
+            defaultValue: 1,
         },
     },
 
