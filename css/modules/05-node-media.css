@@ -214,6 +214,32 @@
     background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
 }
 
+.node-preview {
+    overflow: hidden !important;
+}
+
+.node-preview .node-body {
+    max-height: 100%;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.node-preview .preview-container {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+    min-height: 100px;
+    max-height: none;
+    background: var(--bg-input);
+}
+
+.node-preview .image-resolution-badge,
+.node-preview .preview-controls {
+    min-width: 0;
+    flex: 0 0 auto;
+}
+
 .node-image-resize .node-header-color {
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
 }

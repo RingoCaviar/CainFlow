@@ -1198,9 +1198,9 @@ export function createExecutionCoreApi({
         const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
         const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
         const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
-        const quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
-        const moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
-        const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
+        const quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
+        const moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
+        const background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
         const mask = getImageGenerateMask(inputs);
         const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
         const prompt = buildImageGeneratePrompt(node, inputs);
@@ -1584,9 +1584,9 @@ export function createExecutionCoreApi({
                 const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
                 const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
                 const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
-                const quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
-                const moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
-                const background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
+                const quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
+                const moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
+                const background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
                 const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
                 const prompt = buildImageGeneratePrompt(node, inputs);
                 const protocolParams = getImageGenerateProtocolParams(node);

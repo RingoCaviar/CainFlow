@@ -1555,9 +1555,9 @@ export function createNodeDomBindingsApi({
             node.data.resolution = readValue('resolution', node.data.resolution || '');
             node.data.customWidth = readValue('custom-resolution-width', node.data.customWidth || '');
             node.data.customHeight = readValue('custom-resolution-height', node.data.customHeight || '');
-            node.data.quality = readValue('quality', node.data.quality || 'auto');
-            node.data.moderation = readValue('moderation', node.data.moderation || 'auto');
-            node.data.background = readValue('background', node.data.background || 'auto');
+            node.data.quality = readValue('quality', node.data.quality ?? 'auto');
+            node.data.moderation = readValue('moderation', node.data.moderation ?? 'auto');
+            node.data.background = readValue('background', node.data.background ?? 'auto');
             node.data.generationCount = Math.max(1, parseInt(readValue('generation-count', node.data.generationCount || '1'), 10) || 1);
             syncImageGenerateProtocolParams(id);
         }

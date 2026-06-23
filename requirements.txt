@@ -1,0 +1,2 @@
+# CainFlow runtime currently uses only the Python standard library.
+# Build tooling such as PyInstaller is installed separately by release scripts.

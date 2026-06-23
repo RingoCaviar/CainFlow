@@ -392,15 +392,15 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
     const showResolutionParamNote = usesOpenAiImageControls;
     const showCustomResolution = rd.resolution === 'custom';
-    const imageQuality = ['low', 'medium', 'high'].includes(String(rd.quality || '').toLowerCase())
+    const imageQuality = ['low', 'medium', 'high', 'auto'].includes(String(rd.quality || '').toLowerCase())
         ? String(rd.quality).toLowerCase()
-        : 'auto';
+        : '';
     const imageModeration = ['low', 'auto'].includes(String(rd.moderation || '').toLowerCase())
         ? String(rd.moderation).toLowerCase()
-        : 'auto';
+        : '';
     const imageBackground = ['transparent', 'opaque', 'auto'].includes(String(rd.background || '').toLowerCase())
         ? String(rd.background).toLowerCase()
-        : 'auto';
+        : '';
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
     const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
     const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
@@ -463,6 +463,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-quality-field`,
             content: `<select id="${id}-quality">
+                <option value="" ${!imageQuality ? 'selected' : ''}>默认</option>
                 <option value="auto" ${imageQuality === 'auto' ? 'selected' : ''}>自动</option>
                 <option value="low" ${imageQuality === 'low' ? 'selected' : ''}>低</option>
                 <option value="medium" ${imageQuality === 'medium' ? 'selected' : ''}>中</option>
@@ -474,6 +475,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-moderation-field`,
             content: `<select id="${id}-moderation">
+                <option value="" ${!imageModeration ? 'selected' : ''}>默认</option>
                 <option value="auto" ${imageModeration === 'auto' ? 'selected' : ''}>自动（auto）</option>
                 <option value="low" ${imageModeration === 'low' ? 'selected' : ''}>低限制（low）</option>
             </select>`
@@ -483,6 +485,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
             fieldId: `${id}-background-field`,
             content: `<select id="${id}-background">
+                <option value="" ${!imageBackground ? 'selected' : ''}>默认</option>
                 <option value="auto" ${imageBackground === 'auto' ? 'selected' : ''}>自动（auto）</option>
                 <option value="transparent" ${imageBackground === 'transparent' ? 'selected' : ''}>透明（transparent）</option>
                 <option value="opaque" ${imageBackground === 'opaque' ? 'selected' : ''}>不透明（opaque）</option>

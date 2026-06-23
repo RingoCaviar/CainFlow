@@ -570,7 +570,7 @@ function normalizeOpenAiImageSize(resolution) {
 
 function normalizeOpenAiImageQuality(quality) {
     const value = String(quality || '').trim().toLowerCase();
-    return value === 'low' || value === 'medium' || value === 'high' ? value : '';
+    return value === 'auto' || value === 'low' || value === 'medium' || value === 'high' ? value : '';
 }
 
 function normalizeOpenAiImageModeration(moderation) {
@@ -649,9 +649,12 @@ export function buildTtapiImageRequest({ modelCfg, prompt, aspect, resolution, i
 
 export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs = {}, protocolParams = {} }) {
     const outputCompressionValue = parseInt(protocolParams.output_compression ?? '100', 10);
+    const normalizedQuality = normalizeOpenAiImageQuality(quality);
+    const normalizedModeration = normalizeOpenAiImageModeration(moderation);
+    const normalizedBackground = normalizeOpenAiImageBackground(background);
     const sharedParams = {
-        background: normalizeOpenAiImageBackground(background) || 'auto',
-        moderation: normalizeOpenAiImageModeration(moderation) || 'auto',
+        ...(normalizedBackground ? { background: normalizedBackground } : {}),
+        ...(normalizedModeration ? { moderation: normalizedModeration } : {}),
         n: 1,
         output_compression: Number.isFinite(outputCompressionValue)
             ? Math.max(0, Math.min(100, outputCompressionValue))
@@ -660,7 +663,7 @@ export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, qua
             ? String(protocolParams.output_format).toLowerCase()
             : 'png',
         partial_images: 0,
-        quality: normalizeOpenAiImageQuality(quality) || 'auto',
+        ...(normalizedQuality ? { quality: normalizedQuality } : {}),
         size: normalizeOpenAiImageSize(resolution) || 'auto',
         stream: false,
         user: ''
@@ -672,17 +675,17 @@ export function buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, qua
         const requestBody = {
             prompt,
             model: modelCfg.modelId,
-            background: sharedParams.background,
-            moderation: sharedParams.moderation,
             n: sharedParams.n,
             output_compression: sharedParams.output_compression,
             output_format: sharedParams.output_format,
             partial_images: sharedParams.partial_images,
-            quality: sharedParams.quality,
             size: sharedParams.size,
             stream: sharedParams.stream,
             user: sharedParams.user
         };
+        if (normalizedBackground) requestBody.background = normalizedBackground;
+        if (normalizedModeration) requestBody.moderation = normalizedModeration;
+        if (normalizedQuality) requestBody.quality = normalizedQuality;
         const referenceValue = getProtocolReferenceImageValue(referenceImages, referenceConfig);
         if (referenceValue !== null) {
             requestBody[referenceConfig.requestField] = referenceValue;

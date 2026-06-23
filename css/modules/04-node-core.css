@@ -1093,3 +1093,13 @@
     text-align: center;
     font-variant-numeric: tabular-nums;
 }
+
+/* 当节点内部的下拉菜单展开时，防止节点主体裁剪下拉菜单面板，并提升层级 */
+.node:has(.node-select.open) {
+    z-index: 2001 !important;
+}
+
+.node-body:has(.node-select.open) {
+    overflow: visible !important;
+}
+

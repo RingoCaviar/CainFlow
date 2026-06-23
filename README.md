@@ -44,7 +44,7 @@
 说明：
 
 - 启动脚本会优先使用 `python_runtime\python.exe`，否则回退到系统中的 `python` 或 `py`
-- 当前仓库未提供根目录 `requirements.txt`，如果你新增了 Python 依赖，记得同步补充安装说明
+- 当前 Python 运行时依赖记录在根目录 [requirements.txt](D:/mygithub/CainFlow/requirements.txt)，如果你新增了 Python 依赖，记得同步补充
 - 启动脚本包含端口 `8767` 占用检测，避免重复启动 CainFlow
 
 ## 默认供应商

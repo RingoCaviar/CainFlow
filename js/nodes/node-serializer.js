@@ -168,9 +168,9 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.customResolution = serialized.customWidth && serialized.customHeight
                         ? `${serialized.customWidth}x${serialized.customHeight}`
                         : '';
-                    serialized.quality = documentRef.getElementById(`${id}-quality`)?.value || 'auto';
-                    serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value || 'auto';
-                    serialized.background = documentRef.getElementById(`${id}-background`)?.value || 'auto';
+                    serialized.quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
+                    serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
+                    serialized.background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
                     serialized.protocolParams = readNodeProtocolParams(id, node);
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
