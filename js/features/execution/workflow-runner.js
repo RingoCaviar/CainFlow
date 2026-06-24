@@ -420,6 +420,14 @@ export function createWorkflowRunnerApi({
             return preserved;
         }
 
+        if (node?.type === 'ImageCompare') {
+            const data = node.data && typeof node.data === 'object' ? node.data : {};
+            const preserved = {};
+            if (data.compareImageA || node.compareImageA) preserved.compareImageA = data.compareImageA || node.compareImageA;
+            if (data.compareImageB || node.compareImageB) preserved.compareImageB = data.compareImageB || node.compareImageB;
+            return preserved;
+        }
+
         if (!node?.data || typeof node.data !== 'object') return {};
 
         if (node.type === 'CameraControl') {
@@ -468,11 +476,11 @@ export function createWorkflowRunnerApi({
             node.data = getPreservedNodeDataForReset(node);
             node.isSucceeded = false;
             node.isFailed = false;
+            if (node.type !== 'ImageImport') {
+                clearCanonicalImageOutput(node);
+            }
             if (node.type === 'ImageGenerate') {
-                node.imageData = null;
-                node.imageDataList = [];
                 node.generationCompletedCount = 0;
-                node.generatedImages = [];
             }
             if (node.type === 'VideoGenerate') {
                 delete node.data.video;

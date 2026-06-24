@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
  */
 import {
@@ -2475,6 +2475,7 @@ export function createMediaControllerApi({
             if (role === 'B') compareB = image;
             renderStage();
             renderThumbs();
+            await syncImageCompareNode(nodeId, compareA, compareB);
         };
 
         setButtons.forEach((button) => {
