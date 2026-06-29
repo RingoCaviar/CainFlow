@@ -1,4 +1,4 @@
-﻿# CainFlow 架构速查表
+# CainFlow 架构速查表
 
 当你需要判断代码该放哪里，或者应该先看哪些文件时，使用这份速查表。
 
@@ -76,7 +76,7 @@
 
 - GitHub Release 构建入口是 `.github/workflows/release.yml`，本地等价构建入口是 `scripts/build-release-local.ps1`；修改 PyInstaller 参数、随包资源或 ZIP 结构时要同步检查这两处，避免本地包和 Actions 包不一致。
 - PyInstaller 的程序入口保持为 `server.py`，它会导入 `backend.main` 并让 PyInstaller 自动收集 `backend` Python 模块；不要再额外使用 `--add-data "backend;backend"`，否则会把后端源码和 `__pycache__` 作为静态资源重复塞进 exe。
-- Release ZIP 只应外置运行时会被用户改写或在线更新需要保留的内容：`CainFlow.exe`、`LICENSE` / `NOTICE`、`workflows/`。前端静态资源、`notification-sw.js`、图标、声音和后端模块随 exe 内置，避免整包更新时误覆盖运行时配置。
+- Release ZIP 只应外置运行时会被用户改写或在线更新需要保留的内容：`CainFlow.exe`、`LICENSE` / `NOTICE`、`workflows/`。前端静态资源、`js/services/notification-sw.js`、图标、声音和后端模块随 exe 内置，避免整包更新时误覆盖运行时配置。
 - `API_DOC`、`.agent`、`.github`、`scripts`、README/USER_GUIDE、临时 Apifox 文件、构建目录和源码文档不应进入 Release ZIP。
 - 当前仓库 GitHub Actions 策略限制外部 action，workflow 默认不能使用 `actions/checkout`、`actions/setup-python`、`actions/upload-artifact`、`softprops/action-gh-release` 或其他第三方 `uses:`；发布、Release 清理和运行记录清理都应使用纯 `run` 脚本和 GitHub runner 自带的 `git` / `python` / `gh` CLI。
 - `.github/workflows/release.yml` 支持手动 `workflow_dispatch` 和推送 `v*` tag 自动发布。手动运行可填写 `release_tag`，不填则生成 `manual-<run_number>-<short_sha>` 并创建 prerelease；tag 触发默认创建正式 Release。

@@ -2,7 +2,7 @@ export function createSystemNotificationService({
     notificationRef = typeof Notification !== 'undefined' ? Notification : null,
     navigatorRef = typeof navigator !== 'undefined' ? navigator : null,
     consoleRef = console,
-    serviceWorkerUrl = './notification-sw.js'
+    serviceWorkerUrl = './js/services/notification-sw.js'
 } = {}) {
     let registrationPromise = null;
 

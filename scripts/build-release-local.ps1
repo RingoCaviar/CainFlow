@@ -211,7 +211,7 @@ $stagedProgramPath = Join-Path $stagingDirectory $releaseProgramName
 Write-Step "Target platform: $targetPlatform"
 
 Write-Step "Checking required release inputs"
-foreach ($file in @("server.py", "index.html", "index.js", "index.css", "notification-sw.js", "cainflow.ico", "backend/routes/media_routes.py", "backend/services/media_recovery_service.py")) {
+foreach ($file in @("server.py", "index.html", "index.js", "index.css", "js/services/notification-sw.js", "cainflow.ico", "backend/routes/media_routes.py", "backend/services/media_recovery_service.py")) {
   if (!(Test-Path -LiteralPath $file -PathType Leaf)) {
     throw "Required release file is missing: $file"
   }
@@ -258,7 +258,7 @@ $pyInstallerArgs = @(
   "--add-data", (Join-PyInstallerDataSpec "index.html" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "index.js" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "index.css" "." $dataSeparator),
-  "--add-data", (Join-PyInstallerDataSpec "notification-sw.js" "." $dataSeparator),
+  "--add-data", (Join-PyInstallerDataSpec "js/services/notification-sw.js" "js/services" $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "cainflow.ico" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "css" "css" $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "js" "js" $dataSeparator),
