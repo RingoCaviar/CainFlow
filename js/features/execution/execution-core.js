@@ -2206,13 +2206,10 @@ export function createExecutionCoreApi({
         },
         ImageCompare: async (node, inputs) => {
             const { id } = node;
-            const hasConnectionA = inputs && Object.prototype.hasOwnProperty.call(inputs, 'imageA');
-            const imageA = hasConnectionA
-                ? getPrimaryImageInput(inputs.imageA)
-                : (node.compareImageA || node.data?.compareImageA || null);
+            const imageA = getPrimaryImageInput(inputs.imageA);
             const imageB = getPrimaryImageInput(inputs.imageB);
             if (!imageB) throw new Error('B 输入未连接图片');
-            await syncImageCompareNode(id, imageA, imageB);
+            await syncImageCompareNode(id, imageA || null, imageB);
             await refreshDependentImageResizePreviews(id);
         },
         ImageMerge: async (node, inputs = {}) => {

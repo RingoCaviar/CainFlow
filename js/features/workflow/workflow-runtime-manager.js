@@ -1509,6 +1509,21 @@ export function createWorkflowRuntimeManager({
                         applyToCanvas: false
                     });
                     void syncVisibleNodeResult(workflowName, payload.nodeId);
+                    // ImageGenerate 完成后，立即把图片同步到主画布的下游 ImagePreview/ImageSave 节点，
+                    // 不再等待 ImagePreview 自身执行完成（解决预览空白、刷新后旧图等问题）。
+                    const completedRuntimeNode = context.state.nodes.get(payload.nodeId);
+                    if (completedRuntimeNode?.type === 'ImageGenerate') {
+                        const downstreamIds = (context.state.connections || [])
+                            .filter((conn) => conn.from?.nodeId === payload.nodeId && conn.from?.port === 'image')
+                            .map((conn) => conn.to?.nodeId)
+                            .filter(Boolean);
+                        for (const targetId of downstreamIds) {
+                            const targetRuntimeNode = context.state.nodes.get(targetId);
+                            if (targetRuntimeNode && (targetRuntimeNode.type === 'ImagePreview' || targetRuntimeNode.type === 'ImageSave')) {
+                                void syncVisibleNodeResult(workflowName, targetId);
+                            }
+                        }
+                    }
                 }
             }
         });

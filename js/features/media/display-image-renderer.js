@@ -71,8 +71,9 @@ export function createDisplayImageRenderer({
                     if (!img.isConnected) return;
                     if (img.dataset.previewThumbnailToken !== token) return;
                     if (preferImmediateSrc && !hasCachedThumbnail) return;
-                    if (thumbnail && img.getAttribute('src') !== thumbnail) {
-                        img.src = thumbnail;
+                    const nextSrc = thumbnail || src;
+                    if (nextSrc && img.getAttribute('src') !== nextSrc) {
+                        img.src = nextSrc;
                     }
                 });
             }

@@ -1470,7 +1470,7 @@ export function createNodeLifecycleApi({
                 const canonicalImageCount = Math.max(0, parseInt(nodeData.data?.imageCount || effectiveRestoreData?.imageCount || '0', 10) || 0);
                 const shouldRestoreCanonicalBatch = isCanonicalImageNodeType(normalizedType)
                     && !hasInitialImageList
-                    && (!hasInitialData || canonicalImageCount > 1)
+                    && (!hasInitialData || canonicalImageCount > 0)
                     && !!canonicalImageAssetKey;
                 const shouldRestoreRecoverableAsset = !isCanonicalImageNodeType(normalizedType)
                     && !!recoverableImageAssetKey
