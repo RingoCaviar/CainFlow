@@ -218,6 +218,16 @@ function serializeRuntimeNode(node, doc) {
         }
     }
 
+    if (node.type === 'ImageCompare') {
+        const compareA = node.compareImageA || node.data?.compareImageA || '';
+        const compareB = node.compareImageB || node.data?.compareImageB || node.data?.image || '';
+        if (compareA) serialized.compareImageA = compareA;
+        if (compareB) serialized.compareImageB = compareB;
+        if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+        if (imageCount > 0) serialized.imageCount = imageCount;
+        if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
+        if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
+    }
     if (node.type === 'ImageImport') {
         serialized.importMode = readElementControlValue(doc, `${node.id}-import-mode`, node.importMode || 'upload');
         serialized.imageUrl = readElementControlValue(doc, `${node.id}-url-input`, node.imageUrl || '');
@@ -1155,7 +1165,13 @@ export function createWorkflowRuntimeManager({
                         hydratedAt: Date.now(),
                         assetReady: false
                     });
-                    saveRuntimeDisplayImageAssetSoon(nodeId, imageList);
+                    // 等待图片持久化到 IndexedDB，确保切换 tab 后能恢复
+                    if (imageList.length > 1) {
+                        await saveImageAssetList(nodeId, imageList);
+                    } else if (typeof saveImageAsset === 'function') {
+                        await saveImageAsset(nodeId, imageList[0]);
+                    }
+                    node.data.imageAssetReady = true;
                 } else {
                     clearCanonicalImageOutput(node);
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
@@ -1176,7 +1192,13 @@ export function createWorkflowRuntimeManager({
                         assetReady: false
                     });
                     delete node.data.video;
-                    saveRuntimeDisplayImageAssetSoon(nodeId, imageList);
+                    // 等待图片持久化到 IndexedDB，确保切换 tab 后能恢复
+                    if (imageList.length > 1) {
+                        await saveImageAssetList(nodeId, imageList);
+                    } else if (typeof saveImageAsset === 'function') {
+                        await saveImageAsset(nodeId, imageList[0]);
+                    }
+                    node.data.imageAssetReady = true;
                     renderImageSavePreview(nodeId, imageList);
                 } else if (video?.url) {
                     clearCanonicalImageOutput(node);
@@ -1205,10 +1227,25 @@ export function createWorkflowRuntimeManager({
                 node.data = node.data || {};
                 if (imageA) node.data.compareImageA = imageA;
                 else delete node.data.compareImageA;
-                if (imageB) node.data.compareImageB = imageB;
-                else delete node.data.compareImageB;
-                if (imageB) node.data.image = imageB;
-                else delete node.data.image;
+                if (imageB) {
+                    node.data.compareImageB = imageB;
+                    node.data.image = imageB;
+                    // 把对比图 B 持久化到 IndexedDB，确保切换 tab 后能恢复
+                    if (typeof imageB === 'string' && /^data:image\//i.test(imageB) && typeof saveImageAsset === 'function') {
+                        node.data.imageAssetKey = nodeId;
+                        node.data.imageCount = 1;
+                        node.data.imageAssetReady = false;
+                        await saveImageAsset(nodeId, imageB);
+                        node.data.imageAssetReady = true;
+                    }
+                } else {
+                    delete node.data.compareImageB;
+                    delete node.data.image;
+                    delete node.data.imageAssetKey;
+                    delete node.data.imageCount;
+                    delete node.data.imageAssetReady;
+                    if (deleteImageAsset) await deleteImageAsset(nodeId);
+                }
             }
         };
     }
