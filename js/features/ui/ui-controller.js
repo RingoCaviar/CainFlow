@@ -1151,6 +1151,17 @@ export function createUiControllerApi({
             state.notificationsEnabled = enabled;
             if (enabled) {
                 await notificationApi.ensureReady?.();
+                const testSent = await notificationApi.showNotification?.('CainFlow 运行通知已开启', {
+                    body: '之后工作流运行结束时，你会收到系统通知。',
+                    tag: 'cainflow-notification-test'
+                });
+                if (!testSent) {
+                    e.target.checked = false;
+                    state.notificationsEnabled = false;
+                    showToast('系统通知测试失败，请检查 Windows“通知”和“勿扰/专注模式”设置', 'warning', 7000);
+                    saveState();
+                    return;
+                }
             }
 
             if (!enabled && state.notificationAudio) {
