@@ -797,7 +797,7 @@ function renderTextChatBody(id, restoreData, models, providers) {
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
         <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
         <div class="node-field node-chat-system-field"><label>系统提示语（可选）</label>
-            <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="2"${getTextareaHeightStyle(rd, 'sysprompt')}>${rd.sysprompt || ''}</textarea></div>
+            <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${rd.sysprompt || ''}</textarea></div>
         <div class="node-field node-field-row"><label>启用搜索</label>
             <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         <div class="node-field node-field-row"><label>固定结果</label>

@@ -120,6 +120,12 @@
     flex: 0 0 auto;
 }
 
+.node-chat .node-chat-system-field textarea {
+    min-height: 120px;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+}
+
 .node-text-out .node-field:last-child {
     flex: 1;
     display: flex;

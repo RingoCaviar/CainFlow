@@ -124,6 +124,25 @@ export function createCanvasInteractionsApi({
         return isFormControl && !!active.closest('.node');
     }
 
+    function hasScrollableNodeAncestor(target) {
+        if (!target?.closest?.('.node')) return false;
+
+        let current = target;
+        while (current && current !== canvasContainer) {
+            if (current.nodeType === 1) {
+                const style = windowRef.getComputedStyle(current);
+                const canScrollVertically = /^(auto|scroll)$/.test(style.overflowY)
+                    && current.scrollHeight > current.clientHeight + 1;
+                const canScrollHorizontally = /^(auto|scroll)$/.test(style.overflowX)
+                    && current.scrollWidth > current.clientWidth + 1;
+                if (canScrollVertically || canScrollHorizontally) return true;
+            }
+            current = current.parentElement;
+        }
+
+        return false;
+    }
+
     function distributeNodeTextareaResize(resizeState, nextNodeHeight) {
         const targets = Array.isArray(resizeState?.textareaResizeTargets)
             ? resizeState.textareaResizeTargets
@@ -986,6 +1005,8 @@ export function createCanvasInteractionsApi({
                 e.preventDefault();
                 return;
             }
+
+            if (hasScrollableNodeAncestor(e.target)) return;
 
             e.preventDefault();
             canvasContainer.classList.add('is-zooming');
