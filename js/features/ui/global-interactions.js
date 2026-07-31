@@ -159,7 +159,11 @@ export function createGlobalInteractionsApi({
                 y: (windowRef.innerHeight / 2 - state.canvas.y) / state.canvas.zoom
             };
 
-            if (imageFile) {
+            if (clipboardControllerApi.shouldPreferInternalClipboard()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                pasteNode();
+            } else if (imageFile) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
 
@@ -186,10 +190,6 @@ export function createGlobalInteractionsApi({
                         showToast('已从剪贴板导入图片', 'success');
                     }
                 }
-            } else if (clipboardControllerApi.shouldPreferInternalClipboard()) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                pasteNode();
             } else if (textContent && textContent.trim().length > 0) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
