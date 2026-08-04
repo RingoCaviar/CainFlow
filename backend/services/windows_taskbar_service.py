@@ -71,7 +71,7 @@ class WindowsTaskbarAdapter:
                 ole32.CoUninitialize()
 
     @staticmethod
-    def _create_status_icon(status):
+    def _build_status_pixels(status):
         size = 16
         success = status == TASKBAR_STATUS_COMPLETED
         pixels = bytearray(size * size * 4)
@@ -81,12 +81,12 @@ class WindowsTaskbarAdapter:
                 distance = ((x - center) ** 2 + (y - center) ** 2) ** 0.5
                 if distance <= 7:
                     blue, green, red = ((52, 168, 52) if success else (55, 72, 220))
-                    offset = ((size - 1 - y) * size + x) * 4
+                    offset = (y * size + x) * 4
                     pixels[offset:offset + 4] = bytes((blue, green, red, 255))
 
         def paint(x, y):
             if 0 <= x < size and 0 <= y < size:
-                offset = ((size - 1 - y) * size + x) * 4
+                offset = (y * size + x) * 4
                 pixels[offset:offset + 4] = b'\xff\xff\xff\xff'
 
         if success:
@@ -99,6 +99,13 @@ class WindowsTaskbarAdapter:
                 paint(8, y)
             paint(7, 12)
             paint(8, 12)
+
+        return pixels
+
+    @staticmethod
+    def _create_status_icon(status):
+        size = 16
+        pixels = WindowsTaskbarAdapter._build_status_pixels(status)
 
         and_mask = (ctypes.c_ubyte * (size * size // 8))()
         xor_mask = (ctypes.c_ubyte * len(pixels)).from_buffer_copy(pixels)

@@ -95,6 +95,19 @@ class DesktopBridgeTests(unittest.TestCase):
 
 
 class WindowsTaskbarServiceTests(unittest.TestCase):
+    def test_success_icon_pixels_keep_check_mark_upright(self):
+        from backend.services.windows_taskbar_service import WindowsTaskbarAdapter
+
+        pixels = WindowsTaskbarAdapter._build_status_pixels('completed')
+
+        def pixel(x, y):
+            offset = (y * 16 + x) * 4
+            return bytes(pixels[offset:offset + 4])
+
+        self.assertEqual(pixel(11, 5), b'\xff\xff\xff\xff')
+        self.assertEqual(pixel(6, 10), b'\xff\xff\xff\xff')
+        self.assertNotEqual(pixel(11, 10), b'\xff\xff\xff\xff')
+
     def test_sets_and_clears_overlay_with_native_handle(self):
         from backend.services.windows_taskbar_service import WindowsTaskbarService
 
