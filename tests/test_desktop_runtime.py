@@ -92,6 +92,100 @@ class SingleInstanceTests(unittest.TestCase):
 
 
 class BrowserFallbackTests(unittest.TestCase):
+    def test_webview2_detection_uses_official_client_id_and_valid_pv(self):
+        registry = mock.MagicMock()
+        registry.HKEY_LOCAL_MACHINE = object()
+        registry.HKEY_CURRENT_USER = object()
+        registry.KEY_READ = 1
+        registry.OpenKey.return_value.__enter__.return_value = object()
+        registry.QueryValueEx.return_value = ('123.0.4567.8', 1)
+
+        with mock.patch.object(desktop.sys, 'platform', 'win32'), \
+                mock.patch.dict('sys.modules', {'winreg': registry}):
+            status = desktop.detect_webview2_runtime()
+
+        self.assertTrue(status.available)
+        self.assertEqual(status.version, '123.0.4567.8')
+        opened_path = registry.OpenKey.call_args.args[1]
+        self.assertIn(desktop.WEBVIEW2_RUNTIME_CLIENT_ID, opened_path)
+        registry.QueryValueEx.assert_called_once_with(mock.ANY, 'pv')
+
+    def test_webview2_detection_rejects_missing_or_invalid_pv(self):
+        for version, expected_status in (
+            ('', desktop.WEBVIEW2_STATUS_INVALID),
+            ('0.0.0.0', desktop.WEBVIEW2_STATUS_INVALID),
+            ('not-a-version', desktop.WEBVIEW2_STATUS_INVALID),
+        ):
+            registry = mock.MagicMock()
+            registry.HKEY_LOCAL_MACHINE = object()
+            registry.HKEY_CURRENT_USER = object()
+            registry.KEY_READ = 1
+            registry.OpenKey.return_value.__enter__.return_value = object()
+            registry.QueryValueEx.return_value = (version, 1)
+            with self.subTest(version=version), \
+                    mock.patch.object(desktop.sys, 'platform', 'win32'), \
+                    mock.patch.dict('sys.modules', {'winreg': registry}):
+                status = desktop.detect_webview2_runtime()
+                self.assertFalse(status.available)
+                self.assertEqual(status.status, expected_status)
+
+        registry = mock.MagicMock()
+        registry.HKEY_LOCAL_MACHINE = object()
+        registry.HKEY_CURRENT_USER = object()
+        registry.KEY_READ = 1
+        registry.OpenKey.side_effect = FileNotFoundError()
+        with mock.patch.object(desktop.sys, 'platform', 'win32'), \
+                mock.patch.dict('sys.modules', {'winreg': registry}):
+            status = desktop.detect_webview2_runtime()
+        self.assertEqual(status.status, desktop.WEBVIEW2_STATUS_MISSING)
+
+        registry = mock.MagicMock()
+        registry.HKEY_LOCAL_MACHINE = object()
+        registry.HKEY_CURRENT_USER = object()
+        registry.KEY_READ = 1
+        registry.OpenKey.return_value.__enter__.return_value = object()
+        registry.QueryValueEx.side_effect = FileNotFoundError()
+        with mock.patch.object(desktop.sys, 'platform', 'win32'), \
+                mock.patch.dict('sys.modules', {'winreg': registry}):
+            status = desktop.detect_webview2_runtime()
+        self.assertEqual(status.status, desktop.WEBVIEW2_STATUS_INVALID)
+
+    def test_missing_webview_is_handled_before_runtime_or_window_creation(self):
+        missing = desktop.WebView2RuntimeStatus(desktop.WEBVIEW2_STATUS_MISSING)
+        fake_webview = mock.Mock()
+        with mock.patch.dict('sys.modules', {'webview': fake_webview}), \
+                mock.patch.object(desktop, 'detect_webview2_runtime', return_value=missing), \
+                mock.patch.object(desktop, '_handle_missing_webview', return_value=0) as fallback, \
+                mock.patch.object(desktop, '_prepare_runtime_lock') as prepare_runtime:
+            self.assertEqual(desktop.run_desktop(), 0)
+
+        fallback.assert_called_once_with()
+        prepare_runtime.assert_not_called()
+        fake_webview.create_window.assert_not_called()
+
+    def test_webview_start_failure_cleans_up_before_browser_fallback(self):
+        available = desktop.WebView2RuntimeStatus(desktop.WEBVIEW2_STATUS_AVAILABLE, '123.0.0.0')
+        instance_lock = mock.Mock()
+        httpd = mock.Mock()
+        server_thread = mock.Mock()
+        fake_webview = mock.Mock()
+        fake_webview.start.side_effect = RuntimeError('WebView2 initialization failed')
+        order = []
+        with mock.patch.dict('sys.modules', {'webview': fake_webview}), \
+                mock.patch.object(desktop.sys, 'platform', 'win32'), \
+                mock.patch.object(desktop, 'detect_webview2_runtime', return_value=available), \
+                mock.patch.object(desktop, '_prepare_runtime_lock', return_value=(instance_lock, 0)), \
+                mock.patch.object(desktop, '_start_local_server', return_value=(httpd, server_thread, 45678)), \
+                mock.patch.object(desktop, '_stop_local_server', side_effect=lambda *_: order.append('stop')), \
+                mock.patch.object(desktop.desktop_security, 'enable_desktop_session', return_value='token'), \
+                mock.patch.object(desktop.desktop_security, 'disable_desktop_session', side_effect=lambda: order.append('security')), \
+                mock.patch.object(instance_lock, 'release', side_effect=lambda: order.append('lock')), \
+                mock.patch.object(desktop, '_handle_missing_webview', side_effect=lambda: order.append('fallback') or 0):
+            self.assertEqual(desktop.run_desktop(), 0)
+
+        self.assertEqual(order, ['stop', 'security', 'lock', 'fallback'])
+        fake_webview.create_window.return_value.destroy.assert_called_once_with()
+
     def test_browser_fallback_prefers_8767_and_reopens_same_url(self):
         instance_lock = mock.Mock()
         httpd = mock.Mock()

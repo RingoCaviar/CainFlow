@@ -6,6 +6,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
+from dataclasses import dataclass
 
 from backend import config, desktop_security
 from backend.main import create_server, get_app_version_tag, initialize_runtime
@@ -22,6 +23,22 @@ from backend.services.desktop_bridge import DesktopBridge
 
 
 WEBVIEW2_DOWNLOAD_URL = 'https://developer.microsoft.com/microsoft-edge/webview2/'
+WEBVIEW2_RUNTIME_CLIENT_ID = r'{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+
+WEBVIEW2_STATUS_AVAILABLE = 'available'
+WEBVIEW2_STATUS_MISSING = 'missing'
+WEBVIEW2_STATUS_INVALID = 'invalid'
+
+
+@dataclass(frozen=True)
+class WebView2RuntimeStatus:
+    status: str
+    version: str = ''
+    reason: str = ''
+
+    @property
+    def available(self):
+        return self.status == WEBVIEW2_STATUS_AVAILABLE
 
 
 class SingleInstanceLock:
@@ -77,29 +94,52 @@ def show_native_error(title, message):
         print(f'{title}: {message}', file=sys.stderr)
 
 
-def has_webview2_runtime():
+def _is_valid_webview2_version(value):
+    version = str(value or '').strip()
+    if not version:
+        return False
+    parts = version.split('.')
+    if not all(part.isdigit() for part in parts):
+        return False
+    return any(int(part) > 0 for part in parts)
+
+
+def detect_webview2_runtime():
     if sys.platform != 'win32':
-        return True
+        return WebView2RuntimeStatus(WEBVIEW2_STATUS_AVAILABLE, reason='system-webview')
     try:
         import winreg
-        client_id = r'{F1E7E7F1-4A00-4D58-A94D-5688FE6A4C81}'
-        roots = (
-            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{client_id}'),
-            (winreg.HKEY_CURRENT_USER, rf'Software\Microsoft\EdgeUpdate\Clients\{client_id}'),
+        locations = (
+            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_CLIENT_ID}'),
+            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_CLIENT_ID}'),
+            (winreg.HKEY_CURRENT_USER, rf'Software\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_CLIENT_ID}'),
         )
-        for root, path in roots:
+        invalid_versions = []
+        for root, path in locations:
             try:
-                with winreg.OpenKey(root, path):
-                    return True
+                with winreg.OpenKey(root, path, 0, winreg.KEY_READ) as key:
+                    try:
+                        version, _ = winreg.QueryValueEx(key, 'pv')
+                    except OSError:
+                        invalid_versions.append('')
+                        continue
+                if _is_valid_webview2_version(version):
+                    return WebView2RuntimeStatus(WEBVIEW2_STATUS_AVAILABLE, str(version).strip())
+                invalid_versions.append(str(version or '').strip())
             except OSError:
                 continue
-    except Exception:
-        pass
-    candidates = (
-        os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'Microsoft', 'EdgeWebView', 'Application'),
-        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'EdgeWebView', 'Application'),
-    )
-    return any(path and os.path.isdir(path) for path in candidates)
+        if invalid_versions:
+            return WebView2RuntimeStatus(
+                WEBVIEW2_STATUS_INVALID,
+                reason='WebView2 Runtime 注册表版本无效',
+            )
+        return WebView2RuntimeStatus(WEBVIEW2_STATUS_MISSING, reason='未找到 WebView2 Runtime 注册表信息')
+    except Exception as error:
+        return WebView2RuntimeStatus(WEBVIEW2_STATUS_INVALID, reason=str(error))
+
+
+def has_webview2_runtime():
+    return detect_webview2_runtime().available
 
 
 def _prepare_runtime_lock():
@@ -137,6 +177,15 @@ def _stop_local_server(httpd, server_thread):
         httpd.server_close()
     if server_thread and server_thread.is_alive():
         server_thread.join(timeout=5)
+
+
+def _destroy_window_safely(window):
+    if window is None:
+        return
+    try:
+        window.destroy()
+    except Exception:
+        pass
 
 
 def run_browser_fallback(
@@ -192,7 +241,8 @@ def run_desktop():
         show_native_error('CainFlow 启动失败', f'缺少 pywebview 运行组件：{error}')
         return 1
 
-    if not has_webview2_runtime():
+    runtime_status = detect_webview2_runtime()
+    if not runtime_status.available:
         return _handle_missing_webview()
 
     instance_lock, result = _prepare_runtime_lock()
@@ -201,6 +251,8 @@ def run_desktop():
 
     httpd = None
     server_thread = None
+    startup_error = None
+    webview_error = None
     try:
         token = desktop_security.enable_desktop_session()
         httpd, server_thread, port = _start_local_server(0)
@@ -243,12 +295,24 @@ def run_desktop():
                 target_window.destroy()
             smoke_worker = finish_smoke_test
         gui = 'edgechromium' if sys.platform == 'win32' else None
-        webview.start(func=smoke_worker, args=(window,) if smoke_worker else None, gui=gui, debug=False)
-        return 0
+        try:
+            webview.start(func=smoke_worker, args=(window,) if smoke_worker else None, gui=gui, debug=False)
+        except Exception as error:
+            webview_error = error
+            _destroy_window_safely(window)
     except Exception as error:
-        show_native_error('CainFlow 启动失败', str(error))
-        return 1
+        startup_error = error
     finally:
         _stop_local_server(httpd, server_thread)
         desktop_security.disable_desktop_session()
         instance_lock.release()
+
+    if webview_error is not None and sys.platform == 'win32':
+        return _handle_missing_webview()
+    if webview_error is not None:
+        show_native_error('CainFlow 启动失败', str(webview_error))
+        return 1
+    if startup_error is not None:
+        show_native_error('CainFlow 启动失败', str(startup_error))
+        return 1
+    return 0
