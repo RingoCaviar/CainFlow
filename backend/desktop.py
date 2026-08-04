@@ -6,39 +6,29 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from dataclasses import dataclass
+from datetime import datetime
 
 from backend import config, desktop_security
+from backend.browser_status_window import BrowserServiceStatus, show_browser_service_window
 from backend.main import create_server, get_app_version_tag, initialize_runtime
 from backend.native_dialogs import (
-    BROWSER_STATUS_REOPEN,
     PORT_CHOICE_RANDOM,
     WEBVIEW_CHOICE_BROWSER,
     WEBVIEW_CHOICE_INSTALL,
     choose_webview_missing_action,
     choose_random_port_action,
-    show_browser_mode_status,
 )
 from backend.services.desktop_bridge import DesktopBridge
+from backend.webview2_runtime import (
+    WEBVIEW2_INIT_FAILED,
+    WEBVIEW2_INIT_PENDING,
+    WebView2InitializationResult,
+    detect_webview2_runtime,
+    install_webview2_initialization_hook,
+)
 
 
 WEBVIEW2_DOWNLOAD_URL = 'https://developer.microsoft.com/microsoft-edge/webview2/'
-WEBVIEW2_RUNTIME_CLIENT_ID = r'{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-
-WEBVIEW2_STATUS_AVAILABLE = 'available'
-WEBVIEW2_STATUS_MISSING = 'missing'
-WEBVIEW2_STATUS_INVALID = 'invalid'
-
-
-@dataclass(frozen=True)
-class WebView2RuntimeStatus:
-    status: str
-    version: str = ''
-    reason: str = ''
-
-    @property
-    def available(self):
-        return self.status == WEBVIEW2_STATUS_AVAILABLE
 
 
 class SingleInstanceLock:
@@ -94,54 +84,6 @@ def show_native_error(title, message):
         print(f'{title}: {message}', file=sys.stderr)
 
 
-def _is_valid_webview2_version(value):
-    version = str(value or '').strip()
-    if not version:
-        return False
-    parts = version.split('.')
-    if not all(part.isdigit() for part in parts):
-        return False
-    return any(int(part) > 0 for part in parts)
-
-
-def detect_webview2_runtime():
-    if sys.platform != 'win32':
-        return WebView2RuntimeStatus(WEBVIEW2_STATUS_AVAILABLE, reason='system-webview')
-    try:
-        import winreg
-        locations = (
-            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_CLIENT_ID}'),
-            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_CLIENT_ID}'),
-            (winreg.HKEY_CURRENT_USER, rf'Software\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_RUNTIME_CLIENT_ID}'),
-        )
-        invalid_versions = []
-        for root, path in locations:
-            try:
-                with winreg.OpenKey(root, path, 0, winreg.KEY_READ) as key:
-                    try:
-                        version, _ = winreg.QueryValueEx(key, 'pv')
-                    except OSError:
-                        invalid_versions.append('')
-                        continue
-                if _is_valid_webview2_version(version):
-                    return WebView2RuntimeStatus(WEBVIEW2_STATUS_AVAILABLE, str(version).strip())
-                invalid_versions.append(str(version or '').strip())
-            except OSError:
-                continue
-        if invalid_versions:
-            return WebView2RuntimeStatus(
-                WEBVIEW2_STATUS_INVALID,
-                reason='WebView2 Runtime 注册表版本无效',
-            )
-        return WebView2RuntimeStatus(WEBVIEW2_STATUS_MISSING, reason='未找到 WebView2 Runtime 注册表信息')
-    except Exception as error:
-        return WebView2RuntimeStatus(WEBVIEW2_STATUS_INVALID, reason=str(error))
-
-
-def has_webview2_runtime():
-    return detect_webview2_runtime().available
-
-
 def _prepare_runtime_lock():
     instance_lock = SingleInstanceLock(os.path.join(config.DATA_DIR, '.desktop.lock'))
     try:
@@ -190,8 +132,9 @@ def _destroy_window_safely(window):
 
 def run_browser_fallback(
     browser_open=webbrowser.open,
-    status_dialog=show_browser_mode_status,
+    status_window=show_browser_service_window,
     port_dialog=choose_random_port_action,
+    webview_reason='',
 ):
     instance_lock, result = _prepare_runtime_lock()
     if not instance_lock:
@@ -199,6 +142,8 @@ def run_browser_fallback(
 
     httpd = None
     server_thread = None
+    port_fallback_reason = ''
+    random_port = False
     try:
         preferred_port = 8767
         try:
@@ -206,14 +151,44 @@ def run_browser_fallback(
         except OSError as error:
             if port_dialog(preferred_port, str(error)) != PORT_CHOICE_RANDOM:
                 return 0
+            port_fallback_reason = str(error)
+            random_port = True
             httpd, server_thread, port = _start_local_server(0)
         url = f'http://{config.LOCAL_HOST}:{port}'
-        if not browser_open(url):
-            show_native_error('CainFlow 浏览器启动失败', f'无法打开系统默认浏览器。\n请手动访问：{url}')
-            return 1
-        while status_dialog(url) == BROWSER_STATUS_REOPEN:
-            if not browser_open(url):
-                show_native_error('CainFlow 浏览器启动失败', f'无法重新打开系统默认浏览器。\n请手动访问：{url}')
+        status = BrowserServiceStatus(
+            version=get_app_version_tag(),
+            url=url,
+            host=config.LOCAL_HOST,
+            port=port,
+            started_at=datetime.now().astimezone(),
+            data_dir=config.DATA_DIR,
+            database_path=config.DATABASE_PATH,
+            workflows_dir=config.WORKFLOWS_DIR,
+            exports_dir=config.EXPORTS_DIR,
+            log_dir=config.LOG_DIR,
+            random_port=random_port,
+            port_fallback_reason=port_fallback_reason,
+            webview_reason=webview_reason,
+        )
+        status.add_event(f'HTTP 服务已启动：{url}')
+        if random_port:
+            status.add_event(f'端口 8767 不可用，已切换到随机端口 {port}')
+
+        def reopen_browser():
+            if browser_open(url):
+                status.add_event('已请求系统浏览器打开 CainFlow')
+                return True
+            status.add_event(f'无法打开系统默认浏览器，请手动访问 {url}')
+            return False
+
+        def open_log_directory():
+            if sys.platform == 'win32':
+                os.startfile(config.LOG_DIR)
+                return
+            subprocess.Popen(['open', config.LOG_DIR])
+
+        reopen_browser()
+        status_window(status, reopen_browser, open_log_directory, lambda: status.add_event('用户请求停止服务'))
         return 0
     except Exception as error:
         show_native_error('CainFlow 浏览器模式启动失败', str(error))
@@ -223,10 +198,10 @@ def run_browser_fallback(
         instance_lock.release()
 
 
-def _handle_missing_webview():
+def _handle_missing_webview(reason=''):
     choice = choose_webview_missing_action()
     if choice == WEBVIEW_CHOICE_BROWSER:
-        return run_browser_fallback()
+        return run_browser_fallback(webview_reason=reason)
     if choice == WEBVIEW_CHOICE_INSTALL:
         if not webbrowser.open(WEBVIEW2_DOWNLOAD_URL):
             show_native_error('无法打开 WebView2 安装页面', WEBVIEW2_DOWNLOAD_URL)
@@ -241,9 +216,9 @@ def run_desktop():
         show_native_error('CainFlow 启动失败', f'缺少 pywebview 运行组件：{error}')
         return 1
 
-    runtime_status = detect_webview2_runtime()
+    runtime_status = detect_webview2_runtime(webview)
     if not runtime_status.available:
-        return _handle_missing_webview()
+        return _handle_missing_webview(runtime_status.reason)
 
     instance_lock, result = _prepare_runtime_lock()
     if not instance_lock:
@@ -253,6 +228,8 @@ def run_desktop():
     server_thread = None
     startup_error = None
     webview_error = None
+    initialization_result = WebView2InitializationResult()
+    restore_initialization_hook = None
     try:
         token = desktop_security.enable_desktop_session()
         httpd, server_thread, port = _start_local_server(0)
@@ -296,10 +273,15 @@ def run_desktop():
             smoke_worker = finish_smoke_test
         gui = 'edgechromium' if sys.platform == 'win32' else None
         try:
+            if sys.platform == 'win32':
+                restore_initialization_hook = install_webview2_initialization_hook(initialization_result)
             webview.start(func=smoke_worker, args=(window,) if smoke_worker else None, gui=gui, debug=False)
         except Exception as error:
             webview_error = error
             _destroy_window_safely(window)
+        finally:
+            if restore_initialization_hook:
+                restore_initialization_hook()
     except Exception as error:
         startup_error = error
     finally:
@@ -307,8 +289,14 @@ def run_desktop():
         desktop_security.disable_desktop_session()
         instance_lock.release()
 
-    if webview_error is not None and sys.platform == 'win32':
-        return _handle_missing_webview()
+    webview_initialization_failed = initialization_result.status == WEBVIEW2_INIT_FAILED
+    webview_start_failed_before_initialization = (
+        webview_error is not None
+        and initialization_result.status == WEBVIEW2_INIT_PENDING
+    )
+    if sys.platform == 'win32' and (webview_initialization_failed or webview_start_failed_before_initialization):
+        reason = initialization_result.error or str(webview_error or 'WebView2 初始化失败')
+        return _handle_missing_webview(reason)
     if webview_error is not None:
         show_native_error('CainFlow 启动失败', str(webview_error))
         return 1
