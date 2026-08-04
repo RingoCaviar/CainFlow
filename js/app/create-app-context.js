@@ -2,7 +2,7 @@ import { createElements } from '../core/elements.js';
 import { createInitialState } from '../core/state.js';
 import { API_PROVIDERS_LOCKED, STORAGE_KEY } from '../core/constants.js';
 import { createProxyHeadersGetter } from '../services/api-client.js';
-import { createIndexedDbApi } from '../services/storage-idb.js';
+import { createDiskStorageApi } from '../services/storage-disk.js';
 import { createMediaUtils } from '../features/media/media-utils.js';
 import { createPanelManager } from '../features/ui/panel-manager.js';
 import { createUiUtils } from '../features/ui/ui-utils.js';
@@ -32,7 +32,7 @@ export function createAppContext({
     });
     const dirHandles = new Map();
     const proxyHeadersGetter = createProxyHeadersGetter(() => state);
-    const indexedDbApi = createIndexedDbApi(() => state);
+    const indexedDbApi = createDiskStorageApi(() => state);
     const mediaUtils = createMediaUtils({
         getImageMaxPixels: () => state.imageMaxPixels,
         documentRef

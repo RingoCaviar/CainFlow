@@ -2,6 +2,11 @@
  * Handles general settings rendering, notification sound, image save warnings, and cache usage.
  */
 import { AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
+import {
+    clearLegacyBrowserStorage,
+    migrateLegacyBrowserStorage,
+    scanLegacyBrowserStorage
+} from '../../services/browser-storage-migration.js';
 
 export function createGeneralSettings({ ctx, dialogs }) {
     const {
@@ -12,6 +17,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         storeAssetsName,
         openDB,
         saveHandle,
+        getHandle,
         deleteHandle,
         showToast,
         saveState,
@@ -282,10 +288,11 @@ export function createGeneralSettings({ ctx, dialogs }) {
                         </div>
                         <div class="general-settings-dir-row">
                             <span id="global-dir-badge" class="${state.globalSaveDirHandle ? 'is-set' : 'is-missing'}">
-                                ${state.globalSaveDirHandle ? `已选择: ${state.globalSaveDirHandle.name}` : '<span class="general-settings-warning-text">⚠️ 未设置</span>'}
+                                ${state.globalSaveDirHandle ? `当前目录: ${dialogs.escapeHtml(state.globalSaveDirHandle.name)}` : '<span class="general-settings-warning-text">⚠️ 未设置</span>'}
                             </span>
-                            <button id="btn-set-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">更改</button>
-                            ${state.globalSaveDirHandle ? '<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs general-settings-dir-action general-settings-dir-action--danger">清除</button>' : ''}
+                            <input id="setting-global-export-dir" type="text" value="${dialogs.escapeHtml(state.globalSaveDirHandle?.name || '')}" placeholder="输入绝对路径，留空使用程序旁 exports" style="min-width:280px; flex:1" />
+                            <button id="btn-set-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">保存路径</button>
+                            ${state.globalSaveDirHandle ? '<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs general-settings-dir-action">恢复默认</button>' : ''}
                         </div>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
@@ -297,6 +304,17 @@ export function createGeneralSettings({ ctx, dialogs }) {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+                    </div>
+                </div>
+                <div class="general-settings-field-divider" aria-hidden="true"></div>
+                <div class="card-row">
+                    <div class="card-field">
+                        <div class="general-settings-label-row"><strong>旧浏览器数据迁移</strong></div>
+                        <div class="general-settings-dir-row">
+                            <button id="btn-migrate-browser-storage" class="btn btn-secondary btn-xs">扫描并导入旧数据</button>
+                            <button id="btn-clear-browser-storage" class="btn btn-ghost btn-xs general-settings-dir-action--danger">清除浏览器旧数据</button>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">只读取当前端口 Origin；导入成功后旧数据仍会保留，需手动清除。</div>
                     </div>
                 </div>
             </div>
@@ -464,26 +482,60 @@ export function createGeneralSettings({ ctx, dialogs }) {
 
         btnSetGlobal?.addEventListener('click', async () => {
             try {
-                const handle = await windowRef.showDirectoryPicker();
-                if (handle) {
-                    state.globalSaveDirHandle = handle;
-                    await saveHandle('GLOBAL_SAVE_DIR', handle);
-                    renderGeneralSettings();
-                    updateImageSaveWarnings();
-                    showToast('全局保存目录设置成功', 'success');
-                    addLog('success', '存储设置已变更', `全局目录已设置为: ${handle.name}`);
-                }
+                const directory = documentRef.getElementById('setting-global-export-dir')?.value?.trim() || '';
+                const saved = await saveHandle('GLOBAL_SAVE_DIR', directory);
+                if (!saved) throw new Error('目录无效、不可写或不是绝对路径');
+                state.globalSaveDirHandle = await getHandle('GLOBAL_SAVE_DIR') || { name: directory };
+                renderGeneralSettings();
+                updateImageSaveWarnings();
+                showToast('全局保存目录设置成功', 'success');
+                addLog('success', '存储设置已变更', `全局目录已设置为: ${state.globalSaveDirHandle.name}`);
             } catch (error) {
-                if (error.name !== 'AbortError') showToast('设置失败: ' + error.message, 'error');
+                showToast('设置失败: ' + error.message, 'error');
             }
         });
 
         btnClearGlobal?.addEventListener('click', async () => {
-            state.globalSaveDirHandle = null;
             await deleteHandle('GLOBAL_SAVE_DIR');
+            state.globalSaveDirHandle = await getHandle('GLOBAL_SAVE_DIR');
             renderGeneralSettings();
             updateImageSaveWarnings();
-            showToast('全局保存目录已清除', 'info');
+            showToast('已恢复使用程序旁 exports 目录', 'info');
+        });
+
+        documentRef.getElementById('btn-migrate-browser-storage')?.addEventListener('click', async () => {
+            const button = documentRef.getElementById('btn-migrate-browser-storage');
+            try {
+                button.disabled = true;
+                button.textContent = '正在扫描...';
+                const scan = await scanLegacyBrowserStorage();
+                if (!scan.documentCount && !scan.assetCount && !scan.historyCount) {
+                    showToast('当前端口没有发现可迁移的浏览器旧数据', 'info');
+                    return;
+                }
+                const statusResponse = await fetch('/api/storage/migration', { cache: 'no-store' });
+                const status = statusResponse.ok ? await statusResponse.json() : {};
+                const sizeMB = (scan.assetBytes / 1024 / 1024).toFixed(2);
+                const replacementWarning = status.hasUserData ? '\n\n硬盘已有数据，将先备份 SQLite，再用旧会话覆盖对应文档。' : '';
+                if (!windowRef.confirm(
+                    `发现 ${scan.documentCount} 组设置、${scan.assetCount} 个资产（${sizeMB} MB）、${scan.historyCount} 条历史。${replacementWarning}\n\n确认导入吗？`
+                )) return;
+                button.textContent = '正在迁移...';
+                await migrateLegacyBrowserStorage(scan, { replace: status.hasUserData === true });
+                showToast('浏览器旧数据已迁移到硬盘，页面即将刷新', 'success', 5000);
+                windowRef.setTimeout(() => windowRef.location.reload(), 1000);
+            } catch (error) {
+                showToast(`迁移失败：${error.message}`, 'error', 8000);
+            } finally {
+                button.disabled = false;
+                button.textContent = '扫描并导入旧数据';
+            }
+        });
+
+        documentRef.getElementById('btn-clear-browser-storage')?.addEventListener('click', async () => {
+            if (!windowRef.confirm('只清除当前端口的 localStorage 和 IndexedDB 旧副本，硬盘数据不会删除。确认继续吗？')) return;
+            await clearLegacyBrowserStorage();
+            showToast('当前端口的浏览器旧数据已清除', 'success');
         });
 
         volInput?.addEventListener('input', (event) => {
@@ -613,80 +665,8 @@ export function createGeneralSettings({ ctx, dialogs }) {
         }
     }
 
-    let storageTextEncoder = null;
-
-    function getStringStorageBytes(value) {
-        const text = String(value ?? '');
-        const Encoder = windowRef.TextEncoder || globalThis.TextEncoder;
-        if (Encoder) {
-            storageTextEncoder = storageTextEncoder || new Encoder();
-            return storageTextEncoder.encode(text).length;
-        }
-        return text.length * 2;
-    }
-
-    function getValueStorageBytes(value) {
-        if (value === undefined || value === null) return 0;
-        if (typeof value === 'string') return getStringStorageBytes(value);
-        try {
-            return getStringStorageBytes(JSON.stringify(value));
-        } catch {
-            return getStringStorageBytes(String(value));
-        }
-    }
-
     function formatMB(bytes) {
         return `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(2)} MB`;
-    }
-
-    function isHistoryAssetKey(key) {
-        return typeof key === 'string' && key.startsWith('history:');
-    }
-
-    function isImageImportAssetKey(key) {
-        return typeof key === 'string' && key.startsWith('image-import:');
-    }
-
-    async function getStoreSizeBytes(storeName, includeEntry = () => true) {
-        try {
-            const db = await openDB();
-            return new Promise((resolve) => {
-                let bytes = 0;
-                const tx = db.transaction(storeName, 'readonly');
-                const store = tx.objectStore(storeName);
-                const req = store.openCursor();
-                req.onsuccess = (event) => {
-                    const cursor = event.target.result;
-                    if (cursor) {
-                        if (includeEntry(cursor.key, cursor.value)) {
-                            bytes += getValueStorageBytes(cursor.key);
-                            bytes += getValueStorageBytes(cursor.value);
-                        }
-                        cursor.continue();
-                    } else {
-                        resolve(bytes);
-                    }
-                };
-                req.onerror = () => resolve(0);
-            });
-        } catch {
-            return 0;
-        }
-    }
-
-    function getLocalStorageBytes() {
-        let bytes = 0;
-        try {
-            for (let i = 0; i < localStorageRef.length; i++) {
-                const key = localStorageRef.key(i);
-                const val = localStorageRef.getItem(key);
-                bytes += getStringStorageBytes(key);
-                bytes += getStringStorageBytes(val);
-            }
-        } catch {
-            // ignore
-        }
-        return bytes;
     }
 
     async function updateCacheUsage(force = false) {
@@ -703,13 +683,14 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 state.cacheSizes[storeAssetsName] = null;
             }
 
-            const historyStoreBytes = await getStoreSizeBytes(storeHistoryName);
-            const historyAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => isHistoryAssetKey(key));
-            const imageImportAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => isImageImportAssetKey(key));
-            const nodeAssetBytes = await getStoreSizeBytes(storeAssetsName, (key) => !isHistoryAssetKey(key) && !isImageImportAssetKey(key));
-            const localBytes = getLocalStorageBytes();
-            const historyBytes = historyStoreBytes + historyAssetBytes;
-            const totalBytes = historyBytes + nodeAssetBytes + imageImportAssetBytes + localBytes;
+            const response = await fetch('/api/storage/maintenance', { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const stats = await response.json();
+            const historyBytes = Number(stats.historyBytes || 0);
+            const imageImportAssetBytes = Number(stats.imageImportBytes || 0);
+            const nodeAssetBytes = Number(stats.nodeAssetBytes || 0);
+            const localBytes = Number(stats.documentBytes || 0);
+            const totalBytes = Number(stats.totalBytes || 0);
 
             display.textContent = formatMB(totalBytes);
             if (historyEl) historyEl.textContent = formatMB(historyBytes);

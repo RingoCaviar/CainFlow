@@ -1,7 +1,7 @@
 import http.server
 
 from backend import state
-from backend.routes import media_routes, notification_routes, protocol_routes, settings_routes, update_routes, workflow_routes
+from backend.routes import media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
 from backend.services.http_helpers import write_error, write_text
 from backend.services.log_service import should_log_path, start_request_log
 from backend.services.proxy_service import handle_proxy_request
@@ -33,6 +33,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if settings_routes.handle_get(self):
                 return
+            if storage_routes.handle_get(self):
+                return
             if state.is_noise_request(self.path):
                 self.send_response(404)
                 self.end_headers()
@@ -46,7 +48,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', '*')
         static_path = self.path.split('?', 1)[0].lower()
         if static_path.endswith(('.html',)):
@@ -76,6 +78,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if protocol_routes.handle_post(self):
                 return
+            if storage_routes.handle_post(self):
+                return
             if self.path == '/proxy':
                 handle_proxy_request(self)
                 return
@@ -94,6 +98,20 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if settings_routes.handle_delete(self):
                 return
             if workflow_routes.handle_delete(self):
+                return
+            if storage_routes.handle_delete(self):
+                return
+            if should_log_path(self.path):
+                write_error(self, 404, 'Not Found')
+                return
+            self.send_error(404, 'Not Found')
+        except Exception as error:
+            self._handle_unexpected_error(error)
+
+    def do_PUT(self):
+        self._begin_request_log()
+        try:
+            if storage_routes.handle_put(self):
                 return
             if should_log_path(self.path):
                 write_error(self, 404, 'Not Found')

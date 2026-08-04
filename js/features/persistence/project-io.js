@@ -283,6 +283,7 @@ export function createProjectIoApi({
         try {
             const raw = localStorageRef.getItem(storageKey);
             if (!raw) {
+                await restoreHandles();
                 scheduleStartupCacheCleanup(null);
                 return false;
             }

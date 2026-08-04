@@ -14,6 +14,7 @@ export function createSettingsFeature({
     storeAssetsName,
     openDB,
     saveHandle,
+    getHandle,
     deleteHandle,
     showToast,
     saveState,
@@ -27,7 +28,8 @@ export function createSettingsFeature({
     fitNodeToContent,
     floatingNoticesApi,
     refreshImageGenerateNodes = null,
-    documentRef = document
+    documentRef = document,
+    localStorageRef
 }) {
     const settingsModal = documentRef.getElementById('settings-modal');
     const providersList = documentRef.getElementById('providers-list');
@@ -46,6 +48,7 @@ export function createSettingsFeature({
         storeAssetsName,
         openDB,
         saveHandle,
+        getHandle,
         deleteHandle,
         showToast,
         saveState,
@@ -58,7 +61,8 @@ export function createSettingsFeature({
         applyCanvasUiSetting,
         fitNodeToContent,
         floatingNoticesApi,
-        documentRef
+        documentRef,
+        localStorageRef
     });
 
     function refreshProtocolConsumers() {

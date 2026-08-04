@@ -11,8 +11,6 @@
     <link rel="shortcut icon" type="image/x-icon" href="cainflow.ico">
     <script>
         (() => {
-            const storageKey = 'nodeflow_ai_state';
-            const bootstrapKey = 'cainflow_ui_bootstrap';
             const themeAttribute = 'data-app-theme';
             const animationsDisabledClass = 'animations-disabled';
             const fallbackTheme = 'dark';
@@ -29,39 +27,11 @@
                 document.documentElement.classList.toggle(animationsDisabledClass, !globalAnimationEnabled);
             };
 
-            const getSettingsFromFullState = (parsed) => {
-                const themeId = typeof parsed?.themeId === 'string' && parsed.themeId
-                    ? parsed.themeId
-                    : (parsed?.themeMode === 'light' ? 'light' : fallbackTheme);
-                const globalAnimationEnabled = parsed?.globalAnimationEnabled !== undefined
-                    ? parsed.globalAnimationEnabled !== false
-                    : parsed?.connectionFlowAnimationEnabled !== false;
-                return { themeId, globalAnimationEnabled };
-            };
-
-            try {
-                const bootstrapRaw = window.localStorage.getItem(bootstrapKey);
-                if (bootstrapRaw) {
-                    applyBootstrapSettings(JSON.parse(bootstrapRaw));
-                    return;
-                }
-
-                const raw = window.localStorage.getItem(storageKey);
-                if (!raw) {
-                    applyBootstrapSettings({ themeId: fallbackTheme, globalAnimationEnabled: true });
-                    return;
-                }
-
-                const settings = getSettingsFromFullState(JSON.parse(raw));
-                applyBootstrapSettings(settings);
-                try {
-                    window.localStorage.setItem(bootstrapKey, JSON.stringify(settings));
-                } catch (error) {
-                    // The fallback still applied; failing to cache this tiny bootstrap state is non-fatal.
-                }
-            } catch (error) {
-                applyBootstrapSettings({ themeId: fallbackTheme, globalAnimationEnabled: true });
-            }
+            applyBootstrapSettings({ themeId: fallbackTheme, globalAnimationEnabled: true });
+            window.__cainflowThemeBootstrapPromise = fetch('/api/storage/documents/ui_bootstrap', { cache: 'no-store' })
+                .then((response) => response.ok ? response.json() : null)
+                .then((payload) => applyBootstrapSettings(payload?.value || {}))
+                .catch(() => {});
         })();
     </script>
     <!-- CSS files loaded in parallel for faster initial render -->
@@ -843,6 +813,9 @@
             </div>
 
             <div class="cache-section-actions">
+                <button id="btn-clear-temporary-cache" class="btn btn-secondary cache-action-btn">
+                    清理临时缓存与孤儿文件
+                </button>
                 <button id="btn-clear-assets" class="btn btn-secondary cache-action-btn cache-action-btn-warning">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right: 8px;">

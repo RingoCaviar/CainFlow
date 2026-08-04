@@ -23,6 +23,7 @@ import {
     getAbortMessage as getAbortMessageService
 } from '../services/api-client.js';
 import { createSystemNotificationService } from '../services/system-notification-service.js';
+import { diskStorage } from '../services/storage-documents.js';
 import {
     createBezierPath as createBezierPathService,
     checkLineIntersection as checkLineIntersectionService,
@@ -94,6 +95,8 @@ function generateId() {
 function showToast(message, type = 'info', duration = 3000) {
     return getToastControllerApi().showToast(message, type, duration);
 }
+
+diskStorage.onError = (error) => showToast(`硬盘数据保存失败：${error.message || error}`, 'error', 8000);
 
 function debounce(fn, ms) {
     return debounceService(fn, ms);
@@ -176,6 +179,7 @@ function closeModal(id) {
 
 const appContext = createAppContext({
     documentRef: document,
+    localStorageRef: diskStorage,
     showToast: (...args) => showToast(...args),
     onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite()
 });
@@ -400,7 +404,7 @@ function getLogPanelApi() {
             elements,
             renderErrorModal: showErrorModal,
             saveState,
-            localStorageRef: localStorage,
+            localStorageRef: diskStorage,
             storageKey: LOG_STORAGE_KEY
         });
     }
@@ -412,7 +416,7 @@ function getRequestStatisticsApi() {
         registry.requestStatisticsApi = createRequestStatisticsApi({
             state,
             documentRef: document,
-            localStorageRef: localStorage
+            localStorageRef: diskStorage
         });
     }
     return registry.requestStatisticsApi;
@@ -421,7 +425,8 @@ function getRequestStatisticsApi() {
 function getFloatingNoticesApi() {
     if (!registry.floatingNoticesApi) {
         registry.floatingNoticesApi = createFloatingNoticesController({
-            container: elements.floatingNoticesContainer
+            container: elements.floatingNoticesContainer,
+            localStorageRef: diskStorage
         });
     }
     return registry.floatingNoticesApi;
@@ -470,7 +475,8 @@ const updateManager = createUpdateManager({
     showToast,
     renderGeneralSettings: () => settingsControllerApi?.renderGeneralSettings(),
     exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
-    floatingNoticesApi: getFloatingNoticesApi()
+    floatingNoticesApi: getFloatingNoticesApi(),
+    localStorageRef: diskStorage
 });
 const helpPanelApi = createHelpPanelApi({
     canvasContainer,
@@ -753,6 +759,7 @@ function getSessionManagerApi() {
         registry.sessionManagerApi = createSessionManagerApi({
             state,
             storageKey: STORAGE_KEY,
+            localStorageRef: diskStorage,
             nodeSerializer,
             showToast,
             addNode,
@@ -881,7 +888,8 @@ function getPromptLibraryApi() {
             addNode,
             saveState,
             showToast,
-            copyToClipboard
+            copyToClipboard,
+            localStorageRef: diskStorage
         });
     }
     return registry.promptLibraryApi;
@@ -1241,7 +1249,8 @@ const workflowManagerApi = createWorkflowManagerApi({
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
     beginMediaRestoreBatch,
     endMediaRestoreBatch,
-    finalizeMediaRestoreBatch
+    finalizeMediaRestoreBatch,
+    localStorageRef: diskStorage
 });
 
 function refreshImageGenerateNodes(protocolId) {
@@ -1266,6 +1275,7 @@ settingsFeature = createSettingsFeature({
     storeAssetsName: STORE_ASSETS,
     openDB,
     saveHandle,
+    getHandle,
     deleteHandle,
     showToast,
     saveState,
@@ -1279,6 +1289,7 @@ settingsFeature = createSettingsFeature({
     fitNodeToContent,
     floatingNoticesApi: getFloatingNoticesApi(),
     refreshImageGenerateNodes,
+    localStorageRef: diskStorage,
     documentRef: document
 });
 settingsControllerApi = settingsFeature.settingsControllerApi;
@@ -1304,6 +1315,7 @@ projectIoFeature = createProjectIoFeature({
     registry,
     state,
     storageKey: STORAGE_KEY,
+    localStorageRef: diskStorage,
     nodeSerializer,
     getHandle,
     addLog,
@@ -1372,7 +1384,8 @@ uiFeature = createUiFeature({
     onConfigWorkflowsImported: (workflows) => workflowManagerApi.reloadAfterWorkflowImport(workflows?.[0]?.name || ''),
     applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
     getSystemNotificationApi: () => getSystemNotificationApi(),
-    documentRef: document
+    documentRef: document,
+    localStorageRef: diskStorage
 });
 
 function initFeatureModules() {
@@ -1406,7 +1419,6 @@ const canvasStressTestBridge = createCanvasStressTestBridge({
     scheduleSave,
     showToast,
     documentRef: document,
-    localStorageRef: localStorage,
     globalRef: globalThis
 });
 

@@ -31,7 +31,8 @@ export function createProjectIoFeature({
     updateCacheUsage = () => {},
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
-    finalizeMediaRestoreBatch = async () => {}
+    finalizeMediaRestoreBatch = async () => {},
+    localStorageRef
 }) {
     function getProjectIoApi() {
         if (!registry.projectIoApi) {
@@ -61,7 +62,8 @@ export function createProjectIoFeature({
                 updateCacheUsage,
                 beginMediaRestoreBatch,
                 endMediaRestoreBatch,
-                finalizeMediaRestoreBatch
+                finalizeMediaRestoreBatch,
+                localStorageRef
             });
         }
         return registry.projectIoApi;

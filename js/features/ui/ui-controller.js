@@ -267,7 +267,7 @@ export function createUiControllerApi({
             results.push(false);
         }
         try {
-            localStorageRef.clear();
+            await localStorageRef.clear();
         } catch (error) {
             console.warn('localStorage cleanup failed:', error);
             results.push(false);
@@ -1101,7 +1101,7 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-factory-reset')?.addEventListener('click', async () => {
-            const confirmed = confirmRef('确定要恢复出厂设置吗？\n这将清空所有画布节点、API 配置、图片历史记录、浏览器缓存、IndexedDB、Cache Storage 和 Service Worker，且无法撤销。');
+            const confirmed = confirmRef('确定要恢复出厂设置吗？\n这将清空硬盘中的画布、API 配置和历史媒体，并清理当前浏览器站点数据；workflows、exports 和 log 会保留。此操作无法撤销。');
             if (!confirmed) return;
 
             try {
@@ -1111,7 +1111,7 @@ export function createUiControllerApi({
                 }
             } catch (error) {
                 console.error('Factory reset failed:', error);
-                alertRef('恢复出厂设置过程中出现错误，请在浏览器设置中手动清除此站点数据。');
+                alertRef('恢复出厂设置过程中出现错误，请检查 data 目录权限后重试。');
             } finally {
                 locationRef.reload();
             }
@@ -1225,6 +1225,7 @@ export function createUiControllerApi({
         const cacheSidebar = documentRef.getElementById('cache-sidebar');
         const btnClose = documentRef.getElementById('btn-close-cache');
         const btnClear = documentRef.getElementById('btn-clear-cache');
+        const btnClearTemporary = documentRef.getElementById('btn-clear-temporary-cache');
 
         if (!btnToggle || !cacheSidebar) return;
 
@@ -1237,6 +1238,21 @@ export function createUiControllerApi({
         btnClose?.addEventListener('click', () => {
             cacheSidebar.classList.remove('active');
             btnToggle.classList.remove('active');
+        });
+
+        btnClearTemporary?.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/storage/maintenance', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clear-temporary' })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                await clearCacheStorageForOrigin();
+                showToast('临时缓存和孤儿文件已清理', 'success');
+                settingsControllerApi?.updateCacheUsage(true);
+            } catch (error) {
+                showToast(`临时缓存清理失败：${error.message}`, 'error');
+            }
         });
 
         const confirmCacheCleanup = async ({ id, title, message, note, confirmLabel = '清理' }) => {
@@ -1260,13 +1276,13 @@ export function createUiControllerApi({
                 id: 'cache-clear-history-dialog',
                 title: '清理所有历史记录',
                 message: '确定要清理所有历史记录吗？',
-                note: '这将永久删除浏览器本地存储的历史生成图库，无法撤销。'
+                note: '这将永久删除硬盘 data 目录中的历史生成图库及对应媒体，无法撤销。'
             });
             if (!confirmed) return;
 
             try {
                 const ok = await clearHistory();
-                if (!ok) throw new Error('IndexedDB 历史清理未完成');
+                if (!ok) throw new Error('硬盘历史清理未完成');
 
                 showToast('历史生成记录已清空', 'success');
                 settingsControllerApi?.updateCacheUsage();

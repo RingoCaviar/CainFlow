@@ -8,6 +8,8 @@ log/
 
 # Local workflow data
 /workflows/
+/data/
+/exports/
 
 # Local release builds
 build/

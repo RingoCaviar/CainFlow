@@ -44,7 +44,8 @@ export function createUiFeature({
     onConfigWorkflowsImported = async () => {},
     applyWorkflowSidebarWidth = () => {},
     getSystemNotificationApi,
-    documentRef = document
+    documentRef = document,
+    localStorageRef
 }) {
     function getUiControllerApi() {
         if (!registry.uiControllerApi) {
@@ -87,7 +88,8 @@ export function createUiFeature({
                 onConfigWorkflowsImported,
                 applyWorkflowSidebarWidth,
                 systemNotificationApi: getSystemNotificationApi(),
-                documentRef
+                documentRef,
+                localStorageRef
             });
         }
         return registry.uiControllerApi;

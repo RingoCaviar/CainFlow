@@ -9,6 +9,7 @@ import webbrowser
 from backend import config
 from backend.handler import ProxyHTTPRequestHandler
 from backend.services.log_service import cleanup_old_log_files
+from backend.services.storage_service import storage_service
 from backend.services.update_service import cleanup_update_temp_files
 from backend.services.version_service import get_app_version_tag
 
@@ -226,6 +227,7 @@ def print_banner():
 def run():
     os.chdir(config.STATIC_ROOT)
     config.ensure_runtime_dirs()
+    storage_service.initialize()
     cleanup_update_temp_files()
     cleanup_old_log_files()
     if config.is_port_in_use(config.PORT):

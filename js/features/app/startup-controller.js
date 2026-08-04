@@ -133,7 +133,11 @@ export function createStartupControllerApi({
     }
 
     function initStartup() {
-        documentRef.addEventListener('DOMContentLoaded', bootstrapApp);
+        if (documentRef.readyState === 'loading') {
+            documentRef.addEventListener('DOMContentLoaded', bootstrapApp, { once: true });
+        } else {
+            Promise.resolve().then(bootstrapApp);
+        }
     }
 
     return {

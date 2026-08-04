@@ -38,11 +38,19 @@ MAIN_EXE_PATH = sys.executable if hasattr(sys, 'frozen') else os.path.join(EXE_D
 WORKFLOWS_DIR = os.path.join(EXE_DIR, 'workflows')
 LOG_DIR = os.path.join(EXE_DIR, 'log')
 PROTOCOLS_DIR = os.path.join(EXE_DIR, 'protocols')
+DATA_DIR = os.path.join(EXE_DIR, 'data')
+ASSETS_DIR = os.path.join(DATA_DIR, 'assets')
+DATA_TEMP_DIR = os.path.join(DATA_DIR, 'temp')
+DATABASE_PATH = os.path.join(DATA_DIR, 'cainflow.db')
+EXPORTS_DIR = os.path.join(EXE_DIR, 'exports')
 
 
 def ensure_runtime_dirs():
     os.makedirs(WORKFLOWS_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    os.makedirs(DATA_TEMP_DIR, exist_ok=True)
+    os.makedirs(EXPORTS_DIR, exist_ok=True)
     if hasattr(sys, 'frozen'):
         os.makedirs(PROTOCOLS_DIR, exist_ok=True)
 
