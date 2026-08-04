@@ -1,0 +1,4 @@
+interface:
+  display_name: "CainFlow 发布新版本"
+  short_description: "自动递增版本、推送标签并维护 GitHub Release"
+  default_prompt: "使用 $cainflow-release 自动发布下一个 CainFlow 正式版本并更新中文 Release 说明。"

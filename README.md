@@ -32,7 +32,7 @@
 2. Windows 用户解压后运行 `CainFlow.exe`。
 3. macOS 用户解压后运行 `CainFlow`，首次运行如被系统拦截，需要在系统安全设置中手动放行。
 
-Windows 桌面版使用系统 WebView2 Runtime。Windows 11 已内置；少数缺失该组件的设备会在启动时显示微软官方安装入口。
+Windows 桌面版使用系统 WebView2 Runtime。Windows 11 已内置；少数缺失该组件的设备启动时可选择“使用浏览器模式”“打开 WebView2 官方安装页面”或“退出”。浏览器回退模式优先使用本地端口 8767；该端口不可用时会询问是否改用随机端口，并保留一个用于重新打开浏览器或停止 CainFlow 服务的状态窗口。也可以直接访问[微软 WebView2 官方下载页面](https://developer.microsoft.com/microsoft-edge/webview2/)进行安装。
 
 ### 方式二：源码运行
 
