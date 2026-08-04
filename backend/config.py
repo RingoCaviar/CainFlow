@@ -28,6 +28,8 @@ def get_resource_path():
 
 def get_exe_dir():
     if hasattr(sys, 'frozen'):
+        if sys.platform == 'darwin':
+            return os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'CainFlow')
         return os.path.dirname(sys.executable)
     return PROJECT_ROOT
 

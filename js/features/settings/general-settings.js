@@ -291,6 +291,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
                                 ${state.globalSaveDirHandle ? `当前目录: ${dialogs.escapeHtml(state.globalSaveDirHandle.name)}` : '<span class="general-settings-warning-text">⚠️ 未设置</span>'}
                             </span>
                             <input id="setting-global-export-dir" type="text" value="${dialogs.escapeHtml(state.globalSaveDirHandle?.name || '')}" placeholder="输入绝对路径，留空使用程序旁 exports" style="min-width:280px; flex:1" />
+                            ${windowRef.__cainflowDesktop ? '<button id="btn-choose-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">选择目录</button>' : ''}
                             <button id="btn-set-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">保存路径</button>
                             ${state.globalSaveDirHandle ? '<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs general-settings-dir-action">恢复默认</button>' : ''}
                         </div>
@@ -453,6 +454,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const autoCheckUpdatesOnLoadInput = documentRef.getElementById('setting-auto-check-updates-on-load');
         const imageSaveUsePromptFilenameInput = documentRef.getElementById('setting-image-save-use-prompt-filename');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
+        const btnChooseGlobal = documentRef.getElementById('btn-choose-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
         const updateVolumeSliderProgress = () => {
             if (!volInput) return;
@@ -501,6 +503,17 @@ export function createGeneralSettings({ ctx, dialogs }) {
             renderGeneralSettings();
             updateImageSaveWarnings();
             showToast('已恢复使用程序旁 exports 目录', 'info');
+        });
+
+        btnChooseGlobal?.addEventListener('click', async () => {
+            try {
+                const directory = await windowRef.__cainflowDesktop.chooseDirectory();
+                if (!directory) return;
+                const input = documentRef.getElementById('setting-global-export-dir');
+                if (input) input.value = directory;
+            } catch (error) {
+                showToast('选择目录失败: ' + error.message, 'error');
+            }
         });
 
         documentRef.getElementById('btn-migrate-browser-storage')?.addEventListener('click', async () => {

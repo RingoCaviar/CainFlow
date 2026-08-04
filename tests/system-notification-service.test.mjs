@@ -63,3 +63,19 @@ test('non-Windows keeps the browser notification path', async () => {
     assert.equal(await service.showNotification('CainFlow', { body: 'done' }), true);
     assert.equal(shown.length, 1);
 });
+
+test('macOS desktop routes notifications to the native endpoint', async () => {
+    const requests = [];
+    const service = createSystemNotificationService({
+        platformRef: 'MacIntel',
+        desktopRef: { info: { platform: 'darwin' } },
+        notificationRef: null,
+        fetchRef: async (url, options) => {
+            requests.push({ url, options });
+            return { ok: true, json: async () => ({ success: true, channel: 'macos-native' }) };
+        }
+    });
+    assert.equal(service.getPermission(), 'granted');
+    assert.equal(await service.showNotification('CainFlow', { body: 'done' }), true);
+    assert.equal(requests.length, 1);
+});

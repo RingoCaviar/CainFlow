@@ -111,6 +111,24 @@ function Get-SmokeFailureDetails {
 function Stop-CainFlowProcessTree {
   param([System.Diagnostics.Process]$Process)
 
+  if ($Process) {
+    try {
+      $pending = @($Process.Id)
+      $allIds = @()
+      while ($pending.Count -gt 0) {
+        $parentId = $pending[0]
+        $pending = @($pending | Select-Object -Skip 1)
+        if ($parentId -in $allIds) { continue }
+        $allIds += $parentId
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $parentId" -ErrorAction SilentlyContinue)
+        $pending += @($children | ForEach-Object { [int]$_.ProcessId })
+      }
+      @($allIds | Sort-Object -Descending) | ForEach-Object {
+        Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+      }
+    } catch {}
+  }
+
   if ($Process -and !$Process.HasExited) {
     try {
       Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
@@ -133,7 +151,8 @@ function Start-BackgroundProcess {
     [string]$CommandPath,
     [string[]]$CommandArguments,
     [string]$StdoutPath,
-    [string]$StderrPath
+    [string]$StderrPath,
+    [string]$DesktopSmokeMarker = ""
   )
 
   $workingDirectoryLiteral = $WorkingDirectory.Replace("'", "''")
@@ -145,8 +164,9 @@ function Start-BackgroundProcess {
   }
 
 $bootstrap = @"
-$env:CAINFLOW_SKIP_BROWSER_AUTO_OPEN = '1'
-$env:CAINFLOW_SKIP_FATAL_PAUSE = '1'
+`$env:CAINFLOW_SKIP_BROWSER_AUTO_OPEN = '1'
+`$env:CAINFLOW_SKIP_FATAL_PAUSE = '1'
+`$env:CAINFLOW_DESKTOP_SMOKE_MARKER = '$($DesktopSmokeMarker.Replace("'", "''"))'
 Set-Location -LiteralPath '$workingDirectoryLiteral'
 `$commandPath = '$commandPathLiteral'
 `$argsList = @($argumentLiteral)
@@ -213,6 +233,7 @@ function Invoke-ReleaseMode {
   $stderrPath = Join-Path $tempRoot "stderr.log"
   $extractDir = Join-Path $tempRoot "package"
   $process = $null
+  $smokeMarker = Join-Path $tempRoot "desktop-ready.txt"
 
   New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
 
@@ -223,14 +244,38 @@ function Invoke-ReleaseMode {
       throw "CainFlow.exe was not found after extracting the release package."
     }
 
-    $process = Start-BackgroundProcess `
-      -WorkingDirectory $extractDir `
-      -CommandPath $programPath `
-      -CommandArguments @() `
-      -StdoutPath $stdoutPath `
-      -StderrPath $stderrPath
+    $previousSmokeMarker = $env:CAINFLOW_DESKTOP_SMOKE_MARKER
+    try {
+      $env:CAINFLOW_DESKTOP_SMOKE_MARKER = $smokeMarker
+      $process = Start-Process `
+        -FilePath $programPath `
+        -WorkingDirectory $extractDir `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath `
+        -WindowStyle Hidden `
+        -PassThru
+    } finally {
+      $env:CAINFLOW_DESKTOP_SMOKE_MARKER = $previousSmokeMarker
+    }
 
-    $null = Wait-ForCainFlowHealthy -BaseUrl "http://127.0.0.1:8767/" -TimeoutSeconds $TimeoutSeconds
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $smokeMarker -PathType Leaf)) {
+      if ($process.HasExited) {
+        throw "CainFlow desktop process exited before its window loaded (code $($process.ExitCode))."
+      }
+      Start-Sleep -Milliseconds 500
+    }
+    if (!(Test-Path -LiteralPath $smokeMarker -PathType Leaf)) {
+      throw "CainFlow desktop window did not load within $TimeoutSeconds seconds."
+    }
+    $databasePath = Join-Path $extractDir "data\cainflow.db"
+    if (!(Test-Path -LiteralPath $databasePath -PathType Leaf)) {
+      throw "CainFlow desktop smoke test did not initialize SQLite: $databasePath"
+    }
+    $process.WaitForExit(10000) | Out-Null
+    if (!$process.HasExited) {
+      throw "CainFlow desktop process did not exit after the smoke window closed."
+    }
   } catch {
     $details = Get-SmokeFailureDetails -Process $process -StdoutPath $stdoutPath -StderrPath $stderrPath
     if ($details) {
@@ -261,7 +306,7 @@ function Invoke-SourceMode {
     $process = Start-BackgroundProcess `
       -WorkingDirectory $RepoRoot `
       -CommandPath $PythonCommand `
-      -CommandArguments @("server.py") `
+      -CommandArguments @("server.py", "--browser", "--port", "8767") `
       -StdoutPath $stdoutPath `
       -StderrPath $stderrPath
 

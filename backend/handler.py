@@ -1,6 +1,7 @@
 import http.server
 
 from backend import state
+from backend import desktop_security
 from backend.routes import media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
 from backend.services.http_helpers import write_error, write_text
 from backend.services.log_service import should_log_path, start_request_log
@@ -23,6 +24,10 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self._begin_request_log()
         try:
+            if desktop_security.handle_bootstrap(self):
+                return
+            if not self._authorize_desktop_api():
+                return
             if update_routes.handle_get(self):
                 return
             if workflow_routes.handle_get(self):
@@ -59,6 +64,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self._begin_request_log()
+        if not self._authorize_desktop_api():
+            return
         if should_log_path(self.path):
             write_text(self, '', status=200)
             return
@@ -68,6 +75,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         self._begin_request_log()
         try:
+            if not self._authorize_desktop_api():
+                return
             if notification_routes.handle_post(self):
                 return
             if settings_routes.handle_post(self):
@@ -95,6 +104,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_DELETE(self):
         self._begin_request_log()
         try:
+            if not self._authorize_desktop_api():
+                return
             if settings_routes.handle_delete(self):
                 return
             if workflow_routes.handle_delete(self):
@@ -111,6 +122,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_PUT(self):
         self._begin_request_log()
         try:
+            if not self._authorize_desktop_api():
+                return
             if storage_routes.handle_put(self):
                 return
             if should_log_path(self.path):
@@ -122,6 +135,12 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def _begin_request_log(self):
         start_request_log(self)
+
+    def _authorize_desktop_api(self):
+        if desktop_security.is_api_request_authorized(self):
+            return True
+        write_error(self, 403, 'Desktop session is required')
+        return False
 
     def _handle_unexpected_error(self, error):
         if should_log_path(self.path):

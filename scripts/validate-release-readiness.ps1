@@ -83,6 +83,7 @@ function Invoke-NodeSyntaxChecks {
     "index.js",
     "js\app\bootstrap.js",
     "js\app\bootstrap-impl.js",
+    "js\services\desktop-bridge.js",
     "js\features\execution\execution-core.js",
     "js\features\execution\workflow-runner.js",
     "js\features\media\media-controller.js",
@@ -115,6 +116,23 @@ function Invoke-PythonCompileChecks {
     & $PythonCommand -m compileall -q server.py backend
     if ($LASTEXITCODE -ne 0) {
       throw "Python compileall reported failures."
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
+function Invoke-StorageInitializationCheck {
+  param(
+    [string]$RepoRoot,
+    [string]$PythonCommand
+  )
+
+  Push-Location $RepoRoot
+  try {
+    & $PythonCommand -m unittest tests.test_storage_service tests.test_desktop_runtime
+    if ($LASTEXITCODE -ne 0) {
+      throw "Desktop and SQLite initialization tests failed."
     }
   } finally {
     Pop-Location
@@ -170,12 +188,16 @@ try {
   Write-Step "Validating regression workflow fixtures"
   Invoke-WorkflowFixtureChecks -RepoRoot $repoRoot
 
+  Write-Step "Validating desktop security and SQLite initialization"
+  Invoke-StorageInitializationCheck -RepoRoot $repoRoot -PythonCommand $Python
+
   $succeeded = $true
   $summaryLines = @(
     "Repository root: $repoRoot",
     "APP_VERSION_NUMBER: $appVersion",
     "Frontend syntax checks: passed",
     "Backend compile checks: passed",
+    "Desktop and SQLite initialization: passed",
     "Regression workflow fixtures: passed"
   )
 } catch {

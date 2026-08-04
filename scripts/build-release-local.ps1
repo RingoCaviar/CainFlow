@@ -125,7 +125,8 @@ function Join-PyInstallerDataSpec {
     [string]$Separator
   )
 
-  return "$Source$Separator$Destination"
+  $resolvedSource = (Resolve-Path -LiteralPath $Source).Path
+  return "$resolvedSource$Separator$Destination"
 }
 
 function Invoke-NativeCommand {
@@ -203,10 +204,10 @@ $dataSeparator = if ($isWindowsTarget) { ";" } else { ":" }
 $launcherBaseName = "CainFlow_Launcher"
 $launcherFileName = if ($isWindowsTarget) { "$launcherBaseName.exe" } else { $launcherBaseName }
 $releaseProgramName = if ($isWindowsTarget) { "CainFlow.exe" } else { "CainFlow" }
-$specFileName = "$launcherBaseName.spec"
 $distProgramPath = Join-Path "dist" $launcherFileName
 $stagingDirectory = "release_staging"
 $stagedProgramPath = Join-Path $stagingDirectory $releaseProgramName
+$maxReleaseZipBytes = 20MB
 
 Write-Step "Target platform: $targetPlatform"
 
@@ -226,7 +227,6 @@ Write-Step "Cleaning previous local build outputs"
 Remove-PathIfExists "build"
 Remove-PathIfExists "dist"
 Remove-PathIfExists $stagingDirectory
-Remove-PathIfExists $specFileName
 
 $releaseName = Get-ReleaseName
 $zipName = if ($isWindowsTarget) {
@@ -242,16 +242,21 @@ $pyInstallerArgs = @(
   "--clean",
   "--noconfirm",
   "--log-level", "INFO",
+  "--specpath", "build",
   "--onefile",
   "--optimize", "2",
   "--exclude-module", "asyncio",
   "--exclude-module", "doctest",
   "--exclude-module", "multiprocessing",
   "--exclude-module", "pdb",
-  "--exclude-module", "sqlite3",
   "--exclude-module", "test",
   "--exclude-module", "tkinter",
   "--exclude-module", "unittest",
+  "--exclude-module", "PyQt5",
+  "--exclude-module", "PyQt6",
+  "--exclude-module", "PySide2",
+  "--exclude-module", "PySide6",
+  "--exclude-module", "cefpython3",
   "--hidden-import", "backend.routes.media_routes",
   "--hidden-import", "backend.services.media_recovery_service",
   "--name", $launcherBaseName,
@@ -266,9 +271,21 @@ $pyInstallerArgs = @(
   "server.py"
 )
 if ($isWindowsTarget) {
-  $pyInstallerArgs = $pyInstallerArgs[0..($pyInstallerArgs.Count - 2)] + @("--icon", "cainflow.ico") + $pyInstallerArgs[-1]
+  $iconPath = (Resolve-Path -LiteralPath "cainflow.ico").Path
+  $pyInstallerArgs = $pyInstallerArgs[0..($pyInstallerArgs.Count - 2)] + @(
+    "--windowed",
+    "--hidden-import", "webview.platforms.edgechromium",
+    "--icon", $iconPath
+  ) + $pyInstallerArgs[-1]
+} else {
+  $pyInstallerArgs = $pyInstallerArgs[0..($pyInstallerArgs.Count - 2)] + @(
+    "--hidden-import", "webview.platforms.cocoa"
+  ) + $pyInstallerArgs[-1]
 }
 & $Python @pyInstallerArgs
+if ($LASTEXITCODE -ne 0) {
+  throw "PyInstaller failed with exit code $LASTEXITCODE."
+}
 
 if (!(Test-Path -LiteralPath $distProgramPath)) {
   throw "PyInstaller completed, but $distProgramPath was not found."
@@ -302,11 +319,18 @@ if (Test-Path -LiteralPath "workflows") {
 Write-Step "Creating $zipName"
 New-ReleaseZip -StagingDirectory $stagingDirectory -ZipName $zipName -Platform $targetPlatform
 
+$programBytes = (Get-Item -LiteralPath $stagedProgramPath).Length
+$zipBytes = (Get-Item -LiteralPath $zipName).Length
+$staticBytes = (Get-ChildItem -File -Recurse css,js,sounds,index.html,index.js,index.css | Measure-Object Length -Sum).Sum
+Write-Host "Size baseline: program=$programBytes bytes, static=$staticBytes bytes, zip=$zipBytes bytes, limit=$maxReleaseZipBytes bytes"
+if ($zipBytes -ge $maxReleaseZipBytes) {
+  throw "Release package exceeds the strict 20 MiB limit: $zipBytes bytes"
+}
+
 Write-Step "Cleaning temporary build files"
 Remove-PathIfExists "build"
 Remove-PathIfExists "dist"
 Remove-PathIfExists $stagingDirectory
-Remove-PathIfExists $specFileName
 
 $zipPath = (Resolve-Path -LiteralPath $zipName).Path
 Write-Host ""

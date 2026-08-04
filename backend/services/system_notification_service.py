@@ -49,6 +49,26 @@ def _powershell_command():
 
 def send_system_notification(title, body='', tag='', *, platform=None, run=None):
     current_platform = platform or sys.platform
+    if current_platform == 'darwin':
+        try:
+            payload = normalize_notification_payload(title, body, tag)
+        except ValueError as error:
+            return {'success': False, 'channel': 'macos-native', 'error': str(error)}
+        script = 'display notification ' + _apple_script_string(payload['body']) + ' with title ' + _apple_script_string(payload['title'])
+        run_command = run or subprocess.run
+        try:
+            result = run_command(
+                ['osascript', '-e', script],
+                capture_output=True,
+                text=True,
+                timeout=NOTIFICATION_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            return {'success': False, 'channel': 'macos-native', 'error': str(error)}
+        if result.returncode != 0:
+            return {'success': False, 'channel': 'macos-native', 'error': (result.stderr or result.stdout or '').strip()[-500:]}
+        return {'success': True, 'channel': 'macos-native'}
     if current_platform != 'win32':
         return {'success': False, 'channel': 'unsupported'}
 
@@ -90,6 +110,10 @@ def send_system_notification(title, body='', tag='', *, platform=None, run=None)
         detail = (result.stderr or result.stdout or 'Windows notification command failed').strip()
         return {'success': False, 'channel': 'windows-native', 'error': detail[-500:]}
     return {'success': True, 'channel': 'windows-native'}
+
+
+def _apple_script_string(value):
+    return '"' + str(value or '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
 
 
 """Platform-specific system notification delivery."""

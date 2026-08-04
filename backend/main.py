@@ -224,23 +224,39 @@ def print_banner():
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
 
-def run():
+def initialize_runtime():
     os.chdir(config.STATIC_ROOT)
     config.ensure_runtime_dirs()
     storage_service.initialize()
     cleanup_update_temp_files()
     cleanup_old_log_files()
+
+
+def create_server(host=None, port=None):
+    bind_host = config.HOST if host is None else host
+    bind_port = config.PORT if port is None else port
+    return socketserver.ThreadingTCPServer((bind_host, bind_port), ProxyHTTPRequestHandler)
+
+
+def run_browser(port=None):
+    if port is not None:
+        config.PORT = int(port)
+    initialize_runtime()
     if config.is_port_in_use(config.PORT):
         print_port_error_and_exit()
 
     try:
-        with socketserver.ThreadingTCPServer((config.HOST, config.PORT), ProxyHTTPRequestHandler) as httpd:
+        with create_server() as httpd:
             print_banner()
             if os.environ.get('CAINFLOW_SKIP_BROWSER_AUTO_OPEN') != '1':
                 webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')
             httpd.serve_forever()
     except Exception as exc:
         print_startup_error_and_exit(exc)
+
+
+def run():
+    run_browser()
 
 
 """负责启动 CainFlow 本地 HTTP 服务并初始化运行环境。"""

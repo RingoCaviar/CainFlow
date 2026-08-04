@@ -1,6 +1,6 @@
 # CainFlow
 
-**CainFlow** 是一款受 ComfyUI 启发的轻量级节点式 AI 编排工具。项目基于原生网页技术构建，配合本地 Python 服务提供工作流、设置、媒体恢复、更新与下载等能力，适合快速搭建图片与视频相关的 AI 工作流。
+**CainFlow** 是一款受 ComfyUI 启发的轻量级节点式 AI 编排工具。发布版使用 pywebview 提供独立桌面窗口，配合内置 Python 服务提供工作流、设置、媒体恢复、更新与下载等能力。
 
 ![CainFlow 效果演示](.github/show.jpg)
 
@@ -32,20 +32,23 @@
 2. Windows 用户解压后运行 `CainFlow.exe`。
 3. macOS 用户解压后运行 `CainFlow`，首次运行如被系统拦截，需要在系统安全设置中手动放行。
 
+Windows 桌面版使用系统 WebView2 Runtime。Windows 11 已内置；少数缺失该组件的设备会在启动时显示微软官方安装入口。
+
 ### 方式二：源码运行
 
 适合需要修改前端、后端或打包脚本的开发者。
 
-1. 安装 Python 3。
+1. 安装 Python 3，并运行 `python -m pip install -r requirements.txt`。
 2. 克隆或下载本仓库源码。
 3. 在项目根目录运行 [start_cainflow.bat](D:/mygithub/CainFlow/start_cainflow.bat)。
-4. 启动后访问 `http://127.0.0.1:8767`。
+4. 默认打开独立桌面窗口；如需浏览器调试，运行 `python server.py --browser --port 8767`。
 
 说明：
 
 - 启动脚本会优先使用 `python_runtime\python.exe`，否则回退到系统中的 `python` 或 `py`
 - 当前 Python 运行时依赖记录在根目录 [requirements.txt](D:/mygithub/CainFlow/requirements.txt)，如果你新增了 Python 依赖，记得同步补充
-- 启动脚本包含端口 `8767` 占用检测，避免重复启动 CainFlow
+- 桌面模式使用随机回环端口并限制单实例运行，不受 `8767` 占用影响
+- Windows 数据保存在程序旁；macOS 数据保存在 `~/Library/Application Support/CainFlow/`
 
 ## 默认供应商
 

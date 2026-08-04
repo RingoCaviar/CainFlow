@@ -46,6 +46,17 @@ class SystemNotificationServiceTests(unittest.TestCase):
         self.assertEqual(result['channel'], 'windows-native')
         self.assertIn('toast blocked', result['error'])
 
+    def test_macos_success_uses_osascript(self):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        result = send_system_notification('CainFlow', '完成', platform='darwin', run=fake_run)
+        self.assertEqual(result, {'success': True, 'channel': 'macos-native'})
+        self.assertEqual(calls[0][0][0], 'osascript')
+
 
 if __name__ == '__main__':
     unittest.main()
