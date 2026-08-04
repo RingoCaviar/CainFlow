@@ -249,7 +249,7 @@
     background: var(--panel-bg);
     border-left: 1px solid var(--panel-border);
     box-shadow: var(--panel-shadow-soft);
-    z-index: 7000;
+    z-index: var(--layer-drawer);
     transition: right var(--transition), width 0.3s ease;
     display: flex;
     flex-direction: column;
@@ -974,7 +974,7 @@ body:has(#toolbar [aria-expanded="true"]) .help-panel {
     border: 1.5px dashed var(--accent-purple);
     background: rgba(168, 85, 247, 0.15);
     pointer-events: none;
-    z-index: 10000;
+    z-index: var(--layer-canvas-popup);
     border-radius: 2px;
     box-shadow: 0 0 10px rgba(168, 85, 247, 0.1);
 }

@@ -954,7 +954,7 @@
 .image-compare-advanced-overlay {
     position: fixed;
     inset: 0;
-    z-index: 7600;
+    z-index: var(--layer-immersive);
     display: flex;
     background: rgba(8, 10, 14, 0.94);
     opacity: 0;

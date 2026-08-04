@@ -14,7 +14,7 @@
     justify-content: center;
     gap: 8px;
     padding: 20px 0;
-    z-index: 7400;
+    z-index: var(--layer-sidebar);
     /* Above left-side drawers so sidebar buttons stay clickable and visually on top. */
     backdrop-filter: blur(20px);
     transform: translateX(-100%);
@@ -180,37 +180,18 @@ body.sidebar-pinned #side-bar::after {
 /* Floating Refresh / Update Notices */
 #floating-notices-container {
     position: absolute;
-    top: 14px;
-    left: 14px;
-    z-index: 7200; /* Above auto-hide toolbar/sidebar hot zones, below modals */
+    top: var(--floating-notices-top-offset, 14px);
+    left: var(--floating-notices-left-offset, 14px);
+    z-index: var(--layer-notice);
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
-    width: min(420px, calc(100% - 28px));
+    width: var(--floating-notices-width-limit, min(420px, calc(100% - 28px)));
     pointer-events: none;
     transition:
-        top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         left 0.22s cubic-bezier(0.22, 1, 0.36, 1),
         width 0.22s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-#toolbar:hover + #main-layout #floating-notices-container,
-#toolbar:focus-within + #main-layout #floating-notices-container,
-#toolbar:has(.btn.active) + #main-layout #floating-notices-container,
-#toolbar:has([aria-expanded="true"]) + #main-layout #floating-notices-container,
-body.toolbar-peek-active #toolbar + #main-layout #floating-notices-container,
-body.toolbar-pinned #toolbar + #main-layout #floating-notices-container {
-    top: calc(var(--toolbar-height, 48px) + 12px);
-}
-
-#toolbar + #main-layout #side-bar:hover ~ #floating-notices-container,
-#toolbar + #main-layout #side-bar:focus-within ~ #floating-notices-container,
-#toolbar + #main-layout #side-bar:has(.side-bar-btn.active) ~ #floating-notices-container,
-body.sidebar-peek-active #toolbar + #main-layout #floating-notices-container,
-body.sidebar-pinned #toolbar + #main-layout #floating-notices-container {
-    left: 76px;
-    width: min(420px, calc(100% - 90px));
 }
 
 .floating-notice {

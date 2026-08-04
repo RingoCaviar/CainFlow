@@ -1,4 +1,5 @@
 import { canUseCanvasShortcuts, isTextEditingTarget } from './shortcut-guard.js';
+import { installUiBoundaryAudit } from './ui-boundary-audit.js';
 
 /**
  * 负责运行时全局监听，包括快捷键、窗口焦点、模态框关闭与工具栏高度同步。
@@ -24,6 +25,8 @@ export function createRuntimeControllerApi({
     documentRef = document,
     windowRef = window
 }) {
+    installUiBoundaryAudit({ documentRef, windowRef });
+
     function clearSelection() {
         state.selectedNodes.forEach((nodeId) => {
             const node = state.nodes.get(nodeId);
@@ -36,10 +39,20 @@ export function createRuntimeControllerApi({
         const toolbar = documentRef.getElementById('toolbar');
         if (!toolbar) return;
 
-        const observer = new ResizeObserver(() => {
+        const syncToolbarHeight = () => {
             const height = toolbar.offsetHeight;
-            documentRef.documentElement.style.setProperty('--toolbar-height', `${height}px`);
-        });
+            if (height > 0) {
+                documentRef.documentElement.style.setProperty('--toolbar-height', `${height}px`);
+            }
+        };
+
+        // ResizeObserver callbacks are asynchronous. Write the initial value now so
+        // startup notices and dialogs never position themselves against the 48px fallback.
+        syncToolbarHeight();
+
+        const ResizeObserverCtor = documentRef.defaultView?.ResizeObserver;
+        if (!ResizeObserverCtor) return;
+        const observer = new ResizeObserverCtor(syncToolbarHeight);
 
         observer.observe(toolbar);
     }
@@ -195,6 +208,9 @@ export function createRuntimeControllerApi({
     }
 
     function initWindowBindings() {
+        // The ES module normally initializes after `load` (disk hydration happens first),
+        // so registering only a load listener can miss the event entirely.
+        initToolbarObserver();
         documentRef.addEventListener('copy', () => {
             clipboardControllerApi.markNativeClipboardEvent(Date.now());
         });
@@ -209,10 +225,7 @@ export function createRuntimeControllerApi({
             state.isSpacePressed = false;
             canvasContainer.classList.remove('space-pan-active');
         });
-        windowRef.addEventListener('load', () => {
-            state.lastFocusTime = Date.now();
-            initToolbarObserver();
-        });
+        state.lastFocusTime = Date.now();
     }
 
     function initModalBindings() {

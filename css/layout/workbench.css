@@ -283,6 +283,17 @@ body.sidebar-pinned #side-bar {
     width: var(--floating-notices-width-limit);
 }
 
+/* Immersive editors own the whole viewport; transient application chrome must not leak through. */
+body:has(.fullscreen-overlay.active) #floating-notices-container,
+body:has(.fullscreen-overlay.active) #toast-container,
+body:has(.history-fullscreen-overlay:not(.hidden)) #floating-notices-container,
+body:has(.history-fullscreen-overlay:not(.hidden)) #toast-container,
+body:has(.painter-overlay.active) #floating-notices-container,
+body:has(.painter-overlay.active) #toast-container {
+    visibility: hidden;
+    pointer-events: none;
+}
+
 body:has(#toolbar:hover),
 body:has(#toolbar:focus-within),
 body:has(#toolbar .btn.active),

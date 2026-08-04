@@ -10,7 +10,7 @@
     border: 1px solid var(--panel-border);
     border-radius: var(--radius-sm);
     box-shadow: var(--panel-shadow-soft);
-    z-index: 2000;
+    z-index: var(--layer-menu);
     padding: 4px;
     animation: context-menu-in 0.15s ease-out;
 }
@@ -33,7 +33,7 @@
 
 #workflow-context-menu,
 #workflow-folder-context-menu {
-    z-index: 12000;
+    z-index: var(--layer-menu);
 }
 
 .context-menu-header {
@@ -96,7 +96,7 @@
 }
 
 .context-menu-submenu {
-    z-index: 2001;
+    z-index: calc(var(--layer-menu) + 1);
     min-width: 210px;
 }
 

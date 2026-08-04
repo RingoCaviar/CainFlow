@@ -1,7 +1,7 @@
 .dialog-style-1 {
     position: fixed;
     inset: 0;
-    z-index: 9100;
+    z-index: var(--layer-critical);
     display: flex;
     align-items: center;
     justify-content: center;

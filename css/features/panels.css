@@ -6,7 +6,7 @@
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
-    z-index: 8000;
+    z-index: var(--layer-modal);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -53,7 +53,7 @@
 .help-panel,
 .drawer-left {
     border-radius: 0 16px 16px 0;
-    z-index: 7300;
+    z-index: var(--layer-drawer);
 }
 
 .modal-panel {
@@ -1071,7 +1071,7 @@ body.workflow-sidebar-resizing * {
 .reference-image-count-dialog {
     position: fixed;
     inset: 0;
-    z-index: 9100;
+    z-index: var(--layer-critical);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1872,7 +1872,7 @@ body.workflow-sidebar-resizing * {
 
 .history-fullscreen-overlay {
     inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
-    z-index: 9000;
+    z-index: var(--layer-immersive);
     align-items: stretch;
     justify-content: center;
     padding: 14px;

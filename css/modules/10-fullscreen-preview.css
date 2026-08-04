@@ -5,7 +5,7 @@
     background: #000;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    z-index: 9800;
+    z-index: var(--layer-immersive);
     display: flex;
     align-items: center;
     justify-content: center;

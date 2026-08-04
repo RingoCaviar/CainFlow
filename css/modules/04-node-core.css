@@ -136,7 +136,7 @@
 /* Only degrade heavy content for the node that is actively being dragged/resized. */
 .node.is-interacting {
     transition: none !important;
-    z-index: 9999;
+    z-index: var(--layer-canvas-popup);
 }
 
 /* Ensure images don't steal clicks from the node container (so dragging works everywhere) */
@@ -1102,4 +1102,3 @@
 .node-body:has(.node-select.open) {
     overflow: visible !important;
 }
-

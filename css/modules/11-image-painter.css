@@ -5,7 +5,7 @@
     background: rgba(10, 10, 20, 0.98);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    z-index: 8000;
+    z-index: var(--layer-immersive);
     display: flex;
     flex-direction: column;
     opacity: 0;

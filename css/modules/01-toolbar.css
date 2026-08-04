@@ -12,7 +12,7 @@
     min-height: 48px;
     height: auto;
     flex-wrap: wrap;
-    z-index: 7500;
+    z-index: var(--layer-toolbar);
     /* Above the left sidebar so the top menu is never covered; below notices and modals. */
     position: absolute;
     top: 0;

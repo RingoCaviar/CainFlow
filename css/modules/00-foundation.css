@@ -95,6 +95,18 @@
     --app-chrome-top-offset: 0px;
     --app-chrome-left-offset: 0px;
     --app-chrome-gap: 8px;
+    /* Shared application layer contract. Feature styles should use these tokens. */
+    --layer-canvas-popup: 2000;
+    --layer-drawer: 7000;
+    --layer-sidebar: 7400;
+    --layer-toolbar: 7500;
+    --layer-notice: 7600;
+    --layer-menu: 7700;
+    --layer-toast: 7800;
+    --layer-immersive: 9000;
+    --layer-modal: 10000;
+    --layer-modal-popover: 10100;
+    --layer-critical: 11000;
     --painter-board-bg: #050510;
     --painter-board-check-a: rgba(255, 255, 255, 0.052);
     --painter-board-check-b: rgba(0, 0, 0, 0.12);
