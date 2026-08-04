@@ -82,6 +82,40 @@ class DesktopBridgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bridge.open_external('file:///secret.txt')
 
+    def test_taskbar_status_uses_attached_window(self):
+        taskbar = mock.Mock()
+        bridge = DesktopBridge('v-test', mock.Mock(), taskbar_service=taskbar)
+        window = mock.Mock()
+        bridge.attach_window(window)
+        self.assertTrue(bridge.set_taskbar_status('completed') is taskbar.set_status.return_value)
+        bridge.clear_taskbar_status()
+        taskbar.attach_window.assert_called_once_with(window)
+        taskbar.set_status.assert_called_once_with('completed')
+        taskbar.clear.assert_called_once_with()
+
+
+class WindowsTaskbarServiceTests(unittest.TestCase):
+    def test_sets_and_clears_overlay_with_native_handle(self):
+        from backend.services.windows_taskbar_service import WindowsTaskbarService
+
+        adapter = mock.Mock()
+        service = WindowsTaskbarService(platform='win32', adapter=adapter)
+        handle = mock.Mock()
+        handle.ToInt64.return_value = 1234
+        service.attach_window(types.SimpleNamespace(native=types.SimpleNamespace(Handle=handle)))
+
+        self.assertTrue(service.set_status('completed'))
+        self.assertTrue(service.clear())
+        self.assertEqual(adapter.set_overlay.call_args_list, [mock.call(1234, 'completed'), mock.call(1234, None)])
+
+    def test_rejects_unknown_status_and_ignores_non_windows(self):
+        from backend.services.windows_taskbar_service import WindowsTaskbarService
+
+        service = WindowsTaskbarService(platform='darwin', adapter=mock.Mock())
+        with self.assertRaises(ValueError):
+            service.set_status('unknown')
+        self.assertFalse(service.set_status('failed'))
+
 
 class SingleInstanceTests(unittest.TestCase):
     def test_second_lock_is_rejected_until_first_releases(self):

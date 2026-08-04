@@ -307,10 +307,14 @@ export function createWorkflowRunnerApi({
         }
     }
 
-    function dispatchWorkflowCompletionNotice({ toastMessage, toastType, notificationTitle, notificationBody, playSound = false }) {
+    function dispatchWorkflowCompletionNotice({ toastMessage, toastType, notificationTitle, notificationBody, playSound = false, taskbarStatus = null }) {
         showToast(toastMessage, toastType, 6000);
 
         if (!state.notificationsEnabled) return;
+
+        if (taskbarStatus) {
+            void globalThis.__cainflowDesktop?.setTaskbarStatus(taskbarStatus);
+        }
 
         void sendSystemNotification(notificationTitle, {
             body: notificationBody
@@ -1868,6 +1872,7 @@ export function createWorkflowRunnerApi({
     }
 
     async function runWorkflow(runInput = null) {
+        void globalThis.__cainflowDesktop?.clearTaskbarStatus();
         if (state.isRunStarting) {
             return { started: false, executed: false, reason: 'starting' };
         }
@@ -2379,7 +2384,8 @@ export function createWorkflowRunnerApi({
                     toastType: 'error',
                     notificationTitle: 'CainFlow 运行出错',
                     notificationBody: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`,
-                    playSound: true
+                    playSound: true,
+                    taskbarStatus: 'failed'
                 });
             } else if (completedRun) {
                 await releaseWorkflowIntermediateImageResults(plan, completedNodes);
@@ -2388,7 +2394,8 @@ export function createWorkflowRunnerApi({
                     toastType: 'success',
                     notificationTitle: 'CainFlow 运行完毕',
                     notificationBody: `所有节点执行成功，总耗时 ${totalDuration}s`,
-                    playSound: true
+                    playSound: true,
+                    taskbarStatus: 'completed'
                 });
             } else if (hasNodeBranchCancellation && isRunActive()) {
                 await releaseWorkflowIntermediateImageResults(plan, completedNodes);

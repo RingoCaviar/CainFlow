@@ -1,4 +1,5 @@
 let runtimeInfo = null;
+let taskbarFocusHandlersInstalled = false;
 
 function getApi() {
     return globalThis.pywebview?.api || null;
@@ -38,6 +39,29 @@ export async function initializeDesktopBridge() {
         chooseDirectory: () => api.choose_directory(),
         openDirectory: (path) => api.open_directory(path),
         openExternal: (url) => api.open_external(url),
+        setTaskbarStatus: async (status) => {
+            const documentRef = globalThis.document;
+            if (!documentRef?.hidden && documentRef?.hasFocus?.()) return false;
+            try {
+                const applied = await api.set_taskbar_status(status);
+                if (!documentRef?.hidden && documentRef?.hasFocus?.()) {
+                    await api.clear_taskbar_status();
+                    return false;
+                }
+                return applied;
+            } catch (error) {
+                console.warn('Taskbar status update failed:', error);
+                return false;
+            }
+        },
+        clearTaskbarStatus: async () => {
+            try {
+                return await api.clear_taskbar_status();
+            } catch (error) {
+                console.warn('Taskbar status clear failed:', error);
+                return false;
+            }
+        },
         saveFile: async (name, mime, source) => {
             let blob = source;
             if (!(blob instanceof Blob)) {
@@ -52,8 +76,21 @@ export async function initializeDesktopBridge() {
             });
         }
     };
+    installTaskbarFocusHandlers();
     installDesktopNavigationHandlers();
     return runtimeInfo;
+}
+
+function installTaskbarFocusHandlers() {
+    if (taskbarFocusHandlersInstalled) return;
+    taskbarFocusHandlersInstalled = true;
+    const clear = () => {
+        if (!globalThis.document?.hidden) {
+            void globalThis.__cainflowDesktop?.clearTaskbarStatus();
+        }
+    };
+    globalThis.addEventListener?.('focus', clear);
+    globalThis.document?.addEventListener?.('visibilitychange', clear);
 }
 
 function installDesktopNavigationHandlers() {

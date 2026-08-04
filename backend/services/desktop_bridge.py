@@ -8,16 +8,25 @@ from urllib.parse import urlparse
 
 from backend import config
 from backend.services.storage_service import storage_service
+from backend.services.windows_taskbar_service import WindowsTaskbarService
 
 
 class DesktopBridge:
-    def __init__(self, app_version, webview_module):
+    def __init__(self, app_version, webview_module, taskbar_service=None):
         self._app_version = app_version
         self._webview = webview_module
         self._window = None
+        self._taskbar_service = taskbar_service or WindowsTaskbarService()
 
     def attach_window(self, window):
         self._window = window
+        self._taskbar_service.attach_window(window)
+
+    def set_taskbar_status(self, status):
+        return self._taskbar_service.set_status(status)
+
+    def clear_taskbar_status(self):
+        return self._taskbar_service.clear()
 
     def choose_directory(self):
         if not self._window:
