@@ -44,6 +44,12 @@ description: CainFlow 项目导航 Skill。用于修改功能、重构或排查�
 6. 新增可复用弹窗时优先看 `js/features/ui/dialog-style-1.js`；只属于设置面板上下文的帮助或浮层放 `js/features/settings/settings-controller.js` 与 `css/features/settings.css`，不要混进全局帮助面板。
 7. 新增面板入口时同步检查 `index.html` 的 DOM、`js/features/ui/panel-manager.js` 的面板注册、`js/features/ui/ui-controller.js` 的按钮绑定，以及对应 CSS token。
 
+## 用户确认的长期原则
+
+- 业务数据优先保存在硬盘，不依赖浏览器持久化；更换端口或浏览器后不得丢失数据。
+- WebView2 检测优先使用官方 Loader 和真实初始化结果；如果存在更可靠、兼容性更好的方法，先说明方案和取舍，不把当前实现视为永久限制。
+- Git 提交和 Release 说明统一使用中文；发布时自动升级版本，并完成 Windows、macOS 构建和安装包验证。
+
 ## 当前项目里的关键约定
 
 ### 入口与模块边界
@@ -125,7 +131,6 @@ description: CainFlow 项目导航 Skill。用于修改功能、重构或排查�
 
 ## 修改前后的建议动作
 
-- CainFlow 的 Git 提交标题和正文统一使用中文；除代码标识、文件名和无法准确翻译的专有名词外，不使用英文提交说明。
 - 修改前先用关键词检索责任文件，只读“责任文件 + 直接调用方”。
 - 如果改的是主题，修改前先定位主题入口、主题注册表、当前主题文件和浅色/深色/其他主题覆盖范围；修改后至少手动检查主页、菜单、抽屉、弹窗、设置页、历史页、帮助页、右键菜单和节点内部控件，不要只看首页。
 - 如果改的是左侧帮助面板，优先看 `index.html`、`js/features/help/help-panel.js` 和 `css/legacy.css`；帮助面板内容要跟当前工具栏、画布快捷键和节点交互保持一致，避免只改文案没改行为说明。
