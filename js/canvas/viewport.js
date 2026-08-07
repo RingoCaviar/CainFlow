@@ -53,6 +53,7 @@ export function createViewportApi({
                 scheduleConnectionRefresh({
                     force: options.forceConnections === true,
                     immediate: options.immediateConnections === true,
+                    settle: options.settleConnections === true,
                     reason: options.connectionRefreshReason || 'canvas-transform'
                 });
             } else {

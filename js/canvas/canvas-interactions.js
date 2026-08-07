@@ -862,6 +862,7 @@ export function createCanvasInteractionsApi({
                 canvasContainer.classList.remove('grabbing', 'is-panning');
                 viewportApi.updateCanvasTransform({
                     forceConnections: true,
+                    settleConnections: true,
                     connectionRefreshReason: 'pan-settled'
                 });
                 notifyViewportSettled();
@@ -924,6 +925,7 @@ export function createCanvasInteractionsApi({
                         nodeIds: draggedNodeIds,
                         force: true,
                         immediate: true,
+                        settle: true,
                         reason: 'drag-end'
                     });
                 } else {

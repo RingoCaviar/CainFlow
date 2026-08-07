@@ -988,6 +988,65 @@ export function createConnectionsApi({
         return true;
     }
 
+    const CONNECTION_ENDPOINT_TOLERANCE = 0.5;
+
+    function getRenderedPathEndpoints(path) {
+        if (!path) return null;
+        try {
+            const length = path.getTotalLength();
+            const start = path.getPointAtLength(0);
+            const end = path.getPointAtLength(length);
+            return {
+                from: { x: Number(start.x), y: Number(start.y) },
+                to: { x: Number(end.x), y: Number(end.y) }
+            };
+        } catch {
+            const values = (path.getAttribute('d') || '').match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi)?.map(Number) || [];
+            if (values.length < 4) return { from: null, to: null };
+            return {
+                from: { x: values[0], y: values[1] },
+                to: { x: values.at(-2), y: values.at(-1) }
+            };
+        }
+    }
+
+    function areEndpointsAligned(expected, actual) {
+        if (!expected?.from || !expected?.to || !actual?.from || !actual?.to) return false;
+        const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+        return distance(expected.from, actual.from) <= CONNECTION_ENDPOINT_TOLERANCE &&
+            distance(expected.to, actual.to) <= CONNECTION_ENDPOINT_TOLERANCE;
+    }
+
+    function detectMisalignedConnections({ nodeIds = [] } = {}) {
+        const nodeSet = new Set(Array.isArray(nodeIds) ? nodeIds : [nodeIds]);
+        const containerRect = canvasContainer.getBoundingClientRect();
+        const laneById = getConnectionLaneMap();
+        return state.connections.filter((conn) => {
+            if (nodeSet.size && !nodeSet.has(conn.from?.nodeId) && !nodeSet.has(conn.to?.nodeId)) return false;
+            const path = pathById.get(conn.id);
+            if (!path || !path.getAttribute('d')) return false;
+            const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
+            const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
+            const expected = { from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y } };
+            const actual = getRenderedPathEndpoints(path);
+            if (areEndpointsAligned(expected, actual)) return false;
+            return {
+                connectionId: conn.id,
+                from: { nodeId: conn.from.nodeId, port: conn.from.port },
+                to: { nodeId: conn.to.nodeId, port: conn.to.port },
+                expected,
+                actual,
+                canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom }
+            };
+        }).filter(Boolean);
+    }
+
+    function realignConnections() {
+        invalidateNodePortCache();
+        updateAllConnections();
+        return state.connections.length;
+    }
+
     function updateDraggingConnections(draggingState) {
         if (!draggingState?.connectionsToUpdate?.length) {
             updateAllConnections();
@@ -1168,6 +1227,8 @@ export function createConnectionsApi({
         rebuildConnectionIndex,
         updateAllConnections,
         updateDirtyConnections,
+        detectMisalignedConnections,
+        realignConnections,
         updateDraggingConnections,
         clearConnectionInsertPreview,
         commitConnectionInsertPreview,

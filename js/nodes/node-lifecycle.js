@@ -231,6 +231,7 @@ export function createNodeLifecycleApi({
                 scheduleConnectionRefresh({
                     nodeIds,
                     force: nodeIds.length === 0,
+                    settle: true,
                     reason: 'node-size-observer'
                 });
                 return;

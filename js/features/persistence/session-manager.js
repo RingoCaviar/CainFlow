@@ -175,8 +175,10 @@ export function createSessionManagerApi({
                 themeId: typeof state.themeId === 'string' && state.themeId ? state.themeId : 'dark',
                 globalAnimationEnabled: state.globalAnimationEnabled !== false
             }));
+            return true;
         } catch {
             // Ignore quota/privacy failures; this only speeds up the next boot theme restore.
+            return false;
         }
     }
 
@@ -213,12 +215,14 @@ export function createSessionManagerApi({
                 : 320;
             serializedData = JSON.stringify(data);
             localStorageRef.setItem(storageKey, serializedData);
-            saveUiBootstrapState();
+            if (!saveUiBootstrapState()) return false;
+            return true;
         } catch (e) {
             console.warn('Save failed:', e);
             if (e?.name === 'QuotaExceededError') {
                 showStorageFailureDetails(e, serializedData);
             }
+            return false;
         }
     }
 

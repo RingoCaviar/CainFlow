@@ -12,6 +12,8 @@ export function createConnectionRefreshScheduler({
     invalidateNodePortCache = null,
     markNodeConnectionsDirty = null,
     markConnectionDirty = null,
+    detectMisalignedConnections = null,
+    onAlignmentCorrected = null,
     requestAnimationFrameRef = requestAnimationFrame,
     cancelAnimationFrameRef = cancelAnimationFrame
 }) {
@@ -73,7 +75,8 @@ export function createConnectionRefreshScheduler({
             force = false,
             nodeIds = [],
             connectionIds = [],
-            reason = ''
+            reason = '',
+            settle = false
         } = options || {};
 
         if (force) pendingForce = true;
@@ -81,13 +84,18 @@ export function createConnectionRefreshScheduler({
         markTargets({ nodeIds, connectionIds });
 
         if (options.immediate === true) {
-            return flushConnectionRefresh();
+            const result = flushConnectionRefresh();
+            if (settle) scheduleSettledVerification({ nodeIds, reason });
+            return result;
         }
 
         if (!frameId) {
             frameId = requestAnimationFrameRef(() => {
                 frameId = 0;
                 flushConnectionRefresh();
+                if (settle) {
+                    scheduleSettledVerification({ nodeIds, reason });
+                }
             });
         }
         return false;
@@ -103,6 +111,21 @@ export function createConnectionRefreshScheduler({
             frameId = 0;
         }
         clearPending();
+    }
+
+    function scheduleSettledVerification({ nodeIds, reason }) {
+        requestAnimationFrameRef(() => {
+            const targetNodeIds = Array.isArray(nodeIds) ? nodeIds : (nodeIds ? [nodeIds] : []);
+            if (targetNodeIds.length) {
+                targetNodeIds.forEach((nodeId) => invalidateNodePortCache?.(nodeId));
+            } else {
+                invalidateNodePortCache?.();
+            }
+            const mismatches = detectMisalignedConnections?.({ nodeIds: targetNodeIds }) || [];
+            if (!mismatches.length) return;
+            scheduleConnectionRefresh({ connectionIds: mismatches.map((item) => item.connectionId || item), force: true, immediate: true, reason: `${reason || 'connection'}-settled` });
+            onAlignmentCorrected?.({ mismatches, reason });
+        });
     }
 
     return {

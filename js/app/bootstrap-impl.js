@@ -31,6 +31,7 @@ import {
 } from '../canvas/geometry.js';
 import { createConnectionsApi } from '../canvas/connections.js';
 import { createConnectionRefreshScheduler } from '../canvas/connection-refresh-scheduler.js';
+import { createConnectionDiagnostics } from '../canvas/connection-diagnostics.js';
 import { createBatchConnectionModeApi } from '../canvas/batch-connection-mode.js';
 import { createSelectionApi } from '../canvas/selection.js';
 import { createViewportApi } from '../canvas/viewport.js';
@@ -529,6 +530,7 @@ const connectionsApi = createConnectionsApi({
     onConnectionsChanged: () => handleNodeGraphChanged(),
     addNode
 });
+const connectionDiagnostics = createConnectionDiagnostics();
 const {
     showResolutionBadge,
     setupImageImport,
@@ -606,6 +608,8 @@ const {
     markNodeConnectionsDirty,
     updateAllConnections,
     updateDirtyConnections,
+    detectMisalignedConnections,
+    realignConnections,
     updateDraggingConnections,
     clearConnectionInsertPreview,
     commitConnectionInsertPreview,
@@ -622,6 +626,16 @@ registry.connectionRefreshSchedulerApi = createConnectionRefreshScheduler({
     invalidateNodePortCache,
     markConnectionDirty,
     markNodeConnectionsDirty,
+    detectMisalignedConnections,
+    onAlignmentCorrected: ({ mismatches, reason }) => mismatches.forEach((mismatch) => connectionDiagnostics.record({
+        reason,
+        connectionId: mismatch.connectionId,
+        from: mismatch.from,
+        to: mismatch.to,
+        expected: mismatch.expected,
+        actual: mismatch.actual,
+        canvas: mismatch.canvas
+    })),
     requestAnimationFrameRef: requestAnimationFrame,
     cancelAnimationFrameRef: cancelAnimationFrame
 });
@@ -1031,6 +1045,8 @@ function getRuntimeControllerApi() {
             removeNode,
             zoomToFit,
             scheduleSave,
+            scheduleConnectionRefresh,
+            realignConnections,
             closeModal
         });
     }

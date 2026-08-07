@@ -21,6 +21,8 @@ export function createRuntimeControllerApi({
     removeNode,
     zoomToFit,
     scheduleSave,
+    scheduleConnectionRefresh = null,
+    realignConnections = null,
     closeModal,
     documentRef = document,
     windowRef = window
@@ -148,6 +150,12 @@ export function createRuntimeControllerApi({
                 windowRef
             });
 
+            if ((e.ctrlKey || e.metaKey) && e.key === 'F5') {
+                e.preventDefault();
+                void hardReload();
+                return;
+            }
+
             if (e.code === 'Space' && canvasShortcutsEnabled) {
                 if (!state.isSpacePressed) {
                     state.isSpacePressed = true;
@@ -207,6 +215,32 @@ export function createRuntimeControllerApi({
         });
     }
 
+    async function hardReload() {
+        if (state.isRunning && !windowRef.confirm('工作流正在运行。强制刷新会中断当前界面的运行状态，确定继续吗？')) return false;
+        try {
+            const settingsSaved = saveState();
+            if (settingsSaved === false) {
+                showToast('设置保存失败，已取消强制刷新', 'error');
+                return false;
+            }
+            const saved = typeof saveCurrentWorkflow === 'function'
+                ? await saveCurrentWorkflow()
+                : true;
+            if (!saved) {
+                showToast('保存失败，已取消强制刷新', 'error');
+                return false;
+            }
+        } catch (error) {
+            showToast(`保存失败，已取消强制刷新：${error?.message || error}`, 'error');
+            return false;
+        }
+
+        const url = new URL(windowRef.location.href);
+        url.searchParams.set('__hard_reload', String(Date.now()));
+        windowRef.location.replace(url.toString());
+        return true;
+    }
+
     function initWindowBindings() {
         // The ES module normally initializes after `load` (disk hydration happens first),
         // so registering only a load listener can miss the event entirely.
@@ -241,6 +275,12 @@ export function createRuntimeControllerApi({
         initWindowBindings();
         initModalBindings();
         initCanvasChromePeek();
+        documentRef.getElementById('btn-hard-reload')?.addEventListener('click', () => { void hardReload(); });
+        documentRef.getElementById('btn-realign-connections')?.addEventListener('click', () => {
+            const corrected = realignConnections?.() || 0;
+            showToast(corrected > 0 ? `已重新对齐 ${corrected} 条连线` : '连线已重新对齐', 'success');
+        });
+        windowRef.addEventListener('resize', () => scheduleConnectionRefresh?.({ force: true, settle: true, reason: 'window-resize' }));
     }
 
     return {

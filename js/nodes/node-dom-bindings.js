@@ -1199,6 +1199,8 @@ export function createNodeDomBindingsApi({
         node.observedWidth = Math.round(currentWidth);
         node.observedHeight = Math.round(nextHeight);
 
+        scheduleConnectionRefresh?.({ nodeIds: [id], force: true, settle: true, reason: 'node-collapse' });
+
         return true;
     }
 
