@@ -36,6 +36,7 @@ import { createBatchConnectionModeApi } from '../canvas/batch-connection-mode.js
 import { createSelectionApi } from '../canvas/selection.js';
 import { createViewportApi } from '../canvas/viewport.js';
 import { createCanvasInteractionsApi } from '../canvas/canvas-interactions.js';
+import { createRenderProjectionManager } from '../canvas/render-projection-manager.js';
 import { createNodeAutoLayoutApi } from '../canvas/node-auto-layout.js';
 import { NODE_CONFIGS } from '../nodes/registry.js';
 import { createNodeSerializer } from '../nodes/node-serializer.js';
@@ -259,6 +260,13 @@ const viewportApi = createViewportApi({
     elements,
     updateAllConnections: () => updateAllConnections(),
     scheduleConnectionRefresh
+});
+const renderProjectionManager = createRenderProjectionManager({
+    state,
+    canvasContainer,
+    nodesLayer,
+    documentRef: document,
+    windowRef: window
 });
 const selectionApi = createSelectionApi({
     state,
@@ -1425,6 +1433,7 @@ function copyToClipboard(text) {
 
 getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
+renderProjectionManager.init();
 getStartupControllerApi().initStartup();
 
 const canvasStressTestBridge = createCanvasStressTestBridge({

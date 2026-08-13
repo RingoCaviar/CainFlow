@@ -153,6 +153,7 @@ export function createInitialState({ includeDefaultProviders = true } = {}) {
         sidebarPinned: false,
         globalAnimationEnabled: true,
         connectionFlowAnimationEnabled: true,
+        canvasRender: { denseModeOverride: 'auto' },
         historyGridCols: 2,
         cacheSizes: {},
         undoStack: [],

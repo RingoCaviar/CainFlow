@@ -12,7 +12,9 @@ echo       CainFlow - Starting Environment
 echo ==========================================
 echo.
 
-if exist "%APP_DIR%python_runtime\python.exe" (
+if exist "%APP_DIR%.venv\Scripts\python.exe" (
+    set "PYTHON_CMD=%APP_DIR%.venv\Scripts\python.exe"
+) else if exist "%APP_DIR%python_runtime\python.exe" (
     set "PYTHON_CMD=%APP_DIR%python_runtime\python.exe"
 ) else (
     where python >nul 2>nul
@@ -20,9 +22,7 @@ if exist "%APP_DIR%python_runtime\python.exe" (
         set "PYTHON_CMD=python"
     ) else (
         where py >nul 2>nul
-        if !ERRORLEVEL! EQU 0 (
-            set "PYTHON_CMD=py"
-        )
+        if !ERRORLEVEL! EQU 0 set "PYTHON_CMD=py"
     )
 )
 
@@ -46,26 +46,27 @@ popd
 
 if !EXIT_CODE! NEQ 0 (
     echo.
-    echo 启动失败，错误代码: !EXIT_CODE!
-    echo 上方已显示具体原因，请按提示处理后再重新启动 CainFlow。
+    echo Startup failed with exit code !EXIT_CODE!.
+    echo See the message above, fix the issue, then start CainFlow again.
     echo.
-    echo 请手动关闭此窗口，或按任意键退出。
+    echo Close this window or press any key to exit.
     pause >nul
 )
 
 exit /b !EXIT_CODE!
 
 :python_missing
-echo 错误：未安装 Python，或 Python 不在 PATH 中。
-echo 按回车键打开 Python 官方下载页面。
+echo Error: Python is not installed or is not available on PATH.
+echo Press Enter to open the official Python download page.
 echo.
 pause >nul
 start "" "https://www.python.org/downloads/"
 exit /b 1
 
 :dependencies_missing
-echo 错误：缺少 CainFlow 桌面运行依赖。
-echo 请在项目目录运行: %PYTHON_CMD% -m pip install -r requirements.txt
+echo Error: CainFlow desktop dependencies are missing.
+echo Run this command in the project directory:
+echo   %PYTHON_CMD% -m pip install -r requirements.txt
 echo.
 pause
 exit /b 1

@@ -49,15 +49,17 @@ export function createMediaPreviewCache({
         }
     }
 
-    function getCachedPreviewThumbnail(source) {
-        const cacheKey = getImageCacheKey(source);
+    function getCachedPreviewThumbnail(source, maxEdge = previewThumbnailMaxEdge) {
+        const cacheKey = `${getImageCacheKey(source)}@${Math.max(1, Number(maxEdge) || previewThumbnailMaxEdge)}`;
         const cached = previewThumbnailCache.get(cacheKey);
         return typeof cached === 'string' ? cached : '';
     }
 
     function createPreviewThumbnail(source, maxEdge = previewThumbnailMaxEdge) {
         if (!isInlineImageData(source)) return Promise.resolve(source);
-        const cacheKey = getImageCacheKey(source);
+        // Each maximum edge is an independent, disposable display MIPmap.
+        // The source data URL remains authoritative and is never rewritten.
+        const cacheKey = `${getImageCacheKey(source)}@${Math.max(1, Number(maxEdge) || previewThumbnailMaxEdge)}`;
         const cached = previewThumbnailCache.get(cacheKey);
         if (cached) return cached instanceof Promise ? cached : Promise.resolve(cached);
 
@@ -121,6 +123,10 @@ export function createMediaPreviewCache({
 
     function clearPreviewThumbnailCache() {
         previewThumbnailCache.clear();
+    }
+
+    function createDisplayMipmap(source, maxEdge) {
+        return createPreviewThumbnail(source, maxEdge);
     }
 
     function getResolutionCacheKey(value) {
@@ -205,6 +211,7 @@ export function createMediaPreviewCache({
 
     return {
         clearPreviewThumbnailCache,
+        createDisplayMipmap,
         createPreviewThumbnail,
         getCachedPreviewThumbnail,
         getReloadableImageUrl,

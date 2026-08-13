@@ -76,6 +76,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const toolbarPinned = state.toolbarPinned === true;
         const sidebarPinned = state.sidebarPinned === true;
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
+        const denseModeOverride = state.canvasRender?.denseModeOverride || 'auto';
         const autoCheckUpdatesOnLoad = state.autoCheckUpdatesOnLoad !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
         const imageSaveUsePromptFilename = state.imageSaveUsePromptFilename === true;
@@ -266,6 +267,17 @@ export function createGeneralSettings({ ctx, dialogs }) {
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
+                        <div class="general-settings-control-row">
+                            <label for="setting-canvas-dense-mode">画布密集模式</label>
+                            <select id="setting-canvas-dense-mode">
+                                <option value="auto" ${denseModeOverride === 'auto' ? 'selected' : ''}>自动</option>
+                                <option value="on" ${denseModeOverride === 'on' ? 'selected' : ''}>始终开启</option>
+                                <option value="off" ${denseModeOverride === 'off' ? 'selected' : ''}>始终关闭</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
                         <div class="general-settings-label-row">
                             ${dialogs.renderGeneralSettingsHelpLabel('图片导入自适应缩放阈值 (边长)', generalHelpText.maxSide)}
                         </div>
@@ -451,6 +463,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const toolbarPinnedInput = documentRef.getElementById('setting-toolbar-pinned');
         const sidebarPinnedInput = documentRef.getElementById('setting-sidebar-pinned');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
+        const denseModeInput = documentRef.getElementById('setting-canvas-dense-mode');
         const autoCheckUpdatesOnLoadInput = documentRef.getElementById('setting-auto-check-updates-on-load');
         const imageSaveUsePromptFilenameInput = documentRef.getElementById('setting-image-save-use-prompt-filename');
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
@@ -628,6 +641,14 @@ export function createGeneralSettings({ ctx, dialogs }) {
             state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
             applyGlobalAnimationSetting();
             updateAllConnections();
+            saveState();
+        });
+
+        denseModeInput?.addEventListener('change', (event) => {
+            state.canvasRender = {
+                denseModeOverride: ['auto', 'on', 'off'].includes(event.target.value) ? event.target.value : 'auto'
+            };
+            documentRef.dispatchEvent(new CustomEvent('cainflow:canvas-transform'));
             saveState();
         });
 

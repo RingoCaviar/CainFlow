@@ -304,6 +304,7 @@ export function createNodeSerializer({ state, documentRef }) {
             sidebarPinned: state.sidebarPinned === true,
             globalAnimationEnabled: state.globalAnimationEnabled,
             connectionFlowAnimationEnabled: state.globalAnimationEnabled,
+            canvasRender: { denseModeOverride: state.canvasRender?.denseModeOverride || 'auto' },
             proxy: state.proxy,
             requestTimeoutEnabled: state.requestTimeoutEnabled,
             requestTimeoutSeconds: state.requestTimeoutSeconds,

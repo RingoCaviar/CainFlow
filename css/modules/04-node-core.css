@@ -28,6 +28,49 @@
     outline: 1px solid transparent;
 }
 
+/* Reversible render projections: DOM/model/ports stay mounted and authoritative. */
+.node.is-virtualized .node-body {
+    content-visibility: hidden;
+    contain-intrinsic-size: auto 240px;
+    pointer-events: none;
+}
+
+.node.is-virtualized .node-header .header-right,
+.node.is-virtualized .node-resize-handle {
+    visibility: hidden;
+}
+
+.node.is-compact-lod .node-body {
+    content-visibility: hidden;
+    contain-intrinsic-size: auto 240px;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.node.is-compact-lod .port-label,
+.node.is-compact-lod .node-header .header-right,
+.node.is-compact-lod .node-resize-handle {
+    visibility: hidden;
+}
+
+/* Dense mode reduces expensive compositing without changing node data or layout. */
+#canvas-container.canvas-dense-mode .node-glass-bg {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+
+#canvas-container.canvas-dense-mode .node,
+#canvas-container.canvas-dense-mode .port-dot,
+#canvas-container.canvas-dense-mode .node-time-badge {
+    transition: none !important;
+    filter: none !important;
+}
+
+#canvas-container.canvas-dense-mode .node.running {
+    animation: none !important;
+}
+
 .node input,
 .node textarea,
 .node select,

@@ -434,6 +434,15 @@ export function createUiControllerApi({
             updateAllConnections();
         }
 
+        if (settings.canvasRender && typeof settings.canvasRender === 'object') {
+            state.canvasRender = {
+                denseModeOverride: ['auto', 'on', 'off'].includes(settings.canvasRender.denseModeOverride)
+                    ? settings.canvasRender.denseModeOverride
+                    : 'auto'
+            };
+            documentRef.dispatchEvent(new CustomEvent('cainflow:canvas-transform'));
+        }
+
         if (Object.prototype.hasOwnProperty.call(settings, 'proxy')) {
             state.proxy = settings.proxy && typeof settings.proxy === 'object'
                 ? { ...settings.proxy }
@@ -488,6 +497,7 @@ export function createUiControllerApi({
                 sidebarPinned: state.sidebarPinned === true,
                 globalAnimationEnabled: state.globalAnimationEnabled,
                 connectionFlowAnimationEnabled: state.globalAnimationEnabled,
+                canvasRender: { denseModeOverride: state.canvasRender?.denseModeOverride || 'auto' },
                 proxy: state.proxy ? { ...state.proxy } : null,
                 requestTimeoutEnabled: state.requestTimeoutEnabled,
                 requestTimeoutSeconds: state.requestTimeoutSeconds,

@@ -232,6 +232,7 @@ export function createProjectIoApi({
                     connectionFlowAnimationEnabled: currentState.globalAnimationEnabled !== undefined
                         ? currentState.globalAnimationEnabled
                         : (currentState.connectionFlowAnimationEnabled !== undefined ? currentState.connectionFlowAnimationEnabled : state.globalAnimationEnabled),
+                    canvasRender: currentState.canvasRender !== undefined ? currentState.canvasRender : state.canvasRender,
                     proxy: currentState.proxy !== undefined ? currentState.proxy : state.proxy,
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
@@ -374,6 +375,13 @@ export function createProjectIoApi({
                     : data.connectionFlowAnimationEnabled !== false;
                 state.connectionFlowAnimationEnabled = state.globalAnimationEnabled;
                 applyGlobalAnimationSetting();
+            }
+            if (data.canvasRender && typeof data.canvasRender === 'object') {
+                state.canvasRender = {
+                    denseModeOverride: ['auto', 'on', 'off'].includes(data.canvasRender.denseModeOverride)
+                        ? data.canvasRender.denseModeOverride
+                        : 'auto'
+                };
             }
             if (data.proxy !== undefined) {
                 state.proxy = data.proxy;
