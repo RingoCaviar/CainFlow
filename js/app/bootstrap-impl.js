@@ -869,6 +869,7 @@ function getCanvasInteractionsApi() {
             onConnectionsChanged: () => handleNodeGraphChanged(),
             getConnectionCreateCandidates: (source) => getCompatibleNodeTypeCandidates(source),
             openConnectionCreatePopup: (popupState) => getContextMenuControllerApi().openConnectionCreatePopup(popupState),
+            performanceMonitor: canvasPerformanceMonitor,
             scheduleSave,
             serializeOneNode,
             addNode,

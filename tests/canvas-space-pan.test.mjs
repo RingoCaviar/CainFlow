@@ -9,6 +9,7 @@ function createClassList() {
 function createHarness() {
     const canvasListeners = [];
     const windowListeners = [];
+    const performanceSamples = [];
     const canvasContainer = {
         addEventListener(type, listener, options) { canvasListeners.push({ type, listener, options }); },
         classList: createClassList(),
@@ -38,16 +39,18 @@ function createHarness() {
         getConnectionSamplePoints() { return []; }, documentRef,
         windowRef: {
             addEventListener(type, listener) { windowListeners.push({ type, listener }); },
-            getSelection() { return { removeAllRanges() {} }; }
+            getSelection() { return { removeAllRanges() {} }; },
+            performance: { now() { return 100; } }
         },
+        performanceMonitor: { recordSample(name, value) { performanceSamples.push({ name, value }); } },
         requestAnimationFrameRef(callback) { callback(); }
     });
     api.initCanvasInteractions();
-    return { canvasListeners, windowListeners, state };
+    return { canvasListeners, windowListeners, performanceSamples, state };
 }
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
-    const { canvasListeners, windowListeners, state } = createHarness();
+    const { canvasListeners, windowListeners, performanceSamples, state } = createHarness();
     let nodeMouseDowns = 0;
     const event = {
         button: 0, clientX: 100, clientY: 200, target: { closest(selector) { return selector === '.node' ? {} : null; } },
@@ -67,4 +70,21 @@ test('space plus left press on a node starts panning before node handlers can ru
     assert.deepEqual({ x: state.nodes.get('node-1').x, y: state.nodes.get('node-1').y }, { x: 50, y: 60 });
     assert.equal(state.dragging, null);
     assert.equal(nodeMouseDowns, 0);
+    assert.equal(performanceSamples.some(({ name }) => name === 'pan-input-to-transform-ms'), true);
+});
+
+test('space pan blocks the parameter click dispatched after mousedown', () => {
+    const { canvasListeners } = createHarness();
+    let parameterClickCount = 0;
+    const clickEvent = {
+        preventDefault() { this.defaultPrevented = true; },
+        stopPropagation() { this.propagationStopped = true; }
+    };
+    const clickListener = canvasListeners.find(({ type, options }) => type === 'click' && (options === true || options?.capture));
+
+    clickListener.listener(clickEvent);
+    if (!clickEvent.propagationStopped) parameterClickCount += 1;
+
+    assert.equal(clickEvent.defaultPrevented, true);
+    assert.equal(parameterClickCount, 0);
 });

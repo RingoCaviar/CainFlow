@@ -5,6 +5,15 @@ title CainFlow Launcher
 
 set "APP_DIR=%~dp0"
 set "PYTHON_CMD="
+set "SERVER_ARGS=%*"
+set "CAINFLOW_DESKTOP_DEBUG=0"
+set "CAINFLOW_ENABLE_PERF=0"
+
+if /I "%~1"=="--devtools" (
+    set "CAINFLOW_DESKTOP_DEBUG=1"
+    set "CAINFLOW_ENABLE_PERF=1"
+    set "SERVER_ARGS="
+)
 
 cls
 echo ==========================================
@@ -40,7 +49,7 @@ echo ------------------------------------------
 
 pushd "%APP_DIR%"
 set "CAINFLOW_LAUNCHED_FROM_BAT=1"
-%PYTHON_CMD% "%APP_DIR%server.py" %*
+%PYTHON_CMD% "%APP_DIR%server.py" %SERVER_ARGS%
 set "EXIT_CODE=!ERRORLEVEL!"
 popd
 

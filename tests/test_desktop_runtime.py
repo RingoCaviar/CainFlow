@@ -59,6 +59,24 @@ class DesktopSecurityTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
+    def test_desktop_bootstrap_preserves_enabled_performance_flags(self):
+        token = desktop_security.enable_desktop_session()
+        server = _ThreadedServer(('127.0.0.1', 0), ProxyHTTPRequestHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1])
+            connection.request('GET', f'{desktop_security.BOOTSTRAP_PATH}?token={token}&stressTest=1&perf=1')
+            response = connection.getresponse()
+
+            self.assertEqual(response.status, 302)
+            self.assertEqual(response.getheader('Location'), '/?desktop=1&stressTest=1&perf=1')
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
 
 class DesktopBridgeTests(unittest.TestCase):
     def test_save_file_writes_base64_atomically(self):

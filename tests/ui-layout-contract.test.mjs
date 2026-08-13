@@ -5,6 +5,7 @@ import test from 'node:test';
 const foundation = await readFile(new URL('../css/modules/00-foundation.css', import.meta.url), 'utf8');
 const notices = await readFile(new URL('../css/modules/14-sidebar-notices-errors.css', import.meta.url), 'utf8');
 const workbench = await readFile(new URL('../css/layout/workbench.css', import.meta.url), 'utf8');
+const canvas = await readFile(new URL('../css/modules/03-canvas.css', import.meta.url), 'utf8');
 const runtime = await readFile(new URL('../js/features/ui/runtime-controller.js', import.meta.url), 'utf8');
 
 test('shared overlay layer tokens remain defined', () => {
@@ -27,4 +28,24 @@ test('toolbar height is synchronized before ResizeObserver registration', () => 
     assert.ok(observerRegistration > immediateSync);
     assert.match(runtime, /function initWindowBindings\(\) \{\s*\/\/[\s\S]*?initToolbarObserver\(\);/);
     assert.doesNotMatch(runtime, /addEventListener\(['"]load['"][\s\S]{0,160}initToolbarObserver/);
+});
+
+test('panning hides image pixels without changing node layout', () => {
+    for (const selector of [
+        '.file-drop-zone img',
+        '.preview-container img',
+        '.image-resize-preview img',
+        '.save-preview-container img',
+        '.camera-control-node-preview img',
+        '.image-compare-img'
+    ]) {
+        assert.match(canvas, new RegExp(`#canvas-container\\.is-panning ${selector.replace(/[.]/g, '\\.')}`));
+    }
+    const panningImageRules = canvas.match(/\/\* Keep node geometry stable[\s\S]*?\n}\n/)[0];
+    assert.match(panningImageRules, /visibility:\s*hidden/);
+    assert.doesNotMatch(panningImageRules, /display:\s*none/);
+});
+
+test('panning defers SVG connection rasterization until the viewport settles', () => {
+    assert.match(canvas, /#connections-group\.is-panning path\s*{\s*visibility:\s*hidden/);
 });
