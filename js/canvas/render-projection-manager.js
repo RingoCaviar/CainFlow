@@ -9,7 +9,8 @@ export function createRenderProjectionManager({
     nodesLayer,
     documentRef = document,
     windowRef = window,
-    requestAnimationFrameRef = requestAnimationFrame
+    requestAnimationFrameRef = requestAnimationFrame,
+    performanceMonitor = null
 } = {}) {
     const VIEWPORT_BUFFER_SCREENS = 0.5;
     const COMPACT_ENTER_ZOOM = 0.62;
@@ -57,6 +58,10 @@ export function createRenderProjectionManager({
     }
 
     function refreshNow() {
+        return performanceMonitor?.measure?.('render-projection', refreshNowImpl) ?? refreshNowImpl();
+    }
+
+    function refreshNowImpl() {
         frame = null;
         if (!state?.nodes) return;
         updateModes();

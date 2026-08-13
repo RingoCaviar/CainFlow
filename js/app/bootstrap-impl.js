@@ -37,6 +37,7 @@ import { createSelectionApi } from '../canvas/selection.js';
 import { createViewportApi } from '../canvas/viewport.js';
 import { createCanvasInteractionsApi } from '../canvas/canvas-interactions.js';
 import { createRenderProjectionManager } from '../canvas/render-projection-manager.js';
+import { createInteractionPerformanceGuard } from '../canvas/interaction-performance-guard.js';
 import { createNodeAutoLayoutApi } from '../canvas/node-auto-layout.js';
 import { NODE_CONFIGS } from '../nodes/registry.js';
 import { createNodeSerializer } from '../nodes/node-serializer.js';
@@ -75,6 +76,7 @@ import { createUiFeature } from './bootstrap/ui-bootstrap.js';
 import { createAppContext } from './create-app-context.js';
 import { createAppRegistry } from './create-app-registry.js';
 import { createCanvasStressTestBridge } from './dev/canvas-stress-test.js';
+import { createCanvasPerformanceMonitor } from './dev/canvas-performance-monitor.js';
 import { registerGlobalBridges } from './register-global-bridges.js';
 
 /**
@@ -88,6 +90,7 @@ import { registerGlobalBridges } from './register-global-bridges.js';
 
 export function initializeCainFlowApp() {
 const registry = createAppRegistry();
+const canvasPerformanceMonitor = createCanvasPerformanceMonitor({ globalRef: globalThis });
 
 // ===== 工具函数 =====
 function generateId() {
@@ -266,6 +269,13 @@ const renderProjectionManager = createRenderProjectionManager({
     canvasContainer,
     nodesLayer,
     documentRef: document,
+    windowRef: window,
+    performanceMonitor: canvasPerformanceMonitor
+});
+const interactionPerformanceGuard = createInteractionPerformanceGuard({
+    state,
+    canvasContainer,
+    connectionsGroup,
     windowRef: window
 });
 const selectionApi = createSelectionApi({
@@ -536,7 +546,8 @@ const connectionsApi = createConnectionsApi({
     showToast,
     scheduleSave,
     onConnectionsChanged: () => handleNodeGraphChanged(),
-    addNode
+    addNode,
+    performanceMonitor: canvasPerformanceMonitor
 });
 const connectionDiagnostics = createConnectionDiagnostics();
 const {
@@ -1437,6 +1448,7 @@ function copyToClipboard(text) {
 getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
 renderProjectionManager.init();
+interactionPerformanceGuard.init();
 getStartupControllerApi().initStartup();
 
 const canvasStressTestBridge = createCanvasStressTestBridge({
@@ -1446,8 +1458,13 @@ const canvasStressTestBridge = createCanvasStressTestBridge({
     updateAllConnections,
     scheduleSave,
     showToast,
+    nodesLayer,
     documentRef: document,
     globalRef: globalThis
+});
+canvasPerformanceMonitor.mount({
+    createFixture: canvasStressTestBridge.createCanvasStressTestNodes,
+    clearFixture: canvasStressTestBridge.clearCanvasStressTestNodes
 });
 
 registerGlobalBridges({
@@ -1455,7 +1472,9 @@ registerGlobalBridges({
     closeModal,
     showLogDetail,
     createCanvasStressTestNodes: canvasStressTestBridge.createCanvasStressTestNodes,
-    enableCanvasStressTest: canvasStressTestBridge.enabled
+    enableCanvasStressTest: canvasStressTestBridge.enabled,
+    sampleCanvasPerformance: canvasPerformanceMonitor.sample,
+    enableCanvasPerformanceMonitor: canvasPerformanceMonitor.enabled
 });
 
 return {

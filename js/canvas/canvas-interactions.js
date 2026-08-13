@@ -361,8 +361,7 @@ export function createCanvasInteractionsApi({
 
         state.pendingZoomVisualRefresh = false;
         viewportApi.updateCanvasTransform({
-            forceConnections: true,
-            connectionRefreshReason: 'zoom-settled'
+            updateConnections: false
         });
         requestAnimationFrameRef(() => {
             viewportApi.refreshNodeTextRendering();
@@ -923,7 +922,6 @@ export function createCanvasInteractionsApi({
                 if (typeof scheduleConnectionRefresh === 'function') {
                     scheduleConnectionRefresh({
                         nodeIds: draggedNodeIds,
-                        force: true,
                         immediate: true,
                         settle: true,
                         reason: 'drag-end'

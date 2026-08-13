@@ -123,7 +123,7 @@ export function createConnectionRefreshScheduler({
             }
             const mismatches = detectMisalignedConnections?.({ nodeIds: targetNodeIds }) || [];
             if (!mismatches.length) return;
-            scheduleConnectionRefresh({ connectionIds: mismatches.map((item) => item.connectionId || item), force: true, immediate: true, reason: `${reason || 'connection'}-settled` });
+            scheduleConnectionRefresh({ connectionIds: mismatches.map((item) => item.connectionId || item), immediate: true, reason: `${reason || 'connection'}-settled` });
             onAlignmentCorrected?.({ mismatches, reason });
         });
     }

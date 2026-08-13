@@ -2,6 +2,7 @@
  * 负责节点端口连线的创建、删除、渲染与样式更新，是画布连接关系的核心实现。
  */
 import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/registry.js';
+import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
 
 export function createConnectionsApi({
     state,
@@ -17,7 +18,8 @@ export function createConnectionsApi({
     scheduleSave,
     onConnectionsChanged = () => {},
     addNode = null,
-    documentRef = document
+    documentRef = document,
+    performanceMonitor = null
 }) {
     const pathById = new Map();
     const connectionById = new Map();
@@ -41,6 +43,12 @@ export function createConnectionsApi({
     const FLOW_ANIMATION_TARGET_FPS = 60;
     const FLOW_ANIMATION_FRAME_MS = 1000 / FLOW_ANIMATION_TARGET_FPS;
     let lastFlowAnimationTime = 0;
+    const canvasConnectionRenderer = createCanvasConnectionRenderer({
+        canvasContainer,
+        documentRef,
+        state,
+        windowRef: view
+    });
 
     function getConnectionSignature(connections = state.connections) {
         return connections.map((conn) => (
@@ -115,7 +123,7 @@ export function createConnectionsApi({
     }
 
     function isGlobalAnimationEnabled() {
-        return state.globalAnimationEnabled !== false;
+        return state.globalAnimationEnabled !== false && state.performanceProtection?.active !== true;
     }
 
     function isNodeRunning(nodeId) {
@@ -476,6 +484,16 @@ export function createConnectionsApi({
             if (offset) return { x: node.x + offset.dx, y: node.y + offset.dy };
         }
 
+        if (!state.dragging && !state.canvas?.isPanning) {
+            const portKey = getPortKey(nodeId, portName, direction);
+            const cache = node._portPositionCache || measureNodePorts(nodeId, containerRectOverride);
+            const cachedPort = cache?.ports.get(portKey);
+            if (cachedPort) return {
+                x: node.x + cachedPort.dx,
+                y: node.y + cachedPort.dy
+            };
+        }
+
         const portEl = getPortElement(node, portName, direction);
         if (!portEl) return { x: node.x, y: node.y };
         return getPortDotWorldPosition(portEl, containerRectOverride) || { x: node.x, y: node.y };
@@ -484,6 +502,11 @@ export function createConnectionsApi({
     function isConnectionEndpointVisible(nodeId, portName, direction) {
         const node = getNodeById(nodeId);
         if (!node?.el) return false;
+        if (!state.dragging && !state.canvas?.isPanning) {
+            const cache = node._portPositionCache || measureNodePorts(nodeId);
+            const cachedPort = cache?.ports.get(getPortKey(nodeId, portName, direction));
+            if (cachedPort) return cachedPort.visible;
+        }
         return isPortElementVisible(getPortElement(node, portName, direction));
     }
 
@@ -820,6 +843,21 @@ export function createConnectionsApi({
         };
     }
 
+    function deleteConnection(connectionId) {
+        const connection = getConnectionById(connectionId);
+        if (!connection || hasRunningEndpoint(connection)) return false;
+        state.connections = state.connections.filter((candidate) => candidate.id !== connectionId);
+        pathById.get(connectionId)?.remove();
+        pathById.delete(connectionId);
+        removeFlowDecoration(connectionId);
+        rebuildConnectionIndex();
+        updateAllConnections();
+        updatePortStyles();
+        scheduleSave();
+        onConnectionsChanged();
+        return true;
+    }
+
     function ensureConnectionPath(conn) {
         let path = pathById.get(conn.id);
         if (path) return path;
@@ -896,8 +934,16 @@ export function createConnectionsApi({
             selectionInfo.incomingConnectionIds.has(conn.id) ||
             selectionInfo.outgoingConnectionIds.has(conn.id);
 
+        if (canvasConnectionRenderer.enabled && !isSelected) {
+            const points = getConnectionSamplePoints(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
+            canvasConnectionRenderer.draw(conn.id, points);
+        }
+
         path = ensureConnectionPath(conn);
-        path.setAttribute('d', pathStr);
+        path.classList.toggle('canvas-rendered', canvasConnectionRenderer.enabled && !isSelected);
+        if (path.getAttribute('d') !== pathStr) {
+            path.setAttribute('d', pathStr);
+        }
         path.classList.toggle('selected', isSelected);
         path.removeAttribute('stroke');
         updateFlowDecoration(path, conn.id, hasRunningEndpoint(conn));
@@ -905,6 +951,11 @@ export function createConnectionsApi({
     }
 
     function updateAllConnections() {
+        return performanceMonitor?.measure?.('connection-full-refresh', updateAllConnectionsImpl) ?? updateAllConnectionsImpl();
+    }
+
+    function updateAllConnectionsImpl() {
+        canvasConnectionRenderer.begin();
         const { x, y, zoom } = state.canvas;
         const isDragging = !!state.dragging;
         const isPanning = state.canvas.isPanning;
@@ -947,10 +998,12 @@ export function createConnectionsApi({
         dirtyConnectionIds.clear();
         renderConnectionInsertPreview();
         ensureFlowAnimation();
+        canvasConnectionRenderer.end();
     }
 
     function updateDirtyConnections(options = {}) {
         ensureConnectionIndex();
+        if (canvasConnectionRenderer.enabled) return updateAllConnections();
         if (options.force === true) {
             return updateAllConnections();
         }
@@ -1234,6 +1287,7 @@ export function createConnectionsApi({
         commitConnectionInsertPreview,
         getCompatibleNodeTypeCandidates,
         createNodeFromConnectionCandidate,
+        deleteConnection,
         finishConnection,
         drawTempConnection,
         updatePortStyles

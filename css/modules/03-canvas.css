@@ -28,6 +28,15 @@
     background-position: var(--canvas-dot-offset-x) var(--canvas-dot-offset-y);
 }
 
+#canvas-container.canvas-performance-protected::before {
+    background-position: 0 0;
+}
+
+#canvas-container.is-panning::before,
+#canvas-container.is-zooming::before {
+    background-image: none;
+}
+
 #canvas-container.grabbing,
 #canvas-container.space-pan-active {
     cursor: grab;
@@ -152,6 +161,23 @@
     transition: none !important;
 }
 
+#connections-group path.canvas-rendered {
+    stroke: transparent !important;
+    filter: none !important;
+}
+
+.canvas-connections {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+#connections-group.is-performance-protected .connection-flow-decoration,
+#connections-group.is-performance-protected .connection-flow-arrow {
+    display: none !important;
+}
+
 .temp-connection {
     stroke: rgba(168, 85, 247, 0.6);
     stroke-width: 2;
@@ -190,7 +216,8 @@
     will-change: auto;
 }
 
-#canvas-container.is-zooming #nodes-layer {
+#canvas-container.is-zooming #nodes-layer,
+#canvas-container.is-panning #nodes-layer {
     will-change: transform;
 }
 

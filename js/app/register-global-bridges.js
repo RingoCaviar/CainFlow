@@ -6,7 +6,9 @@ export function registerGlobalBridges({
     closeModal,
     showLogDetail,
     createCanvasStressTestNodes,
-    enableCanvasStressTest = false
+    enableCanvasStressTest = false,
+    sampleCanvasPerformance,
+    enableCanvasPerformanceMonitor = false
 } = {}) {
     if (typeof closeModal === 'function') {
         windowRef.closeModal = closeModal;
@@ -18,5 +20,8 @@ export function registerGlobalBridges({
 
     if (enableCanvasStressTest && typeof createCanvasStressTestNodes === 'function') {
         windowRef.createCanvasStressTestNodes = createCanvasStressTestNodes;
+    }
+    if (enableCanvasPerformanceMonitor && typeof sampleCanvasPerformance === 'function') {
+        windowRef.sampleCanvasPerformance = sampleCanvasPerformance;
     }
 }

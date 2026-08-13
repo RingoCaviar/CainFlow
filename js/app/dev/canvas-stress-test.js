@@ -9,6 +9,7 @@ export function createCanvasStressTestBridge({
     updateAllConnections,
     scheduleSave,
     showToast,
+    nodesLayer,
     documentRef = document,
     globalRef = globalThis
 } = {}) {
@@ -21,11 +22,27 @@ export function createCanvasStressTestBridge({
             ? Math.max(0, Math.min(total, Math.floor(options.imageImportCount)))
             : Math.min(50, total);
         const imageSize = Number.isFinite(options.imageSize) ? Math.max(1, Math.floor(options.imageSize)) : 2048;
+        const connectionCount = Number.isFinite(options.connectionCount)
+            ? Math.max(0, Math.floor(options.connectionCount))
+            : Math.max(0, total * 2);
         const cols = Number.isFinite(options.cols) ? Math.max(1, Math.floor(options.cols)) : 10;
         const gapX = Number.isFinite(options.gapX) ? options.gapX : 320;
         const gapY = Number.isFinite(options.gapY) ? options.gapY : 380;
         const startX = Number.isFinite(options.startX) ? options.startX : 0;
         const startY = Number.isFinite(options.startY) ? options.startY : 0;
+        const isolate = options.isolate === true;
+        const ephemeral = options.ephemeral === true;
+
+        if (isolate && !state.canvasStressTestSnapshot) {
+            state.canvasStressTestSnapshot = {
+                nodes: new Map(state.nodes),
+                connections: state.connections.slice(),
+                canvas: { ...state.canvas }
+            };
+            state.nodes.forEach((node) => node?.el?.remove());
+            state.nodes.clear();
+            state.connections = [];
+        }
 
         function makeRandomImageDataUrl(seed) {
             const canvas = documentRef.createElement('canvas');
@@ -41,9 +58,9 @@ export function createCanvasStressTestBridge({
                 const x = pixel % imageSize;
                 const y = Math.floor(pixel / imageSize);
 
-                data[i] = (Math.random() * 180 + x + seed * 17) & 255;
-                data[i + 1] = (Math.random() * 180 + y + seed * 31) & 255;
-                data[i + 2] = (Math.random() * 180 + x + y + seed * 43) & 255;
+                data[i] = (x * 13 + y * 7 + seed * 17) & 255;
+                data[i + 1] = (x * 5 + y * 19 + seed * 31) & 255;
+                data[i + 2] = (x * 11 + y * 3 + seed * 43) & 255;
                 data[i + 3] = 255;
             }
 
@@ -92,8 +109,21 @@ export function createCanvasStressTestBridge({
             }
         }
 
+        const textNodeIds = createdIds.slice(imageImportCount);
+        for (let index = 0; index < connectionCount && textNodeIds.length > 1; index += 1) {
+            const fromId = textNodeIds[index % textNodeIds.length];
+            const toId = textNodeIds[(index * 7 + 11) % textNodeIds.length];
+            if (fromId === toId) continue;
+            state.connections.push({
+                id: `stress_${Date.now().toString(36)}_${index}`,
+                from: { nodeId: fromId, port: 'text' },
+                to: { nodeId: toId, port: 'text' },
+                type: 'text'
+            });
+        }
+
         updateAllConnections();
-        scheduleSave();
+        if (!ephemeral) scheduleSave();
 
         const message = `已生成 ${createdIds.length} 个压力测试节点，其中 ${imageImportCount} 个图片导入节点加载了 ${imageSize}x${imageSize} 随机图片。`;
         console.log(message);
@@ -102,8 +132,36 @@ export function createCanvasStressTestBridge({
         return createdIds;
     }
 
+    function clearCanvasStressTestNodes() {
+        const stressNodeIds = new Set(Array.from(state.nodes.entries())
+            .filter(([, node]) => node?.el?.innerText?.startsWith('压力测试'))
+            .map(([nodeId]) => nodeId));
+        const snapshot = state.canvasStressTestSnapshot;
+        if (!stressNodeIds.size && !snapshot) return 0;
+        state.connections = state.connections.filter((connection) => (
+            !stressNodeIds.has(connection.from?.nodeId) &&
+            !stressNodeIds.has(connection.to?.nodeId)
+        ));
+        stressNodeIds.forEach((nodeId) => {
+            state.nodes.get(nodeId)?.el?.remove();
+            state.nodes.delete(nodeId);
+        });
+        if (snapshot) {
+            state.nodes = snapshot.nodes;
+            state.connections = snapshot.connections;
+            Object.assign(state.canvas, snapshot.canvas);
+            state.nodes.forEach((node) => nodesLayer?.appendChild(node.el));
+            state.canvasStressTestSnapshot = null;
+        }
+        updateAllConnections();
+        if (!snapshot) scheduleSave();
+        showToast(`已清理 ${stressNodeIds.size} 个压力测试节点。`, 'info');
+        return stressNodeIds.size;
+    }
+
     return {
         enabled,
-        createCanvasStressTestNodes
+        createCanvasStressTestNodes,
+        clearCanvasStressTestNodes
     };
 }
