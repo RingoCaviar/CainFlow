@@ -117,6 +117,16 @@ export function createCanvasInteractionsApi({
         }
     }
 
+    function beginCanvasPan(e) {
+        e.preventDefault();
+        state.canvas.isPanning = true;
+        state.canvas.panStart = { x: e.clientX, y: e.clientY };
+        state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
+        canvasContainer.classList.add('grabbing', 'is-panning');
+        documentRef.body.classList.add('is-interacting');
+        documentRef.getElementById('connections-group').classList.add('is-panning');
+    }
+
     function isNodeFormControlActive() {
         const active = documentRef.activeElement;
         if (!active || !active.closest) return false;
@@ -551,6 +561,14 @@ export function createCanvasInteractionsApi({
 
     function initCanvasInteractions() {
         canvasContainer.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || !state.isSpacePressed) return;
+
+            canvasContainer.focus();
+            beginCanvasPan(e);
+            e.stopPropagation();
+        }, true);
+
+        canvasContainer.addEventListener('mousedown', (e) => {
             canvasContainer.focus();
 
             if (e.ctrlKey && e.button === 2) {
@@ -574,13 +592,7 @@ export function createCanvasInteractionsApi({
             const isMarqueeAction = e.button === 0 && e.target === canvasContainer && !isPanAction;
 
             if (isPanAction) {
-                e.preventDefault();
-                state.canvas.isPanning = true;
-                state.canvas.panStart = { x: e.clientX, y: e.clientY };
-                state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
-                canvasContainer.classList.add('grabbing', 'is-panning');
-                documentRef.body.classList.add('is-interacting');
-                documentRef.getElementById('connections-group').classList.add('is-panning');
+                beginCanvasPan(e);
                 return;
             }
 
