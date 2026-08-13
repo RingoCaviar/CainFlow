@@ -109,7 +109,7 @@ export function buildHistoryCardMarkup({
 
     return `
         <article class="history-card ${selectedClass} ${multiClass} ${compactClass} ${isVideo ? 'history-card-video' : ''}" data-id="${item.id}" draggable="${isVideo ? 'false' : 'true'}" data-media-type="${isVideo ? 'video' : 'image'}">
-            <img class="${imageClass}" src="${escapeHistoryHtml(thumb || TRANSPARENT_HISTORY_PIXEL)}" loading="lazy" decoding="async" alt="${prompt}" />
+            <img class="${imageClass}" src="${escapeHistoryHtml(thumb || TRANSPARENT_HISTORY_PIXEL)}" loading="lazy" decoding="async" draggable="false" alt="${prompt}" />
             ${isVideo ? '<span class="history-card-video-badge" title="视频">VIDEO</span>' : ''}
             ${durationText ? `<span class="history-card-duration" title="${isVideo ? '视频生成耗时' : '生图耗时'} ${durationText}">${durationText}</span>` : ''}
             <div class="selection-checkbox"></div>
