@@ -299,7 +299,9 @@ export function createClipboardControllerApi({
         }
 
         const includeExternalConnections = options.includeExternalConnections === true;
-        const mousePos = state.mouseCanvas;
+        const mousePos = options.position && Number.isFinite(options.position.x) && Number.isFinite(options.position.y)
+            ? options.position
+            : state.mouseCanvas;
         const clip = state.clipboard;
         const idMap = new Map();
 

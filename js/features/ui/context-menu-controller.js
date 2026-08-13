@@ -8,6 +8,9 @@ export function createContextMenuControllerApi({
     connectionCreatePopup,
     viewportApi,
     addNode,
+    copySelectedNode = null,
+    pasteNode = null,
+    removeNode = null,
     cloneNode = null,
     detachCloneNode = null,
     renameNode = null,
@@ -60,6 +63,9 @@ export function createContextMenuControllerApi({
         const referenceImageCountItem = documentRef.getElementById('context-menu-reference-image-count');
         const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
         const detachCloneNodeItem = documentRef.getElementById('context-menu-detach-clone-node');
+        const copyItem = documentRef.getElementById('context-menu-copy-nodes');
+        const pasteItem = documentRef.getElementById('context-menu-paste-nodes');
+        const deleteItem = documentRef.getElementById('context-menu-delete-nodes');
         const divider = documentRef.getElementById('context-menu-node-divider');
         const targetNode = state.contextMenuNodeId ? state.nodes.get(state.contextMenuNodeId) : null;
         const isCloneTarget = targetNode?.isClone === true;
@@ -93,8 +99,12 @@ export function createContextMenuControllerApi({
         setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));
         setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(detachCloneNodeItem, hasNodeTarget && isCloneTarget);
+        setElementVisible(copyItem, hasSelection);
+        setElementVisible(deleteItem, hasSelection);
+        setElementVisible(pasteItem, typeof pasteNode === 'function');
 
-        const hasAnyNodeAction = hasNodeTarget || hasSelection;
+        // Paste is also available on canvas whitespace, at the context-menu pointer.
+        const hasAnyNodeAction = hasNodeTarget || hasSelection || typeof pasteNode === 'function';
         if (nodeActions) {
             nodeActions.style.display = hasAnyNodeAction ? 'block' : 'none';
         }
@@ -516,6 +526,23 @@ export function createContextMenuControllerApi({
         }
 
         try {
+            if (item.id === 'context-menu-copy-nodes') {
+                copySelectedNode?.();
+                return;
+            }
+
+            if (item.id === 'context-menu-paste-nodes') {
+                const position = viewportApi.screenToCanvas(state.contextMenu.x, state.contextMenu.y);
+                pasteNode?.({ position, includeExternalConnections: true });
+                return;
+            }
+
+            if (item.id === 'context-menu-delete-nodes') {
+                const nodeId = state.contextMenuNodeId || Array.from(state.selectedNodes)[0];
+                if (nodeId) removeNode?.(nodeId);
+                return;
+            }
+
             if (item.id === 'context-menu-run-to-here') {
                 if (state.contextMenuNodeId) {
                     runWorkflow({

@@ -33,8 +33,8 @@ export function createGlobalInteractionsApi({
         return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
     }
 
-    function importImageDataAtDrop(event, imageData, message) {
-        const targetNodeId = getImageDropTargetNodeId(event);
+    function importImageDataAtDrop(event, imageData, message, { forceCreate = false } = {}) {
+        const targetNodeId = forceCreate ? null : getImageDropTargetNodeId(event);
         if (targetNodeId) {
             if (isNodeRunning(targetNodeId)) {
                 showToast('节点正在运行，暂不能修改图片', 'warning');
@@ -68,6 +68,7 @@ export function createGlobalInteractionsApi({
 
             const historyDrag = state.draggedHistoryImage;
             if (historyDrag?.image || historyDrag?.imagePromise) {
+                if (!e.target.closest?.('#canvas-container')) return;
                 const historyImage = historyDrag.image || await historyDrag.imagePromise.catch(() => '');
                 if (!historyImage) {
                     state.draggedHistoryImage = null;
@@ -77,7 +78,7 @@ export function createGlobalInteractionsApi({
                 importImageDataAtDrop(e, historyImage, {
                     update: '已使用历史原图更新现有图片节点',
                     create: '已从历史记录导入原始分辨率图片'
-                });
+                }, { forceCreate: true });
                 state.draggedHistoryImage = null;
                 return;
             }
