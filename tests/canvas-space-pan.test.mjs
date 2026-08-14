@@ -9,7 +9,6 @@ function createClassList() {
 function createHarness() {
     const canvasListeners = [];
     const windowListeners = [];
-    const performanceSamples = [];
     const canvasContainer = {
         addEventListener(type, listener, options) { canvasListeners.push({ type, listener, options }); },
         classList: createClassList(),
@@ -42,15 +41,14 @@ function createHarness() {
             getSelection() { return { removeAllRanges() {} }; },
             performance: { now() { return 100; } }
         },
-        performanceMonitor: { recordSample(name, value) { performanceSamples.push({ name, value }); } },
         requestAnimationFrameRef(callback) { callback(); }
     });
     api.initCanvasInteractions();
-    return { canvasListeners, windowListeners, performanceSamples, state };
+    return { canvasListeners, windowListeners, state };
 }
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
-    const { canvasListeners, windowListeners, performanceSamples, state } = createHarness();
+    const { canvasListeners, windowListeners, state } = createHarness();
     let nodeMouseDowns = 0;
     const event = {
         button: 0, clientX: 100, clientY: 200, target: { closest(selector) { return selector === '.node' ? {} : null; } },
@@ -70,7 +68,6 @@ test('space plus left press on a node starts panning before node handlers can ru
     assert.deepEqual({ x: state.nodes.get('node-1').x, y: state.nodes.get('node-1').y }, { x: 50, y: 60 });
     assert.equal(state.dragging, null);
     assert.equal(nodeMouseDowns, 0);
-    assert.equal(performanceSamples.some(({ name }) => name === 'pan-input-to-transform-ms'), true);
 });
 
 test('space pan blocks the parameter click dispatched after mousedown', () => {

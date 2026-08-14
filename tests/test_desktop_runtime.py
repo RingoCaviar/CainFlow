@@ -59,7 +59,7 @@ class DesktopSecurityTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-    def test_desktop_bootstrap_preserves_enabled_performance_flags(self):
+    def test_desktop_bootstrap_drops_development_flags(self):
         token = desktop_security.enable_desktop_session()
         server = _ThreadedServer(('127.0.0.1', 0), ProxyHTTPRequestHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -70,7 +70,7 @@ class DesktopSecurityTests(unittest.TestCase):
             response = connection.getresponse()
 
             self.assertEqual(response.status, 302)
-            self.assertEqual(response.getheader('Location'), '/?desktop=1&stressTest=1&perf=1&canvasConnections=1')
+            self.assertEqual(response.getheader('Location'), '/?desktop=1')
             connection.close()
         finally:
             server.shutdown()

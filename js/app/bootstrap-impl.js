@@ -75,8 +75,6 @@ import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
 import { createUiFeature } from './bootstrap/ui-bootstrap.js';
 import { createAppContext } from './create-app-context.js';
 import { createAppRegistry } from './create-app-registry.js';
-import { createCanvasStressTestBridge } from './dev/canvas-stress-test.js';
-import { createCanvasPerformanceMonitor } from './dev/canvas-performance-monitor.js';
 import { registerGlobalBridges } from './register-global-bridges.js';
 
 /**
@@ -90,7 +88,6 @@ import { registerGlobalBridges } from './register-global-bridges.js';
 
 export function initializeCainFlowApp() {
 const registry = createAppRegistry();
-const canvasPerformanceMonitor = createCanvasPerformanceMonitor({ globalRef: globalThis });
 
 // ===== 工具函数 =====
 function generateId() {
@@ -269,8 +266,7 @@ const renderProjectionManager = createRenderProjectionManager({
     canvasContainer,
     nodesLayer,
     documentRef: document,
-    windowRef: window,
-    performanceMonitor: canvasPerformanceMonitor
+    windowRef: window
 });
 const interactionPerformanceGuard = createInteractionPerformanceGuard({
     state,
@@ -546,8 +542,7 @@ const connectionsApi = createConnectionsApi({
     showToast,
     scheduleSave,
     onConnectionsChanged: () => handleNodeGraphChanged(),
-    addNode,
-    performanceMonitor: canvasPerformanceMonitor
+    addNode
 });
 const connectionDiagnostics = createConnectionDiagnostics();
 const {
@@ -869,7 +864,6 @@ function getCanvasInteractionsApi() {
             onConnectionsChanged: () => handleNodeGraphChanged(),
             getConnectionCreateCandidates: (source) => getCompatibleNodeTypeCandidates(source),
             openConnectionCreatePopup: (popupState) => getContextMenuControllerApi().openConnectionCreatePopup(popupState),
-            performanceMonitor: canvasPerformanceMonitor,
             scheduleSave,
             serializeOneNode,
             addNode,
@@ -1452,30 +1446,10 @@ renderProjectionManager.init();
 interactionPerformanceGuard.init();
 getStartupControllerApi().initStartup();
 
-const canvasStressTestBridge = createCanvasStressTestBridge({
-    state,
-    addNode,
-    mediaControllerApi,
-    updateAllConnections,
-    scheduleSave,
-    showToast,
-    nodesLayer,
-    documentRef: document,
-    globalRef: globalThis
-});
-canvasPerformanceMonitor.mount({
-    createFixture: canvasStressTestBridge.createCanvasStressTestNodes,
-    clearFixture: canvasStressTestBridge.clearCanvasStressTestNodes
-});
-
 registerGlobalBridges({
     windowRef: window,
     closeModal,
-    showLogDetail,
-    createCanvasStressTestNodes: canvasStressTestBridge.createCanvasStressTestNodes,
-    enableCanvasStressTest: canvasStressTestBridge.enabled,
-    sampleCanvasPerformance: canvasPerformanceMonitor.sample,
-    enableCanvasPerformanceMonitor: canvasPerformanceMonitor.enabled
+    showLogDetail
 });
 
 return {

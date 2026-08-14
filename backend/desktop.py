@@ -237,10 +237,6 @@ def run_desktop():
         version = get_app_version_tag()
         bridge = DesktopBridge(version, webview)
         url = f'http://{config.LOCAL_HOST}:{port}{desktop_security.BOOTSTRAP_PATH}?token={urllib.parse.quote(token)}'
-        if os.environ.get('CAINFLOW_ENABLE_PERF') == '1':
-            url += '&stressTest=1&perf=1'
-        if os.environ.get('CAINFLOW_CANVAS_CONNECTIONS') == '1':
-            url += '&canvasConnections=1'
         window = webview.create_window(
             f'CainFlow {version}',
             url=url,
@@ -279,8 +275,7 @@ def run_desktop():
         try:
             if sys.platform == 'win32':
                 restore_initialization_hook = install_webview2_initialization_hook(initialization_result)
-            debug = os.environ.get('CAINFLOW_DESKTOP_DEBUG') == '1'
-            webview.start(func=smoke_worker, args=(window,) if smoke_worker else None, gui=gui, debug=debug)
+            webview.start(func=smoke_worker, args=(window,) if smoke_worker else None, gui=gui, debug=False)
         except Exception as error:
             webview_error = error
             _destroy_window_safely(window)

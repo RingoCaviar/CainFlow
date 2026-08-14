@@ -1,6 +1,7 @@
 /** Development-only frame sampler for repeatable canvas profiling. */
 export function createCanvasPerformanceMonitor({ globalRef = globalThis } = {}) {
-    const enabled = new URLSearchParams(globalRef.location?.search || '').get('perf') === '1';
+    // Profiling is deliberately disabled in release builds.
+    const enabled = false;
     const costs = new Map();
     const samples = new Map();
 

@@ -29,23 +29,3 @@ test('toolbar height is synchronized before ResizeObserver registration', () => 
     assert.match(runtime, /function initWindowBindings\(\) \{\s*\/\/[\s\S]*?initToolbarObserver\(\);/);
     assert.doesNotMatch(runtime, /addEventListener\(['"]load['"][\s\S]{0,160}initToolbarObserver/);
 });
-
-test('panning hides image pixels without changing node layout', () => {
-    for (const selector of [
-        '.file-drop-zone img',
-        '.preview-container img',
-        '.image-resize-preview img',
-        '.save-preview-container img',
-        '.camera-control-node-preview img',
-        '.image-compare-img'
-    ]) {
-        assert.match(canvas, new RegExp(`#canvas-container\\.is-panning ${selector.replace(/[.]/g, '\\.')}`));
-    }
-    const panningImageRules = canvas.match(/\/\* Keep node geometry stable[\s\S]*?\n}\n/)[0];
-    assert.match(panningImageRules, /visibility:\s*hidden/);
-    assert.doesNotMatch(panningImageRules, /display:\s*none/);
-});
-
-test('panning defers SVG connection rasterization until the viewport settles', () => {
-    assert.match(canvas, /#connections-group\.is-panning path\s*{\s*visibility:\s*hidden/);
-});

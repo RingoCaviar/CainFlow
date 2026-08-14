@@ -1,5 +1,6 @@
 export function createCanvasConnectionRenderer({ canvasContainer, documentRef = document, state, windowRef = window } = {}) {
-    const enabled = new URLSearchParams(windowRef.location?.search || '').get('canvasConnections') === '1';
+    // The Canvas connection renderer remains experimental and is disabled for release.
+    const enabled = false;
     if (!enabled || !canvasContainer) return { enabled: false, begin() {}, draw() {}, end() {} };
 
     const canvas = windowRef.document.createElement('canvas');

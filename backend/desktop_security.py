@@ -28,18 +28,12 @@ def handle_bootstrap(handler):
     parsed = urlparse(handler.path)
     if parsed.path != BOOTSTRAP_PATH or not _session_token:
         return False
-    query = parse_qs(parsed.query)
-    supplied = query.get('token', [''])[0]
+    supplied = parse_qs(parsed.query).get('token', [''])[0]
     if not hmac.compare_digest(supplied, _session_token):
         handler.send_error(403, 'Forbidden')
         return True
     handler.send_response(302)
-    enabled_dev_flags = [
-        name for name in ('stressTest', 'perf', 'canvasConnections')
-        if query.get(name, [''])[0] == '1'
-    ]
-    redirect_query = '&'.join(['desktop=1', *(f'{name}=1' for name in enabled_dev_flags)])
-    handler.send_header('Location', f'/?{redirect_query}')
+    handler.send_header('Location', '/?desktop=1')
     handler.send_header(
         'Set-Cookie',
         f'{COOKIE_NAME}={_session_token}; Path=/; HttpOnly; SameSite=Strict'

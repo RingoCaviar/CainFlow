@@ -161,11 +161,6 @@
     transition: none !important;
 }
 
-/* SVG path rasterization is deferred until the viewport settles after a pan. */
-#connections-group.is-panning path {
-    visibility: hidden;
-}
-
 #connections-group path.canvas-rendered {
     stroke: transparent !important;
     filter: none !important;
@@ -226,15 +221,6 @@
     will-change: transform;
 }
 
-/* Keep node geometry stable while avoiding image raster compositing during pan. */
-#canvas-container.is-panning .file-drop-zone img,
-#canvas-container.is-panning .preview-container img,
-#canvas-container.is-panning .image-resize-preview img,
-#canvas-container.is-panning .save-preview-container img,
-#canvas-container.is-panning .camera-control-node-preview img,
-#canvas-container.is-panning .image-compare-img {
-    visibility: hidden;
-}
 
 body.is-interacting #canvas-container,
 body.is-interacting #canvas-container * {

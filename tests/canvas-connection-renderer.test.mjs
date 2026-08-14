@@ -30,26 +30,13 @@ function createHarness() {
     return { renderer, listeners, operations, get animationFrameCount() { return animationFrameCount; } };
 }
 
-test('canvas connection renderer redraws visible static connections during panning', () => {
+test('canvas connection renderer is unavailable in release builds', () => {
     const harness = createHarness();
     harness.renderer.draw('visible', {
         start: { x: 0, y: 0 }, control1: { x: 15, y: 0 },
         control2: { x: 35, y: 50 }, end: { x: 50, y: 50 }
     });
-    harness.listeners.get('cainflow:canvas-pan-transform')();
-
-    assert.equal(harness.animationFrameCount, 1);
-    assert.equal(harness.operations.includes('curve'), true);
-    assert.equal(harness.operations.includes('stroke'), true);
-});
-
-test('canvas connection renderer skips connections outside the viewport', () => {
-    const harness = createHarness();
-    harness.renderer.draw('offscreen', {
-        start: { x: 200, y: 200 }, control1: { x: 215, y: 200 },
-        control2: { x: 235, y: 250 }, end: { x: 250, y: 250 }
-    });
-    harness.renderer.end();
-
+    assert.equal(harness.renderer.enabled, false);
+    assert.equal(harness.animationFrameCount, 0);
     assert.equal(harness.operations.includes('stroke'), false);
 });

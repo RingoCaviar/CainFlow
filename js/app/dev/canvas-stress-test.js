@@ -13,8 +13,8 @@ export function createCanvasStressTestBridge({
     documentRef = document,
     globalRef = globalThis
 } = {}) {
-    const enabled = globalRef.CAINFLOW_ENABLE_STRESS_TEST === true
-        || new URLSearchParams(globalRef.location?.search || '').get('stressTest') === '1';
+    // Stress fixtures are deliberately unavailable in release builds.
+    const enabled = false;
 
     async function createCanvasStressTestNodes(options = {}) {
         const total = Number.isFinite(options.total) ? Math.max(0, Math.floor(options.total)) : 100;

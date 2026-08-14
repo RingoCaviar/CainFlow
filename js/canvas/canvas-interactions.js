@@ -32,17 +32,12 @@ export function createCanvasInteractionsApi({
     onViewportSettled = () => {},
     getConnectionCreateCandidates = null,
     openConnectionCreatePopup = null,
-    performanceMonitor = null,
     documentRef = document,
     windowRef = window,
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     let rafUpdate = null;
     let panTransformRaf = null;
-    let lastPanInputAt = null;
-    let lastPanInputEventAt = null;
-    let lastPanPointerInputEventAt = null;
-    let lastPanTransformAt = null;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -106,21 +101,10 @@ export function createCanvasInteractionsApi({
         if (panTransformRaf) return;
         panTransformRaf = requestAnimationFrameRef(() => {
             panTransformRaf = null;
-            const transformStartedAt = windowRef.performance?.now?.() ?? Date.now();
             viewportApi.updateCanvasTransform({
                 updateConnections: false,
-                dispatchTransformEvent: false,
-                dispatchPanTransformEvent: true
+                dispatchTransformEvent: false
             });
-            const transformFinishedAt = windowRef.performance?.now?.() ?? Date.now();
-            if (lastPanInputAt !== null) {
-                performanceMonitor?.recordSample?.('pan-input-to-transform-ms', transformStartedAt - lastPanInputAt);
-            }
-            performanceMonitor?.recordSample?.('pan-transform-work-ms', transformFinishedAt - transformStartedAt);
-            if (lastPanTransformAt !== null) {
-                performanceMonitor?.recordSample?.('pan-transform-interval-ms', transformStartedAt - lastPanTransformAt);
-            }
-            lastPanTransformAt = transformStartedAt;
         });
     }
 
@@ -701,12 +685,6 @@ export function createCanvasInteractionsApi({
             }
 
             if (state.canvas.isPanning) {
-                const panInputAt = windowRef.performance?.now?.() ?? Date.now();
-                if (lastPanInputEventAt !== null) {
-                    performanceMonitor?.recordSample?.('pan-input-event-interval-ms', panInputAt - lastPanInputEventAt);
-                }
-                lastPanInputAt = panInputAt;
-                lastPanInputEventAt = panInputAt;
                 state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
                 state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
                 schedulePanTransformUpdate();
@@ -878,15 +856,6 @@ export function createCanvasInteractionsApi({
             }
         });
 
-        windowRef.addEventListener('pointermove', () => {
-            if (!state.canvas.isPanning) return;
-            const panPointerInputAt = windowRef.performance?.now?.() ?? Date.now();
-            if (lastPanPointerInputEventAt !== null) {
-                performanceMonitor?.recordSample?.('pan-pointer-event-interval-ms', panPointerInputAt - lastPanPointerInputEventAt);
-            }
-            lastPanPointerInputEventAt = panPointerInputAt;
-        });
-
         windowRef.addEventListener('mouseup', (e) => {
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
@@ -908,10 +877,6 @@ export function createCanvasInteractionsApi({
                     scheduleSave();
                 }
                 state.canvas.isPanning = false;
-                lastPanInputAt = null;
-                lastPanInputEventAt = null;
-                lastPanPointerInputEventAt = null;
-                lastPanTransformAt = null;
                 canvasContainer.classList.remove('grabbing', 'is-panning');
                 viewportApi.updateCanvasTransform({
                     forceConnections: true,
