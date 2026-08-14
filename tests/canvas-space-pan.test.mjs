@@ -30,9 +30,14 @@ function createHarness() {
         isSpacePressed: true,
         nodes: new Map([['node-1', { x: 50, y: 60 }]]), selectedNodes: new Set(), connections: [], dragging: null
     };
+    const viewportCalls = [];
     const api = createCanvasInteractionsApi({
         state, canvasContainer, nodesLayer: {}, tempConnection: {},
-        viewportApi: { screenToCanvas: (x, y) => ({ x, y }), updateCanvasTransform() {} },
+        viewportApi: {
+            screenToCanvas: (x, y) => ({ x, y }),
+            updateCanvasTransform(options) { viewportCalls.push(options); },
+            refreshNodeTextRendering() {}
+        },
         getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {}, updatePortStyles() {},
         scheduleSave() {}, serializeOneNode() {}, addNode() {}, checkLineIntersection() {},
         getConnectionSamplePoints() { return []; }, documentRef,
@@ -44,7 +49,7 @@ function createHarness() {
         requestAnimationFrameRef(callback) { callback(); }
     });
     api.initCanvasInteractions();
-    return { canvasListeners, windowListeners, state };
+    return { canvasListeners, windowListeners, state, viewportCalls };
 }
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
@@ -84,4 +89,74 @@ test('space pan blocks the parameter click dispatched after mousedown', () => {
 
     assert.equal(clickEvent.defaultPrevented, true);
     assert.equal(parameterClickCount, 0);
+});
+
+test('continuous wheel zoom skips full node projection work until the interaction settles', () => {
+    const { canvasListeners, viewportCalls } = createHarness();
+    const wheelListener = canvasListeners.find(({ type }) => type === 'wheel');
+
+    wheelListener.listener({
+        clientX: 400,
+        clientY: 300,
+        deltaY: -1,
+        target: { closest() { return null; } },
+        preventDefault() {}
+    });
+
+    assert.deepEqual(viewportCalls.at(-1), {
+        updateConnections: false,
+        dispatchTransformEvent: false
+    });
+});
+
+test('precision wheel deltas produce proportional zoom changes', () => {
+    const { canvasListeners, state } = createHarness();
+    const wheelListener = canvasListeners.find(({ type }) => type === 'wheel');
+
+    wheelListener.listener({
+        clientX: 400,
+        clientY: 300,
+        deltaY: -1,
+        deltaMode: 0,
+        target: { closest() { return null; } },
+        preventDefault() {}
+    });
+
+    assert.ok(state.canvas.zoom > 1);
+    assert.ok(state.canvas.zoom < 1.01);
+});
+
+test('line-mode mouse wheels are normalized before zooming', () => {
+    const { canvasListeners, state } = createHarness();
+    const wheelListener = canvasListeners.find(({ type }) => type === 'wheel');
+
+    wheelListener.listener({
+        clientX: 400,
+        clientY: 300,
+        deltaY: -1,
+        deltaMode: 1,
+        target: { closest() { return null; } },
+        preventDefault() {}
+    });
+
+    assert.ok(state.canvas.zoom > 1.03);
+    assert.ok(state.canvas.zoom < 1.05);
+});
+
+test('zoom settles with one projection refresh after wheel input stops', async () => {
+    const { canvasListeners, viewportCalls } = createHarness();
+    const wheelListener = canvasListeners.find(({ type }) => type === 'wheel');
+    const settleListener = canvasListeners.find(({ type }) => type === 'wheel-zoom-settle');
+
+    wheelListener.listener({
+        clientX: 400,
+        clientY: 300,
+        deltaY: -1,
+        target: { closest() { return null; } },
+        preventDefault() {}
+    });
+    settleListener.listener();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
 });

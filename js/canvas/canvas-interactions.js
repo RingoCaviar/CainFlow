@@ -53,6 +53,9 @@ export function createCanvasInteractionsApi({
     const MAX_LANE_OFFSET = 42;
     const FALLBACK_NODE_WIDTH = 180;
     const FALLBACK_NODE_HEIGHT = 120;
+    const WHEEL_ZOOM_SENSITIVITY = 0.0011;
+    const WHEEL_LINE_HEIGHT_PX = 32;
+    const MAX_WHEEL_ZOOM_DELTA_PX = 100;
 
     function alignCanvasDeltaToDevicePixel(delta) {
         const zoom = Number(state.canvas?.zoom) || 1;
@@ -115,6 +118,16 @@ export function createCanvasInteractionsApi({
         } catch (error) {
             console.warn('Viewport settled callback failed:', error);
         }
+    }
+
+    function getWheelDeltaPixels(event, canvasHeight) {
+        const rawDelta = Number(event?.deltaY) || 0;
+        const pixels = event?.deltaMode === 1
+            ? rawDelta * WHEEL_LINE_HEIGHT_PX
+            : event?.deltaMode === 2
+                ? rawDelta * Math.max(1, canvasHeight)
+                : rawDelta;
+        return Math.max(-MAX_WHEEL_ZOOM_DELTA_PX, Math.min(MAX_WHEEL_ZOOM_DELTA_PX, pixels));
     }
 
     function beginCanvasPan(e) {
@@ -1053,14 +1066,25 @@ export function createCanvasInteractionsApi({
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             const oldZoom = state.canvas.zoom;
-            const newZoom = Math.max(0.1, Math.min(5, oldZoom * (e.deltaY > 0 ? 0.9 : 1.1)));
+            // Precision touchpads emit small pixel deltas while wheel mice often emit
+            // line deltas. Scaling proportionally keeps both inputs continuous instead
+            // of turning every event into a visible 10% jump.
+            const zoomDelta = getWheelDeltaPixels(e, rect.height);
+            const zoomFactor = Math.exp(-zoomDelta * WHEEL_ZOOM_SENSITIVITY);
+            const newZoom = Math.max(0.1, Math.min(5, oldZoom * zoomFactor));
             state.canvas.x = mx - (mx - state.canvas.x) * (newZoom / oldZoom);
             state.canvas.y = my - (my - state.canvas.y) * (newZoom / oldZoom);
             state.canvas.zoom = newZoom;
 
             if (!state._zoomRaf) {
                 state._zoomRaf = requestAnimationFrameRef(() => {
-                    viewportApi.updateCanvasTransform({ updateConnections: false });
+                    // The visual transform is sufficient while the wheel is moving:
+                    // broadcasting every frame makes the projection manager scan every
+                    // node. The settled transform below performs that exact refresh once.
+                    viewportApi.updateCanvasTransform({
+                        updateConnections: false,
+                        dispatchTransformEvent: false
+                    });
                     state._zoomRaf = null;
                 });
             }
