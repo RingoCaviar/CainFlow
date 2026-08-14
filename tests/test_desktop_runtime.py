@@ -66,11 +66,11 @@ class DesktopSecurityTests(unittest.TestCase):
         thread.start()
         try:
             connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1])
-            connection.request('GET', f'{desktop_security.BOOTSTRAP_PATH}?token={token}&stressTest=1&perf=1')
+            connection.request('GET', f'{desktop_security.BOOTSTRAP_PATH}?token={token}&stressTest=1&perf=1&canvasConnections=1')
             response = connection.getresponse()
 
             self.assertEqual(response.status, 302)
-            self.assertEqual(response.getheader('Location'), '/?desktop=1&stressTest=1&perf=1')
+            self.assertEqual(response.getheader('Location'), '/?desktop=1&stressTest=1&perf=1&canvasConnections=1')
             connection.close()
         finally:
             server.shutdown()

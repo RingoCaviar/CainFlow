@@ -35,7 +35,7 @@ def handle_bootstrap(handler):
         return True
     handler.send_response(302)
     enabled_dev_flags = [
-        name for name in ('stressTest', 'perf')
+        name for name in ('stressTest', 'perf', 'canvasConnections')
         if query.get(name, [''])[0] == '1'
     ]
     redirect_query = '&'.join(['desktop=1', *(f'{name}=1' for name in enabled_dev_flags)])

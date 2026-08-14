@@ -44,6 +44,11 @@ export function createViewportApi({
                 detail: { x, y, zoom }
             }));
         }
+        if (options.dispatchPanTransformEvent === true) {
+            elements.canvasContainer?.ownerDocument?.dispatchEvent(new CustomEvent('cainflow:canvas-pan-transform', {
+                detail: { x, y, zoom }
+            }));
+        }
     }
 
     function updateCanvasTransform(options = {}) {

@@ -109,7 +109,8 @@ export function createCanvasInteractionsApi({
             const transformStartedAt = windowRef.performance?.now?.() ?? Date.now();
             viewportApi.updateCanvasTransform({
                 updateConnections: false,
-                dispatchTransformEvent: false
+                dispatchTransformEvent: false,
+                dispatchPanTransformEvent: true
             });
             const transformFinishedAt = windowRef.performance?.now?.() ?? Date.now();
             if (lastPanInputAt !== null) {

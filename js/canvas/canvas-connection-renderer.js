@@ -7,35 +7,58 @@ export function createCanvasConnectionRenderer({ canvasContainer, documentRef = 
     canvasContainer.prepend(canvas);
     const context = canvas.getContext('2d');
     const entries = new Map();
+    let redrawFrame = null;
+    let canvasWidth = 0;
+    let canvasHeight = 0;
+    let canvasRatio = 0;
 
     function prepareCanvas() {
         const rect = canvasContainer.getBoundingClientRect();
         const ratio = windowRef.devicePixelRatio || 1;
-        canvas.width = Math.max(1, Math.round(rect.width * ratio));
-        canvas.height = Math.max(1, Math.round(rect.height * ratio));
+        const width = Math.max(1, Math.round(rect.width * ratio));
+        const height = Math.max(1, Math.round(rect.height * ratio));
+        if (canvasWidth !== width || canvasHeight !== height || canvasRatio !== ratio) {
+            canvas.width = width;
+            canvas.height = height;
+            canvasWidth = width;
+            canvasHeight = height;
+            canvasRatio = ratio;
+        }
         canvas.style.width = `${rect.width}px`;
         canvas.style.height = `${rect.height}px`;
         context.setTransform(ratio, 0, 0, ratio, 0, 0);
         context.clearRect(0, 0, rect.width, rect.height);
+        return rect;
     }
 
     function redraw() {
-        prepareCanvas();
+        const rect = prepareCanvas();
         const { x = 0, y = 0, zoom = 1 } = state?.canvas || {};
-        entries.forEach(({ points, color }) => {
-            if (!points?.length) return;
+        entries.forEach(({ curve, color }) => {
+            if (!curve) return;
+            const screenPoints = [curve.start, curve.control1, curve.control2, curve.end]
+                .map((point) => ({ x: point.x * zoom + x, y: point.y * zoom + y }));
+            const minX = Math.min(...screenPoints.map((point) => point.x));
+            const maxX = Math.max(...screenPoints.map((point) => point.x));
+            const minY = Math.min(...screenPoints.map((point) => point.y));
+            const maxY = Math.max(...screenPoints.map((point) => point.y));
+            if (maxX < 0 || minX > rect.width || maxY < 0 || minY > rect.height) return;
             context.beginPath();
-            context.moveTo(points[0].x * zoom + x, points[0].y * zoom + y);
-            points.slice(1).forEach((point) => context.lineTo(point.x * zoom + x, point.y * zoom + y));
+            context.moveTo(screenPoints[0].x, screenPoints[0].y);
+            context.bezierCurveTo(
+                screenPoints[1].x, screenPoints[1].y,
+                screenPoints[2].x, screenPoints[2].y,
+                screenPoints[3].x, screenPoints[3].y
+            );
             context.strokeStyle = color;
             context.lineWidth = 2.5;
             context.stroke();
         });
     }
 
-    function draw(id, points, color = 'rgba(168, 85, 247, 0.68)') {
-        if (!id || !points?.length) return;
-        entries.set(id, { points, color });
+    function draw(id, curve, color = 'rgba(168, 85, 247, 0.68)') {
+        if (!id || !curve?.start || !curve?.control1 || !curve?.control2 || !curve?.end) return;
+        entries.set(id, { curve, color });
     }
 
     function remove(id) {
@@ -43,6 +66,13 @@ export function createCanvasConnectionRenderer({ canvasContainer, documentRef = 
     }
 
     documentRef.addEventListener('cainflow:canvas-transform', redraw);
+    documentRef.addEventListener('cainflow:canvas-pan-transform', () => {
+        if (redrawFrame !== null) return;
+        redrawFrame = windowRef.requestAnimationFrame(() => {
+            redrawFrame = null;
+            redraw();
+        });
+    });
 
     function end() {
         redraw();

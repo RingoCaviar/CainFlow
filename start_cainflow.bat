@@ -5,15 +5,29 @@ title CainFlow Launcher
 
 set "APP_DIR=%~dp0"
 set "PYTHON_CMD="
-set "SERVER_ARGS=%*"
 set "CAINFLOW_DESKTOP_DEBUG=0"
 set "CAINFLOW_ENABLE_PERF=0"
+set "CAINFLOW_CANVAS_CONNECTIONS=0"
+set "SERVER_ARGS="
 
+:parse_args
+if "%~1"=="" goto args_parsed
 if /I "%~1"=="--devtools" (
     set "CAINFLOW_DESKTOP_DEBUG=1"
     set "CAINFLOW_ENABLE_PERF=1"
-    set "SERVER_ARGS="
+    shift
+    goto parse_args
 )
+if /I "%~1"=="--canvasConnections" (
+    set "CAINFLOW_CANVAS_CONNECTIONS=1"
+    shift
+    goto parse_args
+)
+set "SERVER_ARGS=%SERVER_ARGS% %~1"
+shift
+goto parse_args
+
+:args_parsed
 
 cls
 echo ==========================================

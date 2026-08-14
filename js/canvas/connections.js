@@ -3,6 +3,7 @@
  */
 import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/registry.js';
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
+import { getBezierCurveGeometry } from './geometry.js';
 
 export function createConnectionsApi({
     state,
@@ -934,13 +935,14 @@ export function createConnectionsApi({
             selectionInfo.incomingConnectionIds.has(conn.id) ||
             selectionInfo.outgoingConnectionIds.has(conn.id);
 
-        if (canvasConnectionRenderer.enabled && !isSelected) {
-            const points = getConnectionSamplePoints(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
-            canvasConnectionRenderer.draw(conn.id, points);
+        const pathOptions = getConnectionPathOptions(conn, laneById);
+        const usesBezier = pathOptions.type !== 'orthogonal';
+        if (canvasConnectionRenderer.enabled && !isSelected && usesBezier) {
+            canvasConnectionRenderer.draw(conn.id, getBezierCurveGeometry(from.x, from.y, to.x, to.y, pathOptions));
         }
 
         path = ensureConnectionPath(conn);
-        path.classList.toggle('canvas-rendered', canvasConnectionRenderer.enabled && !isSelected);
+        path.classList.toggle('canvas-rendered', canvasConnectionRenderer.enabled && !isSelected && usesBezier);
         if (path.getAttribute('d') !== pathStr) {
             path.setAttribute('d', pathStr);
         }

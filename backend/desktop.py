@@ -239,6 +239,8 @@ def run_desktop():
         url = f'http://{config.LOCAL_HOST}:{port}{desktop_security.BOOTSTRAP_PATH}?token={urllib.parse.quote(token)}'
         if os.environ.get('CAINFLOW_ENABLE_PERF') == '1':
             url += '&stressTest=1&perf=1'
+        if os.environ.get('CAINFLOW_CANVAS_CONNECTIONS') == '1':
+            url += '&canvasConnections=1'
         window = webview.create_window(
             f'CainFlow {version}',
             url=url,

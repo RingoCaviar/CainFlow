@@ -42,7 +42,7 @@ function getPortTransitionPoints(x1, y1, x2, y2, options = {}) {
     };
 }
 
-function getBezierCurveGeometry(x1, y1, x2, y2, options = {}) {
+export function getBezierCurveGeometry(x1, y1, x2, y2, options = {}) {
     const distances = getPortTransitionDistances(options);
     const laneOffset = getLaneOffset(options);
     const span = Math.abs(x2 - x1);
