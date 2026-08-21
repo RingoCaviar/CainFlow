@@ -1201,6 +1201,7 @@ function getWorkflowRuntimeManagerApi() {
             addLog,
             scheduleSave,
             updateAllConnections,
+            connectionProjection: connectionProjectionInteractions,
             updatePortStyles,
             getWorkflowManagerApi: () => workflowManagerApi,
             getSettingsControllerApi: () => settingsControllerApi,
@@ -1296,8 +1297,10 @@ const workflowManagerApi = createWorkflowManagerApi({
 });
 
 function refreshImageGenerateNodes(protocolId) {
+    const nodeIds = [];
     state.nodes.forEach((node, nodeId) => {
         if (node.type === 'ImageGenerate') {
+            nodeIds.push(nodeId);
             const nodeEl = node.el;
             if (!nodeEl) return;
 
@@ -1306,7 +1309,7 @@ function refreshImageGenerateNodes(protocolId) {
             nodeDomBindingsApi?.syncImageGenerateResolutionOptions?.(nodeId);
         }
     });
-    updateAllConnections();
+    connectionProjectionInteractions.nodeGeometryChanged(nodeIds);
 }
 
 settingsFeature = createSettingsFeature({
@@ -1326,6 +1329,7 @@ settingsFeature = createSettingsFeature({
     downloadLatestUpdate: () => updateManager.downloadLatestUpdate(),
     cancelUpdateDownload: () => updateManager.cancelUpdateDownload(),
     updateAllConnections,
+    connectionProjection: connectionProjectionInteractions,
     applyGlobalAnimationSetting,
     applyCanvasUiSetting,
     fitNodeToContent,

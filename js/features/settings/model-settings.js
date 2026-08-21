@@ -27,7 +27,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         windowRef,
         showToast,
         saveState,
-        updateAllConnections,
+        connectionProjection,
         fitNodeToContent,
         fetchImpl
     } = ctx;
@@ -700,7 +700,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             const wasHidden = maskPort.classList.contains('hidden');
             maskPort.classList.toggle('hidden', !usesOpenAiImageControls || isNewApiAsyncImage);
             maskPort.setAttribute('aria-hidden', usesOpenAiImageControls && !isNewApiAsyncImage ? 'false' : 'true');
-            if (wasHidden !== maskPort.classList.contains('hidden')) updateAllConnections();
+            if (wasHidden !== maskPort.classList.contains('hidden')) connectionProjection?.nodeGeometryChanged(id);
         }
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (customField) customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');

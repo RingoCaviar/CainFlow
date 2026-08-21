@@ -435,6 +435,7 @@ export function createWorkflowRuntimeManager({
     addLog,
     scheduleSave,
     updateAllConnections,
+    connectionProjection = null,
     updatePortStyles,
     getWorkflowManagerApi,
     getSettingsControllerApi,
@@ -997,7 +998,7 @@ export function createWorkflowRuntimeManager({
             node.el.classList.remove('completed', 'error', 'workflow-running-locked');
             setVisibleNodeControlsLocked(node, true);
             startVisibleNodeRunTimer(nodeId, startedAt);
-            updateAllConnections();
+            connectionProjection?.nodeAppearanceChanged(nodeId);
             return;
         }
 
@@ -1026,7 +1027,7 @@ export function createWorkflowRuntimeManager({
             if (timeContainer) timeContainer.style.display = 'flex';
             if (timeBadge) timeBadge.textContent = 'Err';
         }
-        updateAllConnections();
+        connectionProjection?.nodeAppearanceChanged(nodeId);
     }
 
     function refreshVisibleWorkflowRunState(workflowName = state.activeWorkflowName) {
