@@ -51,7 +51,7 @@ export function createAsyncMediaExecutionApi({
     getImageHistorySidebarActive = () => false,
     renderHistoryList,
     refreshDependentImageResizePreviews,
-    updateAllConnections,
+    connectionProjection = null,
     scheduleSave = () => {},
     requestNodeFit = () => {}
 }) {
@@ -603,7 +603,7 @@ export function createAsyncMediaExecutionApi({
             generationDurationSeconds: getNodeGenerationDurationSeconds(node)
         });
         if (getImageHistorySidebarActive()) renderHistoryList();
-        updateAllConnections();
+        connectionProjection?.nodeGeometryChanged(node.id);
         return imageData;
     }
 
@@ -813,7 +813,7 @@ export function createAsyncMediaExecutionApi({
             }).join('<hr />');
         }
         await refreshDependentImageResizePreviews(id);
-        updateAllConnections();
+        connectionProjection?.nodeGeometryChanged(id);
         return {
             image: completedImages[completedImages.length - 1] || '',
             images: completedImages.slice()
@@ -980,7 +980,7 @@ export function createAsyncMediaExecutionApi({
             updateVideoGenerationStatus(nodeId, safeFinalResult.statusText || `已完成：任务 ${videoId} 已恢复`, 'success');
             completeNodeApiGenerationProgress(node, { current: 1, total: 1 });
             if (downloadBtn) downloadBtn.disabled = !safeFinalResult.videoUrl;
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(nodeId);
             scheduleSave();
             return safeFinalResult;
         } finally {
@@ -1182,6 +1182,7 @@ export function createAsyncMediaExecutionApi({
         updateVideoGenerationStatus(id, generationCount > 1 ? `已完成：${generationCount} 个视频都已生成完成` : '已完成：视频生成成功', 'success');
         if (downloadBtn) downloadBtn.disabled = !lastResult.videoUrl;
         completeNodeApiGenerationProgress(node, { current: generationCount, total: generationCount });
+        connectionProjection?.nodeGeometryChanged(id);
         return {
             video: lastResult.videoUrl
                 ? {

@@ -1134,7 +1134,7 @@ function getExecutionCoreApi() {
             fitNodeToContent,
             scheduleSave,
             getAbortMessage: getAbortMessageService,
-            updateAllConnections,
+            connectionProjection: connectionProjectionInteractions,
             getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')
         });
     }
@@ -1158,6 +1158,7 @@ function getWorkflowRunnerApi() {
             addLog,
             scheduleSave,
             updateAllConnections,
+            connectionProjection: connectionProjectionInteractions,
             updatePortStyles,
             getImageAsset,
             getImageAssetList,

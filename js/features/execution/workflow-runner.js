@@ -36,6 +36,7 @@ export function createWorkflowRunnerApi({
     addLog,
     scheduleSave,
     updateAllConnections,
+    connectionProjection = null,
     updatePortStyles,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
@@ -50,18 +51,6 @@ export function createWorkflowRunnerApi({
     onNodeRunStateChange = () => {},
     onAutoSaveNodeInjected = () => {}
 }) {
-    const view = documentRef.defaultView || window;
-    let runningConnectionRefreshFrame = null;
-
-    function scheduleRunningConnectionRefresh() {
-        if (runningConnectionRefreshFrame !== null) return;
-        const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
-        runningConnectionRefreshFrame = requestFrame(() => {
-            runningConnectionRefreshFrame = null;
-            updateAllConnections();
-        });
-    }
-
     function isAbortLikeError(err) {
         if (!err) return false;
         if (err.name === 'AbortError') return true;
@@ -382,7 +371,7 @@ export function createWorkflowRunnerApi({
         }
         setNodeRunningLock(node, true);
         emitNodeRunState({ nodeId, status: 'running', running: true, startedAt });
-        scheduleRunningConnectionRefresh();
+        connectionProjection?.nodeAppearanceChanged(nodeId);
     }
 
     function clearNodeRunning(nodeId, node, result = {}) {
@@ -400,7 +389,7 @@ export function createWorkflowRunnerApi({
                 durationSec: result.durationSec || node?.lastDuration || null
             });
         }
-        scheduleRunningConnectionRefresh();
+        connectionProjection?.nodeAppearanceChanged(nodeId);
     }
 
     function hasRunningNodeInPlan(plan) {
@@ -452,6 +441,8 @@ export function createWorkflowRunnerApi({
 
     function resetNodesForPlan(plan, { preserveFixedCache = true, forceResetNodeIds = null } = {}) {
         const runningNodeIds = getRunningNodeIds();
+        const changedNodeIds = [];
+        const geometryChangedNodeIds = [];
         for (const [nid, node] of state.nodes) {
             if (!shouldResetNodeData(plan, nid)) continue;
             if (runningNodeIds.has(nid)) continue;
@@ -459,6 +450,7 @@ export function createWorkflowRunnerApi({
             const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
             const isFixed = fixedToggle ? fixedToggle.checked : false;
             const forceReset = forceResetNodeIds?.has(nid) === true;
+            changedNodeIds.push(nid);
 
             if (!forceReset && preserveFixedCache && isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
                 node.isFailed = false;
@@ -467,6 +459,7 @@ export function createWorkflowRunnerApi({
                 continue;
             }
 
+            geometryChangedNodeIds.push(nid);
             node.el.classList.remove('completed', 'error', 'running');
             removeConcurrentRequestStatusPanel(node);
             node.data = getPreservedNodeDataForReset(node);
@@ -489,6 +482,8 @@ export function createWorkflowRunnerApi({
                 delete node.apiGenerationProgress;
             }
         }
+        connectionProjection?.nodeAppearanceChanged(changedNodeIds);
+        connectionProjection?.nodeGeometryChanged(geometryChangedNodeIds);
     }
 
     function isPromptProducedDuringPlan(plan, nodeId, connection) {
@@ -1089,7 +1084,7 @@ export function createWorkflowRunnerApi({
             }
             await propagateImagesToDownstreamPreview(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
             return;
         }
 
@@ -1117,7 +1112,7 @@ export function createWorkflowRunnerApi({
             const responseArea = documentRef.getElementById(`${node.id}-response`);
             if (responseArea) responseArea.innerHTML = node.lastResponse;
             node.isSucceeded = true;
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
         }
     }
 
@@ -1531,7 +1526,7 @@ export function createWorkflowRunnerApi({
             }
             await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
             await refreshDependentImageResizePreviews(node.id);
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
         }
 
         if (shouldAggregateTexts) {
@@ -1843,7 +1838,7 @@ export function createWorkflowRunnerApi({
             }
 
             await releaseWorkflowIntermediateImageResults(plan, completedNodes);
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(Array.from(completedNodes));
             updatePortStyles();
             dispatchWorkflowCompletionNotice({
                 toastMessage: `${taskKind}任务恢复完成，后续节点已继续执行`,
@@ -2011,6 +2006,7 @@ export function createWorkflowRunnerApi({
                     addLog('error', '前置检查未通过', `节点「图片导入」(${nid}) 未载入素材图片`);
                 }
             });
+            connectionProjection?.nodeAppearanceChanged(emptyImageNodes);
             finalizeWorkflow();
             return { started: true, executed: false, reason: 'missing-image-input' };
         }
@@ -2040,6 +2036,7 @@ export function createWorkflowRunnerApi({
                     addLog('error', '前置检查未通过', `节点「智能对话」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
                 }
             });
+            connectionProjection?.nodeAppearanceChanged(emptyPromptNodes);
             finalizeWorkflow();
             return { started: true, executed: false, reason: 'missing-prompt-input' };
         }

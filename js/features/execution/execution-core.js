@@ -69,7 +69,7 @@ export function createExecutionCoreApi({
     fitNodeToContent,
     scheduleSave = () => {},
     getAbortMessage,
-    updateAllConnections,
+    connectionProjection = null,
     getImageHistorySidebarActive = () => false
 }) {
     const imageAssetSaveChains = new Map();
@@ -1508,7 +1508,7 @@ export function createExecutionCoreApi({
         getImageHistorySidebarActive,
         renderHistoryList,
         refreshDependentImageResizePreviews,
-        updateAllConnections,
+        connectionProjection,
         scheduleSave,
         requestNodeFit
     });
@@ -1795,7 +1795,7 @@ export function createExecutionCoreApi({
                         if (!executionContext.concurrentExecution) {
                             commitImageGenerateOutputs(node, completedImages, prompt);
                             await refreshDependentImageResizePreviews(id);
-                            updateAllConnections();
+                            connectionProjection?.nodeGeometryChanged(id);
                         }
                         addLog(completedImages.length > 0 ? 'warning' : 'error', `图片生成部分失败: ${modelCfg.name}`, `${requestResults.length} 个请求中 ${rejectedRequests.length} 个失败，${completedImages.length} 个成功。${completedImages.length > 0 ? '将仅把成功图片传递到下游。' : '没有可传递的成功图片。'}`, {
                             nodeId: id,
@@ -1812,7 +1812,7 @@ export function createExecutionCoreApi({
                         commitImageGenerateOutputs(node, completedImages, prompt);
                         node.isSucceeded = true;
                         await refreshDependentImageResizePreviews(id);
-                        updateAllConnections();
+                        connectionProjection?.nodeGeometryChanged(id);
                     }
 
                     return {
@@ -2172,7 +2172,7 @@ export function createExecutionCoreApi({
                     node.data.text = responseText;
                     node.lastResponse = responseHtml;
                     node.isSucceeded = true;
-                    updateAllConnections();
+                    connectionProjection?.nodeGeometryChanged(id);
                 }
 
                 return {
@@ -2226,7 +2226,7 @@ export function createExecutionCoreApi({
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
             await refreshDependentImageResizePreviews(node.id);
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
         },
         TextMerge: async (node, inputs = {}) => {
             const texts = Object.entries(inputs)
@@ -2239,7 +2239,7 @@ export function createExecutionCoreApi({
             node.data.text = texts[texts.length - 1];
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${texts.length} 段文本`;
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
         },
         ImageSave: async (node, inputs) => {
             const { id } = node;
@@ -2278,7 +2278,7 @@ export function createExecutionCoreApi({
             const counter = documentRef.getElementById(`${node.id}-text-counter`);
             if (nav) nav.classList.toggle('hidden', texts.length <= 1);
             if (counter) counter.textContent = texts.length > 1 ? `1/${texts.length}` : '';
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
         },
         CameraControl: async (node, inputs = {}) => {
             if (Object.prototype.hasOwnProperty.call(inputs, 'image')) {
@@ -2295,7 +2295,7 @@ export function createExecutionCoreApi({
             node.data.text = promptText;
             node.data.cameraPrompt = promptText;
             syncCameraControlNode(node.id, getPrimaryImageInput(inputs.image) || node.data.image || '');
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
         },
         TextSplit: async (node, inputs = {}) => {
             const delimiterInput = documentRef.getElementById(`${node.id}-delimiter`);
@@ -2335,7 +2335,7 @@ export function createExecutionCoreApi({
                 node.data[`part_${index + 1}`] = part;
             });
             syncTextSplitNodeData(node.id);
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(node.id);
             return mergeOutputEnabled
                 ? { text: parts.slice() }
                 : parts.reduce((outputs, part, index) => {
