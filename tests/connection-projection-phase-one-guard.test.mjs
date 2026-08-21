@@ -6,6 +6,20 @@ async function read(relativePath) {
     return readFile(new URL(relativePath, import.meta.url), 'utf8');
 }
 
+function extractBraceBlock(source, marker) {
+    const markerIndex = source.indexOf(marker);
+    assert.notEqual(markerIndex, -1, `missing caller marker: ${marker}`);
+    const openIndex = source.indexOf('{', markerIndex);
+    assert.notEqual(openIndex, -1, `missing caller block: ${marker}`);
+    let depth = 0;
+    for (let index = openIndex; index < source.length; index += 1) {
+        if (source[index] === '{') depth += 1;
+        if (source[index] === '}') depth -= 1;
+        if (depth === 0) return source.slice(markerIndex, index + 1);
+    }
+    assert.fail(`unterminated caller block: ${marker}`);
+}
+
 test('phase-one status and remaining node geometry callers use projection intents', async () => {
     const runtime = await read('../js/features/workflow/workflow-runtime-manager.js');
     const modelSettings = await read('../js/features/settings/model-settings.js');
@@ -18,19 +32,36 @@ test('phase-one status and remaining node geometry callers use projection intent
 });
 
 test('phase-one migrated callers do not retain rendering strategy vocabulary', async () => {
-    const sources = await Promise.all([
-        read('../js/canvas/selection.js'),
-        read('../js/canvas/canvas-interactions.js'),
-        read('../js/features/ui/context-menu-controller.js'),
-        read('../js/nodes/node-lifecycle.js'),
-        read('../js/nodes/node-dom-bindings.js'),
+    const sourceEntries = await Promise.all([
+        ['../js/canvas/selection.js', ['function selectAllNodes']],
+        ['../js/canvas/canvas-interactions.js', ['function syncMarqueeSelection', 'if (isMarqueeAction)']],
+        ['../js/features/ui/context-menu-controller.js', ['function ensureNodeSelected', "if (e.target.id === 'canvas-container'"]],
+        ['../js/nodes/node-lifecycle.js', ['function scheduleNodeSizeConnectionRefresh', 'function selectNode', 'function renameNode']],
+        ['../js/nodes/node-dom-bindings.js', ['function scheduleConnectedInputFieldLayout', 'function toggleNodeCollapsed', 'function updateImageGenerateMaskPortVisibility']],
+        ['../js/features/workflow/workflow-runtime-manager.js', ['function applyVisibleNodeRunState']],
+        ['../js/features/settings/model-settings.js', ['function syncImageGenerateResolutionOptions']],
+        ['../js/app/bootstrap-impl.js', ['function adjustTextareaHeight', 'function refreshImageGenerateNodes']]
+    ].map(async ([path, markers]) => [path, markers, await read(path)]));
+    const forbiddenStrategy = /\b(?:updateAllConnections|scheduleConnectionRefresh)\s*\(|\b(?:force|immediate|settle)\s*:/;
+
+    sourceEntries.forEach(([path, markers, source]) => {
+        markers.forEach((marker) => {
+            assert.doesNotMatch(
+                extractBraceBlock(source, marker),
+                forbiddenStrategy,
+                `${path}: ${marker} selects a rendering strategy`
+            );
+        });
+    });
+
+    const executionSources = await Promise.all([
         read('../js/features/execution/workflow-runner.js'),
         read('../js/features/execution/execution-core.js'),
-        read('../js/features/execution/async-media-execution.js'),
-        read('../js/features/workflow/workflow-runtime-manager.js'),
-        read('../js/features/settings/model-settings.js')
+        read('../js/features/execution/async-media-execution.js')
     ]);
-    const combined = sources.join('\n');
-
-    assert.doesNotMatch(combined, /reason:\s*'(selection-all|marquee-clear-selection|marquee-selection|marquee-selection-end|textarea-height|node-size-observer|node-connection-geometry|node-port-geometry|nodes-port-geometry|connected-input-field-layout|node-collapse)'/);
+    assert.doesNotMatch(executionSources.slice(1).join('\n'), forbiddenStrategy);
+    assert.doesNotMatch(
+        executionSources[0].replace(extractBraceBlock(executionSources[0], 'if (injected)'), ''),
+        forbiddenStrategy
+    );
 });
