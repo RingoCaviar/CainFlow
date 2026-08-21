@@ -4,7 +4,7 @@
  */
 export function createAppRegistry() {
     return {
-        connectionRefreshSchedulerApi: null,
+        connectionProjectionApi: null,
         logPanelApi: null,
         requestStatisticsApi: null,
         historyPanelApi: null,

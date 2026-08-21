@@ -30,7 +30,7 @@ import {
     getConnectionSamplePoints as getConnectionSamplePointsService
 } from '../canvas/geometry.js';
 import { createConnectionsApi } from '../canvas/connections.js';
-import { createConnectionRefreshScheduler } from '../canvas/connection-refresh-scheduler.js';
+import { createConnectionProjection } from '../canvas/connection-projection.js';
 import { createConnectionDiagnostics } from '../canvas/connection-diagnostics.js';
 import { createBatchConnectionModeApi } from '../canvas/batch-connection-mode.js';
 import { createSelectionApi } from '../canvas/selection.js';
@@ -204,11 +204,12 @@ applyGlobalAnimationSettingService({ state, documentRef: document });
 applyCanvasUiSettingService({ state, documentRef: document });
 
 function scheduleConnectionRefresh(options = {}) {
-    return registry.connectionRefreshSchedulerApi?.scheduleConnectionRefresh(options) || false;
+    return registry.connectionProjectionApi?.scheduleLegacyRefresh(options) || false;
 }
 
 function flushConnectionRefresh(options = {}) {
-    return registry.connectionRefreshSchedulerApi?.flushConnectionRefresh(options) || false;
+    if (options.force === true) registry.connectionProjectionApi?.maintenance.connectionGeometryStyleChanged();
+    return registry.connectionProjectionApi?.commit() || false;
 }
 
 function applyGlobalAnimationSetting() {
@@ -634,7 +635,7 @@ const {
     updatePortStyles
 } = connectionsApi;
 
-registry.connectionRefreshSchedulerApi = createConnectionRefreshScheduler({
+registry.connectionProjectionApi = createConnectionProjection({
     updateAllConnections,
     updateDirtyConnections,
     invalidateNodePortCache,
