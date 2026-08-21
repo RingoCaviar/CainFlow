@@ -15,6 +15,7 @@ export function createCanvasInteractionsApi({
     updateDirtyConnections = null,
     updateDraggingConnections = null,
     scheduleConnectionRefresh = null,
+    connectionProjection = null,
     invalidateNodePortCache = null,
     markNodeConnectionsDirty = null,
     clearConnectionInsertPreview = null,
@@ -344,7 +345,7 @@ export function createCanvasInteractionsApi({
         const marqueeRect = getMarqueeCanvasRect(marquee);
         if (!marqueeRect) return false;
 
-        let changed = false;
+        const changedNodeIds = [];
         state.nodes.forEach((node, id) => {
             const nodeBounds = getNodeCanvasBounds(node);
             const intersects = nodeBounds ? rectsIntersect(marqueeRect, nodeBounds) : false;
@@ -353,16 +354,17 @@ export function createCanvasInteractionsApi({
                 if (!state.selectedNodes.has(id)) {
                     state.selectedNodes.add(id);
                     node.el?.classList.add('selected');
-                    changed = true;
+                    changedNodeIds.push(id);
                 }
             } else if (!marquee.initialSelection.has(id) && state.selectedNodes.has(id)) {
                 state.selectedNodes.delete(id);
                 node.el?.classList.remove('selected');
-                changed = true;
+                changedNodeIds.push(id);
             }
         });
 
-        return changed;
+        if (changedNodeIds.length) connectionProjection?.nodeAppearanceChanged(changedNodeIds);
+        return changedNodeIds.length > 0;
     }
 
     function finishZoomInteraction() {
@@ -619,16 +621,13 @@ export function createCanvasInteractionsApi({
             if (isMarqueeAction) {
                 const isToggle = e.ctrlKey || e.metaKey || e.shiftKey;
                 if (!isToggle) {
+                    const changedNodeIds = Array.from(state.selectedNodes);
                     state.selectedNodes.forEach((nid) => {
                         const node = state.nodes.get(nid);
                         if (node) node.el.classList.remove('selected');
                     });
                     state.selectedNodes.clear();
-                    if (typeof scheduleConnectionRefresh === 'function') {
-                        scheduleConnectionRefresh({ force: true, reason: 'marquee-clear-selection' });
-                    } else {
-                        updateAllConnections();
-                    }
+                    connectionProjection?.nodeAppearanceChanged(changedNodeIds);
                 }
 
                 e.preventDefault();
@@ -717,13 +716,7 @@ export function createCanvasInteractionsApi({
                 box.style.width = w + 'px';
                 box.style.height = h + 'px';
 
-                if (syncMarqueeSelection(state.marquee)) {
-                    if (typeof scheduleConnectionRefresh === 'function') {
-                        scheduleConnectionRefresh({ force: true, reason: 'marquee-selection' });
-                    } else {
-                        updateAllConnections();
-                    }
-                }
+                syncMarqueeSelection(state.marquee);
             }
             if (state.dragging) {
                 if (state.dragging.isCloneDrag && !state.dragging.cloned) {
@@ -904,17 +897,7 @@ export function createCanvasInteractionsApi({
                 const endCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 state.marquee.endCanvasX = endCanvas.x;
                 state.marquee.endCanvasY = endCanvas.y;
-                if (syncMarqueeSelection(state.marquee)) {
-                    if (typeof scheduleConnectionRefresh === 'function') {
-                        scheduleConnectionRefresh({
-                            force: true,
-                            immediate: true,
-                            reason: 'marquee-selection-end'
-                        });
-                    } else {
-                        updateAllConnections();
-                    }
-                }
+                syncMarqueeSelection(state.marquee);
 
                 const dw = Math.abs(state.marquee.startX - e.clientX);
                 const dh = Math.abs(state.marquee.startY - e.clientY);

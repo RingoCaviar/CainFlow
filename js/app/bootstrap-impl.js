@@ -112,10 +112,9 @@ function adjustTextareaHeight(textarea) {
     if (!textarea) return;
     // 如果 textarea 位于节点内部，节点高度可能已经变化，
     // 需要同步刷新连线位置。
-    scheduleConnectionRefresh({
-        nodeIds: textarea.closest?.('.node')?.dataset?.id || '',
-        reason: 'textarea-height'
-    });
+    connectionProjectionInteractions.nodeGeometryChanged(
+        textarea.closest?.('.node')?.dataset?.id || ''
+    );
 }
 
 // 从 data URL 读取分辨率文本
@@ -212,6 +211,11 @@ function flushConnectionRefresh(options = {}) {
     return registry.connectionProjectionApi?.commit() || false;
 }
 
+const connectionProjectionInteractions = {
+    nodeAppearanceChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeAppearanceChanged(nodeIds),
+    nodeGeometryChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeGeometryChanged(nodeIds)
+};
+
 function applyGlobalAnimationSetting() {
     return applyGlobalAnimationSettingService({ state, documentRef: document });
 }
@@ -277,8 +281,7 @@ const interactionPerformanceGuard = createInteractionPerformanceGuard({
 });
 const selectionApi = createSelectionApi({
     state,
-    updateAllConnections: () => updateAllConnections(),
-    scheduleConnectionRefresh
+    connectionProjection: connectionProjectionInteractions
 });
 const nodeSerializer = createNodeSerializer({
     state,
@@ -611,6 +614,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     updateAllConnections: () => updateAllConnections(),
     updateDirtyConnections: () => updateDirtyConnections(),
     scheduleConnectionRefresh,
+    connectionProjection: connectionProjectionInteractions,
     invalidateNodePortCache: (nodeId) => invalidateNodePortCache(nodeId),
     markNodeConnectionsDirty: (nodeId) => markNodeConnectionsDirty(nodeId),
     updatePortStyles: () => updatePortStyles(),
@@ -856,6 +860,7 @@ function getCanvasInteractionsApi() {
             updateDirtyConnections,
             updateDraggingConnections,
             scheduleConnectionRefresh,
+            connectionProjection: connectionProjectionInteractions,
             invalidateNodePortCache,
             markNodeConnectionsDirty,
             clearConnectionInsertPreview,
@@ -965,6 +970,7 @@ function getContextMenuControllerApi() {
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             fitNodeToContent,
             updateAllConnections,
+            connectionProjection: connectionProjectionInteractions,
             updatePortStyles,
             scheduleSave,
             showToast
@@ -1032,6 +1038,7 @@ function getNodeLifecycleApi() {
             updateAllConnections,
             updateDirtyConnections,
             scheduleConnectionRefresh,
+            connectionProjection: connectionProjectionInteractions,
             invalidateNodePortCache,
             markNodeConnectionsDirty,
             updatePortStyles,

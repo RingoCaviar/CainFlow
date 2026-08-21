@@ -53,6 +53,7 @@ export function createNodeDomBindingsApi({
     updateAllConnections = () => {},
     updateDirtyConnections = null,
     scheduleConnectionRefresh = null,
+    connectionProjection = null,
     invalidateNodePortCache = null,
     markNodeConnectionsDirty = null,
     updatePortStyles = () => {},
@@ -130,12 +131,16 @@ export function createNodeDomBindingsApi({
     }
 
     function refreshNodePortGeometry(nodeId, { force = false } = {}) {
+        if (!force && connectionProjection) {
+            connectionProjection.nodeGeometryChanged(nodeId);
+            return;
+        }
         if (typeof scheduleConnectionRefresh === 'function') {
             scheduleConnectionRefresh({
                 nodeIds: nodeId,
                 force,
                 immediate: force,
-                reason: 'node-port-geometry'
+                reason: 'node-topology-port-geometry'
             });
             return;
         }
@@ -153,12 +158,16 @@ export function createNodeDomBindingsApi({
 
     function refreshNodesPortGeometry(nodeIds = [], { force = false } = {}) {
         const ids = Array.from(new Set((Array.isArray(nodeIds) ? nodeIds : [nodeIds]).filter(Boolean)));
+        if (!force && connectionProjection) {
+            connectionProjection.nodeGeometryChanged(ids);
+            return;
+        }
         if (typeof scheduleConnectionRefresh === 'function') {
             scheduleConnectionRefresh({
                 nodeIds: ids,
                 force,
                 immediate: force,
-                reason: 'nodes-port-geometry'
+                reason: 'nodes-topology-port-geometry'
             });
             return;
         }
@@ -233,14 +242,7 @@ export function createNodeDomBindingsApi({
                 preserveCurrentWidth: true,
                 reason: 'element-resize'
             });
-            if (typeof scheduleConnectionRefresh === 'function') {
-                scheduleConnectionRefresh({
-                    nodeIds: nodeId,
-                    reason: 'connected-input-field-layout'
-                });
-            } else {
-                updateAllConnections();
-            }
+            connectionProjection?.nodeGeometryChanged(nodeId);
         });
         pendingConnectedInputLayoutFrames.set(nodeId, frameId);
     }
@@ -1199,8 +1201,6 @@ export function createNodeDomBindingsApi({
         node.observedWidth = Math.round(currentWidth);
         node.observedHeight = Math.round(nextHeight);
 
-        scheduleConnectionRefresh?.({ nodeIds: [id], force: true, settle: true, reason: 'node-collapse' });
-
         return true;
     }
 
@@ -1788,7 +1788,7 @@ export function createNodeDomBindingsApi({
         maskPort.classList.toggle('hidden', !shouldShow);
         maskPort.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
         if (wasHidden !== !shouldShow) {
-            updateAllConnections();
+            connectionProjection?.nodeGeometryChanged(id);
             updatePortStyles();
         }
     }

@@ -21,6 +21,7 @@ export function createContextMenuControllerApi({
     createNodeFromConnectionCandidate,
     fitNodeToContent = null,
     updateAllConnections,
+    connectionProjection = null,
     updatePortStyles = () => {},
     scheduleSave = () => {},
     showToast = null,
@@ -39,18 +40,21 @@ export function createContextMenuControllerApi({
     }
 
     function clearSelection() {
+        const changedNodeIds = Array.from(state.selectedNodes);
         state.selectedNodes.forEach((nodeId) => {
             const node = state.nodes.get(nodeId);
             if (node) node.el.classList.remove('selected');
         });
         state.selectedNodes.clear();
+        return changedNodeIds;
     }
 
     function ensureNodeSelected(nodeEl) {
         if (state.selectedNodes.has(nodeEl.id)) return;
-        clearSelection();
+        const changedNodeIds = clearSelection();
         state.selectedNodes.add(nodeEl.id);
         nodeEl.classList.add('selected');
+        connectionProjection?.nodeAppearanceChanged([...changedNodeIds, nodeEl.id]);
     }
 
     function updateNodeActionVisibility({ hasNodeTarget, hasSelection }) {
@@ -177,12 +181,12 @@ export function createContextMenuControllerApi({
         if (typeof fitNodeToContent === 'function') {
             fitNodeToContent(nodeId, { reason: 'reference-image-port-count-change' });
         }
-        updateAllConnections();
+        connectionProjection?.nodeGeometryChanged(nodeId);
         updatePortStyles();
         const requestFrame = documentRef.defaultView?.requestAnimationFrame;
         if (typeof requestFrame === 'function') {
             requestFrame(() => {
-                updateAllConnections();
+                connectionProjection?.nodeGeometryChanged(nodeId);
                 updatePortStyles();
             });
         }
@@ -792,8 +796,8 @@ export function createContextMenuControllerApi({
             if (!contextMenu.contains(e.target) && !isInsideSubmenu) closeContextMenu();
 
             if (e.target.id === 'canvas-container' && !state.justDragged) {
-                clearSelection();
-                updateAllConnections();
+                const changedNodeIds = clearSelection();
+                connectionProjection?.nodeAppearanceChanged(changedNodeIds);
             }
         });
 

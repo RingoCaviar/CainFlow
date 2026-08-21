@@ -3,18 +3,10 @@
  */
 export function createSelectionApi({
     state,
-    updateAllConnections,
-    scheduleConnectionRefresh = null
+    connectionProjection
 }) {
-    function refreshSelectionConnections(reason) {
-        if (typeof scheduleConnectionRefresh === 'function') {
-            scheduleConnectionRefresh({ force: true, reason });
-            return;
-        }
-        updateAllConnections();
-    }
-
     function selectAllNodes() {
+        const changedNodeIds = new Set(state.selectedNodes);
         state.selectedNodes.forEach((nodeId) => {
             const node = state.nodes.get(nodeId);
             if (node) node.el.classList.remove('selected');
@@ -23,9 +15,10 @@ export function createSelectionApi({
         state.selectedNodes.clear();
         state.nodes.forEach((node, id) => {
             state.selectedNodes.add(id);
+            changedNodeIds.add(id);
             node.el.classList.add('selected');
         });
-        refreshSelectionConnections('selection-all');
+        connectionProjection?.nodeAppearanceChanged(Array.from(changedNodeIds));
     }
 
     return {

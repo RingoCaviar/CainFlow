@@ -40,6 +40,7 @@ export function createNodeLifecycleApi({
     updateAllConnections,
     updateDirtyConnections = null,
     scheduleConnectionRefresh = null,
+    connectionProjection = null,
     invalidateNodePortCache = null,
     markNodeConnectionsDirty = null,
     updatePortStyles,
@@ -227,41 +228,21 @@ export function createNodeLifecycleApi({
             pendingNodeSizeConnectionRefresh = null;
             const nodeIds = Array.from(pendingNodeSizeConnectionRefreshIds);
             pendingNodeSizeConnectionRefreshIds.clear();
-            if (typeof scheduleConnectionRefresh === 'function') {
-                scheduleConnectionRefresh({
-                    nodeIds,
-                    force: nodeIds.length === 0,
-                    settle: true,
-                    reason: 'node-size-observer'
-                });
-                return;
-            }
-            nodeIds.forEach((id) => {
-                if (typeof invalidateNodePortCache === 'function') {
-                    invalidateNodePortCache(id);
-                } else if (typeof markNodeConnectionsDirty === 'function') {
-                    markNodeConnectionsDirty(id);
-                }
-            });
-            if (nodeIds.length === 0) {
-                updateAllConnections();
-                return;
-            }
-            if (typeof updateDirtyConnections === 'function') {
-                updateDirtyConnections();
-            } else {
-                updateAllConnections();
-            }
+            connectionProjection?.nodeGeometryChanged(nodeIds);
         });
     }
 
     function refreshNodeConnectionGeometry(nodeId, { force = false } = {}) {
+        if (!force && connectionProjection) {
+            connectionProjection.nodeGeometryChanged(nodeId);
+            return;
+        }
         if (typeof scheduleConnectionRefresh === 'function') {
             scheduleConnectionRefresh({
                 nodeIds: nodeId,
                 force,
                 immediate: force,
-                reason: 'node-connection-geometry'
+                reason: 'node-topology-geometry'
             });
             return;
         }
@@ -1833,8 +1814,10 @@ export function createNodeLifecycleApi({
     }
 
     function selectNode(id, isMulti) {
+        const changedNodeIds = new Set();
         if (!isMulti) {
             state.selectedNodes.forEach((nid) => {
+                changedNodeIds.add(nid);
                 const node = state.nodes.get(nid);
                 if (node) node.el.classList.remove('selected');
             });
@@ -1843,10 +1826,12 @@ export function createNodeLifecycleApi({
 
         if (state.selectedNodes.has(id)) {
             state.selectedNodes.delete(id);
+            changedNodeIds.add(id);
             const node = state.nodes.get(id);
             if (node) node.el.classList.remove('selected');
         } else {
             state.selectedNodes.add(id);
+            changedNodeIds.add(id);
             state.activeNodeId = id;
             const node = state.nodes.get(id);
             if (node) {
@@ -1858,7 +1843,7 @@ export function createNodeLifecycleApi({
             scheduleSave();
         }
         refreshNodeRelationCache();
-        updateAllConnections();
+        connectionProjection?.nodeAppearanceChanged(Array.from(changedNodeIds));
     }
 
     function getRelationAnchorNodeId() {
@@ -1981,7 +1966,7 @@ export function createNodeLifecycleApi({
             }
         });
         scheduleEnsureNodeContentVisible(nodeId, { save: false });
-        updateAllConnections();
+        connectionProjection?.nodeGeometryChanged(nodeId);
         scheduleSave();
         showToast(customTitle ? `节点已重命名为「${customTitle}」` : '节点名称已还原', 'success');
         return true;
