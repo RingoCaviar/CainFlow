@@ -13,7 +13,6 @@ export function createCanvasInteractionsApi({
     drawTempConnection,
     updateAllConnections,
     updateDirtyConnections = null,
-    updateDraggingConnections = null,
     scheduleConnectionRefresh = null,
     connectionProjection = null,
     invalidateNodePortCache = null,
@@ -37,8 +36,11 @@ export function createCanvasInteractionsApi({
     windowRef = window,
     requestAnimationFrameRef = requestAnimationFrame
 }) {
-    let rafUpdate = null;
     let panTransformRaf = null;
+    let panInteraction = null;
+    let zoomInteraction = null;
+    let dragInteraction = null;
+    let connectionDrawInteraction = null;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -63,20 +65,6 @@ export function createCanvasInteractionsApi({
         const dpr = Number(windowRef.devicePixelRatio) || 1;
         const scale = zoom * dpr;
         return scale > 0 ? Math.round(delta * scale) / scale : delta;
-    }
-
-    function scheduleUIUpdate() {
-        if (rafUpdate) return;
-        rafUpdate = requestAnimationFrameRef(() => {
-            if (state.dragging && updateDraggingConnections) {
-                updateDraggingConnections(state.dragging);
-            } else if (typeof scheduleConnectionRefresh === 'function') {
-                scheduleConnectionRefresh({ reason: 'canvas-ui-frame' });
-            } else {
-                updateAllConnections();
-            }
-            rafUpdate = null;
-        });
     }
 
     function refreshNodeConnections(nodeId, { force = false } = {}) {
@@ -121,6 +109,17 @@ export function createCanvasInteractionsApi({
         }
     }
 
+    function beginProjectionInteraction(kind, nodeIds) {
+        return connectionProjection?.beginInteraction?.(kind, nodeIds) || null;
+    }
+
+    function finishProjectionInteraction(interaction) {
+        if (!interaction) return;
+        Promise.resolve(interaction.finish()).catch((error) => {
+            console.warn('Connection projection interaction failed to settle:', error);
+        });
+    }
+
     function getWheelDeltaPixels(event, canvasHeight) {
         const rawDelta = Number(event?.deltaY) || 0;
         const pixels = event?.deltaMode === 1
@@ -136,6 +135,7 @@ export function createCanvasInteractionsApi({
         state.canvas.isPanning = true;
         state.canvas.panStart = { x: e.clientX, y: e.clientY };
         state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
+        panInteraction = beginProjectionInteraction('pan');
         canvasContainer.classList.add('grabbing', 'is-panning');
         documentRef.body.classList.add('is-interacting');
         documentRef.getElementById('connections-group').classList.add('is-panning');
@@ -380,6 +380,9 @@ export function createCanvasInteractionsApi({
 
         if (isNodeFormControlActive()) {
             state.pendingZoomVisualRefresh = true;
+            const settledInteraction = zoomInteraction;
+            zoomInteraction = null;
+            finishProjectionInteraction(settledInteraction);
             scheduleSave();
             return;
         }
@@ -388,6 +391,9 @@ export function createCanvasInteractionsApi({
         viewportApi.updateCanvasTransform({
             updateConnections: false
         });
+        const settledInteraction = zoomInteraction;
+        zoomInteraction = null;
+        finishProjectionInteraction(settledInteraction);
         requestAnimationFrameRef(() => {
             viewportApi.refreshNodeTextRendering();
             scheduleSave();
@@ -700,6 +706,7 @@ export function createCanvasInteractionsApi({
                 state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
                 state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
                 schedulePanTransformUpdate();
+                panInteraction?.changed();
             }
             if (state.marquee) {
                 state.marquee.endX = e.clientX;
@@ -780,6 +787,10 @@ export function createCanvasInteractionsApi({
                 const dy = pos.y - state.dragging.startY;
                 const hasDragMovement = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
 
+                if (hasDragMovement && !dragInteraction) {
+                    dragInteraction = beginProjectionInteraction('node-drag', state.dragging.nodes);
+                }
+
                 if (hasDragMovement && state.dragging.deferSelectionOnDrag && !state.dragging.selectionActivated) {
                     state.dragging.activateSelection?.();
                 }
@@ -807,7 +818,7 @@ export function createCanvasInteractionsApi({
                     }
                 }
                 updateShakeDetach(state.dragging, pos);
-                scheduleUIUpdate();
+                dragInteraction?.changed();
             }
             if (state.resizing) {
                 const r = state.resizing;
@@ -852,6 +863,10 @@ export function createCanvasInteractionsApi({
                 const dx = e.clientX - state.connecting.screenX;
                 const dy = e.clientY - state.connecting.screenY;
                 if (Math.sqrt(dx * dx + dy * dy) > 5) state.connecting.dragged = true;
+                if (!connectionDrawInteraction) {
+                    connectionDrawInteraction = beginProjectionInteraction('connection-draw');
+                }
+                connectionDrawInteraction?.changed();
 
                 drawTempConnection(
                     state.connecting.startX,
@@ -885,10 +900,11 @@ export function createCanvasInteractionsApi({
                 state.canvas.isPanning = false;
                 canvasContainer.classList.remove('grabbing', 'is-panning');
                 viewportApi.updateCanvasTransform({
-                    forceConnections: true,
-                    settleConnections: true,
-                    connectionRefreshReason: 'pan-settled'
+                    updateConnections: false
                 });
+                const settledInteraction = panInteraction;
+                panInteraction = null;
+                finishProjectionInteraction(settledInteraction);
                 notifyViewportSettled();
             }
             if (state.marquee) {
@@ -932,18 +948,10 @@ export function createCanvasInteractionsApi({
                 } else if (clearConnectionInsertPreview) {
                     clearConnectionInsertPreview();
                 }
-                const draggedNodeIds = state.dragging.nodes.slice();
                 state.dragging = null;
-                if (typeof scheduleConnectionRefresh === 'function') {
-                    scheduleConnectionRefresh({
-                        nodeIds: draggedNodeIds,
-                        immediate: true,
-                        settle: true,
-                        reason: 'drag-end'
-                    });
-                } else {
-                    updateAllConnections();
-                }
+                const settledInteraction = dragInteraction;
+                dragInteraction = null;
+                finishProjectionInteraction(settledInteraction);
                 scheduleSave();
             }
             if (state.resizing) {
@@ -1000,6 +1008,9 @@ export function createCanvasInteractionsApi({
                                 canvasX: pos.x,
                                 canvasY: pos.y
                             });
+                            const settledConnectionDraw = connectionDrawInteraction;
+                            connectionDrawInteraction = null;
+                            finishProjectionInteraction(settledConnectionDraw);
                             return;
                         }
                     }
@@ -1010,6 +1021,9 @@ export function createCanvasInteractionsApi({
                     state.connecting = null;
                 }
             }
+            const settledConnectionDraw = connectionDrawInteraction;
+            connectionDrawInteraction = null;
+            finishProjectionInteraction(settledConnectionDraw);
         });
 
         canvasContainer.addEventListener('mouseenter', () => { state.isMouseOverCanvas = true; });
@@ -1028,6 +1042,7 @@ export function createCanvasInteractionsApi({
 
             if (!state.isInteracting) {
                 state.isInteracting = true;
+                zoomInteraction = beginProjectionInteraction('zoom');
                 documentRef.body.classList.add('is-interacting');
                 documentRef.getElementById('connections-group').classList.add('is-interacting');
             }
@@ -1058,6 +1073,7 @@ export function createCanvasInteractionsApi({
             state.canvas.x = mx - (mx - state.canvas.x) * (newZoom / oldZoom);
             state.canvas.y = my - (my - state.canvas.y) * (newZoom / oldZoom);
             state.canvas.zoom = newZoom;
+            zoomInteraction?.changed();
 
             if (!state._zoomRaf) {
                 state._zoomRaf = requestAnimationFrameRef(() => {

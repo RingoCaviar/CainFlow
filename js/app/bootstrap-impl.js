@@ -206,6 +206,7 @@ const canvasPerformanceMonitor = createCanvasPerformanceMonitor({
         connectionCount: state.connections.length
     })
 });
+const canvasBenchmarkMode = new URLSearchParams(globalThis.location?.search || '').get('benchmark') === '1';
 
 state.abortAllWorkflowRuns = (reason) => getWorkflowRuntimeManagerApi().abortAllWorkflowRuns(reason);
 applyGlobalAnimationSettingService({ state, documentRef: document });
@@ -221,6 +222,7 @@ function flushConnectionRefresh(options = {}) {
 }
 
 const connectionProjectionInteractions = {
+    beginInteraction: (kind, nodeIds) => registry.connectionProjectionApi?.interactions.beginInteraction(kind, nodeIds),
     nodeAppearanceChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeAppearanceChanged(nodeIds),
     nodeGeometryChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeGeometryChanged(nodeIds)
 };
@@ -641,7 +643,6 @@ const {
     updateDirtyConnections,
     detectMisalignedConnections,
     realignConnections,
-    updateDraggingConnections,
     clearConnectionInsertPreview,
     commitConnectionInsertPreview,
     getCompatibleNodeTypeCandidates,
@@ -871,7 +872,6 @@ function getCanvasInteractionsApi() {
             drawTempConnection,
             updateAllConnections,
             updateDirtyConnections,
-            updateDraggingConnections,
             scheduleConnectionRefresh,
             connectionProjection: connectionProjectionInteractions,
             invalidateNodePortCache,
@@ -1097,12 +1097,12 @@ function getStartupControllerApi() {
             state,
             initUI: () => uiFeature.initUI(),
             initLogs: () => getLogPanelApi().initializeLogs(),
-            loadState: (...args) => projectIoFeature.loadState(...args),
+            loadState: canvasBenchmarkMode ? async () => false : (...args) => projectIoFeature.loadState(...args),
             showToast,
             syncProxyToServer: () => settingsFeature.syncProxyToServer(),
             checkNetworkConnectivity: (options) => settingsFeature.checkNetworkConnectivity(options),
             checkNetworkProxyMismatch: (force = false) => settingsFeature.checkNetworkProxyMismatch(force),
-            ensureOpenWorkflow: () => workflowManagerApi.ensureOpenWorkflow(),
+            ensureOpenWorkflow: canvasBenchmarkMode ? async () => true : () => workflowManagerApi.ensureOpenWorkflow(),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
             scheduleAutoUpdateCheck: () => updateManager.scheduleAutoUpdateCheck({ delayMs: 5000, force: true, showModal: false, showCanvasNotification: true }),
             checkRefreshNotice: () => updateManager.checkRefreshNotice(),

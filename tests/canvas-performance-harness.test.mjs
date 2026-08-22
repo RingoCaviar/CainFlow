@@ -137,4 +137,15 @@ test('application bootstrap wires benchmark telemetry only through gated dev mod
     assert.match(source, /performanceMonitor:\s*canvasPerformanceMonitor/g);
     assert.match(source, /enableCanvasStressTest:\s*canvasStressTestBridge\.enabled/);
     assert.match(source, /enableCanvasPerformanceMonitor:\s*canvasPerformanceMonitor\.enabled/);
+    assert.match(source, /canvasBenchmarkMode \? async \(\) => false/);
+    assert.match(source, /canvasBenchmarkMode \? async \(\) => true/);
+});
+
+test('the UI benchmark fixture keeps media payloads outside the render measurement', async () => {
+    const source = await readFile(new URL('../js/app/dev/canvas-performance-monitor.js', import.meta.url), 'utf8');
+
+    assert.match(source, /total:\s*200/);
+    assert.match(source, /imageImportCount:\s*50/);
+    assert.match(source, /imageSize:\s*1/);
+    assert.match(source, /connectionCount:\s*400/);
 });

@@ -92,7 +92,14 @@ export function createCanvasPerformanceMonitor({
         fixtureButton.addEventListener('click', async () => {
             fixtureButton.disabled = true;
             try {
-                await createFixture?.({ total: 200, imageImportCount: 50, connectionCount: 400, isolate: true, ephemeral: true });
+                await createFixture?.({
+                    total: 200,
+                    imageImportCount: 50,
+                    imageSize: 1,
+                    connectionCount: 400,
+                    isolate: true,
+                    ephemeral: true
+                });
             } finally {
                 fixtureButton.disabled = false;
             }
