@@ -204,7 +204,8 @@ const canvasPerformanceMonitor = createCanvasPerformanceMonitor({
     getFixtureSize: () => ({
         nodeCount: state.nodes.size,
         connectionCount: state.connections.length
-    })
+    }),
+    performInteractionStep: (step) => getCanvasInteractionsApi().performSampleInteractionStep(step)
 });
 const canvasBenchmarkMode = new URLSearchParams(globalThis.location?.search || '').get('benchmark') === '1';
 

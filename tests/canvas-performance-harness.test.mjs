@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createCanvasStressTestBridge } from '../js/app/dev/canvas-stress-test.js';
-import { createCanvasPerformanceMonitor } from '../js/app/dev/canvas-performance-monitor.js';
+import {
+    createCanvasPerformanceMonitor,
+    MIXED_NODE_BENCHMARK_FIXTURE_OPTIONS
+} from '../js/app/dev/canvas-performance-monitor.js';
 import { registerGlobalBridges } from '../js/app/register-global-bridges.js';
 
 function createFixtureHarness(search = '?stressTest=1') {
@@ -80,17 +83,10 @@ test('canvas benchmark tools remain unavailable without explicit development fla
     assert.equal(globalRef.sampleCanvasPerformance, undefined);
 });
 
-test('development flags expose a deterministic mixed 200/400 benchmark contract', async () => {
+test('development flags expose the Mixed-node benchmark fixture contract', async () => {
     const { bridge, state, addedTypes } = createFixtureHarness('?stressTest=1');
 
-    const ids = await bridge.createCanvasStressTestNodes({
-        total: 200,
-        imageImportCount: 50,
-        imageSize: 1,
-        connectionCount: 400,
-        isolate: true,
-        ephemeral: true
-    });
+    const ids = await bridge.createCanvasStressTestNodes({ ...MIXED_NODE_BENCHMARK_FIXTURE_OPTIONS });
 
     assert.equal(bridge.enabled, true);
     assert.equal(ids.length, 200);
@@ -127,6 +123,40 @@ test('Performance sampling run reports frame metrics and fixture size', async ()
     assert.ok(result.fps > 0);
     assert.ok(Number.isFinite(result.p95FrameMs));
     assert.equal(result.longFrameCount, 0);
+    assert.deepEqual(result.costs, {
+        'render-projection': 0,
+        'connection-full-refresh': 0
+    });
+});
+
+test('Performance sampling run drives the fixed Canvas interaction sequence', async () => {
+    let now = 0;
+    const interactionSteps = [];
+    const monitor = createCanvasPerformanceMonitor({
+        globalRef: {
+            location: { search: '?perf=1' },
+            performance: { now: () => now },
+            requestAnimationFrame(callback) {
+                now += 10;
+                callback(now);
+                return now;
+            },
+            document: null
+        },
+        performInteractionStep(step) { interactionSteps.push(step); }
+    });
+
+    await monitor.sample(40);
+
+    assert.deepEqual(
+        interactionSteps.filter(({ phase }) => phase === 'start').map(({ kind }) => kind),
+        ['pan', 'zoom', 'node-drag', 'connection-draw']
+    );
+    assert.deepEqual(interactionSteps.at(-1), {
+        kind: 'connection-draw',
+        phase: 'finish',
+        progress: 1
+    });
 });
 
 test('application bootstrap wires benchmark telemetry only through gated dev modules', async () => {
@@ -141,11 +171,13 @@ test('application bootstrap wires benchmark telemetry only through gated dev mod
     assert.match(source, /canvasBenchmarkMode \? async \(\) => true/);
 });
 
-test('the UI benchmark fixture keeps media payloads outside the render measurement', async () => {
-    const source = await readFile(new URL('../js/app/dev/canvas-performance-monitor.js', import.meta.url), 'utf8');
-
-    assert.match(source, /total:\s*200/);
-    assert.match(source, /imageImportCount:\s*50/);
-    assert.match(source, /imageSize:\s*1/);
-    assert.match(source, /connectionCount:\s*400/);
+test('Mixed-node benchmark fixture keeps media payloads outside the render measurement', () => {
+    assert.deepEqual(MIXED_NODE_BENCHMARK_FIXTURE_OPTIONS, {
+        total: 200,
+        imageImportCount: 50,
+        imageSize: 1,
+        connectionCount: 400,
+        isolate: true,
+        ephemeral: true
+    });
 });

@@ -1,7 +1,19 @@
+import { PERFORMANCE_INTERACTION_SEQUENCE } from '../../canvas/canvas-interaction-kinds.js';
+
+export const MIXED_NODE_BENCHMARK_FIXTURE_OPTIONS = Object.freeze({
+    total: 200,
+    imageImportCount: 50,
+    imageSize: 1,
+    connectionCount: 400,
+    isolate: true,
+    ephemeral: true
+});
+
 /** Development-only frame sampler for repeatable canvas profiling. */
 export function createCanvasPerformanceMonitor({
     globalRef = globalThis,
-    getFixtureSize = () => ({ nodeCount: 0, connectionCount: 0 })
+    getFixtureSize = () => ({ nodeCount: 0, connectionCount: 0 }),
+    performInteractionStep = () => {}
 } = {}) {
     const enabled = new URLSearchParams(globalRef.location?.search || '').get('perf') === '1';
     const costs = new Map();
@@ -39,18 +51,56 @@ export function createCanvasPerformanceMonitor({
     function sample(durationMs = 10_000) {
         if (!enabled) return Promise.resolve({ enabled: false });
         costs.clear();
+        costs.set('render-projection', 0);
+        costs.set('connection-full-refresh', 0);
         samples.clear();
         const frames = [];
         const startedAt = globalRef.performance?.now?.() ?? Date.now();
         let previous = startedAt;
+        let activeInteractionIndex = 0;
+        performInteractionStep({
+            kind: PERFORMANCE_INTERACTION_SEQUENCE[activeInteractionIndex],
+            phase: 'start',
+            progress: 0
+        });
         return new Promise((resolve) => {
             const tick = (now) => {
+                const elapsedMs = now - startedAt;
+                const nextInteractionIndex = Math.min(
+                    PERFORMANCE_INTERACTION_SEQUENCE.length - 1,
+                    Math.floor((elapsedMs / durationMs) * PERFORMANCE_INTERACTION_SEQUENCE.length)
+                );
+                while (activeInteractionIndex < nextInteractionIndex) {
+                    performInteractionStep({
+                        kind: PERFORMANCE_INTERACTION_SEQUENCE[activeInteractionIndex],
+                        phase: 'finish',
+                        progress: 1
+                    });
+                    activeInteractionIndex += 1;
+                    performInteractionStep({
+                        kind: PERFORMANCE_INTERACTION_SEQUENCE[activeInteractionIndex],
+                        phase: 'start',
+                        progress: 0
+                    });
+                }
                 frames.push(now - previous);
                 previous = now;
-                if (now - startedAt < durationMs) {
+                if (elapsedMs < durationMs) {
+                    const segmentDuration = durationMs / PERFORMANCE_INTERACTION_SEQUENCE.length;
+                    const segmentStartedAt = activeInteractionIndex * segmentDuration;
+                    performInteractionStep({
+                        kind: PERFORMANCE_INTERACTION_SEQUENCE[activeInteractionIndex],
+                        phase: 'update',
+                        progress: Math.min(1, (elapsedMs - segmentStartedAt) / segmentDuration)
+                    });
                     globalRef.requestAnimationFrame(tick);
                     return;
                 }
+                performInteractionStep({
+                    kind: PERFORMANCE_INTERACTION_SEQUENCE[activeInteractionIndex],
+                    phase: 'finish',
+                    progress: 1
+                });
                 const sorted = frames.slice(1).sort((a, b) => a - b);
                 const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] || 0;
                 const total = sorted.reduce((sum, frame) => sum + frame, 0);
@@ -92,14 +142,7 @@ export function createCanvasPerformanceMonitor({
         fixtureButton.addEventListener('click', async () => {
             fixtureButton.disabled = true;
             try {
-                await createFixture?.({
-                    total: 200,
-                    imageImportCount: 50,
-                    imageSize: 1,
-                    connectionCount: 400,
-                    isolate: true,
-                    ephemeral: true
-                });
+                await createFixture?.({ ...MIXED_NODE_BENCHMARK_FIXTURE_OPTIONS });
             } finally {
                 fixtureButton.disabled = false;
             }

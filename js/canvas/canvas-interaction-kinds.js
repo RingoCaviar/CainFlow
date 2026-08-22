@@ -1,0 +1,13 @@
+export const CANVAS_INTERACTION_KIND = Object.freeze({
+    PAN: 'pan',
+    ZOOM: 'zoom',
+    NODE_DRAG: 'node-drag',
+    CONNECTION_DRAW: 'connection-draw'
+});
+
+export const PERFORMANCE_INTERACTION_SEQUENCE = Object.freeze([
+    CANVAS_INTERACTION_KIND.PAN,
+    CANVAS_INTERACTION_KIND.ZOOM,
+    CANVAS_INTERACTION_KIND.NODE_DRAG,
+    CANVAS_INTERACTION_KIND.CONNECTION_DRAW
+]);

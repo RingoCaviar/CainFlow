@@ -48,20 +48,23 @@ function createHarness() {
             beginInteraction(kind, nodeIds) {
                 projectionCalls.push(['begin', kind, nodeIds]);
                 return {
-                    changed() { projectionCalls.push(['changed', kind]); },
-                    finish() { projectionCalls.push(['finish', kind]); return Promise.resolve(); }
+                    changed(change) {
+                        projectionCalls.push(change ? ['changed', kind, change] : ['changed', kind]);
+                    },
+                    finish() { projectionCalls.push(['finish', kind]); return Promise.resolve(); },
+                    abort() { projectionCalls.push(['abort', kind]); return Promise.resolve(); }
                 };
             }
         },
         windowRef: {
-            addEventListener(type, listener) { windowListeners.push({ type, listener }); },
+            addEventListener(type, listener, options) { windowListeners.push({ type, listener, options }); },
             getSelection() { return { removeAllRanges() {} }; },
             performance: { now() { return 100; } }
         },
         requestAnimationFrameRef(callback) { callback(); }
     });
     api.initCanvasInteractions();
-    return { canvasListeners, windowListeners, state, viewportCalls, projectionCalls, legacyRefreshCalls };
+    return { api, canvasListeners, windowListeners, state, viewportCalls, projectionCalls, legacyRefreshCalls };
 }
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
@@ -188,7 +191,8 @@ test('pan changes and settlement flow through one projection lease', () => {
     };
     canvasListeners.find(({ type }) => type === 'mousedown').listener(event);
     windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240 });
-    windowListeners.find(({ type }) => type === 'mouseup').listener({ clientX: 130, clientY: 240, target: { closest() { return null; } } });
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
+        .listener({ clientX: 130, clientY: 240, target: { closest() { return null; } } });
 
     assert.deepEqual(projectionCalls, [
         ['begin', 'pan', undefined],
@@ -215,7 +219,8 @@ test('node dragging reports targeted changes and settlement through a projection
     };
 
     windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 10, clientY: 20 });
-    windowListeners.find(({ type }) => type === 'mouseup').listener({ clientX: 10, clientY: 20, target: { closest() { return null; } } });
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
+        .listener({ clientX: 10, clientY: 20, target: { closest() { return null; } } });
 
     assert.deepEqual(projectionCalls, [
         ['begin', 'node-drag', ['node-1']],
@@ -233,14 +238,142 @@ test('temporary connection drawing uses one projection lease', () => {
     };
 
     windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 20, clientY: 20 });
-    windowListeners.find(({ type }) => type === 'mouseup').listener({
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture)).listener({
         clientX: 20, clientY: 20,
         target: { closest(selector) { return selector === '#canvas-container' ? {} : null; } }
     });
 
     assert.deepEqual(projectionCalls, [
-        ['begin', 'connection-draw', undefined],
-        ['changed', 'connection-draw'],
+        ['begin', 'connection-draw', ['node-1']],
+        ['changed', 'connection-draw', { nodeIds: ['node-1'] }],
+        ['finish', 'connection-draw']
+    ]);
+});
+
+test('port mouseup closes the connection-draw lease before the next gesture', async () => {
+    const { windowListeners, state, projectionCalls } = createHarness();
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    state.connecting = {
+        startX: 0, startY: 0, screenX: 0, screenY: 0,
+        nodeId: 'node-1', portName: 'output', dragged: false
+    };
+    move({ clientX: 20, clientY: 20 });
+
+    const captureMouseup = windowListeners.find(({ type, options }) => (
+        type === 'mouseup' && (options === true || options?.capture)
+    ));
+    assert.ok(captureMouseup, 'connection settlement must observe port mouseup in capture phase');
+    captureMouseup.listener({
+        target: {
+            closest(selector) {
+                return selector === '.node-port' ? { dataset: { nodeId: 'node-2' } } : null;
+            }
+        }
+    });
+    state.connecting = null;
+    await Promise.resolve();
+
+    state.connecting = {
+        startX: 0, startY: 0, screenX: 0, screenY: 0,
+        nodeId: 'node-1', portName: 'output', dragged: false
+    };
+    move({ clientX: 30, clientY: 30 });
+
+    assert.deepEqual(projectionCalls, [
+        ['begin', 'connection-draw', ['node-1']],
+        ['changed', 'connection-draw', { nodeIds: ['node-1'] }],
+        ['changed', 'connection-draw', { nodeIds: ['node-1', 'node-2'] }],
+        ['finish', 'connection-draw'],
+        ['begin', 'connection-draw', ['node-1']],
+        ['changed', 'connection-draw', { nodeIds: ['node-1'] }]
+    ]);
+});
+
+test('window blur aborts the active connection-draw lease', () => {
+    const { windowListeners, state, projectionCalls } = createHarness();
+    state.connecting = {
+        startX: 0, startY: 0, screenX: 0, screenY: 0,
+        nodeId: 'node-1', portName: 'output', dragged: false
+    };
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 20, clientY: 20 });
+
+    const blur = windowListeners.find(({ type }) => type === 'blur');
+    assert.ok(blur, 'Canvas interactions must expose a window cancellation path');
+    blur.listener();
+
+    assert.deepEqual(projectionCalls, [
+        ['begin', 'connection-draw', ['node-1']],
+        ['changed', 'connection-draw', { nodeIds: ['node-1'] }],
+        ['abort', 'connection-draw']
+    ]);
+});
+
+test('Performance sampling run drives pan through the Canvas interaction seam', () => {
+    const { api, state, projectionCalls, viewportCalls } = createHarness();
+
+    api.performSampleInteractionStep({ kind: 'pan', phase: 'start', progress: 0 });
+    api.performSampleInteractionStep({ kind: 'pan', phase: 'update', progress: 0.5 });
+    api.performSampleInteractionStep({ kind: 'pan', phase: 'finish', progress: 1 });
+
+    assert.deepEqual(projectionCalls, [
+        ['begin', 'pan', undefined],
+        ['changed', 'pan'],
+        ['finish', 'pan']
+    ]);
+    assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
+    assert.deepEqual({ x: state.canvas.x, y: state.canvas.y }, { x: 10, y: 20 });
+});
+
+test('Performance sampling run drives zoom through the Canvas interaction seam', () => {
+    const { api, state, projectionCalls, viewportCalls } = createHarness();
+
+    api.performSampleInteractionStep({ kind: 'zoom', phase: 'start', progress: 0 });
+    api.performSampleInteractionStep({ kind: 'zoom', phase: 'update', progress: 0.5 });
+    api.performSampleInteractionStep({ kind: 'zoom', phase: 'finish', progress: 1 });
+
+    assert.deepEqual(projectionCalls, [
+        ['begin', 'zoom', undefined],
+        ['changed', 'zoom'],
+        ['finish', 'zoom']
+    ]);
+    assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
+    assert.equal(state.canvas.zoom, 1);
+});
+
+test('Performance sampling run drives targeted node drag through the Canvas interaction seam', () => {
+    const { api, state, projectionCalls } = createHarness();
+    const node = state.nodes.get('node-1');
+    node.el = { classList: createClassList(), style: {} };
+
+    api.performSampleInteractionStep({ kind: 'node-drag', phase: 'start', progress: 0 });
+    api.performSampleInteractionStep({ kind: 'node-drag', phase: 'update', progress: 0.5 });
+    api.performSampleInteractionStep({ kind: 'node-drag', phase: 'finish', progress: 1 });
+
+    assert.deepEqual(projectionCalls, [
+        ['begin', 'node-drag', ['node-1']],
+        ['changed', 'node-drag'],
+        ['finish', 'node-drag']
+    ]);
+    assert.deepEqual({ x: node.x, y: node.y }, { x: 50, y: 60 });
+});
+
+test('Performance sampling run drives scoped connection drawing through the Canvas interaction seam', () => {
+    const { api, state, projectionCalls } = createHarness();
+    state.nodes.set('node-2', { x: 150, y: 160 });
+    state.connections.push({
+        id: 'connection-1',
+        from: { nodeId: 'node-1', port: 'text' },
+        to: { nodeId: 'node-2', port: 'text' },
+        type: 'text'
+    });
+
+    api.performSampleInteractionStep({ kind: 'connection-draw', phase: 'start', progress: 0 });
+    api.performSampleInteractionStep({ kind: 'connection-draw', phase: 'update', progress: 0.5 });
+    api.performSampleInteractionStep({ kind: 'connection-draw', phase: 'finish', progress: 1 });
+
+    assert.deepEqual(projectionCalls, [
+        ['begin', 'connection-draw', ['node-1']],
+        ['changed', 'connection-draw', { nodeIds: ['node-1', 'node-2'] }],
         ['finish', 'connection-draw']
     ]);
 });

@@ -3,6 +3,8 @@
  * authoritative workflow model. Callers report facts; this module owns when
  * and how affected paths are rendered.
  */
+import { CANVAS_INTERACTION_KIND } from './canvas-interaction-kinds.js';
+
 export function createConnectionProjection({
     updateAllConnections,
     beginConnectionRestoration = null,
@@ -172,21 +174,23 @@ export function createConnectionProjection({
             schedule();
         },
         beginInteraction(kind, nodeIds = []) {
-            const targets = normalizeIds(nodeIds);
+            const targets = new Set(normalizeIds(nodeIds));
             let closed = false;
             return {
-                changed() {
+                changed(change = {}) {
                     if (destroyed) return;
                     if (closed) throw new Error('Canvas interaction is already closed');
-                    if (kind === 'node-drag') markGeometry(targets);
+                    normalizeIds(change.nodeIds).forEach((nodeId) => targets.add(nodeId));
+                    if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) markGeometry([...targets]);
                     schedule();
                 },
                 finish() {
                     if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });
                     if (closed) return Promise.resolve({ inspected: 0, corrected: 0 });
                     closed = true;
+                    if (kind === CANVAS_INTERACTION_KIND.CONNECTION_DRAW) markGeometry([...targets]);
                     commit();
-                    return verifyAlignment(targets);
+                    return verifyAlignment([...targets]);
                 },
                 abort() {
                     return this.finish();

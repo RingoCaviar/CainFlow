@@ -208,6 +208,26 @@ test('finishing an interaction corrects only detected mismatches', async () => {
     assert.equal(calls.filter(([kind]) => kind === 'all').length, 0);
 });
 
+test('connection drawing settles only the endpoint geometry reported by the lease', async () => {
+    const { api, calls, flushFrame } = createHarness();
+    const interaction = api.interactions.beginInteraction('connection-draw', ['node-1']);
+    interaction.changed({ nodeIds: ['node-2'] });
+    const resultPromise = interaction.finish();
+    flushFrame();
+    flushFrame();
+    const result = await resultPromise;
+
+    assert.equal(result.inspected, 2);
+    assert.deepEqual(calls.filter(([kind]) => kind === 'geometry'), [
+        ['geometry', 'node-1'],
+        ['geometry', 'node-2'],
+        ['geometry', 'node-1'],
+        ['geometry', 'node-2']
+    ]);
+    assert.equal(calls.some(([kind, nodeId]) => kind === 'geometry' && nodeId === undefined), false);
+    assert.equal(calls.filter(([kind]) => kind === 'all').length, 0);
+});
+
 test('untargeted legacy refresh preserves the previous whole-projection behavior', () => {
     const { api, calls, flushFrame } = createHarness();
 

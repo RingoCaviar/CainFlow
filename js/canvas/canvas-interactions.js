@@ -2,6 +2,7 @@
  * 负责画布层级的交互事件，包括拖拽、框选、平移辅助与连线过程中的交互同步。
  */
 import { appendMappedConnectionSnapshots } from './connection-copy-utils.js';
+import { CANVAS_INTERACTION_KIND } from './canvas-interaction-kinds.js';
 
 export function createCanvasInteractionsApi({
     state,
@@ -34,13 +35,15 @@ export function createCanvasInteractionsApi({
     openConnectionCreatePopup = null,
     documentRef = document,
     windowRef = window,
-    requestAnimationFrameRef = requestAnimationFrame
+    requestAnimationFrameRef = requestAnimationFrame,
+    queueMicrotaskRef = queueMicrotask
 }) {
     let panTransformRaf = null;
-    let panInteraction = null;
-    let zoomInteraction = null;
-    let dragInteraction = null;
-    let connectionDrawInteraction = null;
+    const projectionInteractionLeases = new Map();
+    let samplePanOrigin = null;
+    let sampleZoomOrigin = null;
+    let sampleDrag = null;
+    let sampleConnection = null;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -110,14 +113,147 @@ export function createCanvasInteractionsApi({
     }
 
     function beginProjectionInteraction(kind, nodeIds) {
-        return connectionProjection?.beginInteraction?.(kind, nodeIds) || null;
+        const interaction = connectionProjection?.beginInteraction?.(kind, nodeIds) || null;
+        if (interaction) projectionInteractionLeases.set(kind, interaction);
+        return interaction;
     }
 
-    function finishProjectionInteraction(interaction) {
+    function getProjectionInteraction(kind) {
+        return projectionInteractionLeases.get(kind) || null;
+    }
+
+    function closeProjectionInteraction(kind, method = 'finish') {
+        const interaction = getProjectionInteraction(kind);
+        projectionInteractionLeases.delete(kind);
         if (!interaction) return;
-        Promise.resolve(interaction.finish()).catch((error) => {
+        Promise.resolve(interaction[method]()).catch((error) => {
             console.warn('Connection projection interaction failed to settle:', error);
         });
+    }
+
+    function finishConnectionDrawInteraction() {
+        closeProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW);
+    }
+
+    function performSampleInteractionStep({ kind, phase, progress }) {
+        if (kind === CANVAS_INTERACTION_KIND.PAN) {
+            if (phase === 'start') {
+                samplePanOrigin = { x: state.canvas.x, y: state.canvas.y };
+                beginProjectionInteraction(CANVAS_INTERACTION_KIND.PAN);
+                return;
+            }
+            if (phase === 'update' && samplePanOrigin) {
+                state.canvas.x = samplePanOrigin.x + 80 * progress;
+                state.canvas.y = samplePanOrigin.y + 40 * progress;
+                viewportApi.updateCanvasTransform({
+                    updateConnections: false,
+                    dispatchTransformEvent: false
+                });
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.PAN)?.changed();
+                return;
+            }
+            if (phase === 'finish') {
+                if (samplePanOrigin) {
+                    state.canvas.x = samplePanOrigin.x;
+                    state.canvas.y = samplePanOrigin.y;
+                }
+                viewportApi.updateCanvasTransform({ updateConnections: false });
+                samplePanOrigin = null;
+                closeProjectionInteraction(CANVAS_INTERACTION_KIND.PAN);
+            }
+            return;
+        }
+        if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) {
+            if (phase === 'start') {
+                const entry = Array.from(state.nodes.entries()).find(([nodeId]) => !isNodeRunning(nodeId));
+                if (!entry) return;
+                const [nodeId, node] = entry;
+                sampleDrag = { nodeId, startX: node.x, startY: node.y };
+                beginProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, [nodeId]);
+                return;
+            }
+            if (phase === 'update' && sampleDrag) {
+                const node = state.nodes.get(sampleDrag.nodeId);
+                if (!node) return;
+                node.x = sampleDrag.startX + 60 * progress;
+                node.y = sampleDrag.startY + 40 * progress;
+                node.el.style.left = `${node.x}px`;
+                node.el.style.top = `${node.y}px`;
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)?.changed();
+                return;
+            }
+            if (phase === 'finish') {
+                if (sampleDrag) {
+                    const node = state.nodes.get(sampleDrag.nodeId);
+                    if (node) {
+                        node.x = sampleDrag.startX;
+                        node.y = sampleDrag.startY;
+                        node.el.style.left = `${node.x}px`;
+                        node.el.style.top = `${node.y}px`;
+                    }
+                }
+                sampleDrag = null;
+                closeProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG);
+            }
+            return;
+        }
+        if (kind === CANVAS_INTERACTION_KIND.CONNECTION_DRAW) {
+            if (phase === 'start') {
+                const connection = state.connections[0];
+                if (!connection) return;
+                const fromNode = state.nodes.get(connection.from.nodeId);
+                const toNode = state.nodes.get(connection.to.nodeId);
+                const from = getPortPosition(connection.from.nodeId, connection.from.port, 'output')
+                    || { x: fromNode?.x || 0, y: fromNode?.y || 0 };
+                const to = getPortPosition(connection.to.nodeId, connection.to.port, 'input')
+                    || { x: toNode?.x || 0, y: toNode?.y || 0 };
+                sampleConnection = { connection, from, to };
+                beginProjectionInteraction(
+                    CANVAS_INTERACTION_KIND.CONNECTION_DRAW,
+                    [connection.from.nodeId]
+                );
+                return;
+            }
+            if (phase === 'update' && sampleConnection) {
+                const { connection, from, to } = sampleConnection;
+                drawTempConnection(
+                    from.x,
+                    from.y,
+                    from.x + (to.x - from.x) * progress,
+                    from.y + (to.y - from.y) * progress
+                );
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)?.changed({
+                    nodeIds: [connection.from.nodeId, connection.to.nodeId]
+                });
+                return;
+            }
+            if (phase === 'finish') {
+                tempConnection.setAttribute('d', '');
+                sampleConnection = null;
+                finishConnectionDrawInteraction();
+            }
+            return;
+        }
+        if (kind !== CANVAS_INTERACTION_KIND.ZOOM) return;
+        if (phase === 'start') {
+            sampleZoomOrigin = state.canvas.zoom;
+            beginProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
+            return;
+        }
+        if (phase === 'update' && sampleZoomOrigin != null) {
+            state.canvas.zoom = sampleZoomOrigin * (1 + 0.15 * progress);
+            viewportApi.updateCanvasTransform({
+                updateConnections: false,
+                dispatchTransformEvent: false
+            });
+            getProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM)?.changed();
+            return;
+        }
+        if (phase !== 'finish') return;
+        if (sampleZoomOrigin != null) state.canvas.zoom = sampleZoomOrigin;
+        viewportApi.updateCanvasTransform({ updateConnections: false });
+        sampleZoomOrigin = null;
+        closeProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
     }
 
     function getWheelDeltaPixels(event, canvasHeight) {
@@ -135,7 +271,7 @@ export function createCanvasInteractionsApi({
         state.canvas.isPanning = true;
         state.canvas.panStart = { x: e.clientX, y: e.clientY };
         state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
-        panInteraction = beginProjectionInteraction('pan');
+        beginProjectionInteraction(CANVAS_INTERACTION_KIND.PAN);
         canvasContainer.classList.add('grabbing', 'is-panning');
         documentRef.body.classList.add('is-interacting');
         documentRef.getElementById('connections-group').classList.add('is-panning');
@@ -380,9 +516,7 @@ export function createCanvasInteractionsApi({
 
         if (isNodeFormControlActive()) {
             state.pendingZoomVisualRefresh = true;
-            const settledInteraction = zoomInteraction;
-            zoomInteraction = null;
-            finishProjectionInteraction(settledInteraction);
+            closeProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
             scheduleSave();
             return;
         }
@@ -391,9 +525,7 @@ export function createCanvasInteractionsApi({
         viewportApi.updateCanvasTransform({
             updateConnections: false
         });
-        const settledInteraction = zoomInteraction;
-        zoomInteraction = null;
-        finishProjectionInteraction(settledInteraction);
+        closeProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
         requestAnimationFrameRef(() => {
             viewportApi.refreshNodeTextRendering();
             scheduleSave();
@@ -581,6 +713,13 @@ export function createCanvasInteractionsApi({
     }
 
     function initCanvasInteractions() {
+        windowRef.addEventListener('blur', () => {
+            for (const kind of projectionInteractionLeases.keys()) {
+                closeProjectionInteraction(kind, 'abort');
+            }
+            tempConnection.setAttribute('d', '');
+        });
+
         canvasContainer.addEventListener('mousedown', (e) => {
             if (e.button !== 0 || !state.isSpacePressed) return;
 
@@ -706,7 +845,7 @@ export function createCanvasInteractionsApi({
                 state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
                 state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
                 schedulePanTransformUpdate();
-                panInteraction?.changed();
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.PAN)?.changed();
             }
             if (state.marquee) {
                 state.marquee.endX = e.clientX;
@@ -787,8 +926,8 @@ export function createCanvasInteractionsApi({
                 const dy = pos.y - state.dragging.startY;
                 const hasDragMovement = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
 
-                if (hasDragMovement && !dragInteraction) {
-                    dragInteraction = beginProjectionInteraction('node-drag', state.dragging.nodes);
+                if (hasDragMovement && !getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)) {
+                    beginProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, state.dragging.nodes);
                 }
 
                 if (hasDragMovement && state.dragging.deferSelectionOnDrag && !state.dragging.selectionActivated) {
@@ -818,7 +957,7 @@ export function createCanvasInteractionsApi({
                     }
                 }
                 updateShakeDetach(state.dragging, pos);
-                dragInteraction?.changed();
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)?.changed();
             }
             if (state.resizing) {
                 const r = state.resizing;
@@ -863,10 +1002,11 @@ export function createCanvasInteractionsApi({
                 const dx = e.clientX - state.connecting.screenX;
                 const dy = e.clientY - state.connecting.screenY;
                 if (Math.sqrt(dx * dx + dy * dy) > 5) state.connecting.dragged = true;
-                if (!connectionDrawInteraction) {
-                    connectionDrawInteraction = beginProjectionInteraction('connection-draw');
+                const connectionNodeIds = [state.connecting.nodeId].filter(Boolean);
+                if (!getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)) {
+                    beginProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW, connectionNodeIds);
                 }
-                connectionDrawInteraction?.changed();
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)?.changed({ nodeIds: connectionNodeIds });
 
                 drawTempConnection(
                     state.connecting.startX,
@@ -876,6 +1016,18 @@ export function createCanvasInteractionsApi({
                 );
             }
         });
+
+        windowRef.addEventListener('mouseup', (e) => {
+            if (!getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)) return;
+            const targetPort = e.target?.closest?.('.node-port');
+            if (!targetPort) return;
+            const targetNodeId = targetPort.dataset?.nodeId;
+            const connectionNodeIds = [state.connecting?.nodeId, targetNodeId].filter(Boolean);
+            queueMicrotaskRef(() => {
+                getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)?.changed({ nodeIds: connectionNodeIds });
+                finishConnectionDrawInteraction();
+            });
+        }, true);
 
         windowRef.addEventListener('mouseup', (e) => {
             documentRef.body.classList.remove('is-interacting');
@@ -902,9 +1054,7 @@ export function createCanvasInteractionsApi({
                 viewportApi.updateCanvasTransform({
                     updateConnections: false
                 });
-                const settledInteraction = panInteraction;
-                panInteraction = null;
-                finishProjectionInteraction(settledInteraction);
+                closeProjectionInteraction(CANVAS_INTERACTION_KIND.PAN);
                 notifyViewportSettled();
             }
             if (state.marquee) {
@@ -949,9 +1099,7 @@ export function createCanvasInteractionsApi({
                     clearConnectionInsertPreview();
                 }
                 state.dragging = null;
-                const settledInteraction = dragInteraction;
-                dragInteraction = null;
-                finishProjectionInteraction(settledInteraction);
+                closeProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG);
                 scheduleSave();
             }
             if (state.resizing) {
@@ -1008,9 +1156,7 @@ export function createCanvasInteractionsApi({
                                 canvasX: pos.x,
                                 canvasY: pos.y
                             });
-                            const settledConnectionDraw = connectionDrawInteraction;
-                            connectionDrawInteraction = null;
-                            finishProjectionInteraction(settledConnectionDraw);
+                            finishConnectionDrawInteraction();
                             return;
                         }
                     }
@@ -1021,9 +1167,7 @@ export function createCanvasInteractionsApi({
                     state.connecting = null;
                 }
             }
-            const settledConnectionDraw = connectionDrawInteraction;
-            connectionDrawInteraction = null;
-            finishProjectionInteraction(settledConnectionDraw);
+            finishConnectionDrawInteraction();
         });
 
         canvasContainer.addEventListener('mouseenter', () => { state.isMouseOverCanvas = true; });
@@ -1042,7 +1186,7 @@ export function createCanvasInteractionsApi({
 
             if (!state.isInteracting) {
                 state.isInteracting = true;
-                zoomInteraction = beginProjectionInteraction('zoom');
+                beginProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
                 documentRef.body.classList.add('is-interacting');
                 documentRef.getElementById('connections-group').classList.add('is-interacting');
             }
@@ -1073,7 +1217,7 @@ export function createCanvasInteractionsApi({
             state.canvas.x = mx - (mx - state.canvas.x) * (newZoom / oldZoom);
             state.canvas.y = my - (my - state.canvas.y) * (newZoom / oldZoom);
             state.canvas.zoom = newZoom;
-            zoomInteraction?.changed();
+            getProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM)?.changed();
 
             if (!state._zoomRaf) {
                 state._zoomRaf = requestAnimationFrameRef(() => {
@@ -1106,6 +1250,7 @@ export function createCanvasInteractionsApi({
     }
 
     return {
-        initCanvasInteractions
+        initCanvasInteractions,
+        performSampleInteractionStep
     };
 }
