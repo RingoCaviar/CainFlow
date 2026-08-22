@@ -13,10 +13,11 @@ export function createCanvasStressTestBridge({
     documentRef = document,
     globalRef = globalThis
 } = {}) {
-    // Stress fixtures are deliberately unavailable in release builds.
-    const enabled = false;
+    const enabled = globalRef.CAINFLOW_ENABLE_STRESS_TEST === true
+        || new URLSearchParams(globalRef.location?.search || '').get('stressTest') === '1';
 
     async function createCanvasStressTestNodes(options = {}) {
+        if (!enabled) return [];
         const total = Number.isFinite(options.total) ? Math.max(0, Math.floor(options.total)) : 100;
         const imageImportCount = Number.isFinite(options.imageImportCount)
             ? Math.max(0, Math.min(total, Math.floor(options.imageImportCount)))
@@ -32,12 +33,16 @@ export function createCanvasStressTestBridge({
         const startY = Number.isFinite(options.startY) ? options.startY : 0;
         const isolate = options.isolate === true;
         const ephemeral = options.ephemeral === true;
+        const runningCount = Number.isFinite(options.runningCount)
+            ? Math.max(0, Math.min(total, Math.floor(options.runningCount)))
+            : Math.min(20, total);
 
         if (isolate && !state.canvasStressTestSnapshot) {
             state.canvasStressTestSnapshot = {
                 nodes: new Map(state.nodes),
                 connections: state.connections.slice(),
-                canvas: { ...state.canvas }
+                canvas: { ...state.canvas },
+                runningNodeIds: new Set(state.runningNodeIds || [])
             };
             state.nodes.forEach((node) => node?.el?.remove());
             state.nodes.clear();
@@ -69,6 +74,7 @@ export function createCanvasStressTestBridge({
         }
 
         const createdIds = [];
+        const runningStride = runningCount > 0 ? Math.max(1, Math.floor(total / runningCount)) : Infinity;
 
         for (let i = 0; i < total; i += 1) {
             const row = Math.floor(i / cols);
@@ -84,6 +90,10 @@ export function createCanvasStressTestBridge({
 
             if (!id) continue;
             createdIds.push(id);
+            if (createdIds.length <= runningCount * runningStride && (createdIds.length - 1) % runningStride === 0) {
+                state.runningNodeIds?.add(id);
+                state.nodes.get(id)?.el?.classList.add('running');
+            }
 
             if (isImageImport) {
                 const dataUrl = makeRandomImageDataUrl(i);
@@ -105,21 +115,31 @@ export function createCanvasStressTestBridge({
             }
 
             if (i % 5 === 0) {
-                await new Promise((resolve) => requestAnimationFrame(resolve));
+                await new Promise((resolve) => {
+                    if (typeof globalRef.requestAnimationFrame === 'function') {
+                        globalRef.requestAnimationFrame(resolve);
+                    } else {
+                        resolve();
+                    }
+                });
             }
         }
 
         const textNodeIds = createdIds.slice(imageImportCount);
-        for (let index = 0; index < connectionCount && textNodeIds.length > 1; index += 1) {
-            const fromId = textNodeIds[index % textNodeIds.length];
-            const toId = textNodeIds[(index * 7 + 11) % textNodeIds.length];
+        let connectionIndex = 0;
+        let topologyIndex = 0;
+        while (connectionIndex < connectionCount && textNodeIds.length > 1) {
+            const fromId = textNodeIds[topologyIndex % textNodeIds.length];
+            const toId = textNodeIds[(topologyIndex * 7 + 11) % textNodeIds.length];
+            topologyIndex += 1;
             if (fromId === toId) continue;
             state.connections.push({
-                id: `stress_${Date.now().toString(36)}_${index}`,
+                id: `stress_connection_${connectionIndex + 1}`,
                 from: { nodeId: fromId, port: 'text' },
                 to: { nodeId: toId, port: 'text' },
                 type: 'text'
             });
+            connectionIndex += 1;
         }
 
         updateAllConnections();
@@ -133,6 +153,7 @@ export function createCanvasStressTestBridge({
     }
 
     function clearCanvasStressTestNodes() {
+        if (!enabled) return 0;
         const stressNodeIds = new Set(Array.from(state.nodes.entries())
             .filter(([, node]) => node?.el?.innerText?.startsWith('压力测试'))
             .map(([nodeId]) => nodeId));
@@ -143,6 +164,7 @@ export function createCanvasStressTestBridge({
             !stressNodeIds.has(connection.to?.nodeId)
         ));
         stressNodeIds.forEach((nodeId) => {
+            state.runningNodeIds?.delete(nodeId);
             state.nodes.get(nodeId)?.el?.remove();
             state.nodes.delete(nodeId);
         });
@@ -150,6 +172,7 @@ export function createCanvasStressTestBridge({
             state.nodes = snapshot.nodes;
             state.connections = snapshot.connections;
             Object.assign(state.canvas, snapshot.canvas);
+            state.runningNodeIds = snapshot.runningNodeIds;
             state.nodes.forEach((node) => nodesLayer?.appendChild(node.el));
             state.canvasStressTestSnapshot = null;
         }

@@ -75,6 +75,8 @@ import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
 import { createUiFeature } from './bootstrap/ui-bootstrap.js';
 import { createAppContext } from './create-app-context.js';
 import { createAppRegistry } from './create-app-registry.js';
+import { createCanvasStressTestBridge } from './dev/canvas-stress-test.js';
+import { createCanvasPerformanceMonitor } from './dev/canvas-performance-monitor.js';
 import { registerGlobalBridges } from './register-global-bridges.js';
 
 /**
@@ -197,6 +199,13 @@ const {
 
 const { canvasContainer, nodesLayer, connectionsGroup, tempConnection, originAxes, contextMenu } = elements;
 const connectionCreatePopup = elements.connectionCreatePopup;
+const canvasPerformanceMonitor = createCanvasPerformanceMonitor({
+    globalRef: globalThis,
+    getFixtureSize: () => ({
+        nodeCount: state.nodes.size,
+        connectionCount: state.connections.length
+    })
+});
 
 state.abortAllWorkflowRuns = (reason) => getWorkflowRuntimeManagerApi().abortAllWorkflowRuns(reason);
 applyGlobalAnimationSettingService({ state, documentRef: document });
@@ -271,7 +280,8 @@ const renderProjectionManager = createRenderProjectionManager({
     canvasContainer,
     nodesLayer,
     documentRef: document,
-    windowRef: window
+    windowRef: window,
+    performanceMonitor: canvasPerformanceMonitor
 });
 const interactionPerformanceGuard = createInteractionPerformanceGuard({
     state,
@@ -546,7 +556,8 @@ const connectionsApi = createConnectionsApi({
     showToast,
     scheduleSave,
     onConnectionsChanged: () => handleNodeGraphChanged(),
-    addNode
+    addNode,
+    performanceMonitor: canvasPerformanceMonitor
 });
 const connectionDiagnostics = createConnectionDiagnostics();
 const {
@@ -1461,10 +1472,30 @@ renderProjectionManager.init();
 interactionPerformanceGuard.init();
 getStartupControllerApi().initStartup();
 
+const canvasStressTestBridge = createCanvasStressTestBridge({
+    state,
+    addNode,
+    mediaControllerApi,
+    updateAllConnections,
+    scheduleSave,
+    showToast,
+    nodesLayer,
+    documentRef: document,
+    globalRef: globalThis
+});
+canvasPerformanceMonitor.mount({
+    createFixture: canvasStressTestBridge.createCanvasStressTestNodes,
+    clearFixture: canvasStressTestBridge.clearCanvasStressTestNodes
+});
+
 registerGlobalBridges({
     windowRef: window,
     closeModal,
-    showLogDetail
+    showLogDetail,
+    createCanvasStressTestNodes: canvasStressTestBridge.createCanvasStressTestNodes,
+    enableCanvasStressTest: canvasStressTestBridge.enabled,
+    sampleCanvasPerformance: canvasPerformanceMonitor.sample,
+    enableCanvasPerformanceMonitor: canvasPerformanceMonitor.enabled
 });
 
 return {
