@@ -11,6 +11,8 @@ import {
 } from './workflow-model-resolver.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 
+const SESSION_RESTORE_BATCH_SIZE = 100;
+
 export function createProjectIoApi({
     state,
     storageKey,
@@ -22,7 +24,7 @@ export function createProjectIoApi({
     addLog,
     addNode,
     applyHistoryGridCols,
-    updateAllConnections,
+    connectionProjectionMaintenance,
     updatePortStyles,
     onConnectionsChanged = () => {},
     viewportApi,
@@ -44,6 +46,16 @@ export function createProjectIoApi({
 }) {
     function isImageImportAssetKey(key) {
         return typeof key === 'string' && key.startsWith('image-import:');
+    }
+
+    async function restoreItemsInBatches(items, restoreItem) {
+        for (let index = 0; index < items.length; index += 1) {
+            restoreItem(items[index]);
+            const batchComplete = (index + 1) % SESSION_RESTORE_BATCH_SIZE === 0;
+            if (batchComplete && index + 1 < items.length) {
+                await new Promise((resolve) => windowRef.setTimeout(resolve, 0));
+            }
+        }
     }
 
     function getImageImportAssetKeyFromNode(node) {
@@ -439,30 +451,32 @@ export function createProjectIoApi({
                 state.canvas.y = data.canvas.y || 0;
                 state.canvas.zoom = data.canvas.zoom || 1;
             }
+            viewportApi.updateCanvasTransform({ updateConnections: false });
 
             await restoreHandles();
             beginMediaRestoreBatch();
             try {
                 if (data.nodes?.length) {
-                    for (const nd of data.nodes) addNode(nd.type, nd.x, nd.y, nd, true);
+                    await restoreItemsInBatches(data.nodes, (nd) => {
+                        addNode(nd.type, nd.x, nd.y, nd, true);
+                    });
                 }
                 if (data.connections?.length) {
-                    for (const conn of data.connections) {
+                    await restoreItemsInBatches(data.connections, (conn) => {
                         if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
                             if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
                             state.connections.push(conn);
                         }
-                    }
+                    });
                 }
+                await connectionProjectionMaintenance.workflowRestored();
                 if (data.connections?.length) {
-                    updateAllConnections();
                     updatePortStyles();
                     onConnectionsChanged();
                 }
             } finally {
                 endMediaRestoreBatch();
             }
-            viewportApi.updateCanvasTransform();
             try {
                 await finalizeMediaRestoreBatch();
             } catch (error) {

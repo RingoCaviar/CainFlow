@@ -20,7 +20,8 @@ export function createConnectionsApi({
     onConnectionsChanged = () => {},
     addNode = null,
     documentRef = document,
-    performanceMonitor = null
+    performanceMonitor = null,
+    connectionRenderer = null
 }) {
     const pathById = new Map();
     const connectionById = new Map();
@@ -44,7 +45,7 @@ export function createConnectionsApi({
     const FLOW_ANIMATION_TARGET_FPS = 60;
     const FLOW_ANIMATION_FRAME_MS = 1000 / FLOW_ANIMATION_TARGET_FPS;
     let lastFlowAnimationTime = 0;
-    const canvasConnectionRenderer = createCanvasConnectionRenderer({
+    const canvasConnectionRenderer = connectionRenderer || createCanvasConnectionRenderer({
         canvasContainer,
         documentRef,
         state,
@@ -956,8 +957,7 @@ export function createConnectionsApi({
         return performanceMonitor?.measure?.('connection-full-refresh', updateAllConnectionsImpl) ?? updateAllConnectionsImpl();
     }
 
-    function updateAllConnectionsImpl() {
-        canvasConnectionRenderer.begin();
+    function prepareWholeConnectionProjection({ reflectInteractionState = true } = {}) {
         const { x, y, zoom } = state.canvas;
         const isDragging = !!state.dragging;
         const isPanning = state.canvas.isPanning;
@@ -969,7 +969,7 @@ export function createConnectionsApi({
             originAxes.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
         }
 
-        if (isDragging || isPanning) {
+        if (reflectInteractionState && (isDragging || isPanning)) {
             connectionsGroup.classList.add('is-dragging');
         } else {
             connectionsGroup.classList.remove('is-dragging', 'is-panning');
@@ -983,24 +983,76 @@ export function createConnectionsApi({
                 removeFlowDecoration(connId);
             }
         });
+    }
 
+    function getWholeConnectionRenderContext({ refreshLanes = false } = {}) {
+        if (refreshLanes) invalidateConnectionLaneCache();
         const containerRect = canvasContainer.getBoundingClientRect();
-        const context = {
+        return {
             containerRect,
             viewport: getCurrentConnectionViewport(containerRect),
             laneById: getConnectionLaneMap(),
             selectionInfo: getActiveConnectionSelectionInfo(),
             padding: 100
         };
+    }
 
-        for (const conn of state.connections) {
-            renderConnectionPath(conn, context);
-        }
-
+    function completeWholeConnectionProjection() {
         dirtyConnectionIds.clear();
         renderConnectionInsertPreview();
         ensureFlowAnimation();
-        canvasConnectionRenderer.end();
+    }
+
+    function updateAllConnectionsImpl() {
+        canvasConnectionRenderer.begin();
+        try {
+            prepareWholeConnectionProjection();
+            const context = getWholeConnectionRenderContext();
+
+            for (const conn of state.connections) {
+                renderConnectionPath(conn, context);
+            }
+
+            completeWholeConnectionProjection();
+        } finally {
+            canvasConnectionRenderer.end();
+        }
+    }
+
+    function beginConnectionRestoration() {
+        canvasConnectionRenderer.begin();
+        try {
+            prepareWholeConnectionProjection({ reflectInteractionState: false });
+        } catch (error) {
+            canvasConnectionRenderer.end();
+            throw error;
+        }
+
+        let nextConnectionIndex = 0;
+        let finished = false;
+        return {
+            renderNextBatch(batchSize) {
+                if (finished) return true;
+                const context = getWholeConnectionRenderContext({ refreshLanes: true });
+                const batchEnd = Math.min(nextConnectionIndex + batchSize, state.connections.length);
+                while (nextConnectionIndex < batchEnd) {
+                    renderConnectionPath(state.connections[nextConnectionIndex], context);
+                    nextConnectionIndex += 1;
+                }
+                return nextConnectionIndex >= state.connections.length;
+            },
+            finish({ completed = false } = {}) {
+                if (finished) return;
+                finished = true;
+                try {
+                    if (completed) {
+                        completeWholeConnectionProjection();
+                    }
+                } finally {
+                    canvasConnectionRenderer.end();
+                }
+            }
+        };
     }
 
     function updateDirtyConnections(options = {}) {
@@ -1281,6 +1333,7 @@ export function createConnectionsApi({
         markNodeConnectionsDirty,
         rebuildConnectionIndex,
         updateAllConnections,
+        beginConnectionRestoration,
         updateDirtyConnections,
         detectMisalignedConnections,
         realignConnections,

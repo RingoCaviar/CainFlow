@@ -626,6 +626,7 @@ const {
     markConnectionDirty,
     markNodeConnectionsDirty,
     updateAllConnections,
+    beginConnectionRestoration,
     updateDirtyConnections,
     detectMisalignedConnections,
     realignConnections,
@@ -641,6 +642,7 @@ const {
 
 registry.connectionProjectionApi = createConnectionProjection({
     updateAllConnections,
+    beginConnectionRestoration,
     updateDirtyConnections,
     invalidateNodePortCache,
     markConnectionDirty,
@@ -1367,7 +1369,7 @@ projectIoFeature = createProjectIoFeature({
     addLog,
     addNode,
     applyHistoryGridCols: (...args) => historyFeature.applyHistoryGridCols(...args),
-    updateAllConnections,
+    connectionProjectionMaintenance: registry.connectionProjectionApi.maintenance,
     updatePortStyles,
     onConnectionsChanged: () => handleNodeGraphChanged(),
     viewportApi,

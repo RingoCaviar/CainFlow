@@ -2,12 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createConnectionProjection } from '../js/canvas/connection-projection.js';
 
-function createHarness({ mismatches = [] } = {}) {
+function createHarness({
+    mismatches = [],
+    beginConnectionRestoration,
+    updateDirtyConnections
+} = {}) {
     const frames = [];
     const calls = [];
     const api = createConnectionProjection({
         updateAllConnections() { calls.push(['all']); },
-        updateDirtyConnections() { calls.push(['dirty']); return true; },
+        beginConnectionRestoration,
+        updateDirtyConnections: updateDirtyConnections || (() => { calls.push(['dirty']); return true; }),
         invalidateNodePortCache(id) { calls.push(['geometry', id]); },
         markNodeConnectionsDirty(id) { calls.push(['appearance', id]); },
         markConnectionDirty(id) { calls.push(['connection', id]); },
@@ -17,6 +22,133 @@ function createHarness({ mismatches = [] } = {}) {
     });
     return { api, calls, flushFrame() { frames.shift()?.(0); } };
 }
+
+test('ConnectionProjection owns the cadence of restored connection batches', async () => {
+    const renderedBatchSizes = [];
+    let restorationFinished = false;
+    const { api, flushFrame } = createHarness({
+        beginConnectionRestoration: () => ({
+            renderNextBatch(batchSize) {
+                renderedBatchSizes.push(batchSize);
+                return renderedBatchSizes.length === 3;
+            },
+            finish() {
+                restorationFinished = true;
+            }
+        })
+    });
+
+    let settled = false;
+    const restoring = api.maintenance.workflowRestored().then(() => { settled = true; });
+    await Promise.resolve();
+
+    assert.deepEqual(renderedBatchSizes, [100]);
+    assert.equal(settled, false);
+
+    flushFrame();
+    await Promise.resolve();
+    assert.deepEqual(renderedBatchSizes, [100, 100]);
+
+    flushFrame();
+    await restoring;
+    assert.deepEqual(renderedBatchSizes, [100, 100, 100]);
+    assert.equal(restorationFinished, true);
+});
+
+test('workflow restoration remains pending until the restored projection is complete', async () => {
+    let renderedBatches = 0;
+    const { api, flushFrame } = createHarness({
+        beginConnectionRestoration: () => ({
+            renderNextBatch() { return ++renderedBatches === 2; },
+            finish() {}
+        })
+    });
+
+    let settled = false;
+    const restoring = api.maintenance.workflowRestored().then(() => { settled = true; });
+    await Promise.resolve();
+
+    assert.equal(renderedBatches, 1);
+    assert.equal(settled, false);
+
+    flushFrame();
+    await restoring;
+    assert.equal(settled, true);
+});
+
+test('workflow restoration commits intents received during restoration after it completes', async () => {
+    let renderedBatches = 0;
+    const { api, calls, flushFrame } = createHarness({
+        beginConnectionRestoration: () => ({
+            renderNextBatch() { return ++renderedBatches === 2; },
+            finish() {}
+        })
+    });
+
+    const restoring = api.maintenance.workflowRestored();
+    api.interactions.nodeGeometryChanged('node-1');
+    flushFrame();
+
+    assert.equal(calls.some(([kind]) => kind === 'dirty'), false);
+
+    flushFrame();
+    await restoring;
+    assert.equal(calls.filter(([kind]) => kind === 'dirty').length, 1);
+});
+
+test('overlapping workflow restoration calls share one projection transaction', async () => {
+    let restorationStarts = 0;
+    let renderedBatches = 0;
+    const { api, flushFrame } = createHarness({
+        beginConnectionRestoration: () => {
+            restorationStarts += 1;
+            return {
+                renderNextBatch() { return ++renderedBatches === 2; },
+                finish() {}
+            };
+        }
+    });
+
+    const first = api.maintenance.workflowRestored();
+    const second = api.maintenance.workflowRestored();
+
+    assert.equal(restorationStarts, 1);
+
+    flushFrame();
+    await Promise.all([first, second]);
+});
+
+test('workflow restoration can retry after its deferred projection commit fails', async () => {
+    let restorationStarts = 0;
+    let failCommit = true;
+    const { api, flushFrame } = createHarness({
+        beginConnectionRestoration: () => {
+            restorationStarts += 1;
+            let renderedBatches = 0;
+            return {
+                renderNextBatch() {
+                    renderedBatches += 1;
+                    return restorationStarts > 1 || renderedBatches === 2;
+                },
+                finish() {}
+            };
+        },
+        updateDirtyConnections: () => {
+            if (failCommit) throw new Error('projection commit failed');
+            return true;
+        }
+    });
+
+    const first = api.maintenance.workflowRestored();
+    api.interactions.nodeAppearanceChanged('node-1');
+    flushFrame();
+    await assert.rejects(first, /projection commit failed/);
+
+    failCommit = false;
+    await api.maintenance.workflowRestored();
+
+    assert.equal(restorationStarts, 2);
+});
 
 test('coalesces node geometry changes into one dirty projection commit', () => {
     const { api, calls, flushFrame } = createHarness();
@@ -94,4 +226,28 @@ test('global alignment repair invalidates every port cache before detection', as
 
     const relevantCalls = calls.filter(([kind]) => kind === 'geometry' || kind === 'detect');
     assert.deepEqual(relevantCalls, [['geometry', undefined], ['detect']]);
+});
+
+test('destroying connection projection cancels queued alignment verification', async () => {
+    const { api, calls, flushFrame } = createHarness();
+
+    const repair = api.maintenance.repairAlignment();
+    api.destroy();
+    flushFrame();
+    const result = await repair;
+
+    assert.deepEqual(result, { inspected: 0, corrected: 0 });
+    assert.equal(calls.some(([kind]) => kind === 'detect' || kind === 'dirty'), false);
+});
+
+test('destroyed connection projection ignores subsequent projection intents', () => {
+    const { api, calls, flushFrame } = createHarness();
+
+    api.destroy();
+    api.interactions.nodeGeometryChanged('node-1');
+    api.interactions.topologyChanged({ connectionIds: ['connection-1'] });
+    api.maintenance.workflowReplaced();
+    flushFrame();
+
+    assert.equal(calls.some(([kind]) => kind === 'all' || kind === 'dirty'), false);
 });
