@@ -13,7 +13,8 @@ export const MIXED_NODE_BENCHMARK_FIXTURE_OPTIONS = Object.freeze({
 export function createCanvasPerformanceMonitor({
     globalRef = globalThis,
     getFixtureSize = () => ({ nodeCount: 0, connectionCount: 0 }),
-    performInteractionStep = () => {}
+    performInteractionStep = () => {},
+    performProjectionStep = () => {}
 } = {}) {
     const enabled = new URLSearchParams(globalRef.location?.search || '').get('perf') === '1';
     const costs = new Map();
@@ -57,6 +58,9 @@ export function createCanvasPerformanceMonitor({
         const frames = [];
         const startedAt = globalRef.performance?.now?.() ?? Date.now();
         let previous = startedAt;
+        let sampledFrameCount = 0;
+        let nodeProjectionCount = 0;
+        let connectionFullRefreshCount = 0;
         let activeInteractionIndex = 0;
         performInteractionStep({
             kind: PERFORMANCE_INTERACTION_SEQUENCE[activeInteractionIndex],
@@ -66,6 +70,10 @@ export function createCanvasPerformanceMonitor({
         return new Promise((resolve) => {
             const tick = (now) => {
                 const elapsedMs = now - startedAt;
+                sampledFrameCount += 1;
+                const workload = performProjectionStep({ frame: sampledFrameCount, elapsedMs }) || {};
+                nodeProjectionCount += Number(workload.nodeProjectionCount) || 0;
+                connectionFullRefreshCount += Number(workload.connectionFullRefreshCount) || 0;
                 const nextInteractionIndex = Math.min(
                     PERFORMANCE_INTERACTION_SEQUENCE.length - 1,
                     Math.floor((elapsedMs / durationMs) * PERFORMANCE_INTERACTION_SEQUENCE.length)
@@ -114,6 +122,11 @@ export function createCanvasPerformanceMonitor({
                     nodeCount: fixtureSize.nodeCount,
                     connectionCount: fixtureSize.connectionCount,
                     costs: Object.fromEntries(costs),
+                    workload: {
+                        sampledFrameCount,
+                        nodeProjectionCount,
+                        connectionFullRefreshCount
+                    },
                     interactionMetrics: summarizeSamples()
                 };
                 const panel = globalRef.document?.getElementById('cainflow-perf-panel') || globalRef.document?.createElement('pre');

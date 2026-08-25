@@ -7,6 +7,7 @@ import { CANVAS_INTERACTION_KIND } from './canvas-interaction-kinds.js';
 
 export function createConnectionProjection({
     updateAllConnections,
+    refreshNodeProjection = null,
     beginConnectionRestoration = null,
     updateDirtyConnections,
     invalidateNodePortCache,
@@ -200,6 +201,22 @@ export function createConnectionProjection({
     };
 
     const maintenance = {
+        runPerformanceWorkload() {
+            if (destroyed) {
+                return { nodeProjectionCount: 0, connectionFullRefreshCount: 0 };
+            }
+            let nodeProjectionCount = 0;
+            let connectionFullRefreshCount = 0;
+            if (typeof refreshNodeProjection === 'function') {
+                refreshNodeProjection();
+                nodeProjectionCount = 1;
+            }
+            if (typeof updateAllConnections === 'function') {
+                updateAllConnections();
+                connectionFullRefreshCount = 1;
+            }
+            return { nodeProjectionCount, connectionFullRefreshCount };
+        },
         workflowRestored() {
             if (destroyed) return Promise.resolve(false);
             if (restorationTransaction.promise) return restorationTransaction.promise;

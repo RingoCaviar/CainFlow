@@ -205,7 +205,8 @@ const canvasPerformanceMonitor = createCanvasPerformanceMonitor({
         nodeCount: state.nodes.size,
         connectionCount: state.connections.length
     }),
-    performInteractionStep: (step) => getCanvasInteractionsApi().performSampleInteractionStep(step)
+    performInteractionStep: (step) => getCanvasInteractionsApi().performSampleInteractionStep(step),
+    performProjectionStep: () => registry.connectionProjectionApi?.maintenance.runPerformanceWorkload()
 });
 const canvasBenchmarkMode = new URLSearchParams(globalThis.location?.search || '').get('benchmark') === '1';
 
@@ -655,6 +656,7 @@ const {
 
 registry.connectionProjectionApi = createConnectionProjection({
     updateAllConnections,
+    refreshNodeProjection: () => renderProjectionManager.refreshNow(),
     beginConnectionRestoration,
     updateDirtyConnections,
     invalidateNodePortCache,

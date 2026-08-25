@@ -5,12 +5,14 @@ import { createConnectionProjection } from '../js/canvas/connection-projection.j
 function createHarness({
     mismatches = [],
     beginConnectionRestoration,
-    updateDirtyConnections
+    updateDirtyConnections,
+    refreshNodeProjection
 } = {}) {
     const frames = [];
     const calls = [];
     const api = createConnectionProjection({
         updateAllConnections() { calls.push(['all']); },
+        refreshNodeProjection: refreshNodeProjection || (() => { calls.push(['node-projection']); }),
         beginConnectionRestoration,
         updateDirtyConnections: updateDirtyConnections || (() => { calls.push(['dirty']); return true; }),
         invalidateNodePortCache(id) { calls.push(['geometry', id]); },
@@ -22,6 +24,21 @@ function createHarness({
     });
     return { api, calls, flushFrame() { frames.shift()?.(0); } };
 }
+
+test('performance workload runs through ConnectionProjection maintenance ownership', () => {
+    const { api, calls } = createHarness();
+
+    const result = api.maintenance.runPerformanceWorkload();
+
+    assert.deepEqual(calls, [
+        ['node-projection'],
+        ['all']
+    ]);
+    assert.deepEqual(result, {
+        nodeProjectionCount: 1,
+        connectionFullRefreshCount: 1
+    });
+});
 
 test('ConnectionProjection owns the cadence of restored connection batches', async () => {
     const renderedBatchSizes = [];

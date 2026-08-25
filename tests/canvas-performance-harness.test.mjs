@@ -159,6 +159,44 @@ test('Performance sampling run drives the fixed Canvas interaction sequence', as
     });
 });
 
+test('Performance sampling run drives attributable projection work on every sampled frame', async () => {
+    let now = 0;
+    const projectionSteps = [];
+    const monitor = createCanvasPerformanceMonitor({
+        globalRef: {
+            location: { search: '?perf=1' },
+            performance: { now: () => now },
+            requestAnimationFrame(callback) {
+                now += 10;
+                callback(now);
+                return now;
+            },
+            document: null
+        },
+        performProjectionStep(step) {
+            projectionSteps.push(step);
+            return {
+                nodeProjectionCount: 1,
+                connectionFullRefreshCount: 1
+            };
+        }
+    });
+
+    const result = await monitor.sample(40);
+
+    assert.deepEqual(projectionSteps, [
+        { frame: 1, elapsedMs: 10 },
+        { frame: 2, elapsedMs: 20 },
+        { frame: 3, elapsedMs: 30 },
+        { frame: 4, elapsedMs: 40 }
+    ]);
+    assert.deepEqual(result.workload, {
+        sampledFrameCount: 4,
+        nodeProjectionCount: 4,
+        connectionFullRefreshCount: 4
+    });
+});
+
 test('application bootstrap wires benchmark telemetry only through gated dev modules', async () => {
     const source = await readFile(new URL('../js/app/bootstrap-impl.js', import.meta.url), 'utf8');
 
