@@ -469,11 +469,6 @@ export function createProjectIoApi({
                         }
                     });
                 }
-                await connectionProjectionMaintenance.workflowRestored();
-                if (data.connections?.length) {
-                    updatePortStyles();
-                    onConnectionsChanged();
-                }
             } finally {
                 endMediaRestoreBatch();
             }
@@ -482,6 +477,9 @@ export function createProjectIoApi({
             } catch (error) {
                 console.warn('Finalize media restore after session load failed:', error);
             }
+            if (data.connections?.length) updatePortStyles();
+            await connectionProjectionMaintenance.workflowRestored();
+            if (data.connections?.length) onConnectionsChanged();
             scheduleStartupCacheCleanup(data);
             return data.nodes?.length > 0;
         } catch (e) {

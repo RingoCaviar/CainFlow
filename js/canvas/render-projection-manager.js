@@ -13,8 +13,8 @@ export function createRenderProjectionManager({
     performanceMonitor = null
 } = {}) {
     const VIEWPORT_BUFFER_SCREENS = 0.5;
-    const COMPACT_ENTER_ZOOM = 0.62;
-    const COMPACT_EXIT_ZOOM = 0.7;
+    const COMPACT_ENTER_ZOOM = 0.2;
+    const COMPACT_EXIT_ZOOM = 0.27;
     const DENSE_ENTER_NODE_COUNT = 80;
     const DENSE_EXIT_NODE_COUNT = 64;
     let frame = null;

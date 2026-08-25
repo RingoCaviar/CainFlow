@@ -2,6 +2,7 @@
  * 负责本地会话状态保存、撤销栈维护与自动保存调度。
  */
 import { cleanupElementResources } from '../../core/common-utils.js';
+import { DEFAULT_THEME_ID } from '../../core/constants.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 
 export function createSessionManagerApi({
@@ -172,7 +173,7 @@ export function createSessionManagerApi({
     function saveUiBootstrapState() {
         try {
             localStorageRef.setItem(uiBootstrapStorageKey, JSON.stringify({
-                themeId: typeof state.themeId === 'string' && state.themeId ? state.themeId : 'dark',
+                themeId: typeof state.themeId === 'string' && state.themeId ? state.themeId : DEFAULT_THEME_ID,
                 globalAnimationEnabled: state.globalAnimationEnabled !== false
             }));
             return true;

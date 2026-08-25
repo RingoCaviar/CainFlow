@@ -51,11 +51,14 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
         connectionProjectionMaintenance: overrides.connectionProjectionMaintenance || {
             workflowRestored: async () => { wholeProjectionUpdates += 1; }
         },
-        updatePortStyles: () => {},
+        updatePortStyles: overrides.updatePortStyles || (() => {}),
         viewportApi: typeof overrides.viewportApi === 'function'
             ? overrides.viewportApi(state)
             : (overrides.viewportApi || { updateCanvasTransform: () => {} }),
-        showToast: () => {}
+        showToast: () => {},
+        beginMediaRestoreBatch: overrides.beginMediaRestoreBatch || (() => {}),
+        endMediaRestoreBatch: overrides.endMediaRestoreBatch || (() => {}),
+        finalizeMediaRestoreBatch: overrides.finalizeMediaRestoreBatch || (async () => {})
     });
     return {
         api,
@@ -236,6 +239,42 @@ test('loading a saved session applies its viewport before restoring the connecti
 
     assert.equal(result, true);
     assert.equal(transformAtProjectionRestore, 'translate(24px, -12px) scale(1.5)');
+});
+
+test('loading a saved session applies port layout before restoring connection paths', async () => {
+    let portLayoutReady = false;
+    let portLayoutAtProjectionRestore = false;
+    const { api } = createHarness(3, 2, {
+        updatePortStyles() {
+            portLayoutReady = true;
+        },
+        connectionProjectionMaintenance: {
+            workflowRestored: async () => {
+                portLayoutAtProjectionRestore = portLayoutReady;
+            }
+        }
+    });
+
+    assert.equal(await api.loadState(), true);
+    assert.equal(portLayoutAtProjectionRestore, true);
+});
+
+test('loading a saved session finalizes media layout before restoring connection paths', async () => {
+    let mediaLayoutReady = false;
+    let mediaLayoutAtProjectionRestore = false;
+    const { api } = createHarness(3, 2, {
+        finalizeMediaRestoreBatch: async () => {
+            mediaLayoutReady = true;
+        },
+        connectionProjectionMaintenance: {
+            workflowRestored: async () => {
+                mediaLayoutAtProjectionRestore = mediaLayoutReady;
+            }
+        }
+    });
+
+    assert.equal(await api.loadState(), true);
+    assert.equal(mediaLayoutAtProjectionRestore, true);
 });
 
 test('large saved session yields control while restoring connections', async () => {

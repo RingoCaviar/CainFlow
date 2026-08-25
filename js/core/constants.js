@@ -7,6 +7,7 @@ export const APP_ASSET_VERSION = `${APP_VERSION_NUMBER}-model-count`;
 export const GITHUB_REPO = 'RingoCaviar/CainFlow';
 export const STORAGE_KEY = 'nodeflow_ai_state';
 export const LOG_STORAGE_KEY = 'cainflow_logs_state';
+export const DEFAULT_THEME_ID = 'light';
 
 // 改成 true 后会关闭启动时的自动更新检测；手动检查与下载更新仍可使用。
 export const AUTO_UPDATE_CHECK_DISABLED = false;

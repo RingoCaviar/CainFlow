@@ -37,12 +37,20 @@ test('offscreen projection preserves the node shell and workflow model', () => {
 test('compact LOD is reversible and focused node state stays intact', () => {
     const el = { classList: classList(), setAttribute() {} };
     const node = { id: 'n1', x: 0, y: 0, width: 240, height: 180, el, data: { value: 1 } };
-    const { api, state } = createHarness({ zoom: 0.6, nodes: [['n1', node]] });
+    const { api, state } = createHarness({ zoom: 0.2, nodes: [['n1', node]] });
     api.refreshNow();
     assert.equal(el.classList.contains('is-compact-lod'), true);
     api.focusNode('n1');
     assert.equal(el.classList.contains('is-compact-lod'), false);
     assert.deepEqual(state.nodes.get('n1').data, { value: 1 });
+});
+
+test('node content remains visible above twenty percent zoom', () => {
+    const el = { classList: classList(), setAttribute() {} };
+    const node = { id: 'n1', x: 0, y: 0, width: 240, height: 180, el };
+    const { api } = createHarness({ zoom: 0.21, nodes: [['n1', node]] });
+    api.refreshNow();
+    assert.equal(el.classList.contains('is-compact-lod'), false);
 });
 
 test('dense-mode manual override wins over density automation', () => {

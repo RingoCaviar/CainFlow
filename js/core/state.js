@@ -1,7 +1,7 @@
 /**
  * 创建应用的初始状态树，集中管理画布、节点、执行、历史与设置相关的默认值。
  */
-import { DEFAULT_MODELS, DEFAULT_PROVIDERS } from './constants.js';
+import { DEFAULT_MODELS, DEFAULT_PROVIDERS, DEFAULT_THEME_ID } from './constants.js';
 
 export const NODE_DEFAULT_TYPES = ['ImageGenerate', 'VideoGenerate', 'TextChat', 'CameraControl'];
 
@@ -92,7 +92,7 @@ export function createInitialState({ includeDefaultProviders = true } = {}) {
         marquee: null,
         contextMenu: { x: 0, y: 0 },
         isRunning: false,
-        themeId: 'dark',
+        themeId: DEFAULT_THEME_ID,
         notificationsEnabled: false,
         autoRetry: false,
         maxRetries: 15,
