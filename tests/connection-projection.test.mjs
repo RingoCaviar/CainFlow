@@ -288,3 +288,53 @@ test('destroyed connection projection ignores subsequent projection intents', ()
 
     assert.equal(calls.some(([kind]) => kind === 'all' || kind === 'dirty'), false);
 });
+
+test('late workflow restoration alignment failures stay contained when reporting fails', async () => {
+    const timers = [];
+    const pendingFrames = new Map();
+    const failure = new Error('late alignment failed');
+    const reportingFailure = new Error('alignment failure reporter failed');
+    let nextFrameId = 0;
+    let detectionCount = 0;
+    let reportedFailure = null;
+    const api = createConnectionProjection({
+        beginConnectionRestoration: () => ({
+            renderNextBatch: () => true,
+            finish() {}
+        }),
+        invalidateNodePortCache() {},
+        detectMisalignedConnections() {
+            detectionCount += 1;
+            if (detectionCount === 2) throw failure;
+            return [];
+        },
+        onAlignmentRepairFailed(payload) {
+            reportedFailure = payload;
+            throw reportingFailure;
+        },
+        requestAnimationFrameRef(callback) {
+            const frameId = ++nextFrameId;
+            pendingFrames.set(frameId, callback);
+            return frameId;
+        },
+        cancelAnimationFrameRef(frameId) { pendingFrames.delete(frameId); },
+        setTimeoutRef(callback) {
+            timers.push(callback);
+            return timers.length;
+        },
+        clearTimeoutRef() {}
+    });
+
+    const restoring = api.maintenance.workflowRestored();
+    timers.shift()();
+    await restoring;
+    await Promise.resolve();
+
+    assert.equal(pendingFrames.size, 1);
+    assert.doesNotThrow(() => pendingFrames.values().next().value(0));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(reportedFailure, {
+        error: failure,
+        reason: 'workflow-restored-late-frame'
+    });
+});

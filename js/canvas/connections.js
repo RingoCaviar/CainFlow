@@ -241,10 +241,10 @@ export function createConnectionsApi({
             )) || null;
     }
 
-    function isPortElementVisible(portEl) {
+    function isPortElementVisible(portEl, dotRectOverride = null) {
         if (!portEl) return false;
         const dot = portEl.querySelector('.port-dot') || portEl;
-        const dotRect = dot.getBoundingClientRect();
+        const dotRect = dotRectOverride || dot.getBoundingClientRect();
         return !portEl.classList.contains('hidden') &&
             !portEl.classList.contains('is-hidden-by-collapse') &&
             portEl.offsetParent !== null &&
@@ -252,10 +252,10 @@ export function createConnectionsApi({
             dotRect.height > 0;
     }
 
-    function getPortDotWorldPosition(portEl, containerRectOverride = null) {
+    function getPortDotWorldPosition(portEl, containerRectOverride = null, dotRectOverride = null) {
         if (!portEl) return null;
         const dot = portEl.querySelector('.port-dot') || portEl;
-        const dotRect = dot.getBoundingClientRect();
+        const dotRect = dotRectOverride || dot.getBoundingClientRect();
         if (dotRect.width <= 0 || dotRect.height <= 0) return null;
 
         const containerRect = containerRectOverride || canvasContainer.getBoundingClientRect();
@@ -267,17 +267,17 @@ export function createConnectionsApi({
         };
     }
 
-    function invalidateNodePortCache(nodeId = null) {
+    function invalidateNodePortCache(nodeId = null, { markDirty = true } = {}) {
         if (nodeId) {
             const node = getNodeById(nodeId);
             if (node) delete node._portPositionCache;
-            markNodeConnectionsDirty(nodeId);
+            if (markDirty) markNodeConnectionsDirty(nodeId);
             return;
         }
         state.nodes.forEach((node) => {
             if (node) delete node._portPositionCache;
         });
-        markAllConnectionsDirty();
+        if (markDirty) markAllConnectionsDirty();
     }
 
     function measureNodePorts(nodeId, containerRectOverride = null) {
@@ -293,8 +293,10 @@ export function createConnectionsApi({
             const portName = portEl.dataset.port || '';
             const direction = portEl.dataset.direction || '';
             if (!portName || !direction) return;
-            const worldPosition = getPortDotWorldPosition(portEl, containerRectOverride);
-            const visible = isPortElementVisible(portEl);
+            const dot = portEl.querySelector('.port-dot') || portEl;
+            const dotRect = dot.getBoundingClientRect();
+            const worldPosition = getPortDotWorldPosition(portEl, containerRectOverride, dotRect);
+            const visible = isPortElementVisible(portEl, dotRect);
             cache.ports.set(getPortKey(nodeId, portName, direction), {
                 dx: worldPosition ? worldPosition.x - node.x : 0,
                 dy: worldPosition ? worldPosition.y - node.y : 0,
@@ -962,6 +964,7 @@ export function createConnectionsApi({
         const isDragging = !!state.dragging;
         const isPanning = state.canvas.isPanning;
         ensureConnectionIndex();
+        invalidateNodePortCache(null, { markDirty: false });
         invalidateConnectionLaneCache();
 
         connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
@@ -1128,14 +1131,19 @@ export function createConnectionsApi({
         const nodeSet = new Set(Array.isArray(nodeIds) ? nodeIds : [nodeIds]);
         const containerRect = canvasContainer.getBoundingClientRect();
         const laneById = getConnectionLaneMap();
-        return state.connections.filter((conn) => {
+        return state.connections.map((conn) => {
             if (nodeSet.size && !nodeSet.has(conn.from?.nodeId) && !nodeSet.has(conn.to?.nodeId)) return false;
             const path = pathById.get(conn.id);
-            if (!path || !path.getAttribute('d')) return false;
+            const pathData = path?.getAttribute('d') || '';
+            if (!pathData) {
+                const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
+                    isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
+                if (!endpointsVisible) return false;
+            }
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
             const expected = { from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y } };
-            const actual = getRenderedPathEndpoints(path);
+            const actual = pathData ? getRenderedPathEndpoints(path) : { from: null, to: null };
             if (areEndpointsAligned(expected, actual)) return false;
             return {
                 connectionId: conn.id,

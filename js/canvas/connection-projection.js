@@ -15,6 +15,7 @@ export function createConnectionProjection({
     markConnectionDirty,
     detectMisalignedConnections,
     onAlignmentCorrected = () => {},
+    onAlignmentRepairFailed = () => {},
     requestAnimationFrameRef = requestAnimationFrame,
     cancelAnimationFrameRef = cancelAnimationFrame,
     setTimeoutRef = setTimeout,
@@ -100,13 +101,37 @@ export function createConnectionProjection({
         });
     }
 
+    function repairAlignmentNow(nodeIds = [], reason = 'interaction-settled') {
+        const targets = normalizeIds(nodeIds);
+        if (targets.length > 0) {
+            targets.forEach((nodeId) => invalidateNodePortCache?.(nodeId, { markDirty: false }));
+        } else {
+            invalidateNodePortCache?.(undefined, { markDirty: false });
+        }
+        const mismatches = detectMisalignedConnections?.({ nodeIds: targets }) || [];
+        mismatches.forEach((item) => markConnectionDirty?.(item.connectionId || item));
+        if (mismatches.length) {
+            updateDirtyConnections?.();
+            onAlignmentCorrected({ mismatches, reason });
+        }
+        return { inspected: targets.length, corrected: mismatches.length };
+    }
+
+    function reportAlignmentRepairFailure(error, reason) {
+        try {
+            onAlignmentRepairFailed({ error, reason });
+        } catch {
+            // This reporter is the terminal boundary for detached repair work.
+        }
+    }
+
     function verifyAlignment(nodeIds = []) {
         if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });
         if (restorationTransaction.promise) {
             return restorationTransaction.promise.then(() => verifyAlignment(nodeIds));
         }
         const targets = normalizeIds(nodeIds);
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             let completed = false;
             let alignmentFrameId = 0;
             const verify = () => {
@@ -116,18 +141,11 @@ export function createConnectionProjection({
                     resolve({ inspected: 0, corrected: 0 });
                     return;
                 }
-                if (targets.length > 0) {
-                    targets.forEach((nodeId) => invalidateNodePortCache?.(nodeId));
-                } else {
-                    invalidateNodePortCache?.();
+                try {
+                    resolve(repairAlignmentNow(targets));
+                } catch (error) {
+                    reject(error);
                 }
-                const mismatches = detectMisalignedConnections?.({ nodeIds: targets }) || [];
-                mismatches.forEach((item) => markConnectionDirty?.(item.connectionId || item));
-                if (mismatches.length) {
-                    updateDirtyConnections?.();
-                    onAlignmentCorrected({ mismatches, reason: 'interaction-settled' });
-                }
-                resolve({ inspected: targets.length, corrected: mismatches.length });
             };
             alignmentFrameId = requestAnimationFrameRef(verify);
             if (!completed) pendingAlignmentFrames.set(alignmentFrameId, resolve);
@@ -135,25 +153,25 @@ export function createConnectionProjection({
     }
 
     function waitForRestorationTurn(signal) {
-        if (signal?.aborted) return Promise.resolve();
+        if (signal?.aborted) return Promise.resolve('aborted');
         return new Promise((resolve) => {
             let settled = false;
             let restorationFrameId = null;
             let restorationTimeoutId = null;
-            const finish = () => {
+            const finish = (winner) => {
                 if (settled) return;
                 settled = true;
                 if (restorationFrameId != null) cancelAnimationFrameRef?.(restorationFrameId);
                 if (restorationTimeoutId != null) clearTimeoutRef?.(restorationTimeoutId);
-                resolve();
+                resolve(winner);
             };
             if (typeof requestAnimationFrameRef === 'function') {
-                restorationFrameId = requestAnimationFrameRef(finish);
+                restorationFrameId = requestAnimationFrameRef(() => finish('frame'));
             }
             if (!settled && typeof setTimeoutRef === 'function') {
-                restorationTimeoutId = setTimeoutRef(finish, 50);
+                restorationTimeoutId = setTimeoutRef(() => finish('timeout'), 50);
             } else if (restorationFrameId == null) {
-                finish();
+                finish('fallback');
             }
         });
     }
@@ -245,6 +263,18 @@ export function createConnectionProjection({
                         }
                     } else {
                         await updateAllConnections?.();
+                    }
+                    let restorationTurn = 'aborted';
+                    if (!restorationTransaction.abortController.signal.aborted) {
+                        restorationTurn = await waitForRestorationTurn(restorationTransaction.abortController.signal);
+                    }
+                    if (!restorationTransaction.abortController.signal.aborted) {
+                        repairAlignmentNow([], 'workflow-restored');
+                    }
+                    if (restorationTurn === 'timeout' && !restorationTransaction.abortController.signal.aborted) {
+                        void verifyAlignment([]).catch((error) => {
+                            reportAlignmentRepairFailure(error, 'workflow-restored-late-frame');
+                        });
                     }
             };
             let resolveRestoration;

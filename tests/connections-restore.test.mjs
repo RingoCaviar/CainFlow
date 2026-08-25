@@ -13,14 +13,18 @@ function createClassList() {
     };
 }
 
-function createPort(name, direction, getLeft) {
+function createPort(name, direction, getLeft, onRectRead = null, isVisible = () => true) {
     const dot = {
-        getBoundingClientRect: () => ({
-            left: typeof getLeft === 'function' ? getLeft() : getLeft,
-            top: 20,
-            width: 8,
-            height: 8
-        })
+        getBoundingClientRect: () => {
+            onRectRead?.();
+            const size = isVisible() ? 8 : 0;
+            return {
+                left: typeof getLeft === 'function' ? getLeft() : getLeft,
+                top: 20,
+                width: size,
+                height: size
+            };
+        }
     };
     return {
         dataset: { port: name, direction },
@@ -59,13 +63,18 @@ function createHarness(connectionCount, {
     setTimeoutImpl,
     createBezierPathImpl,
     connectionRenderer,
-    distinctTargets = false
+    distinctTargets = false,
+    portsInitiallyVisible = true
 } = {}) {
     const frames = [];
     const paths = [];
     let outputPortLeft = 120;
-    const outputPort = createPort('text', 'output', () => outputPortLeft);
-    const inputPort = createPort('text', 'input', 220);
+    let portsVisible = portsInitiallyVisible;
+    let portRectReads = 0;
+    const countPortRectRead = () => { portRectReads += 1; };
+    const isPortVisible = () => portsVisible;
+    const outputPort = createPort('text', 'output', () => outputPortLeft, countPortRectRead, isPortVisible);
+    const inputPort = createPort('text', 'input', 220, countPortRectRead, isPortVisible);
     const nodes = new Map([
         ['from', createNode('from', 0, outputPort, inputPort)],
         ['to', createNode('to', 200, outputPort, inputPort)]
@@ -147,6 +156,8 @@ function createHarness(connectionCount, {
         state,
         frames,
         paths,
+        getPortRectReadCount() { return portRectReads; },
+        setPortsVisible(visible) { portsVisible = visible; },
         setOutputPortLeft(left) { outputPortLeft = left; }
     };
 }
@@ -174,6 +185,27 @@ test('connection restoration materializes only the requested batch', () => {
     assert.equal(restoration.renderNextBatch(100), true);
     assert.equal(paths.length, 201);
     restoration.finish({ completed: true });
+});
+
+test('whole connection projection refreshes stale port geometry', () => {
+    const { api, paths, setOutputPortLeft } = createHarness(1);
+
+    api.updateAllConnections();
+    const initialPath = paths[0].getAttribute('d');
+    setOutputPortLeft(160);
+    api.updateAllConnections();
+
+    assert.notEqual(paths[0].getAttribute('d'), initialPath);
+});
+
+test('whole connection projection measures each node port once per refresh', () => {
+    const { api, getPortRectReadCount } = createHarness(200);
+
+    api.updateAllConnections();
+    assert.equal(getPortRectReadCount(), 4);
+
+    api.updateAllConnections();
+    assert.equal(getPortRectReadCount(), 8);
 });
 
 test('later restoration batches use the latest active connection selection', () => {
@@ -228,6 +260,105 @@ test('connection projection reapplies geometry intents received during restorati
     await restoring;
 
     assert.notEqual(paths[0].getAttribute('d'), originalPath);
+});
+
+test('workflow restoration corrects port geometry that settles on the next layout frame', async () => {
+    const { api: connections, frames, paths, setOutputPortLeft } = createHarness(1);
+    let alignmentReason = '';
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        onAlignmentCorrected: ({ reason }) => { alignmentReason = reason; },
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    let settled = false;
+    const restoring = projection.maintenance.workflowRestored().then(() => { settled = true; });
+    await Promise.resolve();
+    const initialPath = paths[0].getAttribute('d');
+    setOutputPortLeft(160);
+
+    assert.equal(settled, false);
+    assert.equal(frames.length, 1);
+    frames.shift()(0);
+    await restoring;
+
+    assert.notEqual(paths[0].getAttribute('d'), initialPath);
+    assert.equal(alignmentReason, 'workflow-restored');
+});
+
+test('workflow restoration materializes a connection whose ports become visible on the next layout frame', async () => {
+    const { api: connections, frames, paths, setPortsVisible } = createHarness(1, {
+        portsInitiallyVisible: false
+    });
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    assert.equal(paths.length, 0);
+
+    setPortsVisible(true);
+    frames.shift()(0);
+    await restoring;
+
+    assert.equal(paths.length, 1);
+    assert.notEqual(paths[0].getAttribute('d'), '');
+});
+
+test('workflow restoration repairs ports after timeout wins before the next layout frame', async () => {
+    const timers = [];
+    const pendingFrames = new Map();
+    let nextFrameId = 0;
+    const { api: connections, paths, setPortsVisible } = createHarness(1, {
+        portsInitiallyVisible: false
+    });
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) {
+            const frameId = ++nextFrameId;
+            pendingFrames.set(frameId, callback);
+            return frameId;
+        },
+        cancelAnimationFrameRef(frameId) { pendingFrames.delete(frameId); },
+        setTimeoutRef(callback) {
+            timers.push(callback);
+            return timers.length;
+        },
+        clearTimeoutRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    timers.shift()();
+    await restoring;
+    await Promise.resolve();
+    assert.equal(paths.length, 0);
+
+    setPortsVisible(true);
+    assert.equal(pendingFrames.size, 1);
+    pendingFrames.values().next().value(0);
+    await Promise.resolve();
+
+    assert.equal(paths.length, 1);
+    assert.notEqual(paths[0].getAttribute('d'), '');
+});
+
+test('aligned workflow restoration leaves no pending connection work', async () => {
+    const { api: connections, frames } = createHarness(1);
+    connections.updateAllConnections();
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    frames.shift()(0);
+    await restoring;
+
+    assert.equal(connections.updateDirtyConnections(), false);
 });
 
 test('connection restoration progresses when animation frames are paused', async () => {

@@ -672,6 +672,10 @@ registry.connectionProjectionApi = createConnectionProjection({
         actual: mismatch.actual,
         canvas: mismatch.canvas
     })),
+    onAlignmentRepairFailed: ({ error, reason }) => console.error(
+        `Connection alignment repair failed (${reason}):`,
+        error
+    ),
     requestAnimationFrameRef: requestAnimationFrame,
     cancelAnimationFrameRef: cancelAnimationFrame
 });
