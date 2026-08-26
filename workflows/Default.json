@@ -1,1 +1,183 @@
-{"canvas":{"x":518.2346550729062,"y":115.15260114617688,"zoom":0.6267718962446188},"nodes":[{"id":"n_prompt","type":"Text","x":6.49476934187625,"y":84.94156223770092,"width":300,"height":270,"userResized":true,"collapsed":false,"enabled":true,"lastDuration":"0.00","textareaHeights":{"text":165},"text":"生成一张狗狗的海报"},{"id":"n_gen","type":"ImageGenerate","x":408.01101838370266,"y":48.69574943362494,"width":352,"height":1090,"userResized":false,"collapsed":false,"enabled":true,"lastDuration":"32.90","textareaHeights":{"prompt":120},"referenceImageCount":5,"apiConfigId":"model_gpt_image_2_vip","providerId":"prov_gxp","prompt":"","aspect":"","resolution":"","customWidth":"","customHeight":"","customResolution":"","quality":"auto","moderation":"auto","background":"auto","search":false,"generationCount":1,"imageTaskId":"","imageTaskStatus":"","imageTaskStatusText":"","imageTaskUrl":"","imageTaskCreateHttpStatus":"","imageTaskCreateStatus":"","imageTaskProgress":""},{"id":"n_prev","type":"ImagePreview","x":861,"y":73,"width":300,"height":614,"userResized":false,"collapsed":false,"enabled":true,"lastDuration":"0.02"}],"connections":[{"id":"c_p_g","from":{"nodeId":"n_prompt","port":"text"},"to":{"nodeId":"n_gen","port":"prompt"},"type":"text"},{"id":"c_g_p","from":{"nodeId":"n_gen","port":"image"},"to":{"nodeId":"n_prev","port":"image"},"type":"image"}],"version":"1.3"}
+{
+  "canvas": {
+    "x": 1732.7991042297276,
+    "y": 1035.1147780964602,
+    "zoom": 0.5018413742178921
+  },
+  "nodes": [
+    {
+      "id": "n_644a3j1w2",
+      "type": "Text",
+      "x": -2167.1316887034072,
+      "y": -1375.258671871533,
+      "width": 304,
+      "height": 400,
+      "userResized": true,
+      "collapsed": false,
+      "enabled": true,
+      "isFailed": false,
+      "lastDuration": null,
+      "textareaHeights": {
+        "text": 293
+      },
+      "text": "帮我给该产品设计一个使用的效果图，我要展示这个产品可以使用的情景，我要用来作为美区亚马逊的产品副图使用，要合理，比例为1:1"
+    },
+    {
+      "id": "n_5g0i063l1",
+      "type": "ImageImport",
+      "x": -2159.6383925291057,
+      "y": -962.316610455745,
+      "width": 240,
+      "height": 451,
+      "userResized": false,
+      "collapsed": false,
+      "enabled": true,
+      "isFailed": false,
+      "lastDuration": null,
+      "importMode": "upload",
+      "imageUrl": "",
+      "imageImportAssetKey": "image-import:n_5g0i063l1"
+    },
+    {
+      "id": "n_3i3d1d714",
+      "type": "ImageGenerate",
+      "x": -1222.514116466457,
+      "y": -1385.3582957187828,
+      "width": 400,
+      "height": 956,
+      "userResized": true,
+      "collapsed": false,
+      "enabled": true,
+      "isFailed": false,
+      "lastDuration": null,
+      "textareaHeights": {
+        "param-systemPrompt": 60,
+        "prompt": 120
+      },
+      "apiConfigId": "",
+      "providerId": "",
+      "prompt": "",
+      "aspect": "",
+      "resolution": "",
+      "customWidth": "",
+      "customHeight": "",
+      "customResolution": "",
+      "quality": "",
+      "moderation": "",
+      "background": "",
+      "search": false,
+      "protocolParams": {
+        "systemPrompt": ""
+      },
+      "generationCount": 3,
+      "imageTaskId": "",
+      "imageTaskStatus": "",
+      "imageTaskStatusText": "",
+      "imageTaskUrl": "",
+      "imageTaskCreateHttpStatus": "",
+      "imageTaskCreateStatus": "",
+      "imageTaskProgress": ""
+    },
+    {
+      "id": "n_7216360x4",
+      "type": "TextChat",
+      "x": -1766.696470756591,
+      "y": -1060.9219093918985,
+      "width": 420,
+      "height": 1034,
+      "userResized": false,
+      "collapsed": false,
+      "enabled": false,
+      "isFailed": false,
+      "lastDuration": null,
+      "textareaHeights": {
+        "sysprompt": 120,
+        "prompt": 120,
+        "response": 282
+      },
+      "apiConfigId": "",
+      "providerId": "",
+      "prompt": "",
+      "sysprompt": "你是一个AI作图大师，你会分析输入的需求，并且把该提示词优化为可以直接调用图片生成模型的提示词，画面要合理，你只会输出最终用来生成图片的提示词，提示词用英文",
+      "search": false,
+      "fixed": false
+    },
+    {
+      "id": "n_67186i705",
+      "type": "ImageSave",
+      "x": -710.9863104435485,
+      "y": -1383.8666004458973,
+      "width": 564,
+      "height": 665,
+      "userResized": true,
+      "collapsed": false,
+      "enabled": true,
+      "isFailed": false,
+      "lastDuration": null,
+      "filename": "generated_image"
+    }
+  ],
+  "connections": [
+    {
+      "id": "c_uvhcskre2",
+      "from": {
+        "nodeId": "n_644a3j1w2",
+        "port": "text"
+      },
+      "to": {
+        "nodeId": "n_7216360x4",
+        "port": "prompt"
+      },
+      "type": "text"
+    },
+    {
+      "id": "c_6az9ry5yd",
+      "from": {
+        "nodeId": "n_5g0i063l1",
+        "port": "image"
+      },
+      "to": {
+        "nodeId": "n_7216360x4",
+        "port": "image_1"
+      },
+      "type": "image"
+    },
+    {
+      "id": "c_vfqus5iry",
+      "from": {
+        "nodeId": "n_5g0i063l1",
+        "port": "image"
+      },
+      "to": {
+        "nodeId": "n_3i3d1d714",
+        "port": "image_1"
+      },
+      "type": "image"
+    },
+    {
+      "id": "c_fisakckkg",
+      "from": {
+        "nodeId": "n_644a3j1w2",
+        "port": "text"
+      },
+      "to": {
+        "nodeId": "n_3i3d1d714",
+        "port": "prompt"
+      },
+      "type": "text"
+    },
+    {
+      "id": "c_ucvzw9iqf",
+      "from": {
+        "nodeId": "n_3i3d1d714",
+        "port": "image"
+      },
+      "to": {
+        "nodeId": "n_67186i705",
+        "port": "image"
+      },
+      "type": "image"
+    }
+  ],
+  "version": "1.3"
+}

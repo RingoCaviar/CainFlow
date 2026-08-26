@@ -36,7 +36,9 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
         })),
         workflowTabs: overrides.workflowTabs,
         activeWorkflowName: overrides.activeWorkflowName,
-        activeWorkflowId: overrides.activeWorkflowId
+        activeWorkflowId: overrides.activeWorkflowId,
+        providers: overrides.providers,
+        models: overrides.models
     };
     const restoreBatch = async (items, restoreItem) => {
         for (let index = 0; index < items.length; index += 1) {
@@ -117,6 +119,30 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
         getWholeProjectionUpdates: () => wholeProjectionUpdates
     };
 }
+
+test('加载会把已有供应商标识与地址作为普通用户配置保留', async () => {
+    const provider = {
+        id: 'prov_user_legacy',
+        name: '用户保留的供应商',
+        type: 'openai',
+        apikey: 'saved-key',
+        endpoint: 'https://api.user-provider.example/'
+    };
+    const model = {
+        id: 'user-model',
+        name: '用户模型',
+        modelId: 'custom-model',
+        providerIds: ['prov_user_legacy'],
+        protocol: 'openai'
+    };
+    const { api, state } = createHarness(1, 0, { providers: [provider], models: [model] });
+
+    assert.equal(await api.loadState(), true);
+    assert.equal(state.providers.length, 1);
+    assert.equal(state.providers[0].id, provider.id);
+    assert.equal(state.providers[0].endpoint, provider.endpoint);
+    assert.deepEqual(state.models[0].providerIds, [provider.id]);
+});
 
 test('project IO requires an atomic workflow activator', () => {
     assert.throws(() => createProjectIoApi({

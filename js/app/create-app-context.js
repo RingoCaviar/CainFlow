@@ -1,6 +1,5 @@
 import { createElements } from '../core/elements.js';
 import { createInitialState } from '../core/state.js';
-import { API_PROVIDERS_LOCKED, STORAGE_KEY } from '../core/constants.js';
 import { createProxyHeadersGetter } from '../services/api-client.js';
 import { createDiskStorageApi } from '../services/storage-disk.js';
 import { createMediaUtils } from '../features/media/media-utils.js';
@@ -19,17 +18,7 @@ export function createAppContext({
 } = {}) {
     const elements = createElements(documentRef);
     const panelManager = createPanelManager(documentRef, elements.canvasContainer);
-    const hasStoredProjectState = (() => {
-        try {
-            const raw = localStorageRef?.getItem?.(STORAGE_KEY);
-            return typeof raw === 'string' && raw.trim().length > 0;
-        } catch {
-            return false;
-        }
-    })();
-    const state = createInitialState({
-        includeDefaultProviders: !(API_PROVIDERS_LOCKED && !hasStoredProjectState)
-    });
+    const state = createInitialState();
     const dirHandles = new Map();
     const proxyHeadersGetter = createProxyHeadersGetter(() => state);
     const indexedDbApi = createDiskStorageApi(() => state);

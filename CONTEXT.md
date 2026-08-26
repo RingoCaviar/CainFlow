@@ -25,3 +25,21 @@ _Avoid_: Hidden run, inactive run
 **Workflow identity**:
 The stable identity of a workflow across renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity.
 _Avoid_: Workflow name as identity, workflow path as identity
+
+**Model compatibility format**:
+The request format automatically assigned when a fetched model is added. It is inferred only from keywords in the model ID or display name, independently of the provider type, model-list transport format, or endpoint metadata.
+
+**Grok model family**:
+Models whose ID or display name contains `grok`, case-insensitively. They use the OpenAI Model compatibility format unless an explicit transport-family keyword requires manual selection.
+
+**Unrecognized model compatibility format**:
+The empty compatibility format assigned when a fetched model matches no known format keyword. The model cannot be used until the user explicitly selects a compatibility format; the application must surface that requirement rather than silently choosing a default.
+
+**Incomplete model compatibility configuration**:
+A model configuration without an explicitly selected, currently registered Model compatibility format. Empty values and obsolete or otherwise unknown format values are incomplete. It must be completed before the user can leave model settings.
+
+**Built-in provider configuration**:
+A provider or model configuration supplied, recommended, restored, or specially handled by CainFlow rather than created by the user. A neutral installation has no Built-in provider configuration.
+
+**User-owned provider configuration**:
+A provider or model configuration explicitly created or retained by the user. Product changes do not silently delete it, even when CainFlow stops supplying or specially supporting the same service.

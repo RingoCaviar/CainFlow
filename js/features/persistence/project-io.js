@@ -1,9 +1,8 @@
 /**
  * 负责工作流项目的导入导出与恢复加载，是前端项目 IO 的统一入口。
  */
-import { getModelProviderIds, normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
+import { normalizeModelConfig, normalizeProviderType } from '../execution/provider-request-utils.js';
 import { normalizeNodeDefaults } from '../../core/state.js';
-import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 import {
     buildWorkflowModelWarningMessage,
@@ -134,42 +133,9 @@ export function createProjectIoApi({
         };
     }
 
-    function getLockedProviders(storedProviders = []) {
-        const storedById = new Map((storedProviders || [])
-            .map((provider, index) => normalizeStoredProvider(provider, index))
-            .map((provider) => [provider.id, provider]));
-        const defaultProviderIds = new Set(DEFAULT_PROVIDERS.map((provider) => provider.id));
-        const lockedDefaults = DEFAULT_PROVIDERS.map((provider) => {
-            const stored = storedById.get(provider.id);
-            return {
-                ...provider,
-                name: stored?.name || provider.name,
-                apikey: stored?.apikey || provider.apikey
-            };
-        });
-        const hiddenProviders = Array.from(storedById.values())
-            .filter((provider) => !defaultProviderIds.has(provider.id));
-        return [...lockedDefaults, ...hiddenProviders];
-    }
-
-    function bindModelToAvailableProviders(model, providers) {
-        const providerIds = getModelProviderIds(model);
-        const fallbackProviderId = providers?.[0]?.id || '';
-        const nextProviderIds = providerIds.length > 0
-            ? providerIds
-            : (fallbackProviderId ? [fallbackProviderId] : []);
-        return {
-            ...model,
-            providerIds: nextProviderIds,
-            providerId: nextProviderIds[0] || ''
-        };
-    }
-
     function normalizeStoredModels(models = [], providers = []) {
         const providersById = new Map(providers.map((provider) => [provider.id, provider]));
-        return models
-            .map((model, index) => normalizeModelConfig(model, index, providersById))
-            .map((model) => API_PROVIDERS_LOCKED ? bindModelToAvailableProviders(model, providers) : model);
+        return models.map((model, index) => normalizeModelConfig(model, index, providersById));
     }
 
     function exportWorkflow() {
@@ -314,16 +280,12 @@ export function createProjectIoApi({
                             protocol: cfg.protocol || cfg.type
                         }, newModels.length, newProviders));
                     });
-                    state.providers = API_PROVIDERS_LOCKED ? getLockedProviders(newProviders) : newProviders;
-                    state.models = API_PROVIDERS_LOCKED
-                        ? normalizeStoredModels(newModels, state.providers)
-                        : newModels;
+                    state.providers = newProviders;
+                    state.models = newModels;
                 } else {
                     if (data.providers) {
                         const normalizedProviders = data.providers.map((provider, index) => normalizeStoredProvider(provider, index));
-                        state.providers = API_PROVIDERS_LOCKED
-                            ? getLockedProviders(normalizedProviders)
-                            : normalizedProviders;
+                        state.providers = normalizedProviders;
                     }
                     if (data.models) {
                         state.models = normalizeStoredModels(data.models, state.providers);

@@ -9,7 +9,6 @@ import {
     normalizeProviderEndpointUrl,
     normalizeProviderType
 } from '../execution/provider-request-utils.js';
-import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 
 export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     const {
@@ -75,11 +74,6 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
         return String(provider?.name || '').trim() || '未命名供应商';
     }
 
-    function is6789ApiEndpoint(endpoint) {
-        const host = getEndpointHost(endpoint);
-        return host === '6789api.top' || host.endsWith('.6789api.top');
-    }
-
     function isVectorEngineEndpoint(endpoint) {
         const host = getEndpointHost(endpoint);
         return host === 'vectorengine.ai' || host === 'api.vectorengine.ai' || host.endsWith('.vectorengine.ai');
@@ -96,7 +90,6 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     }
 
     function getModelFetchProtocol(provider) {
-        if (is6789ApiEndpoint(provider?.endpoint)) return 'openai';
         if (isVectorEngineEndpoint(provider?.endpoint)) return 'openai';
         if (isTtapiOpenAiEndpoint(provider?.endpoint)) return 'ttapi-openai';
         if (isTtapiEndpoint(provider?.endpoint)) return 'ttapi';
@@ -105,21 +98,16 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
 
     function syncModelProviderBindings(model) {
         const rawProviderIds = getModelProviderIds(model);
-        const fallbackProviderId = state.providers[0]?.id || '';
-        const providerIds = API_PROVIDERS_LOCKED
-            ? (rawProviderIds.length > 0 ? rawProviderIds : (fallbackProviderId ? [fallbackProviderId] : []))
-            : rawProviderIds.filter((providerId) => (
-                state.providers.some((provider) => provider.id === providerId)
-            ));
+        const providerIds = rawProviderIds.filter((providerId) => (
+            state.providers.some((provider) => provider.id === providerId)
+        ));
         model.providerIds = providerIds;
         model.providerId = providerIds[0] || '';
         return providerIds;
     }
 
     function getVisibleSettingsProviders() {
-        if (!API_PROVIDERS_LOCKED) return state.providers;
-        const defaultProviderIds = new Set(DEFAULT_PROVIDERS.map((provider) => provider.id));
-        return state.providers.filter((provider) => defaultProviderIds.has(provider.id));
+        return state.providers;
     }
 
     function getModelBoundProviders(model) {
@@ -181,11 +169,6 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     }
 
     function addProvider() {
-        if (API_PROVIDERS_LOCKED) {
-            showToast('API 供应商已锁定，无法添加供应商', 'info');
-            return;
-        }
-
         const deps = getDeps();
         const newProviderId = 'prov_' + Math.random().toString(36).substr(2, 9);
         state.providers.push({
@@ -206,8 +189,8 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     function renderProviders() {
         const addProviderButton = documentRef.getElementById('btn-add-provider');
         if (addProviderButton) {
-            addProviderButton.classList.toggle('hidden', API_PROVIDERS_LOCKED);
-            addProviderButton.disabled = API_PROVIDERS_LOCKED;
+            addProviderButton.classList.remove('hidden');
+            addProviderButton.disabled = false;
         }
 
         providersList.innerHTML = '';
@@ -230,7 +213,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                     <div class="card-header-actions">
                         <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
                         <button class="card-btn-collapse" data-id="${prov.id}" data-target="provider" title="${isCollapsed ? '展开此供应商' : '折叠此供应商'}" aria-expanded="${isCollapsed ? 'false' : 'true'}">${isCollapsed ? '▸' : '▾'}</button>
-                        ${!API_PROVIDERS_LOCKED && prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
+                        ${prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
                     </div>
                 </div>
                 <div class="card-collapsible" style="display:${isCollapsed ? 'none' : 'flex'};">
@@ -245,14 +228,14 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                                 </button>
                             </form>
                         </div>
-                        <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" ${API_PROVIDERS_LOCKED ? 'readonly aria-readonly="true" title="供应商已锁定，API 地址不可修改"' : ''} /></div>
+                        <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
                     </div>
                     <div class="provider-toggle-row">
                         <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;color:var(--text-dim);word-break:break-all;line-height:1.4;opacity:0.75;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
                         <label class="settings-toggle-row provider-toggle-label">
                             <span class="settings-toggle-text">自动补全</span>
                             <span class="toggle-switch">
-                                <input type="checkbox" ${prov.autoComplete !== false ? 'checked' : ''} data-id="${prov.id}" data-field="autoComplete" ${API_PROVIDERS_LOCKED ? 'disabled title="供应商已锁定，自动补全不可修改"' : ''} />
+                                <input type="checkbox" ${prov.autoComplete !== false ? 'checked' : ''} data-id="${prov.id}" data-field="autoComplete" />
                                 <span class="toggle-slider"></span>
                             </span>
                         </label>
@@ -288,12 +271,6 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                 const field = event.target.dataset.field;
                 const prov = state.providers.find((candidate) => candidate.id === id);
                 if (!prov) return;
-                if (API_PROVIDERS_LOCKED && (field === 'endpoint' || field === 'autoComplete')) {
-                    event.target.value = prov[field] ?? '';
-                    if (field === 'autoComplete') event.target.checked = prov.autoComplete !== false;
-                    updatePreview(id);
-                    return;
-                }
 
                 if (field === 'autoComplete') {
                     prov.autoComplete = event.target.checked;
@@ -323,11 +300,6 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                     const id = event.target.dataset.id;
                     const prov = state.providers.find((candidate) => candidate.id === id);
                     if (!prov) return;
-                    if (API_PROVIDERS_LOCKED) {
-                        event.target.value = prov.endpoint || '';
-                        updatePreview(id);
-                        return;
-                    }
                     const sanitized = sanitizeProviderEndpointInput(event.target.value);
                     if (sanitized !== event.target.value) {
                         event.target.value = sanitized;
@@ -388,7 +360,6 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     return {
         getEndpointHost,
         getSafeProviderName,
-        is6789ApiEndpoint,
         isVectorEngineEndpoint,
         isTtapiEndpoint,
         isTtapiOpenAiEndpoint,

@@ -9,6 +9,7 @@ import {
 } from './model-protocol-registry.js';
 import { getProtocol } from './protocols/index.js';
 import { normalizeImageList } from './execution-data-utils.js';
+import { requireModelCompatibilityFormat } from './model-compatibility-format.js';
 
 const VALID_PROTOCOLS = new Set(MODEL_PROTOCOL_IDS);
 
@@ -421,6 +422,7 @@ function hasOpenAiReferenceImages(inputs = {}) {
 }
 
 export function resolveProviderUrl(apiCfg, modelCfg, taskType, options = {}) {
+    requireModelCompatibilityFormat(modelCfg);
     if (apiCfg?.autoComplete === false) {
         const endpoint = normalizeProviderEndpointUrl(apiCfg?.endpoint);
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);

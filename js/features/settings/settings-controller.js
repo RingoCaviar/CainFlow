@@ -9,6 +9,8 @@ import { createModelSettings } from './model-settings.js';
 import { createProxyNetworkSettings } from './proxy-network-settings.js';
 import { createGeneralSettings } from './general-settings.js';
 import { createBackdropDismissalGuard } from './backdrop-dismissal.js';
+import { isKnownModelProtocol } from '../execution/model-protocol-registry.js';
+import { createSettingsCloseCoordinator } from './settings-close-coordinator.js';
 
 export function createSettingsControllerApi(options) {
     const { ctx, store } = createSettingsContext(options);
@@ -26,6 +28,7 @@ export function createSettingsControllerApi(options) {
         inferFetchedModelProtocol: (...args) => modelSettingsApi.inferFetchedModelProtocol(...args),
         modelAlreadyExists: (...args) => modelSettingsApi.modelAlreadyExists(...args),
         getFetchedModelTaskTypeLabel: (...args) => modelSettingsApi.getFetchedModelTaskTypeLabel(...args),
+        getModelCompatibilityFormatLabel: (...args) => modelSettingsApi.getModelCompatibilityFormatLabel(...args),
         addFetchedModel: (...args) => modelSettingsApi.addFetchedModel(...args),
         fetchProviderModels: (...args) => modelSettingsApi.fetchProviderModels(...args),
         renderModels: (...args) => modelSettingsApi.renderModels(...args),
@@ -44,13 +47,51 @@ export function createSettingsControllerApi(options) {
     }
 
     function initSettingsUI({ settingsModalApi, protocolDeveloperPanelApi }) {
-        const { documentRef, settingsModal, state, showToast, saveState, windowRef } = ctx;
+        const { documentRef, settingsModal, modelsList, state, showToast, saveState, windowRef } = ctx;
         const backdropDismissal = createBackdropDismissalGuard({
             overlay: settingsModal,
             panel: settingsModal.querySelector('.modal-panel')
         });
 
-        windowRef.__cainflowSettingsModalApi = settingsModalApi;
+        function activateSettingsTab(targetTab) {
+            documentRef.querySelectorAll('.modal-tab-btn').forEach((button) => {
+                button.classList.toggle('active', button.dataset.tab === targetTab);
+            });
+            documentRef.querySelectorAll('.settings-tab-pane').forEach((pane) => {
+                const isTargetPane = pane.id === `settings-tab-${targetTab}`;
+                pane.classList.toggle('active', isTargetPane);
+                pane.hidden = !isTargetPane;
+            });
+        }
+
+        const closeCoordinator = createSettingsCloseCoordinator({
+            getModels: () => state.models,
+            isKnownModelProtocol,
+            guideIncompleteModel: (model, count) => {
+                activateSettingsTab('api');
+                modelSettingsApi.collapseAllModelConfigCards();
+                store.modelCollapseState.set(model.id, false);
+                modelSettingsApi.renderModels();
+                showToast(`还有 ${count} 个模型未选择兼容格式，请完成后再关闭设置。`, 'warning', 8000);
+                windowRef.requestAnimationFrame(() => {
+                    const card = modelsList.querySelector(`[data-model-id="${model.id}"]`);
+                    card?.scrollIntoView?.({ block: 'center' });
+                    card?.querySelector?.('select[data-field="protocol"]')?.focus?.();
+                });
+            },
+            closeTopSettingsOverlay: dialogs.closeTopSettingsOverlay,
+            closeSettingsOverlays: dialogs.closeAllSettingsOverlays,
+            closeSettingsModal: () => settingsModalApi.closeSettingsModal(),
+            pauseNotificationAudio: () => state.notificationAudio?.pause()
+        });
+        const requestCloseSettings = (options) => closeCoordinator.requestCloseSettings(options);
+        const handleEscape = () => closeCoordinator.handleEscape();
+        windowRef.__cainflowSettingsModalApi = {
+            ...settingsModalApi,
+            closeSettingsModal: requestCloseSettings,
+            requestCloseSettings,
+            handleEscape
+        };
 
         // 协议编辑按钮
         let protocolEditButton = null;
@@ -82,14 +123,12 @@ export function createSettingsControllerApi(options) {
             }
         });
         documentRef.getElementById('settings-close').addEventListener('click', () => {
-            dialogs.closeAllSettingsOverlays();
-            settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
+            requestCloseSettings();
         });
         settingsModal.addEventListener('pointerdown', backdropDismissal.recordPointerDown);
         settingsModal.addEventListener('click', (event) => {
             if (backdropDismissal.shouldDismiss(event)) {
-                dialogs.closeAllSettingsOverlays();
-                settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
+                requestCloseSettings();
             }
         });
 
@@ -99,15 +138,8 @@ export function createSettingsControllerApi(options) {
         documentRef.querySelectorAll('.modal-tab-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 if (btn.classList.contains('active')) return;
-                const targetTab = btn.dataset.tab;
                 dialogs.closeAllSettingsOverlays();
-                documentRef.querySelectorAll('.modal-tab-btn').forEach((button) => button.classList.remove('active'));
-                btn.classList.add('active');
-                documentRef.querySelectorAll('.settings-tab-pane').forEach((pane) => {
-                    const isTargetPane = pane.id === `settings-tab-${targetTab}`;
-                    pane.classList.toggle('active', isTargetPane);
-                    pane.hidden = !isTargetPane;
-                });
+                activateSettingsTab(btn.dataset.tab);
             });
         });
 

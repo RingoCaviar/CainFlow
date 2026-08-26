@@ -110,14 +110,15 @@ export function createGlobalInteractionsApi({
             const isInput = isTextEditingTarget(active);
 
             if (e.key === 'Escape') {
+                if (settingsModal && !settingsModal.classList.contains('hidden')) {
+                    e.preventDefault();
+                    windowRef.__cainflowSettingsModalApi?.handleEscape?.();
+                    return;
+                }
                 documentRef.getElementById('history-preview-modal')?.classList.add('hidden');
                 documentRef.getElementById('history-fullscreen-modal')?.classList.add('hidden');
                 documentRef.getElementById('history-sidebar')?.classList.remove('active');
                 documentRef.getElementById('log-drawer')?.classList.remove('active');
-                if (settingsModal && !settingsModal.classList.contains('hidden')) {
-                    settingsModal.classList.add('hidden');
-                    state.notificationAudio?.pause();
-                }
             } else if ((e.key === 'm' || e.key === 'M' || e.key === 'd' || e.key === 'D') && !isInput && !e.repeat) {
                 if (!canUseCanvasShortcuts({ event: e, state, canvasContainer, documentRef, windowRef })) return;
                 if (state.selectedNodes.size > 0) {

@@ -139,6 +139,8 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         };
         const handleEscape = (event) => {
             if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
             closeFloatingModelProviderPanel();
             deps.renderModels();
         };
@@ -536,7 +538,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
                         <div class="provider-models-row-name">${escapeHtml(model.name)}</div>
                         <div class="provider-models-row-id">${escapeHtml(model.id)}</div>
                     </div>
-                    <span class="provider-models-badge">${escapeHtml(deps.getFetchedModelTaskTypeLabel(model.taskType))} · ${modelProtocol === 'openai' ? 'OpenAI' : 'Gemini'}</span>
+                    <span class="provider-models-badge">${escapeHtml(deps.getFetchedModelTaskTypeLabel(model.taskType))} · ${escapeHtml(deps.getModelCompatibilityFormatLabel(modelProtocol))}</span>
                     <button type="button" class="provider-models-add" data-model-id="${escapeHtml(model.id)}" ${exists ? 'disabled' : ''} title="${exists ? '模型已添加' : '添加到模型列表'}">${exists ? '已添加' : '+'}</button>
                 </div>
             `;
@@ -609,6 +611,30 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         closeFloatingModelProviderPanel();
     }
 
+    function closeTopSettingsOverlay() {
+        if (store.generalSettingsHelpOverlay && !store.generalSettingsHelpOverlay.classList.contains('hidden')) {
+            closeGeneralSettingsHelpPopovers(documentRef.getElementById('general-settings'));
+            return true;
+        }
+        if (store.floatingModelProviderPanel) {
+            closeFloatingModelProviderPanel();
+            getDeps().renderModels();
+            return true;
+        }
+        const overlayClosers = [
+            ['provider-models-dialog', closeProviderModelsDialog],
+            ['network-proxy-hint-dialog', closeNetworkProxyHintDialog],
+            ['api-settings-help-dialog', closeApiSettingsHelpDialog]
+        ];
+        for (const [id, closeOverlay] of overlayClosers) {
+            const overlay = documentRef.getElementById(id);
+            if (!overlay || overlay.classList.contains('hidden')) continue;
+            closeOverlay();
+            return true;
+        }
+        return false;
+    }
+
     return {
         escapeHtml,
         renderFloatingModelProviderPanel,
@@ -623,6 +649,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         closeProviderModelsDialog,
         renderNetworkProxyHintDialog,
         closeNetworkProxyHintDialog,
+        closeTopSettingsOverlay,
         openSettingsProxyTab,
         getNetworkProxyAttemptSummary,
         closeAllSettingsOverlays

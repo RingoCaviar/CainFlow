@@ -16,7 +16,6 @@ import {
     saveWorkflowToFile
 } from '../../services/workflow-api.js';
 import { openDialogStyle1 } from './dialog-style-1.js';
-import { API_PROVIDERS_LOCKED, DEFAULT_PROVIDERS } from '../../core/constants.js';
 const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
 export function createUiControllerApi({
@@ -630,46 +629,11 @@ export function createUiControllerApi({
         }));
     }
 
-    function getLockedProviders(importedProviders = []) {
-        const importedById = new Map((importedProviders || []).map((provider) => [provider.id, provider]));
-        const currentById = new Map((state.providers || []).map((provider) => [provider.id, provider]));
-        const defaultProviderIds = new Set(DEFAULT_PROVIDERS.map((provider) => provider.id));
-        const lockedDefaults = DEFAULT_PROVIDERS.map((provider) => {
-            const current = state.providers.find((candidate) => candidate.id === provider.id);
-            const imported = importedById.get(provider.id);
-            return {
-                ...provider,
-                name: current?.name || imported?.name || provider.name,
-                apikey: current?.apikey || imported?.apikey || provider.apikey
-            };
-        });
-        const hiddenProviders = [
-            ...Array.from(currentById.values()),
-            ...Array.from(importedById.values())
-        ].filter((provider) => provider && !defaultProviderIds.has(provider.id));
-        return mergeItemsById(lockedDefaults, hiddenProviders);
-    }
-
-    function bindModelToAvailableProviders(model, providers) {
-        const providerIds = getModelProviderIds(model);
-        const fallbackProviderId = providers?.[0]?.id || '';
-        const nextProviderIds = providerIds.length > 0
-            ? providerIds
-            : (fallbackProviderId ? [fallbackProviderId] : []);
-        return {
-            ...model,
-            providerIds: nextProviderIds,
-            providerId: nextProviderIds[0] || ''
-        };
-    }
-
     function normalizeModels(models, providers) {
         if (!Array.isArray(models)) throw new Error('配置文件缺少 models 数组');
 
         const providersById = new Map((providers || []).map((provider) => [provider.id, provider]));
-        return models
-            .map((model, index) => normalizeModelConfig(model, index, providersById))
-            .map((model) => API_PROVIDERS_LOCKED ? bindModelToAvailableProviders(model, providers) : model);
+        return models.map((model, index) => normalizeModelConfig(model, index, providersById));
     }
 
     function ensureUniqueIds(items, label) {
@@ -693,9 +657,7 @@ export function createUiControllerApi({
         }
 
         const importedProvidersRaw = finalSelection.providers ? normalizeProviders(configData.providers) : [];
-        const importedProviders = finalSelection.providers
-            ? (API_PROVIDERS_LOCKED ? getLockedProviders(importedProvidersRaw) : importedProvidersRaw)
-            : [];
+        const importedProviders = finalSelection.providers ? importedProvidersRaw : [];
         const nextProviders = finalSelection.providers
             ? (importMode === CONFIG_IMPORT_MODES.append
                 ? mergeItemsById(state.providers, importedProviders)
@@ -726,7 +688,7 @@ export function createUiControllerApi({
             ensureUniqueIds(importedPromptLibrary, '提示词预设');
         }
 
-        if (finalSelection.models && !API_PROVIDERS_LOCKED) {
+        if (finalSelection.models) {
             const providerIds = new Set(nextProviders.map((provider) => provider.id));
             const invalidModel = nextModels.find((model) => getModelProviderIds(model).some((providerId) => !providerIds.has(providerId)));
             if (invalidModel) {

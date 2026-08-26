@@ -1,71 +1,91 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await fs.readFile(
-    new URL('../js/features/settings/fetched-model-protocol.js', import.meta.url),
-    'utf8'
-);
-const { inferFetchedModelProtocol } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+import {
+    addFetchedModelToCollection,
+    findFetchedModelConfig,
+    getModelCompatibilityFormatLabel,
+    inferModelCompatibilityFormat,
+    requireModelCompatibilityFormat
+} from '../js/features/execution/model-compatibility-format.js';
+import { resolveProviderUrl } from '../js/features/execution/provider-request-utils.js';
 
-function createProviderSettings(fetchProtocol = 'openai') {
-    return {
-        getModelFetchProtocol: () => fetchProtocol,
-        isTtapiEndpoint: (endpoint) => endpoint === 'https://api.ttapi.org',
-        isTtapiOpenAiEndpoint: (endpoint) => endpoint === 'https://api.ttapi.io'
-    };
-}
+test('a fetched nano-banana model is persisted with the Google Gemini format', () => {
+    const models = [];
+    const config = addFetchedModelToCollection({ models,
+        generatedId: 'mod_test', providerId: 'provider_test',
+        fetchedModel: { id: 'nano-banana-fast', name: 'Nano Banana Fast' }, taskType: 'image'
+    });
+    assert.equal(config.protocol, 'google');
+    assert.equal(models[0], config);
+});
 
-test('uses the provider API format instead of guessing from model names', () => {
-    const settings = createProviderSettings('openai');
-    for (const id of ['gemini-2.5-pro', 'doubao-seedance-video', 'nana-banana-pro']) {
-        assert.equal(
-            inferFetchedModelProtocol({ endpoint: 'https://relay.example/v1', type: 'openai' }, { id }, settings),
-            'openai'
-        );
+test('fetched Grok text and image models are persisted with the OpenAI format', () => {
+    for (const id of ['grok-4.5', 'grok-imagine-image-2.0', 'GROK4', 'my-grok-proxy']) {
+        const models = [];
+        const config = addFetchedModelToCollection({
+            models,
+            generatedId: `mod_${id}`,
+            providerId: 'provider_test',
+            fetchedModel: { id },
+            taskType: id.includes('image') ? 'image' : 'chat'
+        });
+        assert.equal(config.protocol, 'openai', id);
+    }
+    for (const id of ['veo-grok', 'ttapi-grok', 'newapi-grok']) {
+        assert.equal(inferModelCompatibilityFormat({ id }), '', id);
+    }
+    assert.equal(inferModelCompatibilityFormat({ id: 'xai-chat' }), '');
+});
+
+test('model compatibility format uses only reliable model-name keywords', () => {
+    for (const id of ['gemini-2.5-pro', 'banana-fast', 'nano-banana-fast', 'nano banana pro', 'nano_banana']) {
+        assert.equal(inferModelCompatibilityFormat({ id }), 'google', id);
+    }
+    for (const id of ['gpt-5-nano', 'openai-image', 'dall-e-3', 'o3-mini']) {
+        assert.equal(inferModelCompatibilityFormat({ id }), 'openai', id);
+    }
+    for (const id of ['doubao-video', 'seedance-1.0']) {
+        assert.equal(inferModelCompatibilityFormat({ id }), 'doubao-video', id);
     }
 });
 
-test('uses model-family keywords only as a fallback for providers without a format', () => {
-    const settings = createProviderSettings('openai');
-    assert.equal(inferFetchedModelProtocol({}, { id: 'gemini-2.5-pro' }, settings), 'google');
-    assert.equal(inferFetchedModelProtocol({}, { id: 'nano-banana-pro' }, settings), 'google');
-    assert.equal(inferFetchedModelProtocol({}, { id: 'gpt-5.1' }, settings), 'openai');
-    assert.equal(inferFetchedModelProtocol({}, { id: 'o3-mini' }, settings), 'openai');
+test('provider and endpoint metadata never determine model compatibility format', () => {
+    assert.equal(inferModelCompatibilityFormat({
+        id: 'unknown-image-async',
+        raw: { supported_endpoint_types: ['openai', 'gemini', 'newapi-image-async'] }
+    }), '');
+    for (const id of ['ttapi-openai', 'veo-gpt-video', 'newapi-gpt-image']) {
+        assert.equal(inferModelCompatibilityFormat({ id }), '', id);
+    }
+    assert.equal(getModelCompatibilityFormatLabel(''), '未识别 · 需手动选择');
 });
 
-test('honors one unambiguous supported endpoint type returned by the provider', () => {
-    const settings = createProviderSettings('openai');
-    assert.equal(inferFetchedModelProtocol({}, {
-        id: 'model-via-gemini',
-        raw: { supported_endpoint_types: ['gemini'] }
-    }, settings), 'google');
-    assert.equal(inferFetchedModelProtocol({}, {
-        id: 'video-model',
-        raw: { supported_endpoint_types: ['/v1/videos'] }
-    }, settings), 'veo-openai');
+test('an unrecognized fetched model is persisted without a compatibility format', () => {
+    const models = [];
+    const config = addFetchedModelToCollection({ models,
+        generatedId: 'mod_unknown', providerId: 'provider_openai',
+        fetchedModel: { id: 'unknown-image-model' }, taskType: 'image'
+    });
+    assert.equal(config.protocol, '');
+    assert.equal(models.length, 1);
+    assert.equal(findFetchedModelConfig(models, {
+        modelId: 'unknown-image-model', protocol: '', taskType: 'image'
+    }), config);
 });
 
-test('keeps nano-banana on the Google Gemini format when generic metadata labels it async', () => {
-    const settings = createProviderSettings('openai');
-    assert.equal(inferFetchedModelProtocol({}, {
-        id: 'nano-banana-pro',
-        raw: { supported_endpoint_types: ['newapi-image-async'] }
-    }, settings), 'google');
-});
-
-test('prefers the provider format when metadata advertises several formats', () => {
-    const settings = createProviderSettings('openai');
-    assert.equal(inferFetchedModelProtocol({}, {
-        supported_endpoint_types: ['gemini', 'openai']
-    }, settings), 'openai');
-});
-
-test('keeps endpoint-specific TTAPI formats authoritative', () => {
-    const settings = createProviderSettings('openai');
-    assert.equal(inferFetchedModelProtocol(
-        { endpoint: 'https://api.ttapi.io' },
-        { supported_endpoint_types: ['gemini'] },
-        settings
-    ), 'ttapi-openai');
+test('workflow execution rejects a model whose compatibility format is empty', () => {
+    assert.throws(
+        () => requireModelCompatibilityFormat({ name: 'Unknown image', protocol: '' }),
+        /请先在模型设置中手动选择兼容格式/
+    );
+    assert.equal(requireModelCompatibilityFormat({ name: 'Configured', protocol: 'google' }), 'google');
+    assert.throws(
+        () => resolveProviderUrl(
+            { endpoint: 'https://relay.example/v1', type: 'openai' },
+            { name: 'Unknown image', modelId: 'unknown-image', protocol: '' },
+            'image'
+        ),
+        /请先在模型设置中手动选择兼容格式/
+    );
 });

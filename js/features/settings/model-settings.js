@@ -15,10 +15,16 @@ import {
 } from '../execution/provider-request-utils.js';
 import {
     getModelProtocolHelpText,
-    getProtocolSelectOptions
+    getProtocolSelectOptions,
+    isKnownModelProtocol
 } from '../execution/model-protocol-registry.js';
-import { API_PROVIDERS_LOCKED } from '../../core/constants.js';
-import { inferFetchedModelProtocol as inferFetchedModelProtocolFromApi } from './fetched-model-protocol.js';
+import {
+    addFetchedModelToCollection,
+    createFetchedModelConfig,
+    findFetchedModelConfig,
+    getModelCompatibilityFormatLabel,
+    inferModelCompatibilityFormat
+} from '../execution/model-compatibility-format.js';
 
 export function createModelSettings({ ctx, store, dialogs, providerSettings, getDeps }) {
     const {
@@ -160,7 +166,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function inferFetchedModelProtocol(provider, fetchedModel = {}) {
-        return inferFetchedModelProtocolFromApi(provider, fetchedModel, providerSettings);
+        return inferModelCompatibilityFormat(fetchedModel);
     }
 
     function normalizeFetchedModelName(modelId, sourceModel = {}) {
@@ -267,20 +273,18 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function findMatchingModelConfig(modelId, protocol, taskType) {
-        return state.models.find((model) => {
-            const provider = providerSettings.getResolvedModelProvider(model);
-            return model.modelId === modelId &&
-                normalizeModelTaskType(model.taskType, model) === normalizeModelTaskType(taskType, model) &&
-                normalizeModelProtocol(model.protocol, model, provider) === protocol;
-        }) || null;
+        return findFetchedModelConfig(
+            state.models,
+            { modelId, protocol, taskType },
+            normalizeModelTaskType
+        );
     }
 
     function modelAlreadyExists(providerId, modelId, protocol, taskType = '') {
         return state.models.some((model) => {
             if (model.modelId !== modelId) return false;
             if (!getModelProviderIds(model).includes(providerId)) return false;
-            const provider = state.providers.find((candidate) => candidate.id === providerId) || providerSettings.getResolvedModelProvider(model);
-            if (normalizeModelProtocol(model.protocol, model, provider) !== protocol) return false;
+            if ((isKnownModelProtocol(model.protocol) ? model.protocol : '') !== protocol) return false;
             return !taskType || normalizeModelTaskType(model.taskType, model) === normalizeModelTaskType(taskType, model);
         });
     }
@@ -288,8 +292,15 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     function addFetchedModel(provider, fetchedModel) {
         if (!provider || !fetchedModel) return;
 
-        const protocol = inferFetchedModelProtocol(provider, fetchedModel);
         const taskType = normalizeModelTaskType(fetchedModel.taskType, fetchedModel);
+        const newModelId = 'mod_' + Math.random().toString(36).substr(2, 9);
+        const newModel = createFetchedModelConfig({
+            generatedId: newModelId,
+            providerId: provider.id,
+            fetchedModel,
+            taskType
+        });
+        const protocol = newModel.protocol;
         const existingModel = findMatchingModelConfig(fetchedModel.id, protocol, taskType);
         if (existingModel) {
             const providerIds = providerSettings.syncModelProviderBindings(existingModel);
@@ -299,30 +310,38 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             }
             existingModel.providerIds = [...providerIds, provider.id];
             existingModel.providerId = existingModel.providerIds[0] || '';
+            if (!protocol) store.modelCollapseState.set(existingModel.id, false);
             renderModels();
             updateAllNodeModelDropdowns();
             saveState();
-            dialogs.renderProviderModelsDialog({ preserveListScroll: true });
-            showToast(`已将供应商绑定到模型：${fetchedModel.id}`, 'success');
+            if (protocol) {
+                dialogs.renderProviderModelsDialog({ preserveListScroll: true });
+                showToast(`已将供应商绑定到模型：${fetchedModel.id}`, 'success');
+            } else {
+                dialogs.closeProviderModelsDialog();
+                showToast(`无法自动识别“${fetchedModel.id}”的兼容格式，请在模型设置中手动选择；选择前该模型无法使用`, 'warning', 8000);
+                windowRef.setTimeout(() => {
+                    modelsList.querySelector(`[data-model-id="${existingModel.id}"]`)?.scrollIntoView?.({ block: 'center' });
+                }, 0);
+            }
             return;
         }
 
-        const newModelId = 'mod_' + Math.random().toString(36).substr(2, 9);
-        state.models.push({
-            id: newModelId,
-            name: fetchedModel.name || fetchedModel.id,
-            modelId: fetchedModel.id,
-            providerIds: [provider.id],
-            providerId: provider.id,
-            taskType,
-            protocol
-        });
-        store.modelCollapseState.set(newModelId, true);
+        addFetchedModelToCollection({ models: state.models, config: newModel });
+        store.modelCollapseState.set(newModelId, protocol ? true : false);
         renderModels();
         updateAllNodeModelDropdowns();
         saveState();
-        dialogs.renderProviderModelsDialog({ preserveListScroll: true });
-        showToast(`已添加模型：${fetchedModel.id}`, 'success');
+        if (protocol) {
+            dialogs.renderProviderModelsDialog({ preserveListScroll: true });
+            showToast(`已添加模型：${fetchedModel.id}`, 'success');
+        } else {
+            dialogs.closeProviderModelsDialog();
+            showToast(`无法自动识别“${fetchedModel.id}”的兼容格式，请在模型设置中手动选择；选择前该模型无法使用`, 'warning', 8000);
+            windowRef.setTimeout(() => {
+                modelsList.querySelector(`[data-model-id="${newModelId}"]`)?.scrollIntoView?.({ block: 'center' });
+            }, 0);
+        }
     }
 
     async function fetchProviderModels(providerId) {
@@ -427,6 +446,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function getModelRequestPreview(model) {
+        if (!isKnownModelProtocol(model?.protocol)) return '请先手动选择兼容格式';
         const provider = providerSettings.getResolvedModelProvider(model);
         if (!provider) return '请先绑定供应商';
 
@@ -448,6 +468,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function getModelProtocolHelp(model) {
+        if (!isKnownModelProtocol(model?.protocol)) return '兼容格式为必填项；选择前该模型无法使用。';
         const provider = providerSettings.getResolvedModelProvider(model);
         const protocol = getEffectiveProtocol(model, provider);
         return getModelProtocolHelpText(protocol, '当前兼容格式说明暂未配置。');
@@ -460,20 +481,13 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         const validProviderIds = new Set(selectableProviders.map((provider) => provider.id));
         if (!validProviderIds.has(providerId)) return;
         store.openModelProviderPanelId = modelId;
-        const current = new Set(API_PROVIDERS_LOCKED
-            ? getModelProviderIds(mod)
-            : getModelProviderIds(mod).filter((id) => validProviderIds.has(id)));
+        const current = new Set(getModelProviderIds(mod).filter((id) => validProviderIds.has(id)));
         if (current.has(providerId)) {
             current.delete(providerId);
         } else {
             current.add(providerId);
         }
-        const orderedProviderIds = API_PROVIDERS_LOCKED
-            ? [
-                ...state.providers.map((provider) => provider.id),
-                ...Array.from(current)
-            ]
-            : state.providers.map((provider) => provider.id);
+        const orderedProviderIds = state.providers.map((provider) => provider.id);
         mod.providerIds = orderedProviderIds.filter((id, index, ids) => current.has(id) && ids.indexOf(id) === index);
         providerSettings.syncModelProviderBindings(mod);
         saveState();
@@ -498,11 +512,14 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             el.dataset.modelId = mod.id;
             const taskType = normalizeModelTaskType(mod.taskType, mod);
             const provider = providerSettings.getResolvedModelProvider(mod);
-            const protocol = getEffectiveProtocol(mod, provider);
-            const protocolOptions = getProtocolSelectOptions(taskType)
+            const protocol = isKnownModelProtocol(mod.protocol) ? mod.protocol : '';
+            const protocolOptions = [
+                `<option value="" ${protocol ? '' : 'selected'} disabled>请选择兼容格式（必填）</option>`,
+                ...getProtocolSelectOptions(taskType)
                 .map((option) => `
                     <option value="${option.value}" ${protocol === option.value ? 'selected' : ''}>${dialogs.escapeHtml(option.label)}</option>
                 `)
+            ]
                 .join('');
             const isProviderPanelOpen = store.openModelProviderPanelId === mod.id;
             const visibleProviders = providerSettings.getVisibleSettingsProviders();
@@ -541,7 +558,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                         </div>
                         <div class="card-field">
                             <label>兼容格式</label>
-                            <select data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
+                            <select class="${protocol ? '' : 'invalid model-protocol-required'}" aria-invalid="${protocol ? 'false' : 'true'}" data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
                         </div>
                     </div>
                     <div class="card-row">
@@ -768,6 +785,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         normalizeFetchedModelId,
         inferFetchedModelTaskType,
         getFetchedModelTaskTypeLabel,
+        getModelCompatibilityFormatLabel,
         inferFetchedModelProtocol,
         normalizeFetchedModelName,
         parseNewApiPricingModels,

@@ -47,8 +47,7 @@ export function normalizeNodeDefaults(raw = {}) {
     return defaults;
 }
 
-function cloneInitialProviders(includeDefaultProviders = true) {
-    if (!includeDefaultProviders) return [];
+function cloneInitialProviders() {
     return DEFAULT_PROVIDERS.map((provider) => ({ ...provider }));
 }
 
@@ -77,8 +76,8 @@ function cloneInitialModels(providers = []) {
     return DEFAULT_MODELS.map((model) => bindInitialModelProviders(model, providers));
 }
 
-export function createInitialState({ includeDefaultProviders = true } = {}) {
-    const providers = cloneInitialProviders(includeDefaultProviders);
+export function createInitialState() {
+    const providers = cloneInitialProviders();
     return {
         nodes: new Map(),
         connections: [],
