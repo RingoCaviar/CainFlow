@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProjectIoApi } from '../js/features/persistence/project-io.js';
 import { createViewportApi } from '../js/canvas/viewport.js';
+import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
+import { createWorkflowSessionActivator } from '../js/features/workflow/workflow-activation-coordinator.js';
 
 function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
     const scheduledTasks = [];
@@ -15,7 +17,9 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
         selectedNodes: new Set(),
         canvas: { x: 0, y: 0, zoom: 1 },
         workflowTabs: [],
-        workflowFolders: []
+        workflowFolders: [],
+        activeWorkflowName: '',
+        activeWorkflowId: ''
     };
     const session = {
         canvas: overrides.canvas,
@@ -29,7 +33,51 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
             id: `connection-${index + 1}`,
             from: { nodeId: `node-${(index % nodeCount) + 1}`, port: 'text' },
             to: { nodeId: `node-${((index + 1) % nodeCount) + 1}`, port: 'text' }
-        }))
+        })),
+        workflowTabs: overrides.workflowTabs,
+        activeWorkflowName: overrides.activeWorkflowName,
+        activeWorkflowId: overrides.activeWorkflowId
+    };
+    const restoreBatch = async (items, restoreItem) => {
+        for (let index = 0; index < items.length; index += 1) {
+            restoreItem(items[index]);
+            if ((index + 1) % 100 === 0 && index + 1 < items.length) {
+                await new Promise((resolve) => {
+                    scheduledTasks.push({ callback: resolve, delay: 0 });
+                });
+            }
+        }
+    };
+    const testActivator = async (restoredState) => {
+        state.workflowTabs = restoredState.workflowTabs;
+        state.activeWorkflowName = restoredState.activeWorkflowName;
+        state.activeWorkflowId = restoredState.activeWorkflowId;
+        state.workflowOrder = restoredState.workflowOrder;
+        state.workflowFolders = restoredState.workflowFolders;
+        Object.assign(state.canvas, restoredState.workflowData.canvas);
+        const viewport = typeof overrides.viewportApi === 'function'
+            ? overrides.viewportApi(state)
+            : overrides.viewportApi;
+        viewport?.updateCanvasTransform?.({ updateConnections: false });
+        (overrides.beginMediaRestoreBatch || (() => {}))();
+        try {
+            await restoreBatch(restoredState.workflowData.nodes, (node) => {
+                restoredNodeIds.push(node.id);
+                state.nodes.set(node.id, { ...node });
+            });
+            await restoreBatch(restoredState.workflowData.connections, (connection) => {
+                if (state.nodes.has(connection.from.nodeId) && state.nodes.has(connection.to.nodeId)) {
+                    state.connections.push(connection);
+                }
+            });
+        } finally {
+            (overrides.endMediaRestoreBatch || (() => {}))();
+        }
+        await (overrides.finalizeMediaRestoreBatch || (async () => {}))();
+        if (restoredState.workflowData.connections.length) (overrides.updatePortStyles || (() => {}))();
+        await (overrides.connectionProjectionMaintenance?.workflowRestored
+            || (async () => { wholeProjectionUpdates += 1; }))();
+        return true;
     };
     const api = createProjectIoApi({
         state,
@@ -58,7 +106,8 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
         showToast: () => {},
         beginMediaRestoreBatch: overrides.beginMediaRestoreBatch || (() => {}),
         endMediaRestoreBatch: overrides.endMediaRestoreBatch || (() => {}),
-        finalizeMediaRestoreBatch: overrides.finalizeMediaRestoreBatch || (async () => {})
+        finalizeMediaRestoreBatch: overrides.finalizeMediaRestoreBatch || (async () => {}),
+        activateRestoredWorkflowState: overrides.activateRestoredWorkflowState || testActivator
     });
     return {
         api,
@@ -68,6 +117,46 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
         getWholeProjectionUpdates: () => wholeProjectionUpdates
     };
 }
+
+test('project IO requires an atomic workflow activator', () => {
+    assert.throws(() => createProjectIoApi({
+        state: {},
+        localStorageRef: {},
+        documentRef: {},
+        windowRef: {}
+    }), /workflow activator/i);
+});
+
+test('failed session workflow activation keeps the previous active workflow', async () => {
+    const previousTabs = [{ workflowId: 'previous-id', name: 'previous', data: { nodes: [] } }];
+    let liveState = null;
+    let nodeIdsAtActivation = [];
+    const { api, state } = createHarness(1, 0, {
+        workflowTabs: [{ workflowId: 'saved-id', name: 'saved', data: { nodes: [] } }],
+        activeWorkflowName: 'saved',
+        activeWorkflowId: 'saved-id',
+        activateRestoredWorkflowState: async () => {
+            nodeIdsAtActivation = Array.from(liveState.nodes.keys());
+            return false;
+        }
+    });
+    liveState = state;
+    state.workflowTabs = previousTabs;
+    state.activeWorkflowName = 'previous';
+    state.activeWorkflowId = 'previous-id';
+    state.nodes.set('previous-node', { id: 'previous-node' });
+    state.connections = [{ id: 'previous-connection' }];
+    state.canvas = { x: 9, y: 8, zoom: 0.75 };
+
+    assert.equal(await api.loadState(), false);
+    assert.deepEqual(nodeIdsAtActivation, ['previous-node']);
+    assert.equal(state.workflowTabs, previousTabs);
+    assert.equal(state.activeWorkflowName, 'previous');
+    assert.equal(state.activeWorkflowId, 'previous-id');
+    assert.deepEqual(Array.from(state.nodes.keys()), ['previous-node']);
+    assert.deepEqual(state.connections, [{ id: 'previous-connection' }]);
+    assert.deepEqual(state.canvas, { x: 9, y: 8, zoom: 0.75 });
+});
 
 test('large saved session yields control before mounting every node', async () => {
     const { api, restoredNodeIds, scheduledTasks } = createHarness(3001);
@@ -296,4 +385,87 @@ test('large saved session yields control while restoring connections', async () 
     assert.ok(state.connections.length < 6000);
 
     void loading;
+});
+
+test('loading a legacy session assigns one unique stable identity to the active workflow', async () => {
+    let activateRestoredState;
+    const { api, state } = createHarness(1, 0, {
+        workflowTabs: [
+            { name: 'other', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id', nodes: [], connections: [] } },
+            { name: 'folder/a', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id', nodes: [], connections: [] } }
+        ],
+        activeWorkflowName: 'folder/a',
+        activeWorkflowId: 'duplicate-id',
+        activateRestoredWorkflowState: (restoredState) => activateRestoredState(restoredState)
+    });
+    activateRestoredState = createWorkflowSessionActivator({
+        state,
+        workflowActivation: createWorkflowActivation(),
+        createWorkflowId: () => 'generated-workflow-id',
+        prepareEditorView: async () => ({
+            commit: () => true,
+            rollback: () => true,
+            finalize: () => true,
+            dispose: () => true
+        })
+    }).activate;
+
+    assert.equal(await api.loadState(), true);
+    assert.equal(state.workflowTabs[0].workflowId, 'duplicate-id');
+    assert.equal(state.workflowTabs[1].workflowId, 'generated-workflow-id');
+    assert.equal(state.workflowTabs[1].data.workflowId, 'generated-workflow-id');
+    assert.equal(state.activeWorkflowId, 'generated-workflow-id');
+});
+
+test('session workflow activation applies the committed canvas to the visible viewport', async () => {
+    let activateRestoredState;
+    let canvasAtViewportApply = null;
+    const { api, state } = createHarness(1, 0, {
+        canvas: { x: 48, y: -24, zoom: 1.25 },
+        workflowTabs: [{ name: 'active', data: { nodes: [], connections: [] } }],
+        activeWorkflowName: 'active',
+        activateRestoredWorkflowState: (restoredState) => activateRestoredState(restoredState)
+    });
+    activateRestoredState = createWorkflowSessionActivator({
+        state,
+        workflowActivation: createWorkflowActivation(),
+        createWorkflowId: () => 'active-id',
+        prepareEditorView: async (_workflowName, workflowData) => ({
+            commit: () => { state.canvas = workflowData.canvas; return true; },
+            rollback: () => true,
+            finalize: () => true,
+            dispose: () => true
+        }),
+        applyViewport: () => { canvasAtViewportApply = { ...state.canvas }; }
+    }).activate;
+
+    assert.equal(await api.loadState(), true);
+    assert.deepEqual(canvasAtViewportApply, { x: 48, y: -24, zoom: 1.25 });
+});
+
+test('session workflow activation aligns a stale name to the authoritative stable identity', async () => {
+    let activateRestoredState;
+    const { api, state } = createHarness(1, 0, {
+        workflowTabs: [
+            { name: 'stale-name-target', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } },
+            { name: 'identity-target', workflowId: 'workflow-b', data: { workflowId: 'workflow-b' } }
+        ],
+        activeWorkflowName: 'stale-name-target',
+        activeWorkflowId: 'workflow-b',
+        activateRestoredWorkflowState: (restoredState) => activateRestoredState(restoredState)
+    });
+    activateRestoredState = createWorkflowSessionActivator({
+        state,
+        workflowActivation: createWorkflowActivation(),
+        prepareEditorView: async () => ({
+            commit: () => true,
+            rollback: () => true,
+            finalize: () => true,
+            dispose: () => true
+        })
+    }).activate;
+
+    assert.equal(await api.loadState(), true);
+    assert.equal(state.activeWorkflowId, 'workflow-b');
+    assert.equal(state.activeWorkflowName, 'identity-target');
 });

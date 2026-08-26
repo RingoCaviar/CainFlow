@@ -18,6 +18,7 @@ import {
     getProtocolSelectOptions
 } from '../execution/model-protocol-registry.js';
 import { API_PROVIDERS_LOCKED } from '../../core/constants.js';
+import { inferFetchedModelProtocol as inferFetchedModelProtocolFromApi } from './fetched-model-protocol.js';
 
 export function createModelSettings({ ctx, store, dialogs, providerSettings, getDeps }) {
     const {
@@ -159,40 +160,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function inferFetchedModelProtocol(provider, fetchedModel = {}) {
-        const fingerprint = `${fetchedModel.id || ''} ${fetchedModel.name || ''}`.toLowerCase();
-        if (providerSettings.isTtapiOpenAiEndpoint(provider?.endpoint)) return 'ttapi-openai';
-        if (providerSettings.isTtapiEndpoint(provider?.endpoint)) return 'ttapi';
-        const supportedEndpointTypes = Array.isArray(fetchedModel.raw?.supported_endpoint_types)
-            ? fetchedModel.raw.supported_endpoint_types.map((type) => String(type || '').toLowerCase())
-            : Array.isArray(fetchedModel.supported_endpoint_types)
-                ? fetchedModel.supported_endpoint_types.map((type) => String(type || '').toLowerCase())
-                : [];
-        if (fingerprint.includes('doubao') || fingerprint.includes('seedance')) {
-            return 'doubao-video';
-        }
-        if (fingerprint.includes('veo') || fingerprint.includes('sora') || fingerprint.includes('video')) {
-            return 'veo-openai';
-        }
-        if (fingerprint.includes('nana-banana') || fingerprint.includes('banana')) {
-            return 'newapi-image-async';
-        }
-        if (supportedEndpointTypes.length === 1) {
-            if (supportedEndpointTypes[0] === 'gemini') return 'google';
-            if (supportedEndpointTypes[0] === 'openai') return 'openai';
-        }
-        if (
-            fingerprint.includes('gpt-') ||
-            fingerprint.includes('gpt ') ||
-            fingerprint.includes('dall-e') ||
-            fingerprint.includes('openai') ||
-            fingerprint.includes('o1-') ||
-            fingerprint.includes('o3-') ||
-            fingerprint.includes('o4-')
-        ) {
-            return 'openai';
-        }
-        if (fingerprint.includes('gemini')) return 'google';
-        return providerSettings.getModelFetchProtocol(provider);
+        return inferFetchedModelProtocolFromApi(provider, fetchedModel, providerSettings);
     }
 
     function normalizeFetchedModelName(modelId, sourceModel = {}) {

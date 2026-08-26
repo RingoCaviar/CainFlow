@@ -268,6 +268,15 @@ function Invoke-ReleaseMode {
     if (!(Test-Path -LiteralPath $smokeMarker -PathType Leaf)) {
       throw "CainFlow desktop window did not load within $TimeoutSeconds seconds."
     }
+    $smokeResult = @(Get-Content -LiteralPath $smokeMarker -Encoding UTF8)
+    if ($smokeResult.Count -eq 0 -or $smokeResult[0] -ne "READY") {
+      $bootstrapError = if ($smokeResult.Count -gt 1) {
+        ($smokeResult | Select-Object -Skip 1) -join " "
+      } else {
+        "CainFlow did not report application readiness."
+      }
+      throw "CainFlow application bootstrap failed: $bootstrapError"
+    }
     $databasePath = Join-Path $extractDir "data\cainflow.db"
     if (!(Test-Path -LiteralPath $databasePath -PathType Leaf)) {
       throw "CainFlow desktop smoke test did not initialize SQLite: $databasePath"

@@ -2,6 +2,7 @@ import { cleanupElementResources } from '../../core/common-utils.js';
 import { createInitialState } from '../../core/state.js';
 import { createProxyHeadersGetter } from '../../services/api-client.js';
 import { createConnectionsApi } from '../../canvas/connections.js';
+import { createConnectionProjection } from '../../canvas/connection-projection.js';
 import { createCameraControlNodeApi } from '../camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../execution/workflow-runner.js';
@@ -21,6 +22,14 @@ import { createDisplayImageRenderer } from '../media/display-image-renderer.js';
 import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
+import {
+    isWorkflowReferenceActive,
+    normalizeWorkflowReference,
+    requireStableWorkflowReference
+} from './workflow-identity.js';
+import { createDetachedWorkflowViewBuilder } from './detached-workflow-view-builder.js';
+import { createWorkflowLayoutElements, createWorkflowLayoutHost } from './workflow-layout-host.js';
+import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 
 const WORKFLOW_RUNTIME_STATE_KEYS = [
     'autoRetry',
@@ -103,40 +112,6 @@ function getWorkflowConnectionIdentity(connection, index = 0) {
         connection?.type || '',
         index
     ].join('::');
-}
-
-function createDetachedElements(doc) {
-    const wrapper = doc.createElement('div');
-    wrapper.className = 'workflow-runtime-detached';
-    wrapper.style.cssText = 'position:fixed;left:-100000px;top:-100000px;width:1000px;height:800px;overflow:hidden;pointer-events:none;';
-
-    const canvasContainerEl = doc.createElement('div');
-    canvasContainerEl.className = 'canvas-container';
-
-    const nodesLayerEl = doc.createElement('div');
-    nodesLayerEl.className = 'nodes-layer';
-
-    const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    const connectionsGroupEl = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-    const tempConnectionEl = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-    const originAxesEl = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-
-    svg.appendChild(connectionsGroupEl);
-    svg.appendChild(tempConnectionEl);
-    svg.appendChild(originAxesEl);
-    canvasContainerEl.appendChild(nodesLayerEl);
-    canvasContainerEl.appendChild(svg);
-    wrapper.appendChild(canvasContainerEl);
-    doc.body.appendChild(wrapper);
-
-    return {
-        wrapper,
-        canvasContainer: canvasContainerEl,
-        nodesLayer: nodesLayerEl,
-        connectionsGroup: connectionsGroupEl,
-        tempConnection: tempConnectionEl,
-        originAxes: originAxesEl
-    };
 }
 
 function readElementControlValue(doc, id, fallback = '') {
@@ -467,6 +442,9 @@ export function createWorkflowRuntimeManager({
     refreshDependentImageResizePreviews = async () => {},
     restoreImageResizePreview = () => {},
     showResolutionBadge = async () => {},
+    visibleNodesLayer = null,
+    bindVisibleNodeInteractions = () => {},
+    visibleConnectionProjectionMaintenance = null,
     documentRef = document,
     windowRef = window,
     fetchRef = fetch,
@@ -523,23 +501,30 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    function getWorkflowRunContexts(workflowName) {
+    function isActiveWorkflow(workflow) {
+        return isWorkflowReferenceActive(workflow, state);
+    }
+
+    function getWorkflowRunContexts(workflow) {
+        const reference = normalizeWorkflowReference(workflow);
         return Array.from(workflowRunContexts.values())
-            .filter((context) => context.workflowName === workflowName);
+            .filter((context) => reference.workflowId
+                ? context.workflowId === reference.workflowId
+                : context.workflowName === reference.workflowName);
     }
 
-    function getWorkflowRunContext(workflowName) {
-        return getWorkflowRunContexts(workflowName)[0] || null;
+    function getWorkflowRunContext(workflowReference) {
+        return getWorkflowRunContexts(workflowReference)[0] || null;
     }
 
-    function getWorkflowRunContextForNode(workflowName, nodeId) {
-        return getWorkflowRunContexts(workflowName)
+    function getWorkflowRunContextForNode(workflowReference, nodeId) {
+        return getWorkflowRunContexts(workflowReference)
             .find((context) => context.state?.runningNodeIds?.has(nodeId)) || null;
     }
 
-    function getActivePlanNodeIds(workflowName) {
+    function getActivePlanNodeIds(workflowReference) {
         const nodeIds = new Set();
-        getWorkflowRunContexts(workflowName).forEach((context) => {
+        getWorkflowRunContexts(workflowReference).forEach((context) => {
             if (context.activePlanNodeIds instanceof Set) {
                 context.activePlanNodeIds.forEach((nodeId) => nodeIds.add(nodeId));
             }
@@ -547,8 +532,8 @@ export function createWorkflowRuntimeManager({
         return nodeIds;
     }
 
-    function getPlanOverlapNodeIds(workflowName, nodeIds = []) {
-        const activePlanNodeIds = getActivePlanNodeIds(workflowName);
+    function getPlanOverlapNodeIds(workflowReference, nodeIds = []) {
+        const activePlanNodeIds = getActivePlanNodeIds(workflowReference);
         return Array.from(nodeIds).filter((nodeId) => activePlanNodeIds.has(nodeId));
     }
 
@@ -704,9 +689,10 @@ export function createWorkflowRuntimeManager({
         syncVisibleGenerationProgress(node, runtimeNode);
     }
 
-    async function syncVisibleNodeResult(workflowName, runtimeNodeId) {
-        if (!workflowName || state.activeWorkflowName !== workflowName || !runtimeNodeId) return false;
-        const context = getWorkflowRunContexts(workflowName)
+    async function syncVisibleNodeResult(workflow, runtimeNodeId) {
+        const reference = normalizeWorkflowReference(workflow);
+        if ((!reference.workflowId && !reference.workflowName) || !isActiveWorkflow(reference) || !runtimeNodeId) return false;
+        const context = getWorkflowRunContexts(reference)
             .find((entry) => entry.state?.nodes?.has(runtimeNodeId));
         const runtimeNode = context?.state?.nodes?.get(runtimeNodeId);
         const node = state.nodes.get(runtimeNodeId);
@@ -970,8 +956,10 @@ export function createWorkflowRuntimeManager({
         }, 100));
     }
 
-    function applyVisibleNodeRunState(workflowName, payload = {}) {
-        if (!workflowName || state.activeWorkflowName !== workflowName) return;
+    function applyVisibleNodeRunState(workflow, payload = {}) {
+        const reference = normalizeWorkflowReference(workflow);
+        if ((!reference.workflowId && !reference.workflowName) || !isActiveWorkflow(reference)) return;
+        const workflowName = reference.workflowName || state.activeWorkflowName;
         const nodeId = payload.nodeId;
         if (!nodeId) return;
         const node = state.nodes.get(nodeId);
@@ -989,7 +977,7 @@ export function createWorkflowRuntimeManager({
             workflowRunViewNodeIds.add(nodeId);
             state.runningNodeIds.add(nodeId);
             state.runningNodeCancelHandlers.set(nodeId, () => {
-                const context = getWorkflowRunContextForNode(workflowName, nodeId);
+                const context = getWorkflowRunContextForNode(reference, nodeId);
                 return context?.runner?.cancelRunningNode?.(nodeId) || false;
             });
             node.runStartedAt = startedAt;
@@ -1030,8 +1018,11 @@ export function createWorkflowRuntimeManager({
         connectionProjection?.nodeAppearanceChanged(nodeId);
     }
 
-    function refreshVisibleWorkflowRunState(workflowName = state.activeWorkflowName) {
-        const contexts = getWorkflowRunContexts(workflowName);
+    function refreshVisibleWorkflowRunState(workflowReference = {
+        workflowName: state.activeWorkflowName,
+        workflowId: state.activeWorkflowId
+    }) {
+        const contexts = getWorkflowRunContexts(workflowReference);
         clearWorkflowRunView({ keepLock: contexts.length > 0 });
         if (contexts.length === 0) {
             return;
@@ -1039,14 +1030,14 @@ export function createWorkflowRuntimeManager({
         contexts.forEach((context) => {
             context.state.runningNodeIds?.forEach((nodeId) => {
                 const runtimeNode = context.state.nodes.get(nodeId);
-                applyVisibleNodeRunState(workflowName, {
+                applyVisibleNodeRunState(workflowReference, {
                     nodeId,
                     status: 'running',
                     running: true,
                     startedAt: runtimeNode?.runStartedAt || Date.now()
                 });
                 if (runtimeNode?.data?.concurrentRequestStatus?.total > 0) {
-                    applyVisibleNodeRunState(workflowName, {
+                    applyVisibleNodeRunState(workflowReference, {
                         nodeId,
                         status: 'concurrent-request-status',
                         concurrentRequestStatus: runtimeNode.data.concurrentRequestStatus
@@ -1254,14 +1245,17 @@ export function createWorkflowRuntimeManager({
     function syncRuntimeWorkflowSnapshot(context, options = {}) {
         if (!context?.workflowName) return false;
         const data = context.serialize();
-        const applyToCanvas = state.activeWorkflowName === context.workflowName && options.applyToCanvas === true;
+        if (context.workflowId) data.workflowId = context.workflowId;
+        const workflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(context.workflowId) || context.workflowName;
+        const active = context.workflowId ? state.activeWorkflowId === context.workflowId : state.activeWorkflowName === workflowName;
+        const applyToCanvas = active && options.applyToCanvas === true;
         const mergeRunResults = options.mergeRunResults !== false;
         const mergeNodeIds = options.mergeNodeIds instanceof Set ? options.mergeNodeIds : context.activePlanNodeIds;
-        return getWorkflowManagerApi()?.updateWorkflowTabData?.(context.workflowName, data, {
+        return getWorkflowManagerApi()?.updateWorkflowTabData?.(workflowName, data, {
             dirty: options.dirty !== false,
             applyToCanvas,
             mergeRunResults,
-            mergeWithCanvas: mergeRunResults && state.activeWorkflowName === context.workflowName,
+            mergeWithCanvas: mergeRunResults && active,
             baseNodeIds: context.baseNodeIds,
             baseConnectionIds: context.baseConnectionIds,
             mergeNodeIds
@@ -1278,10 +1272,19 @@ export function createWorkflowRuntimeManager({
         });
     }
 
-    function createWorkflowRuntimeContext(workflowName, workflowData) {
+    function createWorkflowRuntimeContext(workflow, workflowData, { editorPreparation = false } = {}) {
+        const { workflowName, workflowId } = normalizeWorkflowReference(workflow);
         const contextId = `${workflowName}::${Date.now()}::${workflowRunContextSeq += 1}`;
         const runtimeState = createInitialState();
-        const runtimeDocument = documentRef.implementation.createHTMLDocument(`CainFlow Runtime - ${workflowName}`);
+        const visibleRect = visibleNodesLayer?.parentElement?.getBoundingClientRect?.() || {};
+        const layoutHost = editorPreparation
+            ? createWorkflowLayoutHost(documentRef, {
+                width: Number(visibleRect.width) || 1600,
+                height: Number(visibleRect.height) || 1200
+            })
+            : null;
+        const runtimeDocument = layoutHost?.document
+            || documentRef.implementation.createHTMLDocument(`CainFlow Runtime - ${workflowName}`);
         const skipHiddenConnectionRefresh = () => {};
         WORKFLOW_RUNTIME_STATE_KEYS.forEach((key) => {
             runtimeState[key] = state[key];
@@ -1292,8 +1295,28 @@ export function createWorkflowRuntimeManager({
         runtimeState.activeWorkflowName = workflowName;
         runtimeState.workflowTabs = [];
 
-        const runtimeElements = createDetachedElements(runtimeDocument);
-        const runtimeConnectionsApi = createConnectionsApi({
+        let runtimeElements = null;
+        let runtimeConnectionsApi = null;
+        let runtimeConnectionProjection = null;
+        let runtimeNodeLifecycleApi = null;
+        const disposalResources = {
+            contextId,
+            registry: workflowRunContexts,
+            state: runtimeState,
+            nodeLifecycle: null,
+            connections: null,
+            elements: null,
+            layoutHost,
+            cleanupNode: (node) => cleanupElementResources(node.el)
+        };
+        const disposeRuntime = createWorkflowRuntimeDisposer(disposalResources);
+        try {
+        runtimeElements = createWorkflowLayoutElements(runtimeDocument, {
+            width: Number(visibleRect.width) || 1000,
+            height: Number(visibleRect.height) || 800
+        });
+        disposalResources.elements = runtimeElements;
+        runtimeConnectionsApi = createConnectionsApi({
             state: runtimeState,
             canvasContainer: runtimeElements.canvasContainer,
             connectionsGroup: runtimeElements.connectionsGroup,
@@ -1309,6 +1332,14 @@ export function createWorkflowRuntimeManager({
             addNode: () => null,
             documentRef: runtimeDocument
         });
+        runtimeConnectionProjection = createConnectionProjection({
+            projectionHandoffAdapter: runtimeConnectionsApi.projectionHandoffAdapter,
+            requestAnimationFrameRef: runtimeDocument.defaultView?.requestAnimationFrame?.bind(runtimeDocument.defaultView),
+            cancelAnimationFrameRef: runtimeDocument.defaultView?.cancelAnimationFrame?.bind(runtimeDocument.defaultView),
+            setTimeoutRef: runtimeDocument.defaultView?.setTimeout?.bind(runtimeDocument.defaultView),
+            clearTimeoutRef: runtimeDocument.defaultView?.clearTimeout?.bind(runtimeDocument.defaultView)
+        });
+        disposalResources.connections = runtimeConnectionsApi;
         const runtimeMediaApi = createRuntimeMediaApi(runtimeState, runtimeDocument);
         const runtimeAutoSaveToDir = async (nodeId, payload) => {
             const node = runtimeState.nodes.get(nodeId);
@@ -1408,7 +1439,7 @@ export function createWorkflowRuntimeManager({
             onConnectionsChanged: () => {},
             documentRef: runtimeDocument
         });
-        const runtimeNodeLifecycleApi = createNodeLifecycleApi({
+        runtimeNodeLifecycleApi = createNodeLifecycleApi({
             state: runtimeState,
             nodeConfigs,
             createNodeMarkup,
@@ -1426,7 +1457,9 @@ export function createWorkflowRuntimeManager({
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             renderImageSavePreview: runtimeMediaApi.renderImageSavePreview,
             renderImageComparePreview: runtimeMediaApi.renderImageComparePreview,
-            bindNodeInteractions: ({ id, type, el }) => runtimeNodeBindingsApi.bindNodeInteractions({ id, type, el }),
+            bindNodeInteractions: editorPreparation
+                ? () => {}
+                : ({ id, type, el }) => runtimeNodeBindingsApi.bindNodeInteractions({ id, type, el }),
             serializeOneNode: null,
             pushHistory: () => {},
             scheduleSave: () => {},
@@ -1438,6 +1471,7 @@ export function createWorkflowRuntimeManager({
             updateCacheUsage: () => {},
             documentRef: runtimeDocument
         });
+        disposalResources.nodeLifecycle = runtimeNodeLifecycleApi;
         const data = cloneWorkflowData(workflowData);
         const runtimeExecutionCoreApi = createExecutionCoreApi({
             state: runtimeState,
@@ -1480,22 +1514,17 @@ export function createWorkflowRuntimeManager({
         const context = {
             id: contextId,
             workflowName,
+            workflowId,
             state: runtimeState,
             elements: runtimeElements,
+            layoutHost,
             baseNodeIds: new Set(data.nodes.map((node) => node?.id).filter(Boolean)),
             baseConnectionIds: new Set(data.connections.map((connection, index) => getWorkflowConnectionIdentity(connection, index))),
             activePlanNodeIds: new Set(),
             nodeRunStarted: false,
             runResult: '',
             abortReason: null,
-            dispose() {
-                runtimeNodeLifecycleApi.cancelPendingImageRestores?.();
-                runtimeState.nodes.forEach((node) => cleanupElementResources(node.el));
-                runtimeState.nodes.clear();
-                runtimeState.connections = [];
-                runtimeElements.wrapper?.remove();
-                workflowRunContexts.delete(contextId);
-            },
+            dispose: disposeRuntime,
             serialize() {
                 return serializeRuntimeWorkflow(runtimeState, runtimeDocument, workflowData?.version || '1.3');
             },
@@ -1504,6 +1533,12 @@ export function createWorkflowRuntimeManager({
             },
             waitForImageRestores(nodeIds = null) {
                 return runtimeNodeLifecycleApi.waitForImageRestores?.(nodeIds) || Promise.resolve();
+            },
+            captureConnectionProjectionHandoff() {
+                return runtimeConnectionProjection.maintenance.captureViewHandoff();
+            },
+            refreshConnectionProjection() {
+                runtimeConnectionsApi.updateAllConnections();
             }
         };
         runtimeRunnerApi = createWorkflowRunnerApi({
@@ -1540,13 +1575,13 @@ export function createWorkflowRuntimeManager({
             },
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
-                applyVisibleNodeRunState(workflowName, payload);
+                applyVisibleNodeRunState({ workflowId, workflowName }, payload);
                 if (payload?.status === 'completed' && payload.nodeId) {
                     syncRuntimeNodeSnapshot(context, payload.nodeId, {
                         dirty: true,
                         applyToCanvas: false
                     });
-                    void syncVisibleNodeResult(workflowName, payload.nodeId);
+                    void syncVisibleNodeResult({ workflowId, workflowName }, payload.nodeId);
                     // ImageGenerate 完成后，立即把图片同步到主画布的下游 ImagePreview/ImageSave 节点，
                     // 不再等待 ImagePreview 自身执行完成（解决预览空白、刷新后旧图等问题）。
                     const completedRuntimeNode = context.state.nodes.get(payload.nodeId);
@@ -1558,7 +1593,7 @@ export function createWorkflowRuntimeManager({
                         for (const targetId of downstreamIds) {
                             const targetRuntimeNode = context.state.nodes.get(targetId);
                             if (targetRuntimeNode && (targetRuntimeNode.type === 'ImagePreview' || targetRuntimeNode.type === 'ImageSave')) {
-                                void syncVisibleNodeResult(workflowName, targetId);
+                                void syncVisibleNodeResult({ workflowId, workflowName }, targetId);
                             }
                         }
                     }
@@ -1581,12 +1616,18 @@ export function createWorkflowRuntimeManager({
                 });
             }
         });
+        if (editorPreparation) runtimeConnectionsApi.updateAllConnections();
         workflowRunContexts.set(contextId, context);
         return context;
+        } catch (error) {
+            disposeRuntime();
+            throw error;
+        }
     }
 
-    async function runWorkflowInContext(workflowName, workflowData, runInput = null) {
-        const context = createWorkflowRuntimeContext(workflowName, workflowData);
+    async function runWorkflowInContext(workflow, workflowData, runInput = null) {
+        const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
+        const context = createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData);
         const plan = context.resolveExecutionPlan(runInput);
         if (!plan) {
             context.dispose();
@@ -1595,7 +1636,8 @@ export function createWorkflowRuntimeManager({
         }
         const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
             .filter((nodeId) => context.state.nodes.get(nodeId)?.enabled !== false);
-        const overlappingNodeIds = getPlanOverlapNodeIds(workflowName, runnableNodeIds);
+        const workflowReference = { workflowName, workflowId: context.workflowId };
+        const overlappingNodeIds = getPlanOverlapNodeIds(workflowReference, runnableNodeIds);
         if (overlappingNodeIds.length > 0) {
             context.dispose();
             showToast(`当前运行线路上有 ${overlappingNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
@@ -1623,13 +1665,14 @@ export function createWorkflowRuntimeManager({
             } finally {
                 const runResult = deriveWorkflowRunResult(context, runError);
                 context.activePlanNodeIds.clear();
-                const stillRunning = getWorkflowRunContexts(workflowName).some((entry) => entry !== context);
-                getWorkflowManagerApi()?.setWorkflowRunningState?.(workflowName, stillRunning);
+                const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(context.workflowId) || workflowName;
+                const stillRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);
+                getWorkflowManagerApi()?.setWorkflowRunningState?.(currentWorkflowName, stillRunning);
                 if (runResult && !stillRunning) {
-                    getWorkflowManagerApi()?.setWorkflowRunResult?.(workflowName, runResult);
+                    getWorkflowManagerApi()?.setWorkflowRunResult?.(currentWorkflowName, runResult);
                 }
-                if (state.activeWorkflowName === workflowName) {
-                    refreshVisibleWorkflowRunState(workflowName);
+                if (isActiveWorkflow(workflowReference)) {
+                    refreshVisibleWorkflowRunState(workflowReference);
                 }
                 context.dispose();
                 syncGlobalRunToolbarState();
@@ -1639,18 +1682,19 @@ export function createWorkflowRuntimeManager({
         return true;
     }
 
-    function getRunConflictInfo(workflowName, workflowData, runInput = null) {
-        if (!workflowName || getWorkflowRunContexts(workflowName).length === 0) {
+    function getRunConflictInfo(workflow, workflowData, runInput = null) {
+        const reference = requireStableWorkflowReference(workflow);
+        if (getWorkflowRunContexts(reference).length === 0) {
             return { blocked: false, count: 0, nodeIds: [] };
         }
-        const context = createWorkflowRuntimeContext(workflowName, workflowData);
+        const context = createWorkflowRuntimeContext(reference, workflowData);
         workflowRunContexts.delete(context.id);
         try {
             const plan = context.resolveExecutionPlan(runInput);
             if (!plan) return { blocked: false, count: 0, nodeIds: [] };
             const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
                 .filter((nodeId) => context.state.nodes.get(nodeId)?.enabled !== false);
-            const overlapNodeIds = getPlanOverlapNodeIds(workflowName, runnableNodeIds);
+            const overlapNodeIds = getPlanOverlapNodeIds(reference, runnableNodeIds);
             return {
                 blocked: overlapNodeIds.length > 0,
                 count: overlapNodeIds.length,
@@ -1659,6 +1703,26 @@ export function createWorkflowRuntimeManager({
         } finally {
             context.dispose();
         }
+    }
+
+    const detachedWorkflowViewBuilder = createDetachedWorkflowViewBuilder({
+        liveState: state,
+        visibleNodesLayer,
+        bindVisibleNodeInteractions,
+        visibleConnectionProjectionMaintenance,
+        createRuntimeContext: (workflow, workflowData) => {
+            const { workflowName, workflowId } = normalizeWorkflowReference(workflow);
+            const context = createWorkflowRuntimeContext({
+                workflowName,
+                workflowId: workflowId || workflowData?.workflowId || ''
+            }, workflowData, { editorPreparation: true });
+            workflowRunContexts.delete(context.id);
+            return context;
+        }
+    });
+
+    function prepareEditorView(workflow, workflowData) {
+        return detachedWorkflowViewBuilder.prepare(workflow, workflowData);
     }
 
     function abortAllWorkflowRuns(reason = 'manual') {
@@ -1675,13 +1739,14 @@ export function createWorkflowRuntimeManager({
         });
     }
 
-    function cancelRunningNode(nodeId) {
+    function cancelRunningNode(workflow, nodeId) {
+        const reference = requireStableWorkflowReference(workflow);
         const visibleHandler = state.runningNodeCancelHandlers?.get(nodeId);
-        if (typeof visibleHandler === 'function') {
+        if (isActiveWorkflow(reference) && typeof visibleHandler === 'function') {
             visibleHandler();
             return true;
         }
-        for (const context of workflowRunContexts.values()) {
+        for (const context of getWorkflowRunContexts(reference)) {
             if (context.state.runningNodeIds?.has(nodeId)) {
                 return context.runner.cancelRunningNode(nodeId);
             }
@@ -1694,6 +1759,7 @@ export function createWorkflowRuntimeManager({
         applyVisibleNodeRunState,
         cancelRunningNode,
         getRunConflictInfo,
+        prepareEditorView,
         refreshVisibleWorkflowRunState,
         runWorkflowInContext,
         syncGlobalRunToolbarState

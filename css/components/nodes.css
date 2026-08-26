@@ -111,28 +111,28 @@
     --node-run-cancel-text-active: #ffffff;
     --node-run-cancel-progress-track: rgba(255, 255, 255, 0.18);
     --node-run-cancel-progress-fill: #fb7185;
-    --node-run-cancel-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+    --node-run-cancel-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
     position: absolute;
     left: 50%;
-    bottom: -74px;
+    bottom: -50px;
     transform: translateX(-50%) translateY(4px) scale(0.96);
     z-index: 60;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    height: 60px;
-    min-width: 148px;
+    gap: 7px;
+    height: 40px;
+    min-width: 104px;
     box-sizing: border-box;
-    padding: 0 26px 6px;
+    padding: 0 16px 4px;
     border: 1px solid var(--node-run-cancel-border);
-    border-radius: 16px;
+    border-radius: 11px;
     background: var(--node-run-cancel-bg);
     color: var(--node-run-cancel-text);
     box-shadow: var(--node-run-cancel-shadow);
     font: inherit;
-    font-size: 19px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 650;
     line-height: 1.1;
     text-align: center;
     cursor: pointer;
@@ -187,10 +187,10 @@
 .node-run-cancel-btn::after {
     content: '';
     position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 8px;
-    height: 4px;
+    left: 9px;
+    right: 9px;
+    bottom: 5px;
+    height: 3px;
     border-radius: 999px;
     pointer-events: none;
 }
@@ -218,13 +218,13 @@
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
+    width: 16px;
+    height: 16px;
 }
 
 .node-run-cancel-btn svg {
-    width: 22px;
-    height: 22px;
+    width: 16px;
+    height: 16px;
     display: block;
 }
 

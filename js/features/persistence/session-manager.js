@@ -190,6 +190,7 @@ export function createSessionManagerApi({
             const data = sanitizeWorkflowDataForSessionCache(nodeSerializer.buildStatePayload());
             data.workflowTabs = Array.isArray(state.workflowTabs)
                 ? state.workflowTabs.map((tab) => ({
+                    workflowId: tab.workflowId || tab.data?.workflowId || '',
                     name: tab.name,
                     data: sanitizeWorkflowDataForSessionCache(tab.data),
                     dirty: tab.dirty === true,
@@ -198,6 +199,7 @@ export function createSessionManagerApi({
                 }))
                 : [];
             data.activeWorkflowName = state.activeWorkflowName || '';
+            data.activeWorkflowId = state.activeWorkflowId || '';
             data.workflowOrder = Array.isArray(state.workflowOrder)
                 ? state.workflowOrder.filter((name) => typeof name === 'string' && name)
                 : [];

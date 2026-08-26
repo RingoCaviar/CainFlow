@@ -5,6 +5,8 @@
  */
 import { CANVAS_INTERACTION_KIND } from './canvas-interaction-kinds.js';
 
+const VIEW_HANDOFF_SNAPSHOTS = new WeakMap();
+
 export function createConnectionProjection({
     updateAllConnections,
     refreshNodeProjection = null,
@@ -14,6 +16,7 @@ export function createConnectionProjection({
     markNodeConnectionsDirty,
     markConnectionDirty,
     detectMisalignedConnections,
+    projectionHandoffAdapter = null,
     onAlignmentCorrected = () => {},
     onAlignmentRepairFailed = () => {},
     requestAnimationFrameRef = requestAnimationFrame,
@@ -219,6 +222,18 @@ export function createConnectionProjection({
     };
 
     const maintenance = {
+        captureViewHandoff() {
+            if (destroyed || typeof projectionHandoffAdapter?.capture !== 'function') return null;
+            const handoff = Object.freeze({ kind: 'connection-projection-view' });
+            VIEW_HANDOFF_SNAPSHOTS.set(handoff, projectionHandoffAdapter.capture());
+            return handoff;
+        },
+        adoptViewHandoff(handoff) {
+            if (destroyed || typeof projectionHandoffAdapter?.adopt !== 'function') return false;
+            if (!handoff || !VIEW_HANDOFF_SNAPSHOTS.has(handoff)) return false;
+            projectionHandoffAdapter.adopt(VIEW_HANDOFF_SNAPSHOTS.get(handoff));
+            return true;
+        },
         runPerformanceWorkload() {
             if (destroyed) {
                 return { nodeProjectionCount: 0, connectionFullRefreshCount: 0 };

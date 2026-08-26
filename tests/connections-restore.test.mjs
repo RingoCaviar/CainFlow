@@ -60,11 +60,13 @@ function createNode(id, x, outputPort, inputPort) {
 
 function createHarness(connectionCount, {
     requestAnimationFrameImpl,
+    cancelAnimationFrameImpl,
     setTimeoutImpl,
     createBezierPathImpl,
     connectionRenderer,
     distinctTargets = false,
-    portsInitiallyVisible = true
+    portsInitiallyVisible = true,
+    running = false
 } = {}) {
     const frames = [];
     const paths = [];
@@ -96,7 +98,7 @@ function createHarness(connectionCount, {
             type: 'text'
         })),
         selectedNodes: new Set(),
-        runningNodeIds: new Set(),
+        runningNodeIds: new Set(running ? ['from'] : []),
         canvas: { x: 0, y: 0, zoom: 1, isPanning: false }
     };
     const connectionsGroup = {
@@ -111,6 +113,9 @@ function createHarness(connectionCount, {
                 frames.push(callback);
                 return frames.length;
             },
+            cancelAnimationFrame(id) {
+                cancelAnimationFrameImpl?.(id);
+            },
             setTimeout(callback) {
                 if (setTimeoutImpl) return setTimeoutImpl(callback);
                 return setTimeout(callback, 0);
@@ -120,18 +125,25 @@ function createHarness(connectionCount, {
             }
         },
         addEventListener() {},
+        querySelectorAll() { return []; },
         createElementNS() {
             const attributes = new Map();
-            return {
+            const element = {
                 isConnected: true,
+                removed: false,
                 classList: createClassList(),
+                style: {},
+                parentNode: { insertBefore() {} },
                 addEventListener() {},
                 setAttribute(name, value) { attributes.set(name, value); },
                 getAttribute(name) { return attributes.get(name) || ''; },
+                getTotalLength() { return 120; },
+                getPointAtLength(length) { return { x: length, y: 0 }; },
                 removeAttribute() {},
                 appendChild() {},
-                remove() {}
+                remove() { element.removed = true; }
             };
+            return element;
         }
     };
     const api = createConnectionsApi({
@@ -185,6 +197,67 @@ test('connection restoration materializes only the requested batch', () => {
     assert.equal(restoration.renderNextBatch(100), true);
     assert.equal(paths.length, 201);
     restoration.finish({ completed: true });
+});
+
+test('adopted connection projection is reindexed by the visible renderer', () => {
+    const { api, paths } = createHarness(1);
+    const frame = () => 1;
+    const source = createConnectionProjection({
+        projectionHandoffAdapter: {
+            capture: () => [{
+                id: 'connection-1',
+                d: 'M 10 20 L 30 40',
+                selected: true
+            }]
+        },
+        requestAnimationFrameRef: frame,
+        cancelAnimationFrameRef: () => {}
+    });
+    const target = createRestorationProjection(api, {
+        projectionHandoffAdapter: api.projectionHandoffAdapter,
+        requestAnimationFrameRef: frame,
+        cancelAnimationFrameRef: () => {}
+    });
+
+    target.maintenance.adoptViewHandoff(source.maintenance.captureViewHandoff());
+
+    assert.equal(paths[0].getAttribute('d'), 'M 10 20 L 30 40');
+    assert.equal(paths[0].classList.contains('selected'), true);
+    assert.equal(api.deleteConnection('connection-1'), true);
+    assert.equal(paths[0].removed, true);
+});
+
+test('ConnectionProjection transfers a renderer-owned view through an opaque handoff', () => {
+    let adopted = null;
+    const { api } = createHarness(0);
+    const projection = createRestorationProjection(api, {
+        projectionHandoffAdapter: {
+            capture: () => ({ rendererCache: 'private-cache' }),
+            adopt: (snapshot) => { adopted = snapshot; }
+        },
+        requestAnimationFrameRef: () => 1,
+        cancelAnimationFrameRef: () => {}
+    });
+
+    const handoff = projection.maintenance.captureViewHandoff();
+    assert.equal(handoff.rendererCache, undefined);
+    assert.equal(projection.maintenance.adoptViewHandoff(handoff), true);
+    assert.deepEqual(adopted, { rendererCache: 'private-cache' });
+});
+
+test('destroying connections cancels flow animation and removes derived paths', () => {
+    const cancelledFrames = [];
+    const { api, paths } = createHarness(1, {
+        running: true,
+        requestAnimationFrameImpl: () => 42,
+        cancelAnimationFrameImpl: (id) => cancelledFrames.push(id)
+    });
+    api.updateAllConnections();
+
+    api.destroy();
+
+    assert.deepEqual(cancelledFrames, [42]);
+    assert.equal(paths[0].removed, true);
 });
 
 test('whole connection projection refreshes stale port geometry', () => {

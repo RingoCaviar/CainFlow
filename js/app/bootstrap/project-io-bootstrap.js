@@ -32,6 +32,7 @@ export function createProjectIoFeature({
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
     finalizeMediaRestoreBatch = async () => {},
+    activateRestoredWorkflowState,
     localStorageRef
 }) {
     function getProjectIoApi() {
@@ -63,6 +64,7 @@ export function createProjectIoFeature({
                 beginMediaRestoreBatch,
                 endMediaRestoreBatch,
                 finalizeMediaRestoreBatch,
+                activateRestoredWorkflowState,
                 localStorageRef
             });
         }

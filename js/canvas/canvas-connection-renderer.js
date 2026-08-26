@@ -1,7 +1,7 @@
 export function createCanvasConnectionRenderer({ canvasContainer, documentRef = document, state, windowRef = window } = {}) {
     // The Canvas connection renderer remains experimental and is disabled for release.
     const enabled = false;
-    if (!enabled || !canvasContainer) return { enabled: false, begin() {}, draw() {}, end() {} };
+    if (!enabled || !canvasContainer) return { enabled: false, begin() {}, destroy() {}, draw() {}, end() {} };
 
     const canvas = windowRef.document.createElement('canvas');
     canvas.className = 'canvas-connections';
@@ -66,18 +66,28 @@ export function createCanvasConnectionRenderer({ canvasContainer, documentRef = 
         entries.delete(id);
     }
 
-    documentRef.addEventListener('cainflow:canvas-transform', redraw);
-    documentRef.addEventListener('cainflow:canvas-pan-transform', () => {
+    const schedulePanRedraw = () => {
         if (redrawFrame !== null) return;
         redrawFrame = windowRef.requestAnimationFrame(() => {
             redrawFrame = null;
             redraw();
         });
-    });
+    };
+    documentRef.addEventListener('cainflow:canvas-transform', redraw);
+    documentRef.addEventListener('cainflow:canvas-pan-transform', schedulePanRedraw);
 
     function end() {
         redraw();
     }
 
-    return { enabled: true, begin() { entries.clear(); }, draw, remove, end };
+    function destroy() {
+        documentRef.removeEventListener('cainflow:canvas-transform', redraw);
+        documentRef.removeEventListener('cainflow:canvas-pan-transform', schedulePanRedraw);
+        if (redrawFrame !== null) windowRef.cancelAnimationFrame(redrawFrame);
+        redrawFrame = null;
+        entries.clear();
+        canvas.remove();
+    }
+
+    return { enabled: true, begin() { entries.clear(); }, destroy, draw, remove, end };
 }

@@ -162,6 +162,45 @@ class SingleInstanceTests(unittest.TestCase):
 
 
 class BrowserFallbackTests(unittest.TestCase):
+    def test_desktop_smoke_rejects_static_shell_when_application_bootstrap_failed(self):
+        window = mock.Mock()
+        window.evaluate_js.side_effect = [
+            'SyntaxError: Identifier connectionsApi has already been declared'
+        ]
+
+        ready, error = desktop.wait_for_desktop_app_ready(
+            window,
+            timeout_seconds=1,
+            monotonic=mock.Mock(return_value=0),
+            sleep=mock.Mock(),
+        )
+
+        self.assertFalse(ready)
+        self.assertEqual(error, 'SyntaxError: Identifier connectionsApi has already been declared')
+        window.evaluate_js.assert_called_once_with("window.__cainflowBootstrapError || ''")
+
+    def test_desktop_smoke_writes_bootstrap_failure_for_the_release_gate(self):
+        window = mock.Mock()
+        window.events.shown.wait.return_value = True
+        with tempfile.TemporaryDirectory() as directory:
+            marker = os.path.join(directory, 'desktop-ready.txt')
+            with mock.patch.object(
+                desktop,
+                'wait_for_desktop_app_ready',
+                return_value=(False, 'SyntaxError: broken bootstrap'),
+            ):
+                desktop.finish_desktop_smoke_test(
+                    window,
+                    marker,
+                    45678,
+                    r'C:\data\cainflow.db',
+                    sleep=mock.Mock(),
+                )
+
+            with open(marker, encoding='utf-8') as stream:
+                self.assertEqual(stream.read(), 'ERROR\nSyntaxError: broken bootstrap\n')
+        window.destroy.assert_called_once_with()
+
     def test_loader_query_returns_version_and_frees_native_memory(self):
         version_buffer = ctypes.create_unicode_buffer('123.0.4567.8')
         query = mock.Mock()

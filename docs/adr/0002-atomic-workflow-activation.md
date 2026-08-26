@@ -1,0 +1,3 @@
+# Make workflow activation atomic and identity-stable
+
+CainFlow will route every active-workflow change through one deep workflow-activation module. Activations use latest-request-wins semantics, prepare the target before committing, keep background workflow runs alive across switches, and identify workflows with a stable workflow identity rather than their mutable name or path; this avoids interleaved canvas commits and prevents rename or folder moves from detaching runtime results, at the cost of migrating existing workflow documents lazily and temporarily rejecting rename or move operations for running workflows.

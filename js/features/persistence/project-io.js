@@ -11,8 +11,6 @@ import {
 } from './workflow-model-resolver.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 
-const SESSION_RESTORE_BATCH_SIZE = 100;
-
 export function createProjectIoApi({
     state,
     storageKey,
@@ -42,20 +40,14 @@ export function createProjectIoApi({
     updateCacheUsage = () => {},
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
-    finalizeMediaRestoreBatch = async () => {}
+    finalizeMediaRestoreBatch = async () => {},
+    activateRestoredWorkflowState = null
 }) {
+    if (typeof activateRestoredWorkflowState !== 'function') {
+        throw new TypeError('Atomic workflow activator is required');
+    }
     function isImageImportAssetKey(key) {
         return typeof key === 'string' && key.startsWith('image-import:');
-    }
-
-    async function restoreItemsInBatches(items, restoreItem) {
-        for (let index = 0; index < items.length; index += 1) {
-            restoreItem(items[index]);
-            const batchComplete = (index + 1) % SESSION_RESTORE_BATCH_SIZE === 0;
-            if (batchComplete && index + 1 < items.length) {
-                await new Promise((resolve) => windowRef.setTimeout(resolve, 0));
-            }
-        }
     }
 
     function getImageImportAssetKeyFromNode(node) {
@@ -413,10 +405,12 @@ export function createProjectIoApi({
             if (data.historyGridCols !== undefined) {
                 applyHistoryGridCols(data.historyGridCols);
             }
-            state.workflowTabs = Array.isArray(data.workflowTabs)
+            const restoredWorkflowState = {
+                workflowTabs: Array.isArray(data.workflowTabs)
                 ? data.workflowTabs
                     .filter((tab) => tab?.name && tab?.data)
                     .map((tab, index) => ({
+                        workflowId: typeof tab.workflowId === 'string' ? tab.workflowId : (tab.data?.workflowId || ''),
                         name: String(tab.name),
                         data: tab.data,
                         dirty: tab.dirty === true,
@@ -424,21 +418,32 @@ export function createProjectIoApi({
                         running: false,
                         runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
                     }))
-                : [];
-            state.activeWorkflowName = typeof data.activeWorkflowName === 'string' ? data.activeWorkflowName : '';
-            state.workflowOrder = Array.isArray(data.workflowOrder)
-                ? data.workflowOrder.filter((name) => typeof name === 'string' && name)
-                : [];
-            state.workflowFolders = Array.isArray(data.workflowFolders)
-                ? data.workflowFolders
-                    .map((folder) => ({
-                        id: typeof folder?.id === 'string' ? folder.id : '',
-                        name: typeof folder?.name === 'string' ? folder.name : '',
-                        collapsed: folder?.collapsed === true,
-                        items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
-                    }))
-                    .filter((folder) => folder.id && folder.name)
-                : [];
+                : [],
+                activeWorkflowName: typeof data.activeWorkflowName === 'string' ? data.activeWorkflowName : '',
+                activeWorkflowId: typeof data.activeWorkflowId === 'string' ? data.activeWorkflowId : '',
+                workflowOrder: Array.isArray(data.workflowOrder)
+                    ? data.workflowOrder.filter((name) => typeof name === 'string' && name)
+                    : [],
+                workflowFolders: Array.isArray(data.workflowFolders)
+                    ? data.workflowFolders
+                        .map((folder) => ({
+                            id: typeof folder?.id === 'string' ? folder.id : '',
+                            name: typeof folder?.name === 'string' ? folder.name : '',
+                            collapsed: folder?.collapsed === true,
+                            items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
+                        }))
+                        .filter((folder) => folder.id && folder.name)
+                    : [],
+                workflowData: {
+                    canvas: {
+                        x: data.canvas?.x || 0,
+                        y: data.canvas?.y || 0,
+                        zoom: data.canvas?.zoom || 1
+                    },
+                    nodes: Array.isArray(data.nodes) ? data.nodes : [],
+                    connections: Array.isArray(data.connections) ? data.connections : []
+                }
+            };
             if (data.workflowSidebarWidth !== undefined) {
                 const workflowSidebarWidth = Number(data.workflowSidebarWidth);
                 if (Number.isFinite(workflowSidebarWidth) && workflowSidebarWidth > 0) {
@@ -446,40 +451,8 @@ export function createProjectIoApi({
                     applyWorkflowSidebarWidth(state.workflowSidebarWidth);
                 }
             }
-            if (data.canvas) {
-                state.canvas.x = data.canvas.x || 0;
-                state.canvas.y = data.canvas.y || 0;
-                state.canvas.zoom = data.canvas.zoom || 1;
-            }
-            viewportApi.updateCanvasTransform({ updateConnections: false });
-
             await restoreHandles();
-            beginMediaRestoreBatch();
-            try {
-                if (data.nodes?.length) {
-                    await restoreItemsInBatches(data.nodes, (nd) => {
-                        addNode(nd.type, nd.x, nd.y, nd, true);
-                    });
-                }
-                if (data.connections?.length) {
-                    await restoreItemsInBatches(data.connections, (conn) => {
-                        if (state.nodes.has(conn.from.nodeId) && state.nodes.has(conn.to.nodeId)) {
-                            if (!conn.id) conn.id = 'c_' + Math.random().toString(36).substr(2, 9);
-                            state.connections.push(conn);
-                        }
-                    });
-                }
-            } finally {
-                endMediaRestoreBatch();
-            }
-            try {
-                await finalizeMediaRestoreBatch();
-            } catch (error) {
-                console.warn('Finalize media restore after session load failed:', error);
-            }
-            if (data.connections?.length) updatePortStyles();
-            await connectionProjectionMaintenance.workflowRestored();
-            if (data.connections?.length) onConnectionsChanged();
+            if (!await activateRestoredWorkflowState(restoredWorkflowState)) return false;
             scheduleStartupCacheCleanup(data);
             return data.nodes?.length > 0;
         } catch (e) {

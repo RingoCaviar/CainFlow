@@ -70,6 +70,94 @@ test('visible workflow completion reports the runtime node id through the appear
     assert.deepEqual(calls, ['runtime-node']);
 });
 
+test('visible run state is isolated by workflow identity when node ids overlap', () => {
+    const calls = [];
+    const node = createNode('shared-node');
+    const state = {
+        activeWorkflowName: 'renamed-workflow',
+        activeWorkflowId: 'workflow-a',
+        nodes: new Map([[node.id, node]]),
+        runningNodeIds: new Set(),
+        runningNodeCancelHandlers: new Map()
+    };
+    const api = createWorkflowRuntimeManager({
+        state,
+        nodeConfigs: {},
+        connectionProjection: { nodeAppearanceChanged: (nodeId) => calls.push(nodeId) },
+        documentRef: { getElementById: () => null },
+        windowRef: { clearInterval: () => {}, setInterval: () => 1 },
+        confirmRef: () => true
+    });
+
+    api.applyVisibleNodeRunState({ workflowId: 'workflow-b', workflowName: 'renamed-workflow' }, {
+        nodeId: node.id,
+        status: 'completed'
+    });
+    api.applyVisibleNodeRunState({ workflowId: 'workflow-a', workflowName: 'old-name' }, {
+        nodeId: node.id,
+        status: 'completed'
+    });
+
+    assert.deepEqual(calls, ['shared-node']);
+});
+
+test('visible cancellation cannot cross a workflow identity with the same node id', () => {
+    const node = createNode('shared-node');
+    const state = {
+        activeWorkflowName: 'workflow-a-name',
+        activeWorkflowId: 'workflow-a',
+        nodes: new Map([[node.id, node]]),
+        runningNodeIds: new Set(),
+        runningNodeCancelHandlers: new Map()
+    };
+    const api = createWorkflowRuntimeManager({
+        state,
+        nodeConfigs: {},
+        connectionProjection: { nodeAppearanceChanged: () => {} },
+        documentRef: { getElementById: () => null },
+        windowRef: { clearInterval: () => {}, setInterval: () => 1 },
+        confirmRef: () => true
+    });
+    api.applyVisibleNodeRunState({ workflowId: 'workflow-a', workflowName: 'workflow-a-name' }, {
+        nodeId: node.id,
+        status: 'running',
+        running: true
+    });
+
+    assert.equal(api.cancelRunningNode({ workflowId: 'workflow-b', workflowName: 'workflow-b-name' }, node.id), false);
+    assert.equal(api.cancelRunningNode({ workflowId: 'workflow-a', workflowName: 'old-name' }, node.id), true);
+});
+
+test('workflow runtime entry points reject a mutable name used as the workflow reference', async () => {
+    const api = createWorkflowRuntimeManager({
+        state: {
+            activeWorkflowName: 'renamed-workflow',
+            activeWorkflowId: 'workflow-a',
+            nodes: new Map(),
+            connections: [],
+            selectedNodes: new Set()
+        },
+        nodeConfigs: {},
+        connectionProjection: { nodeAppearanceChanged: () => {} },
+        documentRef: { getElementById: () => null },
+        windowRef: { clearInterval: () => {}, setInterval: () => 1 },
+        confirmRef: () => true
+    });
+
+    await assert.rejects(
+        api.runWorkflowInContext('renamed-workflow', { nodes: [], connections: [] }),
+        /workflow reference/i
+    );
+    assert.throws(
+        () => api.getRunConflictInfo('renamed-workflow', { nodes: [], connections: [] }),
+        /workflow reference/i
+    );
+    assert.throws(
+        () => api.cancelRunningNode('renamed-workflow', 'node-a'),
+        /workflow reference/i
+    );
+});
+
 test('text merge reports the output node id through the geometry seam', async () => {
     const calls = [];
     const node = createNode('text-merge', 'TextMerge');

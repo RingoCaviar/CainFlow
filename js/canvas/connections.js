@@ -29,6 +29,7 @@ export function createConnectionsApi({
     const connectionsByPortKey = new Map();
     const dirtyConnectionIds = new Set();
     const flowDecorationById = new Map();
+    const curveGeometryById = new Map();
     const insertionPreviewPaths = [];
     let flowAnimationFrame = null;
     let connectionIndexSignature = '';
@@ -90,6 +91,47 @@ export function createConnectionsApi({
         connectionIndexSignature = getConnectionSignature();
         dirtyConnectionIds.clear();
         invalidateConnectionLaneCache();
+    }
+
+    function exportConnectionProjection() {
+        return state.connections.map((connection) => ({
+            id: connection.id,
+            d: pathById.get(connection.id)?.getAttribute?.('d') || '',
+            selected: pathById.get(connection.id)?.classList?.contains?.('selected') === true,
+            canvasRendered: pathById.get(connection.id)?.classList?.contains?.('canvas-rendered') === true,
+            flowActive: flowDecorationById.get(connection.id)?.active === true,
+            curveGeometry: curveGeometryById.get(connection.id) || null
+        }));
+    }
+
+    function adoptConnectionProjection(projection = []) {
+        pathById.forEach((path) => path.remove?.());
+        pathById.clear();
+        flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
+        flowDecorationById.clear();
+        curveGeometryById.clear();
+        rebuildConnectionIndex();
+        const projectedById = new Map(
+            (Array.isArray(projection) ? projection : [])
+                .filter((entry) => entry?.id)
+                .map((entry) => [entry.id, entry])
+        );
+        canvasConnectionRenderer.begin();
+        state.connections.forEach((connection) => {
+            const projected = projectedById.get(connection.id) || {};
+            const path = ensureConnectionPath(connection);
+            path.setAttribute('d', projected.d || '');
+            path.classList.toggle('selected', projected.selected === true);
+            const useCanvas = canvasConnectionRenderer.enabled && projected.canvasRendered === true && !!projected.curveGeometry;
+            path.classList.toggle('canvas-rendered', useCanvas);
+            if (useCanvas) {
+                curveGeometryById.set(connection.id, projected.curveGeometry);
+                canvasConnectionRenderer.draw(connection.id, projected.curveGeometry);
+            }
+            updateFlowDecoration(path, connection.id, projected.flowActive === true);
+        });
+        canvasConnectionRenderer.end();
+        return pathById.size;
     }
 
     function ensureConnectionIndex() {
@@ -479,6 +521,21 @@ export function createConnectionsApi({
         scheduleFlowAnimation();
     }
 
+    function destroy() {
+        stopFlowAnimation();
+        flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
+        flowDecorationById.clear();
+        pathById.forEach((path) => path.remove?.());
+        pathById.clear();
+        curveGeometryById.clear();
+        connectionById.clear();
+        connectionsByNodeId.clear();
+        connectionsByPortKey.clear();
+        dirtyConnectionIds.clear();
+        clearConnectionInsertPreview();
+        canvasConnectionRenderer.destroy?.();
+    }
+
     function getPortPosition(nodeId, portName, direction, containerRectOverride = null) {
         const node = getNodeById(nodeId);
         if (!node) return { x: 0, y: 0 };
@@ -853,6 +910,8 @@ export function createConnectionsApi({
         state.connections = state.connections.filter((candidate) => candidate.id !== connectionId);
         pathById.get(connectionId)?.remove();
         pathById.delete(connectionId);
+        curveGeometryById.delete(connectionId);
+        canvasConnectionRenderer.remove?.(connectionId);
         removeFlowDecoration(connectionId);
         rebuildConnectionIndex();
         updateAllConnections();
@@ -941,7 +1000,11 @@ export function createConnectionsApi({
         const pathOptions = getConnectionPathOptions(conn, laneById);
         const usesBezier = pathOptions.type !== 'orthogonal';
         if (canvasConnectionRenderer.enabled && !isSelected && usesBezier) {
-            canvasConnectionRenderer.draw(conn.id, getBezierCurveGeometry(from.x, from.y, to.x, to.y, pathOptions));
+            const curveGeometry = getBezierCurveGeometry(from.x, from.y, to.x, to.y, pathOptions);
+            curveGeometryById.set(conn.id, curveGeometry);
+            canvasConnectionRenderer.draw(conn.id, curveGeometry);
+        } else {
+            curveGeometryById.delete(conn.id);
         }
 
         path = ensureConnectionPath(conn);
@@ -1334,6 +1397,11 @@ export function createConnectionsApi({
     }
 
     return {
+        destroy,
+        projectionHandoffAdapter: {
+            capture: exportConnectionProjection,
+            adopt: adoptConnectionProjection
+        },
         getPortPosition,
         invalidateNodePortCache,
         measureNodePorts,

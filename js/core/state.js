@@ -159,6 +159,7 @@ export function createInitialState({ includeDefaultProviders = true } = {}) {
         undoStack: [],
         workflowTabs: [],
         activeWorkflowName: '',
+        activeWorkflowId: '',
         workflowOrder: [],
         workflowFolders: [],
         workflowSidebarWidth: 320,

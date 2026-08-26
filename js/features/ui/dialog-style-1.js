@@ -104,6 +104,7 @@ function resolveDialog({ id, documentRef, actionId }) {
     dialog.innerHTML = '';
 
     dialogState.delete(id);
+    state?.cleanup?.();
     state?.resolve?.(result);
 }
 
@@ -117,8 +118,10 @@ export function openDialogStyle1({
     cancelActionId = 'cancel',
     submitActionId = 'confirm',
     labelledBy = `${id}-title`,
-    documentRef = document
+    documentRef = document,
+    signal = null
 } = {}) {
+    if (signal?.aborted) return Promise.resolve(cancelActionId);
     if (dialogState.has(id)) {
         resolveDialog({ id, documentRef, actionId: cancelActionId });
     }
@@ -170,8 +173,11 @@ export function openDialogStyle1({
 
     return new Promise((resolve) => {
         const inputTarget = dialog.querySelector('[data-dialog-style-1-input="true"]');
+        const abortHandler = () => resolveDialog({ id, documentRef, actionId: cancelActionId });
+        signal?.addEventListener?.('abort', abortHandler, { once: true });
         dialogState.set(id, {
             resolve,
+            cleanup: () => signal?.removeEventListener?.('abort', abortHandler),
             getValue: normalizedInput
                 ? () => inputTarget?.value ?? ''
                 : null

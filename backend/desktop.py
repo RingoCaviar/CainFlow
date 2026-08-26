@@ -31,6 +31,45 @@ from backend.webview2_runtime import (
 WEBVIEW2_DOWNLOAD_URL = 'https://developer.microsoft.com/microsoft-edge/webview2/'
 
 
+def wait_for_desktop_app_ready(
+    window,
+    timeout_seconds=20,
+    monotonic=time.monotonic,
+    sleep=time.sleep,
+):
+    deadline = monotonic() + timeout_seconds
+    while monotonic() < deadline:
+        try:
+            error = window.evaluate_js("window.__cainflowBootstrapError || ''")
+            if error:
+                return False, str(error)
+            if window.evaluate_js('window.__cainflowAppReady === true'):
+                return True, ''
+        except Exception:
+            pass
+        sleep(0.1)
+    return False, 'Application bootstrap did not become ready before the timeout.'
+
+
+def finish_desktop_smoke_test(
+    window,
+    marker_path,
+    port,
+    database_path,
+    sleep=time.sleep,
+):
+    if not window.events.shown.wait(20):
+        return
+    ready, error = wait_for_desktop_app_ready(window)
+    with open(marker_path, 'w', encoding='utf-8') as stream:
+        if ready:
+            stream.write(f'READY\n{port}\n{database_path}\n')
+        else:
+            stream.write(f'ERROR\n{error}\n')
+    sleep(0.2)
+    window.destroy()
+
+
 class SingleInstanceLock:
     def __init__(self, path):
         self.path = path
@@ -249,28 +288,12 @@ def run_desktop():
         smoke_marker = os.environ.get('CAINFLOW_DESKTOP_SMOKE_MARKER')
         smoke_worker = None
         if smoke_marker:
-            def finish_smoke_test(target_window):
-                if not target_window.events.shown.wait(20):
-                    return
-                deadline = time.monotonic() + 20
-                app_ready = False
-                while time.monotonic() < deadline:
-                    try:
-                        app_ready = bool(target_window.evaluate_js(
-                            "document.readyState === 'complete' && !!window.__cainflowDesktop"
-                        ))
-                    except Exception:
-                        app_ready = False
-                    if app_ready:
-                        break
-                    time.sleep(0.1)
-                if not app_ready:
-                    return
-                with open(smoke_marker, 'w', encoding='utf-8') as stream:
-                    stream.write(f'{port}\n{config.DATABASE_PATH}\n')
-                time.sleep(0.2)
-                target_window.destroy()
-            smoke_worker = finish_smoke_test
+            smoke_worker = lambda target_window: finish_desktop_smoke_test(
+                target_window,
+                smoke_marker,
+                port,
+                config.DATABASE_PATH,
+            )
         gui = 'edgechromium' if sys.platform == 'win32' else None
         try:
             if sys.platform == 'win32':

@@ -122,6 +122,41 @@ function Invoke-PythonCompileChecks {
   }
 }
 
+function Invoke-NodeTests {
+  param(
+    [string]$RepoRoot,
+    [string]$NodeCommand
+  )
+
+  $testFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests") -Filter "*.test.mjs" -File |
+    Sort-Object FullName |
+    ForEach-Object { $_.FullName })
+  if ($testFiles.Count -eq 0) {
+    throw "No Node test files were found."
+  }
+  & $NodeCommand --test @testFiles
+  if ($LASTEXITCODE -ne 0) {
+    throw "Node test suite failed."
+  }
+}
+
+function Invoke-PythonTests {
+  param(
+    [string]$RepoRoot,
+    [string]$PythonCommand
+  )
+
+  Push-Location $RepoRoot
+  try {
+    & $PythonCommand -m pytest -q
+    if ($LASTEXITCODE -ne 0) {
+      throw "Python test suite failed."
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
 function Invoke-StorageInitializationCheck {
   param(
     [string]$RepoRoot,
@@ -185,6 +220,12 @@ try {
   Write-Step "Running backend compile checks"
   Invoke-PythonCompileChecks -RepoRoot $repoRoot -PythonCommand $Python
 
+  Write-Step "Running complete Node test suite"
+  Invoke-NodeTests -RepoRoot $repoRoot -NodeCommand $Node
+
+  Write-Step "Running complete Python test suite"
+  Invoke-PythonTests -RepoRoot $repoRoot -PythonCommand $Python
+
   Write-Step "Validating regression workflow fixtures"
   Invoke-WorkflowFixtureChecks -RepoRoot $repoRoot
 
@@ -196,7 +237,9 @@ try {
     "Repository root: $repoRoot",
     "APP_VERSION_NUMBER: $appVersion",
     "Frontend syntax checks: passed",
+    "Complete Node test suite: passed",
     "Backend compile checks: passed",
+    "Complete Python test suite: passed",
     "Desktop and SQLite initialization: passed",
     "Regression workflow fixtures: passed"
   )

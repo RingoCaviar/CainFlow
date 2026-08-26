@@ -655,6 +655,7 @@ const {
 } = connectionsApi;
 
 registry.connectionProjectionApi = createConnectionProjection({
+    projectionHandoffAdapter: connectionsApi.projectionHandoffAdapter,
     updateAllConnections,
     refreshNodeProjection: () => renderProjectionManager.refreshNow(),
     beginConnectionRestoration,
@@ -774,7 +775,8 @@ async function runWorkflow(runInput = null) {
         }
         const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
             || workflowManagerApi.getActiveWorkflowSnapshot();
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext(workflowName, workflowData, runInput);
+        const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput);
     } finally {
         state.isRunStarting = false;
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
@@ -782,7 +784,10 @@ async function runWorkflow(runInput = null) {
 }
 
 function cancelRunningNode(nodeId) {
-    return getWorkflowRuntimeManagerApi().cancelRunningNode(nodeId)
+    return getWorkflowRuntimeManagerApi().cancelRunningNode({
+        workflowName: state.activeWorkflowName || '',
+        workflowId: state.activeWorkflowId || ''
+    }, nodeId)
         || getWorkflowRunnerApi().cancelRunningNode(nodeId);
 }
 
@@ -983,7 +988,10 @@ function getContextMenuControllerApi() {
                 if (!workflowName) return { blocked: false, count: 0, nodeIds: [] };
                 const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
                     || workflowManagerApi.getActiveWorkflowSnapshot();
-                return getWorkflowRuntimeManagerApi().getRunConflictInfo(workflowName, workflowData, runInput);
+                return getWorkflowRuntimeManagerApi().getRunConflictInfo({
+                    workflowName,
+                    workflowId: workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || ''
+                }, workflowData, runInput);
             },
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
             enterBatchConnectionMode: (nodeId) => getBatchConnectionModeApi().enter(nodeId),
@@ -1253,6 +1261,9 @@ function getWorkflowRuntimeManagerApi() {
             refreshDependentImageResizePreviews,
             restoreImageResizePreview,
             showResolutionBadge,
+            visibleNodesLayer: nodesLayer,
+            bindVisibleNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
+            visibleConnectionProjectionMaintenance: registry.connectionProjectionApi.maintenance,
             documentRef: document,
             windowRef: window,
             fetchRef: fetch,
@@ -1306,13 +1317,16 @@ const workflowManagerApi = createWorkflowManagerApi({
         updateUndoButton();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
-    onWorkflowViewApplied: (workflowName) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflowName),
-    releaseNodeImageData: (nodeId, options) => mediaControllerApi?.releaseNodeImageData?.(nodeId, options),
+    onWorkflowViewApplied: (workflow) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
     beginMediaRestoreBatch,
     endMediaRestoreBatch,
     finalizeMediaRestoreBatch,
+    prepareDetachedEditorView: (workflowName, workflowData) => getWorkflowRuntimeManagerApi().prepareEditorView({
+        workflowName,
+        workflowId: workflowData?.workflowId || ''
+    }, workflowData),
     localStorageRef: diskStorage
 });
 
@@ -1396,6 +1410,7 @@ projectIoFeature = createProjectIoFeature({
     applyGlobalAnimationSetting,
     applyCanvasUiSetting,
     applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
+    activateRestoredWorkflowState: (restoredState) => workflowManagerApi.activateRestoredWorkflowState(restoredState),
     clearImageAssets,
     clearOrphanedNodeAssets,
     clearOrphanedImageImportAssets,
