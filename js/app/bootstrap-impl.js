@@ -88,7 +88,7 @@ import { registerGlobalBridges } from './register-global-bridges.js';
  * 包含画布、节点、连线、执行引擎与 localStorage 持久化
  */
 
-export function initializeCainFlowApp() {
+export async function initializeCainFlowApp() {
 const registry = createAppRegistry();
 
 // ===== 工具函数 =====
@@ -1492,7 +1492,7 @@ getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
 renderProjectionManager.init();
 interactionPerformanceGuard.init();
-getStartupControllerApi().initStartup();
+const startupPromise = getStartupControllerApi().initStartup();
 
 const canvasStressTestBridge = createCanvasStressTestBridge({
     state,
@@ -1519,6 +1519,8 @@ registerGlobalBridges({
     sampleCanvasPerformance: canvasPerformanceMonitor.sample,
     enableCanvasPerformanceMonitor: canvasPerformanceMonitor.enabled
 });
+
+await startupPromise;
 
 return {
     state,

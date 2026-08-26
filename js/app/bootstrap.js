@@ -18,7 +18,7 @@ export async function bootstrapCainFlowApp({
                 themeBootstrapPromise
             ]);
             const { initializeCainFlowApp } = await loadApplication();
-            appInstance = initializeCainFlowApp();
+            appInstance = await initializeCainFlowApp();
         }
         globalRef.__cainflowAppReady = true;
         delete globalRef.__cainflowBootstrapError;

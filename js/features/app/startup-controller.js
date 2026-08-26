@@ -129,15 +129,21 @@ export function createStartupControllerApi({
         } catch (error) {
             consoleRef.error('CainFlow Initialization Failed:', error);
             showToast('初始化失败，请查看控制台日志', 'error');
+            throw error;
         }
     }
 
     function initStartup() {
         if (documentRef.readyState === 'loading') {
-            documentRef.addEventListener('DOMContentLoaded', bootstrapApp, { once: true });
-        } else {
-            Promise.resolve().then(bootstrapApp);
+            return new Promise((resolve, reject) => {
+                documentRef.addEventListener(
+                    'DOMContentLoaded',
+                    () => Promise.resolve(bootstrapApp()).then(resolve, reject),
+                    { once: true }
+                );
+            });
         }
+        return Promise.resolve().then(bootstrapApp);
     }
 
     return {
