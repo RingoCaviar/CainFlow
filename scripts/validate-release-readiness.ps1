@@ -148,7 +148,7 @@ function Invoke-PythonTests {
 
   Push-Location $RepoRoot
   try {
-    & $PythonCommand -m pytest -q
+    & $PythonCommand -m unittest discover -s tests -p "test_*.py" -q
     if ($LASTEXITCODE -ne 0) {
       throw "Python test suite failed."
     }
