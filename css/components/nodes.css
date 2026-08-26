@@ -101,6 +101,7 @@
 }
 
 .node-run-cancel-btn {
+    --node-cancel-progress: 0;
     --node-run-cancel-bg: rgba(63, 16, 22, 0.94);
     --node-run-cancel-bg-hover: rgba(95, 20, 28, 0.98);
     --node-run-cancel-bg-active: rgba(127, 29, 29, 0.98);
@@ -183,9 +184,8 @@
     text-align: center;
 }
 
-.node-run-cancel-btn::before,
-.node-run-cancel-btn::after {
-    content: '';
+.node-run-cancel-btn__progress-track,
+.node-run-cancel-btn__progress-fill {
     position: absolute;
     left: 9px;
     right: 9px;
@@ -195,22 +195,24 @@
     pointer-events: none;
 }
 
-.node-run-cancel-btn::before {
+.node-run-cancel-btn__progress-track {
     background: var(--node-run-cancel-progress-track);
     opacity: 1;
 }
 
-.node-run-cancel-btn::after {
+.node-run-cancel-btn__progress-fill {
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: var(--node-run-cancel-progress-fill);
     box-shadow: 0 0 12px color-mix(in srgb, var(--node-run-cancel-progress-fill) 72%, transparent);
-    transform: scaleX(0);
+    transform: scaleX(var(--node-cancel-progress));
     transform-origin: left center;
     opacity: 0;
 }
 
-.node-run-cancel-btn.is-holding::after {
+.node-run-cancel-btn.is-holding .node-run-cancel-btn__progress-fill {
     opacity: 1;
-    animation: node-cancel-hold-progress 2s linear forwards;
 }
 
 .node-run-cancel-btn__icon {
@@ -226,16 +228,6 @@
     width: 16px;
     height: 16px;
     display: block;
-}
-
-@keyframes node-cancel-hold-progress {
-    from {
-        transform: scaleX(0);
-    }
-
-    to {
-        transform: scaleX(1);
-    }
 }
 
 .node-clone {

@@ -111,7 +111,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
             connectionLineType: '切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。',
             toolbarPinned: '默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。',
             sidebarPinned: '默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。',
-            globalAnimation: '默认开启。关闭后会禁用全局动画效果，包括连线流动箭头、弹窗渐入渐出、按钮过渡和提示动画，以释放最大性能。',
+            globalAnimation: '默认开启。关闭后会禁用连线流动、弹窗渐入渐出、按钮过渡和提示等装饰动画；计时、进度、运行状态与危险操作确认等功能性动画仍会保留。',
             notificationVolume: '调整工作流完成时通知音效的播放音量，可用“测试音效”立即预览当前设置。'
         };
 
@@ -414,7 +414,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('全局动画开关', generalHelpText.globalAnimation, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('装饰动画', generalHelpText.globalAnimation, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-global-animation-enabled" ${globalAnimationEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>

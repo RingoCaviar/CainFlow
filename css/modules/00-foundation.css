@@ -206,9 +206,9 @@ html.animations-disabled * {
     scroll-behavior: auto !important;
 }
 
-html.animations-disabled *,
-html.animations-disabled *::before,
-html.animations-disabled *::after {
+html.animations-disabled *:not(.functional-animation):not(.functional-animation *),
+html.animations-disabled *:not(.functional-animation):not(.functional-animation *)::before,
+html.animations-disabled *:not(.functional-animation):not(.functional-animation *)::after {
     animation: none !important;
     transition: none !important;
 }

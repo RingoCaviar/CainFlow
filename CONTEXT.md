@@ -11,6 +11,14 @@ A continuous 10-second execution of a fixed canvas-interaction sequence, used to
 **Long frame**:
 A rendered frame whose duration exceeds 50 ms.
 
+**Functional animation**:
+Motion that communicates elapsed time, progress, running state, or confirmation of a destructive action. It remains available when CainFlow's global decorative-animation setting is disabled.
+_Avoid_: Critical animation, mandatory animation
+
+**Decorative animation**:
+Motion used only for visual polish, such as fades, scaling, glow, and connection-flow decoration. The global animation setting controls this category.
+_Avoid_: Global animation, all animation
+
 **Mixed-node benchmark fixture**:
 The deterministic 200-node, 400-connection workflow used for performance sampling; it includes image previews, controls, running state, and long connections.
 
