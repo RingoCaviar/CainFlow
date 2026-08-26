@@ -125,7 +125,7 @@ export function createInitialState() {
         providers,
         models: cloneInitialModels(providers),
         logs: [],
-        logRetentionDays: 1,
+        diagnosticStatus: null,
         requestStatistics: [],
         globalSaveDirHandle: null,
         imageSaveUsePromptFilename: false,

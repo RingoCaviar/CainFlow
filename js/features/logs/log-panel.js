@@ -4,12 +4,19 @@
 import { sanitizeDetails, sanitizeRequestUrl } from '../../services/api-client.js';
 
 const MAX_LOG_COUNT = 200;
-const DEFAULT_RETENTION_DAYS = 1;
+const RETENTION_DAYS = 7;
+const MAX_LOG_RECORD_BYTES = 16 * 1024;
 const DUPLICATE_LOG_WINDOW_MS = 2000;
 
-function normalizeRetentionDayCount(value) {
-    const parsed = parseInt(value, 10);
-    return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_RETENTION_DAYS;
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+}
+
+function boundDetails(value) {
+    if (value === null || value === undefined) return null;
+    const encoded = new TextEncoder().encode(JSON.stringify(value));
+    if (encoded.length <= MAX_LOG_RECORD_BYTES) return value;
+    return { truncated: true, originalBytes: encoded.length, preview: JSON.stringify(value).slice(0, 2000) };
 }
 
 function getLocalDayKey(timestamp = Date.now()) {
@@ -20,11 +27,10 @@ function getLocalDayKey(timestamp = Date.now()) {
     return `${year}-${month}-${day}`;
 }
 
-function getEarliestRetainedDayKey(days = DEFAULT_RETENTION_DAYS) {
-    const normalizedDays = normalizeRetentionDayCount(days);
+function getEarliestRetainedDayKey() {
     const date = new Date();
     date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - (normalizedDays - 1));
+    date.setDate(date.getDate() - (RETENTION_DAYS - 1));
     return getLocalDayKey(date.getTime());
 }
 
@@ -38,18 +44,13 @@ export function createLogPanelApi({
 }) {
     let logsInitialized = false;
 
-    function normalizeRetentionDays(value) {
-        return normalizeRetentionDayCount(value);
-    }
-
     function persistLogs() {
         try {
             localStorageRef.setItem(storageKey, JSON.stringify({
                 logs: (Array.isArray(state.logs) ? state.logs : []).map((log) => ({
                     ...log,
                     rawDetails: null
-                })),
-                logRetentionDays: normalizeRetentionDays(state.logRetentionDays)
+                }))
             }));
         } catch (error) {
             console.warn('Persist logs failed:', error);
@@ -65,7 +66,7 @@ export function createLogPanelApi({
             if (Array.isArray(parsed?.logs)) {
                 state.logs = parsed.logs.map((log) => {
                     if (log?.rawDetails) shouldRewritePersistedLogs = true;
-                    const nextDetails = sanitizeDetails(log?.details ?? log?.rawDetails ?? null);
+                    const nextDetails = boundDetails(sanitizeDetails(log?.details ?? log?.rawDetails ?? null));
                     if (nextDetails !== log?.details) shouldRewritePersistedLogs = true;
                     return {
                         ...log,
@@ -74,9 +75,7 @@ export function createLogPanelApi({
                     };
                 });
             }
-            if (parsed?.logRetentionDays !== undefined) {
-                state.logRetentionDays = normalizeRetentionDays(parsed.logRetentionDays);
-            }
+            if (parsed?.logRetentionDays !== undefined) shouldRewritePersistedLogs = true;
             if (shouldRewritePersistedLogs) {
                 persistLogs();
             }
@@ -88,13 +87,12 @@ export function createLogPanelApi({
     function ensureLogsInitialized() {
         if (logsInitialized) return;
         loadPersistedLogs();
-        state.logRetentionDays = normalizeRetentionDays(state.logRetentionDays);
         state.logs = Array.isArray(state.logs) ? state.logs : [];
         logsInitialized = true;
     }
 
     function pruneExpiredLogs(options = {}) {
-        const earliestDayKey = getEarliestRetainedDayKey(options.retentionDays ?? state.logRetentionDays);
+        const earliestDayKey = getEarliestRetainedDayKey();
         const beforeCount = Array.isArray(state.logs) ? state.logs.length : 0;
         state.logs = (Array.isArray(state.logs) ? state.logs : []).filter((log) => {
             const timestamp = Number(log?.timestamp);
@@ -105,16 +103,9 @@ export function createLogPanelApi({
         return changed;
     }
 
-    function syncRetentionControl() {
-        if (elements.logRetentionSelect) {
-            elements.logRetentionSelect.value = String(normalizeRetentionDays(state.logRetentionDays));
-        }
-    }
-
     function initializeLogs() {
         ensureLogsInitialized();
-        pruneExpiredLogs({ save: true, retentionDays: state.logRetentionDays });
-        syncRetentionControl();
+        pruneExpiredLogs({ save: true });
     }
 
     function logRequestToPanel(title, url, requestBody, extra = {}) {
@@ -129,8 +120,8 @@ export function createLogPanelApi({
 
     function addLog(type, title, message, details = null, meta = {}) {
         ensureLogsInitialized();
-        const sanitized = sanitizeDetails(details);
-        const rawDetails = details === null || details === undefined ? null : details;
+        const sanitized = boundDetails(sanitizeDetails(details));
+        const rawDetails = sanitized;
         const now = Date.now();
         const latestLog = Array.isArray(state.logs) ? state.logs[0] : null;
         if (
@@ -188,10 +179,10 @@ export function createLogPanelApi({
             <div class="log-item ${log.type}" onclick="showLogDetail('${log.id}')" title="点击查看详情">
                 <div class="log-item-main">
                     <span class="log-type-tag">${typeLabels[log.type] || '日志'}</span>
-                    <span class="log-summary-text">${log.title}</span>
+                    <span class="log-summary-text">${escapeHtml(log.title)}</span>
                 </div>
-                ${log.details?.finalUrl ? `<div class="log-request-url" title="${log.details.finalUrl}">URL: ${log.details.finalUrl}</div>` : ''}
-                <span class="log-time-hint">${log.time}</span>
+                ${log.details?.finalUrl ? `<div class="log-request-url" title="${escapeHtml(log.details.finalUrl)}">URL: ${escapeHtml(log.details.finalUrl)}</div>` : ''}
+                <span class="log-time-hint">${escapeHtml(log.time)}</span>
             </div>
         `).join('');
     }
@@ -201,20 +192,6 @@ export function createLogPanelApi({
         const log = state.logs.find((entry) => entry.id === id);
         if (!log) return;
         renderErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
-    }
-
-    function setLogRetentionDays(value) {
-        ensureLogsInitialized();
-        const nextDays = normalizeRetentionDays(value);
-        if (state.logRetentionDays === nextDays) {
-            syncRetentionControl();
-            return false;
-        }
-        state.logRetentionDays = nextDays;
-        pruneExpiredLogs({ save: true, retentionDays: nextDays });
-        renderLogs();
-        syncRetentionControl();
-        return true;
     }
 
     function clearLogs() {
@@ -232,8 +209,6 @@ export function createLogPanelApi({
         logRequestToPanel,
         renderLogs,
         pruneExpiredLogs,
-        setLogRetentionDays,
-        syncRetentionControl,
         showLogDetail
     };
 }

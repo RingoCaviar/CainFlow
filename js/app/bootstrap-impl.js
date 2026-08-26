@@ -31,7 +31,7 @@ import {
 } from '../canvas/geometry.js';
 import { createConnectionsApi } from '../canvas/connections.js';
 import { createConnectionProjection } from '../canvas/connection-projection.js';
-import { createConnectionDiagnostics } from '../canvas/connection-diagnostics.js';
+import { createDiagnosticClient } from '../services/diagnostic-client.js';
 import { createBatchConnectionModeApi } from '../canvas/batch-connection-mode.js';
 import { createSelectionApi } from '../canvas/selection.js';
 import { createViewportApi } from '../canvas/viewport.js';
@@ -160,8 +160,8 @@ function logRequestToPanel(title, url, requestBody, extra = {}) {
     });
 }
 
-function addLog(type, title, message, details = null) {
-    getLogPanelApi().addLog(type, title, message, details);
+function addLog(type, title, message, details = null, meta = {}) {
+    getLogPanelApi().addLog(type, title, message, details, meta);
 }
 
 function renderLogs() {
@@ -563,7 +563,20 @@ const connectionsApi = createConnectionsApi({
     addNode,
     performanceMonitor: canvasPerformanceMonitor
 });
-const connectionDiagnostics = createConnectionDiagnostics();
+const diagnosticClient = createDiagnosticClient({ localStorageRef: diskStorage });
+void diagnosticClient.status().catch(() => {});
+let lastDiagnosticWarningAt = '';
+async function checkDiagnosticHealth() {
+    try {
+        const status = await diagnosticClient.status();
+        if (status?.degraded && status.lastError?.at && status.lastError.at !== lastDiagnosticWarningAt) {
+            lastDiagnosticWarningAt = status.lastError.at;
+            showToast('诊断记录写入失败，工作流可继续运行；请在常规设置中检查诊断状态。', 'warning', 7000);
+        }
+    } catch { /* diagnostic health checks never block the application */ }
+}
+window.setTimeout?.(checkDiagnosticHealth, 5000);
+window.setInterval?.(checkDiagnosticHealth, 60000);
 const {
     showResolutionBadge,
     setupImageImport,
@@ -664,7 +677,7 @@ registry.connectionProjectionApi = createConnectionProjection({
     markConnectionDirty,
     markNodeConnectionsDirty,
     detectMisalignedConnections,
-    onAlignmentCorrected: ({ mismatches, reason }) => mismatches.forEach((mismatch) => connectionDiagnostics.record({
+    onAlignmentCorrected: ({ mismatches, reason }) => mismatches.forEach((mismatch) => diagnosticClient.recordCanvas({
         reason,
         connectionId: mismatch.connectionId,
         from: mismatch.from,
@@ -1369,6 +1382,7 @@ settingsFeature = createSettingsFeature({
     fitNodeToContent,
     floatingNoticesApi: getFloatingNoticesApi(),
     refreshImageGenerateNodes,
+    diagnosticClient,
     localStorageRef: diskStorage,
     documentRef: document
 });

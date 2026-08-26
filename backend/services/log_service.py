@@ -1,21 +1,25 @@
 import json
-import os
-import re
-import threading
 import time
 import traceback
 import uuid
 from email import policy
 from email.parser import BytesParser
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from backend import config
+from backend.services.diagnostic_service import DiagnosticService
 
-_LOG_WRITE_LOCK = threading.Lock()
 _REQUEST_CONTEXT_ATTR = '_cainflow_request_log'
-_LOG_FILE_PATTERN = re.compile(rf'^{re.escape(config.LOG_FILE_PREFIX)}-(\d{{4}}-\d{{2}}-\d{{2}})\.jsonl$')
-_LAST_LOG_CLEANUP_AT = 0
+
+diagnostic_service = DiagnosticService(
+    config.LOG_DIR,
+    budget_bytes=config.DIAGNOSTIC_BACKEND_BUDGET_BYTES,
+    canvas_budget_bytes=config.DIAGNOSTIC_CANVAS_BUDGET_BYTES,
+    segment_bytes=config.DIAGNOSTIC_SEGMENT_BYTES,
+    record_bytes=config.DIAGNOSTIC_RECORD_BYTES,
+    retention_days=config.DIAGNOSTIC_RETENTION_DAYS,
+)
 
 _SENSITIVE_QUERY_KEYS = {
     'key',
@@ -402,119 +406,7 @@ def truncate_text(text, limit):
 
 
 def _append_log_line(payload):
-    _cleanup_old_logs_if_due()
-    line = json.dumps(payload, ensure_ascii=False) + '\n'
-    path = config.get_log_file_path()
-    with _LOG_WRITE_LOCK:
-        with open(path, 'a', encoding='utf-8') as file:
-            file.write(line)
-
-
-def cleanup_old_log_files(retention_days=None, now=None):
-    days = retention_days if retention_days is not None else config.LOG_RETENTION_DAYS
-    try:
-        normalized_days = max(1, int(days))
-    except (TypeError, ValueError):
-        normalized_days = config.LOG_RETENTION_DAYS
-
-    current = now or datetime.now()
-    cutoff_date = (current - timedelta(days=normalized_days - 1)).date()
-    try:
-        filenames = os.listdir(config.LOG_DIR)
-    except FileNotFoundError:
-        return 0
-    except OSError as exc:
-        print(f' 后端日志清理失败: {exc}')
-        return 0
-
-    deleted_count = 0
-    for filename in filenames:
-        match = _LOG_FILE_PATTERN.match(filename)
-        if not match:
-            continue
-        try:
-            file_date = datetime.strptime(match.group(1), '%Y-%m-%d').date()
-        except ValueError:
-            continue
-        if file_date >= cutoff_date:
-            continue
-        path = os.path.join(config.LOG_DIR, filename)
-        try:
-            os.remove(path)
-            deleted_count += 1
-        except OSError as exc:
-            print(f' 删除旧日志失败: {filename} ({exc})')
-    return deleted_count
-
-
-def cleanup_log_files_by_total_size(max_total_bytes=None):
-    try:
-        normalized_limit = int(max_total_bytes if max_total_bytes is not None else config.LOG_TOTAL_SIZE_LIMIT_BYTES)
-    except (TypeError, ValueError):
-        normalized_limit = config.LOG_TOTAL_SIZE_LIMIT_BYTES
-
-    if normalized_limit <= 0:
-        return 0
-
-    try:
-        filenames = os.listdir(config.LOG_DIR)
-    except FileNotFoundError:
-        return 0
-    except OSError as exc:
-        print(f' 后端日志总量清理失败: {exc}')
-        return 0
-
-    log_entries = []
-    total_size = 0
-    for filename in filenames:
-        match = _LOG_FILE_PATTERN.match(filename)
-        if not match:
-            continue
-        path = os.path.join(config.LOG_DIR, filename)
-        try:
-            stat = os.stat(path)
-        except OSError:
-            continue
-        total_size += stat.st_size
-        log_entries.append({
-            'filename': filename,
-            'path': path,
-            'mtime': stat.st_mtime,
-            'size': stat.st_size,
-        })
-
-    if total_size <= normalized_limit:
-        return 0
-
-    log_entries.sort(key=lambda item: (item['mtime'], item['filename']))
-    deleted_count = 0
-    for entry in log_entries:
-        if total_size <= normalized_limit:
-            break
-        try:
-            os.remove(entry['path'])
-            total_size -= entry['size']
-            deleted_count += 1
-        except OSError as exc:
-            print(f" 删除超额日志失败: {entry['filename']} ({exc})")
-    return deleted_count
-
-
-def _cleanup_old_logs_if_due():
-    global _LAST_LOG_CLEANUP_AT
-    now = time.time()
-    try:
-        interval = max(60, int(config.LOG_CLEANUP_INTERVAL_SECONDS))
-    except (TypeError, ValueError):
-        interval = 6 * 60 * 60
-    if now - _LAST_LOG_CLEANUP_AT < interval:
-        return
-    with _LOG_WRITE_LOCK:
-        if now - _LAST_LOG_CLEANUP_AT < interval:
-            return
-        _LAST_LOG_CLEANUP_AT = now
-    cleanup_old_log_files()
-    cleanup_log_files_by_total_size()
+    return diagnostic_service.record(payload)
 
 
 def _is_json_content_type(content_type):

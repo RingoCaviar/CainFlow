@@ -8,7 +8,7 @@ import webbrowser
 
 from backend import config
 from backend.handler import ProxyHTTPRequestHandler
-from backend.services.log_service import cleanup_old_log_files
+from backend.services.log_service import diagnostic_service
 from backend.services.storage_service import storage_service
 from backend.services.update_service import cleanup_update_temp_files
 from backend.services.version_service import get_app_version_tag
@@ -229,7 +229,7 @@ def initialize_runtime():
     config.ensure_runtime_dirs()
     storage_service.initialize()
     cleanup_update_temp_files()
-    cleanup_old_log_files()
+    diagnostic_service.initialize()
 
 
 def create_server(host=None, port=None):

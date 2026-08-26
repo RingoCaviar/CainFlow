@@ -28,6 +28,7 @@ export function createSettingsFeature({
     fitNodeToContent,
     floatingNoticesApi,
     refreshImageGenerateNodes = null,
+    diagnosticClient,
     documentRef = document,
     localStorageRef
 }) {
@@ -61,6 +62,7 @@ export function createSettingsFeature({
         applyCanvasUiSetting,
         fitNodeToContent,
         floatingNoticesApi,
+        diagnosticClient,
         documentRef,
         localStorageRef
     });

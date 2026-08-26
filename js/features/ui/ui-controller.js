@@ -948,14 +948,6 @@ export function createUiControllerApi({
             showToast('日志已清空', 'info');
         });
 
-        documentRef.getElementById('log-retention-days')?.addEventListener('change', (e) => {
-            const retentionDays = parseInt(e.target.value, 10);
-            if (!Number.isNaN(retentionDays) && retentionDays >= 1) {
-                logPanelApi?.setLogRetentionDays?.(retentionDays);
-                showToast(`日志保留时长已更新为 ${retentionDays} 天`, 'success');
-            }
-        });
-
         documentRef.getElementById('btn-copy-error')?.addEventListener('click', () => {
             const title = documentRef.getElementById('error-modal-title').textContent;
             const msg = documentRef.getElementById('error-modal-msg').textContent;

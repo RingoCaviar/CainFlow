@@ -2,7 +2,7 @@ import http.server
 
 from backend import state
 from backend import desktop_security
-from backend.routes import media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
+from backend.routes import diagnostic_routes, media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
 from backend.services.http_helpers import write_error, write_text
 from backend.services.log_service import should_log_path, start_request_log
 from backend.services.proxy_service import handle_proxy_request
@@ -39,6 +39,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if settings_routes.handle_get(self):
                 return
             if storage_routes.handle_get(self):
+                return
+            if diagnostic_routes.handle_get(self):
                 return
             if state.is_noise_request(self.path):
                 self.send_response(404)
@@ -88,6 +90,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if protocol_routes.handle_post(self):
                 return
             if storage_routes.handle_post(self):
+                return
+            if diagnostic_routes.handle_post(self):
                 return
             if self.path == '/proxy':
                 handle_proxy_request(self)

@@ -31,7 +31,8 @@ export function createGeneralSettings({ ctx, dialogs }) {
         fitNodeToContent,
         documentRef,
         windowRef,
-        localStorageRef
+        localStorageRef,
+        diagnosticClient
     } = ctx;
 
     function playNotificationSound(isTest = false) {
@@ -440,6 +441,23 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 </div>
             </div>
 
+            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+                <div class="card-header"><span style="font-size:14px; font-weight:500; color:var(--text-secondary)">诊断记录</span></div>
+                <div class="card-row" style="display:flex; flex-direction:column; gap:10px;">
+                    <div class="card-field">
+                        <label for="setting-diagnostic-level">诊断级别</label>
+                        <select id="setting-diagnostic-level">
+                            <option value="compact">精简</option>
+                            <option value="standard">标准</option>
+                            <option value="detailed">详细</option>
+                        </select>
+                    </div>
+                    <div id="diagnostic-budget-status" style="font-size:12px;color:var(--text-dim);">正在读取占用…</div>
+                    <div id="diagnostic-policy-summary" style="font-size:11px;color:var(--text-dim);">错误始终记录；政策由后端统一管理。</div>
+                    <button id="btn-clear-diagnostics" class="btn btn-danger btn-sm" type="button">清空全部诊断记录</button>
+                </div>
+            </div>
+
             ${updateSettingsCardHtml}
         </div>
     `;
@@ -469,6 +487,29 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const btnSetGlobal = documentRef.getElementById('btn-set-global-dir');
         const btnChooseGlobal = documentRef.getElementById('btn-choose-global-dir');
         const btnClearGlobal = documentRef.getElementById('btn-clear-global-dir');
+        const diagnosticLevelInput = documentRef.getElementById('setting-diagnostic-level');
+        const diagnosticBudgetStatus = documentRef.getElementById('diagnostic-budget-status');
+        const diagnosticPolicySummary = documentRef.getElementById('diagnostic-policy-summary');
+        const refreshDiagnosticStatus = async () => {
+            try {
+                const status = await diagnosticClient.status();
+                state.diagnosticStatus = status;
+                if (diagnosticLevelInput) diagnosticLevelInput.value = status.level || 'standard';
+                if (diagnosticBudgetStatus) {
+                    const cleanup = status.lastCleanup;
+                    const backend = status.adapters?.backend || {};
+                    const canvas = status.adapters?.canvas || {};
+                    diagnosticBudgetStatus.textContent = `后端 ${formatBytes(backend.usedBytes)} / ${formatBytes(backend.budgetBytes)}；Canvas ${formatBytes(canvas.usedBytes)} / ${formatBytes(canvas.budgetBytes)}${cleanup ? `；最近清理 ${cleanup.deletedFiles || 0} 个文件` : ''}`;
+                }
+                if (diagnosticPolicySummary) {
+                    const canvas = status.adapters?.canvas || {};
+                    diagnosticPolicySummary.textContent = `成功请求采样 ${Math.round((status.sampleRate || 0) * 100)}%；总预算 ${formatBytes(status.totalBudgetBytes)}，Canvas ${formatBytes(canvas.budgetBytes)}，单条 ${formatBytes(canvas.recordBytes)}，最长 ${canvas.retentionDays} 天。`;
+                }
+            } catch (error) {
+                if (diagnosticBudgetStatus) diagnosticBudgetStatus.textContent = `诊断状态读取失败：${error.message}`;
+            }
+        };
+        void refreshDiagnosticStatus();
         const updateVolumeSliderProgress = () => {
             if (!volInput) return;
             const min = parseFloat(volInput.min || '0');
@@ -478,6 +519,38 @@ export function createGeneralSettings({ ctx, dialogs }) {
             volInput.style.setProperty('--notify-volume-progress', `${Math.max(0, Math.min(100, percent))}%`);
         };
         updateVolumeSliderProgress();
+
+        diagnosticLevelInput?.addEventListener('change', async (event) => {
+            const previous = state.diagnosticStatus?.level || 'standard';
+            const level = event.target.value;
+            if (level === 'detailed' && localStorageRef.getItem('cainflow_detailed_diagnostics_consent') !== '1') {
+                const confirmed = windowRef.confirm('详细诊断会保存所有成功请求的截断正文，可能包含提示词和远端响应。是否启用？');
+                if (!confirmed) { event.target.value = previous; return; }
+                localStorageRef.setItem('cainflow_detailed_diagnostics_consent', '1');
+            }
+            try {
+                await diagnosticClient.setLevel(level);
+                showToast('诊断级别已更新', 'success');
+                await refreshDiagnosticStatus();
+            } catch (error) {
+                event.target.value = previous;
+                showToast(`诊断级别更新失败：${error.message}`, 'error');
+            }
+        });
+
+        documentRef.getElementById('btn-clear-diagnostics')?.addEventListener('click', async () => {
+            if (!windowRef.confirm('确定清空全部诊断记录吗？前端运行历史不会被删除。')) return;
+            try {
+                const result = await diagnosticClient.clear('all');
+                const results = Object.fromEntries(Object.entries(result.adapters || {}).map(([name, adapter]) => [name, adapter?.success === true]));
+                const completed = Object.entries(results).filter(([, success]) => success).map(([name]) => name);
+                const failed = Object.entries(results).filter(([, success]) => !success).map(([name]) => name);
+            showToast(failed.length ? `已清空：${completed.join(', ') || '无'}；失败：${failed.join(', ')}` : '全部诊断记录已清空', failed.length ? 'warning' : 'success');
+            } catch (error) {
+                showToast(`诊断记录清空失败：${error.message}`, 'error');
+            }
+            await refreshDiagnosticStatus();
+        });
 
         btnGotoDownloadList.forEach((button) => {
             button.addEventListener('click', () => {

@@ -1,0 +1,3 @@
+# Keep diagnostic records bounded behind a backend-authoritative policy
+
+CainFlow will expose diagnostic intent, level, status, and scoped clearing through one backend-authoritative deep module while retaining separate filesystem and Canvas storage adapters. The module enforces a 30 MiB total hard budget (27 MiB backend and 3 MiB Canvas), 14-day maximum retention, 16 KiB record limits, deterministic success sampling, and error-first retention; the user-facing execution history remains a separate un-sampled 200-entry/7-day history because it explains current workflow behavior rather than serving as a complete diagnostic archive.

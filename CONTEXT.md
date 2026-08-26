@@ -43,3 +43,11 @@ A provider or model configuration supplied, recommended, restored, or specially 
 
 **User-owned provider configuration**:
 A provider or model configuration explicitly created or retained by the user. Product changes do not silently delete it, even when CainFlow stops supplying or specially supporting the same service.
+
+**Bounded diagnostic record**:
+A locally stored record used to investigate CainFlow requests, failures, and runtime behavior within a hard total disk budget. Errors have retention priority, while successful requests may be sampled.
+_Avoid_: Unbounded log, complete request archive
+
+**Diagnostic level**:
+The user's choice of how much successful runtime activity CainFlow records for diagnosis; it does not weaken the hard disk budget. It expresses diagnostic intent rather than a retention duration.
+_Avoid_: Log retention days, log storage quota
