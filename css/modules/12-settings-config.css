@@ -143,17 +143,75 @@
     border-color: rgba(255, 255, 255, 0.12);
 }
 
+.api-config-card.is-collapsed {
+    padding: 0;
+    gap: 0;
+}
+
+.api-config-card.is-collapsed .card-header {
+    padding: 14px;
+    border-radius: inherit;
+}
+
+.api-config-card:not(.is-collapsed) .card-header {
+    margin: -14px -14px 0;
+    padding: 14px 14px 0;
+}
+
 .api-config-card .card-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     cursor: pointer;
+}
+
+.api-config-card .card-header .card-name {
+    min-width: 0;
+}
+
+.card-drag-handle {
+    width: 20px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 20px;
+    color: var(--text-dim);
+    font-size: 17px;
+    line-height: 1;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+
+.card-drag-handle:hover {
+    color: var(--text-primary);
+}
+
+.card-drag-handle:active,
+.api-config-card.is-dragging .card-drag-handle {
+    cursor: grabbing;
+}
+
+.api-config-card.is-dragging {
+    opacity: 0.45;
+    border-color: var(--accent-purple);
+}
+
+.api-config-card.is-drag-target {
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.3);
+}
+
+.api-configs-list.is-card-sorting .api-config-card {
+    transition: border-color var(--transition), opacity 0.12s ease;
 }
 
 .api-config-card .card-header .card-header-actions {
     display: flex;
     align-items: center;
     gap: 6px;
+    margin-left: auto;
     flex-shrink: 0;
 }
 

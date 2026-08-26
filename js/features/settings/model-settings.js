@@ -25,6 +25,8 @@ import {
     getModelCompatibilityFormatLabel,
     inferModelCompatibilityFormat
 } from '../execution/model-compatibility-format.js';
+import { bindSettingsCardOrder, reorderItemsById, toggleOrderedId } from './settings-card-order.js';
+import { bindCardToggleGestureGuard } from './card-toggle-gesture.js';
 
 export function createModelSettings({ ctx, store, dialogs, providerSettings, getDeps }) {
     const {
@@ -481,14 +483,8 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         const validProviderIds = new Set(selectableProviders.map((provider) => provider.id));
         if (!validProviderIds.has(providerId)) return;
         store.openModelProviderPanelId = modelId;
-        const current = new Set(getModelProviderIds(mod).filter((id) => validProviderIds.has(id)));
-        if (current.has(providerId)) {
-            current.delete(providerId);
-        } else {
-            current.add(providerId);
-        }
-        const orderedProviderIds = state.providers.map((provider) => provider.id);
-        mod.providerIds = orderedProviderIds.filter((id, index, ids) => current.has(id) && ids.indexOf(id) === index);
+        const currentProviderIds = getModelProviderIds(mod).filter((id) => validProviderIds.has(id));
+        mod.providerIds = toggleOrderedId(currentProviderIds, providerId);
         providerSettings.syncModelProviderBindings(mod);
         saveState();
         renderModels();
@@ -535,6 +531,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 : '<div style="font-size:11px;color:var(--text-dim);padding-top:8px;">请先添加供应商</div>';
             el.innerHTML = `
                 <div class="card-header">
+                    <span class="card-drag-handle" draggable="true" role="img" aria-label="拖动以调整模型顺序" title="拖动排序">⠿</span>
                     <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开模型配置"' : ''} style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:#a855f7;width:200px" />
                     <div class="card-header-actions">
                         ${mod.id !== 'default' ? `<button class="card-btn-delete" data-id="${mod.id}" data-target="model" title="删除此模型">×</button>` : ''}
@@ -618,11 +615,13 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         });
 
         modelsList.querySelectorAll('.model-config-card').forEach((card) => {
+            const toggleGestureGuard = bindCardToggleGestureGuard({ card, documentRef, windowRef });
             card.addEventListener('click', (event) => {
+                if (toggleGestureGuard.consumeToggleSuppression()) return;
                 const isCollapsedCard = card.classList.contains('is-collapsed');
                 const clickedHeader = event.target.closest('.card-header');
                 if (!isCollapsedCard && !clickedHeader) return;
-                if (event.target.closest('.card-btn-delete, button, select, textarea, label, a')) return;
+                if (event.target.closest('.card-btn-delete, button, select, textarea, label, a, .card-drag-handle')) return;
                 if (!!event.target.closest('input, select, textarea, button, label, a') && !isCollapsedCard) return;
 
                 const id = card.dataset.modelId || card.querySelector('.card-name')?.dataset.id;
@@ -631,6 +630,20 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 store.modelCollapseState.set(id, !(store.modelCollapseState.get(id) !== false));
                 renderModels();
             });
+        });
+
+        bindSettingsCardOrder({
+            list: modelsList,
+            cardSelector: '.model-config-card',
+            idAttribute: 'modelId',
+            documentRef,
+            windowRef,
+            onCommit(orderedIds) {
+                state.models = reorderItemsById(state.models, orderedIds);
+                renderModels();
+                updateAllNodeModelDropdowns();
+                saveState();
+            }
         });
 
         if (store.openModelProviderPanelId) {

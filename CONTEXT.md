@@ -52,6 +52,16 @@ A provider or model configuration supplied, recommended, restored, or specially 
 **User-owned provider configuration**:
 A provider or model configuration explicitly created or retained by the user. Product changes do not silently delete it, even when CainFlow stops supplying or specially supporting the same service.
 
+**Provider order**:
+The user-controlled ordering of provider configurations. The same order is shown consistently anywhere CainFlow presents providers for selection and determines the default provider for a newly created model. It does not change the Model provider priority of an existing model. Newly added providers appear last.
+
+**Model order**:
+The user-controlled ordering of model configurations. The same order is shown consistently in settings and anywhere CainFlow presents models for selection, and determines the fallback model when a previous selection is no longer available. Newly added models appear last.
+
+**Model provider priority**:
+The ordered provider bindings of one model, used to choose its default request target. Reordering Provider configurations does not alter this priority.
+_Avoid_: Provider order
+
 **Bounded diagnostic record**:
 A locally stored record used to investigate CainFlow requests, failures, and runtime behavior within a hard total disk budget. Errors have retention priority, while successful requests may be sampled.
 _Avoid_: Unbounded log, complete request archive

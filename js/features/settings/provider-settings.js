@@ -9,6 +9,8 @@ import {
     normalizeProviderEndpointUrl,
     normalizeProviderType
 } from '../execution/provider-request-utils.js';
+import { bindSettingsCardOrder, reorderItemsById } from './settings-card-order.js';
+import { bindCardToggleGestureGuard } from './card-toggle-gesture.js';
 
 export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     const {
@@ -111,9 +113,8 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     }
 
     function getModelBoundProviders(model) {
-        return getModelProviderIds(model)
-            .map((providerId) => state.providers.find((provider) => provider.id === providerId))
-            .filter(Boolean);
+        const boundProviderIds = new Set(getModelProviderIds(model));
+        return state.providers.filter((provider) => boundProviderIds.has(provider.id));
     }
 
     function getResolvedModelProvider(model, preferredProviderId = '') {
@@ -160,7 +161,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     }
 
     function isCardHeaderControlClick(event) {
-        return !!event.target.closest('input, select, textarea, button, label, a');
+        return !!event.target.closest('input, select, textarea, button, label, a, .card-drag-handle');
     }
 
     function toggleProviderConfigCard(id) {
@@ -209,10 +210,10 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
             el.dataset.providerId = prov.id;
             el.innerHTML = `
                 <div class="card-header">
+                    <span class="card-drag-handle" draggable="true" role="img" aria-label="拖动以调整供应商顺序" title="拖动排序">⠿</span>
                     <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开供应商配置"' : ''} style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:var(--accent-cyan);width:150px" />
                     <div class="card-header-actions">
                         <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
-                        <button class="card-btn-collapse" data-id="${prov.id}" data-target="provider" title="${isCollapsed ? '展开此供应商' : '折叠此供应商'}" aria-expanded="${isCollapsed ? 'false' : 'true'}">${isCollapsed ? '▸' : '▾'}</button>
                         ${prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
                     </div>
                 </div>
@@ -334,26 +335,37 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
             });
         });
 
-        providersList.querySelectorAll('.card-btn-collapse').forEach((btn) => {
-            btn.addEventListener('click', (event) => {
-                const { id } = event.currentTarget.dataset;
-                toggleProviderConfigCard(id);
-            });
-        });
-
         providersList.querySelectorAll('.provider-config-card').forEach((card) => {
+            const toggleGestureGuard = bindCardToggleGestureGuard({ card, documentRef, windowRef });
             card.addEventListener('click', (event) => {
+                if (toggleGestureGuard.consumeToggleSuppression()) return;
                 const isCollapsedCard = card.classList.contains('is-collapsed');
                 const clickedHeader = event.target.closest('.card-header');
                 if (!isCollapsedCard && !clickedHeader) return;
-                if (event.target.closest('.card-btn-fetch-models, .card-btn-delete, .card-btn-collapse, button, select, textarea, label, a')) return;
+                if (event.target.closest('.card-btn-fetch-models, .card-btn-delete, button, select, textarea, label, a, .card-drag-handle')) return;
                 if (!isCollapsedCard && isCardHeaderControlClick(event)) return;
 
-                const id = card.dataset.providerId || card.querySelector('.card-btn-collapse')?.dataset.id;
+                const id = card.dataset.providerId;
                 if (!id) return;
                 event.preventDefault();
                 toggleProviderConfigCard(id);
             });
+        });
+
+        bindSettingsCardOrder({
+            list: providersList,
+            cardSelector: '.provider-config-card',
+            idAttribute: 'providerId',
+            documentRef,
+            windowRef,
+            onCommit(orderedIds) {
+                const deps = getDeps();
+                state.providers = reorderItemsById(state.providers, orderedIds);
+                renderProviders();
+                deps.renderModels();
+                deps.updateAllNodeModelDropdowns();
+                saveState();
+            }
         });
     }
 
