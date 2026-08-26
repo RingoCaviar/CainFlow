@@ -8,6 +8,7 @@ import { createProviderSettings } from './provider-settings.js';
 import { createModelSettings } from './model-settings.js';
 import { createProxyNetworkSettings } from './proxy-network-settings.js';
 import { createGeneralSettings } from './general-settings.js';
+import { createBackdropDismissalGuard } from './backdrop-dismissal.js';
 
 export function createSettingsControllerApi(options) {
     const { ctx, store } = createSettingsContext(options);
@@ -44,6 +45,10 @@ export function createSettingsControllerApi(options) {
 
     function initSettingsUI({ settingsModalApi, protocolDeveloperPanelApi }) {
         const { documentRef, settingsModal, state, showToast, saveState, windowRef } = ctx;
+        const backdropDismissal = createBackdropDismissalGuard({
+            overlay: settingsModal,
+            panel: settingsModal.querySelector('.modal-panel')
+        });
 
         windowRef.__cainflowSettingsModalApi = settingsModalApi;
 
@@ -80,8 +85,9 @@ export function createSettingsControllerApi(options) {
             dialogs.closeAllSettingsOverlays();
             settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
         });
+        settingsModal.addEventListener('pointerdown', backdropDismissal.recordPointerDown);
         settingsModal.addEventListener('click', (event) => {
-            if (event.target === settingsModal) {
+            if (backdropDismissal.shouldDismiss(event)) {
                 dialogs.closeAllSettingsOverlays();
                 settingsModalApi.closeSettingsModal(() => state.notificationAudio?.pause());
             }

@@ -45,13 +45,17 @@ export function inferFetchedModelProtocol(provider, fetchedModel = {}, providerS
         .map((type) => ENDPOINT_TYPE_PROTOCOLS[type] || '')
         .filter(Boolean);
 
+    const keywordProtocol = inferProtocolFromModelName(fetchedModel);
+    if (declaredProtocols.length === 1 && declaredProtocols[0] === 'newapi-image-async' && keywordProtocol === 'google') {
+        return 'google';
+    }
+
     if (declaredProtocols.length === 1) return declaredProtocols[0];
     if (declaredProtocols.includes(providerProtocol)) return providerProtocol;
 
     // A configured provider format is stronger evidence than a model-family name.
     // Keywords only recover legacy/partial provider records whose type is absent.
     if (!String(provider?.type || '').trim()) {
-        const keywordProtocol = inferProtocolFromModelName(fetchedModel);
         if (keywordProtocol) return keywordProtocol;
     }
     return providerProtocol;

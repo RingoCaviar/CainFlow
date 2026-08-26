@@ -46,6 +46,14 @@ test('honors one unambiguous supported endpoint type returned by the provider', 
     }, settings), 'veo-openai');
 });
 
+test('keeps nano-banana on the Google Gemini format when generic metadata labels it async', () => {
+    const settings = createProviderSettings('openai');
+    assert.equal(inferFetchedModelProtocol({}, {
+        id: 'nano-banana-pro',
+        raw: { supported_endpoint_types: ['newapi-image-async'] }
+    }, settings), 'google');
+});
+
 test('prefers the provider format when metadata advertises several formats', () => {
     const settings = createProviderSettings('openai');
     assert.equal(inferFetchedModelProtocol({}, {
