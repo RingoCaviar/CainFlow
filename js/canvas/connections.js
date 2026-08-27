@@ -1354,13 +1354,16 @@ export function createConnectionsApi({
         return true;
     }
 
-    function drawTempConnection(x1, y1, x2, y2) {
+    function drawTempConnection(x1, y1, x2, y2, startsAtOutput = true) {
         const { x, y, zoom } = state.canvas;
         const sx1 = x1 * zoom + x;
         const sy1 = y1 * zoom + y;
         const sx2 = x2 * zoom + x;
         const sy2 = y2 * zoom + y;
-        tempConnection.setAttribute('d', createBezierPath(sx1, sy1, sx2, sy2, {
+        const [fromX, fromY, toX, toY] = startsAtOutput
+            ? [sx1, sy1, sx2, sy2]
+            : [sx2, sy2, sx1, sy1];
+        tempConnection.setAttribute('d', createBezierPath(fromX, fromY, toX, toY, {
             type: state.connectionLineType || 'bezier'
         }));
     }

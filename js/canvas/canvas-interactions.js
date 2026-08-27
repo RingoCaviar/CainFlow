@@ -1012,7 +1012,8 @@ export function createCanvasInteractionsApi({
                     state.connecting.startX,
                     state.connecting.startY,
                     (e.clientX - rect.left - x) / zoom,
-                    (e.clientY - rect.top - y) / zoom
+                    (e.clientY - rect.top - y) / zoom,
+                    state.connecting.isOutput
                 );
             }
         });
