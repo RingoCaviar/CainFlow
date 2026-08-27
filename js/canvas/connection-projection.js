@@ -279,14 +279,13 @@ export function createConnectionProjection({
                     } else {
                         await updateAllConnections?.();
                     }
-                    let restorationTurn = 'aborted';
                     if (!restorationTransaction.abortController.signal.aborted) {
-                        restorationTurn = await waitForRestorationTurn(restorationTransaction.abortController.signal);
+                        await waitForRestorationTurn(restorationTransaction.abortController.signal);
                     }
                     if (!restorationTransaction.abortController.signal.aborted) {
                         repairAlignmentNow([], 'workflow-restored');
                     }
-                    if (restorationTurn === 'timeout' && !restorationTransaction.abortController.signal.aborted) {
+                    if (!restorationTransaction.abortController.signal.aborted) {
                         void verifyAlignment([]).catch((error) => {
                             reportAlignmentRepairFailure(error, 'workflow-restored-late-frame');
                         });

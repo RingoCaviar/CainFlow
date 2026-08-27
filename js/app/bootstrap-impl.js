@@ -475,7 +475,6 @@ function getSystemNotificationApi() {
 function initFloatingNotices() {
     const notices = getFloatingNoticesApi();
     const workflowBackupDismissStorageKey = 'cainflow_workflow_backup_notice_dismissed';
-    const refreshTipDismissStorageKey = 'cainflow_refresh_notice_dismissed';
 
     notices.upsertNotice({
         id: 'workflow-backup',
@@ -488,16 +487,6 @@ function initFloatingNotices() {
         closeLabel: '关闭工作流备份提醒'
     });
 
-    notices.upsertNotice({
-        id: 'refresh-tip',
-        elementId: 'refresh-notice',
-        priority: 20,
-        icon: '💡',
-        content: ['本APP更新频繁，建议使用 ', { highlight: true, text: 'Ctrl + F5' }, ' 强制刷新以加载最新版'],
-        dismissStorageKey: refreshTipDismissStorageKey,
-        dismissible: true,
-        closeLabel: '关闭刷新提示'
-    });
 }
 
 const updateManager = createUpdateManager({

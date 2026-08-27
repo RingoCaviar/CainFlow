@@ -6,7 +6,7 @@ function createClassList() {
     return { add() {}, remove() {}, contains() { return false; } };
 }
 
-function createHarness() {
+function createHarness({ getNodeMinimumSize = null } = {}) {
     const canvasListeners = [];
     const windowListeners = [];
     const canvasContainer = {
@@ -42,7 +42,7 @@ function createHarness() {
         },
         getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {}, updatePortStyles() {},
         scheduleSave() {}, serializeOneNode() {}, addNode() {}, checkLineIntersection() {},
-        getConnectionSamplePoints() { return []; }, documentRef,
+        getConnectionSamplePoints() { return []; }, documentRef, getNodeMinimumSize,
         scheduleConnectionRefresh(options) { legacyRefreshCalls.push(options); },
         connectionProjection: {
             beginInteraction(kind, nodeIds) {
@@ -228,6 +228,32 @@ test('node dragging reports targeted changes and settlement through a projection
         ['finish', 'node-drag']
     ]);
     assert.deepEqual(legacyRefreshCalls, []);
+});
+
+test('a previously enlarged node can shrink back to its current content minimum', () => {
+    const { windowListeners, state } = createHarness({
+        getNodeMinimumSize() {
+            return { minWidth: 180, minHeight: 160 };
+        }
+    });
+    const style = { width: '320px', height: '640px' };
+    const node = {
+        el: {
+            style,
+            classList: createClassList(),
+            get offsetWidth() { return Number.parseInt(style.width, 10); },
+            get offsetHeight() { return Number.parseInt(style.height, 10); }
+        }
+    };
+    state.nodes.set('node-1', node);
+    state.resizing = {
+        nodeId: 'node-1', startX: 0, startY: 0, startWidth: 320, startHeight: 640,
+        minWidth: 180, minHeight: 500, maxHeight: Infinity, textareaResizeTargets: []
+    };
+
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 0, clientY: -320 });
+
+    assert.equal(style.height, '320px');
 });
 
 test('temporary connection drawing uses one projection lease', () => {

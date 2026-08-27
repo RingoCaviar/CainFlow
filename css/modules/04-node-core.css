@@ -345,7 +345,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
+    padding: 8px 12px;
     background: var(--bg-node-header);
     border-radius: var(--radius-node) var(--radius-node) 0 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -358,7 +358,7 @@
 .header-right {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .node-header .header-left {
@@ -547,18 +547,15 @@
 }
 
 .node-body {
-    padding: 10px 14px;
+    padding: 8px 12px 10px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    overflow-y: auto;
-    overflow-x: hidden;
+    gap: 8px;
+    overflow: visible;
     position: relative;
     z-index: 1;
-    flex: 1;
-    min-height: 0;
-    /* Allow flex child to shrink below its content size */
-    scrollbar-width: thin;
+    flex: 0 0 auto;
+    min-height: auto;
 }
 
 .node-body-has-generation-progress {
@@ -579,16 +576,6 @@
     margin-bottom: 0;
     padding-bottom: 10px;
     border-bottom: 0;
-}
-
-/* Custom scrollbar for node body */
-.node-body::-webkit-scrollbar {
-    width: 4px;
-}
-
-.node-body::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
 }
 
 .node-field {
@@ -961,10 +948,9 @@
 .node-ports-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: 18px;
+    column-gap: 16px;
     align-items: start;
-    padding: 8px 14px 6px;
-    padding-bottom: 6px;
+    padding: 6px 12px 5px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -986,7 +972,7 @@
 .node-inputs-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
     align-self: start;
 }
@@ -994,7 +980,7 @@
 .node-outputs-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
     align-self: start;
 }
@@ -1002,11 +988,11 @@
 .node-port {
     position: relative;
     cursor: crosshair;
-    padding: 4px 0;
+    min-height: 24px;
+    padding: 5px 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    /* Space between dot and text as requested */
+    gap: 8px;
 }
 
 .node-port.input {
@@ -1018,8 +1004,8 @@
 }
 
 .port-dot {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     border: 2px solid;
     background: var(--bg-node);
@@ -1031,12 +1017,11 @@
 }
 
 .node-port.input .port-dot {
-    margin-left: -5px;
-    /* Offset just enough to align nicely inside */
+    margin-left: -12px;
 }
 
 .node-port.output .port-dot {
-    margin-right: -5px;
+    margin-right: -12px;
 }
 
 .port-dot.type-image {

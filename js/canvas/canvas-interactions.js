@@ -970,6 +970,7 @@ export function createCanvasInteractionsApi({
                     const targetW = r.startWidth + dx;
                     const targetH = r.startHeight + dy;
                     let dynamicMinWidth = r.minWidth;
+                    let dynamicMinHeight = typeof getNodeMinimumSize === 'function' ? 0 : r.minHeight;
                     let constrainedWidth = Math.max(targetW, r.minWidth);
                     const configuredMaxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
 
@@ -983,12 +984,13 @@ export function createCanvasInteractionsApi({
                         const finalMinimum = getNodeMinimumSize(node, { width: constrainedWidth });
                         if (finalMinimum) {
                             dynamicMinWidth = Math.max(dynamicMinWidth, Number(finalMinimum.minWidth) || 0);
+                            dynamicMinHeight = Math.max(dynamicMinHeight, Number(finalMinimum.minHeight) || 0);
                             constrainedWidth = Math.max(targetW, dynamicMinWidth);
                         }
                     }
 
-                    const maxHeight = configuredMaxHeight >= r.minHeight ? configuredMaxHeight : Infinity;
-                    const newH = Math.min(Math.max(targetH, r.minHeight), maxHeight);
+                    const maxHeight = configuredMaxHeight >= dynamicMinHeight ? configuredMaxHeight : Infinity;
+                    const newH = Math.min(Math.max(targetH, dynamicMinHeight), maxHeight);
                     node.el.style.width = constrainedWidth + 'px';
                     node.el.style.height = newH + 'px';
                     distributeNodeTextareaResize(r, newH);
@@ -1114,7 +1116,7 @@ export function createCanvasInteractionsApi({
                         let minimum = getNodeMinimumSize(node, { width: finalWidth });
                         finalWidth = Math.max(finalWidth, Number(minimum?.minWidth) || 0);
                         minimum = getNodeMinimumSize(node, { width: finalWidth });
-                        finalHeight = Math.max(finalHeight, Number(r.minHeight) || 0);
+                        finalHeight = Math.max(finalHeight, Number(minimum?.minHeight) || 0);
                         node.el.style.width = `${Math.round(finalWidth)}px`;
                         node.el.style.height = `${Math.round(finalHeight)}px`;
                     }

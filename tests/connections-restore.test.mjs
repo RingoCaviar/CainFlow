@@ -360,6 +360,28 @@ test('workflow restoration corrects port geometry that settles on the next layou
     assert.equal(alignmentReason, 'workflow-restored');
 });
 
+test('workflow restoration corrects port geometry that settles one frame after startup alignment', async () => {
+    const { api: connections, frames, paths, setOutputPortLeft } = createHarness(1);
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    const initialPath = paths[0].getAttribute('d');
+    frames.shift()(0);
+    await restoring;
+    await Promise.resolve();
+
+    setOutputPortLeft(160);
+    assert.equal(frames.length, 1, 'startup must schedule a late alignment check for deferred layout');
+    frames.shift()(0);
+    await Promise.resolve();
+
+    assert.notEqual(paths[0].getAttribute('d'), initialPath);
+});
+
 test('workflow restoration materializes a connection whose ports become visible on the next layout frame', async () => {
     const { api: connections, frames, paths, setPortsVisible } = createHarness(1, {
         portsInitiallyVisible: false
