@@ -200,6 +200,21 @@ test('connection restoration materializes only the requested batch', () => {
     restoration.finish({ completed: true });
 });
 
+test('connection restoration materializes only connections near the viewport', () => {
+    const { api, state, paths } = createHarness(2, { distinctTargets: true });
+    const offscreenSource = { ...state.nodes.get('to-2'), id: 'from-2', x: 1800 };
+    state.nodes.set(offscreenSource.id, offscreenSource);
+    state.nodes.get('to-2').x = 2000;
+    state.connections[1].from.nodeId = offscreenSource.id;
+
+    const restoration = api.beginConnectionRestoration();
+    assert.equal(restoration.renderViewport(), true);
+    restoration.finish({ completed: true });
+
+    assert.equal(paths.length, 1);
+    assert.equal(paths[0].getAttribute('data-conn-id'), 'connection-1');
+});
+
 test('adopted connection projection is reindexed by the visible renderer', () => {
     const { api, paths } = createHarness(1);
     const frame = () => 1;
@@ -467,9 +482,16 @@ test('workflow restoration corrects port geometry that settles on the next layou
     assert.equal(frames.length, 1);
     frames.shift()(0);
     await restoring;
+    await Promise.resolve();
+
+    assert.equal(settled, true);
+    assert.equal(paths[0].getAttribute('d'), initialPath, 'activation should not wait for whole-workflow alignment');
+    assert.equal(frames.length, 1);
+    frames.shift()(0);
+    await Promise.resolve();
 
     assert.notEqual(paths[0].getAttribute('d'), initialPath);
-    assert.equal(alignmentReason, 'workflow-restored');
+    assert.equal(alignmentReason, 'workflow-restored-late-frame');
 });
 
 test('workflow restoration corrects port geometry that settles one frame after startup alignment', async () => {

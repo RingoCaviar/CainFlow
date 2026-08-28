@@ -1715,6 +1715,10 @@ export function createWorkflowRuntimeManager({
         return detachedWorkflowViewBuilder.prepare(workflow, workflowData);
     }
 
+    function releaseEditorView(workflow) {
+        return detachedWorkflowViewBuilder.release(workflow);
+    }
+
     function abortAllWorkflowRuns(reason = 'manual') {
         state.abortReason = reason;
         workflowRunContexts.forEach((context) => {
@@ -1750,6 +1754,7 @@ export function createWorkflowRuntimeManager({
         cancelRunningNode,
         getRunConflictInfo,
         prepareEditorView,
+        releaseEditorView,
         refreshVisibleWorkflowRunState,
         runWorkflowInContext,
         syncGlobalRunToolbarState

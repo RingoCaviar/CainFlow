@@ -1135,6 +1135,17 @@ export function createConnectionsApi({
         let nextConnectionIndex = 0;
         let finished = false;
         return {
+            renderViewport() {
+                if (finished) return true;
+                const context = getWholeConnectionRenderContext({ refreshLanes: true });
+                state.connections.forEach((connection) => {
+                    if (isConnectionNearViewport(connection, context.viewport) || pathById.has(connection.id)) {
+                        renderConnectionPath(connection, context);
+                    }
+                });
+                nextConnectionIndex = state.connections.length;
+                return true;
+            },
             renderNextBatch(batchSize) {
                 if (finished) return true;
                 const context = getWholeConnectionRenderContext({ refreshLanes: true });

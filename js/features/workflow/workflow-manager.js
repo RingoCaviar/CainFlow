@@ -61,6 +61,7 @@ export function createWorkflowManagerApi({
     endMediaRestoreBatch = () => {},
     finalizeMediaRestoreBatch = async () => {},
     prepareDetachedEditorView = null,
+    releaseDetachedEditorView = () => false,
     documentRef = document,
     windowRef = window,
     localStorageRef = localStorage
@@ -122,6 +123,7 @@ export function createWorkflowManagerApi({
         showToast,
         renderWorkflowList,
         scheduleSave,
+        releaseEditorView: releaseDetachedEditorView,
         releaseWorkflowTabMemory,
         enterSafeEmpty: applySafeEmptyWorkflow,
         tabColorCount: TAB_COLORS
@@ -1199,6 +1201,10 @@ export function createWorkflowManagerApi({
 
     function releaseWorkflowTabMemory(tab) {
         if (!tab || typeof tab !== 'object') return;
+        releaseDetachedEditorView({
+            workflowName: tab.name || '',
+            workflowId: tab.workflowId || tab.data?.workflowId || ''
+        });
         replaceWorkflowTabData(tab, null);
         tab.runResult = '';
         tab.running = false;
@@ -2524,6 +2530,10 @@ export function createWorkflowManagerApi({
                 };
                 state.workflowTabs.push(tab);
             } else {
+                releaseDetachedEditorView({
+                    workflowName: tab.name || '',
+                    workflowId: tab.workflowId || tab.data?.workflowId || ''
+                });
                 replaceWorkflowTabData(tab, nextData);
                 if (options.dirty === true) tab.dirty = true;
                 if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);

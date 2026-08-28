@@ -197,30 +197,46 @@ export function createConnectionProjection({
         }
     }
 
-    function verifyAlignment(nodeIds = []) {
+    function verifyAlignment(nodeIds = [], reason = 'interaction-settled', signal = null) {
         if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });
+        if (signal?.aborted) return Promise.resolve({ inspected: 0, corrected: 0 });
         if (restorationTransaction.promise) {
-            return restorationTransaction.promise.then(() => verifyAlignment(nodeIds));
+            return restorationTransaction.promise.then(() => verifyAlignment(nodeIds, reason, signal));
         }
         const targets = normalizeIds(nodeIds);
         return new Promise((resolve, reject) => {
             let completed = false;
             let alignmentFrameId = 0;
-            const verify = () => {
+            const finish = (result) => {
+                if (completed) return;
                 completed = true;
                 pendingAlignmentFrames.delete(alignmentFrameId);
-                if (destroyed) {
-                    resolve({ inspected: 0, corrected: 0 });
+                signal?.removeEventListener?.('abort', abort);
+                resolve(result);
+            };
+            const abort = () => {
+                cancelAnimationFrameRef?.(alignmentFrameId);
+                finish({ inspected: 0, corrected: 0 });
+            };
+            const verify = () => {
+                if (destroyed || signal?.aborted) {
+                    finish({ inspected: 0, corrected: 0 });
                     return;
                 }
                 try {
-                    resolve(repairAlignmentNow(targets));
+                    finish(repairAlignmentNow(targets, reason));
                 } catch (error) {
+                    completed = true;
+                    pendingAlignmentFrames.delete(alignmentFrameId);
+                    signal?.removeEventListener?.('abort', abort);
                     reject(error);
                 }
             };
             alignmentFrameId = requestAnimationFrameRef(verify);
-            if (!completed) pendingAlignmentFrames.set(alignmentFrameId, resolve);
+            if (!completed) {
+                pendingAlignmentFrames.set(alignmentFrameId, finish);
+                signal?.addEventListener?.('abort', abort, { once: true });
+            }
         });
     }
 
@@ -347,10 +363,14 @@ export function createConnectionProjection({
                         const restoration = beginConnectionRestoration();
                         let completed = false;
                         try {
-                            while (!completed && !restorationAbortController.signal.aborted) {
-                                completed = restoration.renderNextBatch(CONNECTION_RESTORE_BATCH_SIZE);
-                                if (!completed) {
-                                    await waitForRestorationTurn(restorationAbortController.signal);
+                            if (typeof restoration.renderViewport === 'function') {
+                                completed = restoration.renderViewport();
+                            } else {
+                                while (!completed && !restorationAbortController.signal.aborted) {
+                                    completed = restoration.renderNextBatch(CONNECTION_RESTORE_BATCH_SIZE);
+                                    if (!completed) {
+                                        await waitForRestorationTurn(restorationAbortController.signal);
+                                    }
                                 }
                             }
                         } finally {
@@ -365,15 +385,12 @@ export function createConnectionProjection({
                         await waitForRestorationTurn(restorationAbortController.signal);
                     }
                     if (!restorationAbortController.signal.aborted) {
-                        repairAlignmentNow([], 'workflow-restored');
-                    }
-                    if (!restorationAbortController.signal.aborted) {
                         materialized = await settleConnectionMaterialization(
                             restorationAbortController.signal
                         );
                     }
                     if (!restorationAbortController.signal.aborted) {
-                        void verifyAlignment([]).catch((error) => {
+                        void verifyAlignment([], 'workflow-restored-late-frame', signal).catch((error) => {
                             reportAlignmentRepairFailure(error, 'workflow-restored-late-frame');
                         });
                     }

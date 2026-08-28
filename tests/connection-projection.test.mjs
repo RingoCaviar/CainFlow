@@ -93,6 +93,114 @@ test('workflow restoration remains pending until the restored projection is comp
     assert.equal(settled, true);
 });
 
+test('workflow activation completes before whole-workflow alignment verification', async () => {
+    let alignmentChecks = 0;
+    const frames = [];
+
+    const projection = createConnectionProjection({
+        beginConnectionRestoration: () => ({
+            renderNextBatch() { return true; },
+            finish() {}
+        }),
+        updateAllConnections() {},
+        updateDirtyConnections() {},
+        invalidateNodePortCache() {},
+        markConnectionDirty() {},
+        detectMisalignedConnections() {
+            alignmentChecks += 1;
+            return [];
+        },
+        requestAnimationFrameRef(callback) {
+            frames.push(callback);
+            return frames.length;
+        },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    frames.shift()(0);
+    await restoring;
+    await Promise.resolve();
+
+    assert.equal(alignmentChecks, 0);
+    assert.equal(frames.length, 1, 'alignment verification should continue after activation');
+});
+
+test('workflow activation restores only the viewport connection projection', async () => {
+    let viewportRenders = 0;
+    let backgroundBatchRenders = 0;
+    const frames = [];
+    const projection = createConnectionProjection({
+        beginConnectionRestoration: () => ({
+            renderViewport() {
+                viewportRenders += 1;
+                return true;
+            },
+            renderNextBatch() {
+                backgroundBatchRenders += 1;
+                return true;
+            },
+            finish() {}
+        }),
+        updateAllConnections() {},
+        updateDirtyConnections() {},
+        invalidateNodePortCache() {},
+        markConnectionDirty() {},
+        detectMisalignedConnections: () => [],
+        requestAnimationFrameRef(callback) {
+            frames.push(callback);
+            return frames.length;
+        },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    frames.shift()(0);
+    await restoring;
+
+    assert.equal(viewportRenders, 1);
+    assert.equal(backgroundBatchRenders, 0);
+});
+
+test('superseded workflow activation cancels its deferred alignment verification', async () => {
+    const pendingFrames = new Map();
+    let nextFrameId = 0;
+    let alignmentChecks = 0;
+    const controller = new AbortController();
+    const projection = createConnectionProjection({
+        beginConnectionRestoration: () => ({
+            renderNextBatch() { return true; },
+            finish() {}
+        }),
+        updateAllConnections() {},
+        updateDirtyConnections() {},
+        invalidateNodePortCache() {},
+        markConnectionDirty() {},
+        detectMisalignedConnections() {
+            alignmentChecks += 1;
+            return [];
+        },
+        requestAnimationFrameRef(callback) {
+            const id = ++nextFrameId;
+            pendingFrames.set(id, callback);
+            return id;
+        },
+        cancelAnimationFrameRef(id) { pendingFrames.delete(id); }
+    });
+
+    const restoring = projection.maintenance.workflowRestored({ signal: controller.signal });
+    pendingFrames.values().next().value(0);
+    pendingFrames.clear();
+    await restoring;
+    await Promise.resolve();
+    assert.equal(pendingFrames.size, 1);
+
+    controller.abort();
+
+    assert.equal(pendingFrames.size, 0);
+    assert.equal(alignmentChecks, 0);
+});
+
 test('workflow restoration commits intents received during restoration after it completes', async () => {
     let renderedBatches = 0;
     const { api, calls, flushFrame } = createHarness({
@@ -295,7 +403,6 @@ test('late workflow restoration alignment failures stay contained when reporting
     const failure = new Error('late alignment failed');
     const reportingFailure = new Error('alignment failure reporter failed');
     let nextFrameId = 0;
-    let detectionCount = 0;
     let reportedFailure = null;
     const api = createConnectionProjection({
         beginConnectionRestoration: () => ({
@@ -304,9 +411,7 @@ test('late workflow restoration alignment failures stay contained when reporting
         }),
         invalidateNodePortCache() {},
         detectMisalignedConnections() {
-            detectionCount += 1;
-            if (detectionCount === 2) throw failure;
-            return [];
+            throw failure;
         },
         onAlignmentRepairFailed(payload) {
             reportedFailure = payload;

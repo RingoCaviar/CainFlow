@@ -1330,6 +1330,7 @@ const workflowManagerApi = createWorkflowManagerApi({
         workflowName,
         workflowId: workflowData?.workflowId || ''
     }, workflowData),
+    releaseDetachedEditorView: (workflow) => getWorkflowRuntimeManagerApi().releaseEditorView(workflow),
     localStorageRef: diskStorage
 });
 

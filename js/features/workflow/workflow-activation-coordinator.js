@@ -126,6 +126,7 @@ export function createWorkflowTargetActivator({
     showToast,
     renderWorkflowList,
     scheduleSave,
+    releaseEditorView = () => false,
     releaseWorkflowTabMemory,
     enterSafeEmpty,
     tabColorCount = 6
@@ -181,6 +182,9 @@ export function createWorkflowTargetActivator({
                 if (!preparedView) return null;
                 if (typeof prepareEditorView !== 'function') {
                     throw new Error('Detached workflow editor preparation is unavailable');
+                }
+                if (reloadFromFile) {
+                    releaseEditorView({ workflowName: tab.name, workflowId: stableWorkflowId });
                 }
                 const editorView = await prepareEditorView(name, {
                     ...preparedView.data,
