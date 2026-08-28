@@ -2,7 +2,7 @@
 
 **CainFlow** 是一款受 ComfyUI 启发的轻量级节点式 AI 编排工具。发布版使用 pywebview 提供独立桌面窗口，配合内置 Python 服务提供工作流、设置、媒体恢复、更新与下载等能力。
 
-![CainFlow 效果演示](.github/show.jpg)
+![CainFlow APP 界面](.github/show.png)
 
 ## 下载
 
