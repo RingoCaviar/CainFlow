@@ -29,3 +29,11 @@ test('toolbar height is synchronized before ResizeObserver registration', () => 
     assert.match(runtime, /function initWindowBindings\(\) \{\s*\/\/[\s\S]*?initToolbarObserver\(\);/);
     assert.doesNotMatch(runtime, /addEventListener\(['"]load['"][\s\S]{0,160}initToolbarObserver/);
 });
+
+test('Canvas interaction keeps the background grid visible while zooming and panning', () => {
+    assert.match(canvas, /#canvas-container::before\s*\{[\s\S]*?background-image:\s*radial-gradient\(/);
+    assert.doesNotMatch(
+        canvas,
+        /#canvas-container\.is-(?:zooming|panning)::before[\s\S]{0,160}?background-image:\s*none/
+    );
+});

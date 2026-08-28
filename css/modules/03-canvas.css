@@ -32,11 +32,6 @@
     background-position: 0 0;
 }
 
-#canvas-container.is-panning::before,
-#canvas-container.is-zooming::before {
-    background-image: none;
-}
-
 #canvas-container.grabbing,
 #canvas-container.space-pan-active {
     cursor: grab;
