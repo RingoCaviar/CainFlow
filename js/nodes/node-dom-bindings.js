@@ -21,6 +21,7 @@ import { TtapiProtocol } from '../features/execution/protocols/ttapi.js';
 import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-openai.js';
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
+import { isMultiConnectionInput } from './reference-image-ports.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -500,8 +501,12 @@ export function createNodeDomBindingsApi({
                     connection.to.port === portEl.dataset.port
                 ))
                 : null;
+            const supportsMultipleConnections = isMultiConnectionInput(
+                state.nodes.get(portEl.dataset.nodeId)?.type,
+                portEl.dataset.port
+            );
 
-            if (existingInputConnection) {
+            if (existingInputConnection && !supportsMultipleConnections) {
                 if (isNodeRunning(existingInputConnection.from.nodeId)) {
                     showToast('节点正在运行，暂不能修改连线', 'warning');
                     return;
@@ -633,7 +638,7 @@ export function createNodeDomBindingsApi({
         const modelId = String(model?.modelId || '').toLowerCase();
         const supportsGenerateAudio = modelId.includes('seedance-1-5-pro');
         const referenceImageCount = state.connections.filter((item) => (
-            item.to.nodeId === id && /^image_\d+$/.test(item.to.port)
+            item.to.nodeId === id && (item.to.port === 'referenceImages' || /^image_\d+$/.test(item.to.port))
         )).length;
         const isReferenceMode = referenceImageCount >= 1 || /^image_/i.test(modelId) || modelId.includes('i2v');
         const durationMin = modelId.includes('seedance-1-5-pro') ? 4 : 2;
@@ -744,7 +749,10 @@ export function createNodeDomBindingsApi({
         if (!trigger || !panel) return;
 
         const selectedOption = selectEl.selectedOptions?.[0] || selectEl.options?.[0] || null;
-        trigger.querySelector('.node-select-trigger-label').textContent = selectedOption?.textContent || selectEl.value || '--';
+        const selectedLabel = selectedOption?.textContent || selectEl.value || '--';
+        const triggerLabel = trigger.querySelector('.node-select-trigger-label');
+        triggerLabel.textContent = selectedLabel;
+        triggerLabel.title = selectedLabel;
         panel.innerHTML = Array.from(selectEl.options || []).map((option) => `
             <button
                 type="button"
@@ -1945,7 +1953,7 @@ export function createNodeDomBindingsApi({
                 : Array.from(control.options || []).reduce((max, option) => {
                     return Math.max(max, measureTextWidth(option.textContent || option.value || '', font));
                 }, 0);
-            const maxWidth = isModelSelect ? 236 : Infinity;
+            const maxWidth = 236;
             return Math.ceil(Math.min(optionTextWidth + horizontalPadding + horizontalBorder + extraSelectSpace, maxWidth));
         }
 
@@ -2235,7 +2243,25 @@ export function createNodeDomBindingsApi({
             scrollToCloneSource(id);
         });
 
-        el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => {
+        const resizeHandle = el.querySelector('.node-resize-handle');
+        resizeHandle.title = '拖动调整大小，双击适应内容';
+        resizeHandle.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const node = state.nodes.get(id);
+            if (!node || blockRunningNodeMutation(id, e, '节点正在运行，暂不能调整大小')) return;
+            pushHistory();
+            node.userResized = false;
+            fitNodeToContent(id, {
+                allowShrink: true,
+                reason: 'element-resize',
+                forceConnectionRefresh: true
+            });
+            connectionProjection?.nodeGeometryChanged(id);
+            scheduleSave();
+        });
+
+        resizeHandle.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
@@ -2259,6 +2285,10 @@ export function createNodeDomBindingsApi({
             const maxHeight = Number.isFinite(configuredMaxHeight) && configuredMaxHeight > 0
                 ? Math.min(configuredMaxHeight, resizeTargetMaxHeight || configuredMaxHeight)
                 : resizeTargetMaxHeight;
+            const configuredMaxWidth = Number(node?.maxWidth);
+            const maxWidth = Number.isFinite(configuredMaxWidth) && configuredMaxWidth > 0
+                ? configuredMaxWidth
+                : Infinity;
 
             state.resizing = {
                 nodeId: id,
@@ -2267,6 +2297,7 @@ export function createNodeDomBindingsApi({
                 startWidth: currentWidth,
                 startHeight: currentHeight,
                 minWidth: defaultMinimum.minWidth,
+                maxWidth,
                 minHeight: Math.max(60, Math.min(defaultMinimum.minHeight, resizeTargetMinHeight)),
                 maxHeight,
                 textareaResizeTargets
@@ -2278,7 +2309,7 @@ export function createNodeDomBindingsApi({
             documentRef.getElementById('connections-group').classList.add('is-interacting');
         });
 
-        el.querySelector('.node-resize-handle').addEventListener('mouseup', () => {
+        resizeHandle.addEventListener('mouseup', () => {
             if (state.resizing?.nodeId === id) return;
             enforceNodeContentMinimum(id, { save: false, updateConnections: true });
         });

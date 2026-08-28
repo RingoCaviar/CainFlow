@@ -60,7 +60,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'note',
         'description',
         'placeholder',
-        'rows'
+        'rows',
+        'layout'
     ];
 
     function cloneSerializable(value) {

@@ -1,5 +1,6 @@
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import {
+    appendReferenceImages,
     clearCanonicalImageOutput,
     getFirstNonEmptyImageList,
     getCanonicalImageList,
@@ -12,6 +13,7 @@ import {
     removeConcurrentRequestStatusPanel
 } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
+import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 
 /**
  * 负责整条工作流的运行编排，包括前置校验、逐节点执行、重试与状态收尾。
@@ -884,10 +886,10 @@ export function createWorkflowRunnerApi({
     function isReferenceImageInputPort(node, portName) {
         const normalizedPort = String(portName || '');
         if (node?.type === 'ImageGenerate' || node?.type === 'TextChat') {
-            return normalizedPort === 'image' || /^image_\d+$/.test(normalizedPort);
+            return normalizedPort === 'image' || normalizedPort === 'referenceImages' || /^image_\d+$/.test(normalizedPort);
         }
         if (node?.type === 'VideoGenerate') {
-            return /^image_\d+$/.test(normalizedPort);
+            return normalizedPort === 'referenceImages' || /^image_\d+$/.test(normalizedPort);
         }
         return false;
     }
@@ -955,7 +957,7 @@ export function createWorkflowRunnerApi({
                 if (!externalInputsByNode[nodeId]) {
                     externalInputsByNode[nodeId] = Object.create(null);
                 }
-                externalInputsByNode[nodeId][connection.to.port] = cloneInputValue(outputValue);
+                externalInputsByNode[nodeId][connection.id || connection.to.port] = cloneInputValue(outputValue);
             }
         }
 
@@ -966,7 +968,7 @@ export function createWorkflowRunnerApi({
         const isSelectedOnlyExternalInput = plan?.mode === 'selected-only' &&
             !plan.scopeNodeSet.has(connection.from.nodeId);
         if (isSelectedOnlyExternalInput) {
-            const capturedValue = plan.externalInputsByNode?.[nodeId]?.[connection.to.port];
+            const capturedValue = plan.externalInputsByNode?.[nodeId]?.[connection.id || connection.to.port];
             if (capturedValue !== undefined) {
                 return cloneInputValue(capturedValue);
             }
@@ -991,15 +993,25 @@ export function createWorkflowRunnerApi({
 
     async function collectInputsForNode(plan, nodeId) {
         const inputs = {};
+        const node = state.nodes.get(nodeId);
+        const connections = orderInputConnections(node?.type, plan.inputConnectionsByNode[nodeId]);
 
-        for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
+        for (const connection of connections) {
             const outputValue = await getInputValueForConnection(plan, nodeId, connection);
             if (outputValue !== undefined) {
-                inputs[connection.to.port] = outputValue;
+                if (isMultiConnectionInput(node?.type, connection.to.port)) {
+                    inputs[connection.to.port] = appendReferenceImages(
+                        inputs[connection.to.port],
+                        outputValue,
+                        MAX_REFERENCE_IMAGE_COUNT
+                    );
+                } else {
+                    inputs[connection.to.port] = outputValue;
+                }
             }
         }
 
-        assertConnectedReferenceImagesLoaded(plan, state.nodes.get(nodeId), inputs);
+        assertConnectedReferenceImagesLoaded(plan, node, inputs);
         return inputs;
     }
 

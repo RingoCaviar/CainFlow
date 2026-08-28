@@ -281,12 +281,7 @@ export function createNodeSerializer({ state, documentRef }) {
         return {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
             nodes: serializeNodes(),
-            connections: state.connections.map((connection) => ({
-                id: connection.id,
-                from: connection.from,
-                to: connection.to,
-                type: connection.type
-            })),
+            connections: state.connections.map(serializeConnection),
             providers: state.providers,
             models: state.models,
             nodeDefaults: state.nodeDefaults,
@@ -317,12 +312,7 @@ export function createNodeSerializer({ state, documentRef }) {
         return {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
             nodes: serializeNodes(),
-            connections: state.connections.map((connection) => ({
-                id: connection.id,
-                from: connection.from,
-                to: connection.to,
-                type: connection.type
-            })),
+            connections: state.connections.map(serializeConnection),
             version
         };
     }
@@ -336,3 +326,4 @@ export function createNodeSerializer({ state, documentRef }) {
 /**
  * 负责节点与连线状态的序列化、反序列化和导出结构拼装。
  */
+import { serializeConnection } from '../canvas/connection-snapshot.js';

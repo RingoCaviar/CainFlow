@@ -1,6 +1,25 @@
 /**
  * 管理画布与节点右键菜单的展示、选择同步和菜单项触发行为。
  */
+import { hasRunningEndpoint } from '../media/utils/ui-state-helpers.js';
+
+export function disconnectReferenceImageConnections({ state, nodeId, pushHistory = () => {} }) {
+    const referenceConnections = state.connections.filter((connection) => (
+        connection.to.nodeId === nodeId && connection.to.port === 'referenceImages'
+    ));
+    if (referenceConnections.length === 0) return { disconnected: 0, blocked: false };
+    const getNodeById = (candidateNodeId) => state.nodes.get(candidateNodeId);
+    if (referenceConnections.some((connection) => hasRunningEndpoint(connection, state, getNodeById))) {
+        return { disconnected: 0, blocked: true };
+    }
+
+    pushHistory();
+    state.connections = state.connections.filter((connection) => !(
+        connection.to.nodeId === nodeId && connection.to.port === 'referenceImages'
+    ));
+    return { disconnected: referenceConnections.length, blocked: false };
+}
+
 export function createContextMenuControllerApi({
     state,
     canvasContainer,
@@ -23,6 +42,7 @@ export function createContextMenuControllerApi({
     updateAllConnections,
     connectionProjection = null,
     updatePortStyles = () => {},
+    pushHistory = () => {},
     scheduleSave = () => {},
     showToast = null,
     documentRef = document
@@ -64,7 +84,7 @@ export function createContextMenuControllerApi({
         const requestBodyItem = documentRef.getElementById('context-menu-preview-request-body');
         const renameNodeItem = documentRef.getElementById('context-menu-rename-node');
         const batchConnectionItem = documentRef.getElementById('context-menu-batch-connection-mode');
-        const referenceImageCountItem = documentRef.getElementById('context-menu-reference-image-count');
+        const disconnectReferenceImagesItem = documentRef.getElementById('context-menu-disconnect-reference-images');
         const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
         const detachCloneNodeItem = documentRef.getElementById('context-menu-detach-clone-node');
         const copyItem = documentRef.getElementById('context-menu-copy-nodes');
@@ -100,7 +120,10 @@ export function createContextMenuControllerApi({
         setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(batchConnectionItem, state.selectedNodes.size === 1);
-        setElementVisible(referenceImageCountItem, hasNodeTarget && !isCloneTarget && referenceImageNodeTypes.has(targetNode?.type));
+        const hasReferenceImageConnections = hasNodeTarget && state.connections.some((connection) => (
+            connection.to.nodeId === targetNode?.id && connection.to.port === 'referenceImages'
+        ));
+        setElementVisible(disconnectReferenceImagesItem, hasReferenceImageConnections && !isCloneTarget);
         setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(detachCloneNodeItem, hasNodeTarget && isCloneTarget);
         setElementVisible(copyItem, hasSelection);
@@ -589,9 +612,31 @@ export function createContextMenuControllerApi({
                 return;
             }
 
-            if (item.id === 'context-menu-reference-image-count') {
+            if (item.id === 'context-menu-disconnect-reference-images') {
                 const nodeId = state.contextMenuNodeId;
-                if (nodeId) openReferenceImageCountDialog(nodeId);
+                const referenceConnections = state.connections.filter((connection) => (
+                    connection.to.nodeId === nodeId && connection.to.port === 'referenceImages'
+                ));
+                if (referenceConnections.length === 0) return;
+                const confirmed = documentRef.defaultView?.confirm?.(`确认断开 ${referenceConnections.length} 条参考图连接？`) === true;
+                if (!confirmed) return;
+                const result = disconnectReferenceImageConnections({ state, nodeId, pushHistory });
+                if (result.blocked) {
+                    showToast?.('节点正在运行，暂不能修改连线', 'warning');
+                    return;
+                }
+                if (result.disconnected === 0) return;
+                updatePortStyles();
+                connectionProjection?.topologyChanged({
+                    nodeIds: [...new Set(referenceConnections.flatMap((connection) => [
+                        connection.from?.nodeId,
+                        connection.to.nodeId
+                    ]).filter(Boolean))],
+                    connectionIds: referenceConnections.map((connection) => connection.id).filter(Boolean)
+                });
+                connectionProjection?.nodeGeometryChanged(nodeId);
+                scheduleSave();
+                showToast?.('已断开全部参考图', 'success');
                 return;
             }
 

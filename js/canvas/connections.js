@@ -4,6 +4,11 @@
 import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/registry.js';
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
 import { getBezierCurveGeometry } from './geometry.js';
+import {
+    getNextInputConnectionOrder,
+    isMultiConnectionInput,
+    MAX_REFERENCE_IMAGE_COUNT
+} from '../nodes/reference-image-ports.js';
 
 export function createConnectionsApi({
     state,
@@ -1326,12 +1331,19 @@ export function createConnectionsApi({
         const fromPort = src.isOutput ? src.portName : tgt.port;
         const toId = src.isOutput ? tgt.nodeId : src.nodeId;
         const toPort = src.isOutput ? tgt.port : src.portName;
+        const toNode = getNodeById(toId);
+        const isMultiConnection = isMultiConnectionInput(toNode?.type, toPort);
 
         if (state.connections.find((conn) => conn.from.nodeId === fromId && conn.from.port === fromPort && conn.to.nodeId === toId && conn.to.port === toPort)) {
             return showToast('连接已存在', 'warning');
         }
 
-        const replacedConnection = state.connections.find((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
+        const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
+        if (isMultiConnection && inputConnections.length >= MAX_REFERENCE_IMAGE_COUNT) {
+            return showToast(`一个参考图接口最多连接 ${MAX_REFERENCE_IMAGE_COUNT} 张图片`, 'warning');
+        }
+
+        const replacedConnection = isMultiConnection ? null : inputConnections[0];
         if (replacedConnection && hasRunningEndpoint(replacedConnection)) {
             return showToast('节点正在运行，暂不能修改连线', 'warning');
         }
@@ -1339,12 +1351,17 @@ export function createConnectionsApi({
         if (!src.historyPushed) {
             pushHistory();
         }
-        state.connections = state.connections.filter((conn) => !(conn.to.nodeId === toId && conn.to.port === toPort));
+        if (!isMultiConnection) {
+            state.connections = state.connections.filter((conn) => !(conn.to.nodeId === toId && conn.to.port === toPort));
+        }
         state.connections.push({
             id: 'c_' + Math.random().toString(36).substr(2, 9),
             from: { nodeId: fromId, port: fromPort },
             to: { nodeId: toId, port: toPort },
-            type: src.dataType
+            type: src.dataType,
+            ...(isMultiConnection ? {
+                order: getNextInputConnectionOrder(state.connections, { nodeId: toId, port: toPort })
+            } : {})
         });
         updateAllConnections();
         updatePortStyles();
@@ -1386,6 +1403,15 @@ export function createConnectionsApi({
                 if (toDot) toDot.classList.add('connected');
             }
         }
+        documentRef.querySelectorAll('.node-port[data-multiple="true"]').forEach((portEl) => {
+            const count = state.connections.filter((connection) => (
+                connection.to.nodeId === portEl.dataset.nodeId &&
+                connection.to.port === portEl.dataset.port
+            )).length;
+            const label = portEl.querySelector('.port-label');
+            const baseLabel = portEl.dataset.baseLabel || '参考图';
+            if (label) label.textContent = count > 0 ? `${baseLabel} · ${count}` : baseLabel;
+        });
         state.nodes.forEach((node) => {
             if (!node?.el || !(node.collapsed === true || node.el.classList.contains('collapsed'))) return;
             node.el.querySelectorAll('.node-port').forEach((portEl) => {

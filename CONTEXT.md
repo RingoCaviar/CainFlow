@@ -34,6 +34,10 @@ _Avoid_: Hidden run, inactive run
 The stable identity of a workflow across renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity.
 _Avoid_: Workflow name as identity, workflow path as identity
 
+**Multi-connection input**:
+An input port that retains distinct connections from multiple source ports in an explicit order. Reconnecting the same source is rejected, while disconnecting one source leaves the others and their order intact.
+_Avoid_: Repeated input ports, array port
+
 **Model compatibility format**:
 The request format automatically assigned when a fetched model is added. It is inferred only from keywords in the model ID or display name, independently of the provider type, model-list transport format, or endpoint metadata.
 

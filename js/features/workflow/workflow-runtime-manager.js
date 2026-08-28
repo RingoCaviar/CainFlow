@@ -69,12 +69,7 @@ function cloneWorkflowNode(node = {}) {
 }
 
 function cloneWorkflowConnection(connection = {}) {
-    return {
-        id: connection.id,
-        from: clonePlainValue(connection.from || {}),
-        to: clonePlainValue(connection.to || {}),
-        type: connection.type
-    };
+    return serializeConnection(connection);
 }
 
 function cloneWorkflowData(data = {}) {
@@ -331,12 +326,7 @@ function serializeRuntimeWorkflow(runtimeState, doc, workflowVersion = '1.3') {
             zoom: Number(runtimeState.canvas?.zoom) || 1
         },
         nodes: Array.from(runtimeState.nodes.values()).map((node) => serializeRuntimeNode(node, doc)),
-        connections: runtimeState.connections.map((connection) => ({
-            id: connection.id,
-            from: { ...connection.from },
-            to: { ...connection.to },
-            type: connection.type
-        })),
+        connections: runtimeState.connections.map(serializeConnection),
         version: workflowVersion
     };
 }
@@ -1765,3 +1755,4 @@ export function createWorkflowRuntimeManager({
         syncGlobalRunToolbarState
     };
 }
+import { serializeConnection } from '../../canvas/connection-snapshot.js';

@@ -18,6 +18,10 @@ export const imageGenerateNode = {
         { name: 'params', type: 'params', label: '自定义参数' }
     ],
     outputs: [{ name: 'image', type: 'image', label: '图片输出' }],
-    defaultWidth: 320,
-    defaultHeight: 600
+    defaultWidth: 410,
+    minWidth: 360,
+    maxWidth: 720,
+    defaultHeight: 60,
+    minHeight: 60,
+    contentSized: true
 };

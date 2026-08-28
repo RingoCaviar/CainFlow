@@ -388,7 +388,7 @@ export function createWorkflowManagerApi({
         return {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
             nodes: nodeSerializer.serializeNodes(),
-            connections: state.connections.map((conn) => ({ id: conn.id, from: conn.from, to: conn.to, type: conn.type })),
+            connections: state.connections.map(serializeConnection),
             version: WORKFLOW_VERSION
         };
     }
@@ -2565,3 +2565,4 @@ export function createWorkflowManagerApi({
         reloadAfterWorkflowImport
     };
 }
+import { serializeConnection } from '../../canvas/connection-snapshot.js';

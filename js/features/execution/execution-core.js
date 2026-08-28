@@ -20,6 +20,7 @@ import {
     validateOpenAiImageSize
 } from './provider-request-utils.js';
 import {
+    appendReferenceImages,
     clearCanonicalImageOutput,
     getCanonicalImage,
     getCanonicalImageList,
@@ -29,6 +30,7 @@ import {
     normalizeImageList,
     setCanonicalImageOutput
 } from './execution-data-utils.js';
+import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
@@ -1117,12 +1119,24 @@ export function createExecutionCoreApi({
 
     function collectCachedInputsForNode(nodeId) {
         const inputs = {};
-        state.connections
-            .filter((connection) => connection.to.nodeId === nodeId)
+        const node = state.nodes.get(nodeId);
+        orderInputConnections(
+            node?.type,
+            state.connections.filter((connection) => connection.to.nodeId === nodeId)
+        )
             .forEach((connection) => {
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 const value = getCachedOutputValue(fromNode, connection.from.port);
-                if (value !== undefined) inputs[connection.to.port] = value;
+                if (value === undefined) return;
+                if (isMultiConnectionInput(node?.type, connection.to.port)) {
+                    inputs[connection.to.port] = appendReferenceImages(
+                        inputs[connection.to.port],
+                        value,
+                        MAX_REFERENCE_IMAGE_COUNT
+                    );
+                } else {
+                    inputs[connection.to.port] = value;
+                }
             });
         return inputs;
     }

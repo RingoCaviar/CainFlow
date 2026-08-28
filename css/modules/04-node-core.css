@@ -17,6 +17,7 @@
     z-index: 10;
     display: flex;
     flex-direction: column;
+    container-type: inline-size;
     --node-drag-x: 0px;
     --node-drag-y: 0px;
     transform: translate3d(var(--node-drag-x), var(--node-drag-y), 0);
@@ -559,11 +560,6 @@
 }
 
 .node-body-has-generation-progress {
-    position: relative;
-    padding-bottom: 54px;
-}
-
-.node-generate .node-body-has-generation-progress {
     padding-bottom: 10px;
 }
 
@@ -961,12 +957,14 @@
 
 .node-ports-row.has-outputs-only .node-outputs-section {
     justify-self: end;
-    width: 100%;
+    width: max-content;
+    max-width: none;
 }
 
 .node-ports-row.has-inputs-only .node-inputs-section {
     justify-self: start;
-    width: 100%;
+    width: max-content;
+    max-width: none;
 }
 
 .node-inputs-section {

@@ -185,6 +185,8 @@ export function renderProtocolParameters(nodeId, protocol, taskType, restoreData
 
         if (controlHtml) {
             const isToggle = param.uiControl === 'toggle';
+            const supportsHalfWidth = ['select', 'number', 'toggle'].includes(param.uiControl);
+            const halfWidthClass = param.layout !== 'full' && supportsHalfWidth ? 'node-field--half' : '';
             // 包装成表单字段
             const fieldHtml = renderNodeFormField({
                 label: isToggle ? '' : (param.label || paramId),
@@ -193,8 +195,8 @@ export function renderProtocolParameters(nodeId, protocol, taskType, restoreData
                     : controlHtml,
                 fieldId: param.fieldId || `${nodeId}-${paramId}-field`,
                 fieldClass: isToggle
-                    ? `node-field-row node-field-row-compact ${param.fieldClass || ''}`.trim()
-                    : (param.fieldClass || ''),
+                    ? `node-field-row node-field-row-compact ${halfWidthClass} ${param.fieldClass || ''}`.trim()
+                    : `${halfWidthClass} ${param.fieldClass || ''}`.trim(),
                 note: param.note || ''
             });
 

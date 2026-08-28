@@ -21,6 +21,17 @@ export function normalizeImageList(value) {
     return [];
 }
 
+export function appendReferenceImages(currentValue, incomingValue, maximumCount) {
+    const referenceImages = [
+        ...normalizeImageList(currentValue),
+        ...normalizeImageList(incomingValue)
+    ];
+    if (referenceImages.length > maximumCount) {
+        throw new Error(`一个参考图接口最多接收 ${maximumCount} 张图片，请减少参考图后重试。`);
+    }
+    return referenceImages;
+}
+
 export function getFirstNonEmptyImageList(...values) {
     for (const value of values) {
         const images = normalizeImageList(value);

@@ -343,6 +343,11 @@
 .node-generate textarea.image-generate-prompt {
     font-size: 11px;
     line-height: 1.45;
+    min-height: 72px;
+}
+
+.node-preview .preview-container img {
+    object-fit: cover;
 }
 
 .node-generate textarea.image-generate-prompt::placeholder {
@@ -353,6 +358,9 @@
 .image-generation-progress {
     margin-top: 8px;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -369,28 +377,19 @@
 }
 
 .node-generation-progress-field {
-    position: absolute;
-    left: 14px;
-    right: 14px;
-    bottom: 0;
-    z-index: 2;
+    position: static;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    align-self: stretch;
+    box-sizing: border-box;
+    overflow: hidden;
     margin-top: 0;
     margin-bottom: 0;
     padding-bottom: 0;
 }
 
-.node-generate .node-generation-progress-field {
-    position: static;
-    left: auto;
-    right: auto;
-    bottom: auto;
-}
-
 .node-body:has(.api-generation-progress) {
-    padding-bottom: 54px;
-}
-
-.node-generate .node-body:has(.api-generation-progress) {
     padding-bottom: 10px;
 }
 

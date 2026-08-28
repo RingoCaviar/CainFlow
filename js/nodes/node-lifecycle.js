@@ -13,6 +13,8 @@ import {
     setCanonicalImageOutput
 } from '../features/execution/execution-data-utils.js';
 import { getReferenceImageCount } from './reference-image-ports.js';
+import { withMinimumMeasurementHeights } from './node-minimum-measurement.js';
+import { settleNodeContentLayout } from './node-layout-settlement.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -507,11 +509,26 @@ export function createNodeLifecycleApi({
         return false;
     }
 
-    function clampNodeWidthToDefault(width, config) {
+    function clampNodeWidthToDefault(width, config, { userResized = false } = {}) {
         const defaultWidth = getDefaultNodeWidth(config);
+        const configuredMinWidth = Number(config?.minWidth);
+        const minWidth = Number.isFinite(configuredMinWidth) && configuredMinWidth > 0
+            ? configuredMinWidth
+            : defaultWidth;
+        const configuredMaxWidth = Number(config?.maxWidth);
+        const maxWidth = Number.isFinite(configuredMaxWidth) && configuredMaxWidth >= minWidth
+            ? configuredMaxWidth
+            : Infinity;
         const numericWidth = Number(width);
+        const hasBoundedWidth = Number.isFinite(configuredMinWidth) || Number.isFinite(configuredMaxWidth);
+        if (!hasBoundedWidth) {
+            return Number.isFinite(numericWidth) && numericWidth > 0
+                ? Math.max(numericWidth, defaultWidth)
+                : defaultWidth;
+        }
+        if (!userResized) return defaultWidth;
         return Number.isFinite(numericWidth) && numericWidth > 0
-            ? Math.max(numericWidth, defaultWidth)
+            ? Math.min(maxWidth, Math.max(numericWidth, minWidth))
             : defaultWidth;
     }
 
@@ -593,7 +610,10 @@ export function createNodeLifecycleApi({
             const optionWidth = Array.from(control.options || []).reduce((max, option) => {
                 return Math.max(max, measureTextWidth(option.textContent || option.value || '', font));
             }, measureTextWidth(selectedOption?.textContent || control.value || '', font));
-            return Math.ceil(Math.max(minWidth, optionWidth + horizontalPadding + horizontalBorder + 18));
+            return Math.ceil(Math.max(minWidth, Math.min(
+                optionWidth + horizontalPadding + horizontalBorder + 18,
+                236
+            )));
         }
 
         if (control.tagName === 'BUTTON') {
@@ -789,7 +809,7 @@ export function createNodeLifecycleApi({
     function getMeasuredNodeMinimumSize(el, config = null) {
         if (!el) {
             return {
-                minWidth: getDefaultNodeWidth(config),
+                minWidth: Number(config?.minWidth) || getDefaultNodeWidth(config),
                 minHeight: getConfiguredMinimumHeight(config)
             };
         }
@@ -805,9 +825,6 @@ export function createNodeLifecycleApi({
         const originalBodyOverflowX = body?.style.overflowX || '';
         const originalBodyMaxHeight = body?.style.maxHeight || '';
         const originalBodyDisplay = body?.style.display || '';
-        const isTextChatNode = el.classList.contains('node-chat');
-        const responseArea = isTextChatNode ? body?.querySelector('.chat-response-area') : null;
-        const originalResponseHeight = responseArea?.style.height || '';
 
         el.style.height = 'auto';
         if (body && !isCollapsed) {
@@ -817,23 +834,25 @@ export function createNodeLifecycleApi({
             body.style.overflowX = 'visible';
             body.style.maxHeight = 'none';
         }
-        if (responseArea) {
-            const currentHeight = responseArea.offsetHeight || parseFloat(responseArea.style.height || '0') || 120;
-            responseArea.style.height = `${Math.round(currentHeight)}px`;
-        }
-
-        const headerWidth = getHeaderMinimumWidth(header, getDefaultNodeWidth(config));
+        const configuredMinWidth = Number(config?.minWidth) || getDefaultNodeWidth(config);
+        const headerWidth = getHeaderMinimumWidth(header, configuredMinWidth);
         const headerHeight = getHeaderMeasuredHeight(header);
         const portsRowSize = portsRow ? getElementMinimumSize(portsRow) : { width: 0, height: 0 };
         if (body && isCollapsed) {
             body.style.display = 'none';
         }
-        const bodySize = body && !isCollapsed ? getElementMinimumSize(body) : { width: 0, height: 0 };
-        const bodyRenderedHeight = body && !isCollapsed
-            ? (hasScrollableResultContent(body)
-                ? bodySize.height
-                : Math.max(body.offsetHeight || 0, body.scrollHeight || 0))
-            : 0;
+        let bodySize = { width: 0, height: 0 };
+        let bodyRenderedHeight = 0;
+        const flexibleHeightElements = body?.querySelectorAll?.('textarea, .chat-response-area') || [];
+        withMinimumMeasurementHeights(flexibleHeightElements, () => {
+            bodySize = body && !isCollapsed ? getElementMinimumSize(body) : { width: 0, height: 0 };
+            bodyRenderedHeight = body && !isCollapsed
+                ? (hasScrollableResultContent(body)
+                    ? bodySize.height
+                    : Math.max(body.offsetHeight || 0, body.scrollHeight || 0))
+                : 0;
+        });
+        const bodyMinimumWidth = config?.contentSized === true ? 0 : bodySize.width;
 
         el.style.height = originalElHeight;
         if (body) {
@@ -844,17 +863,13 @@ export function createNodeLifecycleApi({
             body.style.maxHeight = originalBodyMaxHeight;
             body.style.display = originalBodyDisplay;
         }
-        if (responseArea) {
-            responseArea.style.height = originalResponseHeight;
-        }
-
         const contentMinHeight = Math.ceil(
             headerHeight +
             portsRowSize.height +
             Math.max(bodySize.height, bodyRenderedHeight)
         );
         return {
-            minWidth: Math.max(getDefaultNodeWidth(config), headerWidth, portsRowSize.width, bodySize.width),
+            minWidth: Math.max(configuredMinWidth, headerWidth, portsRowSize.width, bodyMinimumWidth),
             minHeight: isCollapsed
                 ? contentMinHeight
                 : Math.max(getConfiguredMinimumHeight(config), contentMinHeight)
@@ -896,7 +911,6 @@ export function createNodeLifecycleApi({
         const collapsedMinHeight = isCollapsed ? measured.minHeight : 0;
         return {
             minWidth: Math.max(
-                getDefaultNodeWidth(config),
                 Number.isFinite(configuredMinWidth) ? configuredMinWidth : 0,
                 Number(node.minWidth) || 0,
                 measured.minWidth
@@ -944,6 +958,19 @@ export function createNodeLifecycleApi({
     function fitNodeToContent(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        const config = nodeConfigs[node.type] || null;
+        const usesContentSizedDefault = config?.contentSized === true && node.userResized !== true;
+        if (usesContentSizedDefault) {
+            const defaultWidth = getDefaultNodeWidth(config);
+            const minimum = getNodeMinimumSize(node, { width: defaultWidth });
+            applyNodeSize(
+                node,
+                Math.max(defaultWidth, minimum.minWidth),
+                minimum.minHeight,
+                options
+            );
+            return;
+        }
         const { allowShrink = false, preserveCurrentWidth = false, reason = '' } = options;
         const baseMinimum = getNodeMinimumSize(node);
         const currentWidth = node.el.offsetWidth || Number(node.width) || baseMinimum.minWidth;
@@ -964,6 +991,11 @@ export function createNodeLifecycleApi({
     function ensureNodeContentVisible(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        const config = nodeConfigs[node.type] || null;
+        if (config?.contentSized === true && node.userResized !== true) {
+            fitNodeToContent(nodeId, options);
+            return;
+        }
         const minimum = getNodeMinimumSize(node);
         const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
@@ -995,7 +1027,10 @@ export function createNodeLifecycleApi({
     function scheduleEnsureNodeContentVisible(nodeId, options = {}) {
         const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
         requestFrame(() => {
-            ensureNodeContentVisible(nodeId, options);
+            settleNodeContentLayout(nodeId, {
+                ensureVisible: (id) => ensureNodeContentVisible(id, options),
+                reportGeometry: scheduleNodeSizeConnectionRefresh
+            });
         });
     }
 
@@ -1004,7 +1039,10 @@ export function createNodeLifecycleApi({
         const delays = Array.isArray(options.delays) ? options.delays : [50, 150];
         delays.forEach((delay) => {
             view.setTimeout(() => {
-                ensureNodeContentVisible(nodeId, options);
+                settleNodeContentLayout(nodeId, {
+                    ensureVisible: (id) => ensureNodeContentVisible(id, options),
+                    reportGeometry: scheduleNodeSizeConnectionRefresh
+                });
             }, delay);
         });
     }
@@ -1088,7 +1126,9 @@ export function createNodeLifecycleApi({
         }
         el.style.left = x + 'px';
         el.style.top = y + 'px';
-        const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config);
+        const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
+            userResized: effectiveRestoreData?.userResized === true
+        });
         el.style.width = initialWidth + 'px';
 
         const restoredHeight = Number(effectiveRestoreData?.height);
@@ -1146,6 +1186,7 @@ export function createNodeLifecycleApi({
             userResized: effectiveRestoreData?.userResized === true,
             collapsed: effectiveRestoreData?.collapsed === true,
             maxHeight: config.maxHeight || null,
+            maxWidth: config.maxWidth || null,
             dirHandle: null,
             enabled: effectiveRestoreData?.enabled !== false,
             isSucceeded: effectiveRestoreData?.isFailed === true ? false : (effectiveRestoreData?.isSucceeded || false),

@@ -31,15 +31,18 @@ function renderPorts(id, ports, direction) {
     if (!ports.length) return '';
 
     const items = ports.map((port) => {
+        const multipleAttributes = port.multiple === true
+            ? ` data-multiple="true" data-base-label="${escapeHtml(port.label)}"`
+            : '';
         if (direction === 'input') {
-            return `<div class="node-port input" data-node-id="${id}" data-port="${port.name}" data-type="${port.type}" data-direction="input">
+            return `<div class="node-port input" data-node-id="${id}" data-port="${port.name}" data-type="${port.type}" data-direction="input"${multipleAttributes}>
                 <div class="port-dot type-${port.type}"></div>
-                <span class="port-label">${port.label}</span>
+                <span class="port-label">${escapeHtml(port.label)}</span>
             </div>`;
         }
 
         return `<div class="node-port output" data-node-id="${id}" data-port="${port.name}" data-type="${port.type}" data-direction="output">
-                <span class="port-label">${port.label}</span>
+                <span class="port-label">${escapeHtml(port.label)}</span>
                 <div class="port-dot type-${port.type}"></div>
             </div>`;
     }).join('');
@@ -419,6 +422,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             fieldId: `${id}-provider-field`,
             content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
         })}
+        <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '生成次数',
             content: `
@@ -496,7 +500,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '自定义分辨率',
-            fieldClass: showCustomResolution ? '' : 'hidden',
+            fieldClass: `node-field--full ${showCustomResolution ? '' : 'hidden'}`.trim(),
             fieldId: `${id}-custom-resolution-field`,
             content: `
                 <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;">
@@ -514,6 +518,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             hidden: usesOpenAiImageControls || isNewApiAsyncImage,
             fieldId: `${id}-search-field`
         })}
+        </div>
 
         <div class="node-protocol-params" id="${id}-protocol-params"></div>
 
@@ -619,6 +624,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             fieldId: `${id}-provider-field`,
             content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
         })}
+        <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '生成次数',
             content: `
@@ -631,6 +637,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '视频比例',
+            fieldClass: 'node-field--full',
             content: `
                 <div class="video-ratio-param-row">
                     <select id="${id}-aspect">
@@ -709,6 +716,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             fieldClass: isDoubaoProtocol ? '' : 'hidden',
             fieldId: `${id}-doubao-note-field`
         })}
+        </div>
 
         <div class="node-protocol-params" id="${id}-protocol-params"></div>
 
@@ -728,7 +736,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
                         : `<div class="chat-response-placeholder">${escapeHtml(statusText)}</div>`)}</div>
             </div>
         </div>
-        <div class="node-field">
+        <div class="node-field node-generation-progress-field">
             <label>生成进度</label>
             <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
         </div>
@@ -801,10 +809,12 @@ function renderTextChatBody(id, restoreData, models, providers) {
         <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
         <div class="node-field node-chat-system-field"><label>系统提示语（可选）</label>
             <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${rd.sysprompt || ''}</textarea></div>
+        <div class="node-parameter-grid node-chat-toggle-grid">
         <div class="node-field node-field-row"><label>启用搜索</label>
             <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         <div class="node-field node-field-row"><label>固定结果</label>
             <label class="toggle-switch"><input type="checkbox" id="${id}-fixed" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
+        </div>
         <div class="node-field node-chat-prompt-field"><label>提问内容</label>
             <textarea id="${id}-prompt" placeholder="输入你的问题..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>
         <div class="node-field node-field-expand"><label>对话回复</label>

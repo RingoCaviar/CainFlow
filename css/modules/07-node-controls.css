@@ -25,10 +25,35 @@
 }
 
 .node-protocol-params {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     min-width: 0;
+}
+
+.node-protocol-params > .node-field {
+    grid-column: 1 / -1;
+}
+
+.node-protocol-params > .node-field--half {
+    grid-column: auto;
+}
+
+.node-parameter-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    min-width: 0;
+}
+
+.node-parameter-grid > .node-field {
+    grid-column: auto;
+    min-width: 0;
+}
+
+.node-parameter-grid > .node-field--full,
+.node-parameter-grid > .node-field-note {
+    grid-column: 1 / -1;
 }
 
 .node-protocol-params:empty {
@@ -84,7 +109,7 @@
 .node-video-generate .node-video-prompt-field textarea {
     flex: 0 0 auto;
     width: 100%;
-    min-height: 96px;
+    min-height: 72px;
     resize: none;
 }
 
@@ -104,7 +129,7 @@
 
 .node-video-generate .node-video-result-field .chat-response-area {
     flex: 0 0 auto;
-    height: 160px;
+    height: 120px;
     min-height: 120px;
     max-height: none;
     resize: none;

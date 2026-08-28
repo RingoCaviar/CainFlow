@@ -1,6 +1,12 @@
 /**
  * Helpers for cloning connection snapshots onto newly created node ids.
  */
+import { serializeConnection } from './connection-snapshot.js';
+import {
+    getNextInputConnectionOrder,
+    isMultiConnectionInput as supportsMultiConnectionInput,
+    MAX_REFERENCE_IMAGE_COUNT
+} from '../nodes/reference-image-ports.js';
 export function createConnectionId() {
     return 'c_' + Math.random().toString(36).substr(2, 9);
 }
@@ -18,12 +24,7 @@ function cloneConnectionSnapshot(connection) {
     const to = cloneEndpoint(connection?.to);
     if (!from || !to) return null;
 
-    return {
-        id: connection.id || '',
-        from,
-        to,
-        type: connection.type || ''
-    };
+    return serializeConnection({ ...connection, id: connection.id || '', from, to, type: connection.type || '' });
 }
 
 export function collectConnectionSnapshotsForNodes(state, nodeIds) {
@@ -76,6 +77,11 @@ function hasInputConnection(state, to) {
     ));
 }
 
+function isMultiConnectionInput(state, to) {
+    const node = state.nodes.get(to.nodeId);
+    return supportsMultiConnectionInput(node?.type, to.port);
+}
+
 function isNodeRunning(state, nodeId) {
     return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList?.contains('running');
 }
@@ -93,8 +99,16 @@ function canAppendConnection(state, connection) {
     if (hasSameConnection(state, connection.from, connection.to)) {
         return false;
     }
-    if (hasInputConnection(state, connection.to)) {
+    const multiConnectionInput = isMultiConnectionInput(state, connection.to);
+    if (!multiConnectionInput && hasInputConnection(state, connection.to)) {
         return false;
+    }
+    if (multiConnectionInput) {
+        const connectionCount = state.connections.filter((existingConnection) => (
+            existingConnection.to.nodeId === connection.to.nodeId &&
+            existingConnection.to.port === connection.to.port
+        )).length;
+        if (connectionCount >= MAX_REFERENCE_IMAGE_COUNT) return false;
     }
     return true;
 }
@@ -117,26 +131,62 @@ function buildMappedConnection(snapshot, idMap, kind) {
         id: createConnectionId(),
         from: mapEndpoint(snapshot.from, idMap),
         to: mapEndpoint(snapshot.to, idMap),
-        type: snapshot.type || ''
+        type: snapshot.type || '',
+        ...(Number.isFinite(Number(snapshot.order)) ? { order: Number(snapshot.order) } : {})
     };
 }
 
-function appendConnectionList(state, idMap, connections, kind) {
+function appendConnectionList(state, idMap, entries) {
     let added = 0;
     let skipped = 0;
+    const counts = {
+        internal: { added: 0, skipped: 0 },
+        external: { added: 0, skipped: 0 }
+    };
+    const mappedConnections = entries.map(({ snapshot, kind }) => ({
+        connection: buildMappedConnection(snapshot, idMap, kind),
+        kind
+    }));
+    const orderedMultiConnections = new Map();
 
-    connections.forEach((snapshot) => {
-        const mappedConnection = buildMappedConnection(snapshot, idMap, kind);
+    mappedConnections.forEach((entry) => {
+        const { connection } = entry;
+        if (!connection || !isMultiConnectionInput(state, connection.to)) return;
+        const key = `${connection.to.nodeId}\u0000${connection.to.port}`;
+        const group = orderedMultiConnections.get(key) || [];
+        group.push(entry);
+        orderedMultiConnections.set(key, group);
+    });
+    orderedMultiConnections.forEach((group) => {
+        group.sort((left, right) => (
+            (Number(left.connection.order) || 0) - (Number(right.connection.order) || 0)
+        ));
+    });
+
+    mappedConnections.forEach((candidate) => {
+        let mappedEntry = candidate;
+        let mappedConnection = mappedEntry.connection;
+        if (mappedConnection && isMultiConnectionInput(state, mappedConnection.to)) {
+            const key = `${mappedConnection.to.nodeId}\u0000${mappedConnection.to.port}`;
+            mappedEntry = orderedMultiConnections.get(key).shift();
+            mappedConnection = mappedEntry.connection;
+        }
         if (!mappedConnection || !canAppendConnection(state, mappedConnection)) {
             skipped += 1;
+            counts[mappedEntry.kind].skipped += 1;
             return;
+        }
+
+        if (isMultiConnectionInput(state, mappedConnection.to)) {
+            mappedConnection.order = getNextInputConnectionOrder(state.connections, mappedConnection.to);
         }
 
         state.connections.push(mappedConnection);
         added += 1;
+        counts[mappedEntry.kind].added += 1;
     });
 
-    return { added, skipped };
+    return { added, skipped, counts };
 }
 
 export function appendMappedConnectionSnapshots({
@@ -146,17 +196,20 @@ export function appendMappedConnectionSnapshots({
     externalConnections = [],
     includeExternalConnections = false
 }) {
-    const internal = appendConnectionList(state, idMap, internalConnections, 'internal');
-    const external = includeExternalConnections
-        ? appendConnectionList(state, idMap, externalConnections, 'external')
-        : { added: 0, skipped: 0 };
+    const entries = [
+        ...internalConnections.map((snapshot) => ({ snapshot, kind: 'internal' })),
+        ...(includeExternalConnections
+            ? externalConnections.map((snapshot) => ({ snapshot, kind: 'external' }))
+            : [])
+    ];
+    const result = appendConnectionList(state, idMap, entries);
 
     return {
-        added: internal.added + external.added,
-        skipped: internal.skipped + external.skipped,
-        internalAdded: internal.added,
-        externalAdded: external.added,
-        internalSkipped: internal.skipped,
-        externalSkipped: external.skipped
+        added: result.added,
+        skipped: result.skipped,
+        internalAdded: result.counts.internal.added,
+        externalAdded: result.counts.external.added,
+        internalSkipped: result.counts.internal.skipped,
+        externalSkipped: result.counts.external.skipped
     };
 }

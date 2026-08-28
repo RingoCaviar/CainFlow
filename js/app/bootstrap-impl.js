@@ -1002,6 +1002,7 @@ function getContextMenuControllerApi() {
             updateAllConnections,
             connectionProjection: connectionProjectionInteractions,
             updatePortStyles,
+            pushHistory,
             scheduleSave,
             showToast
         });

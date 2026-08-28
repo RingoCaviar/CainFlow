@@ -15,10 +15,12 @@ const VALID_PROTOCOLS = new Set(MODEL_PROTOCOL_IDS);
 
 function getImageInputKeys(inputs = {}) {
     return Object.keys(inputs)
-        .filter((key) => key === 'image' || /^image_\d+$/.test(key))
+        .filter((key) => key === 'image' || key === 'referenceImages' || /^image_\d+$/.test(key))
         .sort((a, b) => {
             if (a === 'image') return -1;
             if (b === 'image') return 1;
+            if (a === 'referenceImages') return 1;
+            if (b === 'referenceImages') return -1;
             const numA = parseInt(a.slice('image_'.length), 10) || 0;
             const numB = parseInt(b.slice('image_'.length), 10) || 0;
             return numA - numB;
@@ -713,9 +715,7 @@ function getUnifiedVideoFrameImages(inputs = {}) {
 }
 
 function getUnifiedVideoIngredientImages(inputs = {}) {
-    return ['image_3', 'image_4', 'image_5']
-        .map((key) => getImageInputUrl(inputs, key))
-        .filter(Boolean);
+    return normalizeImageList(inputs.referenceImages);
 }
 
 function getDoubaoVideoFrameImage(inputs = {}, key = '') {
@@ -723,12 +723,7 @@ function getDoubaoVideoFrameImage(inputs = {}, key = '') {
 }
 
 function getDoubaoVideoReferenceImages(inputs = {}) {
-    return getImageInputKeys(inputs)
-        .filter((key) => {
-            const index = parseInt(key.slice('image_'.length), 10) || 0;
-            return index >= 3;
-        })
-        .flatMap((key) => normalizeImageList(inputs[key]));
+    return normalizeImageList(inputs.referenceImages);
 }
 
 function addDoubaoImageContent(content, url, role) {

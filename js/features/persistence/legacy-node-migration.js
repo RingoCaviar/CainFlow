@@ -1,6 +1,8 @@
 /**
  * 收口旧节点类型兼容迁移，确保运行态只处理当前节点体系。
  */
+import { migrateReferenceImageConnections } from '../../nodes/reference-image-ports.js';
+
 export function migrateLegacyNodeData(node) {
     if (!node || typeof node !== 'object') return node;
 
@@ -35,8 +37,10 @@ export function migrateLegacyNodes(nodes = []) {
 
 export function migrateLegacyWorkflowData(workflowData) {
     if (!workflowData || typeof workflowData !== 'object') return workflowData;
+    const nodes = migrateLegacyNodes(workflowData.nodes);
     return {
         ...workflowData,
-        nodes: migrateLegacyNodes(workflowData.nodes)
+        nodes,
+        connections: migrateReferenceImageConnections(nodes, workflowData.connections)
     };
 }

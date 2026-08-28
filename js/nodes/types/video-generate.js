@@ -16,6 +16,10 @@ export const videoGenerateNode = {
         { name: 'params', type: 'params', label: '自定义参数' }
     ],
     outputs: [{ name: 'video', type: 'video', label: '视频输出' }],
-    defaultWidth: 340,
-    defaultHeight: 520
+    defaultWidth: 410,
+    minWidth: 360,
+    maxWidth: 720,
+    defaultHeight: 60,
+    minHeight: 60,
+    contentSized: true
 };

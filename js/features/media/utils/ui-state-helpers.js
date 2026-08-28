@@ -11,7 +11,12 @@
  * @returns {boolean} 是否正在运行
  */
 export function isNodeRunning(nodeId, state, getNodeById) {
-    return state.runningNodeIds?.has(nodeId) || getNodeById(nodeId)?.el?.classList.contains('running');
+    return state.runningNodeIds?.has(nodeId) || getNodeById(nodeId)?.el?.classList?.contains?.('running');
+}
+
+export function hasRunningEndpoint(connection, state, getNodeById) {
+    return isNodeRunning(connection?.from?.nodeId, state, getNodeById) ||
+        isNodeRunning(connection?.to?.nodeId, state, getNodeById);
 }
 
 /**

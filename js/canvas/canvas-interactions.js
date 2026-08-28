@@ -971,7 +971,8 @@ export function createCanvasInteractionsApi({
                     const targetH = r.startHeight + dy;
                     let dynamicMinWidth = r.minWidth;
                     let dynamicMinHeight = typeof getNodeMinimumSize === 'function' ? 0 : r.minHeight;
-                    let constrainedWidth = Math.max(targetW, r.minWidth);
+                    const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
+                    let constrainedWidth = Math.min(configuredMaxWidth, Math.max(targetW, r.minWidth));
                     const configuredMaxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
 
                     if (typeof getNodeMinimumSize === 'function') {
@@ -980,12 +981,12 @@ export function createCanvasInteractionsApi({
                             dynamicMinWidth = Math.max(dynamicMinWidth, Number(provisionalMinimum.minWidth) || 0);
                         }
 
-                        constrainedWidth = Math.max(targetW, dynamicMinWidth);
+                        constrainedWidth = Math.min(configuredMaxWidth, Math.max(targetW, dynamicMinWidth));
                         const finalMinimum = getNodeMinimumSize(node, { width: constrainedWidth });
                         if (finalMinimum) {
                             dynamicMinWidth = Math.max(dynamicMinWidth, Number(finalMinimum.minWidth) || 0);
                             dynamicMinHeight = Math.max(dynamicMinHeight, Number(finalMinimum.minHeight) || 0);
-                            constrainedWidth = Math.max(targetW, dynamicMinWidth);
+                            constrainedWidth = Math.min(configuredMaxWidth, Math.max(targetW, dynamicMinWidth));
                         }
                     }
 
@@ -1114,7 +1115,8 @@ export function createCanvasInteractionsApi({
                     distributeNodeTextareaResize(r, finalHeight);
                     if (typeof getNodeMinimumSize === 'function') {
                         let minimum = getNodeMinimumSize(node, { width: finalWidth });
-                        finalWidth = Math.max(finalWidth, Number(minimum?.minWidth) || 0);
+                        const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
+                        finalWidth = Math.min(configuredMaxWidth, Math.max(finalWidth, Number(minimum?.minWidth) || 0));
                         minimum = getNodeMinimumSize(node, { width: finalWidth });
                         finalHeight = Math.max(finalHeight, Number(minimum?.minHeight) || 0);
                         node.el.style.width = `${Math.round(finalWidth)}px`;

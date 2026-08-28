@@ -1,6 +1,7 @@
 /**
  * 管理从单个锚点节点出发的批量连线模式。
  */
+import { isMultiConnectionInput } from '../nodes/reference-image-ports.js';
 export function createBatchConnectionModeApi({
     state,
     canvasContainer,
@@ -38,6 +39,7 @@ export function createBatchConnectionModeApi({
                 nodeId,
                 port: portEl.dataset.port || '',
                 type: portEl.dataset.type || '',
+                multiple: isMultiConnectionInput(node.type, portEl.dataset.port),
                 direction
             }))
             .filter((port) => port.port && port.type);
@@ -46,6 +48,7 @@ export function createBatchConnectionModeApi({
     function isPortFree(port) {
         if (!port?.nodeId || !port.port || !port.direction) return false;
         if (port.direction === 'input') {
+            if (port.multiple) return true;
             return !state.connections.some((connection) => (
                 connection.to.nodeId === port.nodeId &&
                 connection.to.port === port.port
