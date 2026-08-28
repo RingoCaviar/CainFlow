@@ -25,7 +25,7 @@ test('node cards grow around their content instead of scrolling their body', () 
 });
 
 test('image previews fill the available card area', () => {
-    assert.match(media, /\.node-preview \.preview-container img\s*\{[^}]*object-fit:\s*cover;/);
+    assert.match(media, /\.node-preview \.preview-container img\s*\{[^}]*object-fit:\s*contain;/);
 });
 
 test('node cards use compact headers and edge-aligned ports with stable hit areas', () => {

@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <link rel="stylesheet" href="../../css/modules/05-node-media.css">
+    <style>
+        :root { --radius-sm: 8px; --bg-input: #111827; --border-input: #334155; }
+        body { margin: 0; }
+        .fixture-row { display: flex; gap: 24px; margin: 20px; transform-origin: top left; }
+        .fixture-row[data-zoom="0.5"] { transform: scale(0.5); }
+        .fixture-row[data-zoom="1"] { transform: scale(1); }
+        .fixture-row .node { position: relative; inset: auto; }
+        .fixture-header { flex: 0 0 40px; }
+        .fixture-ports { flex: 0 0 48px; }
+        .fixture-row .node-import { width: 240px; height: 451px; }
+        .fixture-row .node-preview { width: 240px; height: 451px; }
+        .fixture-row .node-save { width: 240px; height: 451px; }
+        .fixture-row img { background: #94a3b8; }
+        .fixture-control { flex: 0 0 32px; }
+    </style>
+</head>
+<body>
+    <template id="nodes-template">
+        <div class="node node-import" data-kind="import">
+            <div class="fixture-header"></div><div class="fixture-ports"></div>
+            <div class="node-body">
+                <div class="image-import-mode-shell"></div>
+                <div class="image-import-upload-section">
+                    <div class="file-drop-zone"><img alt="portrait" width="768" height="1376"></div>
+                    <button class="fixture-control">选择文件</button>
+                </div>
+                <div class="image-resolution-badge"></div>
+            </div>
+        </div>
+        <div class="node node-preview" data-kind="preview">
+            <div class="fixture-header"></div><div class="fixture-ports"></div>
+            <div class="node-body">
+                <div class="preview-container"><img alt="portrait" width="768" height="1376"></div>
+                <div class="image-resolution-badge"></div>
+                <div class="preview-controls fixture-control"></div>
+            </div>
+        </div>
+        <div class="node node-save" data-kind="save">
+            <div class="fixture-header"></div><div class="fixture-ports"></div>
+            <div class="node-body">
+                <div class="save-preview-container"><img alt="portrait" width="768" height="1376"></div>
+                <div class="image-resolution-badge"></div>
+                <div class="node-field fixture-control"></div>
+                <div class="save-btn-group fixture-control"></div>
+            </div>
+        </div>
+    </template>
+    <div class="fixture-row" data-zoom="0.5"></div>
+    <div class="fixture-row" data-zoom="1"></div>
+    <pre id="layout-result"></pre>
+    <script>
+        const template = document.getElementById('nodes-template');
+        for (const row of document.querySelectorAll('.fixture-row')) {
+            row.append(template.content.cloneNode(true));
+        }
+
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const portraitRatio = 768 / 1376;
+            const results = [];
+            for (const row of document.querySelectorAll('.fixture-row')) {
+                const zoom = Number(row.dataset.zoom);
+                for (const node of row.querySelectorAll('.node')) {
+                    const kind = node.dataset.kind;
+                    const media = node.querySelector('.file-drop-zone, .preview-container, .save-preview-container');
+                    const image = media.querySelector('img');
+                    const control = node.querySelector('.fixture-control');
+                    const nodeRect = node.getBoundingClientRect();
+                    const mediaRect = media.getBoundingClientRect();
+                    const controlRect = control.getBoundingClientRect();
+                    const objectFit = getComputedStyle(image).objectFit;
+                    const visibleImageWidth = objectFit === 'contain'
+                        ? Math.min(mediaRect.width, mediaRect.height * portraitRatio)
+                        : mediaRect.width;
+                    results.push({
+                        zoom,
+                        kind,
+                        objectFit,
+                        visibleWidthRatio: visibleImageWidth / mediaRect.width,
+                        controlsInsideNode: controlRect.bottom <= nodeRect.bottom + 1
+                    });
+                }
+            }
+            document.getElementById('layout-result').textContent = JSON.stringify(results);
+        }));
+    </script>
+</body>
+</html>

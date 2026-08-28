@@ -42,6 +42,8 @@
 
 .node-import .node-body {
     overflow: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .node-import .file-drop-zone {
@@ -50,11 +52,13 @@
 }
 
 .node-import .image-import-upload-section .file-drop-zone {
-    min-height: 120px;
+    flex: 1 1 0;
+    min-height: 180px;
 }
 
 .node-import .image-import-url-section .file-drop-zone {
-    min-height: 140px;
+    flex: 1 1 0;
+    min-height: 180px;
     min-width: 0;
 }
 
@@ -229,8 +233,8 @@
 .node-preview .preview-container {
     width: auto;
     min-width: 0;
-    flex: 1 1 auto;
-    min-height: 100px;
+    flex: 1 1 0;
+    min-height: 180px;
     max-height: none;
     background: var(--bg-input);
 }
@@ -347,7 +351,7 @@
 }
 
 .node-preview .preview-container img {
-    object-fit: cover;
+    object-fit: contain;
 }
 
 .node-generate textarea.image-generate-prompt::placeholder {
@@ -804,13 +808,15 @@
     max-height: 100%;
     min-width: 0;
     overflow: visible;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .node-save .save-preview-container {
     width: auto;
     min-width: 0;
     flex: 1 1 0;
-    min-height: 100px;
+    min-height: 180px;
     max-height: none;
 }
 
