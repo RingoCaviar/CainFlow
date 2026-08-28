@@ -91,6 +91,49 @@ test('session activation coordinator reconciles the active workflow identity as 
     assert.equal(workflowActivation.retainActive('workflow-a'), true);
 });
 
+test('session workflow activation waits for visible editor commit to finish', async () => {
+    const commitGate = deferred();
+    let commitSignal = null;
+    const state = {
+        workflowTabs: [],
+        activeWorkflowName: '',
+        activeWorkflowId: '',
+        workflowOrder: [],
+        workflowFolders: []
+    };
+    const coordinator = createWorkflowSessionActivator({
+        state,
+        workflowActivation: createWorkflowActivation(),
+        createWorkflowId: () => 'workflow-a',
+        prepareEditorView: async () => ({
+            commit: async ({ signal }) => {
+                commitSignal = signal;
+                await commitGate.promise;
+                return true;
+            },
+            finalize() {},
+            rollback() {}
+        })
+    });
+    const activation = coordinator.activate({
+        workflowTabs: [{
+            name: 'workflow-a',
+            workflowId: 'workflow-a',
+            data: { workflowId: 'workflow-a' }
+        }],
+        activeWorkflowName: 'workflow-a',
+        activeWorkflowId: 'workflow-a'
+    });
+    const firstResult = await Promise.race([
+        activation.then(() => 'activation'),
+        new Promise((resolve) => setImmediate(() => resolve('event-loop-turn')))
+    ]);
+    assert.equal(firstResult, 'event-loop-turn');
+    assert.equal(commitSignal instanceof AbortSignal, true);
+    commitGate.resolve();
+    assert.equal(await activation, true);
+});
+
 test('latest workflow activation is the only prepared target committed', async () => {
     const gates = new Map([['a', deferred()], ['b', deferred()], ['c', deferred()]]);
     const committed = [];

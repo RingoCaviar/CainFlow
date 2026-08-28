@@ -689,8 +689,6 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             const field = documentRef.getElementById(fieldId);
             if (field) field.classList.toggle('hidden', !usesOpenAiImageControls);
         });
-        const note = documentRef.getElementById(`${id}-resolution-param-note`);
-        if (note) note.classList.toggle('hidden', !usesOpenAiImageControls);
         const searchField = documentRef.getElementById(`${id}-search-field`);
         if (searchField) searchField.classList.toggle('hidden', usesOpenAiImageControls || isNewApiAsyncImage);
         const maskPort = documentRef.querySelector(`.node-port[data-node-id="${id}"][data-port="mask"][data-direction="input"]`);

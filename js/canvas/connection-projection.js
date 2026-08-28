@@ -25,7 +25,10 @@ export function createConnectionProjection({
     clearTimeoutRef = clearTimeout
 } = {}) {
     const CONNECTION_RESTORE_BATCH_SIZE = 100;
+    const HANDOFF_SETTLEMENT_FRAME_LIMIT = 6;
+    const HANDOFF_SETTLEMENT_TIMER_LIMIT = 20;
     let frameId = 0;
+    let materializationSettlement = null;
     let pendingWholeProjection = false;
     const restorationTransaction = {
         inProgress: false,
@@ -48,6 +51,7 @@ export function createConnectionProjection({
             pendingNodeIds.add(nodeId);
             invalidateNodePortCache?.(nodeId);
         });
+        wakeMaterializationSettlement();
     }
 
     function markAppearance(nodeIds) {
@@ -102,6 +106,71 @@ export function createConnectionProjection({
             frameId = 0;
             commit();
         });
+    }
+
+    function cancelMaterializationSettlement() {
+        const settlement = materializationSettlement;
+        if (!settlement) return;
+        materializationSettlement = null;
+        settlement.controller.abort();
+        settlement.wake?.();
+        settlement.resolve(false);
+    }
+
+    function wakeMaterializationSettlement() {
+        materializationSettlement?.wake?.();
+    }
+
+    function settleConnectionMaterialization(externalSignal = null) {
+        cancelMaterializationSettlement();
+        if (destroyed) return Promise.resolve(false);
+        if (projectionHandoffAdapter?.hasUnmaterializedConnections?.() !== true) return Promise.resolve(true);
+        updateAllConnections?.();
+        if (projectionHandoffAdapter?.hasUnmaterializedConnections?.() !== true) return Promise.resolve(true);
+
+        const controller = new AbortController();
+        if (externalSignal?.aborted) controller.abort();
+        else externalSignal?.addEventListener?.('abort', () => controller.abort(), { once: true });
+        let resolveSettlement;
+        const promise = new Promise((resolve) => { resolveSettlement = resolve; });
+        const settlement = { controller, resolve: resolveSettlement, wake: null };
+        materializationSettlement = settlement;
+
+        const run = async () => {
+            let remainingFrames = HANDOFF_SETTLEMENT_FRAME_LIMIT;
+            while (
+                materializationSettlement === settlement &&
+                !controller.signal.aborted &&
+                projectionHandoffAdapter?.hasUnmaterializedConnections?.() === true
+            ) {
+                const turn = remainingFrames > 0
+                    ? waitForRestorationTurn(controller.signal)
+                    : new Promise((resolve) => {
+                        let completed = false;
+                        const finish = () => {
+                            if (completed) return;
+                            completed = true;
+                            settlement.wake = null;
+                            resolve();
+                        };
+                        settlement.wake = finish;
+                        setTimeoutRef(finish, 50);
+                    });
+                await turn;
+                if (controller.signal.aborted) break;
+                updateAllConnections?.();
+                remainingFrames -= 1;
+                if (remainingFrames <= -HANDOFF_SETTLEMENT_TIMER_LIMIT) break;
+            }
+            if (materializationSettlement !== settlement) return;
+            materializationSettlement = null;
+            resolveSettlement(
+                !controller.signal.aborted &&
+                projectionHandoffAdapter?.hasUnmaterializedConnections?.() !== true
+            );
+        };
+        void run();
+        return promise;
     }
 
     function repairAlignmentNow(nodeIds = [], reason = 'interaction-settled') {
@@ -161,13 +230,16 @@ export function createConnectionProjection({
             let settled = false;
             let restorationFrameId = null;
             let restorationTimeoutId = null;
+            const handleAbort = () => finish('aborted');
             const finish = (winner) => {
                 if (settled) return;
                 settled = true;
+                signal?.removeEventListener?.('abort', handleAbort);
                 if (restorationFrameId != null) cancelAnimationFrameRef?.(restorationFrameId);
                 if (restorationTimeoutId != null) clearTimeoutRef?.(restorationTimeoutId);
                 resolve(winner);
             };
+            signal?.addEventListener?.('abort', handleAbort, { once: true });
             if (typeof requestAnimationFrameRef === 'function') {
                 restorationFrameId = requestAnimationFrameRef(() => finish('frame'));
             }
@@ -231,7 +303,11 @@ export function createConnectionProjection({
         adoptViewHandoff(handoff) {
             if (destroyed || typeof projectionHandoffAdapter?.adopt !== 'function') return false;
             if (!handoff || !VIEW_HANDOFF_SNAPSHOTS.has(handoff)) return false;
-            projectionHandoffAdapter.adopt(VIEW_HANDOFF_SNAPSHOTS.get(handoff));
+            cancelMaterializationSettlement();
+            const result = projectionHandoffAdapter.adopt(VIEW_HANDOFF_SNAPSHOTS.get(handoff));
+            if (result?.hasUnmaterializedConnections === true) {
+                void settleConnectionMaterialization();
+            }
             return true;
         },
         runPerformanceWorkload() {
@@ -250,8 +326,9 @@ export function createConnectionProjection({
             }
             return { nodeProjectionCount, connectionFullRefreshCount };
         },
-        workflowRestored() {
+        workflowRestored({ signal = null } = {}) {
             if (destroyed) return Promise.resolve(false);
+            cancelMaterializationSettlement();
             if (restorationTransaction.promise) return restorationTransaction.promise;
             if (frameId) {
                 cancelAnimationFrameRef?.(frameId);
@@ -259,37 +336,48 @@ export function createConnectionProjection({
             }
             clearPending();
             restorationTransaction.inProgress = true;
-            restorationTransaction.abortController = new AbortController();
+            const restorationAbortController = new AbortController();
+            const abortFromExternalSignal = () => restorationAbortController.abort();
+            restorationTransaction.abortController = restorationAbortController;
+            if (signal?.aborted) restorationAbortController.abort();
+            else signal?.addEventListener?.('abort', abortFromExternalSignal, { once: true });
             const runRestoration = async () => {
+                    let materialized = true;
                     if (typeof beginConnectionRestoration === 'function') {
                         const restoration = beginConnectionRestoration();
                         let completed = false;
                         try {
-                            while (!completed && !restorationTransaction.abortController.signal.aborted) {
+                            while (!completed && !restorationAbortController.signal.aborted) {
                                 completed = restoration.renderNextBatch(CONNECTION_RESTORE_BATCH_SIZE);
                                 if (!completed) {
-                                    await waitForRestorationTurn(restorationTransaction.abortController.signal);
+                                    await waitForRestorationTurn(restorationAbortController.signal);
                                 }
                             }
                         } finally {
                             restoration.finish?.({
-                                completed: completed && !restorationTransaction.abortController.signal.aborted
+                                completed: completed && !restorationAbortController.signal.aborted
                             });
                         }
                     } else {
                         await updateAllConnections?.();
                     }
-                    if (!restorationTransaction.abortController.signal.aborted) {
-                        await waitForRestorationTurn(restorationTransaction.abortController.signal);
+                    if (!restorationAbortController.signal.aborted) {
+                        await waitForRestorationTurn(restorationAbortController.signal);
                     }
-                    if (!restorationTransaction.abortController.signal.aborted) {
+                    if (!restorationAbortController.signal.aborted) {
                         repairAlignmentNow([], 'workflow-restored');
                     }
-                    if (!restorationTransaction.abortController.signal.aborted) {
+                    if (!restorationAbortController.signal.aborted) {
+                        materialized = await settleConnectionMaterialization(
+                            restorationAbortController.signal
+                        );
+                    }
+                    if (!restorationAbortController.signal.aborted) {
                         void verifyAlignment([]).catch((error) => {
                             reportAlignmentRepairFailure(error, 'workflow-restored-late-frame');
                         });
                     }
+                    return materialized && !restorationAbortController.signal.aborted;
             };
             let resolveRestoration;
             let rejectRestoration;
@@ -306,6 +394,7 @@ export function createConnectionProjection({
                 } catch (cleanupError) {
                     rejectRestoration(cleanupError);
                 } finally {
+                    signal?.removeEventListener?.('abort', abortFromExternalSignal);
                     restorationTransaction.abortController = null;
                     restorationTransaction.promise = null;
                 }
@@ -318,6 +407,7 @@ export function createConnectionProjection({
         },
         workflowReplaced() {
             if (destroyed) return;
+            cancelMaterializationSettlement();
             pendingWholeProjection = true;
             schedule();
         },
@@ -353,6 +443,7 @@ export function createConnectionProjection({
 
     function destroy() {
         destroyed = true;
+        cancelMaterializationSettlement();
         restorationTransaction.abortController?.abort();
         if (frameId) cancelAnimationFrameRef?.(frameId);
         pendingAlignmentFrames.forEach((resolve, alignmentFrameId) => {

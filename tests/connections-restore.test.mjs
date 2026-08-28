@@ -176,6 +176,7 @@ function createHarness(connectionCount, {
 
 function createRestorationProjection(connections, overrides = {}) {
     return createConnectionProjection({
+        projectionHandoffAdapter: connections.projectionHandoffAdapter,
         updateAllConnections: connections.updateAllConnections,
         beginConnectionRestoration: connections.beginConnectionRestoration,
         updateDirtyConnections: connections.updateDirtyConnections,
@@ -225,6 +226,117 @@ test('adopted connection projection is reindexed by the visible renderer', () =>
     assert.equal(paths[0].classList.contains('selected'), true);
     assert.equal(api.deleteConnection('connection-1'), true);
     assert.equal(paths[0].removed, true);
+});
+
+test('adopting an empty startup projection materializes visible connections', () => {
+    const { api, paths, frames } = createHarness(1);
+    const queueFrame = (callback) => {
+        frames.push(callback);
+        return frames.length;
+    };
+    const source = createConnectionProjection({
+        projectionHandoffAdapter: { capture: () => [{ id: 'connection-1', d: '' }] },
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+    const target = createRestorationProjection(api, {
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+
+    target.maintenance.adoptViewHandoff(source.maintenance.captureViewHandoff());
+
+    assert.equal(paths.length, 1);
+    assert.notEqual(paths[0].getAttribute('d'), '');
+});
+
+test('adopting an empty startup projection retries after desktop ports receive layout', async () => {
+    const { api, paths, frames, setPortsVisible } = createHarness(1, {
+        portsInitiallyVisible: false
+    });
+    const queueFrame = (callback) => {
+        frames.push(callback);
+        return frames.length;
+    };
+    const source = createConnectionProjection({
+        projectionHandoffAdapter: {
+            capture: () => [{ id: 'connection-1', d: '' }]
+        },
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+    const target = createRestorationProjection(api, {
+        projectionHandoffAdapter: api.projectionHandoffAdapter,
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+
+    target.maintenance.adoptViewHandoff(source.maintenance.captureViewHandoff());
+    assert.equal(paths[0]?.getAttribute('d') || '', '');
+
+    frames.shift()(0);
+    await Promise.resolve();
+    assert.equal(paths[0].getAttribute('d'), '');
+
+    setPortsVisible(true);
+    while (frames.length) {
+        frames.shift()(0);
+        await Promise.resolve();
+    }
+    assert.notEqual(paths[0].getAttribute('d'), '');
+});
+
+test('adopting an empty projection stops scheduling frames when ports never receive layout', async () => {
+    const { api, frames } = createHarness(1, { portsInitiallyVisible: false });
+    const queueFrame = (callback) => {
+        frames.push(callback);
+        return frames.length;
+    };
+    const source = createConnectionProjection({
+        projectionHandoffAdapter: { capture: () => [{ id: 'connection-1', d: '' }] },
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+    const target = createRestorationProjection(api, {
+        projectionHandoffAdapter: api.projectionHandoffAdapter,
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+
+    target.maintenance.adoptViewHandoff(source.maintenance.captureViewHandoff());
+    let executedFrames = 0;
+    while (executedFrames < 6) {
+        assert.ok(frames.length > 0);
+        frames.shift()(0);
+        executedFrames += 1;
+        await Promise.resolve();
+    }
+
+    assert.equal(frames.length, 0);
+});
+
+test('destroying ConnectionProjection cancels adopted handoff settlement', () => {
+    const cancelledFrames = [];
+    const { api, frames } = createHarness(1, { portsInitiallyVisible: false });
+    const queueFrame = (callback) => {
+        frames.push(callback);
+        return frames.length;
+    };
+    const source = createConnectionProjection({
+        projectionHandoffAdapter: { capture: () => [{ id: 'connection-1', d: '' }] },
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: () => {}
+    });
+    const target = createRestorationProjection(api, {
+        projectionHandoffAdapter: api.projectionHandoffAdapter,
+        requestAnimationFrameRef: queueFrame,
+        cancelAnimationFrameRef: (frameId) => cancelledFrames.push(frameId)
+    });
+
+    target.maintenance.adoptViewHandoff(source.maintenance.captureViewHandoff());
+    target.destroy();
+
+    assert.deepEqual(cancelledFrames, [1]);
 });
 
 test('ConnectionProjection transfers a renderer-owned view through an opaque handoff', () => {
@@ -403,6 +515,114 @@ test('workflow restoration materializes a connection whose ports become visible 
     assert.notEqual(paths[0].getAttribute('d'), '');
 });
 
+test('workflow restoration stays pending until late desktop port layout materializes', async () => {
+    const { api: connections, frames, paths, setPortsVisible } = createHarness(1, {
+        portsInitiallyVisible: false
+    });
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    let settled = false;
+    const restoring = projection.maintenance.workflowRestored().then(() => { settled = true; });
+    frames.shift()(0);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(settled, false);
+    assert.equal(paths[0]?.getAttribute('d') || '', '');
+    assert.ok(frames.length > 0);
+    setPortsVisible(true);
+    frames.shift()(0);
+    await restoring;
+
+    assert.notEqual(paths[0].getAttribute('d'), '');
+});
+
+test('workflow restoration resumes after its frame budget when layout reports geometry', async () => {
+    const { api: connections, frames, paths, setPortsVisible } = createHarness(1, {
+        portsInitiallyVisible: false
+    });
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    let settled = false;
+    const restoring = projection.maintenance.workflowRestored().then(() => { settled = true; });
+    for (let frame = 0; frame < 7; frame += 1) {
+        frames.shift()(0);
+        await Promise.resolve();
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(settled, false);
+    setPortsVisible(true);
+    projection.interactions.nodeGeometryChanged(['from', 'to']);
+    await restoring;
+
+    assert.notEqual(paths[0].getAttribute('d'), '');
+});
+
+test('superseded workflow restoration releases its materialization wait', async () => {
+    const { api: connections, frames } = createHarness(1, { portsInitiallyVisible: false });
+    const projection = createRestorationProjection(connections, {
+        detectMisalignedConnections: connections.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+    const controller = new AbortController();
+
+    const restoring = projection.maintenance.workflowRestored({ signal: controller.signal });
+    for (let frame = 0; frame < 7; frame += 1) {
+        frames.shift()(0);
+        await Promise.resolve();
+    }
+    controller.abort();
+
+    assert.equal(await restoring, false);
+});
+
+test('workflow restoration does not wait for a connection with a missing endpoint', async () => {
+    const { api: connections, state, frames } = createHarness(1);
+    state.connections[0].from.port = 'missing-port';
+    const projection = createRestorationProjection(connections, {
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    frames.shift()(0);
+
+    assert.equal(await restoring, true);
+    assert.ok(frames.length <= 1, 'restoration must not start materialization polling');
+});
+
+test('workflow restoration reports degraded completion after layout checks are exhausted', async () => {
+    const timers = [];
+    const { api: connections, frames } = createHarness(1, { portsInitiallyVisible: false });
+    const projection = createRestorationProjection(connections, {
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {},
+        setTimeoutRef(callback) { timers.push(callback); return timers.length; },
+        clearTimeoutRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    for (let frame = 0; frame < 7; frame += 1) {
+        frames.shift()(0);
+        await Promise.resolve();
+    }
+    while (timers.length) {
+        timers.shift()();
+        await Promise.resolve();
+    }
+
+    assert.equal(await restoring, false);
+});
+
 test('workflow restoration repairs ports after timeout wins before the next layout frame', async () => {
     const timers = [];
     const pendingFrames = new Map();
@@ -427,14 +647,13 @@ test('workflow restoration repairs ports after timeout wins before the next layo
 
     const restoring = projection.maintenance.workflowRestored();
     timers.shift()();
-    await restoring;
     await Promise.resolve();
     assert.equal(paths.length, 0);
 
     setPortsVisible(true);
     assert.equal(pendingFrames.size, 1);
     pendingFrames.values().next().value(0);
-    await Promise.resolve();
+    await restoring;
 
     assert.equal(paths.length, 1);
     assert.notEqual(paths[0].getAttribute('d'), '');

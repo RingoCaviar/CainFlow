@@ -1674,7 +1674,6 @@ export function createNodeDomBindingsApi({
         updateImageGenerateQualityVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
         updateImageGenerateOpenAiExtraVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
         updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && !isNewApiAsyncImage);
-        updateImageGenerateResolutionParamNote(id, usesOpenAiImageControls);
         updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
         updateImageGenerateCustomResolutionVisibility(id);
         refreshImageGenerateProtocolParams(id);
@@ -1712,12 +1711,6 @@ export function createNodeDomBindingsApi({
             connectionProjection?.nodeGeometryChanged(id);
             updatePortStyles();
         }
-    }
-
-    function updateImageGenerateResolutionParamNote(id, isOpenAiModel) {
-        const note = documentRef.getElementById(`${id}-resolution-param-note`);
-        if (!note) return;
-        note.classList.toggle('hidden', !isOpenAiModel);
     }
 
     function updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, isOpenAiModel = false) {

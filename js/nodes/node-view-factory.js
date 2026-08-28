@@ -396,7 +396,6 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const isTtapiOpenAiModel = !!selectedModel && protocol === 'ttapi-openai';
     const isNewApiAsyncImage = !!selectedModel && protocol === 'newapi-image-async';
     const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
-    const showResolutionParamNote = usesOpenAiImageControls;
     const showCustomResolution = rd.resolution === 'custom';
     const imageQuality = ['low', 'medium', 'high', 'auto'].includes(String(rd.quality || '').toLowerCase())
         ? String(rd.quality).toLowerCase()
@@ -453,17 +452,13 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <option value="9:16" ${rd.aspect === '9:16' ? 'selected' : ''}>9:16</option>
                 <option value="16:9" ${rd.aspect === '16:9' ? 'selected' : ''}>16:9</option>
                 <option value="21:9" ${rd.aspect === '21:9' ? 'selected' : ''}>21:9</option>
-            </select>`,
-            note: showResolutionParamNote ? '' : ''
+            </select>`
         })}
         ${renderNodeFormField({
             label: '分辨率',
-            content: `
-                <select id="${id}-resolution">
-                    ${resolutionOptions}
-                </select>
-                <div class="image-resolution-param-note ${showResolutionParamNote ? '' : 'hidden'}" id="${id}-resolution-param-note">很多中转 API 并不支持 Size 参数，所以你设置分辨率是无效的</div>
-            `
+            content: `<select id="${id}-resolution">
+                ${resolutionOptions}
+            </select>`
         })}
         ${renderNodeFormField({
             label: '质量',

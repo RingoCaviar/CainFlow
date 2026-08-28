@@ -41,7 +41,11 @@ export function createDetachedWorkflowViewBuilder({
             onFinalizeError: (error) => console.warn('Workflow editor finalization failed:', error)
         });
         return {
-            commit: () => preparedView.commit(),
+            commit: async ({ signal = null } = {}) => {
+                if (!preparedView.commit()) return false;
+                const restored = await visibleConnectionProjectionMaintenance?.workflowRestored?.({ signal });
+                return restored !== false;
+            },
             rollback: () => preparedView.rollback(),
             finalize: () => preparedView.finalize(),
             dispose: () => preparedView.dispose()

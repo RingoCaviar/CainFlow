@@ -136,7 +136,29 @@ export function createConnectionsApi({
             updateFlowDecoration(path, connection.id, projected.flowActive === true);
         });
         canvasConnectionRenderer.end();
-        return pathById.size;
+        return {
+            adoptedCount: pathById.size,
+            hasUnmaterializedConnections: hasUnmaterializedConnections()
+        };
+    }
+
+    function hasUnmaterializedConnections() {
+        return state.connections.some((connection) => (
+            !pathById.get(connection.id)?.getAttribute?.('d') &&
+            isConnectionAwaitingLayout(connection)
+        ));
+    }
+
+    function isConnectionAwaitingLayout(connection) {
+        const fromNode = getNodeById(connection.from?.nodeId);
+        const toNode = getNodeById(connection.to?.nodeId);
+        const fromPort = getPortElement(fromNode, connection.from?.port, 'output');
+        const toPort = getPortElement(toNode, connection.to?.port, 'input');
+        if (!fromPort || !toPort) return false;
+        return [fromPort, toPort].every((portEl) => (
+            !portEl.classList.contains('hidden') &&
+            !portEl.classList.contains('is-hidden-by-collapse')
+        ));
     }
 
     function ensureConnectionIndex() {
@@ -1429,7 +1451,8 @@ export function createConnectionsApi({
         destroy,
         projectionHandoffAdapter: {
             capture: exportConnectionProjection,
-            adopt: adoptConnectionProjection
+            adopt: adoptConnectionProjection,
+            hasUnmaterializedConnections
         },
         getPortPosition,
         invalidateNodePortCache,

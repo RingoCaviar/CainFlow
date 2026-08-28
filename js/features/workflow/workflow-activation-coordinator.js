@@ -64,7 +64,7 @@ export function createWorkflowSessionActivator({
                     dispose: () => editorView?.dispose?.()
                 };
             },
-            commit: async (prepared) => {
+            commit: async (prepared, transaction) => {
                 prepared.previous = {
                     workflowTabs: state.workflowTabs,
                     activeWorkflowName: state.activeWorkflowName,
@@ -72,7 +72,7 @@ export function createWorkflowSessionActivator({
                     workflowOrder: state.workflowOrder,
                     workflowFolders: state.workflowFolders
                 };
-                if (prepared.editorView?.commit?.() === false) return false;
+                if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
                 state.workflowTabs = prepared.workflowTabs;
                 state.activeWorkflowName = prepared.activeWorkflowName;
                 state.activeWorkflowId = prepared.activeWorkflowId;
@@ -206,7 +206,7 @@ export function createWorkflowTargetActivator({
                 if (prepared?.reloadedData && currentTab?.running === true) return null;
                 return prepared?.targetRevision?.isCurrent() === true;
             },
-            commit: (prepared, transaction) => {
+            commit: async (prepared, transaction) => {
                 if (!prepared?.tab || !transaction.isCurrent()) return false;
                 snapshotActiveWorkflow();
                 const previousActiveName = state.activeWorkflowName;
@@ -238,7 +238,7 @@ export function createWorkflowTargetActivator({
                     ensureUniqueWorkflowIdentities([...state.workflowTabs, tab], createWorkflowId);
                     state.workflowTabs.push(tab);
                 }
-                if (!transaction.isCurrent() || !prepared.editorView?.commit()) return false;
+                if (!transaction.isCurrent() || await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
                 const committedTab = (state.workflowTabs || [])
                     .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
                 prepared.activeWorkflowName = committedTab.name;

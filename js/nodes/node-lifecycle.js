@@ -806,7 +806,7 @@ export function createNodeLifecycleApi({
         );
     }
 
-    function getMeasuredNodeMinimumSize(el, config = null) {
+    function getMeasuredNodeMinimumSize(el, config = null, options = {}) {
         if (!el) {
             return {
                 minWidth: Number(config?.minWidth) || getDefaultNodeWidth(config),
@@ -844,14 +844,19 @@ export function createNodeLifecycleApi({
         let bodySize = { width: 0, height: 0 };
         let bodyRenderedHeight = 0;
         const flexibleHeightElements = body?.querySelectorAll?.('textarea, .chat-response-area') || [];
-        withMinimumMeasurementHeights(flexibleHeightElements, () => {
+        const measureBody = () => {
             bodySize = body && !isCollapsed ? getElementMinimumSize(body) : { width: 0, height: 0 };
             bodyRenderedHeight = body && !isCollapsed
                 ? (hasScrollableResultContent(body)
                     ? bodySize.height
                     : Math.max(body.offsetHeight || 0, body.scrollHeight || 0))
                 : 0;
-        });
+        };
+        if (options.normalizeFlexibleHeights === true) {
+            withMinimumMeasurementHeights(flexibleHeightElements, measureBody);
+        } else {
+            measureBody();
+        }
         const bodyMinimumWidth = config?.contentSized === true ? 0 : bodySize.width;
 
         el.style.height = originalElHeight;
@@ -899,7 +904,7 @@ export function createNodeLifecycleApi({
             if (shouldMeasureAtWidth) {
                 node.el.style.width = `${Math.round(measureWidth)}px`;
             }
-            measured = getMeasuredNodeMinimumSize(node.el, config);
+            measured = getMeasuredNodeMinimumSize(node.el, config, options);
         } finally {
             if (shouldMeasureAtWidth) {
                 node.el.style.width = originalWidth;

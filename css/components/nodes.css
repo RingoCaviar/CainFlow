@@ -331,7 +331,6 @@
 
 .node-form-note,
 .video-generate-note,
-.image-resolution-param-note,
 .custom-resolution-hint {
     font-size: 10px;
     font-weight: 400;
@@ -341,8 +340,7 @@
 }
 
 .node-form-note,
-.video-generate-note,
-.image-resolution-param-note {
+.video-generate-note {
     color: var(--text-dim);
 }
 

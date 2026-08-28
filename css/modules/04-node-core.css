@@ -804,11 +804,6 @@
     color: #f87171;
 }
 
-.image-resolution-param-note {
-    margin-top: 6px;
-    color: var(--text-dim);
-}
-
 .node-field input::placeholder,
 .node-field textarea::placeholder {
     color: var(--text-dim);
