@@ -143,10 +143,21 @@ export function createConnectionsApi({
     }
 
     function hasUnmaterializedConnections() {
+        const containerRect = canvasContainer.getBoundingClientRect();
+        const viewport = getCurrentConnectionViewport(containerRect);
         return state.connections.some((connection) => (
             !pathById.get(connection.id)?.getAttribute?.('d') &&
+            isConnectionNearViewport(connection, viewport) &&
             isConnectionAwaitingLayout(connection)
         ));
+    }
+
+    function isConnectionNearViewport(connection, viewport) {
+        const fromNode = getNodeById(connection.from?.nodeId);
+        const toNode = getNodeById(connection.to?.nodeId);
+        if (!fromNode || !toNode) return false;
+        return isNodeVisibleInViewport(fromNode, viewport, 100) ||
+            isNodeVisibleInViewport(toNode, viewport, 100);
     }
 
     function isConnectionAwaitingLayout(connection) {

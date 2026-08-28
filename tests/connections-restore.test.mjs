@@ -600,6 +600,23 @@ test('workflow restoration does not wait for a connection with a missing endpoin
     assert.ok(frames.length <= 1, 'restoration must not start materialization polling');
 });
 
+test('workflow restoration does not wait for a connection whose endpoints are both offscreen', async () => {
+    const { api: connections, state, frames } = createHarness(1);
+    state.nodes.get('from').x = 2000;
+    state.nodes.get('to').x = 2200;
+    connections.projectionHandoffAdapter.adopt([]);
+    const projection = createRestorationProjection(connections, {
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+
+    const restoring = projection.maintenance.workflowRestored();
+    frames.shift()(0);
+
+    assert.equal(await restoring, true);
+    assert.ok(frames.length <= 1, 'offscreen connections must not start materialization polling');
+});
+
 test('workflow restoration reports degraded completion after layout checks are exhausted', async () => {
     const timers = [];
     const { api: connections, frames } = createHarness(1, { portsInitiallyVisible: false });

@@ -238,12 +238,12 @@ export function createWorkflowTargetActivator({
                     ensureUniqueWorkflowIdentities([...state.workflowTabs, tab], createWorkflowId);
                     state.workflowTabs.push(tab);
                 }
-                if (!transaction.isCurrent() || await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
                 const committedTab = (state.workflowTabs || [])
                     .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
                 prepared.activeWorkflowName = committedTab.name;
                 state.activeWorkflowName = prepared.activeWorkflowName;
                 state.activeWorkflowId = ensureWorkflowIdentity(tab);
+                if (!transaction.isCurrent() || await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
                 clearUndoStack();
                 updatePortStyles();
                 applyViewport();

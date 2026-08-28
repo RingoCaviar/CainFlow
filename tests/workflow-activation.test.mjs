@@ -75,6 +75,71 @@ test('workflow activation commits the current name for a stable identity renamed
     assert.deepEqual(applied, [{ workflowName: 'folder/renamed', workflowId: 'workflow-target' }]);
 });
 
+test('workflow activation keeps the workflow being left unchanged when target commit triggers a snapshot', async () => {
+    const previousWorkflow = {
+        name: 'new-workflow',
+        workflowId: 'workflow-new',
+        data: { workflowId: 'workflow-new', nodes: [{ id: 'new-node' }], connections: [] }
+    };
+    const targetWorkflow = {
+        name: 'old-workflow',
+        workflowId: 'workflow-old',
+        data: { workflowId: 'workflow-old', nodes: [{ id: 'old-node' }], connections: [] }
+    };
+    const state = {
+        workflowTabs: [previousWorkflow, targetWorkflow],
+        activeWorkflowName: previousWorkflow.name,
+        activeWorkflowId: previousWorkflow.workflowId,
+        undoStack: []
+    };
+    let visibleData = structuredClone(previousWorkflow.data);
+    const getWorkflowTab = (name) => state.workflowTabs.find((tab) => tab.name === name);
+    const snapshotActiveWorkflow = () => {
+        const activeTab = getWorkflowTab(state.activeWorkflowName);
+        activeTab.data = structuredClone(visibleData);
+        activeTab.data.workflowId = activeTab.workflowId;
+    };
+    const activator = createWorkflowTargetActivator({
+        state,
+        workflowActivation: createWorkflowActivation(),
+        createWorkflowId: () => 'generated-workflow-id',
+        getWorkflowTab,
+        ensureWorkflowIdentity: (tab) => tab?.workflowId || '',
+        loadWorkflowFromFile: async () => null,
+        prepareWorkflowView: async (data) => ({
+            data: structuredClone(data),
+            modelResolution: { nodes: structuredClone(data.nodes || []) }
+        }),
+        prepareEditorView: async (_name, data) => ({
+            commit: () => {
+                visibleData = structuredClone(data);
+                snapshotActiveWorkflow();
+                return true;
+            },
+            finalize() {},
+            rollback() {}
+        }),
+        snapshotActiveWorkflow,
+        cloneWorkflowData: (data) => structuredClone(data),
+        getEmptyWorkflowData: () => ({ nodes: [], connections: [] }),
+        resolveWorkflowModelReferences: (data) => ({ nodes: data.nodes || [] }),
+        clearUndoStack: () => {},
+        updatePortStyles: () => {},
+        applyViewport: () => {},
+        onViewApplied: () => {},
+        onConnectionsChanged: () => {},
+        scheduleAssetCleanup: () => {},
+        showToast: () => {},
+        renderWorkflowList: () => {},
+        scheduleSave: () => {},
+        releaseWorkflowTabMemory: () => {},
+        enterSafeEmpty: () => {}
+    });
+
+    assert.equal(await activator.activate(targetWorkflow.name), true);
+    assert.deepEqual(previousWorkflow.data.nodes, [{ id: 'new-node' }]);
+});
+
 test('session activation coordinator reconciles the active workflow identity as one state change', () => {
     const state = { activeWorkflowName: 'legacy-name', activeWorkflowId: '' };
     const workflowActivation = createWorkflowActivation();
