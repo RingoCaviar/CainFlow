@@ -12,6 +12,7 @@ export function createThemeControllerApi({
     const THEME_IDS = Object.freeze({
         DARK: 'dark',
         PRO: 'pro',
+        PAPER: 'paper',
         LIGHT: 'light',
         GLASS_LIGHT: 'glass-light',
         GLASS_DARK: 'glass-dark',
@@ -27,6 +28,11 @@ export function createThemeControllerApi({
             id: THEME_IDS.PRO,
             label: 'pro',
             colorScheme: 'dark'
+        },
+        {
+            id: THEME_IDS.PAPER,
+            label: 'Paper',
+            colorScheme: 'light'
         },
         {
             id: THEME_IDS.LIGHT,

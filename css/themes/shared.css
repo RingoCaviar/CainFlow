@@ -35,6 +35,10 @@
     color: var(--accent-cyan);
 }
 
+#btn-theme-toggle[data-theme-id="paper"] .icon-sm {
+    color: #4e7669;
+}
+
 #btn-theme-toggle[data-theme-id="light"] .icon-sm {
     color: var(--accent-orange);
     transform: rotate(12deg);

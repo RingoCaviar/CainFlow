@@ -1,0 +1,283 @@
+/* Paper theme: warm neutral canvas, paper cards, and quiet green accents. */
+:root[data-app-theme="paper"] {
+    --bg-canvas: #eeece7;
+    --bg-grid-dot: rgba(91, 94, 86, 0.18);
+    --canvas-bg-color: #eeece7;
+    --canvas-dot-color: rgba(91, 94, 86, 0.18);
+    --canvas-dot-size: 1px;
+    --canvas-dot-spacing: 22px;
+    --canvas-bg-layers: none;
+    --bg-toolbar: #f8f7f3;
+    --bg-node: #fbfaf7;
+    --bg-node-header: #f6f4ef;
+    --bg-input: #f2f0eb;
+    --bg-context-menu: #fbfaf7;
+    --border-node: #d1cec6;
+    --border-input: #d9d5cc;
+    --text-primary: #252823;
+    --text-secondary: #5f645b;
+    --text-dim: #777b73;
+    --accent-purple: #756c9c;
+    --accent-blue: #587a91;
+    --accent-cyan: #4f8990;
+    --accent-green: #4e7669;
+    --accent-orange: #a9783f;
+    --accent-red: #b45f62;
+    --accent-pink: #9b687d;
+    --accent-primary: #4e7669;
+    --port-image: #756c9c;
+    --port-text: #4f8990;
+    --port-any: #4e7669;
+    --shadow-node: 0 4px 14px rgba(62, 58, 48, 0.08);
+    --shadow-node-hover: 0 7px 20px rgba(62, 58, 48, 0.11);
+    --bg-modal: #fbfaf7;
+    --bg-drawer: #f8f7f3;
+    --bg-log-item: #f2f0eb;
+    --bg-log-item-hover: #ebe8e1;
+    --shadow-drawer: -8px 0 24px rgba(62, 58, 48, 0.12);
+    --conn-color: 78, 118, 105;
+    --connection-flow-color: rgba(78, 118, 105, 0.9);
+    --bg-card: #fbfaf7;
+    --border-color: #d3d0c8;
+    --text-main: var(--text-primary);
+    --accent-light: #34574c;
+    --overlay-backdrop: rgba(45, 43, 38, 0.28);
+    --surface-soft: #f6f4ef;
+    --surface-muted: #f0eee8;
+    --surface-hover: #e9e7e1;
+    --surface-strong: #dfdcd4;
+    --bg-dark: var(--bg-toolbar);
+    --panel-bg: #f8f7f3;
+    --panel-bg-strong: #fbfaf7;
+    --panel-bg-soft: #f6f4ef;
+    --panel-bg-muted: #f0eee8;
+    --panel-border: #d3d0c8;
+    --panel-border-strong: #c8c4bb;
+    --panel-shadow: 0 16px 38px rgba(62, 58, 48, 0.15);
+    --panel-shadow-soft: 0 8px 22px rgba(62, 58, 48, 0.1);
+    --panel-shadow-strong: 0 16px 38px rgba(62, 58, 48, 0.15);
+    --panel-hover-bg: #efede7;
+    --panel-hover-border: #aaa99f;
+    --panel-active-bg: rgba(78, 118, 105, 0.11);
+    --panel-active-border: rgba(78, 118, 105, 0.36);
+    --panel-control-bg: #f2f0eb;
+    --panel-control-border: #d3d0c8;
+    --panel-control-text: var(--text-secondary);
+    --panel-control-hover-bg: #e9e7e1;
+    --panel-control-hover-border: #b9b5ab;
+    --panel-control-hover-text: var(--text-primary);
+    --panel-input-bg: #f2f0eb;
+    --panel-input-border: #d9d5cc;
+    --panel-accent-bg: rgba(78, 118, 105, 0.1);
+    --panel-accent-border: rgba(78, 118, 105, 0.28);
+    --panel-accent-text: #34574c;
+    --node-select-bg: #f2f0eb;
+    --node-select-border: #d9d5cc;
+    --node-select-text: var(--text-primary);
+    --node-select-caret: var(--text-secondary);
+    --node-select-focus-border: #4e7669;
+    --node-select-focus-shadow: 0 0 0 2px rgba(78, 118, 105, 0.13);
+    --node-select-panel-bg: #fbfaf7;
+    --node-select-panel-border: #d1cec6;
+    --node-select-panel-shadow: 0 12px 28px rgba(62, 58, 48, 0.14);
+    --node-select-option-hover-bg: #efede7;
+    --node-select-option-selected-bg: rgba(78, 118, 105, 0.12);
+    --workflow-card-bg: #fbfaf7;
+    --workflow-card-border: #d1cec6;
+    --workflow-card-hover-bg: #f6f4ef;
+    --workflow-card-hover-border: #aaa99f;
+    --workflow-card-shadow: none;
+    --cache-card-bg: #fbfaf7;
+    --cache-card-border: #d1cec6;
+    --cache-card-shadow: none;
+    --cache-row-border: #dfdcd4;
+    --sidebar-bg: #f4f2ed;
+    --sidebar-border: #d7d3cb;
+    --sidebar-btn-hover-bg: #e9e7e1;
+    --sidebar-btn-active-bg: rgba(78, 118, 105, 0.12);
+    --sidebar-btn-active-text: #34574c;
+    --notice-bg: #fbfaf7;
+    --notice-border: #d3d0c8;
+    --notice-shadow: 0 8px 22px rgba(62, 58, 48, 0.1);
+    --notice-inline-bg: #f3e7cf;
+    --notice-inline-text: #8a612c;
+    --notice-inline-border: #dfcfaa;
+    --notice-highlight-bg: #fff7e7;
+    --notice-highlight-border: #dfcfaa;
+    --notice-update-bg: #fbfaf7;
+    --notice-update-border: #c6d4cf;
+    --notice-update-icon-bg: #e3ebe7;
+    --notice-update-icon-text: #4e7669;
+    --notice-action-bg: #edf1ee;
+    --notice-action-border: #c6d4cf;
+    --notice-action-hover-bg: #e2e9e5;
+    --notice-action-hover-border: #aebfb8;
+    --prompt-overlay-bg: rgba(45, 43, 38, 0.3);
+    --prompt-panel-bg: #f8f7f3;
+    --prompt-panel-border: #d1cec6;
+    --prompt-panel-shadow: 0 18px 44px rgba(62, 58, 48, 0.16);
+    --prompt-section-border: #d9d5cc;
+    --prompt-header-bg: #f6f4ef;
+    --prompt-card-bg: #fbfaf7;
+    --prompt-card-border: #d1cec6;
+    --prompt-card-shadow: none;
+    --prompt-card-hover-bg: #f6f4ef;
+    --prompt-card-hover-border: #aaa99f;
+    --prompt-card-hover-shadow: none;
+    --prompt-card-selected-border: #4e7669;
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(78, 118, 105, 0.12);
+    --prompt-import-panel-bg: #f8f7f3;
+    --prompt-import-panel-border: #d1cec6;
+    --prompt-import-panel-shadow: 0 18px 44px rgba(62, 58, 48, 0.16);
+    --prompt-import-item-bg: #fbfaf7;
+    --prompt-import-item-border: #d1cec6;
+    --prompt-import-item-shadow: none;
+    --prompt-import-item-selected-border: #4e7669;
+    --prompt-import-item-selected-shadow: 0 0 0 2px rgba(78, 118, 105, 0.12);
+    --history-overlay-bg: rgba(238, 236, 231, 0.94);
+    --history-panel-bg: #f8f7f3;
+    --history-panel-border: #d1cec6;
+    --history-panel-shadow: 0 18px 44px rgba(62, 58, 48, 0.16);
+    --history-section-border: #d9d5cc;
+    --history-group-header-bg: #f6f4ef;
+    --history-rail-border: #d9d5cc;
+    --history-card-meta-bg: rgba(248, 247, 243, 0.94);
+    --history-card-meta-text: var(--text-primary);
+    --history-card-meta-subtext: var(--text-secondary);
+    --history-preview-bg: #f8f7f3;
+    --history-preview-border: #d1cec6;
+    --history-preview-shadow: 0 18px 44px rgba(62, 58, 48, 0.16);
+    --history-preview-meta-border: #d9d5cc;
+    --painter-board-bg: #e4e1da;
+    --painter-board-check-a: rgba(255, 255, 255, 0.42);
+    --painter-board-check-b: rgba(91, 94, 86, 0.09);
+    --painter-board-glow: transparent;
+    --painter-board-sheen: transparent;
+}
+
+html[data-app-theme="paper"] { background: var(--bg-canvas); }
+html[data-app-theme="paper"] body { background: transparent; }
+
+html[data-app-theme="paper"] #toolbar {
+    border-bottom-color: #d9d6cf;
+    box-shadow: 0 2px 8px rgba(62, 58, 48, 0.08);
+}
+
+html[data-app-theme="paper"] .btn,
+html[data-app-theme="paper"] .btn-icon,
+html[data-app-theme="paper"] .btn-ghost {
+    background: rgba(255, 255, 255, 0.36);
+    border-color: #d2cfc7;
+    color: #5f645b;
+    box-shadow: none;
+}
+
+html[data-app-theme="paper"] .btn:hover,
+html[data-app-theme="paper"] .btn-icon:hover,
+html[data-app-theme="paper"] .btn-ghost:hover {
+    background: #ffffff;
+    border-color: #b9b5ab;
+    color: #252823;
+    box-shadow: none;
+}
+
+html[data-app-theme="paper"] .btn-run,
+html[data-app-theme="paper"] .btn-primary,
+html[data-app-theme="paper"] .btn-accent {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #ffffff;
+    box-shadow: none;
+}
+
+html[data-app-theme="paper"] .btn-run:hover,
+html[data-app-theme="paper"] .btn-primary:hover,
+html[data-app-theme="paper"] .btn-accent:hover {
+    background: #41675b;
+    border-color: #41675b;
+    color: #ffffff;
+    box-shadow: none;
+}
+
+html[data-app-theme="paper"] .node-glass-bg,
+html[data-app-theme="paper"] .history-card,
+html[data-app-theme="paper"] .workflow-item,
+html[data-app-theme="paper"] .api-config-card,
+html[data-app-theme="paper"] .general-settings-card,
+html[data-app-theme="paper"] .cache-info-card,
+html[data-app-theme="paper"] .cache-item {
+    background: var(--bg-node);
+    border-color: var(--border-node);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+html[data-app-theme="paper"] .node-glass-bg:hover,
+html[data-app-theme="paper"] .history-card:hover,
+html[data-app-theme="paper"] .workflow-item:hover,
+html[data-app-theme="paper"] .api-config-card:hover,
+html[data-app-theme="paper"] .general-settings-card:hover {
+    border-color: #aaa99f;
+    box-shadow: none;
+    transform: none;
+}
+
+html[data-app-theme="paper"] .node-header,
+html[data-app-theme="paper"] .modal-header,
+html[data-app-theme="paper"] .modal-tabs,
+html[data-app-theme="paper"] .drawer-subheader,
+html[data-app-theme="paper"] .help-panel-header {
+    background: var(--bg-node-header);
+    border-color: #dfdcd4;
+}
+
+html[data-app-theme="paper"] input,
+html[data-app-theme="paper"] textarea,
+html[data-app-theme="paper"] select,
+html[data-app-theme="paper"] .provider-multiselect-trigger {
+    background: var(--bg-input);
+    border-color: var(--border-input);
+    color: #30342e;
+    box-shadow: none;
+}
+
+html[data-app-theme="paper"] input:focus,
+html[data-app-theme="paper"] textarea:focus,
+html[data-app-theme="paper"] select:focus,
+html[data-app-theme="paper"] .provider-multiselect-trigger[aria-expanded="true"] {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(78, 118, 105, 0.13);
+}
+
+html[data-app-theme="paper"] .drawer,
+html[data-app-theme="paper"] .drawer-left,
+html[data-app-theme="paper"] .modal-panel,
+html[data-app-theme="paper"] .help-panel,
+html[data-app-theme="paper"] .context-menu,
+html[data-app-theme="paper"] .toast,
+html[data-app-theme="paper"] .theme-menu-panel {
+    background: #f8f7f3;
+    border-color: #d1cec6;
+    box-shadow: var(--panel-shadow-soft);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+html[data-app-theme="paper"] .theme-menu-item:hover,
+html[data-app-theme="paper"] .theme-menu-item:focus-visible {
+    background: #efede7;
+    color: #252823;
+}
+
+html[data-app-theme="paper"] .theme-menu-item.is-active {
+    background: rgba(78, 118, 105, 0.11);
+    color: #34574c;
+}
+
+html[data-app-theme="paper"] ::-webkit-scrollbar-thumb {
+    background: #c8c4bb;
+    border-color: #f8f7f3;
+}
+
+html[data-app-theme="paper"] * { scrollbar-color: #c8c4bb transparent; }
