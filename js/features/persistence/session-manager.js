@@ -25,6 +25,7 @@ export function createSessionManagerApi({
     let onBeforeSave = () => {};
     let lastStorageFailureToastAt = 0;
     const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
+    const viewportStorageKey = 'nodeflow_ai_viewport_state';
     const storageFailureToastIntervalMs = 8000;
     let storageTextEncoder = null;
 
@@ -179,6 +180,42 @@ export function createSessionManagerApi({
             return true;
         } catch {
             // Ignore quota/privacy failures; this only speeds up the next boot theme restore.
+            return false;
+        }
+    }
+
+    function readViewportStates() {
+        try {
+            const parsed = JSON.parse(localStorageRef.getItem(viewportStorageKey) || '{}');
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function loadViewportState(workflowId) {
+        if (typeof workflowId !== 'string' || !workflowId) return null;
+        const canvas = readViewportStates()[workflowId];
+        if (!canvas || !Number.isFinite(canvas.x) || !Number.isFinite(canvas.y)
+            || !Number.isFinite(canvas.zoom) || canvas.zoom <= 0) return null;
+        return { x: canvas.x, y: canvas.y, zoom: canvas.zoom };
+    }
+
+    function saveViewportState({ workflowId, canvas } = {}) {
+        if (typeof workflowId !== 'string' || !workflowId || !canvas
+            || !Number.isFinite(canvas.x) || !Number.isFinite(canvas.y)
+            || !Number.isFinite(canvas.zoom) || canvas.zoom <= 0) return false;
+        try {
+            const viewportStates = readViewportStates();
+            const viewport = { x: canvas.x, y: canvas.y, zoom: canvas.zoom };
+            viewportStates[workflowId] = viewport;
+            localStorageRef.setItem(viewportStorageKey, JSON.stringify(viewportStates));
+            const tab = state.workflowTabs?.find((candidate) => (
+                candidate?.workflowId === workflowId || candidate?.data?.workflowId === workflowId
+            ));
+            if (tab?.data) tab.data.canvas = { ...viewport };
+            return true;
+        } catch {
             return false;
         }
     }
@@ -364,6 +401,8 @@ export function createSessionManagerApi({
     return {
         scheduleSave,
         saveState,
+        saveViewportState,
+        loadViewportState,
         setBeforeSave,
         pushHistory,
         updateUndoButton,

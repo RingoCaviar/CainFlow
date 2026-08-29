@@ -20,7 +20,7 @@ HISTORY_RETENTION_DAYS = 365
 DOCUMENT_NAMES = {
     'session', 'ui_bootstrap', 'prompt_library', 'logs_state',
     'request_statistics', 'update_state', 'network_detection',
-    'notice_state', 'export_settings'
+    'notice_state', 'export_settings', 'viewport_state'
 }
 
 

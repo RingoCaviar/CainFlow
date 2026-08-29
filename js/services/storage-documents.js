@@ -1,5 +1,6 @@
 const DIRECT_KEY_DOCUMENTS = new Map([
     ['nodeflow_ai_state', 'session'],
+    ['nodeflow_ai_viewport_state', 'viewport_state'],
     ['cainflow_ui_bootstrap', 'ui_bootstrap'],
     ['cainflow_prompt_library', 'prompt_library'],
     ['cainflow_logs_state', 'logs_state'],

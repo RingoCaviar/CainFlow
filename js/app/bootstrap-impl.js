@@ -666,7 +666,7 @@ registry.connectionProjectionApi = createConnectionProjection({
     markConnectionDirty,
     markNodeConnectionsDirty,
     detectMisalignedConnections,
-    onAlignmentCorrected: ({ mismatches, reason }) => mismatches.forEach((mismatch) => diagnosticClient.recordCanvas({
+    onAlignmentCorrected: ({ mismatches, reason }) => diagnosticClient.recordCanvasBatch(mismatches.map((mismatch) => ({
         reason,
         connectionId: mismatch.connectionId,
         from: mismatch.from,
@@ -674,7 +674,7 @@ registry.connectionProjectionApi = createConnectionProjection({
         expected: mismatch.expected,
         actual: mismatch.actual,
         canvas: mismatch.canvas
-    })),
+    }))),
     onAlignmentRepairFailed: ({ error, reason }) => console.error(
         `Connection alignment repair failed (${reason}):`,
         error
@@ -898,6 +898,7 @@ function getCanvasInteractionsApi() {
             getConnectionCreateCandidates: (source) => getCompatibleNodeTypeCandidates(source),
             openConnectionCreatePopup: (popupState) => getContextMenuControllerApi().openConnectionCreatePopup(popupState),
             scheduleSave,
+            saveViewportState: (viewportState) => getSessionManagerApi().saveViewportState(viewportState),
             serializeOneNode,
             addNode,
             getNodeMinimumSize: (nodeOrId, options) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId, options),
@@ -1035,7 +1036,10 @@ function getThemeControllerApi() {
             state,
             documentRef: document,
             saveState,
-            onThemeApplied: () => viewportApi.applyCanvasVisualTransform()
+            onThemeApplied: () => {
+                viewportApi.refreshCanvasThemeMetrics();
+                viewportApi.applyCanvasVisualTransform();
+            }
         });
     }
     return registry.themeControllerApi;
@@ -1326,10 +1330,14 @@ const workflowManagerApi = createWorkflowManagerApi({
     beginMediaRestoreBatch,
     endMediaRestoreBatch,
     finalizeMediaRestoreBatch,
-    prepareDetachedEditorView: (workflowName, workflowData) => getWorkflowRuntimeManagerApi().prepareEditorView({
-        workflowName,
-        workflowId: workflowData?.workflowId || ''
-    }, workflowData),
+    prepareDetachedEditorView: (workflowName, workflowData) => {
+        const workflowId = workflowData?.workflowId || '';
+        const storedViewport = getSessionManagerApi().loadViewportState(workflowId);
+        const restoredWorkflowData = storedViewport
+            ? { ...workflowData, canvas: { ...(workflowData?.canvas || {}), ...storedViewport } }
+            : workflowData;
+        return getWorkflowRuntimeManagerApi().prepareEditorView({ workflowName, workflowId }, restoredWorkflowData);
+    },
     releaseDetachedEditorView: (workflow) => getWorkflowRuntimeManagerApi().releaseEditorView(workflow),
     localStorageRef: diskStorage
 });

@@ -54,6 +54,8 @@ export function createDiagnosticClient({ fetchImpl = fetch, localStorageRef = lo
         clear,
         currentStatus: () => currentStatus,
         recordCanvas: (intent) => canvasAdapter?.record(intent) || false,
+        recordCanvasBatch: (intents) => canvasAdapter?.recordBatch(intents)
+            || { accepted: 0, deduped: 0, dropped: Array.isArray(intents) ? intents.length : 0 },
         setLevel,
         status
     };

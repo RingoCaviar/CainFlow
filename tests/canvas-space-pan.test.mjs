@@ -27,12 +27,15 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
     };
     const state = {
         canvas: { x: 10, y: 20, zoom: 1, isPanning: false },
+        activeWorkflowId: 'workflow-a',
         isSpacePressed: true,
         nodes: new Map([['node-1', { x: 50, y: 60 }]]), selectedNodes: new Set(), connections: [], dragging: null
     };
     const viewportCalls = [];
     const projectionCalls = [];
     const legacyRefreshCalls = [];
+    const saveCalls = [];
+    const viewportSaveCalls = [];
     const api = createCanvasInteractionsApi({
         state, canvasContainer, nodesLayer: {}, tempConnection: { setAttribute() {} },
         viewportApi: {
@@ -41,7 +44,9 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
             refreshNodeTextRendering() {}
         },
         getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {}, updatePortStyles() {},
-        scheduleSave() {}, serializeOneNode() {}, addNode() {}, checkLineIntersection() {},
+        scheduleSave() { saveCalls.push(true); },
+        saveViewportState(value) { viewportSaveCalls.push(value); },
+        serializeOneNode() {}, addNode() {}, checkLineIntersection() {},
         getConnectionSamplePoints() { return []; }, documentRef, getNodeMinimumSize,
         scheduleConnectionRefresh(options) { legacyRefreshCalls.push(options); },
         connectionProjection: {
@@ -64,7 +69,7 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
         requestAnimationFrameRef(callback) { callback(); }
     });
     api.initCanvasInteractions();
-    return { api, canvasListeners, windowListeners, state, viewportCalls, projectionCalls, legacyRefreshCalls };
+    return { api, canvasListeners, windowListeners, state, viewportCalls, projectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls };
 }
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
@@ -228,6 +233,25 @@ test('node dragging reports targeted changes and settlement through a projection
         ['finish', 'node-drag']
     ]);
     assert.deepEqual(legacyRefreshCalls, []);
+});
+
+test('zoom settlement persists only lightweight viewport state', async () => {
+    const { canvasListeners, state, saveCalls, viewportSaveCalls } = createHarness();
+    canvasListeners.find(({ type }) => type === 'wheel').listener({
+        clientX: 400,
+        clientY: 300,
+        deltaY: -1,
+        target: { closest() { return null; } },
+        preventDefault() {}
+    });
+    canvasListeners.find(({ type }) => type === 'wheel-zoom-settle').listener();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(viewportSaveCalls, [{
+        workflowId: 'workflow-a',
+        canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom }
+    }]);
+    assert.deepEqual(saveCalls, []);
 });
 
 test('a previously enlarged node can shrink back to its current content minimum', () => {

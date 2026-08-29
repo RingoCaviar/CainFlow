@@ -37,3 +37,10 @@ test('Canvas interaction keeps the background grid visible while zooming and pan
         /#canvas-container\.is-(?:zooming|panning)::before[\s\S]{0,160}?background-image:\s*none/
     );
 });
+
+test('Canvas zoom does not promote the whole node layer to a composited transform layer', () => {
+    assert.doesNotMatch(
+        canvas,
+        /#canvas-container\.is-zooming #nodes-layer[\s\S]{0,160}?will-change:\s*transform/
+    );
+});

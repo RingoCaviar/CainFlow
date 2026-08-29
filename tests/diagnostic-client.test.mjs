@@ -49,3 +49,25 @@ test('diagnostic clear reports partial success when the backend adapter fails', 
     assert.equal(result.adapters.backend.success, false);
     assert.equal(result.adapters.canvas.success, true);
 });
+
+test('diagnostic client records a Canvas alignment repair batch through one interface', async () => {
+    const fetchImpl = async () => ({
+        ok: true,
+        json: async () => ({
+            status: {
+                adapters: {
+                    canvas: { budgetBytes: 3000, recordBytes: 1000, retentionDays: 14 }
+                }
+            }
+        })
+    });
+    const client = createDiagnosticClient({ fetchImpl, localStorageRef: storage(), nowRef: () => 1 });
+    await client.status();
+
+    const result = client.recordCanvasBatch([
+        { reason: 'viewport-settled', connectionId: 'c1' },
+        { reason: 'viewport-settled', connectionId: 'c2' }
+    ]);
+
+    assert.deepEqual(result, { accepted: 2, deduped: 0, dropped: 0 });
+});

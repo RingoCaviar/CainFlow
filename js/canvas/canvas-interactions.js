@@ -23,6 +23,7 @@ export function createCanvasInteractionsApi({
     detachNodesFromConnections = null,
     updatePortStyles,
     scheduleSave,
+    saveViewportState = () => false,
     serializeOneNode,
     addNode,
     getNodeMinimumSize = null,
@@ -110,6 +111,13 @@ export function createCanvasInteractionsApi({
         } catch (error) {
             console.warn('Viewport settled callback failed:', error);
         }
+    }
+
+    function persistCurrentViewport() {
+        return saveViewportState({
+            workflowId: state.activeWorkflowId || '',
+            canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom }
+        });
     }
 
     function beginProjectionInteraction(kind, nodeIds) {
@@ -517,7 +525,7 @@ export function createCanvasInteractionsApi({
         if (isNodeFormControlActive()) {
             state.pendingZoomVisualRefresh = true;
             closeProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
-            scheduleSave();
+            persistCurrentViewport();
             return;
         }
 
@@ -528,7 +536,7 @@ export function createCanvasInteractionsApi({
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
         requestAnimationFrameRef(() => {
             viewportApi.refreshNodeTextRendering();
-            scheduleSave();
+            persistCurrentViewport();
             notifyViewportSettled();
         });
     }

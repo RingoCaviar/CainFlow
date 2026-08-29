@@ -9,19 +9,27 @@ export function createViewportApi({
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
+    let canvasDotSpacing = null;
 
     function getCanvasDotSpacing() {
+        if (canvasDotSpacing !== null) return canvasDotSpacing;
         if (!elements.canvasContainer || typeof getComputedStyle !== 'function') {
-            return DEFAULT_CANVAS_DOT_SPACING;
+            canvasDotSpacing = DEFAULT_CANVAS_DOT_SPACING;
+            return canvasDotSpacing;
         }
 
         const rawSpacing = getComputedStyle(elements.canvasContainer)
             .getPropertyValue('--canvas-dot-spacing')
             .trim();
         const parsedSpacing = Number.parseFloat(rawSpacing);
-        return Number.isFinite(parsedSpacing) && parsedSpacing > 0
+        canvasDotSpacing = Number.isFinite(parsedSpacing) && parsedSpacing > 0
             ? parsedSpacing
             : DEFAULT_CANVAS_DOT_SPACING;
+        return canvasDotSpacing;
+    }
+
+    function refreshCanvasThemeMetrics() {
+        canvasDotSpacing = null;
     }
 
     function applyCanvasVisualTransform(options = {}) {
@@ -90,6 +98,7 @@ export function createViewportApi({
     }
 
     return {
+        refreshCanvasThemeMetrics,
         applyCanvasVisualTransform,
         updateCanvasTransform,
         screenToCanvas,

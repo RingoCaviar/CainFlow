@@ -211,7 +211,6 @@
     will-change: auto;
 }
 
-#canvas-container.is-zooming #nodes-layer,
 #canvas-container.is-panning #nodes-layer {
     will-change: transform;
 }
