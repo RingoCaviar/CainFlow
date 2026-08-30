@@ -402,6 +402,7 @@ export function createWorkflowRuntimeManager({
     connectionProjection = null,
     updatePortStyles,
     getWorkflowManagerApi,
+    getWorkflowDesk,
     getSettingsControllerApi,
     getSystemNotificationApi,
     getImageAsset,
@@ -1622,6 +1623,7 @@ export function createWorkflowRuntimeManager({
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
             : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData);
+        context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
         if (typeof createRunContext === 'function') {
             const dispose = context.dispose?.bind(context) || (() => {});
             context.dispose = () => {
@@ -1630,7 +1632,14 @@ export function createWorkflowRuntimeManager({
             };
             workflowRunContexts.set(context.id, context);
         }
-        const plan = context.resolveExecutionPlan(runInput);
+        let plan;
+        try {
+            plan = context.resolveExecutionPlan(runInput);
+        } catch (error) {
+            context.dispose();
+            syncGlobalRunToolbarState();
+            throw error;
+        }
         if (!plan) {
             context.dispose();
             syncGlobalRunToolbarState();
@@ -1648,7 +1657,19 @@ export function createWorkflowRuntimeManager({
         }
 
         context.activePlanNodeIds = new Set(runnableNodeIds);
-        getWorkflowManagerApi()?.setWorkflowRunningStateById?.(workflowId, true);
+        const wasAlreadyRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);
+        try {
+            context.workflowHandle.runningChanged(true);
+            getWorkflowManagerApi()?.projectWorkflowRunningStateById?.(workflowId, true);
+        } catch (error) {
+            try {
+                context.workflowHandle.runningChanged(wasAlreadyRunning);
+            } catch {}
+            context.activePlanNodeIds.clear();
+            context.dispose();
+            syncGlobalRunToolbarState();
+            throw error;
+        }
         syncGlobalRunToolbarState();
 
         context.promise = (async () => {
@@ -1656,7 +1677,6 @@ export function createWorkflowRuntimeManager({
             try {
                 await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan));
                 await context.runner.runWorkflow(runInput);
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             } catch (error) {
                 runError = error;
                 const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(workflowId) || workflowName;
@@ -1665,21 +1685,33 @@ export function createWorkflowRuntimeManager({
                     workflowId,
                     error: error?.stack || error
                 });
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             } finally {
                 const runResult = deriveWorkflowRunResult(context, runError);
                 context.activePlanNodeIds.clear();
                 const stillRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);
-                getWorkflowManagerApi()?.setWorkflowRunningStateById?.(context.workflowId, stillRunning);
-                if (runResult && !stillRunning) {
-                    getWorkflowManagerApi()?.setWorkflowRunResultById?.(context.workflowId, runResult);
+                let runningStateError = null;
+                try {
+                    context.workflowHandle.runningChanged(stillRunning);
+                } catch (error) {
+                    runningStateError = error;
                 }
-                if (isActiveWorkflow(workflowReference)) {
-                    refreshVisibleWorkflowRunState(workflowReference);
+                try {
+                    if (!runningStateError) {
+                        syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
+                        getWorkflowManagerApi()?.projectWorkflowRunningStateById?.(context.workflowId, stillRunning);
+                        if (runResult && !stillRunning) {
+                            getWorkflowManagerApi()?.setWorkflowRunResultById?.(context.workflowId, runResult);
+                        }
+                        if (isActiveWorkflow(workflowReference)) {
+                            refreshVisibleWorkflowRunState(workflowReference);
+                        }
+                    }
+                } finally {
+                    context.dispose();
+                    syncGlobalRunToolbarState();
+                    scheduleSave({ dirty: false });
                 }
-                context.dispose();
-                syncGlobalRunToolbarState();
-                scheduleSave({ dirty: false });
+                if (runningStateError) throw runningStateError;
             }
         })();
         return true;

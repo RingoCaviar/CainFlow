@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    createWorkflowDesk
+    createWorkflowDesk,
+    WorkflowHandleClosedError
 } from '../js/features/workflow/workflow-desk.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
 
@@ -12,11 +13,15 @@ function deferred() {
 }
 
 test('Background workflow run survives activation, restores on return, and completes by Workflow identity', async () => {
-    const completion = deferred();
+    let completion = deferred();
     const updates = [];
-    const running = [];
+    const runningProjections = [];
     const results = [];
     let runCount = 0;
+    let disposeCount = 0;
+    let latestContext = null;
+    let runBehavior = () => completion.promise;
+    let projectionError = null;
     let currentLabel = 'folder/original';
     const runtimeNode = {
         id: 'node-a',
@@ -47,13 +52,18 @@ test('Background workflow run survives activation, restores on return, and compl
         getActiveWorkflow: () => workflowDesk.snapshot().active,
         getWorkflowNameById: (workflowId) => workflowId === 'workflow-a' ? currentLabel : '',
         updateWorkflowTabDataById: (workflowId, data) => { updates.push({ workflowId, data }); return true; },
-        setWorkflowRunningStateById: (workflowId, value) => { running.push({ workflowId, value }); return true; },
+        projectWorkflowRunningStateById: (workflowId, value) => {
+            if (projectionError) throw projectionError;
+            runningProjections.push({ workflowId, value });
+            return true;
+        },
         setWorkflowRunResultById: (workflowId, value) => { results.push({ workflowId, value }); return true; }
     };
     const api = createWorkflowRuntimeManager({
         state,
         nodeConfigs: {},
         getWorkflowManagerApi: () => workflowManager,
+        getWorkflowDesk: () => workflowDesk,
         scheduleSave: () => {},
         showToast: () => {},
         addLog: () => {},
@@ -64,7 +74,7 @@ test('Background workflow run survives activation, restores on return, and compl
         },
         windowRef: { setInterval: () => 1, clearInterval() {} },
         confirmRef: () => true,
-        createRunContext: ({ workflowId, workflowName }) => ({
+        createRunContext: ({ workflowId, workflowName }) => (latestContext = {
             id: `${workflowId}:run`,
             workflowId,
             workflowName,
@@ -81,11 +91,11 @@ test('Background workflow run survives activation, restores on return, and compl
             resolveExecutionPlan: () => ({ executionOrder: ['node-a'] }),
             waitForImageRestores: async () => {},
             runner: {
-                async runWorkflow() { runCount += 1; await completion.promise; },
+                async runWorkflow() { runCount += 1; await runBehavior(); },
                 cancelRunningNode: () => true
             },
             serialize: () => ({ nodes: [{ id: 'node-a', result: 'done' }], connections: [] }),
-            dispose() {}
+            dispose() { disposeCount += 1; }
         })
     });
     const workflowDesk = createWorkflowDesk({
@@ -112,7 +122,10 @@ test('Background workflow run survives activation, restores on return, and compl
     await workflowDesk.show({ workflowId: 'workflow-b', label: 'other' });
     currentLabel = 'folder/renamed';
     assert.equal(runCount, 1);
-    assert.deepEqual(running[0], { workflowId: 'workflow-a', value: true });
+    assert.equal(
+        workflowDesk.snapshot().open.find(({ workflowId }) => workflowId === 'workflow-a').running,
+        true
+    );
 
     await workflowDesk.show({ workflowId: 'workflow-a', label: currentLabel });
     assert.equal(runCount, 1);
@@ -122,7 +135,72 @@ test('Background workflow run survives activation, restores on return, and compl
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(updates.at(-1).workflowId, 'workflow-a');
-    assert.equal(running.at(-1).workflowId, 'workflow-a');
-    assert.equal(running.at(-1).value, false);
+    assert.equal(
+        workflowDesk.snapshot().open.find(({ workflowId }) => workflowId === 'workflow-a').running,
+        false
+    );
     assert.equal(results.at(-1).workflowId, 'workflow-a');
+    assert.deepEqual(runningProjections.slice(0, 2), [
+        { workflowId: 'workflow-a', value: true },
+        { workflowId: 'workflow-a', value: false }
+    ]);
+    assert.equal('runResult' in workflowDesk.snapshot().open[0], false);
+
+    completion = deferred();
+    assert.equal(await api.runWorkflowInContext({
+        workflowId: 'workflow-a',
+        workflowName: currentLabel
+    }, { nodes: [{ id: 'node-a' }], connections: [] }), true);
+    await workflowDesk.restore({ workflows: [] });
+    await workflowDesk.show({ workflowId: 'workflow-a', label: currentLabel });
+    const projectionCountBeforeLateCompletion = runningProjections.length;
+    const resultCountBeforeLateCompletion = results.length;
+
+    completion.resolve();
+    await assert.rejects(latestContext.promise, WorkflowHandleClosedError);
+    assert.equal(workflowDesk.snapshot().open[0].running, false);
+    assert.equal(runningProjections.length, projectionCountBeforeLateCompletion);
+    assert.equal(results.length, resultCountBeforeLateCompletion);
+    assert.equal(disposeCount, 2);
+
+    runBehavior = async () => { throw new Error('runtime failed'); };
+    assert.equal(await api.runWorkflowInContext({
+        workflowId: 'workflow-a',
+        workflowName: currentLabel
+    }, { nodes: [{ id: 'node-a' }], connections: [] }), true);
+    await latestContext.promise;
+    assert.equal(workflowDesk.snapshot().open[0].running, false);
+    assert.equal(results.at(-1).value, 'error');
+
+    const disposedBeforeStartFailures = disposeCount;
+    await assert.rejects(
+        api.runWorkflowInContext({ workflowId: 'closed-workflow', workflowName: 'closed' }, {
+            nodes: [{ id: 'node-a' }], connections: []
+        }),
+        WorkflowHandleClosedError
+    );
+    assert.equal(disposeCount, disposedBeforeStartFailures + 1);
+
+    projectionError = new Error('projection failed');
+    await assert.rejects(
+        api.runWorkflowInContext({ workflowId: 'workflow-a', workflowName: currentLabel }, {
+            nodes: [{ id: 'node-a' }], connections: []
+        }),
+        projectionError
+    );
+    projectionError = null;
+    assert.equal(workflowDesk.snapshot().open[0].running, false);
+    assert.equal(disposeCount, disposedBeforeStartFailures + 2);
+
+    completion = deferred();
+    runBehavior = () => completion.promise;
+    assert.equal(await api.runWorkflowInContext({
+        workflowId: 'workflow-a',
+        workflowName: currentLabel
+    }, { nodes: [{ id: 'node-a' }], connections: [] }), true);
+    api.abortAllWorkflowRuns('manual');
+    completion.resolve();
+    await latestContext.promise;
+    assert.equal(workflowDesk.snapshot().open[0].running, false);
+    assert.equal(results.at(-1).value, 'error');
 });

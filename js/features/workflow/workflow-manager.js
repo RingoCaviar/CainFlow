@@ -2734,11 +2734,10 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function setWorkflowRunningStateById(workflowId, running = false) {
+    function projectWorkflowRunningStateById(workflowId, running = false) {
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
         if (!tab) return false;
         tab.running = running === true;
-        workflowDesk.workflow(workflowId).runningChanged(tab.running);
         if (tab.running) tab.runResult = '';
         if (getActiveWorkflowId() === workflowId) {
             state.nodes.forEach((node) => node.el?.classList.remove('workflow-running-locked'));
@@ -2791,7 +2790,8 @@ export function createWorkflowManagerApi({
             if (!tab) return false;
             return updateWorkflowTabDataByName(tab.name, data, options);
         },
-        setWorkflowRunningStateById,
+        workflowDesk,
+        projectWorkflowRunningStateById,
         setWorkflowRunResultById,
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,

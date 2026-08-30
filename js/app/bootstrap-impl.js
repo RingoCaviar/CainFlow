@@ -1245,6 +1245,7 @@ function getWorkflowRuntimeManagerApi() {
             connectionProjection: connectionProjectionInteractions,
             updatePortStyles,
             getWorkflowManagerApi: () => workflowManagerApi,
+            getWorkflowDesk: () => workflowManagerApi.workflowDesk,
             getSettingsControllerApi: () => settingsControllerApi,
             getSystemNotificationApi,
             getImageAsset,
