@@ -71,3 +71,30 @@ test('diagnostic client records a Canvas alignment repair batch through one inte
 
     assert.deepEqual(result, { accepted: 2, deduped: 0, dropped: 0 });
 });
+
+test('diagnostic client records a bounded Workflow diagnostic through the backend authority', async () => {
+    const calls = [];
+    const client = createDiagnosticClient({
+        localStorageRef: storage(),
+        fetchImpl: async (_url, options) => {
+            calls.push(JSON.parse(options.body));
+            return { ok: true, json: async () => ({ recorded: true }) };
+        }
+    });
+
+    const result = await client.recordWorkflow({
+        kind: 'workflow-duplicate-identity-repaired',
+        id: 'copy-id',
+        error: 'Duplicate Workflow identity repaired'
+    });
+
+    assert.equal(result.recorded, true);
+    assert.deepEqual(calls[0], {
+        action: 'record',
+        intent: {
+            kind: 'workflow-duplicate-identity-repaired',
+            id: 'copy-id',
+            error: 'Duplicate Workflow identity repaired'
+        }
+    });
+});

@@ -24,6 +24,8 @@ def handle_post(handler):
             result = {'policy': diagnostic_service.set_level(data.get('level'))}
         elif action == 'clear':
             result = diagnostic_service.clear(data.get('scope') or 'all')
+        elif action == 'record':
+            result = diagnostic_service.record(data.get('intent') or {})
         else:
             write_error(handler, 400, 'Unknown diagnostic action')
             return True

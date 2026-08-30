@@ -53,6 +53,7 @@ export function createDiagnosticClient({ fetchImpl = fetch, localStorageRef = lo
     return {
         clear,
         currentStatus: () => currentStatus,
+        recordWorkflow: (intent) => request({ action: 'record', intent }),
         recordCanvas: (intent) => canvasAdapter?.record(intent) || false,
         recordCanvasBatch: (intents) => canvasAdapter?.recordBatch(intents)
             || { accepted: 0, deduped: 0, dropped: Array.isArray(intents) ? intents.length : 0 },

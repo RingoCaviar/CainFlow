@@ -29,6 +29,15 @@ class DiagnosticRouteTests(unittest.TestCase):
             self.assertTrue(diagnostic_routes.handle_post(handler))
         write_json.assert_called_once_with(handler, {'success': True, **result})
 
+    def test_post_records_a_bounded_workflow_diagnostic(self):
+        handler = Handler()
+        intent = {'kind': 'workflow-duplicate-identity-repaired', 'error': 'duplicate'}
+        result = {'recorded': True, 'sampledOut': False, 'warning': False}
+        with mock.patch.object(diagnostic_routes, 'read_json_body', return_value={'action': 'record', 'intent': intent}), mock.patch.object(diagnostic_routes.diagnostic_service, 'record', return_value=result) as record, mock.patch.object(diagnostic_routes, 'write_json') as write_json:
+            self.assertTrue(diagnostic_routes.handle_post(handler))
+        record.assert_called_once_with(intent)
+        write_json.assert_called_once_with(handler, {'success': True, **result})
+
 
 if __name__ == '__main__':
     unittest.main()

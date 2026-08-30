@@ -1324,6 +1324,13 @@ const workflowManagerApi = createWorkflowManagerApi({
         updateUndoButton();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
+    recordWorkflowDiagnostic: (record) => diagnosticClient.recordWorkflow({
+        ...record,
+        id: record.workflowId || record.duplicatedWorkflowId || '',
+        error: record.kind === 'workflow-duplicate-identity-repaired'
+            ? 'Duplicate Workflow identity repaired'
+            : record.error
+    }),
     onWorkflowViewApplied: (workflow) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),

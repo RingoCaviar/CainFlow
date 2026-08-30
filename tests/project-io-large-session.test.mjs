@@ -4,7 +4,10 @@ import { createProjectIoApi } from '../js/features/persistence/project-io.js';
 import { createViewportApi } from '../js/canvas/viewport.js';
 import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
 import { createWorkflowSessionActivator } from '../js/features/workflow/workflow-activation-coordinator.js';
-import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
+import {
+    attachWorkflowDeskStateProjection,
+    createWorkflowDesk
+} from '../js/features/workflow/workflow-desk.js';
 
 function createTestActiveState(state) {
     return {
@@ -438,9 +441,16 @@ test('loading a legacy session assigns one unique stable identity to the active 
         activeWorkflowId: 'duplicate-id',
         activateRestoredWorkflowState: (restoredState) => activateRestoredState(restoredState)
     });
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'generated-workflow-id'
+    });
+    attachWorkflowDeskStateProjection(state, workflowDesk);
     activateRestoredState = createWorkflowSessionActivator({
         state,
         activeState: createTestActiveState(state),
+        workflowDesk,
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'generated-workflow-id',
         prepareEditorView: async () => ({

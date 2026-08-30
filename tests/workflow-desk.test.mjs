@@ -4,6 +4,7 @@ import {
     WorkflowCommitRecoveryError,
     WorkflowEditorCommitError,
     WorkflowEditorPrepareError,
+    WorkflowIdentityOwnershipError,
     attachWorkflowDeskStateProjection,
     createWorkflowDesk
 } from '../js/features/workflow/workflow-desk.js';
@@ -565,4 +566,107 @@ test('empty restoration that reaches its commit point publishes atomically befor
     assert.equal((await restoringEmpty).status, 'committed');
     assert.equal((await showingNewer).status, 'committed');
     assert.equal(desk.snapshot().active.workflowId, 'workflow-new');
+});
+
+test('restore retains the first duplicate Workflow identity and repairs the later external copy', async () => {
+    const diagnostics = [];
+    const ids = ['repaired-id'];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => ids.shift(),
+        recordDiagnostic: async (record) => diagnostics.push(record)
+    });
+
+    const result = await desk.restore({
+        workflows: [
+            { name: 'first', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id' } },
+            { name: 'copy', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id' } }
+        ],
+        activeWorkflowId: 'duplicate-id',
+        activeWorkflowName: 'copy',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    assert.equal(result.workflows[0].workflowId, 'duplicate-id');
+    assert.equal(result.workflows[1].workflowId, 'repaired-id');
+    assert.equal(result.workflows[1].identityPendingSave, true);
+    assert.equal(desk.snapshot().active.workflowId, 'repaired-id');
+    assert.equal(diagnostics[0].kind, 'workflow-duplicate-identity-repaired');
+});
+
+test('ambiguous duplicate ownership stops restore without changing committed state', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'repaired-id'
+    });
+
+    const result = await desk.restore({
+        workflows: [
+            { name: 'same', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id' } },
+            { name: 'same', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id' } }
+        ],
+        activeWorkflowId: 'duplicate-id',
+        activeWorkflowName: 'same'
+    });
+
+    assert.equal(result.status, 'identity-ownership-failed');
+    assert.equal(result.failure.kind, 'ambiguous-workflow-identity');
+    assert.equal(desk.snapshot().active, null);
+    assert.deepEqual(desk.snapshot().open, []);
+});
+
+test('ordinary discovery repairs an external copy and ambiguous ownership fails explicitly', async () => {
+    const diagnostics = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'copy-id',
+        recordDiagnostic: async (record) => diagnostics.push(record)
+    });
+    await desk.show({
+        workflowId: 'original-id',
+        label: 'original',
+        editorView: { async commit() { return true; } }
+    });
+    await desk.show({
+        workflowId: 'original-id',
+        label: 'copy',
+        identityOwnership: 'external-copy',
+        editorView: { async commit() { return true; } }
+    });
+
+    assert.equal(desk.snapshot().active.workflowId, 'copy-id');
+    assert.equal(desk.snapshot().open[1].pendingExplicitSave, true);
+    assert.equal(diagnostics[0].kind, 'workflow-duplicate-identity-repaired');
+    await assert.rejects(() => desk.show({
+        workflowId: 'original-id',
+        identityOwnership: 'ambiguous'
+    }), WorkflowIdentityOwnershipError);
+    assert.equal(desk.snapshot().active.workflowId, 'copy-id');
+});
+
+test('duplicate diagnostic failure does not reverse repair or activation', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'copy-id',
+        recordDiagnostic: async () => { throw new Error('diagnostics unavailable'); }
+    });
+    await desk.show({
+        workflowId: 'original-id',
+        label: 'original',
+        editorView: { async commit() { return true; } }
+    });
+
+    const result = await desk.show({
+        workflowId: 'original-id',
+        label: 'copy',
+        identityOwnership: 'external-copy',
+        editorView: { async commit() { return true; } }
+    });
+
+    assert.equal(result.status, 'committed');
+    assert.equal(desk.snapshot().active.workflowId, 'copy-id');
 });

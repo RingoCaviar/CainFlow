@@ -58,6 +58,7 @@ export function createWorkflowManagerApi({
     clearOrphanedNodeAssets = null,
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
+    recordWorkflowDiagnostic = async () => {},
     onWorkflowViewApplied = () => {},
     refreshRecoverableMediaNodes = async () => {},
     waitForImageRestores = async () => {},
@@ -93,7 +94,8 @@ export function createWorkflowManagerApi({
         resolveSelection: async (selection) => selection?.resolve?.() || selection,
         prepareEditorView: async (target) => target.editorView,
         commitSafeEmpty: async () => applySafeEmptyWorkflow({ publishActiveState: false }),
-        createWorkflowId
+        createWorkflowId,
+        recordDiagnostic: recordWorkflowDiagnostic
     });
     attachWorkflowDeskStateProjection(state, workflowDesk);
     const activeState = workflowDesk.migration;

@@ -28,6 +28,14 @@ export class WorkflowEditorPrepareError extends Error {
     }
 }
 
+export class WorkflowIdentityOwnershipError extends Error {
+    constructor(message = 'Workflow identity ownership is ambiguous', options = {}) {
+        super(message, options);
+        this.name = 'WorkflowIdentityOwnershipError';
+        this.workflowId = options.workflowId || '';
+    }
+}
+
 function freezeSnapshot({ revision, active, openWorkflows }) {
     return Object.freeze({
         revision,
@@ -222,6 +230,7 @@ export function createWorkflowDesk({
         const seen = new Set();
         const migrations = [];
         const identityAliases = new Map();
+        const duplicateOwners = new Map();
         const restoredOpenWorkflows = new Map();
         const normalizedWorkflows = [];
         for (const sourceWorkflow of workflows) {
@@ -237,20 +246,36 @@ export function createWorkflowDesk({
             const sessionId = String(workflow.workflowId || '').trim();
             let workflowId = savedDocumentId || sessionId;
             const missingIdentity = !workflowId;
-            if (!workflowId || seen.has(workflowId)) workflowId = createWorkflowId();
+            const duplicatedIdentity = !!workflowId && seen.has(workflowId);
+            const duplicatedWorkflowId = duplicatedIdentity ? workflowId : '';
+            if (!workflowId || duplicatedIdentity) workflowId = createWorkflowId();
             while (!workflowId || seen.has(workflowId)) workflowId = createWorkflowId();
             workflow.workflowId = workflowId;
             if (workflow.data && typeof workflow.data === 'object') workflow.data.workflowId = workflowId;
-            workflow.identityPendingSave = missingIdentity || workflow.identityPendingSave === true;
+            workflow.identityPendingSave = missingIdentity
+                || duplicatedIdentity
+                || workflow.identityPendingSave === true;
             if (missingIdentity) {
                 migrations.push(Object.freeze({
                     kind: 'missing-identity',
                     workflowId,
                     label: workflow.name || ''
                 }));
+            } else if (duplicatedIdentity) {
+                migrations.push(Object.freeze({
+                    kind: 'duplicate-identity',
+                    duplicatedWorkflowId,
+                    workflowId,
+                    label: workflow.name || ''
+                }));
             }
             seen.add(workflowId);
-            if (sessionId) identityAliases.set(sessionId, workflowId);
+            if (sessionId && !identityAliases.has(sessionId)) identityAliases.set(sessionId, workflowId);
+            if (sessionId) {
+                const owners = duplicateOwners.get(sessionId) || [];
+                owners.push(workflow);
+                duplicateOwners.set(sessionId, owners);
+            }
             restoredOpenWorkflows.set(workflowId, {
                 workflowId,
                 label: workflow.name || '',
@@ -259,7 +284,7 @@ export function createWorkflowDesk({
             });
             normalizedWorkflows.push(workflow);
         }
-        return { normalizedWorkflows, migrations, identityAliases, restoredOpenWorkflows };
+        return { normalizedWorkflows, migrations, identityAliases, duplicateOwners, restoredOpenWorkflows };
     }
 
     async function commitRestoredEmpty({ restoredOpenWorkflows, signal, isCurrent }) {
@@ -301,8 +326,39 @@ export function createWorkflowDesk({
             normalizedWorkflows: workflows,
             migrations,
             identityAliases,
+            duplicateOwners,
             restoredOpenWorkflows
         } = normalizeRestoredWorkflows(sourceWorkflows);
+        const duplicatedActiveOwners = duplicateOwners.get(restoration.activeWorkflowId) || [];
+        if (duplicatedActiveOwners.length > 1 && restoration.activeWorkflowName) {
+            const namedOwners = duplicatedActiveOwners.filter((workflow) => (
+                workflow.name === restoration.activeWorkflowName
+            ));
+            if (namedOwners.length !== 1) {
+                return Object.freeze({
+                    status: 'identity-ownership-failed',
+                    failure: Object.freeze({
+                        kind: 'ambiguous-workflow-identity',
+                        workflowId: restoration.activeWorkflowId
+                    }),
+                    workflows: sourceWorkflows,
+                    migrations: Object.freeze([]),
+                    snapshot: currentSnapshot
+                });
+            }
+            identityAliases.set(restoration.activeWorkflowId, namedOwners[0].workflowId);
+        }
+        for (const migration of migrations) {
+            if (migration.kind !== 'duplicate-identity') continue;
+            try {
+                await recordDiagnostic({
+                    kind: 'workflow-duplicate-identity-repaired',
+                    duplicatedWorkflowId: migration.duplicatedWorkflowId,
+                    workflowId: migration.workflowId,
+                    label: migration.label
+                });
+            } catch {}
+        }
         const restoredActiveWorkflowId = identityAliases.get(restoration.activeWorkflowId)
             || restoration.activeWorkflowId;
         let activeWorkflow = workflows.find((workflow) => (
@@ -348,7 +404,24 @@ export function createWorkflowDesk({
 
     async function show(selection) {
         const generation = ++activationGeneration;
-        const target = await resolveSelection(selection);
+        let target = await resolveSelection(selection);
+        if (target?.identityOwnership === 'ambiguous') {
+            throw new WorkflowIdentityOwnershipError(undefined, { workflowId: target.workflowId });
+        }
+        if (target?.identityOwnership === 'external-copy' && openWorkflows.has(target.workflowId)) {
+            const duplicatedWorkflowId = target.workflowId;
+            let workflowId = createWorkflowId();
+            while (!workflowId || openWorkflows.has(workflowId)) workflowId = createWorkflowId();
+            target = { ...target, workflowId, pendingExplicitSave: true };
+            try {
+                await recordDiagnostic({
+                    kind: 'workflow-duplicate-identity-repaired',
+                    duplicatedWorkflowId,
+                    workflowId,
+                    label: target.label || ''
+                });
+            } catch {}
+        }
         if (!isTargetCurrent(target, generation)) {
             target.editorView?.dispose?.();
             return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
