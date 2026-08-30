@@ -617,6 +617,23 @@ test('ambiguous duplicate ownership stops restore without changing committed sta
     assert.deepEqual(desk.snapshot().open, []);
 });
 
+test('duplicate active identity without a migration label is ambiguous', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'repaired-id'
+    });
+    const result = await desk.restore({
+        workflows: [
+            { name: 'first', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id' } },
+            { name: 'copy', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id' } }
+        ],
+        activeWorkflowId: 'duplicate-id'
+    });
+    assert.equal(result.status, 'identity-ownership-failed');
+    assert.equal(desk.snapshot().active, null);
+});
+
 test('ordinary discovery repairs an external copy and ambiguous ownership fails explicitly', async () => {
     const diagnostics = [];
     const desk = createWorkflowDesk({
@@ -630,14 +647,23 @@ test('ordinary discovery repairs an external copy and ambiguous ownership fails 
         label: 'original',
         editorView: { async commit() { return true; } }
     });
+    const copy = { workflowId: 'original-id', data: { workflowId: 'original-id' } };
     await desk.show({
         workflowId: 'original-id',
         label: 'copy',
         identityOwnership: 'external-copy',
+        onIdentityRepaired: ({ workflowId }) => {
+            copy.workflowId = workflowId;
+            copy.data.workflowId = workflowId;
+            copy.identityPendingSave = true;
+        },
         editorView: { async commit() { return true; } }
     });
 
     assert.equal(desk.snapshot().active.workflowId, 'copy-id');
+    assert.equal(copy.workflowId, 'copy-id');
+    assert.equal(copy.data.workflowId, 'copy-id');
+    assert.equal(copy.identityPendingSave, true);
     assert.equal(desk.snapshot().open[1].pendingExplicitSave, true);
     assert.equal(diagnostics[0].kind, 'workflow-duplicate-identity-repaired');
     await assert.rejects(() => desk.show({
@@ -669,4 +695,32 @@ test('duplicate diagnostic failure does not reverse repair or activation', async
 
     assert.equal(result.status, 'committed');
     assert.equal(desk.snapshot().active.workflowId, 'copy-id');
+});
+
+test('failed duplicate activation does not record a completed repair', async () => {
+    const diagnostics = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'copy-id',
+        recordDiagnostic: async (record) => diagnostics.push(record)
+    });
+    await desk.show({
+        workflowId: 'original-id',
+        label: 'original',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(() => desk.show({
+        workflowId: 'original-id',
+        label: 'copy',
+        identityOwnership: 'external-copy',
+        editorView: {
+            async commit() { return false; },
+            rollback() { return true; }
+        }
+    }), WorkflowEditorCommitError);
+
+    assert.deepEqual(diagnostics, []);
+    assert.equal(desk.snapshot().active.workflowId, 'original-id');
 });

@@ -254,7 +254,15 @@ export function createWorkflowTargetActivator({
                     ensureWorkflowIdentity(tab);
                 }
                 const stableWorkflowId = ensureWorkflowIdentity(tab);
-                tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === stableWorkflowId) || tab;
+                const identityOwners = (state.workflowTabs || []).filter((candidate) => (
+                    candidate?.workflowId === stableWorkflowId || candidate?.data?.workflowId === stableWorkflowId
+                ));
+                const identityOwnership = createdTab && identityOwners.length === 1
+                    ? 'external-copy'
+                    : (createdTab && identityOwners.length > 1 ? 'ambiguous' : 'owned');
+                if (!createdTab) {
+                    tab = identityOwners.find((candidate) => candidate === tab) || tab;
+                }
                 const targetData = reloadedData || tab.data;
                 const targetRevision = captureWorkflowTabRevision(tab, {
                     resolveTab: (workflowId) => (state.workflowTabs || [])
@@ -287,6 +295,7 @@ export function createWorkflowTargetActivator({
                     targetRevision,
                     preparedView,
                     editorView,
+                    identityOwnership,
                     dispose: () => editorView?.dispose?.()
                 };
             },
@@ -326,11 +335,10 @@ export function createWorkflowTargetActivator({
                     tab.dirty = false;
                 }
                 if (createdTab && !getWorkflowTab(name)) {
-                    ensureUniqueWorkflowIdentities([...state.workflowTabs, tab], createWorkflowId);
                     state.workflowTabs.push(tab);
                 }
-                const committedTab = (state.workflowTabs || [])
-                    .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
+                const committedTab = createdTab ? tab : ((state.workflowTabs || [])
+                    .find((candidate) => candidate.workflowId === tab.workflowId) || tab);
                 prepared.activeWorkflowName = committedTab.name;
                 if (!transaction.isCurrent()) return false;
                 if (workflowDesk) {
@@ -341,6 +349,12 @@ export function createWorkflowTargetActivator({
                             workflowId: ensureWorkflowIdentity(tab),
                             label: prepared.activeWorkflowName,
                             editorView: prepared.editorView,
+                            identityOwnership: prepared.identityOwnership,
+                            onIdentityRepaired: ({ workflowId }) => {
+                                tab.workflowId = workflowId;
+                                if (tab.data && typeof tab.data === 'object') tab.data.workflowId = workflowId;
+                                tab.identityPendingSave = true;
+                            },
                             force: reloadFromFile,
                             signal: transaction.signal,
                             isCurrent: transaction.isCurrent

@@ -148,6 +148,18 @@ export function createWorkflowDesk({
             await rollbackPreparedView(editorView, target, commitError);
             throw new WorkflowEditorCommitError(undefined, { cause: commitError });
         }
+        try {
+            await target.onIdentityRepaired?.({
+                workflowId: target.workflowId,
+                duplicatedWorkflowId: target.duplicatedWorkflowId
+            });
+        } catch (error) {
+            await rollbackPreparedView(editorView, target, error);
+            throw new WorkflowIdentityOwnershipError('Repaired Workflow identity could not be committed', {
+                cause: error,
+                workflowId: target.workflowId
+            });
+        }
         revision += 1;
         if (target.restoredOpenWorkflows instanceof Map) {
             openWorkflows.clear();
@@ -180,6 +192,9 @@ export function createWorkflowDesk({
                     error
                 });
             } catch {}
+        }
+        if (target.duplicateDiagnostic) {
+            try { await recordDiagnostic(target.duplicateDiagnostic); } catch {}
         }
         return Object.freeze({ status: 'committed', active, snapshot: currentSnapshot });
     }
@@ -330,10 +345,12 @@ export function createWorkflowDesk({
             restoredOpenWorkflows
         } = normalizeRestoredWorkflows(sourceWorkflows);
         const duplicatedActiveOwners = duplicateOwners.get(restoration.activeWorkflowId) || [];
-        if (duplicatedActiveOwners.length > 1 && restoration.activeWorkflowName) {
-            const namedOwners = duplicatedActiveOwners.filter((workflow) => (
-                workflow.name === restoration.activeWorkflowName
-            ));
+        if (duplicatedActiveOwners.length > 1) {
+            const namedOwners = restoration.activeWorkflowName
+                ? duplicatedActiveOwners.filter((workflow) => (
+                    workflow.name === restoration.activeWorkflowName
+                ))
+                : [];
             if (namedOwners.length !== 1) {
                 return Object.freeze({
                     status: 'identity-ownership-failed',
@@ -347,17 +364,6 @@ export function createWorkflowDesk({
                 });
             }
             identityAliases.set(restoration.activeWorkflowId, namedOwners[0].workflowId);
-        }
-        for (const migration of migrations) {
-            if (migration.kind !== 'duplicate-identity') continue;
-            try {
-                await recordDiagnostic({
-                    kind: 'workflow-duplicate-identity-repaired',
-                    duplicatedWorkflowId: migration.duplicatedWorkflowId,
-                    workflowId: migration.workflowId,
-                    label: migration.label
-                });
-            } catch {}
         }
         const restoredActiveWorkflowId = identityAliases.get(restoration.activeWorkflowId)
             || restoration.activeWorkflowId;
@@ -395,6 +401,19 @@ export function createWorkflowDesk({
             signal: restoration.signal,
             isCurrent: restoration.isCurrent
         });
+        if (result.status === 'committed' || result.status === 'already-visible') {
+            for (const migration of migrations) {
+                if (migration.kind !== 'duplicate-identity') continue;
+                try {
+                    await recordDiagnostic({
+                        kind: 'workflow-duplicate-identity-repaired',
+                        duplicatedWorkflowId: migration.duplicatedWorkflowId,
+                        workflowId: migration.workflowId,
+                        label: migration.label
+                    });
+                } catch {}
+            }
+        }
         return Object.freeze({
             ...result,
             workflows,
@@ -412,15 +431,18 @@ export function createWorkflowDesk({
             const duplicatedWorkflowId = target.workflowId;
             let workflowId = createWorkflowId();
             while (!workflowId || openWorkflows.has(workflowId)) workflowId = createWorkflowId();
-            target = { ...target, workflowId, pendingExplicitSave: true };
-            try {
-                await recordDiagnostic({
+            target = {
+                ...target,
+                workflowId,
+                duplicatedWorkflowId,
+                pendingExplicitSave: true,
+                duplicateDiagnostic: {
                     kind: 'workflow-duplicate-identity-repaired',
                     duplicatedWorkflowId,
                     workflowId,
                     label: target.label || ''
-                });
-            } catch {}
+                }
+            };
         }
         if (!isTargetCurrent(target, generation)) {
             target.editorView?.dispose?.();
