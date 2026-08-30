@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProjectIoApi } from '../js/features/persistence/project-io.js';
 import { createViewportApi } from '../js/canvas/viewport.js';
-import { createWorkflowTransitionLane } from '../js/features/workflow/workflow-transition-lane.js';
 import { createWorkflowSessionSelectionAdapter } from '../js/features/workflow/workflow-selection-adapter.js';
 import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
 
@@ -432,9 +431,7 @@ test('loading a legacy session assigns one unique stable identity to the active 
     });
     activateRestoredState = createWorkflowSessionSelectionAdapter({
         state,
-        getActiveWorkflow: () => workflowDesk.snapshot().active,
         workflowDesk,
-        workflowActivation: createWorkflowTransitionLane(),
         createWorkflowId: () => 'generated-workflow-id',
         prepareEditorView: async () => ({
             commit: () => true,
@@ -468,9 +465,7 @@ test('session workflow activation applies the committed canvas to the visible vi
     });
     activateRestoredState = createWorkflowSessionSelectionAdapter({
         state,
-        getActiveWorkflow: () => workflowDesk.snapshot().active,
         workflowDesk,
-        workflowActivation: createWorkflowTransitionLane(),
         createWorkflowId: () => 'active-id',
         prepareEditorView: async (_workflowName, workflowData) => ({
             commit: () => { state.canvas = workflowData.canvas; return true; },

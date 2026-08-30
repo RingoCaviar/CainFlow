@@ -111,10 +111,7 @@ export function createWorkflowManagerApi({
     });
     const workflowSessionActivator = createWorkflowSessionSelectionAdapter({
         state,
-        getActiveWorkflow,
-        activeState,
         workflowDesk,
-        workflowActivation,
         createWorkflowId,
         prepareEditorView: prepareDetachedEditorView,
         applyViewport: () => viewportApi.updateCanvasTransform({ updateConnections: false }),

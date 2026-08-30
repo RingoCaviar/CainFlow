@@ -1,4 +1,3 @@
-import { ensureUniqueWorkflowIdentities } from './workflow-identity.js';
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import { rollbackWorkflowActivation } from './workflow-rollback.js';
 import {
@@ -9,10 +8,7 @@ import { WorkflowCommitRecoveryError } from './workflow-desk.js';
 
 export function createWorkflowSessionSelectionAdapter({
     state,
-    getActiveWorkflow = () => null,
-    activeState,
-    workflowDesk = null,
-    workflowActivation,
+    workflowDesk,
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`,
     prepareEditorView = null,
@@ -57,7 +53,6 @@ export function createWorkflowSessionSelectionAdapter({
         state.workflowOrder = Array.isArray(restoredState?.workflowOrder) ? restoredState.workflowOrder : [];
         state.workflowFolders = Array.isArray(restoredState?.workflowFolders) ? restoredState.workflowFolders : [];
         const committed = workflowDesk.snapshot().active;
-        workflowActivation.setActiveKey(committed?.workflowId || 'session:empty');
         applyViewport();
         onViewApplied({
             workflowName: committed?.label || '',
@@ -66,127 +61,7 @@ export function createWorkflowSessionSelectionAdapter({
         return true;
     }
 
-    function reconcileActiveTab(tab) {
-        const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
-        const workflowName = tab?.name || '';
-        if (!workflowId || !workflowName) return false;
-        if (!workflowDesk) activeState.commitActive({ workflowId, label: workflowName });
-        workflowActivation.setActiveKey(workflowId);
-        return true;
-    }
-
-    function activate(restoredState) {
-        if (workflowDesk) return activateWithWorkflowDesk(restoredState);
-        const workflowTabs = Array.isArray(restoredState?.workflowTabs) ? restoredState.workflowTabs : [];
-        let activeWorkflowName = restoredState?.activeWorkflowName || '';
-        let activeWorkflowId = restoredState?.activeWorkflowId || '';
-        const namedActiveTab = workflowTabs.find((tab) => tab?.name === activeWorkflowName);
-        const storedIdMatches = workflowTabs.filter((tab) => (
-            tab?.workflowId === activeWorkflowId || tab?.data?.workflowId === activeWorkflowId
-        ));
-        if (activeWorkflowId && storedIdMatches.length === 0 && namedActiveTab
-            && !namedActiveTab.workflowId && !namedActiveTab.data?.workflowId) {
-            namedActiveTab.workflowId = activeWorkflowId;
-        }
-        ensureUniqueWorkflowIdentities(workflowTabs, createWorkflowId);
-        const authoritativeIdentityTab = storedIdMatches.length === 1 ? storedIdMatches[0] : null;
-        const activeTab = authoritativeIdentityTab || namedActiveTab;
-        activeWorkflowId = activeTab?.workflowId || '';
-        activeWorkflowName = activeTab?.name || activeWorkflowName;
-        const activationKey = activeWorkflowId || (activeWorkflowName ? `path:${activeWorkflowName}` : 'session:empty');
-
-        return workflowActivation.activate(activationKey, {
-            force: true,
-            prepare: async () => {
-                const workflowData = {
-                    ...(restoredState?.workflowData || {}),
-                    workflowId: activeWorkflowId || restoredState?.workflowData?.workflowId || ''
-                };
-                const editorView = typeof prepareEditorView === 'function'
-                    ? await prepareEditorView(activeWorkflowName, workflowData)
-                    : null;
-                return {
-                    workflowTabs,
-                    activeWorkflowName,
-                    activeWorkflowId,
-                    workflowOrder: Array.isArray(restoredState?.workflowOrder) ? restoredState.workflowOrder : [],
-                    workflowFolders: Array.isArray(restoredState?.workflowFolders) ? restoredState.workflowFolders : [],
-                    editorView,
-                    dispose: () => editorView?.dispose?.()
-                };
-            },
-            commit: async (prepared, transaction) => {
-                prepared.previous = {
-                    workflowTabs: state.workflowTabs,
-                    activeWorkflowName: getActiveWorkflow()?.label || '',
-                    activeWorkflowId: getActiveWorkflow()?.workflowId || '',
-                    workflowOrder: state.workflowOrder,
-                    workflowFolders: state.workflowFolders
-                };
-                if (workflowDesk) {
-                    prepared.workflowDeskHandledView = true;
-                    let result;
-                    try {
-                        result = await workflowDesk.show({
-                            workflowId: prepared.activeWorkflowId,
-                            label: prepared.activeWorkflowName,
-                            editorView: prepared.editorView,
-                            force: true,
-                            signal: transaction.signal,
-                            isCurrent: transaction.isCurrent
-                        });
-                    } catch (error) {
-                        if (error instanceof WorkflowCommitRecoveryError
-                            && workflowDesk.snapshot().active === null) {
-                            prepared.workflowDeskSafeEmpty = true;
-                        }
-                        throw error;
-                    }
-                    if (result.status !== 'committed') return false;
-                } else if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) {
-                    return false;
-                }
-                state.workflowTabs = prepared.workflowTabs;
-                if (!workflowDesk) {
-                    activeState.commitActive({
-                        workflowId: prepared.activeWorkflowId,
-                        label: prepared.activeWorkflowName,
-                        editorView: prepared.editorView
-                    });
-                }
-                state.workflowOrder = prepared.workflowOrder;
-                state.workflowFolders = prepared.workflowFolders;
-                return true;
-            },
-            rollback: async (prepared) => {
-                if (prepared?.workflowDeskSafeEmpty) return { safeEmpty: true };
-                if (!prepared?.previous) return false;
-                if (!prepared.workflowDeskHandledView && prepared.editorView?.rollback?.() === false) return false;
-                state.workflowTabs = prepared.previous.workflowTabs;
-                if (!workflowDesk && prepared.previous.activeWorkflowId && prepared.previous.activeWorkflowName) {
-                    activeState.commitActive({
-                        workflowId: prepared.previous.activeWorkflowId,
-                        label: prepared.previous.activeWorkflowName
-                    });
-                } else if (!workflowDesk) {
-                    activeState.clearActive();
-                }
-                state.workflowOrder = prepared.previous.workflowOrder;
-                state.workflowFolders = prepared.previous.workflowFolders;
-                return true;
-            },
-            finalize: (prepared) => {
-                if (!prepared.workflowDeskHandledView) prepared.editorView?.finalize?.();
-                applyViewport();
-                onViewApplied({
-                    workflowName: prepared.activeWorkflowName,
-                    workflowId: prepared.activeWorkflowId
-                });
-            }
-        });
-    }
-
-    return { activate, reconcileActiveTab };
+    return { activate: activateWithWorkflowDesk };
 }
 
 export function createWorkflowSelectionAdapter({
