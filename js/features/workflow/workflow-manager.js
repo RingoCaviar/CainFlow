@@ -319,11 +319,6 @@ export function createWorkflowManagerApi({
             showToast(result.message, 'error');
             return false;
         }
-        const savedTab = getWorkflowTab(name);
-        if (savedTab?.workflowId) {
-            savedTab.identityPendingSave = false;
-            workflowDesk.workflow(savedTab.workflowId).documentSaved();
-        }
         return true;
     }
 
@@ -2351,7 +2346,9 @@ export function createWorkflowManagerApi({
 
             if (shouldSaveDirtyTabs) {
                 for (const tab of dirtyTabs) {
-                    if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+                    if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status !== 'committed') {
+                        return false;
+                    }
                     tab.dirty = false;
                 }
             }

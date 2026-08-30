@@ -117,6 +117,77 @@ test('identity-bound Workflow handle retains identity for save rename and move',
     assert.equal(desk.snapshot().active.label, 'other/renamed');
 });
 
+test('explicit save clears pending identity persistence only after success', async () => {
+    const saveGate = deferred();
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => kind === 'save' ? saveGate.promise : { ok: true }
+    });
+    await desk.restore({
+        workflows: [{
+            workflowId: 'workflow-a',
+            name: 'A',
+            identityPendingSave: true,
+            data: { workflowId: 'workflow-a' }
+        }],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    const saving = desk.workflow('workflow-a').save();
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
+    saveGate.resolve({ ok: true });
+
+    assert.equal((await saving).status, 'committed');
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, false);
+});
+
+test('failed explicit save preserves pending identity persistence', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => ({ ok: false })
+    });
+    await desk.restore({
+        workflows: [{
+            workflowId: 'workflow-a',
+            name: 'A',
+            identityPendingSave: true,
+            data: { workflowId: 'workflow-a' }
+        }]
+    });
+
+    assert.equal(await desk.workflow('workflow-a').save(), false);
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
+});
+
+test('repeated explicit save stays committed and ordinary dirty state stays outside the record', async () => {
+    const sourceWorkflow = {
+        workflowId: 'workflow-a',
+        name: 'A',
+        dirty: true,
+        identityPendingSave: true,
+        data: { workflowId: 'workflow-a' }
+    };
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => ({ ok: true })
+    });
+    await desk.restore({
+        workflows: [sourceWorkflow]
+    });
+    const workflow = desk.workflow('workflow-a');
+
+    assert.equal((await workflow.save()).status, 'committed');
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, false);
+    assert.equal('dirty' in desk.snapshot().open[0], false);
+    sourceWorkflow.dirty = false;
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, false);
+    assert.equal((await workflow.save()).status, 'committed');
+});
+
 test('Copy and Save As allocate new Workflow identities behind the handle seam', async () => {
     const generated = ['copy-id', 'save-as-id'];
     const mutations = [];

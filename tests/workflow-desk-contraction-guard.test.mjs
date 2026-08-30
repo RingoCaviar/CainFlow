@@ -22,6 +22,12 @@ test('temporary Workflow migration seams and active state pair cannot return', (
     assert.doesNotMatch(readFileSync(`${root}/js/core/state.js`, 'utf8'), /activeWorkflow(?:Name|Id)/);
 });
 
+test('Workflow persistence adapters cannot write pending identity state', () => {
+    const manager = readFileSync(`${root}/js/features/workflow/workflow-manager.js`, 'utf8');
+    assert.doesNotMatch(manager, /\.identityPendingSave\s*=\s*false/);
+    assert.doesNotMatch(manager, /\.documentSaved\(\)/);
+});
+
 test('normalized Workflow references cannot fall back to mutable names', () => {
     const identity = readFileSync(`${root}/js/features/workflow/workflow-identity.js`, 'utf8');
     assert.doesNotMatch(identity, /typeof workflow === ['"]string['"]/);
