@@ -90,8 +90,9 @@ export function createWorkflowManagerApi({
     let workflowListRenderSequence = 0;
     const selectedWorkflowNames = new Set();
     const workflowDesk = createWorkflowDesk({
-        resolveSelection: async (selection) => selection,
-        prepareEditorView: async (target) => target.editorView
+        resolveSelection: async (selection) => selection?.resolve?.() || selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitSafeEmpty: async () => applySafeEmptyWorkflow({ publishActiveState: false })
     });
     attachWorkflowDeskStateProjection(state, workflowDesk);
     const activeState = workflowDesk.migration;
@@ -106,6 +107,7 @@ export function createWorkflowManagerApi({
     const workflowSessionActivator = createWorkflowSessionActivator({
         state,
         activeState,
+        workflowDesk,
         workflowActivation,
         createWorkflowId,
         prepareEditorView: prepareDetachedEditorView,
@@ -115,6 +117,7 @@ export function createWorkflowManagerApi({
     const workflowTargetActivator = createWorkflowTargetActivator({
         state,
         activeState,
+        workflowDesk,
         workflowActivation,
         createWorkflowId,
         getWorkflowTab,
@@ -141,7 +144,7 @@ export function createWorkflowManagerApi({
         tabColorCount: TAB_COLORS
     });
 
-    function applySafeEmptyWorkflow() {
+    function applySafeEmptyWorkflow({ publishActiveState = true } = {}) {
         for (const [, node] of state.nodes) {
             try { cleanupElementResources(node.el); } catch {}
             try { node.el?.remove?.(); } catch {}
@@ -149,7 +152,7 @@ export function createWorkflowManagerApi({
         state.nodes.clear();
         state.connections = [];
         state.selectedNodes.clear();
-        activeState.clearActive();
+        if (publishActiveState) activeState.clearActive();
         workflowActivation.resetActive();
         clearUndoStack();
         const centered = getCenteredCanvasState();
@@ -2496,7 +2499,6 @@ export function createWorkflowManagerApi({
 
     return {
         applyWorkflowSidebarWidth,
-        workflowDesk,
         activateRestoredWorkflowState: workflowSessionActivator.activate,
         initWorkflow,
         loadWorkflowFromFile,

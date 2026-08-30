@@ -69,8 +69,8 @@ test('only the latest of three prepared Workflow activations commits', async () 
     const third = desk.show({ workflowId: 'workflow-c', label: 'C' });
     await Promise.resolve();
 
-    preparations.get('workflow-a')();
-    preparations.get('workflow-b')();
+    preparations.get('workflow-a')?.();
+    preparations.get('workflow-b')?.();
     preparations.get('workflow-c')();
 
     assert.equal((await first).status, 'superseded');
@@ -358,4 +358,37 @@ test('legacy active fields are read-only projections of WorkflowDesk committed s
     desk.migration.clearActive();
     assert.equal(state.activeWorkflowId, '');
     assert.equal(state.activeWorkflowName, '');
+});
+
+test('an externally superseded request rolls back before publishing its committed snapshot', async () => {
+    let current = true;
+    let releaseCommit;
+    let commitStarted;
+    const started = new Promise((resolve) => { commitStarted = resolve; });
+    const visible = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async ({ workflowId }) => ({
+            async commit() {
+                visible.push(`commit:${workflowId}`);
+                commitStarted();
+                await new Promise((resolve) => { releaseCommit = resolve; });
+                return true;
+            },
+            rollback() { visible.push(`rollback:${workflowId}`); return true; }
+        })
+    });
+
+    const pending = desk.show({
+        workflowId: 'workflow-a',
+        label: 'A',
+        isCurrent: () => current
+    });
+    await started;
+    current = false;
+    releaseCommit();
+
+    assert.equal((await pending).status, 'superseded');
+    assert.equal(desk.snapshot().active, null);
+    assert.deepEqual(visible, ['commit:workflow-a', 'rollback:workflow-a']);
 });

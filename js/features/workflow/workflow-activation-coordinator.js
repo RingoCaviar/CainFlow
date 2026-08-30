@@ -5,10 +5,12 @@ import {
     captureWorkflowTabRevision,
     replaceWorkflowTabData
 } from './workflow-tab-revision.js';
+import { WorkflowCommitRecoveryError } from './workflow-desk.js';
 
 export function createWorkflowSessionActivator({
     state,
     activeState,
+    workflowDesk = null,
     workflowActivation,
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`,
@@ -20,7 +22,7 @@ export function createWorkflowSessionActivator({
         const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
         const workflowName = tab?.name || '';
         if (!workflowId || !workflowName) return false;
-        activeState.commitActive({ workflowId, label: workflowName });
+        if (!workflowDesk) activeState.commitActive({ workflowId, label: workflowName });
         workflowActivation.setActiveKey(workflowId);
         return true;
     }
@@ -72,27 +74,52 @@ export function createWorkflowSessionActivator({
                     workflowOrder: state.workflowOrder,
                     workflowFolders: state.workflowFolders
                 };
-                if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
+                if (workflowDesk) {
+                    prepared.workflowDeskHandledView = true;
+                    let result;
+                    try {
+                        result = await workflowDesk.show({
+                            workflowId: prepared.activeWorkflowId,
+                            label: prepared.activeWorkflowName,
+                            editorView: prepared.editorView,
+                            force: true,
+                            signal: transaction.signal,
+                            isCurrent: transaction.isCurrent
+                        });
+                    } catch (error) {
+                        if (error instanceof WorkflowCommitRecoveryError
+                            && workflowDesk.snapshot().active === null) {
+                            prepared.workflowDeskSafeEmpty = true;
+                        }
+                        throw error;
+                    }
+                    if (result.status !== 'committed') return false;
+                } else if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) {
+                    return false;
+                }
                 state.workflowTabs = prepared.workflowTabs;
-                activeState.commitActive({
-                    workflowId: prepared.activeWorkflowId,
-                    label: prepared.activeWorkflowName,
-                    editorView: prepared.editorView
-                });
+                if (!workflowDesk) {
+                    activeState.commitActive({
+                        workflowId: prepared.activeWorkflowId,
+                        label: prepared.activeWorkflowName,
+                        editorView: prepared.editorView
+                    });
+                }
                 state.workflowOrder = prepared.workflowOrder;
                 state.workflowFolders = prepared.workflowFolders;
                 return true;
             },
             rollback: async (prepared) => {
+                if (prepared?.workflowDeskSafeEmpty) return { safeEmpty: true };
                 if (!prepared?.previous) return false;
-                if (prepared.editorView?.rollback?.() === false) return false;
+                if (!prepared.workflowDeskHandledView && prepared.editorView?.rollback?.() === false) return false;
                 state.workflowTabs = prepared.previous.workflowTabs;
-                if (prepared.previous.activeWorkflowId && prepared.previous.activeWorkflowName) {
+                if (!workflowDesk && prepared.previous.activeWorkflowId && prepared.previous.activeWorkflowName) {
                     activeState.commitActive({
                         workflowId: prepared.previous.activeWorkflowId,
                         label: prepared.previous.activeWorkflowName
                     });
-                } else {
+                } else if (!workflowDesk) {
                     activeState.clearActive();
                 }
                 state.workflowOrder = prepared.previous.workflowOrder;
@@ -100,7 +127,7 @@ export function createWorkflowSessionActivator({
                 return true;
             },
             finalize: (prepared) => {
-                prepared.editorView?.finalize?.();
+                if (!prepared.workflowDeskHandledView) prepared.editorView?.finalize?.();
                 applyViewport();
                 onViewApplied({
                     workflowName: prepared.activeWorkflowName,
@@ -116,6 +143,7 @@ export function createWorkflowSessionActivator({
 export function createWorkflowTargetActivator({
     state,
     activeState,
+    workflowDesk = null,
     workflowActivation,
     createWorkflowId,
     getWorkflowTab,
@@ -256,22 +284,47 @@ export function createWorkflowTargetActivator({
                 const committedTab = (state.workflowTabs || [])
                     .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
                 prepared.activeWorkflowName = committedTab.name;
-                if (!transaction.isCurrent() || await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
+                if (!transaction.isCurrent()) return false;
+                if (workflowDesk) {
+                    prepared.workflowDeskHandledView = true;
+                    let result;
+                    try {
+                        result = await workflowDesk.show({
+                            workflowId: ensureWorkflowIdentity(tab),
+                            label: prepared.activeWorkflowName,
+                            editorView: prepared.editorView,
+                            force: reloadFromFile,
+                            signal: transaction.signal,
+                            isCurrent: transaction.isCurrent
+                        });
+                    } catch (error) {
+                        if (error instanceof WorkflowCommitRecoveryError
+                            && workflowDesk.snapshot().active === null) {
+                            prepared.workflowDeskSafeEmpty = true;
+                        }
+                        throw error;
+                    }
+                    if (result.status !== 'committed' && result.status !== 'already-visible') return false;
+                } else if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) {
+                    return false;
+                }
                 if (prepared.previous.tab) {
                     prepared.previous.tab.data = cloneWorkflowData(prepared.previous.data);
                 }
-                activeState.commitActive({
-                    workflowId: ensureWorkflowIdentity(tab),
-                    label: prepared.activeWorkflowName,
-                    editorView: prepared.editorView
-                });
+                if (!workflowDesk) {
+                    activeState.commitActive({
+                        workflowId: ensureWorkflowIdentity(tab),
+                        label: prepared.activeWorkflowName,
+                        editorView: prepared.editorView
+                    });
+                }
                 clearUndoStack();
                 updatePortStyles();
                 applyViewport();
                 return true;
             },
             finalize: (prepared) => {
-                prepared.editorView?.finalize?.();
+                if (!prepared.workflowDeskHandledView) prepared.editorView?.finalize?.();
                 const effects = [
                     () => onViewApplied({
                         workflowName: prepared.activeWorkflowName,
@@ -290,6 +343,7 @@ export function createWorkflowTargetActivator({
                 });
             },
             rollback: async (prepared) => {
+                if (prepared?.workflowDeskSafeEmpty) return { safeEmpty: true };
                 const previous = prepared?.previous;
                 if (!previous) {
                     prepared?.editorView?.dispose?.();
@@ -298,13 +352,13 @@ export function createWorkflowTargetActivator({
                 return rollbackWorkflowActivation({
                     prepared,
                     restorePrevious: async () => {
-                        if (prepared.editorView?.rollback?.() === false) return false;
-                        if (previous.workflowId && previous.name) {
+                        if (!prepared.workflowDeskHandledView && prepared.editorView?.rollback?.() === false) return false;
+                        if (!workflowDesk && previous.workflowId && previous.name) {
                             activeState.commitActive({
                                 workflowId: previous.workflowId,
                                 label: previous.name
                             });
-                        } else {
+                        } else if (!workflowDesk) {
                             activeState.clearActive();
                         }
                         state.undoStack = previous.undoStack;

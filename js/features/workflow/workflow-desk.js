@@ -112,8 +112,14 @@ export function createWorkflowDesk({
         if (!recovered) await publishSafeEmpty(target, cause);
     }
 
+    function isTargetCurrent(target, generation) {
+        return generation === activationGeneration
+            && target?.signal?.aborted !== true
+            && target?.isCurrent?.() !== false;
+    }
+
     async function commitPreparedTarget({ generation, target, editorView }) {
-        if (generation !== activationGeneration) {
+        if (!isTargetCurrent(target, generation)) {
             editorView.dispose?.();
             return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
         }
@@ -124,7 +130,7 @@ export function createWorkflowDesk({
         } catch (error) {
             commitError = error;
         }
-        if (generation !== activationGeneration) {
+        if (!isTargetCurrent(target, generation)) {
             await rollbackPreparedView(editorView, target, commitError);
             return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
         }
@@ -198,14 +204,19 @@ export function createWorkflowDesk({
     async function show(selection) {
         const generation = ++activationGeneration;
         const target = await resolveSelection(selection);
-        if (active?.workflowId === target.workflowId) {
+        if (!isTargetCurrent(target, generation)) {
+            target.editorView?.dispose?.();
+            return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
+        }
+        if (active?.workflowId === target.workflowId && target.force !== true) {
+            target.editorView?.dispose?.();
             return Object.freeze({ status: 'already-visible', active, snapshot: currentSnapshot });
         }
         let editorView;
         try {
             editorView = await prepareEditorView(target);
         } catch (error) {
-            if (generation !== activationGeneration) {
+            if (!isTargetCurrent(target, generation)) {
                 return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
             }
             throw new WorkflowEditorPrepareError(undefined, { cause: error });
