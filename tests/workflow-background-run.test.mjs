@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+    attachWorkflowDeskStateProjection,
+    createWorkflowDesk
+} from '../js/features/workflow/workflow-desk.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
 
 function deferred() {
@@ -31,8 +35,6 @@ test('Background workflow run survives activation, restores on return, and compl
         }
     };
     const state = {
-        activeWorkflowId: 'workflow-a',
-        activeWorkflowName: currentLabel,
         nodes: new Map([['node-a', visibleNode]]),
         connections: [],
         selectedNodes: new Set(),
@@ -86,6 +88,22 @@ test('Background workflow run survives activation, restores on return, and compl
             dispose() {}
         })
     });
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => ({
+            async commit() { return true; },
+            async finalize() {
+                api.refreshVisibleWorkflowRunState({
+                    workflowId: target.workflowId,
+                    workflowName: target.label
+                });
+            }
+        }),
+        mutateWorkflow: async () => ({ ok: true })
+    });
+    attachWorkflowDeskStateProjection(state, workflowDesk);
+
+    await workflowDesk.show({ workflowId: 'workflow-a', label: currentLabel });
 
     assert.equal(await api.runWorkflowInContext({
         workflowId: 'workflow-a',
@@ -93,15 +111,12 @@ test('Background workflow run survives activation, restores on return, and compl
     }, { nodes: [{ id: 'node-a' }], connections: [] }), true);
     assert.equal(runCount, 1);
 
-    state.activeWorkflowId = 'workflow-b';
-    state.activeWorkflowName = 'other';
+    await workflowDesk.show({ workflowId: 'workflow-b', label: 'other' });
     currentLabel = 'folder/renamed';
     assert.equal(runCount, 1);
     assert.deepEqual(running[0], { workflowId: 'workflow-a', value: true });
 
-    state.activeWorkflowId = 'workflow-a';
-    state.activeWorkflowName = currentLabel;
-    api.refreshVisibleWorkflowRunState({ workflowId: 'workflow-a', workflowName: currentLabel });
+    await workflowDesk.show({ workflowId: 'workflow-a', label: currentLabel });
     assert.equal(runCount, 1);
     assert.equal(state.runningNodeIds.has('node-a'), true);
 

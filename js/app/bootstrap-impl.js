@@ -1211,8 +1211,11 @@ function getWorkflowRunnerApi() {
                 scheduleSave();
             },
             onNodeRunStateChange: (payload) => {
-                if (state.activeWorkflowName) {
-                    getWorkflowRuntimeManagerApi().applyVisibleNodeRunState(state.activeWorkflowName, payload);
+                if (state.activeWorkflowId) {
+                    getWorkflowRuntimeManagerApi().applyVisibleNodeRunState({
+                        workflowId: state.activeWorkflowId,
+                        workflowName: state.activeWorkflowName || ''
+                    }, payload);
                 }
                 if (payload?.status === 'completed' && payload.nodeId) {
                     mediaControllerApi?.scheduleMediaMemorySweep?.({ delayMs: 4200, reason: 'node-run-completed' });

@@ -2679,74 +2679,12 @@ export function createWorkflowManagerApi({
             const tab = getWorkflowTab(name);
             return tab ? cloneWorkflowData(tab.data) : null;
         },
-        updateWorkflowTabData: (name, data, options = {}) => {
-            if (!name || !data) return false;
-            const sourceData = state.activeWorkflowName === name && options.mergeWithCanvas === true
-                ? getWorkflowPayload()
-                : getWorkflowTab(name)?.data;
-            const nextData = options.mergeRunResults === true
-                ? mergeRunWorkflowData(sourceData, data, {
-                    baseNodeIds: options.baseNodeIds,
-                    baseConnectionIds: options.baseConnectionIds,
-                    mergeNodeIds: options.mergeNodeIds
-                })
-                : cloneWorkflowData(data);
-            let tab = getWorkflowTab(name);
-            if (!tab) {
-                tab = {
-                    name,
-                    data: nextData,
-                    dirty: options.dirty === true,
-                    colorIndex: (state.workflowTabs || []).length % TAB_COLORS,
-                    runResult: normalizeWorkflowRunResult(options.runResult)
-                };
-                state.workflowTabs.push(tab);
-            } else {
-                releaseDetachedEditorView({
-                    workflowName: tab.name || '',
-                    workflowId: tab.workflowId || tab.data?.workflowId || ''
-                });
-                replaceWorkflowTabData(tab, nextData);
-                if (options.dirty === true) tab.dirty = true;
-                if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);
-            }
-            // Keep current-canvas mutations and workflow switching separate.
-            // Rebuilding the canvas belongs to explicit workflow activation paths,
-            // not background tab-data sync during edits or runtime updates.
-            refreshWorkflowCardState(name);
-            return true;
-        },
         updateWorkflowTabDataById: (workflowId, data, options = {}) => {
             const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
             if (!tab) return false;
             return updateWorkflowTabDataByName(tab.name, data, options);
         },
         setWorkflowRunningStateById,
-        setWorkflowRunningState: (name, running = false) => {
-            const tab = getWorkflowTab(name);
-            if (!tab) return false;
-            tab.running = running === true;
-            activeState.setRunning(ensureWorkflowIdentity(tab), tab.running);
-            if (tab.running) tab.runResult = '';
-            if (state.activeWorkflowName === name) {
-                state.nodes.forEach((node) => {
-                    node.el?.classList.remove('workflow-running-locked');
-                });
-            }
-            refreshWorkflowCardState(name);
-            renderWorkflowList();
-            scheduleSave({ dirty: false });
-            return true;
-        },
-        setWorkflowRunResult: (name, result = '') => {
-            const tab = getWorkflowTab(name);
-            if (!tab) return false;
-            tab.runResult = state.activeWorkflowName === name ? '' : normalizeWorkflowRunResult(result);
-            refreshWorkflowCardState(name);
-            renderWorkflowList();
-            scheduleSave({ dirty: false });
-            return true;
-        },
         setWorkflowRunResultById,
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,
