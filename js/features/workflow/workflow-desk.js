@@ -80,6 +80,24 @@ export class WorkflowRunningPolicyError extends Error {
     }
 }
 
+export class WorkflowMutationCommitError extends Error {
+    constructor(message = 'Workflow mutation could not commit session state', options = {}) {
+        super(message, options);
+        this.name = 'WorkflowMutationCommitError';
+        this.workflowId = options.workflowId || '';
+        this.operation = options.operation || '';
+    }
+}
+
+export class WorkflowMutationRecoveryError extends Error {
+    constructor(message = 'Workflow mutation persistence could not be compensated', options = {}) {
+        super(message, options);
+        this.name = 'WorkflowMutationRecoveryError';
+        this.workflowId = options.workflowId || '';
+        this.operation = options.operation || '';
+    }
+}
+
 function freezeSnapshot({ revision, active, openWorkflows }) {
     if (active && !openWorkflows.has(active.workflowId)) {
         throw new Error('Active Workflow must have an Open Workflow record');
@@ -102,6 +120,8 @@ export function createWorkflowDesk({
     commitSafeEmpty = async () => {},
     recordDiagnostic = async () => {},
     mutateWorkflow = async () => ({ ok: false }),
+    commitWorkflowMutation = async () => {},
+    rollbackWorkflowMutation = async () => {},
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
 }) {
@@ -323,6 +343,64 @@ export function createWorkflowDesk({
         return workflowId;
     }
 
+    async function commitPersistedMutation({ workflowId, kind, result, operation, validate, commit }) {
+        let projectionToken;
+        try {
+            projectionToken = await commitWorkflowMutation(operation);
+            validate?.();
+            return commit();
+        } catch (error) {
+            let rollbackError = null;
+            try {
+                await rollbackWorkflowMutation(operation, projectionToken);
+            } catch (failure) {
+                rollbackError = failure;
+            }
+            try {
+                if (typeof result.compensate !== 'function') {
+                    throw new Error('Workflow mutation did not provide compensation');
+                }
+                await result.compensate();
+            } catch (compensationError) {
+                try {
+                    await recordDiagnostic({
+                        kind: 'workflow-mutation-compensation-failed',
+                        workflowId,
+                        operation: kind,
+                        error: compensationError,
+                        commitError: error
+                    });
+                } catch {}
+                throw new WorkflowMutationRecoveryError(undefined, {
+                    cause: compensationError,
+                    workflowId,
+                    operation: kind
+                });
+            }
+            if (rollbackError) {
+                try {
+                    await recordDiagnostic({
+                        kind: 'workflow-mutation-rollback-failed',
+                        workflowId,
+                        operation: kind,
+                        error: rollbackError,
+                        commitError: error
+                    });
+                } catch {}
+                throw new WorkflowMutationRecoveryError(undefined, {
+                    cause: rollbackError,
+                    workflowId,
+                    operation: kind
+                });
+            }
+            throw new WorkflowMutationCommitError(undefined, {
+                cause: error,
+                workflowId,
+                operation: kind
+            });
+        }
+    }
+
     async function runIdentityMutation(workflowId, kind, handleToken, options = {}) {
         const current = requireMutationAllowed(workflowId, kind, handleToken);
         const closeToken = kind === 'close' ? Object.freeze({ workflowId }) : null;
@@ -346,18 +424,44 @@ export function createWorkflowDesk({
         if (result?.ok !== true) return false;
         if (kind === 'save') markMigratedWorkflowSaved(workflowId, handleToken);
         if ((kind === 'rename' || kind === 'move') && options.label) {
-            publishRelabel(workflowId, options.label, handleToken);
+            return commitPersistedMutation({
+                workflowId,
+                kind,
+                result,
+                operation: Object.freeze({ kind, workflowId, previousLabel: current.label, label: options.label }),
+                validate: () => requireMutationAllowed(workflowId, kind, handleToken),
+                commit: () => {
+                    publishRelabel(workflowId, options.label, handleToken);
+                    return Object.freeze({ status: 'committed', workflowId, snapshot: currentSnapshot });
+                }
+            });
         }
         if ((kind === 'copy' || kind === 'save-as') && options.registerOpen !== false) {
-            openWorkflows.set(options.newWorkflowId, createOpenWorkflowRecord({
-                workflowId: options.newWorkflowId,
-                label: options.label || current.label,
-                pendingExplicitSave: false,
-                running: false
-            }));
-            revision += 1;
-            publishSnapshot();
-            return workflow(options.newWorkflowId);
+            return commitPersistedMutation({
+                workflowId,
+                kind,
+                result,
+                operation: Object.freeze({
+                    kind,
+                    workflowId,
+                    newWorkflowId: options.newWorkflowId,
+                    label: options.label || current.label,
+                    registerOpen: options.registerOpen !== false,
+                    projection: result.projection
+                }),
+                validate: () => requireOpenWorkflow(workflowId, handleToken),
+                commit: () => {
+                    openWorkflows.set(options.newWorkflowId, createOpenWorkflowRecord({
+                        workflowId: options.newWorkflowId,
+                        label: options.label || current.label,
+                        pendingExplicitSave: false,
+                        running: false
+                    }));
+                    revision += 1;
+                    publishSnapshot();
+                    return workflow(options.newWorkflowId);
+                }
+            });
         }
         if (kind === 'copy' || kind === 'save-as') {
             return Object.freeze({ status: 'committed', workflowId: options.newWorkflowId, snapshot: currentSnapshot });
@@ -385,6 +489,94 @@ export function createWorkflowDesk({
             publishSnapshot();
         }
         return Object.freeze({ status: 'committed', workflowId, snapshot: currentSnapshot });
+    }
+
+    async function runRelabelMutation(bindings, changes, options = {}) {
+        const normalizedChanges = changes.map(({ workflowId, label }) => ({
+            workflowId: String(workflowId || '').trim(),
+            label: String(label || '')
+        }));
+        const boundIdentities = new Set(bindings.map(({ workflowId }) => workflowId));
+        const changedIdentities = new Set(normalizedChanges.map(({ workflowId }) => workflowId));
+        if (changedIdentities.size !== normalizedChanges.length
+            || boundIdentities.size !== bindings.length
+            || changedIdentities.size !== boundIdentities.size
+            || Array.from(changedIdentities).some((workflowId) => !boundIdentities.has(workflowId))) {
+            throw new WorkflowIdentityOwnershipError('Workflow relabel changes must match identity-bound handles');
+        }
+        for (const { workflowId, handleToken } of bindings) {
+            requireMutationAllowed(workflowId, 'move', handleToken);
+        }
+        const result = await mutateWorkflow(Object.freeze({
+            kind: 'relabel-many',
+            changes: Object.freeze(normalizedChanges.map(Object.freeze)),
+            ...options
+        }));
+        if (result?.ok !== true) return false;
+        try {
+            for (const { workflowId, handleToken } of bindings) {
+                requireMutationAllowed(workflowId, 'move', handleToken);
+            }
+        } catch (error) {
+            try {
+                if (typeof result.compensate !== 'function') throw new Error('Workflow relabel did not provide compensation');
+                await result.compensate();
+            } catch (compensationError) {
+                try {
+                    await recordDiagnostic({
+                        kind: 'workflow-mutation-compensation-failed',
+                        operation: 'relabel-many',
+                        error: compensationError,
+                        commitError: error
+                    });
+                } catch {}
+                throw new WorkflowMutationRecoveryError(undefined, {
+                    cause: compensationError,
+                    operation: 'relabel-many'
+                });
+            }
+            throw new WorkflowMutationCommitError(undefined, {
+                cause: error,
+                operation: 'relabel-many'
+            });
+        }
+        return commitPersistedMutation({
+            workflowId: bindings.map(({ workflowId }) => workflowId).join(','),
+            kind: 'relabel-many',
+            result,
+            operation: Object.freeze({
+                kind: 'relabel-many',
+                changes: Object.freeze(normalizedChanges.map(Object.freeze)),
+                previousFolderId: options.previousFolderId,
+                folderId: options.folderId,
+                projection: result.projection
+            }),
+            validate: () => {
+                for (const { workflowId, handleToken } of bindings) {
+                    requireMutationAllowed(workflowId, 'move', handleToken);
+                }
+            },
+            commit: () => {
+                revision += 1;
+                for (const { workflowId, label } of normalizedChanges) {
+                    const current = openWorkflows.get(workflowId);
+                    openWorkflows.set(workflowId, { ...current, label });
+                    if (active?.workflowId === workflowId) active = Object.freeze({ ...active, label, revision });
+                }
+                publishSnapshot();
+                return Object.freeze({ status: 'committed', snapshot: currentSnapshot });
+            }
+        });
+    }
+
+    function workflows(workflowIds) {
+        const bindings = Array.from(new Set(workflowIds || []), (workflowId) => {
+            const identity = String(workflowId || '').trim();
+            return Object.freeze({ workflowId: identity, handleToken: openWorkflows.get(identity)?.handleToken });
+        });
+        return Object.freeze({
+            relabel: (changes, options = {}) => runRelabelMutation(bindings, changes, options)
+        });
     }
 
     function workflow(workflowId) {
@@ -641,5 +833,5 @@ export function createWorkflowDesk({
         return enqueueCommit(() => commitPreparedTarget({ generation, target, editorView }));
     }
 
-    return Object.freeze({ show, restore, workflow, snapshot: () => currentSnapshot });
+    return Object.freeze({ show, restore, workflow, workflows, snapshot: () => currentSnapshot });
 }

@@ -94,7 +94,11 @@ export function createWorkflowManagerApi({
         commitSafeEmpty: async () => applySafeEmptyWorkflow({ publishActiveState: false }),
         createWorkflowId,
         recordDiagnostic: recordWorkflowDiagnostic,
-        mutateWorkflow: (operation) => mutateWorkflowThroughDesk(operation)
+        mutateWorkflow: (operation) => mutateWorkflowThroughDesk(operation),
+        commitWorkflowMutation: (operation) => commitWorkflowMutationProjection(operation),
+        rollbackWorkflowMutation: (operation, projectionToken) => (
+            rollbackWorkflowMutationProjection(operation, projectionToken)
+        )
     });
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
@@ -172,8 +176,14 @@ export function createWorkflowManagerApi({
         if (operation.kind === 'rename' || operation.kind === 'move') {
             const previousName = tab.name;
             const ok = await renameWorkflowFile(previousName, operation.label);
-            if (ok) replaceWorkflowNameInState(previousName, operation.label, { publishActiveState: false });
-            return { ok };
+            return {
+                ok,
+                compensate: async () => {
+                    if (!(await renameWorkflowFile(operation.label, previousName))) {
+                        throw new Error('Workflow rename compensation failed');
+                    }
+                }
+            };
         }
         if (operation.kind === 'reload') {
             const ok = await workflowTargetActivator.activate(tab.name, { reloadFromFile: true });
@@ -193,8 +203,7 @@ export function createWorkflowManagerApi({
                     data
                 })
                 : await saveWorkflowToFile(operation.label, data);
-            if (ok && operation.registerOpen !== false) {
-                state.workflowTabs.push({
+            const createdTab = operation.registerOpen !== false ? {
                     workflowId: operation.newWorkflowId,
                     name: operation.label,
                     data,
@@ -202,11 +211,90 @@ export function createWorkflowManagerApi({
                     colorIndex: state.workflowTabs.length % TAB_COLORS,
                     running: false,
                     runResult: ''
-                });
-            }
-            return { ok };
+                } : null;
+            return {
+                ok,
+                projection: createdTab,
+                compensate: typeof operation.compensate === 'function'
+                    ? operation.compensate
+                    : (typeof operation.persist === 'function' ? undefined : async () => {
+                        if (!(await deleteWorkflowFile(operation.label))) {
+                            throw new Error('Workflow copy compensation failed');
+                        }
+                    })
+            };
+        }
+        if (operation.kind === 'relabel-many') {
+            const payload = await renameWorkflowFolderOnDisk(operation.previousFolderId, operation.folderId);
+            return {
+                ok: !!payload,
+                projection: payload,
+                compensate: async () => {
+                    if (!(await renameWorkflowFolderOnDisk(operation.folderId, operation.previousFolderId))) {
+                        throw new Error('Workflow folder rename compensation failed');
+                    }
+                }
+            };
         }
         return { ok: false, kind: 'unsupported-workflow-mutation' };
+    }
+
+    function commitWorkflowMutationProjection(operation) {
+        if (operation.kind === 'rename' || operation.kind === 'move') {
+            const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === operation.workflowId);
+            replaceWorkflowNameInState(operation.previousLabel, operation.label, { publishActiveState: false });
+            return Object.freeze({ tab });
+        }
+        if ((operation.kind === 'copy' || operation.kind === 'save-as') && operation.registerOpen) {
+            state.workflowTabs.push(operation.projection);
+            return Object.freeze({ tab: operation.projection });
+        }
+        if (operation.kind === 'relabel-many') {
+            const folder = getWorkflowFolderById(operation.previousFolderId);
+            const entries = (operation.projection?.moved || []).map(({ old, new: next }) => Object.freeze({
+                tab: getWorkflowTab(old),
+                previousLabel: old,
+                label: next
+            })).filter(({ tab }) => !!tab);
+            applyMovedWorkflowNames(operation.projection?.moved || [], { publishActiveState: false });
+            replaceWorkflowFolderInState(operation.previousFolderId, operation.folderId);
+            return Object.freeze({ folder, entries: Object.freeze(entries) });
+        }
+        return Object.freeze({});
+    }
+
+    function rollbackWorkflowMutationProjection(operation, projectionToken = {}) {
+        if (operation.kind === 'rename' || operation.kind === 'move') {
+            if (!projectionToken.tab
+                || !(state.workflowTabs || []).includes(projectionToken.tab)
+                || getWorkflowTab(operation.label) !== projectionToken.tab) {
+                throw new Error('Workflow projection rollback lost ownership');
+            }
+            replaceWorkflowNameInState(operation.label, operation.previousLabel, { publishActiveState: false });
+            return;
+        }
+        if ((operation.kind === 'copy' || operation.kind === 'save-as') && operation.registerOpen) {
+            state.workflowTabs = state.workflowTabs.filter((candidate) => candidate !== projectionToken.tab);
+            return;
+        }
+        if (operation.kind === 'relabel-many') {
+            let lostOwnership = false;
+            for (const { tab, previousLabel, label } of projectionToken.entries || []) {
+                if ((state.workflowTabs || []).includes(tab) && getWorkflowTab(label) === tab) {
+                    replaceWorkflowNameInState(label, previousLabel, { publishActiveState: false });
+                } else {
+                    lostOwnership = true;
+                }
+            }
+            if (projectionToken.folder
+                && (state.workflowFolders || []).includes(projectionToken.folder)
+                && projectionToken.folder.id === operation.folderId) {
+                replaceWorkflowFolderInState(operation.folderId, operation.previousFolderId);
+            } else {
+                lostOwnership = true;
+            }
+            if (lostOwnership) throw new Error('Workflow folder projection rollback lost ownership');
+        }
     }
 
     function ensureWorkflowIdentity(tab, data = tab?.data) {
@@ -824,11 +912,11 @@ export function createWorkflowManagerApi({
         }
     }
 
-    function applyMovedWorkflowNames(moved = []) {
+    function applyMovedWorkflowNames(moved = [], { publishActiveState = true } = {}) {
         moved.forEach((item) => {
             const oldName = item?.old || '';
             const newName = item?.new || '';
-            if (oldName && newName) replaceWorkflowNameInState(oldName, newName);
+            if (oldName && newName) replaceWorkflowNameInState(oldName, newName, { publishActiveState });
         });
     }
 
@@ -1107,21 +1195,31 @@ export function createWorkflowManagerApi({
             return false;
         }
 
-        const folderRename = await persistWorkflowRenameIfEligible(
-            listWorkflowNamesInFolder(folderId, state.workflowFolders),
-            {
-                tabs: state.workflowTabs,
-                persist: () => renameWorkflowFolderOnDisk(folderId, newFolderId)
+        const workflowNames = listWorkflowNamesInFolder(folderId, state.workflowFolders);
+        const folderRename = await persistWorkflowRenameIfEligible(workflowNames, {
+            tabs: state.workflowTabs,
+            persist: () => {
+                const openChanges = workflowNames.map((name) => {
+                    const tab = getWorkflowTab(name);
+                    if (!tab) return null;
+                    const suffix = name.slice(folderId.length).replace(/^\//, '');
+                    return {
+                        workflowId: ensureWorkflowIdentity(tab),
+                        label: `${newFolderId}/${suffix}`
+                    };
+                }).filter(Boolean);
+                return workflowDesk.workflows(openChanges.map(({ workflowId }) => workflowId)).relabel(openChanges, {
+                    previousFolderId: folderId,
+                    folderId: newFolderId
+                });
             }
-        );
+        });
         if (!folderRename.allowed) {
             showToast('文件夹中有工作流正在运行，暂不能重命名', 'warning');
             return false;
         }
         const payload = folderRename.result;
-        if (!payload) return false;
-        applyMovedWorkflowNames(payload.moved || []);
-        replaceWorkflowFolderInState(folderId, newFolderId);
+        if (!payload || payload.status !== 'committed') return false;
         showToast(`文件夹「${oldBaseName}」已重命名为「${newBaseName}」`, 'success');
         renderWorkflowList();
         scheduleSave({ dirty: false });

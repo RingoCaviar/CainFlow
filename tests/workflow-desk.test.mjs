@@ -5,6 +5,8 @@ import {
     WorkflowEditorCommitError,
     WorkflowEditorPrepareError,
     WorkflowIdentityOwnershipError,
+    WorkflowMutationCommitError,
+    WorkflowMutationRecoveryError,
     createWorkflowDesk
 } from '../js/features/workflow/workflow-desk.js';
 
@@ -117,6 +119,234 @@ test('identity-bound Workflow handle retains identity for save rename and move',
     assert.equal(desk.snapshot().active.label, 'other/renamed');
 });
 
+test('rename publishes its label only after persistence and session commit', async () => {
+    const persistenceGate = deferred();
+    const commits = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => persistenceGate.promise,
+        commitWorkflowMutation: () => commits.push('session-committed')
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'old/A',
+        editorView: { async commit() { return true; } }
+    });
+
+    const renaming = desk.workflow('workflow-a').rename('new/A');
+    assert.equal(desk.snapshot().active.label, 'old/A');
+    persistenceGate.resolve({
+        ok: true
+    });
+
+    assert.equal((await renaming).status, 'committed');
+    assert.deepEqual(commits, ['session-committed']);
+    assert.equal(desk.snapshot().active.label, 'new/A');
+});
+
+test('failed rename persistence preserves the committed Open Workflow record', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => ({ ok: false })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'old/A',
+        editorView: { async commit() { return true; } }
+    });
+
+    assert.equal(await desk.workflow('workflow-a').rename('new/A'), false);
+    assert.equal(desk.snapshot().active.label, 'old/A');
+});
+
+test('failed rename commit compensates persistence and preserves the old label', async () => {
+    const effects = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitWorkflowMutation: () => { effects.push('commit'); throw new Error('session commit failed'); },
+        rollbackWorkflowMutation: () => effects.push('rollback'),
+        mutateWorkflow: async () => ({
+            ok: true,
+            compensate: async () => effects.push('compensate')
+        })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'old/A',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(
+        () => desk.workflow('workflow-a').rename('new/A'),
+        WorkflowMutationCommitError
+    );
+    assert.deepEqual(effects, ['commit', 'rollback', 'compensate']);
+    assert.equal(desk.snapshot().active.label, 'old/A');
+});
+
+test('failed rename compensation records a diagnostic and reports recovery failure', async () => {
+    const diagnostics = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        recordDiagnostic: async (record) => diagnostics.push(record),
+        commitWorkflowMutation: () => { throw new Error('session commit failed'); },
+        mutateWorkflow: async () => ({
+            ok: true,
+            compensate: async () => { throw new Error('disk compensation failed'); }
+        })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'old/A',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(
+        () => desk.workflow('workflow-a').rename('new/A'),
+        WorkflowMutationRecoveryError
+    );
+    assert.equal(desk.snapshot().active.label, 'old/A');
+    assert.deepEqual(diagnostics.map(({ kind }) => kind), ['workflow-mutation-compensation-failed']);
+});
+
+test('failed session rollback records a diagnostic and reports recovery failure', async () => {
+    const diagnostics = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        recordDiagnostic: async (record) => diagnostics.push(record),
+        commitWorkflowMutation: () => { throw new Error('session commit failed'); },
+        rollbackWorkflowMutation: () => { throw new Error('session rollback failed'); },
+        mutateWorkflow: async () => ({ ok: true, compensate: async () => {} })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'old/A',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(
+        () => desk.workflow('workflow-a').move('new/A'),
+        WorkflowMutationRecoveryError
+    );
+    assert.equal(desk.snapshot().active.label, 'old/A');
+    assert.deepEqual(diagnostics.map(({ kind }) => kind), ['workflow-mutation-rollback-failed']);
+});
+
+test('folder relabel commits multiple identity-bound records in one snapshot', async () => {
+    const persistenceGate = deferred();
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => persistenceGate.promise
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'old/A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'old/B', data: { workflowId: 'workflow-b' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    const revision = desk.snapshot().revision;
+    const relabeling = desk.workflows(['workflow-a', 'workflow-b']).relabel([
+        { workflowId: 'workflow-a', label: 'new/A' },
+        { workflowId: 'workflow-b', label: 'new/B' }
+    ], { previousFolderId: 'old', folderId: 'new' });
+    assert.deepEqual(desk.snapshot().open.map(({ label }) => label), ['old/A', 'old/B']);
+    persistenceGate.resolve({ ok: true, projection: { moved: [] }, compensate: async () => {} });
+
+    assert.equal((await relabeling).status, 'committed');
+    assert.equal(desk.snapshot().revision, revision + 1);
+    assert.deepEqual(desk.snapshot().open.map(({ label }) => label), ['new/A', 'new/B']);
+    assert.equal(desk.snapshot().active.label, 'new/A');
+});
+
+test('folder relabel requires every change to match one identity-bound handle', async () => {
+    let persisted = false;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => { persisted = true; return { ok: true }; }
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'old/A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'old/B', data: { workflowId: 'workflow-b' } }
+        ]
+    });
+
+    await assert.rejects(
+        () => desk.workflows(['workflow-a']).relabel([{ workflowId: 'workflow-b', label: 'new/B' }]),
+        WorkflowIdentityOwnershipError
+    );
+    assert.equal(persisted, false);
+    assert.deepEqual(desk.snapshot().open.map(({ label }) => label), ['old/A', 'old/B']);
+});
+
+test('folder relabel enforces running policy at the Desk interface', async () => {
+    let persisted = false;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => { persisted = true; return { ok: true }; }
+    });
+    await desk.restore({
+        workflows: [{
+            workflowId: 'workflow-running',
+            name: 'old/running',
+            running: true,
+            data: { workflowId: 'workflow-running' }
+        }]
+    });
+
+    await assert.rejects(
+        () => desk.workflows(['workflow-running']).relabel([
+            { workflowId: 'workflow-running', label: 'new/running' }
+        ]),
+        { name: 'WorkflowRunningPolicyError' }
+    );
+    assert.equal(persisted, false);
+});
+
+test('folder relabel cannot publish through handles replaced during projection commit', async () => {
+    const projectionGate = deferred();
+    const effects = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitWorkflowMutation: async () => {
+            await projectionGate.promise;
+            return Object.freeze({ owner: 'original-projection' });
+        },
+        rollbackWorkflowMutation: async (_operation, token) => effects.push(`rollback-${token.owner}`),
+        mutateWorkflow: async () => ({
+            ok: true,
+            projection: { moved: [] },
+            compensate: async () => effects.push('compensate-disk')
+        })
+    });
+    await desk.restore({
+        workflows: [{ workflowId: 'workflow-a', name: 'old/A', data: { workflowId: 'workflow-a' } }]
+    });
+    const relabeling = desk.workflows(['workflow-a']).relabel([
+        { workflowId: 'workflow-a', label: 'new/A' }
+    ]);
+
+    await desk.restore({
+        workflows: [{ workflowId: 'workflow-a', name: 'replacement/A', data: { workflowId: 'workflow-a' } }]
+    });
+    projectionGate.resolve();
+
+    await assert.rejects(() => relabeling, WorkflowMutationCommitError);
+    assert.deepEqual(effects, ['rollback-original-projection', 'compensate-disk']);
+    assert.equal(desk.snapshot().open[0].label, 'replacement/A');
+});
+
 test('explicit save clears pending identity persistence only after success', async () => {
     const saveGate = deferred();
     const desk = createWorkflowDesk({
@@ -214,6 +444,32 @@ test('Copy and Save As allocate new Workflow identities behind the handle seam',
     ]);
     assert.equal(desk.snapshot().open.find(({ workflowId }) => workflowId === 'copy-id').pendingExplicitSave, false);
     assert.equal(desk.snapshot().open.find(({ workflowId }) => workflowId === 'save-as-id').pendingExplicitSave, false);
+});
+
+test('failed copy session commit compensates the persisted new Workflow', async () => {
+    const effects = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'copy-id',
+        commitWorkflowMutation: () => { throw new Error('tab commit failed'); },
+        mutateWorkflow: async () => ({
+            ok: true,
+            compensate: async () => effects.push('delete-copy')
+        })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'A',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(
+        () => desk.workflow('workflow-a').copy('A copy'),
+        WorkflowMutationCommitError
+    );
+    assert.deepEqual(effects, ['delete-copy']);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a']);
 });
 
 test('running and closed identity-bound Workflow handles fail explicitly', async () => {

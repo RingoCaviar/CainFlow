@@ -28,6 +28,14 @@ test('Workflow persistence adapters cannot write pending identity state', () => 
     assert.doesNotMatch(manager, /\.documentSaved\(\)/);
 });
 
+test('Workflow mutation rollback keeps its projection ownership token', () => {
+    const manager = readFileSync(`${root}/js/features/workflow/workflow-manager.js`, 'utf8');
+    assert.match(
+        manager,
+        /rollbackWorkflowMutation:\s*\(operation, projectionToken\)[\s\S]*?rollbackWorkflowMutationProjection\(operation, projectionToken\)/
+    );
+});
+
 test('normalized Workflow references cannot fall back to mutable names', () => {
     const identity = readFileSync(`${root}/js/features/workflow/workflow-identity.js`, 'utf8');
     assert.doesNotMatch(identity, /typeof workflow === ['"]string['"]/);
