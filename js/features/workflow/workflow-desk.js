@@ -122,6 +122,7 @@ export function createWorkflowDesk({
     mutateWorkflow = async () => ({ ok: false }),
     commitWorkflowMutation = async () => {},
     rollbackWorkflowMutation = async () => {},
+    finalizeWorkflowMutation = async () => {},
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
 }) {
@@ -466,6 +467,9 @@ export function createWorkflowDesk({
         if (kind === 'copy' || kind === 'save-as') {
             return Object.freeze({ status: 'committed', workflowId: options.newWorkflowId, snapshot: currentSnapshot });
         }
+        if (kind === 'close' && result.projectionOnly === true) {
+            return commitCloseBindings([Object.freeze({ workflowId, handleToken })]);
+        }
         if (kind === 'reload' && result.selection) {
             return show({ ...result.selection, workflowId, force: true });
         }
@@ -569,13 +573,76 @@ export function createWorkflowDesk({
         });
     }
 
+    async function commitCloseBindings(bindings) {
+        for (const { workflowId, handleToken } of bindings) {
+            requireMutationAllowed(workflowId, 'close', handleToken);
+        }
+        const workflowIds = Object.freeze(bindings.map(({ workflowId }) => workflowId));
+        const operation = Object.freeze({ kind: 'close-many', workflowIds });
+        const result = await commitPersistedMutation({
+            workflowId: workflowIds.join(','),
+            kind: 'close-many',
+            result: Object.freeze({ compensate: async () => {} }),
+            operation,
+            validate: () => {
+                for (const { workflowId, handleToken } of bindings) {
+                    requireMutationAllowed(workflowId, 'close', handleToken);
+                }
+            },
+            commit: () => {
+                for (const workflowId of workflowIds) openWorkflows.delete(workflowId);
+                revision += 1;
+                publishSnapshot();
+                return Object.freeze({ status: 'committed', snapshot: currentSnapshot });
+            }
+        });
+        try {
+            await finalizeWorkflowMutation(operation);
+        } catch (error) {
+            try {
+                await recordDiagnostic({
+                    kind: 'workflow-mutation-finalize-failed',
+                    operation: 'close-many',
+                    error
+                });
+            } catch {}
+        }
+        return result;
+    }
+
+    async function runCloseMany(bindings, { saveWorkflowIds = [] } = {}) {
+        if (bindings.length === 0) {
+            return Object.freeze({ status: 'committed', snapshot: currentSnapshot });
+        }
+        if (bindings.some(({ workflowId }) => workflowId === active?.workflowId)) {
+            throw new WorkflowIdentityOwnershipError('Batch close cannot include the active Workflow');
+        }
+        const saveIdentities = new Set(saveWorkflowIds.map((workflowId) => String(workflowId || '').trim()));
+        if (Array.from(saveIdentities).some((workflowId) => !bindings.some((binding) => binding.workflowId === workflowId))) {
+            throw new WorkflowIdentityOwnershipError('Batch close can only save identity-bound Workflows');
+        }
+        for (const binding of bindings) {
+            if (!saveIdentities.has(binding.workflowId)) continue;
+            const saved = await runIdentityMutation(binding.workflowId, 'save', binding.handleToken);
+            if (saved?.status !== 'committed') {
+                return Object.freeze({
+                    status: 'save-failed',
+                    workflowId: binding.workflowId,
+                    snapshot: currentSnapshot
+                });
+            }
+        }
+        return commitCloseBindings(bindings);
+    }
+
     function workflows(workflowIds) {
         const bindings = Array.from(new Set(workflowIds || []), (workflowId) => {
             const identity = String(workflowId || '').trim();
             return Object.freeze({ workflowId: identity, handleToken: openWorkflows.get(identity)?.handleToken });
         });
         return Object.freeze({
-            relabel: (changes, options = {}) => runRelabelMutation(bindings, changes, options)
+            relabel: (changes, options = {}) => runRelabelMutation(bindings, changes, options),
+            close: (options = {}) => runCloseMany(bindings, options)
         });
     }
 

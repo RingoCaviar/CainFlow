@@ -616,6 +616,158 @@ test('closing the active Workflow commits fallback or safe-empty in the same han
     assert.equal(safeEmptyCommits, 1);
 });
 
+test('closing multiple inactive identity-bound Workflows publishes one revision', async () => {
+    const projectionOperations = [];
+    const finalized = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitWorkflowMutation: async (operation) => { projectionOperations.push(operation); return { owner: 'batch' }; },
+        finalizeWorkflowMutation: async (operation) => finalized.push(operation.kind)
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'B', data: { workflowId: 'workflow-b' } },
+            { workflowId: 'workflow-c', name: 'C', data: { workflowId: 'workflow-c' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    const revision = desk.snapshot().revision;
+    const closedB = desk.workflow('workflow-b');
+
+    const result = await desk.workflows(['workflow-b', 'workflow-c']).close();
+
+    assert.equal(result.status, 'committed');
+    assert.equal(desk.snapshot().revision, revision + 1);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a']);
+    assert.equal(desk.snapshot().active.workflowId, 'workflow-a');
+    assert.deepEqual(projectionOperations.map(({ kind, workflowIds }) => ({ kind, workflowIds })), [{
+        kind: 'close-many',
+        workflowIds: ['workflow-b', 'workflow-c']
+    }]);
+    assert.deepEqual(finalized, ['close-many']);
+    await assert.rejects(() => closedB.save(), { name: 'WorkflowHandleClosedError' });
+});
+
+test('production-style inactive close commits projection before removing its record', async () => {
+    const effects = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => ({ ok: kind === 'close', projectionOnly: kind === 'close' }),
+        commitWorkflowMutation: async ({ kind, workflowIds }) => effects.push(`commit:${kind}:${workflowIds.join(',')}`),
+        finalizeWorkflowMutation: async ({ kind }) => effects.push(`finalize:${kind}`)
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'B', data: { workflowId: 'workflow-b' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    assert.equal((await desk.workflow('workflow-b').close()).status, 'committed');
+    assert.deepEqual(effects, ['commit:close-many:workflow-b', 'finalize:close-many']);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a']);
+});
+
+test('closing multiple Workflows rejects the whole set when one is running', async () => {
+    let projectionCommitted = false;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitWorkflowMutation: async () => { projectionCommitted = true; }
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'B', data: { workflowId: 'workflow-b' } },
+            { workflowId: 'workflow-running', name: 'running', running: true, data: { workflowId: 'workflow-running' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    await assert.rejects(
+        () => desk.workflows(['workflow-b', 'workflow-running']).close(),
+        { name: 'WorkflowRunningPolicyError' }
+    );
+    assert.equal(projectionCommitted, false);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), [
+        'workflow-a',
+        'workflow-b',
+        'workflow-running'
+    ]);
+});
+
+test('failed batch close projection keeps every Open Workflow record', async () => {
+    const effects = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitWorkflowMutation: async () => { throw new Error('projection failed'); },
+        rollbackWorkflowMutation: async () => effects.push('rollback')
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'B', data: { workflowId: 'workflow-b' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    await assert.rejects(
+        () => desk.workflows(['workflow-b']).close(),
+        WorkflowMutationCommitError
+    );
+    assert.deepEqual(effects, ['rollback']);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a', 'workflow-b']);
+});
+
+test('batch close never commits its close set when a necessary save fails', async () => {
+    const saved = [];
+    let closeProjectionCommitted = false;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind, workflowId }) => {
+            if (kind !== 'save') return { ok: false };
+            saved.push(workflowId);
+            return { ok: workflowId !== 'workflow-c' };
+        },
+        commitWorkflowMutation: async ({ kind }) => {
+            if (kind === 'close-many') closeProjectionCommitted = true;
+        }
+    });
+    await desk.restore({
+        workflows: [
+            { workflowId: 'workflow-a', name: 'A', data: { workflowId: 'workflow-a' } },
+            { workflowId: 'workflow-b', name: 'B', data: { workflowId: 'workflow-b' } },
+            { workflowId: 'workflow-c', name: 'C', data: { workflowId: 'workflow-c' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    const result = await desk.workflows(['workflow-b', 'workflow-c']).close({
+        saveWorkflowIds: ['workflow-b', 'workflow-c']
+    });
+
+    assert.equal(result.status, 'save-failed');
+    assert.equal(result.workflowId, 'workflow-c');
+    assert.deepEqual(saved, ['workflow-b', 'workflow-c']);
+    assert.equal(closeProjectionCommitted, false);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), [
+        'workflow-a',
+        'workflow-b',
+        'workflow-c'
+    ]);
+});
+
 test('production-style close publishes fallback and removal in one Desk revision', async () => {
     let desk;
     desk = createWorkflowDesk({

@@ -88,6 +88,7 @@ export function createWorkflowManagerApi({
     let hasCachedWorkflowEntries = false;
     let workflowListRenderSequence = 0;
     const selectedWorkflowNames = new Set();
+    const workflowMutationProjectionTokens = new WeakMap();
     const workflowDesk = createWorkflowDesk({
         resolveSelection: async (selection) => selection?.resolve?.() || selection,
         prepareEditorView: async (target) => target.editorView,
@@ -98,7 +99,8 @@ export function createWorkflowManagerApi({
         commitWorkflowMutation: (operation) => commitWorkflowMutationProjection(operation),
         rollbackWorkflowMutation: (operation, projectionToken) => (
             rollbackWorkflowMutationProjection(operation, projectionToken)
-        )
+        ),
+        finalizeWorkflowMutation: (operation) => finalizeWorkflowMutationProjection(operation)
     });
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
@@ -190,6 +192,9 @@ export function createWorkflowManagerApi({
             return { ok, handled: ok };
         }
         if (operation.kind === 'close') {
+            if (getActiveWorkflowId() !== operation.workflowId) {
+                return { ok: true, projectionOnly: true };
+            }
             const ok = await removeWorkflowTab(tab.name, { closeToken: operation.closeToken });
             return { ok, handled: ok };
         }
@@ -260,6 +265,16 @@ export function createWorkflowManagerApi({
             replaceWorkflowFolderInState(operation.previousFolderId, operation.folderId);
             return Object.freeze({ folder, entries: Object.freeze(entries) });
         }
+        if (operation.kind === 'close-many') {
+            const previousTabs = state.workflowTabs;
+            const closingIds = new Set(operation.workflowIds);
+            const removedTabs = previousTabs.filter((tab) => closingIds.has(tab.workflowId));
+            const nextTabs = previousTabs.filter((tab) => !closingIds.has(tab.workflowId));
+            state.workflowTabs = nextTabs;
+            const token = Object.freeze({ previousTabs, nextTabs, removedTabs: Object.freeze(removedTabs) });
+            workflowMutationProjectionTokens.set(operation, token);
+            return token;
+        }
         return Object.freeze({});
     }
 
@@ -294,7 +309,24 @@ export function createWorkflowManagerApi({
                 lostOwnership = true;
             }
             if (lostOwnership) throw new Error('Workflow folder projection rollback lost ownership');
+            return;
         }
+        if (operation.kind === 'close-many') {
+            if (state.workflowTabs !== projectionToken.nextTabs) {
+                throw new Error('Workflow close projection rollback lost ownership');
+            }
+            state.workflowTabs = projectionToken.previousTabs;
+            workflowMutationProjectionTokens.delete(operation);
+        }
+    }
+
+    function finalizeWorkflowMutationProjection(operation) {
+        if (operation.kind !== 'close-many') return;
+        const projectionToken = workflowMutationProjectionTokens.get(operation);
+        workflowMutationProjectionTokens.delete(operation);
+        for (const tab of projectionToken?.removedTabs || []) releaseWorkflowTabMemory(tab);
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
     }
 
     function ensureWorkflowIdentity(tab, data = tab?.data) {
@@ -2442,20 +2474,14 @@ export function createWorkflowManagerApi({
                 shouldSaveDirtyTabs = decision === 'save';
             }
 
-            if (shouldSaveDirtyTabs) {
-                for (const tab of dirtyTabs) {
-                    if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status !== 'committed') {
-                        return false;
-                    }
-                    tab.dirty = false;
-                }
-            }
-
-            const activeName = getActiveWorkflowName();
-            inactiveTabs.forEach((tab) => releaseWorkflowTabMemory(tab));
-            state.workflowTabs = tabs.filter((tab) => tab.name === activeName);
-            await renderWorkflowList();
-            scheduleSave({ dirty: false });
+            const inactiveWorkflowIds = inactiveTabs.map((tab) => ensureWorkflowIdentity(tab));
+            const dirtyWorkflowIds = shouldSaveDirtyTabs
+                ? dirtyTabs.map((tab) => ensureWorkflowIdentity(tab))
+                : [];
+            const closed = await workflowDesk.workflows(inactiveWorkflowIds).close({
+                saveWorkflowIds: dirtyWorkflowIds
+            });
+            if (closed.status !== 'committed') return false;
             showToast(shouldSaveDirtyTabs ? '已保存并关闭其他工作流' : '已关闭其他工作流', 'info');
             return true;
         } catch (error) {
