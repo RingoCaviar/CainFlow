@@ -93,6 +93,7 @@ export function createWorkflowDesk({
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
 }) {
     const openWorkflows = new Map();
+    const pendingClosedWorkflowIds = new Set();
     let revision = 0;
     let activationGeneration = 0;
     let active = null;
@@ -228,6 +229,7 @@ export function createWorkflowDesk({
             editorView,
             revision
         });
+        for (const workflowId of pendingClosedWorkflowIds) openWorkflows.delete(workflowId);
         publishSnapshot();
         try {
             await editorView.finalize?.();
@@ -330,18 +332,24 @@ export function createWorkflowDesk({
 
     async function runIdentityMutation(workflowId, kind, options = {}) {
         const current = requireMutationAllowed(workflowId, kind);
-        const result = await mutateWorkflow(Object.freeze({
-            kind,
-            workflowId,
-            label: current.label,
-            ...options
-        }));
-        if (result?.ok !== true) return Object.freeze({ status: 'failed', workflowId });
+        if (kind === 'close') pendingClosedWorkflowIds.add(workflowId);
+        let result;
+        try {
+            result = await mutateWorkflow(Object.freeze({
+                kind,
+                workflowId,
+                label: current.label,
+                ...options
+            }));
+        } finally {
+            if (kind === 'close') pendingClosedWorkflowIds.delete(workflowId);
+        }
+        if (result?.ok !== true) return false;
         if (kind === 'save') markMigratedWorkflowSaved(workflowId);
         if ((kind === 'rename' || kind === 'move') && options.label) {
             publishRelabel(workflowId, options.label);
         }
-        if (kind === 'copy' || kind === 'save-as') {
+        if ((kind === 'copy' || kind === 'save-as') && options.registerOpen !== false) {
             openWorkflows.set(options.newWorkflowId, {
                 workflowId: options.newWorkflowId,
                 label: options.label || current.label,
@@ -352,6 +360,9 @@ export function createWorkflowDesk({
             publishSnapshot();
             return workflow(options.newWorkflowId);
         }
+        if (kind === 'copy' || kind === 'save-as') {
+            return Object.freeze({ status: 'committed', workflowId: options.newWorkflowId, snapshot: currentSnapshot });
+        }
         if (kind === 'reload' && result.selection) {
             return show({ ...result.selection, workflowId, force: true });
         }
@@ -359,6 +370,9 @@ export function createWorkflowDesk({
             return Object.freeze({ status: 'committed', workflowId, snapshot: currentSnapshot });
         }
         if (kind === 'close') {
+            if (!openWorkflows.has(workflowId)) {
+                return Object.freeze({ status: 'committed', workflowId, snapshot: currentSnapshot });
+            }
             const candidate = new Map(openWorkflows);
             candidate.delete(workflowId);
             if (active?.workflowId === workflowId) {
@@ -383,13 +397,15 @@ export function createWorkflowDesk({
             move: (label) => runIdentityMutation(identity, 'move', { label }),
             reload: () => runIdentityMutation(identity, 'reload'),
             close: () => runIdentityMutation(identity, 'close'),
-            copy: (label) => runIdentityMutation(identity, 'copy', {
+            copy: (label, mutationOptions = {}) => runIdentityMutation(identity, 'copy', {
                 label,
-                newWorkflowId: allocateWorkflowId()
+                newWorkflowId: allocateWorkflowId(),
+                ...mutationOptions
             }),
-            saveAs: (label) => runIdentityMutation(identity, 'save-as', {
+            saveAs: (label, mutationOptions = {}) => runIdentityMutation(identity, 'save-as', {
                 label,
-                newWorkflowId: allocateWorkflowId()
+                newWorkflowId: allocateWorkflowId(),
+                ...mutationOptions
             })
         });
     }

@@ -197,6 +197,29 @@ export function createWorkflowManagerApi({
             const ok = await removeWorkflowTab(tab.name);
             return { ok, handled: ok };
         }
+        if (operation.kind === 'copy' || operation.kind === 'save-as') {
+            const data = cloneWorkflowData(tab.data);
+            data.workflowId = operation.newWorkflowId;
+            const ok = typeof operation.persist === 'function'
+                ? await operation.persist({
+                    workflowId: operation.newWorkflowId,
+                    label: operation.label,
+                    data
+                })
+                : await saveWorkflowToFile(operation.label, data);
+            if (ok && operation.registerOpen !== false) {
+                state.workflowTabs.push({
+                    workflowId: operation.newWorkflowId,
+                    name: operation.label,
+                    data,
+                    dirty: false,
+                    colorIndex: state.workflowTabs.length % TAB_COLORS,
+                    running: false,
+                    runResult: ''
+                });
+            }
+            return { ok };
+        }
         return { ok: false, kind: 'unsupported-workflow-mutation' };
     }
 
@@ -2228,6 +2251,12 @@ export function createWorkflowManagerApi({
         const fileName = `${getSafeWorkflowFileName(name)}.json`;
 
         try {
+            const tab = getWorkflowTab(name);
+            if (!tab) {
+                showToast('请先打开工作流再执行另存为', 'warning');
+                return false;
+            }
+            const persistExport = async ({ data }) => {
             if (typeof windowRef.showSaveFilePicker === 'function') {
                 const handle = await windowRef.showSaveFilePicker({
                     suggestedName: fileName,
@@ -2238,17 +2267,20 @@ export function createWorkflowManagerApi({
                         }
                     ]
                 });
-                const data = await getWorkflowDataForAction(name);
-                if (!data) return false;
                 const blob = new Blob([JSON.stringify(stripInlineImagesFromWorkflowData(data), null, 2)], { type: 'application/json' });
                 const writable = await handle.createWritable();
                 await writable.write(blob);
                 await writable.close();
             } else {
-                const data = await getWorkflowDataForAction(name);
-                if (!data) return false;
                 downloadWorkflowJson(name, data);
             }
+                return true;
+            };
+            const result = await workflowDesk.workflow(ensureWorkflowIdentity(tab)).saveAs(name, {
+                persist: persistExport,
+                registerOpen: false
+            });
+            if (!result) return false;
             showToast(`工作流「${name}」已另存为 JSON`, 'success');
             return true;
         } catch (error) {
@@ -2257,6 +2289,22 @@ export function createWorkflowManagerApi({
             }
             return false;
         }
+    }
+
+    async function copyWorkflowById(workflowId, label) {
+        const result = await workflowDesk.workflow(workflowId).copy(label);
+        if (!result) return false;
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return result;
+    }
+
+    async function saveWorkflowAsById(workflowId, label) {
+        const result = await workflowDesk.workflow(workflowId).saveAs(label);
+        if (!result) return false;
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return result;
     }
 
     async function closeWorkflow(name) {
@@ -2636,6 +2684,8 @@ export function createWorkflowManagerApi({
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,
         ensureOpenWorkflow,
+        copyWorkflowById,
+        saveWorkflowAsById,
         closeOtherWorkflows,
         reloadAfterWorkflowImport
     };

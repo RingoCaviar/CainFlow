@@ -199,6 +199,38 @@ test('closing the active Workflow commits fallback or safe-empty in the same han
     assert.equal(safeEmptyCommits, 1);
 });
 
+test('production-style close publishes fallback and removal in one Desk revision', async () => {
+    let desk;
+    desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => {
+            if (kind !== 'close') return { ok: false };
+            const result = await desk.show({
+                workflowId: 'workflow-b',
+                label: 'b',
+                force: true,
+                editorView: { async commit() { return true; } }
+            });
+            return { ok: result.status === 'committed', handled: true };
+        }
+    });
+    await desk.restore({
+        workflows: [
+            { name: 'a', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } },
+            { name: 'b', workflowId: 'workflow-b', data: { workflowId: 'workflow-b' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    const previousRevision = desk.snapshot().revision;
+
+    assert.equal((await desk.workflow('workflow-a').close()).status, 'committed');
+    assert.equal(desk.snapshot().revision, previousRevision + 1);
+    assert.equal(desk.snapshot().active.workflowId, 'workflow-b');
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-b']);
+});
+
 test('only the latest of three prepared Workflow activations commits', async () => {
     const preparations = new Map();
     const commits = [];
