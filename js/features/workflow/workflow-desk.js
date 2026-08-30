@@ -46,6 +46,7 @@ export function createWorkflowDesk({
     let revision = 0;
     let activationGeneration = 0;
     let active = null;
+    let commitLane = Promise.resolve();
     let currentSnapshot = freezeSnapshot({ revision, active, openWorkflows });
 
     function publishSnapshot() {
@@ -53,18 +54,43 @@ export function createWorkflowDesk({
         return currentSnapshot;
     }
 
-    async function show(selection) {
-        const generation = ++activationGeneration;
-        const target = await resolveSelection(selection);
-        if (active?.workflowId === target.workflowId) {
-            return Object.freeze({ status: 'already-visible', active, snapshot: currentSnapshot });
-        }
-        let editorView;
+    async function publishSafeEmpty(target, cause) {
         try {
-            editorView = await prepareEditorView(target);
+            await commitSafeEmpty();
         } catch (error) {
-            throw new WorkflowEditorPrepareError(undefined, { cause: error });
+            try {
+                await recordDiagnostic({
+                    kind: 'workflow-safe-empty-commit-failed',
+                    workflowId: target.workflowId,
+                    revision,
+                    error
+                });
+            } catch {}
+            throw new WorkflowCommitRecoveryError(undefined, { cause: error });
         }
+        revision += 1;
+        active = null;
+        publishSnapshot();
+        try {
+            await recordDiagnostic({
+                kind: 'workflow-commit-recovery-failed',
+                workflowId: target.workflowId,
+                revision,
+                error: cause
+            });
+        } catch {}
+        throw new WorkflowCommitRecoveryError(undefined, { cause });
+    }
+
+    async function rollbackPreparedView(editorView, target, cause) {
+        let recovered = false;
+        try {
+            recovered = editorView.rollback?.() === true;
+        } catch {}
+        if (!recovered) await publishSafeEmpty(target, cause);
+    }
+
+    async function commitPreparedTarget({ generation, target, editorView }) {
         if (generation !== activationGeneration) {
             editorView.dispose?.();
             return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
@@ -77,28 +103,11 @@ export function createWorkflowDesk({
             commitError = error;
         }
         if (generation !== activationGeneration) {
-            editorView.rollback?.();
+            await rollbackPreparedView(editorView, target, commitError);
             return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
         }
         if (committed === false) {
-            let recovered = false;
-            try {
-                recovered = editorView.rollback?.() === true;
-            } catch {}
-            if (!recovered) {
-                await commitSafeEmpty();
-                revision += 1;
-                active = null;
-                publishSnapshot();
-                try {
-                    await recordDiagnostic({
-                        kind: 'workflow-commit-recovery-failed',
-                        workflowId: target.workflowId,
-                        revision
-                    });
-                } catch {}
-                throw new WorkflowCommitRecoveryError(undefined, { cause: commitError });
-            }
+            await rollbackPreparedView(editorView, target, commitError);
             throw new WorkflowEditorCommitError(undefined, { cause: commitError });
         }
         revision += 1;
@@ -128,6 +137,30 @@ export function createWorkflowDesk({
             } catch {}
         }
         return Object.freeze({ status: 'committed', active, snapshot: currentSnapshot });
+    }
+
+    function enqueueCommit(operation) {
+        const result = commitLane.then(operation, operation);
+        commitLane = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
+    async function show(selection) {
+        const generation = ++activationGeneration;
+        const target = await resolveSelection(selection);
+        if (active?.workflowId === target.workflowId) {
+            return Object.freeze({ status: 'already-visible', active, snapshot: currentSnapshot });
+        }
+        let editorView;
+        try {
+            editorView = await prepareEditorView(target);
+        } catch (error) {
+            if (generation !== activationGeneration) {
+                return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
+            }
+            throw new WorkflowEditorPrepareError(undefined, { cause: error });
+        }
+        return enqueueCommit(() => commitPreparedTarget({ generation, target, editorView }));
     }
 
     return Object.freeze({ show, snapshot: () => currentSnapshot });

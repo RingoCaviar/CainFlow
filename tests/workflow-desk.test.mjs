@@ -215,3 +215,123 @@ test('finalize and diagnostic failures cannot undo a committed Workflow activati
     assert.equal(desk.snapshot().active.workflowId, 'workflow-a');
     assert.equal(diagnostics, 1);
 });
+
+test('Workflow editor commits are serialized when a newer activation arrives mid-commit', async () => {
+    let releaseFirstCommit;
+    let firstCommitStarted;
+    const firstStarted = new Promise((resolve) => { firstCommitStarted = resolve; });
+    const visible = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async ({ workflowId }) => ({
+            async commit() {
+                visible.push(`commit:${workflowId}`);
+                if (workflowId === 'workflow-a') {
+                    firstCommitStarted();
+                    await new Promise((resolve) => { releaseFirstCommit = resolve; });
+                }
+                return true;
+            },
+            rollback() { visible.push(`rollback:${workflowId}`); return true; },
+            finalize() { return true; }
+        })
+    });
+
+    const first = desk.show({ workflowId: 'workflow-a', label: 'A' });
+    await firstStarted;
+    const second = desk.show({ workflowId: 'workflow-b', label: 'B' });
+    await Promise.resolve();
+    assert.deepEqual(visible, ['commit:workflow-a']);
+
+    releaseFirstCommit();
+
+    assert.equal((await first).status, 'superseded');
+    assert.equal((await second).status, 'committed');
+    assert.deepEqual(visible, [
+        'commit:workflow-a',
+        'rollback:workflow-a',
+        'commit:workflow-b'
+    ]);
+});
+
+test('superseded editor preparation failure is an expected result', async () => {
+    let rejectFirst;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: ({ workflowId }) => {
+            if (workflowId === 'workflow-a') {
+                return new Promise((_, reject) => { rejectFirst = reject; });
+            }
+            return Promise.resolve({
+                async commit() { return true; },
+                finalize() { return true; }
+            });
+        }
+    });
+
+    const first = desk.show({ workflowId: 'workflow-a', label: 'A' });
+    await Promise.resolve();
+    const second = desk.show({ workflowId: 'workflow-b', label: 'B' });
+    rejectFirst(new Error('stale preparation failed'));
+
+    assert.equal((await first).status, 'superseded');
+    assert.equal((await second).status, 'committed');
+});
+
+test('safe-empty adapter failure still reports a typed recovery failure', async () => {
+    let targetWorkflowId = '';
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async ({ workflowId }) => ({
+            async commit() { targetWorkflowId = workflowId; return workflowId === 'workflow-a'; },
+            rollback() { return false; }
+        }),
+        commitSafeEmpty: async () => { throw new Error('visible editor could not clear'); }
+    });
+    await desk.show({ workflowId: 'workflow-a', label: 'A' });
+    const before = desk.snapshot();
+
+    await assert.rejects(
+        desk.show({ workflowId: 'workflow-b', label: 'B' }),
+        WorkflowCommitRecoveryError
+    );
+    assert.equal(targetWorkflowId, 'workflow-b');
+    assert.equal(desk.snapshot(), before);
+});
+
+test('superseded failed commit rolls back before the newer Workflow can commit', async () => {
+    let releaseFirstCommit;
+    let firstCommitStarted;
+    const firstStarted = new Promise((resolve) => { firstCommitStarted = resolve; });
+    const visible = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async ({ workflowId }) => ({
+            async commit() {
+                visible.push(`commit:${workflowId}`);
+                if (workflowId === 'workflow-a') {
+                    firstCommitStarted();
+                    await new Promise((resolve) => { releaseFirstCommit = resolve; });
+                    return false;
+                }
+                return true;
+            },
+            rollback() { visible.push(`rollback:${workflowId}`); return true; },
+            dispose() { visible.push(`dispose:${workflowId}`); return true; },
+            finalize() { return true; }
+        })
+    });
+
+    const first = desk.show({ workflowId: 'workflow-a', label: 'A' });
+    await firstStarted;
+    const second = desk.show({ workflowId: 'workflow-b', label: 'B' });
+    releaseFirstCommit();
+
+    assert.equal((await first).status, 'superseded');
+    assert.equal((await second).status, 'committed');
+    assert.deepEqual(visible, [
+        'commit:workflow-a',
+        'rollback:workflow-a',
+        'commit:workflow-b'
+    ]);
+});
