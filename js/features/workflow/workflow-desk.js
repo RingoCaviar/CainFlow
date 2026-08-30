@@ -122,6 +122,24 @@ export function createWorkflowDesk({
         if (!recovered) await publishSafeEmpty(target, cause);
     }
 
+    async function rollbackIdentityRepair(target, cause) {
+        try {
+            await target.identityRepair?.rollback?.();
+            return;
+        } catch (error) {
+            try {
+                await recordDiagnostic({
+                    kind: 'workflow-identity-repair-rollback-failed',
+                    workflowId: target.workflowId,
+                    duplicatedWorkflowId: target.duplicatedWorkflowId,
+                    revision,
+                    error
+                });
+            } catch {}
+            await publishSafeEmpty(target, cause || error);
+        }
+    }
+
     function isTargetCurrent(target, generation) {
         return generation === activationGeneration
             && target?.signal?.aborted !== true
@@ -158,7 +176,7 @@ export function createWorkflowDesk({
                 identityRepaired = true;
             }
         } catch (error) {
-            try { await target.identityRepair?.rollback?.(); } catch {}
+            await rollbackIdentityRepair(target, error);
             await rollbackPreparedView(editorView, target, error);
             throw new WorkflowIdentityOwnershipError('Repaired Workflow identity could not be committed', {
                 cause: error,
@@ -167,7 +185,7 @@ export function createWorkflowDesk({
         }
         if (!isTargetCurrent(target, generation)) {
             if (identityRepaired) {
-                try { await target.identityRepair?.rollback?.(); } catch {}
+                await rollbackIdentityRepair(target, null);
             }
             await rollbackPreparedView(editorView, target, null);
             return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });

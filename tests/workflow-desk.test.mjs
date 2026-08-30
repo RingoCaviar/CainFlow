@@ -731,3 +731,35 @@ test('failed duplicate activation does not record a completed repair', async () 
     assert.deepEqual(diagnostics, []);
     assert.equal(desk.snapshot().active.workflowId, 'original-id');
 });
+
+test('failed identity repair rollback enters explicit safe-empty recovery', async () => {
+    const diagnostics = [];
+    let safeEmptyCommits = 0;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'copy-id',
+        commitSafeEmpty: async () => { safeEmptyCommits += 1; },
+        recordDiagnostic: async (record) => diagnostics.push(record)
+    });
+    await desk.show({
+        workflowId: 'original-id',
+        label: 'original',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(() => desk.show({
+        workflowId: 'original-id',
+        label: 'copy',
+        identityOwnership: 'external-copy',
+        identityRepair: {
+            commit() { throw new Error('repair failed'); },
+            rollback() { throw new Error('rollback failed'); }
+        },
+        editorView: { async commit() { return true; } }
+    }), WorkflowCommitRecoveryError);
+
+    assert.equal(safeEmptyCommits, 1);
+    assert.equal(desk.snapshot().active, null);
+    assert.equal(diagnostics[0].kind, 'workflow-identity-repair-rollback-failed');
+});
