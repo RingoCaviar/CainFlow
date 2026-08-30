@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProjectIoApi } from '../js/features/persistence/project-io.js';
 import { createViewportApi } from '../js/canvas/viewport.js';
-import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
-import { createWorkflowSessionActivator } from '../js/features/workflow/workflow-activation-coordinator.js';
+import { createWorkflowTransitionLane } from '../js/features/workflow/workflow-transition-lane.js';
+import { createWorkflowSessionSelectionAdapter } from '../js/features/workflow/workflow-selection-adapter.js';
 import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
 
 function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
@@ -430,11 +430,11 @@ test('loading a legacy session assigns one unique stable identity to the active 
         prepareEditorView: async (target) => target.editorView,
         createWorkflowId: () => 'generated-workflow-id'
     });
-    activateRestoredState = createWorkflowSessionActivator({
+    activateRestoredState = createWorkflowSessionSelectionAdapter({
         state,
         getActiveWorkflow: () => workflowDesk.snapshot().active,
         workflowDesk,
-        workflowActivation: createWorkflowActivation(),
+        workflowActivation: createWorkflowTransitionLane(),
         createWorkflowId: () => 'generated-workflow-id',
         prepareEditorView: async () => ({
             commit: () => true,
@@ -466,11 +466,11 @@ test('session workflow activation applies the committed canvas to the visible vi
         prepareEditorView: async (target) => target.editorView,
         createWorkflowId: () => 'active-id'
     });
-    activateRestoredState = createWorkflowSessionActivator({
+    activateRestoredState = createWorkflowSessionSelectionAdapter({
         state,
         getActiveWorkflow: () => workflowDesk.snapshot().active,
         workflowDesk,
-        workflowActivation: createWorkflowActivation(),
+        workflowActivation: createWorkflowTransitionLane(),
         createWorkflowId: () => 'active-id',
         prepareEditorView: async (_workflowName, workflowData) => ({
             commit: () => { state.canvas = workflowData.canvas; return true; },

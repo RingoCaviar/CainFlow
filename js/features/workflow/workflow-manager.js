@@ -19,14 +19,14 @@ import {
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import { openDialogStyle1 } from '../ui/dialog-style-1.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
-import { createWorkflowActivation } from './workflow-activation.js';
+import { createWorkflowTransitionLane } from './workflow-transition-lane.js';
 import {
     createWorkflowDesk
 } from './workflow-desk.js';
 import {
-    createWorkflowSessionActivator,
-    createWorkflowTargetActivator
-} from './workflow-activation-coordinator.js';
+    createWorkflowSessionSelectionAdapter,
+    createWorkflowSelectionAdapter
+} from './workflow-selection-adapter.js';
 import { ensureUniqueWorkflowIdentities } from './workflow-identity.js';
 import {
     replaceWorkflowTabData,
@@ -97,11 +97,11 @@ export function createWorkflowManagerApi({
         recordDiagnostic: recordWorkflowDiagnostic,
         mutateWorkflow: (operation) => mutateWorkflowThroughDesk(operation)
     });
-    const activeState = workflowDesk.migration;
+    const activeState = workflowDesk.documentState;
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
     const getActiveWorkflowName = () => getActiveWorkflow()?.label || '';
-    const workflowActivation = createWorkflowActivation({
+    const workflowActivation = createWorkflowTransitionLane({
         onError: (error, context = {}) => {
             console.error('Workflow activation failed:', error);
             showToast(context.rollbackResult?.safeEmpty
@@ -109,7 +109,7 @@ export function createWorkflowManagerApi({
                 : '切换失败，已恢复原工作流', 'error');
         }
     });
-    const workflowSessionActivator = createWorkflowSessionActivator({
+    const workflowSessionActivator = createWorkflowSessionSelectionAdapter({
         state,
         getActiveWorkflow,
         activeState,
@@ -120,7 +120,7 @@ export function createWorkflowManagerApi({
         applyViewport: () => viewportApi.updateCanvasTransform({ updateConnections: false }),
         onViewApplied: onWorkflowViewApplied
     });
-    const workflowTargetActivator = createWorkflowTargetActivator({
+    const workflowTargetActivator = createWorkflowSelectionAdapter({
         state,
         getActiveWorkflow,
         activeState,

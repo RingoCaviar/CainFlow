@@ -7,7 +7,7 @@ import {
 } from './workflow-tab-revision.js';
 import { WorkflowCommitRecoveryError } from './workflow-desk.js';
 
-export function createWorkflowSessionActivator({
+export function createWorkflowSessionSelectionAdapter({
     state,
     getActiveWorkflow = () => null,
     activeState,
@@ -189,7 +189,7 @@ export function createWorkflowSessionActivator({
     return { activate, reconcileActiveTab };
 }
 
-export function createWorkflowTargetActivator({
+export function createWorkflowSelectionAdapter({
     state,
     getActiveWorkflow = () => null,
     activeState,

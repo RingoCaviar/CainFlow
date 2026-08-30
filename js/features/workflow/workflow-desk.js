@@ -619,12 +619,12 @@ export function createWorkflowDesk({
         return enqueueCommit(() => commitPreparedTarget({ generation, target, editorView }));
     }
 
-    const migration = Object.freeze({
+    const documentState = Object.freeze({
         commitActive: commitMigratedActiveState,
         relabelActive: relabelMigratedActiveState,
         clearActive: clearMigratedActiveState,
         markSaved: markMigratedWorkflowSaved,
         setRunning: setMigratedWorkflowRunning
     });
-    return Object.freeze({ show, restore, workflow, snapshot: () => currentSnapshot, migration });
+    return Object.freeze({ show, restore, workflow, snapshot: () => currentSnapshot, documentState });
 }

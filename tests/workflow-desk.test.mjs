@@ -630,7 +630,7 @@ test('restore lazily assigns missing Workflow identity without writing the docum
     assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
     assert.equal(documentWrites, 0);
 
-    desk.migration.markSaved('generated-id');
+    desk.documentState.markSaved('generated-id');
     assert.equal(desk.snapshot().open[0].pendingExplicitSave, false);
 });
 

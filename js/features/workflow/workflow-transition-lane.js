@@ -5,7 +5,7 @@ export class WorkflowActivationSupersededError extends Error {
     }
 }
 
-export function createWorkflowActivation({ onError = () => {}, maxValidationRetries = 3 } = {}) {
+export function createWorkflowTransitionLane({ onError = () => {}, maxValidationRetries = 3 } = {}) {
     let generation = 0;
     let activeKey = '';
     let pending = null;
