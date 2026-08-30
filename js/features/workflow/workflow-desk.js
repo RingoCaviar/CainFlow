@@ -1,10 +1,37 @@
-function freezeOpenWorkflow(record) {
+function freezeOpenWorkflow(record, activeWorkflowId) {
     return Object.freeze({
         workflowId: record.workflowId,
         label: record.label,
         pendingExplicitSave: record.pendingExplicitSave === true,
-        running: record.running === true
+        running: record.running === true,
+        active: record.workflowId === activeWorkflowId
     });
+}
+
+function freezeWorkflowTabProjection(record) {
+    return Object.freeze({
+        workflowId: record.workflowId,
+        name: record.label,
+        identityPendingSave: record.pendingExplicitSave,
+        running: record.running,
+        active: record.active
+    });
+}
+
+function freezeActiveWorkflow(active) {
+    if (!active) return null;
+    return Object.freeze({
+        workflowId: active.workflowId,
+        label: active.label,
+        revision: active.revision
+    });
+}
+
+function createOpenWorkflowRecord(record) {
+    return {
+        ...record,
+        handleToken: Object.freeze({})
+    };
 }
 
 export class WorkflowEditorCommitError extends Error {
@@ -54,10 +81,18 @@ export class WorkflowRunningPolicyError extends Error {
 }
 
 function freezeSnapshot({ revision, active, openWorkflows }) {
+    if (active && !openWorkflows.has(active.workflowId)) {
+        throw new Error('Active Workflow must have an Open Workflow record');
+    }
+    const open = Object.freeze(Array.from(
+        openWorkflows.values(),
+        (record) => freezeOpenWorkflow(record, active?.workflowId)
+    ));
     return Object.freeze({
         revision,
-        active,
-        open: Object.freeze(Array.from(openWorkflows.values(), freezeOpenWorkflow))
+        active: freezeActiveWorkflow(active),
+        open,
+        tabs: Object.freeze(open.map(freezeWorkflowTabProjection))
     });
 }
 
@@ -194,12 +229,18 @@ export function createWorkflowDesk({
                 openWorkflows.set(workflowId, workflow);
             }
         } else {
-            openWorkflows.set(target.workflowId, {
+            const current = openWorkflows.get(target.workflowId);
+            openWorkflows.set(target.workflowId, current ? {
+                ...current,
+                label: target.label,
+                pendingExplicitSave: target.pendingExplicitSave === true,
+                running: false
+            } : createOpenWorkflowRecord({
                 workflowId: target.workflowId,
                 label: target.label,
                 pendingExplicitSave: target.pendingExplicitSave === true,
                 running: false
-            });
+            }));
         }
         active = Object.freeze({
             workflowId: target.workflowId,
@@ -234,39 +275,40 @@ export function createWorkflowDesk({
         return result;
     }
 
-    function markMigratedWorkflowSaved(workflowId) {
-        const current = openWorkflows.get(workflowId);
-        if (!current || current.pendingExplicitSave !== true) return false;
+    function markMigratedWorkflowSaved(workflowId, handleToken) {
+        const current = requireOpenWorkflow(workflowId, handleToken);
+        if (current.pendingExplicitSave !== true) return false;
         openWorkflows.set(workflowId, { ...current, pendingExplicitSave: false });
         publishSnapshot();
         return true;
     }
 
-    function setMigratedWorkflowRunning(workflowId, running) {
-        const current = openWorkflows.get(workflowId);
-        if (!current) return false;
+    function setMigratedWorkflowRunning(workflowId, running, handleToken) {
+        const current = requireOpenWorkflow(workflowId, handleToken);
         openWorkflows.set(workflowId, { ...current, running: running === true });
         revision += 1;
         publishSnapshot();
         return true;
     }
 
-    function requireOpenWorkflow(workflowId) {
+    function requireOpenWorkflow(workflowId, handleToken) {
         const current = openWorkflows.get(workflowId);
-        if (!current) throw new WorkflowHandleClosedError(undefined, { workflowId });
+        if (!current || !handleToken || current.handleToken !== handleToken) {
+            throw new WorkflowHandleClosedError(undefined, { workflowId });
+        }
         return current;
     }
 
-    function requireMutationAllowed(workflowId, kind) {
-        const current = requireOpenWorkflow(workflowId);
+    function requireMutationAllowed(workflowId, kind, handleToken) {
+        const current = requireOpenWorkflow(workflowId, handleToken);
         if (current.running === true && ['rename', 'move', 'reload', 'close'].includes(kind)) {
             throw new WorkflowRunningPolicyError(undefined, { workflowId, operation: kind });
         }
         return current;
     }
 
-    function publishRelabel(workflowId, label) {
-        const current = requireOpenWorkflow(workflowId);
+    function publishRelabel(workflowId, label, handleToken) {
+        const current = requireOpenWorkflow(workflowId, handleToken);
         openWorkflows.set(workflowId, { ...current, label });
         revision += 1;
         if (active?.workflowId === workflowId) {
@@ -281,8 +323,8 @@ export function createWorkflowDesk({
         return workflowId;
     }
 
-    async function runIdentityMutation(workflowId, kind, options = {}) {
-        const current = requireMutationAllowed(workflowId, kind);
+    async function runIdentityMutation(workflowId, kind, handleToken, options = {}) {
+        const current = requireMutationAllowed(workflowId, kind, handleToken);
         const closeToken = kind === 'close' ? Object.freeze({ workflowId }) : null;
         if (closeToken) pendingCloseTokens.set(closeToken, workflowId);
         let result;
@@ -297,18 +339,22 @@ export function createWorkflowDesk({
         } finally {
             if (closeToken) pendingCloseTokens.delete(closeToken);
         }
+        const closeWasCommittedThroughDesk = kind === 'close'
+            && result?.handled === true
+            && !openWorkflows.has(workflowId);
+        if (!closeWasCommittedThroughDesk) requireOpenWorkflow(workflowId, handleToken);
         if (result?.ok !== true) return false;
-        if (kind === 'save') markMigratedWorkflowSaved(workflowId);
+        if (kind === 'save') markMigratedWorkflowSaved(workflowId, handleToken);
         if ((kind === 'rename' || kind === 'move') && options.label) {
-            publishRelabel(workflowId, options.label);
+            publishRelabel(workflowId, options.label, handleToken);
         }
         if ((kind === 'copy' || kind === 'save-as') && options.registerOpen !== false) {
-            openWorkflows.set(options.newWorkflowId, {
+            openWorkflows.set(options.newWorkflowId, createOpenWorkflowRecord({
                 workflowId: options.newWorkflowId,
                 label: options.label || current.label,
                 pendingExplicitSave: false,
                 running: false
-            });
+            }));
             revision += 1;
             publishSnapshot();
             return workflow(options.newWorkflowId);
@@ -343,22 +389,23 @@ export function createWorkflowDesk({
 
     function workflow(workflowId) {
         const identity = String(workflowId || '').trim();
+        const handleToken = openWorkflows.get(identity)?.handleToken;
         return Object.freeze({
             workflowId: identity,
-            save: () => runIdentityMutation(identity, 'save'),
-            rename: (label) => runIdentityMutation(identity, 'rename', { label }),
-            move: (label) => runIdentityMutation(identity, 'move', { label }),
-            reload: () => runIdentityMutation(identity, 'reload'),
-            close: () => runIdentityMutation(identity, 'close'),
-            documentSaved: () => markMigratedWorkflowSaved(identity),
-            runningChanged: (running) => setMigratedWorkflowRunning(identity, running),
-            labelChanged: (label) => { publishRelabel(identity, label); return true; },
-            copy: (label, mutationOptions = {}) => runIdentityMutation(identity, 'copy', {
+            save: () => runIdentityMutation(identity, 'save', handleToken),
+            rename: (label) => runIdentityMutation(identity, 'rename', handleToken, { label }),
+            move: (label) => runIdentityMutation(identity, 'move', handleToken, { label }),
+            reload: () => runIdentityMutation(identity, 'reload', handleToken),
+            close: () => runIdentityMutation(identity, 'close', handleToken),
+            documentSaved: () => markMigratedWorkflowSaved(identity, handleToken),
+            runningChanged: (running) => setMigratedWorkflowRunning(identity, running, handleToken),
+            labelChanged: (label) => { publishRelabel(identity, label, handleToken); return true; },
+            copy: (label, mutationOptions = {}) => runIdentityMutation(identity, 'copy', handleToken, {
                 label,
                 ...mutationOptions,
                 newWorkflowId: allocateWorkflowId()
             }),
-            saveAs: (label, mutationOptions = {}) => runIdentityMutation(identity, 'save-as', {
+            saveAs: (label, mutationOptions = {}) => runIdentityMutation(identity, 'save-as', handleToken, {
                 label,
                 ...mutationOptions,
                 newWorkflowId: allocateWorkflowId()
@@ -416,12 +463,12 @@ export function createWorkflowDesk({
                 owners.push(workflow);
                 duplicateOwners.set(sessionId, owners);
             }
-            restoredOpenWorkflows.set(workflowId, {
+            restoredOpenWorkflows.set(workflowId, createOpenWorkflowRecord({
                 workflowId,
                 label: workflow.name || '',
                 pendingExplicitSave: workflow.identityPendingSave,
                 running: workflow.running === true
-            });
+            }));
             normalizedWorkflows.push(workflow);
         }
         return { normalizedWorkflows, migrations, identityAliases, duplicateOwners, restoredOpenWorkflows };

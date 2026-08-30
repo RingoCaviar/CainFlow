@@ -43,18 +43,51 @@ test('show publishes one immutable committed Workflow activation snapshot', asyn
     assert.deepEqual(snapshot.active, {
         workflowId: 'workflow-a',
         label: 'A',
-        editorView: result.active.editorView,
         revision: 1
     });
     assert.deepEqual(snapshot.open, [{
         workflowId: 'workflow-a',
         label: 'A',
         pendingExplicitSave: false,
-        running: false
+        running: false,
+        active: true
+    }]);
+    assert.deepEqual(snapshot.tabs, [{
+        workflowId: 'workflow-a',
+        name: 'A',
+        identityPendingSave: false,
+        running: false,
+        active: true
     }]);
     assert.equal(Object.isFrozen(snapshot), true);
     assert.equal(Object.isFrozen(snapshot.active), true);
     assert.equal(Object.isFrozen(snapshot.open), true);
+    assert.equal(Object.isFrozen(snapshot.open[0]), true);
+    assert.equal(Object.isFrozen(snapshot.tabs), true);
+    assert.equal(Object.isFrozen(snapshot.tabs[0]), true);
+    assert.equal('editorView' in snapshot.active, false);
+});
+
+test('snapshot-derived tab projection follows Open Workflow record authority', async () => {
+    const { desk } = createHarness();
+    await desk.show({ workflowId: 'workflow-a', label: 'A' });
+    await desk.show({ workflowId: 'workflow-b', label: 'B' });
+
+    const before = desk.snapshot();
+    assert.deepEqual(before.tabs, [
+        { workflowId: 'workflow-a', name: 'A', identityPendingSave: false, running: false, active: false },
+        { workflowId: 'workflow-b', name: 'B', identityPendingSave: false, running: false, active: true }
+    ]);
+
+    desk.workflow('workflow-a').runningChanged(true);
+    desk.workflow('workflow-a').labelChanged('renamed/A');
+
+    assert.deepEqual(desk.snapshot().tabs, [
+        { workflowId: 'workflow-a', name: 'renamed/A', identityPendingSave: false, running: true, active: false },
+        { workflowId: 'workflow-b', name: 'B', identityPendingSave: false, running: false, active: true }
+    ]);
+    assert.equal(before.tabs[0].name, 'A');
+    assert.equal(before.tabs[0].running, false);
 });
 
 test('identity-bound Workflow handle retains identity for save rename and move', async () => {
@@ -135,6 +168,64 @@ test('running and closed identity-bound Workflow handles fail explicitly', async
 
     const missing = desk.workflow('missing-id');
     await assert.rejects(() => missing.save(), { name: 'WorkflowHandleClosedError' });
+});
+
+test('a closed identity-bound handle stays closed when the same identity opens again', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async () => ({ ok: true })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'A',
+        editorView: { async commit() { return true; } }
+    });
+    const closed = desk.workflow('workflow-a');
+    await closed.close();
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'A reopened',
+        editorView: { async commit() { return true; } }
+    });
+
+    await assert.rejects(() => closed.save(), { name: 'WorkflowHandleClosedError' });
+    assert.throws(() => closed.documentSaved(), { name: 'WorkflowHandleClosedError' });
+    assert.throws(() => closed.runningChanged(true), { name: 'WorkflowHandleClosedError' });
+    assert.throws(() => closed.labelChanged('stale label'), { name: 'WorkflowHandleClosedError' });
+    assert.equal((await desk.workflow('workflow-a').save()).status, 'committed');
+});
+
+test('an in-flight stale handle cannot mutate a replacement Open Workflow record', async () => {
+    const closeGate = deferred();
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => kind === 'close' ? closeGate.promise : { ok: true }
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'original',
+        editorView: { async commit() { return true; } }
+    });
+    const stale = desk.workflow('workflow-a');
+    const closing = stale.close();
+
+    await desk.restore({
+        workflows: [{
+            workflowId: 'workflow-a',
+            name: 'replacement',
+            data: { workflowId: 'workflow-a' }
+        }],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    closeGate.resolve({ ok: true });
+
+    await assert.rejects(() => closing, { name: 'WorkflowHandleClosedError' });
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId, label }) => ({ workflowId, label })), [
+        { workflowId: 'workflow-a', label: 'replacement' }
+    ]);
 });
 
 test('identity-bound reload retains Workflow identity and commits through activation recovery', async () => {

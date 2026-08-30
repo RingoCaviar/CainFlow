@@ -34,6 +34,10 @@ _Avoid_: Hidden run, inactive run
 The stable identity of a workflow across saving, renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity. Copying or saving a workflow as a new workflow creates a new Workflow identity.
 _Avoid_: Workflow name as identity, workflow path as identity
 
+**Open Workflow record**:
+The authoritative current-session record of an open workflow's Workflow identity, mutable label, running state, pending explicit-save state, and whether it is active. Presentation details, folder placement, dirty state, run result, and the editable workflow document are not part of this record.
+_Avoid_: Workflow tab as authority, duplicate open-workflow state
+
 **Multi-connection input**:
 An input port that retains distinct connections from multiple source ports in an explicit order. Reconnecting the same source is rejected, while disconnecting one source leaves the others and their order intact.
 _Avoid_: Repeated input ports, array port
