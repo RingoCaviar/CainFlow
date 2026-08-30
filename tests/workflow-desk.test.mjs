@@ -58,6 +58,147 @@ test('show publishes one immutable committed Workflow activation snapshot', asyn
     assert.equal(Object.isFrozen(snapshot.open), true);
 });
 
+test('identity-bound Workflow handle retains identity for save rename and move', async () => {
+    const mutations = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async (operation) => { mutations.push(operation); return { ok: true }; }
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'folder/a',
+        editorView: { async commit() { return true; } }
+    });
+    const workflow = desk.workflow('workflow-a');
+
+    await workflow.save();
+    await workflow.rename('folder/renamed');
+    await workflow.move('other/renamed');
+
+    assert.deepEqual(mutations.map(({ kind, workflowId }) => ({ kind, workflowId })), [
+        { kind: 'save', workflowId: 'workflow-a' },
+        { kind: 'rename', workflowId: 'workflow-a' },
+        { kind: 'move', workflowId: 'workflow-a' }
+    ]);
+    assert.equal(desk.snapshot().active.workflowId, 'workflow-a');
+    assert.equal(desk.snapshot().active.label, 'other/renamed');
+});
+
+test('Copy and Save As allocate new Workflow identities behind the handle seam', async () => {
+    const generated = ['copy-id', 'save-as-id'];
+    const mutations = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => generated.shift(),
+        mutateWorkflow: async (operation) => { mutations.push(operation); return { ok: true }; }
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'a',
+        editorView: { async commit() { return true; } }
+    });
+
+    const copied = await desk.workflow('workflow-a').copy('a copy');
+    const savedAs = await desk.workflow('workflow-a').saveAs('a saved as');
+
+    assert.equal(copied.workflowId, 'copy-id');
+    assert.equal(savedAs.workflowId, 'save-as-id');
+    assert.deepEqual(mutations.map(({ kind, newWorkflowId }) => ({ kind, newWorkflowId })), [
+        { kind: 'copy', newWorkflowId: 'copy-id' },
+        { kind: 'save-as', newWorkflowId: 'save-as-id' }
+    ]);
+    assert.equal(desk.snapshot().open.find(({ workflowId }) => workflowId === 'copy-id').pendingExplicitSave, false);
+    assert.equal(desk.snapshot().open.find(({ workflowId }) => workflowId === 'save-as-id').pendingExplicitSave, false);
+});
+
+test('running and closed identity-bound Workflow handles fail explicitly', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => kind === 'close' ? { ok: true } : { ok: true }
+    });
+    await desk.restore({
+        workflows: [{
+            name: 'running',
+            workflowId: 'workflow-running',
+            running: true,
+            data: { workflowId: 'workflow-running' }
+        }]
+    });
+    const running = desk.workflow('workflow-running');
+
+    await assert.rejects(() => running.rename('renamed'), { name: 'WorkflowRunningPolicyError' });
+    await assert.rejects(() => running.move('folder/running'), { name: 'WorkflowRunningPolicyError' });
+    await assert.rejects(() => running.reload(), { name: 'WorkflowRunningPolicyError' });
+    await assert.rejects(() => running.close(), { name: 'WorkflowRunningPolicyError' });
+
+    const missing = desk.workflow('missing-id');
+    await assert.rejects(() => missing.save(), { name: 'WorkflowHandleClosedError' });
+});
+
+test('identity-bound reload retains Workflow identity and commits through activation recovery', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => ({
+            ok: true,
+            selection: kind === 'reload' ? {
+                label: 'reloaded',
+                editorView: { async commit() { return true; } }
+            } : null
+        })
+    });
+    await desk.show({
+        workflowId: 'workflow-a',
+        label: 'a',
+        editorView: { async commit() { return true; } }
+    });
+
+    const result = await desk.workflow('workflow-a').reload();
+
+    assert.equal(result.status, 'committed');
+    assert.equal(desk.snapshot().active.workflowId, 'workflow-a');
+    assert.equal(desk.snapshot().active.label, 'reloaded');
+});
+
+test('closing the active Workflow commits fallback or safe-empty in the same handle operation', async () => {
+    let useFallback = true;
+    let safeEmptyCommits = 0;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitSafeEmpty: async () => { safeEmptyCommits += 1; },
+        mutateWorkflow: async ({ kind }) => ({
+            ok: true,
+            fallback: kind === 'close' && useFallback ? {
+                workflowId: 'workflow-b',
+                label: 'b',
+                editorView: { async commit() { return true; } }
+            } : null
+        })
+    });
+    await desk.restore({
+        workflows: [
+            { name: 'a', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } },
+            { name: 'b', workflowId: 'workflow-b', data: { workflowId: 'workflow-b' } }
+        ],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    const closedA = desk.workflow('workflow-a');
+
+    assert.equal((await closedA.close()).status, 'committed');
+    assert.equal(desk.snapshot().active.workflowId, 'workflow-b');
+    await assert.rejects(() => closedA.save(), { name: 'WorkflowHandleClosedError' });
+
+    useFallback = false;
+    assert.equal((await desk.workflow('workflow-b').close()).status, 'committed');
+    assert.equal(desk.snapshot().active, null);
+    assert.equal(safeEmptyCommits, 1);
+});
+
 test('only the latest of three prepared Workflow activations commits', async () => {
     const preparations = new Map();
     const commits = [];

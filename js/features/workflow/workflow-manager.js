@@ -95,7 +95,8 @@ export function createWorkflowManagerApi({
         prepareEditorView: async (target) => target.editorView,
         commitSafeEmpty: async () => applySafeEmptyWorkflow({ publishActiveState: false }),
         createWorkflowId,
-        recordDiagnostic: recordWorkflowDiagnostic
+        recordDiagnostic: recordWorkflowDiagnostic,
+        mutateWorkflow: (operation) => mutateWorkflowThroughDesk(operation)
     });
     attachWorkflowDeskStateProjection(state, workflowDesk);
     const activeState = workflowDesk.migration;
@@ -169,6 +170,34 @@ export function createWorkflowManagerApi({
     function createWorkflowId() {
         if (typeof windowRef?.crypto?.randomUUID === 'function') return windowRef.crypto.randomUUID();
         return `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`;
+    }
+
+    async function mutateWorkflowThroughDesk(operation) {
+        const tab = (state.workflowTabs || []).find((candidate) => (
+            candidate?.workflowId === operation.workflowId
+            || candidate?.data?.workflowId === operation.workflowId
+        ));
+        if (!tab) return { ok: false, kind: 'closed-workflow-handle' };
+        if (operation.kind === 'save') {
+            const ok = await saveWorkflowToFile(tab.name, tab.data);
+            if (ok) tab.dirty = false;
+            return { ok };
+        }
+        if (operation.kind === 'rename' || operation.kind === 'move') {
+            const previousName = tab.name;
+            const ok = await renameWorkflowFile(previousName, operation.label);
+            if (ok) replaceWorkflowNameInState(previousName, operation.label, { publishActiveState: false });
+            return { ok };
+        }
+        if (operation.kind === 'reload') {
+            const ok = await workflowTargetActivator.activate(tab.name, { reloadFromFile: true });
+            return { ok, handled: ok };
+        }
+        if (operation.kind === 'close') {
+            const ok = await removeWorkflowTab(tab.name);
+            return { ok, handled: ok };
+        }
+        return { ok: false, kind: 'unsupported-workflow-mutation' };
     }
 
     function ensureWorkflowIdentity(tab, data = tab?.data) {
@@ -770,10 +799,10 @@ export function createWorkflowManagerApi({
         });
     }
 
-    function replaceWorkflowNameInState(oldName, newName) {
+    function replaceWorkflowNameInState(oldName, newName, { publishActiveState = true } = {}) {
         const tab = getWorkflowTab(oldName);
         if (tab) tab.name = newName;
-        if (state.activeWorkflowName === oldName) {
+        if (publishActiveState && state.activeWorkflowName === oldName) {
             activeState.relabelActive(state.activeWorkflowId, newName);
         }
         if (Array.isArray(state.workflowOrder)) {
@@ -969,8 +998,11 @@ export function createWorkflowManagerApi({
         })).filter(({ name, nextName }) => nextName !== name);
         const result = await persistEligibleWorkflowMoves(moves, {
             tabs: state.workflowTabs,
-            persist: ({ name, nextName }) => renameWorkflowFile(name, nextName),
-            onMoved: ({ name, nextName }) => replaceWorkflowNameInState(name, nextName)
+            persist: ({ name, nextName }) => {
+                const tab = getWorkflowTab(name);
+                return tab ? workflowDesk.workflow(ensureWorkflowIdentity(tab)).move(nextName) : false;
+            },
+            onMoved: () => {}
         });
         folder.collapsed = false;
         if (result.blocked.length > 0) showToast('运行中的工作流暂不能移动', 'warning');
@@ -987,8 +1019,11 @@ export function createWorkflowManagerApi({
         })).filter(({ name, nextName }) => nextName !== name);
         const result = await persistEligibleWorkflowMoves(moves, {
             tabs: state.workflowTabs,
-            persist: ({ name, nextName }) => renameWorkflowFile(name, nextName),
-            onMoved: ({ name, nextName }) => replaceWorkflowNameInState(name, nextName)
+            persist: ({ name, nextName }) => {
+                const tab = getWorkflowTab(name);
+                return tab ? workflowDesk.workflow(ensureWorkflowIdentity(tab)).move(nextName) : false;
+            },
+            onMoved: () => {}
         });
         if (result.blocked.length > 0) showToast('运行中的工作流暂不能移动', 'warning');
         if (result.failed.length > 0) showToast(`${result.failed.length} 个工作流移动失败`, 'warning');
@@ -1506,14 +1541,16 @@ export function createWorkflowManagerApi({
         }
         const workflowRename = await persistWorkflowRenameIfEligible([oldName], {
             tabs: state.workflowTabs,
-            persist: () => renameWorkflowFile(oldName, newName)
+            persist: () => {
+                const tab = getWorkflowTab(oldName);
+                return tab ? workflowDesk.workflow(ensureWorkflowIdentity(tab)).rename(newName) : false;
+            }
         });
         if (!workflowRename.allowed) {
             showToast('运行中的工作流暂不能重命名', 'warning');
             return;
         }
         if (workflowRename.result) {
-            replaceWorkflowNameInState(oldName, newName);
             showToast(`工作流「${oldName}」已重命名为「${newName}」`, 'success');
             renderWorkflowList();
             scheduleSave({ dirty: false });
@@ -2089,7 +2126,7 @@ export function createWorkflowManagerApi({
             showToast('请先从工作流管理面板打开或新建一个工作流', 'warning');
             return false;
         }
-        if (await saveWorkflowToFile(tab.name, tab.data)) {
+        if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status === 'committed') {
             tab.dirty = false;
             showToast(`工作流「${tab.name}」已保存`, 'success');
             renderWorkflowList();
@@ -2109,7 +2146,7 @@ export function createWorkflowManagerApi({
 
         let savedCount = 0;
         for (const tab of tabs) {
-            if (await saveWorkflowToFile(tab.name, tab.data)) {
+            if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status === 'committed') {
                 tab.dirty = false;
                 savedCount += 1;
             } else {
@@ -2129,7 +2166,10 @@ export function createWorkflowManagerApi({
         const tab = getWorkflowTab(name);
         const data = tab ? tab.data : await loadWorkflowFromFile(name);
         if (!data) return false;
-        if (await saveWorkflowToFile(name, data)) {
+        const saved = tab
+            ? (await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status === 'committed'
+            : await saveWorkflowToFile(name, data);
+        if (saved) {
             if (tab) tab.dirty = false;
             showToast(`工作流「${name}」已保存`, 'success');
             renderWorkflowList();
@@ -2150,9 +2190,9 @@ export function createWorkflowManagerApi({
             return false;
         }
         if (state.activeWorkflowName === name) snapshotActiveWorkflow();
-        if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+        if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status !== 'committed') return false;
         tab.dirty = false;
-        if (!(await removeWorkflowTab(name))) return false;
+        if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).close()).status !== 'committed') return false;
         showToast(`已保存并关闭工作流「${name}」`, 'success');
         return true;
     }
@@ -2167,7 +2207,7 @@ export function createWorkflowManagerApi({
             showToast('该工作流正在运行，暂不能关闭', 'warning');
             return false;
         }
-        if (!(await removeWorkflowTab(name))) return false;
+        if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).close()).status !== 'committed') return false;
         showToast(`已关闭工作流「${name}」`, 'info');
         return true;
     }
@@ -2181,7 +2221,7 @@ export function createWorkflowManagerApi({
             return false;
         }
 
-        return openWorkflow(name, { reloadFromFile: true });
+        return (await workflowDesk.workflow(ensureWorkflowIdentity(tab)).reload()).status === 'committed';
     }
 
     async function exportWorkflowByName(name) {
@@ -2236,12 +2276,12 @@ export function createWorkflowManagerApi({
             });
             if (decision === 'cancel') return false;
             if (decision === 'save') {
-                if (!(await saveWorkflowToFile(tab.name, tab.data))) return false;
+                if ((await workflowDesk.workflow(ensureWorkflowIdentity(tab)).save()).status !== 'committed') return false;
                 tab.dirty = false;
             }
         }
 
-        return removeWorkflowTab(name);
+        return (await workflowDesk.workflow(ensureWorkflowIdentity(tab)).close()).status === 'committed';
     }
 
     async function closeOtherWorkflows() {
@@ -2572,6 +2612,7 @@ export function createWorkflowManagerApi({
             const tab = getWorkflowTab(name);
             if (!tab) return false;
             tab.running = running === true;
+            activeState.setRunning(ensureWorkflowIdentity(tab), tab.running);
             if (tab.running) tab.runResult = '';
             if (state.activeWorkflowName === name) {
                 state.nodes.forEach((node) => {

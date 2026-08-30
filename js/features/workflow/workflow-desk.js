@@ -36,6 +36,23 @@ export class WorkflowIdentityOwnershipError extends Error {
     }
 }
 
+export class WorkflowHandleClosedError extends Error {
+    constructor(message = 'Workflow handle no longer refers to an open Workflow', options = {}) {
+        super(message, options);
+        this.name = 'WorkflowHandleClosedError';
+        this.workflowId = options.workflowId || '';
+    }
+}
+
+export class WorkflowRunningPolicyError extends Error {
+    constructor(message = 'Running Workflow cannot perform this mutation', options = {}) {
+        super(message, options);
+        this.name = 'WorkflowRunningPolicyError';
+        this.workflowId = options.workflowId || '';
+        this.operation = options.operation || '';
+    }
+}
+
 function freezeSnapshot({ revision, active, openWorkflows }) {
     return Object.freeze({
         revision,
@@ -71,6 +88,7 @@ export function createWorkflowDesk({
     prepareEditorView,
     commitSafeEmpty = async () => {},
     recordDiagnostic = async () => {},
+    mutateWorkflow = async () => ({ ok: false }),
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
 }) {
@@ -269,6 +287,111 @@ export function createWorkflowDesk({
         openWorkflows.set(workflowId, { ...current, pendingExplicitSave: false });
         publishSnapshot();
         return true;
+    }
+
+    function setMigratedWorkflowRunning(workflowId, running) {
+        const current = openWorkflows.get(workflowId);
+        if (!current) return false;
+        openWorkflows.set(workflowId, { ...current, running: running === true });
+        revision += 1;
+        publishSnapshot();
+        return true;
+    }
+
+    function requireOpenWorkflow(workflowId) {
+        const current = openWorkflows.get(workflowId);
+        if (!current) throw new WorkflowHandleClosedError(undefined, { workflowId });
+        return current;
+    }
+
+    function requireMutationAllowed(workflowId, kind) {
+        const current = requireOpenWorkflow(workflowId);
+        if (current.running === true && ['rename', 'move', 'reload', 'close'].includes(kind)) {
+            throw new WorkflowRunningPolicyError(undefined, { workflowId, operation: kind });
+        }
+        return current;
+    }
+
+    function publishRelabel(workflowId, label) {
+        const current = requireOpenWorkflow(workflowId);
+        openWorkflows.set(workflowId, { ...current, label });
+        revision += 1;
+        if (active?.workflowId === workflowId) {
+            active = Object.freeze({ ...active, label, revision });
+        }
+        publishSnapshot();
+    }
+
+    function allocateWorkflowId() {
+        let workflowId = createWorkflowId();
+        while (!workflowId || openWorkflows.has(workflowId)) workflowId = createWorkflowId();
+        return workflowId;
+    }
+
+    async function runIdentityMutation(workflowId, kind, options = {}) {
+        const current = requireMutationAllowed(workflowId, kind);
+        const result = await mutateWorkflow(Object.freeze({
+            kind,
+            workflowId,
+            label: current.label,
+            ...options
+        }));
+        if (result?.ok !== true) return Object.freeze({ status: 'failed', workflowId });
+        if (kind === 'save') markMigratedWorkflowSaved(workflowId);
+        if ((kind === 'rename' || kind === 'move') && options.label) {
+            publishRelabel(workflowId, options.label);
+        }
+        if (kind === 'copy' || kind === 'save-as') {
+            openWorkflows.set(options.newWorkflowId, {
+                workflowId: options.newWorkflowId,
+                label: options.label || current.label,
+                pendingExplicitSave: false,
+                running: false
+            });
+            revision += 1;
+            publishSnapshot();
+            return workflow(options.newWorkflowId);
+        }
+        if (kind === 'reload' && result.selection) {
+            return show({ ...result.selection, workflowId, force: true });
+        }
+        if (kind === 'reload' && result.handled === true) {
+            return Object.freeze({ status: 'committed', workflowId, snapshot: currentSnapshot });
+        }
+        if (kind === 'close') {
+            const candidate = new Map(openWorkflows);
+            candidate.delete(workflowId);
+            if (active?.workflowId === workflowId) {
+                if (result.fallback) {
+                    return show({ ...result.fallback, restoredOpenWorkflows: candidate, force: true });
+                }
+                return commitRestoredEmpty({ restoredOpenWorkflows: candidate });
+            }
+            openWorkflows.delete(workflowId);
+            revision += 1;
+            publishSnapshot();
+        }
+        return Object.freeze({ status: 'committed', workflowId, snapshot: currentSnapshot });
+    }
+
+    function workflow(workflowId) {
+        const identity = String(workflowId || '').trim();
+        return Object.freeze({
+            workflowId: identity,
+            save: () => runIdentityMutation(identity, 'save'),
+            rename: (label) => runIdentityMutation(identity, 'rename', { label }),
+            move: (label) => runIdentityMutation(identity, 'move', { label }),
+            reload: () => runIdentityMutation(identity, 'reload'),
+            close: () => runIdentityMutation(identity, 'close'),
+            copy: (label) => runIdentityMutation(identity, 'copy', {
+                label,
+                newWorkflowId: allocateWorkflowId()
+            }),
+            saveAs: (label) => runIdentityMutation(identity, 'save-as', {
+                label,
+                newWorkflowId: allocateWorkflowId()
+            })
+        });
     }
 
     function normalizeRestoredWorkflows(workflows) {
@@ -503,7 +626,8 @@ export function createWorkflowDesk({
         commitActive: commitMigratedActiveState,
         relabelActive: relabelMigratedActiveState,
         clearActive: clearMigratedActiveState,
-        markSaved: markMigratedWorkflowSaved
+        markSaved: markMigratedWorkflowSaved,
+        setRunning: setMigratedWorkflowRunning
     });
-    return Object.freeze({ show, restore, snapshot: () => currentSnapshot, migration });
+    return Object.freeze({ show, restore, workflow, snapshot: () => currentSnapshot, migration });
 }
