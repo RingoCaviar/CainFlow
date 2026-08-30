@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
+import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
 import {
     createWorkflowSessionActivator,
     createWorkflowTargetActivator
@@ -173,6 +174,40 @@ test('session activation coordinator reconciles the active workflow identity as 
         activeWorkflowId: 'workflow-a'
     });
     assert.equal(workflowActivation.retainActive('workflow-a'), true);
+});
+
+test('production session restoration commits document data and viewport through WorkflowDesk', async () => {
+    const state = { workflowTabs: [], workflowOrder: [], workflowFolders: [] };
+    let preparedData = null;
+    let viewportActiveId = null;
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'generated-id'
+    });
+    const coordinator = createWorkflowSessionActivator({
+        state,
+        workflowDesk,
+        workflowActivation: createWorkflowActivation(),
+        prepareEditorView: async (_label, workflowData) => {
+            preparedData = workflowData;
+            return { async commit() { return true; } };
+        },
+        applyViewport: () => { viewportActiveId = workflowDesk.snapshot().active?.workflowId; }
+    });
+
+    assert.equal(await coordinator.activate({
+        workflowTabs: [{ name: 'legacy', data: { nodes: [{ id: 'node-a' }] } }],
+        activeWorkflowName: 'legacy',
+        workflowOrder: ['legacy'],
+        workflowFolders: ['folder-a']
+    }), true);
+
+    assert.deepEqual(preparedData, { nodes: [{ id: 'node-a' }], workflowId: 'generated-id' });
+    assert.equal(state.workflowTabs[0].identityPendingSave, true);
+    assert.equal(viewportActiveId, 'generated-id');
+    assert.deepEqual(state.workflowOrder, ['legacy']);
+    assert.deepEqual(state.workflowFolders, ['folder-a']);
 });
 
 test('session workflow activation waits for visible editor commit to finish', async () => {

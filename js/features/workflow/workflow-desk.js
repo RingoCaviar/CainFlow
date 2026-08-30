@@ -141,12 +141,19 @@ export function createWorkflowDesk({
             throw new WorkflowEditorCommitError(undefined, { cause: commitError });
         }
         revision += 1;
-        openWorkflows.set(target.workflowId, {
-            workflowId: target.workflowId,
-            label: target.label,
-            pendingExplicitSave: target.pendingExplicitSave === true,
-            running: false
-        });
+        if (target.restoredOpenWorkflows instanceof Map) {
+            openWorkflows.clear();
+            for (const [workflowId, workflow] of target.restoredOpenWorkflows) {
+                openWorkflows.set(workflowId, workflow);
+            }
+        } else {
+            openWorkflows.set(target.workflowId, {
+                workflowId: target.workflowId,
+                label: target.label,
+                pendingExplicitSave: target.pendingExplicitSave === true,
+                running: false
+            });
+        }
         active = Object.freeze({
             workflowId: target.workflowId,
             label: target.label,
@@ -214,7 +221,17 @@ export function createWorkflowDesk({
     function normalizeRestoredWorkflows(workflows) {
         const seen = new Set();
         const migrations = [];
-        for (const workflow of workflows) {
+        const identityAliases = new Map();
+        const restoredOpenWorkflows = new Map();
+        const normalizedWorkflows = [];
+        for (const sourceWorkflow of workflows) {
+            if (!sourceWorkflow || typeof sourceWorkflow !== 'object') continue;
+            const workflow = {
+                ...sourceWorkflow,
+                data: sourceWorkflow.data && typeof sourceWorkflow.data === 'object'
+                    ? { ...sourceWorkflow.data }
+                    : sourceWorkflow.data
+            };
             if (!workflow || typeof workflow !== 'object') continue;
             const savedDocumentId = String(workflow.data?.workflowId || '').trim();
             const sessionId = String(workflow.workflowId || '').trim();
@@ -224,7 +241,7 @@ export function createWorkflowDesk({
             while (!workflowId || seen.has(workflowId)) workflowId = createWorkflowId();
             workflow.workflowId = workflowId;
             if (workflow.data && typeof workflow.data === 'object') workflow.data.workflowId = workflowId;
-            workflow.identityPendingSave = missingIdentity;
+            workflow.identityPendingSave = missingIdentity || workflow.identityPendingSave === true;
             if (missingIdentity) {
                 migrations.push(Object.freeze({
                     kind: 'missing-identity',
@@ -233,35 +250,70 @@ export function createWorkflowDesk({
                 }));
             }
             seen.add(workflowId);
-            openWorkflows.set(workflowId, {
+            if (sessionId) identityAliases.set(sessionId, workflowId);
+            restoredOpenWorkflows.set(workflowId, {
                 workflowId,
                 label: workflow.name || '',
-                pendingExplicitSave: missingIdentity,
+                pendingExplicitSave: workflow.identityPendingSave,
                 running: workflow.running === true
             });
+            normalizedWorkflows.push(workflow);
         }
-        return migrations;
+        return { normalizedWorkflows, migrations, identityAliases, restoredOpenWorkflows };
+    }
+
+    async function commitRestoredEmpty({ restoredOpenWorkflows, signal, isCurrent }) {
+        const generation = ++activationGeneration;
+        return enqueueCommit(async () => {
+            if (generation !== activationGeneration || signal?.aborted === true || isCurrent?.() === false) {
+                return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
+            }
+            try {
+                await commitSafeEmpty();
+            } catch (error) {
+                throw new WorkflowEditorCommitError('Empty Workflow editor view commit failed', { cause: error });
+            }
+            if (generation !== activationGeneration || signal?.aborted === true || isCurrent?.() === false) {
+                return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
+            }
+            openWorkflows.clear();
+            for (const [workflowId, workflow] of restoredOpenWorkflows) {
+                openWorkflows.set(workflowId, workflow);
+            }
+            active = null;
+            revision += 1;
+            publishSnapshot();
+            return Object.freeze({ status: 'committed', snapshot: currentSnapshot });
+        });
     }
 
     async function restore(restoration = {}) {
-        const workflows = Array.isArray(restoration.workflows) ? restoration.workflows : [];
-        const migrations = normalizeRestoredWorkflows(workflows);
+        const sourceWorkflows = Array.isArray(restoration.workflows) ? restoration.workflows : [];
+        const {
+            normalizedWorkflows: workflows,
+            migrations,
+            identityAliases,
+            restoredOpenWorkflows
+        } = normalizeRestoredWorkflows(sourceWorkflows);
+        const restoredActiveWorkflowId = identityAliases.get(restoration.activeWorkflowId)
+            || restoration.activeWorkflowId;
         let activeWorkflow = workflows.find((workflow) => (
-            restoration.activeWorkflowId
-            && workflow.workflowId === restoration.activeWorkflowId
+            restoredActiveWorkflowId
+            && workflow.workflowId === restoredActiveWorkflowId
         ));
         if (!activeWorkflow && restoration.activeWorkflowName) {
             activeWorkflow = workflows.find((workflow) => workflow.name === restoration.activeWorkflowName);
         }
         if (!activeWorkflow) {
-            active = null;
-            revision += 1;
-            publishSnapshot();
+            const result = await commitRestoredEmpty({
+                restoredOpenWorkflows,
+                signal: restoration.signal,
+                isCurrent: restoration.isCurrent
+            });
             return Object.freeze({
-                status: 'committed',
+                ...result,
                 workflows,
-                migrations: Object.freeze(migrations),
-                snapshot: currentSnapshot
+                migrations: Object.freeze(migrations)
             });
         }
         const editorView = await restoration.prepareEditorView?.({
@@ -275,6 +327,7 @@ export function createWorkflowDesk({
             editorView,
             force: true,
             pendingExplicitSave: activeWorkflow.identityPendingSave === true,
+            restoredOpenWorkflows,
             signal: restoration.signal,
             isCurrent: restoration.isCurrent
         });

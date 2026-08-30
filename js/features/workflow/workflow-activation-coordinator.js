@@ -24,10 +24,10 @@ export function createWorkflowSessionActivator({
             workflows: workflowTabs,
             activeWorkflowId: restoredState?.activeWorkflowId || '',
             activeWorkflowName: restoredState?.activeWorkflowName || '',
-            prepareEditorView: async ({ workflowId, label }) => {
+            prepareEditorView: async ({ workflowId, label, document }) => {
                 if (typeof prepareEditorView !== 'function') return null;
                 return prepareEditorView(label, {
-                    ...(restoredState?.workflowData || {}),
+                    ...(document || {}),
                     workflowId
                 });
             }

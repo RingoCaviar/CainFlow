@@ -439,11 +439,103 @@ test('restore lazily assigns missing Workflow identity without writing the docum
     });
 
     assert.equal(result.migrations[0].kind, 'missing-identity');
-    assert.equal(workflow.workflowId, 'generated-id');
-    assert.equal(workflow.data.workflowId, 'generated-id');
+    assert.equal(result.workflows[0].workflowId, 'generated-id');
+    assert.equal(result.workflows[0].data.workflowId, 'generated-id');
+    assert.equal(workflow.workflowId, undefined);
     assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
     assert.equal(documentWrites, 0);
 
     desk.migration.markSaved('generated-id');
     assert.equal(desk.snapshot().open[0].pendingExplicitSave, false);
+});
+
+test('restore atomically replaces the open Workflow identity index', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView
+    });
+    const prepareEditorView = async () => ({
+        async commit() { return true; },
+        finalize() { return true; }
+    });
+
+    await desk.restore({
+        workflows: [{ name: 'A', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } }],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView
+    });
+    await desk.restore({
+        workflows: [{ name: 'B', workflowId: 'workflow-b', data: { workflowId: 'workflow-b' } }],
+        activeWorkflowId: 'workflow-b',
+        prepareEditorView
+    });
+
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-b']);
+});
+
+test('failed restore preserves the committed open Workflow identity index', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView
+    });
+    await desk.restore({
+        workflows: [{ name: 'A', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } }],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({
+            async commit() { return true; },
+            rollback() { return true; },
+            finalize() { return true; }
+        })
+    });
+
+    await assert.rejects(() => desk.restore({
+        workflows: [{ name: 'B', workflowId: 'workflow-b', data: { workflowId: 'workflow-b' } }],
+        activeWorkflowId: 'workflow-b',
+        prepareEditorView: async () => ({
+            async commit() { throw new Error('cannot show B'); },
+            rollback() { return true; }
+        })
+    }), WorkflowEditorCommitError);
+
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a']);
+});
+
+test('restore retains pending explicit save until the Workflow document is explicitly saved', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView
+    });
+
+    const result = await desk.restore({
+        workflows: [{
+            name: 'legacy',
+            workflowId: 'migrated-id',
+            identityPendingSave: true,
+            data: { workflowId: 'migrated-id' }
+        }],
+        activeWorkflowId: 'migrated-id',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    assert.equal(result.workflows[0].identityPendingSave, true);
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
+});
+
+test('restore reconciles stale session identity to saved document identity without name fallback', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView
+    });
+
+    await desk.restore({
+        workflows: [{
+            name: 'renamed-after-session',
+            workflowId: 'stale-session-id',
+            data: { workflowId: 'saved-document-id' }
+        }],
+        activeWorkflowId: 'stale-session-id',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+
+    assert.equal(desk.snapshot().active.workflowId, 'saved-document-id');
 });
