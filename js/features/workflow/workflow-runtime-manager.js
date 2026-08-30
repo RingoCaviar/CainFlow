@@ -435,6 +435,7 @@ export function createWorkflowRuntimeManager({
     visibleNodesLayer = null,
     bindVisibleNodeInteractions = () => {},
     visibleConnectionProjectionMaintenance = null,
+    createRunContext = null,
     documentRef = document,
     windowRef = window,
     fetchRef = fetch,
@@ -496,11 +497,9 @@ export function createWorkflowRuntimeManager({
     }
 
     function getWorkflowRunContexts(workflow) {
-        const reference = normalizeWorkflowReference(workflow);
+        const reference = requireStableWorkflowReference(workflow);
         return Array.from(workflowRunContexts.values())
-            .filter((context) => reference.workflowId
-                ? context.workflowId === reference.workflowId
-                : context.workflowName === reference.workflowName);
+            .filter((context) => context.workflowId === reference.workflowId);
     }
 
     function getWorkflowRunContext(workflowReference) {
@@ -680,8 +679,8 @@ export function createWorkflowRuntimeManager({
     }
 
     async function syncVisibleNodeResult(workflow, runtimeNodeId) {
-        const reference = normalizeWorkflowReference(workflow);
-        if ((!reference.workflowId && !reference.workflowName) || !isActiveWorkflow(reference) || !runtimeNodeId) return false;
+        const reference = requireStableWorkflowReference(workflow);
+        if (!isActiveWorkflow(reference) || !runtimeNodeId) return false;
         const context = getWorkflowRunContexts(reference)
             .find((entry) => entry.state?.nodes?.has(runtimeNodeId));
         const runtimeNode = context?.state?.nodes?.get(runtimeNodeId);
@@ -799,8 +798,8 @@ export function createWorkflowRuntimeManager({
         return true;
     }
 
-    function isWorkflowRunning(workflowName) {
-        return getWorkflowRunContexts(workflowName).length > 0;
+    function isWorkflowRunning(workflow) {
+        return getWorkflowRunContexts(workflow).length > 0;
     }
 
     function recordRuntimeNodeRunState(context, payload = {}) {
@@ -947,9 +946,8 @@ export function createWorkflowRuntimeManager({
     }
 
     function applyVisibleNodeRunState(workflow, payload = {}) {
-        const reference = normalizeWorkflowReference(workflow);
-        if ((!reference.workflowId && !reference.workflowName) || !isActiveWorkflow(reference)) return;
-        const workflowName = reference.workflowName || state.activeWorkflowName;
+        const reference = requireStableWorkflowReference(workflow);
+        if (!isActiveWorkflow(reference)) return;
         const nodeId = payload.nodeId;
         if (!nodeId) return;
         const node = state.nodes.get(nodeId);
@@ -1233,15 +1231,14 @@ export function createWorkflowRuntimeManager({
     }
 
     function syncRuntimeWorkflowSnapshot(context, options = {}) {
-        if (!context?.workflowName) return false;
+        if (!context?.workflowId) return false;
         const data = context.serialize();
-        if (context.workflowId) data.workflowId = context.workflowId;
-        const workflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(context.workflowId) || context.workflowName;
-        const active = context.workflowId ? state.activeWorkflowId === context.workflowId : state.activeWorkflowName === workflowName;
+        data.workflowId = context.workflowId;
+        const active = state.activeWorkflowId === context.workflowId;
         const applyToCanvas = active && options.applyToCanvas === true;
         const mergeRunResults = options.mergeRunResults !== false;
         const mergeNodeIds = options.mergeNodeIds instanceof Set ? options.mergeNodeIds : context.activePlanNodeIds;
-        return getWorkflowManagerApi()?.updateWorkflowTabData?.(workflowName, data, {
+        return getWorkflowManagerApi()?.updateWorkflowTabDataById?.(context.workflowId, data, {
             dirty: options.dirty !== false,
             applyToCanvas,
             mergeRunResults,
@@ -1253,7 +1250,7 @@ export function createWorkflowRuntimeManager({
     }
 
     function syncRuntimeNodeSnapshot(context, nodeId, options = {}) {
-        if (!context?.workflowName || !nodeId) return false;
+        if (!context?.workflowId || !nodeId) return false;
         return syncRuntimeWorkflowSnapshot(context, {
             dirty: options.dirty !== false,
             applyToCanvas: options.applyToCanvas !== false,
@@ -1264,7 +1261,8 @@ export function createWorkflowRuntimeManager({
 
     function createWorkflowRuntimeContext(workflow, workflowData, { editorPreparation = false } = {}) {
         const { workflowName, workflowId } = normalizeWorkflowReference(workflow);
-        const contextId = `${workflowName}::${Date.now()}::${workflowRunContextSeq += 1}`;
+        if (!workflowId) throw new TypeError('A workflow reference with a stable workflowId is required');
+        const contextId = `${workflowId}::${Date.now()}::${workflowRunContextSeq += 1}`;
         const runtimeState = createInitialState();
         const visibleRect = visibleNodesLayer?.parentElement?.getBoundingClientRect?.() || {};
         const layoutHost = editorPreparation
@@ -1283,6 +1281,7 @@ export function createWorkflowRuntimeManager({
         runtimeState.models = state.models.map((model) => ({ ...model }));
         runtimeState.nodeDefaults = clonePlainValue(state.nodeDefaults);
         runtimeState.activeWorkflowName = workflowName;
+        runtimeState.activeWorkflowId = workflowId;
         runtimeState.workflowTabs = [];
 
         let runtimeElements = null;
@@ -1617,7 +1616,17 @@ export function createWorkflowRuntimeManager({
 
     async function runWorkflowInContext(workflow, workflowData, runInput = null) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
-        const context = createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData);
+        const context = typeof createRunContext === 'function'
+            ? createRunContext({ workflowName, workflowId }, workflowData)
+            : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData);
+        if (typeof createRunContext === 'function') {
+            const dispose = context.dispose?.bind(context) || (() => {});
+            context.dispose = () => {
+                workflowRunContexts.delete(context.id);
+                dispose();
+            };
+            workflowRunContexts.set(context.id, context);
+        }
         const plan = context.resolveExecutionPlan(runInput);
         if (!plan) {
             context.dispose();
@@ -1636,7 +1645,7 @@ export function createWorkflowRuntimeManager({
         }
 
         context.activePlanNodeIds = new Set(runnableNodeIds);
-        getWorkflowManagerApi()?.setWorkflowRunningState?.(workflowName, true);
+        getWorkflowManagerApi()?.setWorkflowRunningStateById?.(workflowId, true);
         syncGlobalRunToolbarState();
 
         context.promise = (async () => {
@@ -1647,19 +1656,20 @@ export function createWorkflowRuntimeManager({
                 syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             } catch (error) {
                 runError = error;
-                addLog('error', `工作流运行异常: ${workflowName}`, error?.message || String(error), {
-                    workflowName,
+                const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(workflowId) || workflowName;
+                addLog('error', `工作流运行异常: ${currentWorkflowName}`, error?.message || String(error), {
+                    workflowName: currentWorkflowName,
+                    workflowId,
                     error: error?.stack || error
                 });
                 syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
             } finally {
                 const runResult = deriveWorkflowRunResult(context, runError);
                 context.activePlanNodeIds.clear();
-                const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(context.workflowId) || workflowName;
                 const stillRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);
-                getWorkflowManagerApi()?.setWorkflowRunningState?.(currentWorkflowName, stillRunning);
+                getWorkflowManagerApi()?.setWorkflowRunningStateById?.(context.workflowId, stillRunning);
                 if (runResult && !stillRunning) {
-                    getWorkflowManagerApi()?.setWorkflowRunResult?.(currentWorkflowName, runResult);
+                    getWorkflowManagerApi()?.setWorkflowRunResultById?.(context.workflowId, runResult);
                 }
                 if (isActiveWorkflow(workflowReference)) {
                     refreshVisibleWorkflowRunState(workflowReference);

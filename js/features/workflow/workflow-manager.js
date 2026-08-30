@@ -2593,6 +2593,66 @@ export function createWorkflowManagerApi({
         refreshWorkflowSelectionUi();
     }
 
+    function updateWorkflowTabDataByName(name, data, options = {}) {
+        if (!name || !data) return false;
+        const sourceData = state.activeWorkflowName === name && options.mergeWithCanvas === true
+            ? getWorkflowPayload()
+            : getWorkflowTab(name)?.data;
+        const nextData = options.mergeRunResults === true
+            ? mergeRunWorkflowData(sourceData, data, {
+                baseNodeIds: options.baseNodeIds,
+                baseConnectionIds: options.baseConnectionIds,
+                mergeNodeIds: options.mergeNodeIds
+            })
+            : cloneWorkflowData(data);
+        let tab = getWorkflowTab(name);
+        if (!tab) {
+            tab = {
+                name,
+                data: nextData,
+                dirty: options.dirty === true,
+                colorIndex: (state.workflowTabs || []).length % TAB_COLORS,
+                runResult: normalizeWorkflowRunResult(options.runResult)
+            };
+            state.workflowTabs.push(tab);
+        } else {
+            releaseDetachedEditorView({
+                workflowName: tab.name || '',
+                workflowId: tab.workflowId || tab.data?.workflowId || ''
+            });
+            replaceWorkflowTabData(tab, nextData);
+            if (options.dirty === true) tab.dirty = true;
+            if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);
+        }
+        refreshWorkflowCardState(name);
+        return true;
+    }
+
+    function setWorkflowRunningStateById(workflowId, running = false) {
+        const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
+        if (!tab) return false;
+        tab.running = running === true;
+        activeState.setRunning(workflowId, tab.running);
+        if (tab.running) tab.runResult = '';
+        if (state.activeWorkflowId === workflowId) {
+            state.nodes.forEach((node) => node.el?.classList.remove('workflow-running-locked'));
+        }
+        refreshWorkflowCardState(tab.name);
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return true;
+    }
+
+    function setWorkflowRunResultById(workflowId, result = '') {
+        const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
+        if (!tab) return false;
+        tab.runResult = state.activeWorkflowId === workflowId ? '' : normalizeWorkflowRunResult(result);
+        refreshWorkflowCardState(tab.name);
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return true;
+    }
+
     return {
         applyWorkflowSidebarWidth,
         activateRestoredWorkflowState: workflowSessionActivator.activate,
@@ -2656,6 +2716,12 @@ export function createWorkflowManagerApi({
             refreshWorkflowCardState(name);
             return true;
         },
+        updateWorkflowTabDataById: (workflowId, data, options = {}) => {
+            const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
+            if (!tab) return false;
+            return updateWorkflowTabDataByName(tab.name, data, options);
+        },
+        setWorkflowRunningStateById,
         setWorkflowRunningState: (name, running = false) => {
             const tab = getWorkflowTab(name);
             if (!tab) return false;
@@ -2681,6 +2747,7 @@ export function createWorkflowManagerApi({
             scheduleSave({ dirty: false });
             return true;
         },
+        setWorkflowRunResultById,
         syncActiveWorkflowBeforeSessionSave,
         cleanupOpenWorkflowAssets,
         ensureOpenWorkflow,

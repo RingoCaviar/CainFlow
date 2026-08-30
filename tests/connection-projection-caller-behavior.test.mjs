@@ -48,6 +48,7 @@ test('visible workflow completion reports the runtime node id through the appear
     const node = createNode('runtime-node');
     const state = {
         activeWorkflowName: 'workflow-a',
+        activeWorkflowId: 'workflow-a-id',
         nodes: new Map([[node.id, node]]),
         runningNodeIds: new Set(),
         runningNodeCancelHandlers: new Map()
@@ -61,7 +62,7 @@ test('visible workflow completion reports the runtime node id through the appear
         confirmRef: () => true
     });
 
-    api.applyVisibleNodeRunState('workflow-a', {
+    api.applyVisibleNodeRunState({ workflowId: 'workflow-a-id', workflowName: 'workflow-a' }, {
         nodeId: node.id,
         status: 'completed',
         durationSec: '1.25'
