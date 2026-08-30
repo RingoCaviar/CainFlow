@@ -67,10 +67,7 @@ export function createWorkflowSessionSelectionAdapter({
 export function createWorkflowSelectionAdapter({
     state,
     getActiveWorkflow = () => null,
-    activeState,
-    workflowDesk = null,
-    workflowActivation,
-    createWorkflowId,
+    workflowDesk,
     getWorkflowTab,
     ensureWorkflowIdentity,
     loadWorkflowFromFile,
@@ -101,21 +98,15 @@ export function createWorkflowSelectionAdapter({
             showToast('工作流正在后台运行，暂不能从文件重载', 'warning');
             return false;
         }
-        const stableActivationKey = existingTab ? ensureWorkflowIdentity(existingTab) : `path:${name}`;
-        const activationKey = reloadFromFile ? `reload:${stableActivationKey}:${Date.now()}` : stableActivationKey;
-        if (!reloadFromFile && getActiveWorkflow()?.label === name && workflowActivation.retainActive(activationKey)) {
-            return true;
-        }
-
-        return workflowActivation.activate(activationKey, {
-            getActiveKey: (prepared) => prepared?.tab?.workflowId || activationKey,
-            prepare: async ({ signal, token }) => {
+        try {
+            const result = await workflowDesk.show({
+                async resolve() {
                 let tab = getWorkflowTab(name);
                 let createdTab = false;
                 let reloadedData = null;
                 if (!tab || reloadFromFile) {
                     const data = await loadWorkflowFromFile(name);
-                    if (signal.aborted || !data) return null;
+                    if (!data) return null;
                     reloadedData = migrateLegacyWorkflowData(data);
                     if (!tab) {
                         tab = {
@@ -147,8 +138,7 @@ export function createWorkflowSelectionAdapter({
                     allowDetached: createdTab
                 });
                 const preparedView = await prepareWorkflowView(targetData, {
-                    signal,
-                    isCurrent: () => workflowActivation.isCurrent(token)
+                    isCurrent: () => true
                 });
                 if (!preparedView) return null;
                 if (typeof prepareEditorView !== 'function') {
@@ -161,73 +151,101 @@ export function createWorkflowSelectionAdapter({
                     ...preparedView.data,
                     nodes: preparedView.modelResolution.nodes
                 });
-                if (signal.aborted || !workflowActivation.isCurrent(token)) {
-                    editorView?.dispose?.();
-                    return null;
-                }
-                return {
-                    tab,
-                    createdTab,
-                    reloadedData,
-                    targetRevision,
-                    preparedView,
-                    editorView,
-                    identityOwnership,
-                    dispose: () => editorView?.dispose?.()
-                };
-            },
-            validate: (prepared) => {
-                const currentTab = (state.workflowTabs || [])
-                    .find((candidate) => candidate.workflowId === prepared?.tab?.workflowId) || prepared?.tab;
-                if (prepared?.reloadedData && currentTab?.running === true) return null;
-                return prepared?.targetRevision?.isCurrent() === true;
-            },
-            commit: async (prepared, transaction) => {
-                if (!prepared?.tab || !transaction.isCurrent()) return false;
-                snapshotActiveWorkflow();
-                const previousActiveName = getActiveWorkflow()?.label || '';
-                const previousActiveTab = getWorkflowTab(previousActiveName);
-                const previousData = previousActiveTab ? cloneWorkflowData(previousActiveTab.data) : getEmptyWorkflowData();
-                prepared.previous = {
-                    name: previousActiveName,
-                    workflowId: getActiveWorkflow()?.workflowId || ensureWorkflowIdentity(previousActiveTab),
-                    tab: previousActiveTab,
-                    data: previousData,
-                    preparedView: {
-                        data: previousData,
-                        modelResolution: resolveWorkflowModelReferences(previousData, state)
-                    },
-                    undoStack: Array.isArray(state.undoStack) ? state.undoStack.slice() : []
-                };
-                const { tab, createdTab } = prepared;
-                if (prepared.reloadedData && !createdTab) {
-                    prepared.previousTarget = {
+                const prepared = { tab, createdTab, reloadedData, targetRevision, preparedView, editorView };
+                const transactionalView = {
+                    async commit() {
+                        const currentTab = (state.workflowTabs || [])
+                            .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
+                        if ((reloadedData && currentTab?.running === true) || !targetRevision.isCurrent()) return false;
+                        snapshotActiveWorkflow();
+                        const previousActiveName = getActiveWorkflow()?.label || '';
+                        const previousActiveTab = getWorkflowTab(previousActiveName);
+                        const previousData = previousActiveTab
+                            ? cloneWorkflowData(previousActiveTab.data)
+                            : getEmptyWorkflowData();
+                        prepared.previous = {
+                            name: previousActiveName,
+                            workflowId: getActiveWorkflow()?.workflowId || ensureWorkflowIdentity(previousActiveTab),
+                            tab: previousActiveTab,
+                            data: previousData,
+                            preparedView: {
+                                data: previousData,
+                                modelResolution: resolveWorkflowModelReferences(previousData, state)
+                            },
+                            undoStack: Array.isArray(state.undoStack) ? state.undoStack.slice() : []
+                        };
+                        if (reloadedData && !createdTab) {
+                            prepared.previousTarget = {
                         data: cloneWorkflowData(tab.data),
                         dataRevision: tab.dataRevision,
                         dirty: tab.dirty === true,
                         runResult: tab.runResult || ''
                     };
-                    prepared.reloadedData.workflowId = ensureWorkflowIdentity(tab);
-                    replaceWorkflowTabData(tab, prepared.reloadedData);
-                    tab.dirty = false;
-                }
-                if (createdTab && !getWorkflowTab(name)) {
-                    state.workflowTabs.push(tab);
-                }
-                const committedTab = createdTab ? tab : ((state.workflowTabs || [])
-                    .find((candidate) => candidate.workflowId === tab.workflowId) || tab);
-                prepared.activeWorkflowName = committedTab.name;
-                if (!transaction.isCurrent()) return false;
-                if (workflowDesk) {
-                    prepared.workflowDeskHandledView = true;
-                    let result;
-                    try {
-                        result = await workflowDesk.show({
-                            workflowId: ensureWorkflowIdentity(tab),
-                            label: prepared.activeWorkflowName,
-                            editorView: prepared.editorView,
-                            identityOwnership: prepared.identityOwnership,
-                            identityRepair: prepared.identityOwnership === 'external-copy' ? (() => {
+                            reloadedData.workflowId = ensureWorkflowIdentity(tab);
+                            replaceWorkflowTabData(tab, reloadedData);
+                            tab.dirty = false;
+                        }
+                        if (createdTab && !getWorkflowTab(name)) state.workflowTabs.push(tab);
+                        if (await editorView.commit?.() === false) return false;
+                        if (prepared.previous.tab) prepared.previous.tab.data = cloneWorkflowData(prepared.previous.data);
+                        clearUndoStack();
+                        updatePortStyles();
+                        applyViewport();
+                        return true;
+                    },
+                    async rollback() {
+                        const previous = prepared.previous;
+                        if (!previous) {
+                            editorView.dispose?.();
+                            return true;
+                        }
+                        return rollbackWorkflowActivation({
+                            prepared,
+                            restorePrevious: async () => {
+                                if (editorView.rollback?.() === false) return false;
+                                state.undoStack = previous.undoStack;
+                                updatePortStyles();
+                                applyViewport();
+                                onViewApplied({ workflowName: previous.name, workflowId: previous.workflowId });
+                                return true;
+                            },
+                            cleanupCreatedTarget: (created) => {
+                                state.workflowTabs = (state.workflowTabs || []).filter((item) => item !== created);
+                                releaseWorkflowTabMemory(created);
+                            },
+                            restoreExistingTarget: (target, snapshot) => Object.assign(target, {
+                                data: snapshot.data,
+                                dataRevision: snapshot.dataRevision,
+                                dirty: snapshot.dirty,
+                                runResult: snapshot.runResult
+                            }),
+                            enterSafeEmpty,
+                            reveal: () => {},
+                            render: renderWorkflowList,
+                            onRestoreError: (error) => console.error('Workflow activation rollback failed:', error)
+                        });
+                    },
+                    finalize() {
+                        editorView.finalize?.();
+                        const active = getActiveWorkflow();
+                        const effects = [
+                            () => onViewApplied({ workflowName: active?.label || name, workflowId: active?.workflowId || '' }),
+                            onConnectionsChanged,
+                            () => scheduleAssetCleanup({ includeCanvas: true }),
+                            () => showToast(`已打开工作流: ${active?.label || name}`, 'success'),
+                            renderWorkflowList,
+                            () => scheduleSave({ dirty: false })
+                        ];
+                        effects.forEach((effect) => { try { effect(); } catch (error) { console.warn('Workflow activation finalizer failed:', error); } });
+                    },
+                    dispose: () => editorView.dispose?.()
+                };
+                return {
+                    workflowId: stableWorkflowId,
+                    label: tab.name,
+                    editorView: transactionalView,
+                    identityOwnership,
+                    identityRepair: identityOwnership === 'external-copy' ? (() => {
                                 const previous = {
                                     workflowId: tab.workflowId,
                                     documentWorkflowId: tab.data?.workflowId,
@@ -247,99 +265,20 @@ export function createWorkflowSelectionAdapter({
                                         tab.identityPendingSave = previous.identityPendingSave;
                                     }
                                 };
-                            })() : null,
-                            force: reloadFromFile,
-                            signal: transaction.signal,
-                            isCurrent: transaction.isCurrent,
-                            closeToken
-                        });
-                    } catch (error) {
-                        if (error instanceof WorkflowCommitRecoveryError
-                            && workflowDesk.snapshot().active === null) {
-                            prepared.workflowDeskSafeEmpty = true;
-                        }
-                        throw error;
-                    }
-                    if (result.status !== 'committed' && result.status !== 'already-visible') return false;
-                } else if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) {
-                    return false;
-                }
-                if (prepared.previous.tab) {
-                    prepared.previous.tab.data = cloneWorkflowData(prepared.previous.data);
-                }
-                if (!workflowDesk) {
-                    activeState.commitActive({
-                        workflowId: ensureWorkflowIdentity(tab),
-                        label: prepared.activeWorkflowName,
-                        editorView: prepared.editorView
-                    });
-                }
-                clearUndoStack();
-                updatePortStyles();
-                applyViewport();
-                return true;
-            },
-            finalize: (prepared) => {
-                if (!prepared.workflowDeskHandledView) prepared.editorView?.finalize?.();
-                const effects = [
-                    () => onViewApplied({
-                        workflowName: prepared.activeWorkflowName,
-                        workflowId: getActiveWorkflow()?.workflowId || ''
-                    }),
-                    onConnectionsChanged,
-                    () => scheduleAssetCleanup({ includeCanvas: true }),
-                    () => showToast(`已打开工作流: ${prepared.activeWorkflowName}`, 'success'),
-                    renderWorkflowList,
-                    () => scheduleSave({ dirty: false })
-                ];
-                effects.forEach((effect) => {
-                    try { effect(); } catch (error) {
-                        console.warn('Workflow activation finalizer failed:', error);
-                    }
-                });
-            },
-            rollback: async (prepared) => {
-                if (prepared?.workflowDeskSafeEmpty) return { safeEmpty: true };
-                const previous = prepared?.previous;
-                if (!previous) {
-                    prepared?.editorView?.dispose?.();
-                    return { safeEmpty: false };
-                }
-                return rollbackWorkflowActivation({
-                    prepared,
-                    restorePrevious: async () => {
-                        if (!prepared.workflowDeskHandledView && prepared.editorView?.rollback?.() === false) return false;
-                        if (!workflowDesk && previous.workflowId && previous.name) {
-                            activeState.commitActive({
-                                workflowId: previous.workflowId,
-                                label: previous.name
-                            });
-                        } else if (!workflowDesk) {
-                            activeState.clearActive();
-                        }
-                        state.undoStack = previous.undoStack;
-                        updatePortStyles();
-                        applyViewport();
-                        onViewApplied({ workflowName: previous.name, workflowId: previous.workflowId });
-                        return true;
-                    },
-                    cleanupCreatedTarget: (tab) => {
-                        state.workflowTabs = (state.workflowTabs || []).filter((item) => item !== tab);
-                        releaseWorkflowTabMemory(tab);
-                    },
-                    restoreExistingTarget: (tab, snapshot) => {
-                        tab.data = snapshot.data;
-                        tab.dataRevision = snapshot.dataRevision;
-                        tab.dirty = snapshot.dirty;
-                        tab.runResult = snapshot.runResult;
-                    },
-                    enterSafeEmpty,
-                    reveal: () => {},
-                    render: renderWorkflowList,
-                    onRestoreError: (error) => console.error('Workflow activation rollback failed:', error)
-                });
+                    })() : null,
+                    force: reloadFromFile,
+                    closeToken
+                };
             }
-        });
+            });
+            return result.status === 'committed' || result.status === 'already-visible';
+        } catch (error) {
+            if (!(error instanceof WorkflowCommitRecoveryError)) console.error('Workflow activation failed:', error);
+            showToast(workflowDesk.snapshot().active === null
+                ? '切换失败且原工作流无法恢复，已进入安全空画布'
+                : '切换失败，已恢复原工作流', 'error');
+            return false;
+        }
     }
 
     return { activate };

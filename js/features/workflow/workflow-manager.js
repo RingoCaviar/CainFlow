@@ -19,7 +19,6 @@ import {
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import { openDialogStyle1 } from '../ui/dialog-style-1.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
-import { createWorkflowTransitionLane } from './workflow-transition-lane.js';
 import {
     createWorkflowDesk
 } from './workflow-desk.js';
@@ -101,14 +100,6 @@ export function createWorkflowManagerApi({
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
     const getActiveWorkflowName = () => getActiveWorkflow()?.label || '';
-    const workflowActivation = createWorkflowTransitionLane({
-        onError: (error, context = {}) => {
-            console.error('Workflow activation failed:', error);
-            showToast(context.rollbackResult?.safeEmpty
-                ? '切换失败且原工作流无法恢复，已进入安全空画布'
-                : '切换失败，已恢复原工作流', 'error');
-        }
-    });
     const workflowSessionActivator = createWorkflowSessionSelectionAdapter({
         state,
         workflowDesk,
@@ -120,9 +111,7 @@ export function createWorkflowManagerApi({
     const workflowTargetActivator = createWorkflowSelectionAdapter({
         state,
         getActiveWorkflow,
-        activeState,
         workflowDesk,
-        workflowActivation,
         createWorkflowId,
         getWorkflowTab,
         ensureWorkflowIdentity,
@@ -157,7 +146,6 @@ export function createWorkflowManagerApi({
         state.connections = [];
         state.selectedNodes.clear();
         if (publishActiveState) activeState.clearActive();
-        workflowActivation.resetActive();
         clearUndoStack();
         const centered = getCenteredCanvasState();
         state.canvas.x = centered.x;
