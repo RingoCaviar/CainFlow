@@ -271,10 +271,18 @@ export function createWorkflowDesk({
             try {
                 await commitSafeEmpty();
             } catch (error) {
-                throw new WorkflowEditorCommitError('Empty Workflow editor view commit failed', { cause: error });
-            }
-            if (generation !== activationGeneration || signal?.aborted === true || isCurrent?.() === false) {
-                return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
+                let recovered = false;
+                try {
+                    recovered = typeof active?.editorView?.commit === 'function'
+                        && await active.editorView.commit() !== false;
+                } catch {}
+                if (recovered) {
+                    throw new WorkflowEditorCommitError('Empty Workflow editor view commit failed', { cause: error });
+                }
+                active = null;
+                revision += 1;
+                publishSnapshot();
+                throw new WorkflowCommitRecoveryError(undefined, { cause: error });
             }
             openWorkflows.clear();
             for (const [workflowId, workflow] of restoredOpenWorkflows) {
@@ -319,7 +327,7 @@ export function createWorkflowDesk({
         const editorView = await restoration.prepareEditorView?.({
             workflowId: activeWorkflow.workflowId,
             label: activeWorkflow.name || '',
-            document: activeWorkflow.data
+            document: restoration.activeDocument || activeWorkflow.data
         });
         const result = await show({
             workflowId: activeWorkflow.workflowId,

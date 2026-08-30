@@ -210,6 +210,34 @@ test('production session restoration commits document data and viewport through 
     assert.deepEqual(state.workflowFolders, ['folder-a']);
 });
 
+test('production session restoration migrates a legacy top-level active document through WorkflowDesk', async () => {
+    const state = { workflowTabs: [], workflowOrder: [], workflowFolders: [] };
+    let preparedData = null;
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'legacy-session-id'
+    });
+    const coordinator = createWorkflowSessionActivator({
+        state,
+        workflowDesk,
+        workflowActivation: createWorkflowActivation(),
+        createWorkflowId: () => 'legacy-session-id',
+        prepareEditorView: async (_label, workflowData) => {
+            preparedData = workflowData;
+            return { async commit() { return true; } };
+        }
+    });
+
+    assert.equal(await coordinator.activate({
+        workflowTabs: [],
+        workflowData: { canvas: { x: 3, y: 4, zoom: 1.5 }, nodes: [{ id: 'node-a' }], connections: [] }
+    }), true);
+    assert.equal(workflowDesk.snapshot().active.workflowId, 'legacy-session-id');
+    assert.deepEqual(preparedData.nodes, [{ id: 'node-a' }]);
+    assert.equal(state.workflowTabs[0].identityPendingSave, true);
+});
+
 test('session workflow activation waits for visible editor commit to finish', async () => {
     const commitGate = deferred();
     let commitSignal = null;

@@ -231,6 +231,7 @@ export function createSessionManagerApi({
                     name: tab.name,
                     data: sanitizeWorkflowDataForSessionCache(tab.data),
                     dirty: tab.dirty === true,
+                    identityPendingSave: tab.identityPendingSave === true,
                     colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
                     runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
                 }))

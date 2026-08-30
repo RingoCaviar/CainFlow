@@ -38,7 +38,12 @@ test('the UI bootstrap persistence fallback uses the default theme policy', () =
     const state = {
         themeId: '',
         globalAnimationEnabled: true,
-        workflowTabs: [],
+        workflowTabs: [{
+            workflowId: 'migrated-id',
+            name: 'legacy',
+            data: { workflowId: 'migrated-id' },
+            identityPendingSave: true
+        }],
         activeWorkflowName: '',
         workflowOrder: [],
         workflowFolders: [],
@@ -62,4 +67,5 @@ test('the UI bootstrap persistence fallback uses the default theme policy', () =
 
     assert.equal(sessionManager.saveState(), true);
     assert.equal(JSON.parse(stored.get('cainflow_ui_bootstrap')).themeId, DEFAULT_THEME_ID);
+    assert.equal(JSON.parse(stored.get('session')).workflowTabs[0].identityPendingSave, true);
 });

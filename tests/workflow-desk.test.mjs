@@ -8,6 +8,12 @@ import {
     createWorkflowDesk
 } from '../js/features/workflow/workflow-desk.js';
 
+function deferred() {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+}
+
 function createHarness() {
     const committedViews = [];
     const desk = createWorkflowDesk({
@@ -538,4 +544,25 @@ test('restore reconciles stale session identity to saved document identity witho
     });
 
     assert.equal(desk.snapshot().active.workflowId, 'saved-document-id');
+});
+
+test('empty restoration that reaches its commit point publishes atomically before a newer activation', async () => {
+    const emptyCommit = deferred();
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        commitSafeEmpty: async () => emptyCommit.promise
+    });
+    const restoringEmpty = desk.restore({ workflows: [] });
+    await Promise.resolve();
+    const showingNewer = desk.show({
+        workflowId: 'workflow-new',
+        label: 'new',
+        editorView: { async commit() { return true; } }
+    });
+
+    emptyCommit.resolve();
+    assert.equal((await restoringEmpty).status, 'committed');
+    assert.equal((await showingNewer).status, 'committed');
+    assert.equal(desk.snapshot().active.workflowId, 'workflow-new');
 });

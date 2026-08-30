@@ -376,6 +376,7 @@ export function createProjectIoApi({
                         name: String(tab.name),
                         data: tab.data,
                         dirty: tab.dirty === true,
+                        identityPendingSave: tab.identityPendingSave === true,
                         colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : index,
                         running: false,
                         runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''

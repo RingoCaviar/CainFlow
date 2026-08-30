@@ -19,11 +19,30 @@ export function createWorkflowSessionActivator({
     onViewApplied = () => {}
 }) {
     async function activateWithWorkflowDesk(restoredState) {
-        const workflowTabs = Array.isArray(restoredState?.workflowTabs) ? restoredState.workflowTabs : [];
+        const restoredTabs = Array.isArray(restoredState?.workflowTabs) ? restoredState.workflowTabs : [];
+        const activeDocument = restoredState?.workflowData || null;
+        const hasLegacyActiveDocument = restoredTabs.length === 0 && (
+            restoredState?.activeWorkflowId
+            || restoredState?.activeWorkflowName
+            || activeDocument?.nodes?.length
+            || activeDocument?.connections?.length
+        );
+        const legacyWorkflowId = hasLegacyActiveDocument
+            ? (restoredState?.activeWorkflowId || createWorkflowId())
+            : '';
+        const workflowTabs = hasLegacyActiveDocument
+            ? [{
+                workflowId: legacyWorkflowId,
+                name: restoredState?.activeWorkflowName || '',
+                data: { ...activeDocument, workflowId: legacyWorkflowId },
+                identityPendingSave: true
+            }]
+            : restoredTabs;
         const result = await workflowDesk.restore({
             workflows: workflowTabs,
-            activeWorkflowId: restoredState?.activeWorkflowId || '',
+            activeWorkflowId: legacyWorkflowId || restoredState?.activeWorkflowId || '',
             activeWorkflowName: restoredState?.activeWorkflowName || '',
+            activeDocument,
             prepareEditorView: async ({ workflowId, label, document }) => {
                 if (typeof prepareEditorView !== 'function') return null;
                 return prepareEditorView(label, {

@@ -4,6 +4,7 @@ import { createProjectIoApi } from '../js/features/persistence/project-io.js';
 import { createViewportApi } from '../js/canvas/viewport.js';
 import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
 import { createWorkflowSessionActivator } from '../js/features/workflow/workflow-activation-coordinator.js';
+import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
 
 function createTestActiveState(state) {
     return {
@@ -430,7 +431,7 @@ test('loading a legacy session assigns one unique stable identity to the active 
     let activateRestoredState;
     const { api, state } = createHarness(1, 0, {
         workflowTabs: [
-            { name: 'other', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id', nodes: [], connections: [] } },
+            { name: 'other', workflowId: 'duplicate-id', identityPendingSave: true, data: { workflowId: 'duplicate-id', nodes: [], connections: [] } },
             { name: 'folder/a', workflowId: 'duplicate-id', data: { workflowId: 'duplicate-id', nodes: [], connections: [] } }
         ],
         activeWorkflowName: 'folder/a',
@@ -452,6 +453,7 @@ test('loading a legacy session assigns one unique stable identity to the active 
 
     assert.equal(await api.loadState(), true);
     assert.equal(state.workflowTabs[0].workflowId, 'duplicate-id');
+    assert.equal(state.workflowTabs[0].identityPendingSave, true);
     assert.equal(state.workflowTabs[1].workflowId, 'generated-workflow-id');
     assert.equal(state.workflowTabs[1].data.workflowId, 'generated-workflow-id');
     assert.equal(state.activeWorkflowId, 'generated-workflow-id');
@@ -469,6 +471,11 @@ test('session workflow activation applies the committed canvas to the visible vi
     activateRestoredState = createWorkflowSessionActivator({
         state,
         activeState: createTestActiveState(state),
+        workflowDesk: createWorkflowDesk({
+            resolveSelection: async (selection) => selection,
+            prepareEditorView: async (target) => target.editorView,
+            createWorkflowId: () => 'active-id'
+        }),
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'active-id',
         prepareEditorView: async (_workflowName, workflowData) => ({
