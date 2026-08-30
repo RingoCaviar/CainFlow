@@ -18,7 +18,7 @@ test('legacy Workflow activation and coordinator modules cannot return', () => {
 });
 
 test('temporary Workflow migration seams and active state pair cannot return', () => {
-    assert.doesNotMatch(source, /attachWorkflowDeskStateProjection|workflowDesk\.migration|\bmigration\s*=\s*Object\.freeze/);
+    assert.doesNotMatch(source, /attachWorkflowDeskStateProjection|workflowDesk\.(?:migration|documentState)|\bmigration\s*=\s*Object\.freeze/);
     assert.doesNotMatch(readFileSync(`${root}/js/core/state.js`, 'utf8'), /activeWorkflow(?:Name|Id)/);
 });
 

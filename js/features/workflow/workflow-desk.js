@@ -234,34 +234,6 @@ export function createWorkflowDesk({
         return result;
     }
 
-    function commitMigratedActiveState({ workflowId, label, editorView = null }) {
-        if (!workflowId || !label) throw new TypeError('Committed Workflow identity and label are required');
-        revision += 1;
-        const current = openWorkflows.get(workflowId) || {};
-        openWorkflows.set(workflowId, {
-            ...current,
-            workflowId,
-            label,
-            pendingExplicitSave: current.pendingExplicitSave === true,
-            running: current.running === true
-        });
-        active = Object.freeze({ workflowId, label, editorView, revision });
-        publishSnapshot();
-        return currentSnapshot;
-    }
-
-    function relabelMigratedActiveState(workflowId, label) {
-        if (!workflowId || active?.workflowId !== workflowId) return false;
-        return !!commitMigratedActiveState({ workflowId, label, editorView: active.editorView });
-    }
-
-    function clearMigratedActiveState() {
-        revision += 1;
-        active = null;
-        publishSnapshot();
-        return currentSnapshot;
-    }
-
     function markMigratedWorkflowSaved(workflowId) {
         const current = openWorkflows.get(workflowId);
         if (!current || current.pendingExplicitSave !== true) return false;
@@ -378,6 +350,9 @@ export function createWorkflowDesk({
             move: (label) => runIdentityMutation(identity, 'move', { label }),
             reload: () => runIdentityMutation(identity, 'reload'),
             close: () => runIdentityMutation(identity, 'close'),
+            documentSaved: () => markMigratedWorkflowSaved(identity),
+            runningChanged: (running) => setMigratedWorkflowRunning(identity, running),
+            labelChanged: (label) => { publishRelabel(identity, label); return true; },
             copy: (label, mutationOptions = {}) => runIdentityMutation(identity, 'copy', {
                 label,
                 ...mutationOptions,
@@ -619,12 +594,5 @@ export function createWorkflowDesk({
         return enqueueCommit(() => commitPreparedTarget({ generation, target, editorView }));
     }
 
-    const documentState = Object.freeze({
-        commitActive: commitMigratedActiveState,
-        relabelActive: relabelMigratedActiveState,
-        clearActive: clearMigratedActiveState,
-        markSaved: markMigratedWorkflowSaved,
-        setRunning: setMigratedWorkflowRunning
-    });
-    return Object.freeze({ show, restore, workflow, snapshot: () => currentSnapshot, documentState });
+    return Object.freeze({ show, restore, workflow, snapshot: () => currentSnapshot });
 }

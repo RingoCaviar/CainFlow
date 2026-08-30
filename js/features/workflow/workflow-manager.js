@@ -96,7 +96,6 @@ export function createWorkflowManagerApi({
         recordDiagnostic: recordWorkflowDiagnostic,
         mutateWorkflow: (operation) => mutateWorkflowThroughDesk(operation)
     });
-    const activeState = workflowDesk.documentState;
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
     const getActiveWorkflowName = () => getActiveWorkflow()?.label || '';
@@ -145,7 +144,6 @@ export function createWorkflowManagerApi({
         state.nodes.clear();
         state.connections = [];
         state.selectedNodes.clear();
-        if (publishActiveState) activeState.clearActive();
         clearUndoStack();
         const centered = getCenteredCanvasState();
         state.canvas.x = centered.x;
@@ -324,7 +322,7 @@ export function createWorkflowManagerApi({
         const savedTab = getWorkflowTab(name);
         if (savedTab?.workflowId) {
             savedTab.identityPendingSave = false;
-            activeState.markSaved(savedTab.workflowId);
+            workflowDesk.workflow(savedTab.workflowId).documentSaved();
         }
         return true;
     }
@@ -814,7 +812,7 @@ export function createWorkflowManagerApi({
         const tab = getWorkflowTab(oldName);
         if (tab) tab.name = newName;
         if (publishActiveState && getActiveWorkflowName() === oldName) {
-            activeState.relabelActive(getActiveWorkflowId(), newName);
+            workflowDesk.workflow(getActiveWorkflowId()).labelChanged(newName);
         }
         if (Array.isArray(state.workflowOrder)) {
             const orderIndex = state.workflowOrder.indexOf(oldName);
@@ -1264,7 +1262,6 @@ export function createWorkflowManagerApi({
             const activeTab = getWorkflowTab(getActiveWorkflowName());
             if (activeTab) {
                 ensureWorkflowIdentity(activeTab);
-                workflowSessionActivator.reconcileActiveTab(activeTab);
             }
         }
     }
@@ -2620,7 +2617,7 @@ export function createWorkflowManagerApi({
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
         if (!tab) return false;
         tab.running = running === true;
-        activeState.setRunning(workflowId, tab.running);
+        workflowDesk.workflow(workflowId).runningChanged(tab.running);
         if (tab.running) tab.runResult = '';
         if (getActiveWorkflowId() === workflowId) {
             state.nodes.forEach((node) => node.el?.classList.remove('workflow-running-locked'));
