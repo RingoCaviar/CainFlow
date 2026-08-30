@@ -31,7 +31,7 @@ A workflow run that continues while another workflow is active in the editor. Re
 _Avoid_: Hidden run, inactive run
 
 **Workflow identity**:
-The stable identity of a workflow across renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity.
+The stable identity of a workflow across saving, renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity. Copying or saving a workflow as a new workflow creates a new Workflow identity.
 _Avoid_: Workflow name as identity, workflow path as identity
 
 **Multi-connection input**:
