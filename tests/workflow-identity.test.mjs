@@ -27,10 +27,18 @@ test('legacy workflows receive identities lazily', () => {
     assert.equal(tabs[0].data.workflowId, 'generated-id');
 });
 
-test('workflow references prefer stable identity over mutable names', () => {
+test('normalized workflow references require identity and ignore mutable labels', () => {
     const reference = normalizeWorkflowReference({ workflowId: 'workflow-a', workflowName: 'old-name' });
     assert.equal(isWorkflowReferenceActive(reference, {
         activeWorkflowId: 'workflow-a',
         activeWorkflowName: 'new-name'
     }), true);
+    assert.deepEqual(normalizeWorkflowReference('old-name'), {
+        workflowName: '',
+        workflowId: ''
+    });
+    assert.equal(isWorkflowReferenceActive({ workflowName: 'new-name' }, {
+        activeWorkflowId: '',
+        activeWorkflowName: 'new-name'
+    }), false);
 });

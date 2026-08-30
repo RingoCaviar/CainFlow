@@ -13,9 +13,9 @@ export function ensureUniqueWorkflowIdentities(tabs, createWorkflowId) {
 }
 
 export function normalizeWorkflowReference(workflow) {
-    return typeof workflow === 'string'
-        ? { workflowName: workflow, workflowId: '' }
-        : { workflowName: workflow?.workflowName || '', workflowId: workflow?.workflowId || '' };
+    return workflow && typeof workflow === 'object'
+        ? { workflowName: workflow.workflowName || '', workflowId: workflow.workflowId || '' }
+        : { workflowName: '', workflowId: '' };
 }
 
 export function requireStableWorkflowReference(workflow) {
@@ -28,7 +28,5 @@ export function requireStableWorkflowReference(workflow) {
 
 export function isWorkflowReferenceActive(workflow, state) {
     const reference = normalizeWorkflowReference(workflow);
-    return reference.workflowId
-        ? state?.activeWorkflowId === reference.workflowId
-        : !!reference.workflowName && state?.activeWorkflowName === reference.workflowName;
+    return !!reference.workflowId && state?.activeWorkflowId === reference.workflowId;
 }
