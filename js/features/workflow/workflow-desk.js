@@ -148,17 +148,29 @@ export function createWorkflowDesk({
             await rollbackPreparedView(editorView, target, commitError);
             throw new WorkflowEditorCommitError(undefined, { cause: commitError });
         }
+        let identityRepaired = false;
         try {
-            await target.onIdentityRepaired?.({
+            if (target.identityRepair) {
+                await target.identityRepair.commit({
                 workflowId: target.workflowId,
                 duplicatedWorkflowId: target.duplicatedWorkflowId
-            });
+                });
+                identityRepaired = true;
+            }
         } catch (error) {
+            try { await target.identityRepair?.rollback?.(); } catch {}
             await rollbackPreparedView(editorView, target, error);
             throw new WorkflowIdentityOwnershipError('Repaired Workflow identity could not be committed', {
                 cause: error,
                 workflowId: target.workflowId
             });
+        }
+        if (!isTargetCurrent(target, generation)) {
+            if (identityRepaired) {
+                try { await target.identityRepair?.rollback?.(); } catch {}
+            }
+            await rollbackPreparedView(editorView, target, null);
+            return Object.freeze({ status: 'superseded', snapshot: currentSnapshot });
         }
         revision += 1;
         if (target.restoredOpenWorkflows instanceof Map) {
@@ -380,6 +392,7 @@ export function createWorkflowDesk({
                 signal: restoration.signal,
                 isCurrent: restoration.isCurrent
             });
+            if (result.status === 'committed') await recordDuplicateMigrations(migrations);
             return Object.freeze({
                 ...result,
                 workflows,
@@ -402,23 +415,27 @@ export function createWorkflowDesk({
             isCurrent: restoration.isCurrent
         });
         if (result.status === 'committed' || result.status === 'already-visible') {
-            for (const migration of migrations) {
-                if (migration.kind !== 'duplicate-identity') continue;
-                try {
-                    await recordDiagnostic({
-                        kind: 'workflow-duplicate-identity-repaired',
-                        duplicatedWorkflowId: migration.duplicatedWorkflowId,
-                        workflowId: migration.workflowId,
-                        label: migration.label
-                    });
-                } catch {}
-            }
+            await recordDuplicateMigrations(migrations);
         }
         return Object.freeze({
             ...result,
             workflows,
             migrations: Object.freeze(migrations)
         });
+    }
+
+    async function recordDuplicateMigrations(migrations) {
+        for (const migration of migrations) {
+            if (migration.kind !== 'duplicate-identity') continue;
+            try {
+                await recordDiagnostic({
+                    kind: 'workflow-duplicate-identity-repaired',
+                    duplicatedWorkflowId: migration.duplicatedWorkflowId,
+                    workflowId: migration.workflowId,
+                    label: migration.label
+                });
+            } catch {}
+        }
     }
 
     async function show(selection) {

@@ -350,11 +350,27 @@ export function createWorkflowTargetActivator({
                             label: prepared.activeWorkflowName,
                             editorView: prepared.editorView,
                             identityOwnership: prepared.identityOwnership,
-                            onIdentityRepaired: ({ workflowId }) => {
-                                tab.workflowId = workflowId;
-                                if (tab.data && typeof tab.data === 'object') tab.data.workflowId = workflowId;
-                                tab.identityPendingSave = true;
-                            },
+                            identityRepair: prepared.identityOwnership === 'external-copy' ? (() => {
+                                const previous = {
+                                    workflowId: tab.workflowId,
+                                    documentWorkflowId: tab.data?.workflowId,
+                                    identityPendingSave: tab.identityPendingSave
+                                };
+                                return {
+                                    commit: ({ workflowId }) => {
+                                        tab.workflowId = workflowId;
+                                        if (tab.data && typeof tab.data === 'object') tab.data.workflowId = workflowId;
+                                        tab.identityPendingSave = true;
+                                    },
+                                    rollback: () => {
+                                        tab.workflowId = previous.workflowId;
+                                        if (tab.data && typeof tab.data === 'object') {
+                                            tab.data.workflowId = previous.documentWorkflowId;
+                                        }
+                                        tab.identityPendingSave = previous.identityPendingSave;
+                                    }
+                                };
+                            })() : null,
                             force: reloadFromFile,
                             signal: transaction.signal,
                             isCurrent: transaction.isCurrent

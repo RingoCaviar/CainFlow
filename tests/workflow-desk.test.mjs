@@ -652,10 +652,17 @@ test('ordinary discovery repairs an external copy and ambiguous ownership fails 
         workflowId: 'original-id',
         label: 'copy',
         identityOwnership: 'external-copy',
-        onIdentityRepaired: ({ workflowId }) => {
-            copy.workflowId = workflowId;
-            copy.data.workflowId = workflowId;
-            copy.identityPendingSave = true;
+        identityRepair: {
+            commit: ({ workflowId }) => {
+                copy.workflowId = workflowId;
+                copy.data.workflowId = workflowId;
+                copy.identityPendingSave = true;
+            },
+            rollback: () => {
+                copy.workflowId = 'original-id';
+                copy.data.workflowId = 'original-id';
+                copy.identityPendingSave = false;
+            }
         },
         editorView: { async commit() { return true; } }
     });
