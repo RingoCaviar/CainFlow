@@ -8,6 +8,7 @@ import {
 
 export function createWorkflowSessionActivator({
     state,
+    activeState,
     workflowActivation,
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`,
@@ -19,8 +20,7 @@ export function createWorkflowSessionActivator({
         const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
         const workflowName = tab?.name || '';
         if (!workflowId || !workflowName) return false;
-        state.activeWorkflowName = workflowName;
-        state.activeWorkflowId = workflowId;
+        activeState.commitActive({ workflowId, label: workflowName });
         workflowActivation.setActiveKey(workflowId);
         return true;
     }
@@ -74,8 +74,11 @@ export function createWorkflowSessionActivator({
                 };
                 if (await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
                 state.workflowTabs = prepared.workflowTabs;
-                state.activeWorkflowName = prepared.activeWorkflowName;
-                state.activeWorkflowId = prepared.activeWorkflowId;
+                activeState.commitActive({
+                    workflowId: prepared.activeWorkflowId,
+                    label: prepared.activeWorkflowName,
+                    editorView: prepared.editorView
+                });
                 state.workflowOrder = prepared.workflowOrder;
                 state.workflowFolders = prepared.workflowFolders;
                 return true;
@@ -84,8 +87,14 @@ export function createWorkflowSessionActivator({
                 if (!prepared?.previous) return false;
                 if (prepared.editorView?.rollback?.() === false) return false;
                 state.workflowTabs = prepared.previous.workflowTabs;
-                state.activeWorkflowName = prepared.previous.activeWorkflowName;
-                state.activeWorkflowId = prepared.previous.activeWorkflowId;
+                if (prepared.previous.activeWorkflowId && prepared.previous.activeWorkflowName) {
+                    activeState.commitActive({
+                        workflowId: prepared.previous.activeWorkflowId,
+                        label: prepared.previous.activeWorkflowName
+                    });
+                } else {
+                    activeState.clearActive();
+                }
                 state.workflowOrder = prepared.previous.workflowOrder;
                 state.workflowFolders = prepared.previous.workflowFolders;
                 return true;
@@ -106,6 +115,7 @@ export function createWorkflowSessionActivator({
 
 export function createWorkflowTargetActivator({
     state,
+    activeState,
     workflowActivation,
     createWorkflowId,
     getWorkflowTab,
@@ -219,6 +229,7 @@ export function createWorkflowTargetActivator({
                 prepared.previous = {
                     name: previousActiveName,
                     workflowId: state.activeWorkflowId || ensureWorkflowIdentity(previousActiveTab),
+                    tab: previousActiveTab,
                     data: previousData,
                     preparedView: {
                         data: previousData,
@@ -245,9 +256,15 @@ export function createWorkflowTargetActivator({
                 const committedTab = (state.workflowTabs || [])
                     .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
                 prepared.activeWorkflowName = committedTab.name;
-                state.activeWorkflowName = prepared.activeWorkflowName;
-                state.activeWorkflowId = ensureWorkflowIdentity(tab);
                 if (!transaction.isCurrent() || await prepared.editorView?.commit?.({ signal: transaction.signal }) === false) return false;
+                if (prepared.previous.tab) {
+                    prepared.previous.tab.data = cloneWorkflowData(prepared.previous.data);
+                }
+                activeState.commitActive({
+                    workflowId: ensureWorkflowIdentity(tab),
+                    label: prepared.activeWorkflowName,
+                    editorView: prepared.editorView
+                });
                 clearUndoStack();
                 updatePortStyles();
                 applyViewport();
@@ -282,8 +299,14 @@ export function createWorkflowTargetActivator({
                     prepared,
                     restorePrevious: async () => {
                         if (prepared.editorView?.rollback?.() === false) return false;
-                        state.activeWorkflowName = previous.name;
-                        state.activeWorkflowId = previous.workflowId;
+                        if (previous.workflowId && previous.name) {
+                            activeState.commitActive({
+                                workflowId: previous.workflowId,
+                                label: previous.name
+                            });
+                        } else {
+                            activeState.clearActive();
+                        }
                         state.undoStack = previous.undoStack;
                         updatePortStyles();
                         applyViewport();

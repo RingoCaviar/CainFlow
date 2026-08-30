@@ -21,6 +21,10 @@ import { openDialogStyle1 } from '../ui/dialog-style-1.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { createWorkflowActivation } from './workflow-activation.js';
 import {
+    attachWorkflowDeskStateProjection,
+    createWorkflowDesk
+} from './workflow-desk.js';
+import {
     createWorkflowSessionActivator,
     createWorkflowTargetActivator
 } from './workflow-activation-coordinator.js';
@@ -85,6 +89,12 @@ export function createWorkflowManagerApi({
     let hasCachedWorkflowEntries = false;
     let workflowListRenderSequence = 0;
     const selectedWorkflowNames = new Set();
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView
+    });
+    attachWorkflowDeskStateProjection(state, workflowDesk);
+    const activeState = workflowDesk.migration;
     const workflowActivation = createWorkflowActivation({
         onError: (error, context = {}) => {
             console.error('Workflow activation failed:', error);
@@ -95,6 +105,7 @@ export function createWorkflowManagerApi({
     });
     const workflowSessionActivator = createWorkflowSessionActivator({
         state,
+        activeState,
         workflowActivation,
         createWorkflowId,
         prepareEditorView: prepareDetachedEditorView,
@@ -103,6 +114,7 @@ export function createWorkflowManagerApi({
     });
     const workflowTargetActivator = createWorkflowTargetActivator({
         state,
+        activeState,
         workflowActivation,
         createWorkflowId,
         getWorkflowTab,
@@ -137,8 +149,7 @@ export function createWorkflowManagerApi({
         state.nodes.clear();
         state.connections = [];
         state.selectedNodes.clear();
-        state.activeWorkflowName = '';
-        state.activeWorkflowId = '';
+        activeState.clearActive();
         workflowActivation.resetActive();
         clearUndoStack();
         const centered = getCenteredCanvasState();
@@ -751,7 +762,9 @@ export function createWorkflowManagerApi({
     function replaceWorkflowNameInState(oldName, newName) {
         const tab = getWorkflowTab(oldName);
         if (tab) tab.name = newName;
-        if (state.activeWorkflowName === oldName) state.activeWorkflowName = newName;
+        if (state.activeWorkflowName === oldName) {
+            activeState.relabelActive(state.activeWorkflowId, newName);
+        }
         if (Array.isArray(state.workflowOrder)) {
             const orderIndex = state.workflowOrder.indexOf(oldName);
             if (orderIndex >= 0) state.workflowOrder[orderIndex] = newName;
@@ -2483,6 +2496,7 @@ export function createWorkflowManagerApi({
 
     return {
         applyWorkflowSidebarWidth,
+        workflowDesk,
         activateRestoredWorkflowState: workflowSessionActivator.activate,
         initWorkflow,
         loadWorkflowFromFile,

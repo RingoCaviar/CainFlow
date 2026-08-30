@@ -5,6 +5,19 @@ import { createViewportApi } from '../js/canvas/viewport.js';
 import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
 import { createWorkflowSessionActivator } from '../js/features/workflow/workflow-activation-coordinator.js';
 
+function createTestActiveState(state) {
+    return {
+        commitActive({ workflowId, label }) {
+            state.activeWorkflowId = workflowId;
+            state.activeWorkflowName = label;
+        },
+        clearActive() {
+            state.activeWorkflowId = '';
+            state.activeWorkflowName = '';
+        }
+    };
+}
+
 function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
     const scheduledTasks = [];
     const restoredNodeIds = [];
@@ -426,6 +439,7 @@ test('loading a legacy session assigns one unique stable identity to the active 
     });
     activateRestoredState = createWorkflowSessionActivator({
         state,
+        activeState: createTestActiveState(state),
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'generated-workflow-id',
         prepareEditorView: async () => ({
@@ -454,6 +468,7 @@ test('session workflow activation applies the committed canvas to the visible vi
     });
     activateRestoredState = createWorkflowSessionActivator({
         state,
+        activeState: createTestActiveState(state),
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'active-id',
         prepareEditorView: async (_workflowName, workflowData) => ({
@@ -482,6 +497,7 @@ test('session workflow activation aligns a stale name to the authoritative stabl
     });
     activateRestoredState = createWorkflowSessionActivator({
         state,
+        activeState: createTestActiveState(state),
         workflowActivation: createWorkflowActivation(),
         prepareEditorView: async () => ({
             commit: () => true,

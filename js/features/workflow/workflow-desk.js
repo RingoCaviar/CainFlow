@@ -36,6 +36,28 @@ function freezeSnapshot({ revision, active, openWorkflows }) {
     });
 }
 
+export function attachWorkflowDeskStateProjection(state, workflowDesk) {
+    const readActive = () => workflowDesk.snapshot().active;
+    const rejectWrite = () => {
+        throw new TypeError('Active workflow state is a read-only WorkflowDesk projection');
+    };
+    Object.defineProperties(state, {
+        activeWorkflowId: {
+            configurable: true,
+            enumerable: true,
+            get: () => readActive()?.workflowId || '',
+            set: rejectWrite
+        },
+        activeWorkflowName: {
+            configurable: true,
+            enumerable: true,
+            get: () => readActive()?.label || '',
+            set: rejectWrite
+        }
+    });
+    return state;
+}
+
 export function createWorkflowDesk({
     resolveSelection,
     prepareEditorView,
@@ -145,6 +167,34 @@ export function createWorkflowDesk({
         return result;
     }
 
+    function commitMigratedActiveState({ workflowId, label, editorView = null }) {
+        if (!workflowId || !label) throw new TypeError('Committed Workflow identity and label are required');
+        revision += 1;
+        const current = openWorkflows.get(workflowId) || {};
+        openWorkflows.set(workflowId, {
+            ...current,
+            workflowId,
+            label,
+            pendingExplicitSave: current.pendingExplicitSave === true,
+            running: current.running === true
+        });
+        active = Object.freeze({ workflowId, label, editorView, revision });
+        publishSnapshot();
+        return currentSnapshot;
+    }
+
+    function relabelMigratedActiveState(workflowId, label) {
+        if (!workflowId || active?.workflowId !== workflowId) return false;
+        return !!commitMigratedActiveState({ workflowId, label, editorView: active.editorView });
+    }
+
+    function clearMigratedActiveState() {
+        revision += 1;
+        active = null;
+        publishSnapshot();
+        return currentSnapshot;
+    }
+
     async function show(selection) {
         const generation = ++activationGeneration;
         const target = await resolveSelection(selection);
@@ -163,5 +213,10 @@ export function createWorkflowDesk({
         return enqueueCommit(() => commitPreparedTarget({ generation, target, editorView }));
     }
 
-    return Object.freeze({ show, snapshot: () => currentSnapshot });
+    const migration = Object.freeze({
+        commitActive: commitMigratedActiveState,
+        relabelActive: relabelMigratedActiveState,
+        clearActive: clearMigratedActiveState
+    });
+    return Object.freeze({ show, snapshot: () => currentSnapshot, migration });
 }

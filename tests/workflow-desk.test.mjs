@@ -4,6 +4,7 @@ import {
     WorkflowCommitRecoveryError,
     WorkflowEditorCommitError,
     WorkflowEditorPrepareError,
+    attachWorkflowDeskStateProjection,
     createWorkflowDesk
 } from '../js/features/workflow/workflow-desk.js';
 
@@ -334,4 +335,27 @@ test('superseded failed commit rolls back before the newer Workflow can commit',
         'rollback:workflow-a',
         'commit:workflow-b'
     ]);
+});
+
+test('legacy active fields are read-only projections of WorkflowDesk committed state', () => {
+    const state = { activeWorkflowName: 'legacy', activeWorkflowId: 'legacy-id' };
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    attachWorkflowDeskStateProjection(state, desk);
+
+    desk.migration.commitActive({ workflowId: 'workflow-a', label: 'folder/A' });
+
+    assert.equal(state.activeWorkflowId, 'workflow-a');
+    assert.equal(state.activeWorkflowName, 'folder/A');
+    assert.throws(() => { state.activeWorkflowId = 'other'; }, /read-only WorkflowDesk projection/);
+    assert.throws(() => { state.activeWorkflowName = 'other'; }, /read-only WorkflowDesk projection/);
+
+    desk.migration.relabelActive('workflow-a', 'folder/renamed');
+    assert.equal(state.activeWorkflowName, 'folder/renamed');
+
+    desk.migration.clearActive();
+    assert.equal(state.activeWorkflowId, '');
+    assert.equal(state.activeWorkflowName, '');
 });

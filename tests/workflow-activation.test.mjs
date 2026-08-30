@@ -12,10 +12,24 @@ function deferred() {
     return { promise, resolve };
 }
 
+function createTestActiveState(state) {
+    return {
+        commitActive({ workflowId, label }) {
+            state.activeWorkflowId = workflowId;
+            state.activeWorkflowName = label;
+        },
+        clearActive() {
+            state.activeWorkflowId = '';
+            state.activeWorkflowName = '';
+        }
+    };
+}
+
 function createTargetActivatorHarness({ state, prepareWorkflowView }) {
     const applied = [];
     const activator = createWorkflowTargetActivator({
         state,
+        activeState: createTestActiveState(state),
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'generated-workflow-id',
         getWorkflowTab: (name) => state.workflowTabs.find((tab) => tab.name === name),
@@ -101,6 +115,7 @@ test('workflow activation keeps the workflow being left unchanged when target co
     };
     const activator = createWorkflowTargetActivator({
         state,
+        activeState: createTestActiveState(state),
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'generated-workflow-id',
         getWorkflowTab,
@@ -143,7 +158,11 @@ test('workflow activation keeps the workflow being left unchanged when target co
 test('session activation coordinator reconciles the active workflow identity as one state change', () => {
     const state = { activeWorkflowName: 'legacy-name', activeWorkflowId: '' };
     const workflowActivation = createWorkflowActivation();
-    const coordinator = createWorkflowSessionActivator({ state, workflowActivation });
+    const coordinator = createWorkflowSessionActivator({
+        state,
+        activeState: createTestActiveState(state),
+        workflowActivation
+    });
 
     assert.equal(coordinator.reconcileActiveTab({
         name: 'current-name',
@@ -168,6 +187,7 @@ test('session workflow activation waits for visible editor commit to finish', as
     };
     const coordinator = createWorkflowSessionActivator({
         state,
+        activeState: createTestActiveState(state),
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'workflow-a',
         prepareEditorView: async () => ({
