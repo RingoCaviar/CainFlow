@@ -217,7 +217,7 @@ export function createWorkflowTargetActivator({
     enterSafeEmpty,
     tabColorCount = 6
 }) {
-    async function activate(name, { reloadFromFile = false } = {}) {
+    async function activate(name, { reloadFromFile = false, closeToken = null } = {}) {
         if (!name) return false;
         const existingTab = getWorkflowTab(name);
         if (reloadFromFile && existingTab?.running === true) {
@@ -373,7 +373,8 @@ export function createWorkflowTargetActivator({
                             })() : null,
                             force: reloadFromFile,
                             signal: transaction.signal,
-                            isCurrent: transaction.isCurrent
+                            isCurrent: transaction.isCurrent,
+                            closeToken
                         });
                     } catch (error) {
                         if (error instanceof WorkflowCommitRecoveryError

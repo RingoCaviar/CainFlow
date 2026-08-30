@@ -204,12 +204,13 @@ test('production-style close publishes fallback and removal in one Desk revision
     desk = createWorkflowDesk({
         resolveSelection: async (selection) => selection,
         prepareEditorView: async (target) => target.editorView,
-        mutateWorkflow: async ({ kind }) => {
+        mutateWorkflow: async ({ kind, closeToken }) => {
             if (kind !== 'close') return { ok: false };
             const result = await desk.show({
                 workflowId: 'workflow-b',
                 label: 'b',
                 force: true,
+                closeToken,
                 editorView: { async commit() { return true; } }
             });
             return { ok: result.status === 'committed', handled: true };
@@ -229,6 +230,34 @@ test('production-style close publishes fallback and removal in one Desk revision
     assert.equal(desk.snapshot().revision, previousRevision + 1);
     assert.equal(desk.snapshot().active.workflowId, 'workflow-b');
     assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-b']);
+});
+
+test('unrelated activation cannot consume a pending close token', async () => {
+    const closeGate = deferred();
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async ({ kind }) => kind === 'close'
+            ? closeGate.promise
+            : { ok: true }
+    });
+    await desk.restore({
+        workflows: [{ name: 'a', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } }],
+        activeWorkflowId: 'workflow-a',
+        prepareEditorView: async () => ({ async commit() { return true; } })
+    });
+    const closing = desk.workflow('workflow-a').close();
+    await Promise.resolve();
+
+    await desk.show({
+        workflowId: 'workflow-c',
+        label: 'c',
+        editorView: { async commit() { return true; } }
+    });
+    closeGate.resolve({ ok: false });
+
+    assert.equal(await closing, false);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a', 'workflow-c']);
 });
 
 test('only the latest of three prepared Workflow activations commits', async () => {

@@ -93,7 +93,7 @@ export function createWorkflowDesk({
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
 }) {
     const openWorkflows = new Map();
-    const pendingClosedWorkflowIds = new Set();
+    const pendingCloseTokens = new Map();
     let revision = 0;
     let activationGeneration = 0;
     let active = null;
@@ -229,7 +229,8 @@ export function createWorkflowDesk({
             editorView,
             revision
         });
-        for (const workflowId of pendingClosedWorkflowIds) openWorkflows.delete(workflowId);
+        const closingWorkflowId = pendingCloseTokens.get(target.closeToken);
+        if (closingWorkflowId) openWorkflows.delete(closingWorkflowId);
         publishSnapshot();
         try {
             await editorView.finalize?.();
@@ -332,17 +333,19 @@ export function createWorkflowDesk({
 
     async function runIdentityMutation(workflowId, kind, options = {}) {
         const current = requireMutationAllowed(workflowId, kind);
-        if (kind === 'close') pendingClosedWorkflowIds.add(workflowId);
+        const closeToken = kind === 'close' ? Object.freeze({ workflowId }) : null;
+        if (closeToken) pendingCloseTokens.set(closeToken, workflowId);
         let result;
         try {
             result = await mutateWorkflow(Object.freeze({
                 kind,
                 workflowId,
                 label: current.label,
+                closeToken,
                 ...options
             }));
         } finally {
-            if (kind === 'close') pendingClosedWorkflowIds.delete(workflowId);
+            if (closeToken) pendingCloseTokens.delete(closeToken);
         }
         if (result?.ok !== true) return false;
         if (kind === 'save') markMigratedWorkflowSaved(workflowId);
@@ -399,13 +402,13 @@ export function createWorkflowDesk({
             close: () => runIdentityMutation(identity, 'close'),
             copy: (label, mutationOptions = {}) => runIdentityMutation(identity, 'copy', {
                 label,
-                newWorkflowId: allocateWorkflowId(),
-                ...mutationOptions
+                ...mutationOptions,
+                newWorkflowId: allocateWorkflowId()
             }),
             saveAs: (label, mutationOptions = {}) => runIdentityMutation(identity, 'save-as', {
                 label,
-                newWorkflowId: allocateWorkflowId(),
-                ...mutationOptions
+                ...mutationOptions,
+                newWorkflowId: allocateWorkflowId()
             })
         });
     }

@@ -194,7 +194,7 @@ export function createWorkflowManagerApi({
             return { ok, handled: ok };
         }
         if (operation.kind === 'close') {
-            const ok = await removeWorkflowTab(tab.name);
+            const ok = await removeWorkflowTab(tab.name, { closeToken: operation.closeToken });
             return { ok, handled: ok };
         }
         if (operation.kind === 'copy' || operation.kind === 'save-as') {
@@ -1446,7 +1446,7 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    async function removeWorkflowTabs(names, { persistRemoval } = {}) {
+    async function removeWorkflowTabs(names, { persistRemoval, closeToken = null } = {}) {
         const removingNames = new Set(names);
         const removesActiveWorkflow = removingNames.has(state.activeWorkflowName);
         const previousActiveWorkflowId = state.activeWorkflowId;
@@ -1477,7 +1477,7 @@ export function createWorkflowManagerApi({
             tabs: state.workflowTabs || [],
             names,
             activeWorkflowName: state.activeWorkflowName,
-            activateFallback: () => openWorkflow(fallbackTab.name),
+            activateFallback: () => openWorkflow(fallbackTab.name, { closeToken }),
             rollbackFallback: async () => {
                 const previousTab = (state.workflowTabs || []).find((tab) => (
                     previousActiveWorkflowId && tab.workflowId === previousActiveWorkflowId
@@ -1509,8 +1509,8 @@ export function createWorkflowManagerApi({
         return result;
     }
 
-    async function removeWorkflowTab(name) {
-        return (await removeWorkflowTabs([name])).complete;
+    async function removeWorkflowTab(name, options = {}) {
+        return (await removeWorkflowTabs([name], options)).complete;
     }
 
     async function promptRenameWorkflow(oldName) {
