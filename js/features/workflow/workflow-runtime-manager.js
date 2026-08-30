@@ -23,7 +23,6 @@ import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import {
-    isWorkflowReferenceActive,
     normalizeWorkflowReference,
     requireStableWorkflowReference
 } from './workflow-identity.js';
@@ -493,7 +492,8 @@ export function createWorkflowRuntimeManager({
     }
 
     function isActiveWorkflow(workflow) {
-        return isWorkflowReferenceActive(workflow, state);
+        const reference = requireStableWorkflowReference(workflow);
+        return getWorkflowManagerApi()?.getActiveWorkflow?.()?.workflowId === reference.workflowId;
     }
 
     function getWorkflowRunContexts(workflow) {
@@ -1006,10 +1006,13 @@ export function createWorkflowRuntimeManager({
         connectionProjection?.nodeAppearanceChanged(nodeId);
     }
 
-    function refreshVisibleWorkflowRunState(workflowReference = {
-        workflowName: state.activeWorkflowName,
-        workflowId: state.activeWorkflowId
-    }) {
+    function refreshVisibleWorkflowRunState(workflowReference = (() => {
+        const activeWorkflow = getWorkflowManagerApi()?.getActiveWorkflow?.();
+        return {
+            workflowName: activeWorkflow?.label || '',
+            workflowId: activeWorkflow?.workflowId || ''
+        };
+    })()) {
         const contexts = getWorkflowRunContexts(workflowReference);
         clearWorkflowRunView({ keepLock: contexts.length > 0 });
         if (contexts.length === 0) {
@@ -1234,7 +1237,7 @@ export function createWorkflowRuntimeManager({
         if (!context?.workflowId) return false;
         const data = context.serialize();
         data.workflowId = context.workflowId;
-        const active = state.activeWorkflowId === context.workflowId;
+        const active = getWorkflowManagerApi()?.getActiveWorkflow?.()?.workflowId === context.workflowId;
         const applyToCanvas = active && options.applyToCanvas === true;
         const mergeRunResults = options.mergeRunResults !== false;
         const mergeNodeIds = options.mergeNodeIds instanceof Set ? options.mergeNodeIds : context.activePlanNodeIds;

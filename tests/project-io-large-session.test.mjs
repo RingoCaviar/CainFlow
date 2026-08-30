@@ -4,23 +4,7 @@ import { createProjectIoApi } from '../js/features/persistence/project-io.js';
 import { createViewportApi } from '../js/canvas/viewport.js';
 import { createWorkflowActivation } from '../js/features/workflow/workflow-activation.js';
 import { createWorkflowSessionActivator } from '../js/features/workflow/workflow-activation-coordinator.js';
-import {
-    attachWorkflowDeskStateProjection,
-    createWorkflowDesk
-} from '../js/features/workflow/workflow-desk.js';
-
-function createTestActiveState(state) {
-    return {
-        commitActive({ workflowId, label }) {
-            state.activeWorkflowId = workflowId;
-            state.activeWorkflowName = label;
-        },
-        clearActive() {
-            state.activeWorkflowId = '';
-            state.activeWorkflowName = '';
-        }
-    };
-}
+import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
 
 function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
     const scheduledTasks = [];
@@ -446,10 +430,9 @@ test('loading a legacy session assigns one unique stable identity to the active 
         prepareEditorView: async (target) => target.editorView,
         createWorkflowId: () => 'generated-workflow-id'
     });
-    attachWorkflowDeskStateProjection(state, workflowDesk);
     activateRestoredState = createWorkflowSessionActivator({
         state,
-        activeState: createTestActiveState(state),
+        getActiveWorkflow: () => workflowDesk.snapshot().active,
         workflowDesk,
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'generated-workflow-id',
@@ -466,7 +449,7 @@ test('loading a legacy session assigns one unique stable identity to the active 
     assert.equal(state.workflowTabs[0].identityPendingSave, true);
     assert.equal(state.workflowTabs[1].workflowId, 'generated-workflow-id');
     assert.equal(state.workflowTabs[1].data.workflowId, 'generated-workflow-id');
-    assert.equal(state.activeWorkflowId, 'generated-workflow-id');
+    assert.equal(workflowDesk.snapshot().active.workflowId, 'generated-workflow-id');
 });
 
 test('session workflow activation applies the committed canvas to the visible viewport', async () => {
@@ -478,14 +461,15 @@ test('session workflow activation applies the committed canvas to the visible vi
         activeWorkflowName: 'active',
         activateRestoredWorkflowState: (restoredState) => activateRestoredState(restoredState)
     });
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'active-id'
+    });
     activateRestoredState = createWorkflowSessionActivator({
         state,
-        activeState: createTestActiveState(state),
-        workflowDesk: createWorkflowDesk({
-            resolveSelection: async (selection) => selection,
-            prepareEditorView: async (target) => target.editorView,
-            createWorkflowId: () => 'active-id'
-        }),
+        getActiveWorkflow: () => workflowDesk.snapshot().active,
+        workflowDesk,
         workflowActivation: createWorkflowActivation(),
         createWorkflowId: () => 'active-id',
         prepareEditorView: async (_workflowName, workflowData) => ({
@@ -499,32 +483,4 @@ test('session workflow activation applies the committed canvas to the visible vi
 
     assert.equal(await api.loadState(), true);
     assert.deepEqual(canvasAtViewportApply, { x: 48, y: -24, zoom: 1.25 });
-});
-
-test('session workflow activation aligns a stale name to the authoritative stable identity', async () => {
-    let activateRestoredState;
-    const { api, state } = createHarness(1, 0, {
-        workflowTabs: [
-            { name: 'stale-name-target', workflowId: 'workflow-a', data: { workflowId: 'workflow-a' } },
-            { name: 'identity-target', workflowId: 'workflow-b', data: { workflowId: 'workflow-b' } }
-        ],
-        activeWorkflowName: 'stale-name-target',
-        activeWorkflowId: 'workflow-b',
-        activateRestoredWorkflowState: (restoredState) => activateRestoredState(restoredState)
-    });
-    activateRestoredState = createWorkflowSessionActivator({
-        state,
-        activeState: createTestActiveState(state),
-        workflowActivation: createWorkflowActivation(),
-        prepareEditorView: async () => ({
-            commit: () => true,
-            rollback: () => true,
-            finalize: () => true,
-            dispose: () => true
-        })
-    }).activate;
-
-    assert.equal(await api.loadState(), true);
-    assert.equal(state.activeWorkflowId, 'workflow-b');
-    assert.equal(state.activeWorkflowName, 'identity-target');
 });

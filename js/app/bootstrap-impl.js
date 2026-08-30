@@ -393,7 +393,7 @@ function collectRetainedNodeAssetIds() {
     });
 
     (state.workflowTabs || []).forEach((tab) => {
-        if (tab?.name === state.activeWorkflowName) return;
+        if (tab?.name === workflowManagerApi?.getActiveWorkflowName?.()) return;
         const workflowNodes = Array.isArray(tab?.data?.nodes) ? tab.data.nodes : [];
         const workflowConnections = Array.isArray(tab?.data?.connections) ? tab.data.connections : [];
         workflowNodes.forEach((node) => {
@@ -787,8 +787,8 @@ async function runWorkflow(runInput = null) {
 
 function cancelRunningNode(nodeId) {
     return getWorkflowRuntimeManagerApi().cancelRunningNode({
-        workflowName: state.activeWorkflowName || '',
-        workflowId: state.activeWorkflowId || ''
+        workflowName: workflowManagerApi.getActiveWorkflowName(),
+        workflowId: workflowManagerApi.getActiveWorkflowId()
     }, nodeId)
         || getWorkflowRunnerApi().cancelRunningNode(nodeId);
 }
@@ -827,6 +827,7 @@ function getSessionManagerApi() {
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
+            getActiveWorkflow: () => workflowManagerApi?.getActiveWorkflow?.() || null,
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,
@@ -898,6 +899,7 @@ function getCanvasInteractionsApi() {
             getConnectionCreateCandidates: (source) => getCompatibleNodeTypeCandidates(source),
             openConnectionCreatePopup: (popupState) => getContextMenuControllerApi().openConnectionCreatePopup(popupState),
             scheduleSave,
+            getActiveWorkflowId: () => workflowManagerApi?.getActiveWorkflowId?.() || '',
             saveViewportState: (viewportState) => getSessionManagerApi().saveViewportState(viewportState),
             serializeOneNode,
             addNode,
@@ -1211,10 +1213,11 @@ function getWorkflowRunnerApi() {
                 scheduleSave();
             },
             onNodeRunStateChange: (payload) => {
-                if (state.activeWorkflowId) {
+                const activeWorkflow = workflowManagerApi.getActiveWorkflow();
+                if (activeWorkflow?.workflowId) {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState({
-                        workflowId: state.activeWorkflowId,
-                        workflowName: state.activeWorkflowName || ''
+                        workflowId: activeWorkflow.workflowId,
+                        workflowName: activeWorkflow.label || ''
                     }, payload);
                 }
                 if (payload?.status === 'completed' && payload.nodeId) {

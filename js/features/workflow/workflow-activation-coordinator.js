@@ -9,6 +9,7 @@ import { WorkflowCommitRecoveryError } from './workflow-desk.js';
 
 export function createWorkflowSessionActivator({
     state,
+    getActiveWorkflow = () => null,
     activeState,
     workflowDesk = null,
     workflowActivation,
@@ -117,8 +118,8 @@ export function createWorkflowSessionActivator({
             commit: async (prepared, transaction) => {
                 prepared.previous = {
                     workflowTabs: state.workflowTabs,
-                    activeWorkflowName: state.activeWorkflowName,
-                    activeWorkflowId: state.activeWorkflowId,
+                    activeWorkflowName: getActiveWorkflow()?.label || '',
+                    activeWorkflowId: getActiveWorkflow()?.workflowId || '',
                     workflowOrder: state.workflowOrder,
                     workflowFolders: state.workflowFolders
                 };
@@ -190,6 +191,7 @@ export function createWorkflowSessionActivator({
 
 export function createWorkflowTargetActivator({
     state,
+    getActiveWorkflow = () => null,
     activeState,
     workflowDesk = null,
     workflowActivation,
@@ -226,7 +228,7 @@ export function createWorkflowTargetActivator({
         }
         const stableActivationKey = existingTab ? ensureWorkflowIdentity(existingTab) : `path:${name}`;
         const activationKey = reloadFromFile ? `reload:${stableActivationKey}:${Date.now()}` : stableActivationKey;
-        if (!reloadFromFile && state.activeWorkflowName === name && workflowActivation.retainActive(activationKey)) {
+        if (!reloadFromFile && getActiveWorkflow()?.label === name && workflowActivation.retainActive(activationKey)) {
             return true;
         }
 
@@ -308,12 +310,12 @@ export function createWorkflowTargetActivator({
             commit: async (prepared, transaction) => {
                 if (!prepared?.tab || !transaction.isCurrent()) return false;
                 snapshotActiveWorkflow();
-                const previousActiveName = state.activeWorkflowName;
+                const previousActiveName = getActiveWorkflow()?.label || '';
                 const previousActiveTab = getWorkflowTab(previousActiveName);
                 const previousData = previousActiveTab ? cloneWorkflowData(previousActiveTab.data) : getEmptyWorkflowData();
                 prepared.previous = {
                     name: previousActiveName,
-                    workflowId: state.activeWorkflowId || ensureWorkflowIdentity(previousActiveTab),
+                    workflowId: getActiveWorkflow()?.workflowId || ensureWorkflowIdentity(previousActiveTab),
                     tab: previousActiveTab,
                     data: previousData,
                     preparedView: {
@@ -407,7 +409,7 @@ export function createWorkflowTargetActivator({
                 const effects = [
                     () => onViewApplied({
                         workflowName: prepared.activeWorkflowName,
-                        workflowId: state.activeWorkflowId
+                        workflowId: getActiveWorkflow()?.workflowId || ''
                     }),
                     onConnectionsChanged,
                     () => scheduleAssetCleanup({ includeCanvas: true }),

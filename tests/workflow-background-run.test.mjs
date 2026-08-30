@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    attachWorkflowDeskStateProjection,
     createWorkflowDesk
 } from '../js/features/workflow/workflow-desk.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
@@ -45,6 +44,7 @@ test('Background workflow run survives activation, restores on return, and compl
         nodeDefaults: {}
     };
     const workflowManager = {
+        getActiveWorkflow: () => workflowDesk.snapshot().active,
         getWorkflowNameById: (workflowId) => workflowId === 'workflow-a' ? currentLabel : '',
         updateWorkflowTabDataById: (workflowId, data) => { updates.push({ workflowId, data }); return true; },
         setWorkflowRunningStateById: (workflowId, value) => { running.push({ workflowId, value }); return true; },
@@ -101,8 +101,6 @@ test('Background workflow run survives activation, restores on return, and compl
         }),
         mutateWorkflow: async () => ({ ok: true })
     });
-    attachWorkflowDeskStateProjection(state, workflowDesk);
-
     await workflowDesk.show({ workflowId: 'workflow-a', label: currentLabel });
 
     assert.equal(await api.runWorkflowInContext({

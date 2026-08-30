@@ -23,6 +23,7 @@ export function createCanvasInteractionsApi({
     detachNodesFromConnections = null,
     updatePortStyles,
     scheduleSave,
+    getActiveWorkflowId = () => '',
     saveViewportState = () => false,
     serializeOneNode,
     addNode,
@@ -115,7 +116,7 @@ export function createCanvasInteractionsApi({
 
     function persistCurrentViewport() {
         return saveViewportState({
-            workflowId: state.activeWorkflowId || '',
+            workflowId: getActiveWorkflowId(),
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom }
         });
     }

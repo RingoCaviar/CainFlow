@@ -157,8 +157,6 @@ export function createInitialState() {
         cacheSizes: {},
         undoStack: [],
         workflowTabs: [],
-        activeWorkflowName: '',
-        activeWorkflowId: '',
         workflowOrder: [],
         workflowFolders: [],
         workflowSidebarWidth: 320,

@@ -16,6 +16,7 @@ export function createSessionManagerApi({
     updateAllConnections,
     updatePortStyles,
     onConnectionsChanged = () => {},
+    getActiveWorkflow = () => null,
     clearOrphanedNodeAssets = async () => true,
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
@@ -236,8 +237,9 @@ export function createSessionManagerApi({
                     runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
                 }))
                 : [];
-            data.activeWorkflowName = state.activeWorkflowName || '';
-            data.activeWorkflowId = state.activeWorkflowId || '';
+            const activeWorkflow = getActiveWorkflow();
+            data.activeWorkflowName = activeWorkflow?.label || '';
+            data.activeWorkflowId = activeWorkflow?.workflowId || '';
             data.workflowOrder = Array.isArray(state.workflowOrder)
                 ? state.workflowOrder.filter((name) => typeof name === 'string' && name)
                 : [];

@@ -61,28 +61,6 @@ function freezeSnapshot({ revision, active, openWorkflows }) {
     });
 }
 
-export function attachWorkflowDeskStateProjection(state, workflowDesk) {
-    const readActive = () => workflowDesk.snapshot().active;
-    const rejectWrite = () => {
-        throw new TypeError('Active workflow state is a read-only WorkflowDesk projection');
-    };
-    Object.defineProperties(state, {
-        activeWorkflowId: {
-            configurable: true,
-            enumerable: true,
-            get: () => readActive()?.workflowId || '',
-            set: rejectWrite
-        },
-        activeWorkflowName: {
-            configurable: true,
-            enumerable: true,
-            get: () => readActive()?.label || '',
-            set: rejectWrite
-        }
-    });
-    return state;
-}
-
 export function createWorkflowDesk({
     resolveSelection,
     prepareEditorView,

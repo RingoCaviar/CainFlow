@@ -45,6 +45,7 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
         },
         getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {}, updatePortStyles() {},
         scheduleSave() { saveCalls.push(true); },
+        getActiveWorkflowId: () => 'workflow-a',
         saveViewportState(value) { viewportSaveCalls.push(value); },
         serializeOneNode() {}, addNode() {}, checkLineIntersection() {},
         getConnectionSamplePoints() { return []; }, documentRef, getNodeMinimumSize,

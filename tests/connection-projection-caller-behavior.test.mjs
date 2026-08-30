@@ -56,6 +56,7 @@ test('visible workflow completion reports the runtime node id through the appear
     const api = createWorkflowRuntimeManager({
         state,
         nodeConfigs: {},
+        getWorkflowManagerApi: () => ({ getActiveWorkflow: () => ({ workflowId: 'workflow-a-id', label: 'workflow-a' }) }),
         connectionProjection: { nodeAppearanceChanged: (nodeId) => calls.push(nodeId) },
         documentRef: { getElementById: () => null },
         windowRef: { clearInterval: () => {}, setInterval: () => 1 },
@@ -84,6 +85,7 @@ test('visible run state is isolated by workflow identity when node ids overlap',
     const api = createWorkflowRuntimeManager({
         state,
         nodeConfigs: {},
+        getWorkflowManagerApi: () => ({ getActiveWorkflow: () => ({ workflowId: 'workflow-a', label: 'renamed-workflow' }) }),
         connectionProjection: { nodeAppearanceChanged: (nodeId) => calls.push(nodeId) },
         documentRef: { getElementById: () => null },
         windowRef: { clearInterval: () => {}, setInterval: () => 1 },
@@ -114,6 +116,7 @@ test('visible cancellation cannot cross a workflow identity with the same node i
     const api = createWorkflowRuntimeManager({
         state,
         nodeConfigs: {},
+        getWorkflowManagerApi: () => ({ getActiveWorkflow: () => ({ workflowId: 'workflow-a', label: 'workflow-a-name' }) }),
         connectionProjection: { nodeAppearanceChanged: () => {} },
         documentRef: { getElementById: () => null },
         windowRef: { clearInterval: () => {}, setInterval: () => 1 },
