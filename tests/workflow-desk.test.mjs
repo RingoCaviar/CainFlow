@@ -392,3 +392,58 @@ test('an externally superseded request rolls back before publishing its committe
     assert.equal(desk.snapshot().active, null);
     assert.deepEqual(visible, ['commit:workflow-a', 'rollback:workflow-a']);
 });
+
+test('restore prefers saved document Workflow identity over stale session identity', async () => {
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'generated-id'
+    });
+
+    const result = await desk.restore({
+        workflows: [{
+            name: 'folder/A',
+            workflowId: 'stale-session-id',
+            data: { workflowId: 'saved-document-id' }
+        }],
+        activeWorkflowId: 'stale-session-id',
+        activeWorkflowName: 'folder/A',
+        prepareEditorView: async () => ({
+            async commit() { return true; },
+            finalize() { return true; }
+        })
+    });
+
+    assert.equal(result.status, 'committed');
+    assert.equal(desk.snapshot().active.workflowId, 'saved-document-id');
+    assert.equal(result.workflows[0].workflowId, 'saved-document-id');
+});
+
+test('restore lazily assigns missing Workflow identity without writing the document', async () => {
+    let documentWrites = 0;
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        createWorkflowId: () => 'generated-id',
+        saveWorkflowDocument: async () => { documentWrites += 1; }
+    });
+    const workflow = { name: 'legacy', data: {} };
+
+    const result = await desk.restore({
+        workflows: [workflow],
+        activeWorkflowName: 'legacy',
+        prepareEditorView: async () => ({
+            async commit() { return true; },
+            finalize() { return true; }
+        })
+    });
+
+    assert.equal(result.migrations[0].kind, 'missing-identity');
+    assert.equal(workflow.workflowId, 'generated-id');
+    assert.equal(workflow.data.workflowId, 'generated-id');
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
+    assert.equal(documentWrites, 0);
+
+    desk.migration.markSaved('generated-id');
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, false);
+});

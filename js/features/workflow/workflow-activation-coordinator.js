@@ -18,6 +18,34 @@ export function createWorkflowSessionActivator({
     applyViewport = () => {},
     onViewApplied = () => {}
 }) {
+    async function activateWithWorkflowDesk(restoredState) {
+        const workflowTabs = Array.isArray(restoredState?.workflowTabs) ? restoredState.workflowTabs : [];
+        const result = await workflowDesk.restore({
+            workflows: workflowTabs,
+            activeWorkflowId: restoredState?.activeWorkflowId || '',
+            activeWorkflowName: restoredState?.activeWorkflowName || '',
+            prepareEditorView: async ({ workflowId, label }) => {
+                if (typeof prepareEditorView !== 'function') return null;
+                return prepareEditorView(label, {
+                    ...(restoredState?.workflowData || {}),
+                    workflowId
+                });
+            }
+        });
+        if (result.status !== 'committed' && result.status !== 'already-visible') return false;
+        state.workflowTabs = result.workflows;
+        state.workflowOrder = Array.isArray(restoredState?.workflowOrder) ? restoredState.workflowOrder : [];
+        state.workflowFolders = Array.isArray(restoredState?.workflowFolders) ? restoredState.workflowFolders : [];
+        const committed = workflowDesk.snapshot().active;
+        workflowActivation.setActiveKey(committed?.workflowId || 'session:empty');
+        applyViewport();
+        onViewApplied({
+            workflowName: committed?.label || '',
+            workflowId: committed?.workflowId || ''
+        });
+        return true;
+    }
+
     function reconcileActiveTab(tab) {
         const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
         const workflowName = tab?.name || '';
@@ -28,6 +56,7 @@ export function createWorkflowSessionActivator({
     }
 
     function activate(restoredState) {
+        if (workflowDesk) return activateWithWorkflowDesk(restoredState);
         const workflowTabs = Array.isArray(restoredState?.workflowTabs) ? restoredState.workflowTabs : [];
         let activeWorkflowName = restoredState?.activeWorkflowName || '';
         let activeWorkflowId = restoredState?.activeWorkflowId || '';

@@ -92,7 +92,8 @@ export function createWorkflowManagerApi({
     const workflowDesk = createWorkflowDesk({
         resolveSelection: async (selection) => selection?.resolve?.() || selection,
         prepareEditorView: async (target) => target.editorView,
-        commitSafeEmpty: async () => applySafeEmptyWorkflow({ publishActiveState: false })
+        commitSafeEmpty: async () => applySafeEmptyWorkflow({ publishActiveState: false }),
+        createWorkflowId
     });
     attachWorkflowDeskStateProjection(state, workflowDesk);
     const activeState = workflowDesk.migration;
@@ -277,6 +278,11 @@ export function createWorkflowManagerApi({
         if (result !== true) {
             showToast(result.message, 'error');
             return false;
+        }
+        const savedTab = getWorkflowTab(name);
+        if (savedTab?.workflowId) {
+            savedTab.identityPendingSave = false;
+            activeState.markSaved(savedTab.workflowId);
         }
         return true;
     }

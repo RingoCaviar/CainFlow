@@ -62,7 +62,9 @@ export function createWorkflowDesk({
     resolveSelection,
     prepareEditorView,
     commitSafeEmpty = async () => {},
-    recordDiagnostic = async () => {}
+    recordDiagnostic = async () => {},
+    createWorkflowId = () => globalThis.crypto?.randomUUID?.()
+        || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
 }) {
     const openWorkflows = new Map();
     let revision = 0;
@@ -142,7 +144,7 @@ export function createWorkflowDesk({
         openWorkflows.set(target.workflowId, {
             workflowId: target.workflowId,
             label: target.label,
-            pendingExplicitSave: false,
+            pendingExplicitSave: target.pendingExplicitSave === true,
             running: false
         });
         active = Object.freeze({
@@ -201,6 +203,88 @@ export function createWorkflowDesk({
         return currentSnapshot;
     }
 
+    function markMigratedWorkflowSaved(workflowId) {
+        const current = openWorkflows.get(workflowId);
+        if (!current || current.pendingExplicitSave !== true) return false;
+        openWorkflows.set(workflowId, { ...current, pendingExplicitSave: false });
+        publishSnapshot();
+        return true;
+    }
+
+    function normalizeRestoredWorkflows(workflows) {
+        const seen = new Set();
+        const migrations = [];
+        for (const workflow of workflows) {
+            if (!workflow || typeof workflow !== 'object') continue;
+            const savedDocumentId = String(workflow.data?.workflowId || '').trim();
+            const sessionId = String(workflow.workflowId || '').trim();
+            let workflowId = savedDocumentId || sessionId;
+            const missingIdentity = !workflowId;
+            if (!workflowId || seen.has(workflowId)) workflowId = createWorkflowId();
+            while (!workflowId || seen.has(workflowId)) workflowId = createWorkflowId();
+            workflow.workflowId = workflowId;
+            if (workflow.data && typeof workflow.data === 'object') workflow.data.workflowId = workflowId;
+            workflow.identityPendingSave = missingIdentity;
+            if (missingIdentity) {
+                migrations.push(Object.freeze({
+                    kind: 'missing-identity',
+                    workflowId,
+                    label: workflow.name || ''
+                }));
+            }
+            seen.add(workflowId);
+            openWorkflows.set(workflowId, {
+                workflowId,
+                label: workflow.name || '',
+                pendingExplicitSave: missingIdentity,
+                running: workflow.running === true
+            });
+        }
+        return migrations;
+    }
+
+    async function restore(restoration = {}) {
+        const workflows = Array.isArray(restoration.workflows) ? restoration.workflows : [];
+        const migrations = normalizeRestoredWorkflows(workflows);
+        let activeWorkflow = workflows.find((workflow) => (
+            restoration.activeWorkflowId
+            && workflow.workflowId === restoration.activeWorkflowId
+        ));
+        if (!activeWorkflow && restoration.activeWorkflowName) {
+            activeWorkflow = workflows.find((workflow) => workflow.name === restoration.activeWorkflowName);
+        }
+        if (!activeWorkflow) {
+            active = null;
+            revision += 1;
+            publishSnapshot();
+            return Object.freeze({
+                status: 'committed',
+                workflows,
+                migrations: Object.freeze(migrations),
+                snapshot: currentSnapshot
+            });
+        }
+        const editorView = await restoration.prepareEditorView?.({
+            workflowId: activeWorkflow.workflowId,
+            label: activeWorkflow.name || '',
+            document: activeWorkflow.data
+        });
+        const result = await show({
+            workflowId: activeWorkflow.workflowId,
+            label: activeWorkflow.name || '',
+            editorView,
+            force: true,
+            pendingExplicitSave: activeWorkflow.identityPendingSave === true,
+            signal: restoration.signal,
+            isCurrent: restoration.isCurrent
+        });
+        return Object.freeze({
+            ...result,
+            workflows,
+            migrations: Object.freeze(migrations)
+        });
+    }
+
     async function show(selection) {
         const generation = ++activationGeneration;
         const target = await resolveSelection(selection);
@@ -227,7 +311,8 @@ export function createWorkflowDesk({
     const migration = Object.freeze({
         commitActive: commitMigratedActiveState,
         relabelActive: relabelMigratedActiveState,
-        clearActive: clearMigratedActiveState
+        clearActive: clearMigratedActiveState,
+        markSaved: markMigratedWorkflowSaved
     });
-    return Object.freeze({ show, snapshot: () => currentSnapshot, migration });
+    return Object.freeze({ show, restore, snapshot: () => currentSnapshot, migration });
 }
