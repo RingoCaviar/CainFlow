@@ -129,6 +129,31 @@ test('settings surfaces render from the semantic palette in every supported them
                 );
             }
         }
+        assert.equal(measurement.actionStates.length, 12);
+        for (const action of measurement.actionStates) {
+            assert.deepEqual({ actual: action.actual, outline: action.outline }, action.semantic, `${measurement.themeId} ${action.kind} ${action.state} must consume semantic action roles`);
+            assert.notEqual(action.actual.background, 'rgba(0, 0, 0, 0)', `${measurement.themeId} ${action.kind} ${action.state} needs a semantic surface`);
+            assert.ok(action.actual.border, `${measurement.themeId} ${action.kind} ${action.state} needs a semantic border`);
+            if (action.state !== 'disabled') {
+                const actionBackground = composite(parseColor(action.actual.background), cardBackground);
+                const actionText = composite(parseColor(action.actual.color), actionBackground);
+                const actionRatio = contrastRatio(actionText, actionBackground);
+                assert.ok(actionRatio >= 4.5, `${measurement.themeId} ${action.kind} ${action.state} contrast ${actionRatio.toFixed(2)} must meet WCAG AA: ${JSON.stringify(action.actual)}`);
+            }
+        }
+        for (const focusedAction of measurement.actionStates.filter((action) => action.state === 'focus')) {
+            assert.notEqual(focusedAction.outline, 'none', `${measurement.themeId} ${focusedAction.kind} focused action needs a visible outline`);
+            const outlineColor = parseColor(focusedAction.outline.match(/rgba?\([^)]*\)/)[0]);
+            assert.ok(contrastRatio(outlineColor, cardBackground) >= 3, `${measurement.themeId} ${focusedAction.kind} focus outline must meet 3:1`);
+        }
+        assert.equal(measurement.toggleStates.length, 4);
+        assert.notDeepEqual(
+            measurement.toggleStates[0].actual,
+            measurement.toggleStates[1].actual,
+            `${measurement.themeId} toggle on and off states must be distinct`,
+        );
+        assert.notEqual(measurement.toggleStates[2].outline, 'none', `${measurement.themeId} toggle focus must be visible`);
+        assert.notEqual(measurement.toggleStates[3].opacity, measurement.toggleStates[0].opacity, `${measurement.themeId} disabled toggle must be visually distinct`);
         for (const kind of ['input', 'select']) {
             const normal = measurement.controlStates.find((control) => control.kind === kind && control.state === 'normal');
             const focus = measurement.controlStates.find((control) => control.kind === kind && control.state === 'focus');

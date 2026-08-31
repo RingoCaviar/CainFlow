@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <link rel="stylesheet" href="../../index.css">
-    <style>#state-controls :is(input, select) { transition: none !important; }</style>
+    <style>#settings-modal * { transition: none !important; }</style>
 </head>
 <body>
     <div id="settings-modal" class="modal-overlay">
@@ -27,6 +27,24 @@
                             <select data-kind="select" data-state="disabled" disabled><option>disabled</option></select>
                             <select data-kind="select" data-state="error" aria-invalid="true"><option>error</option></select>
                         </div>
+                        <div id="action-controls">
+                            <button class="btn btn-primary" data-kind="primary" data-state="normal">主要</button>
+                            <button class="btn btn-primary is-hovered" data-kind="primary" data-state="hover">主要</button>
+                            <button class="btn btn-primary is-focused" data-kind="primary" data-state="focus">主要</button>
+                            <button class="btn btn-primary" data-kind="primary" data-state="disabled" disabled>主要</button>
+                            <button class="btn btn-secondary" data-kind="secondary" data-state="normal">次要</button>
+                            <button class="btn btn-secondary is-hovered" data-kind="secondary" data-state="hover">次要</button>
+                            <button class="btn btn-secondary is-focused" data-kind="secondary" data-state="focus">次要</button>
+                            <button class="btn btn-secondary" data-kind="secondary" data-state="disabled" disabled>次要</button>
+                            <button class="btn btn-danger" data-kind="danger" data-state="normal">危险</button>
+                            <button class="btn btn-danger is-hovered" data-kind="danger" data-state="hover">危险</button>
+                            <button class="btn btn-danger is-focused" data-kind="danger" data-state="focus">危险</button>
+                            <button class="btn btn-danger" data-kind="danger" data-state="disabled" disabled>危险</button>
+                        </div>
+                        <label class="toggle-switch"><input data-toggle-state="off" type="checkbox"><span class="toggle-slider"></span></label>
+                        <label class="toggle-switch"><input data-toggle-state="on" type="checkbox" checked><span class="toggle-slider"></span></label>
+                        <label class="toggle-switch"><input class="is-focused" data-toggle-state="focus" type="checkbox"><span class="toggle-slider"></span></label>
+                        <label class="toggle-switch"><input data-toggle-state="disabled" type="checkbox" disabled><span class="toggle-slider"></span></label>
                         <span id="card-probe" style="position:absolute;left:-9999px;background:var(--settings-dialog-section-bg);border:1px solid var(--settings-dialog-panel-border)"></span>
                     </article>
                 </section>
@@ -95,6 +113,32 @@
                     actual: styleTuple(control),
                     semantic: semanticStyle(control.dataset.state),
                 }));
+                const actionStates = [...document.querySelectorAll('#action-controls [data-state]')].map((control) => ({
+                    kind: control.dataset.kind,
+                    state: control.dataset.state,
+                    actual: styleTuple(control),
+                    outline: getComputedStyle(control).outline,
+                    semantic: (() => {
+                        const probe = document.createElement('button');
+                        const kind = control.dataset.kind;
+                        const state = control.dataset.state;
+                        const prefix = kind === 'danger' ? 'danger' : kind;
+                        const isHover = state === 'hover';
+                        probe.style.cssText = `position:absolute;left:-9999px;background:var(--settings-action-${prefix}-${isHover ? 'hover-bg' : 'bg'});border:1px solid var(--settings-action-${prefix}-${isHover ? 'hover-border' : 'border'});color:var(--settings-action-${prefix}-${isHover ? 'hover-text' : 'text'});box-shadow:none`;
+                        if (state === 'focus') probe.style.cssText += ';outline:2px solid var(--settings-action-focus-ring);outline-offset:2px';
+                        if (state === 'disabled') probe.style.cssText = 'position:absolute;left:-9999px;background:var(--settings-input-disabled-bg);border:1px solid var(--settings-input-disabled-border);color:var(--settings-input-disabled-text);box-shadow:none';
+                        document.querySelector('#settings-modal').append(probe);
+                        const result = { actual: styleTuple(probe), outline: getComputedStyle(probe).outline };
+                        probe.remove();
+                        return result;
+                    })(),
+                }));
+                const toggleStates = [...document.querySelectorAll('[data-toggle-state]')].map((control) => ({
+                    state: control.dataset.toggleState,
+                    actual: styleTuple(control.nextElementSibling),
+                    outline: getComputedStyle(control.nextElementSibling).outline,
+                    opacity: getComputedStyle(control.nextElementSibling).opacity,
+                }));
                 return {
                     themeId,
                     actual: {
@@ -131,6 +175,8 @@
                         '--text-dim',
                     ].every((role) => rootStyle.getPropertyValue(role).trim() !== ''),
                     controlStates,
+                    actionStates,
+                    toggleStates,
                 };
             });
             document.querySelector('#surface-result').textContent = JSON.stringify(measurements);

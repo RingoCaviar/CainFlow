@@ -345,7 +345,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     <button class="btn btn-sm btn-ghost btn-view-json" data-protocol-id="${protocol.id}">
                         查看JSON
                     </button>
-                    <button class="btn btn-sm btn-ghost btn-delete-protocol ${isBuiltInProtocol ? 'hidden' : ''}" data-protocol-id="${protocol.id}" style="color: var(--danger-color, #ef4444);">
+                    <button class="btn btn-sm btn-delete-protocol ${isBuiltInProtocol ? 'hidden' : ''}" data-protocol-id="${protocol.id}">
                         删除
                     </button>
                 </div>

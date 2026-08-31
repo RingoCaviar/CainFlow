@@ -13,6 +13,31 @@ html:root #settings-modal {
     --settings-input-disabled-text: var(--text-dim);
     --settings-input-error-border: var(--accent-red);
     --settings-input-error-ring: color-mix(in srgb, var(--accent-red) 24%, transparent);
+    --settings-action-secondary-bg: var(--panel-control-bg);
+    --settings-action-secondary-border: var(--panel-control-border);
+    --settings-action-secondary-text: var(--text-primary);
+    --settings-action-secondary-hover-bg: var(--panel-control-hover-bg);
+    --settings-action-secondary-hover-border: var(--panel-control-hover-border);
+    --settings-action-secondary-hover-text: var(--panel-control-hover-text);
+    --settings-action-primary-bg: var(--panel-accent-bg);
+    --settings-action-primary-border: var(--panel-accent-border);
+    --settings-action-primary-text: var(--text-primary);
+    --settings-action-primary-hover-bg: var(--panel-active-bg);
+    --settings-action-primary-hover-border: var(--panel-active-border);
+    --settings-action-primary-hover-text: var(--panel-control-hover-text);
+    --settings-action-danger-bg: color-mix(in srgb, var(--accent-red) 14%, transparent);
+    --settings-action-danger-border: color-mix(in srgb, var(--accent-red) 38%, transparent);
+    --settings-action-danger-text: var(--text-primary);
+    --settings-action-danger-accent: var(--accent-red);
+    --settings-action-danger-hover-bg: color-mix(in srgb, var(--accent-red) 18%, transparent);
+    --settings-action-danger-hover-border: var(--accent-red);
+    --settings-action-danger-hover-text: var(--text-primary);
+    --settings-action-focus-ring: var(--text-primary);
+    --settings-toggle-off-bg: var(--panel-control-bg);
+    --settings-toggle-off-border: var(--panel-control-border);
+    --settings-toggle-on-bg: var(--panel-active-bg);
+    --settings-toggle-on-border: var(--panel-active-border);
+    --settings-toggle-thumb: var(--text-primary);
 }
 
 html:root #settings-modal {
@@ -100,4 +125,86 @@ html:root #settings-modal.modal-overlay #models-list .card-name {
 html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name {
     padding: 2px 4px;
     font-size: 14px;
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost) {
+    background: var(--settings-action-secondary-bg);
+    border-color: var(--settings-action-secondary-border);
+    color: var(--settings-action-secondary-text);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost):is(:hover, .is-hovered) {
+    background: var(--settings-action-secondary-hover-bg);
+    border-color: var(--settings-action-secondary-hover-border);
+    color: var(--settings-action-secondary-hover-text);
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .card-btn-fetch-models) {
+    background: var(--settings-action-primary-bg);
+    border-color: var(--settings-action-primary-border);
+    color: var(--settings-action-primary-text);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .card-btn-fetch-models):is(:hover, .is-hovered) {
+    background: var(--settings-action-primary-hover-bg);
+    border-color: var(--settings-action-primary-hover-border);
+    color: var(--settings-action-primary-hover-text);
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-danger, .card-btn-delete, .btn-delete-protocol) {
+    background: var(--settings-action-danger-bg);
+    border-color: var(--settings-action-danger-border);
+    color: var(--settings-action-danger-text);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-danger, .card-btn-delete, .btn-delete-protocol):is(:hover, .is-hovered) {
+    background: var(--settings-action-danger-hover-bg);
+    border-color: var(--settings-action-danger-hover-border);
+    color: var(--settings-action-danger-hover-text);
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-secondary, .btn-ghost, .btn-danger, .card-btn-delete, .btn-delete-protocol, .card-btn-fetch-models):is(:focus-visible, .is-focused) {
+    outline: 2px solid var(--settings-action-focus-ring);
+    outline-offset: 2px;
+}
+
+html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-secondary, .btn-ghost, .btn-danger, .card-btn-delete, .btn-delete-protocol, .card-btn-fetch-models):disabled {
+    background: var(--settings-input-disabled-bg);
+    border-color: var(--settings-input-disabled-border);
+    color: var(--settings-input-disabled-text);
+    box-shadow: none;
+    cursor: not-allowed;
+    opacity: 1;
+}
+
+html:root #settings-modal.modal-overlay .toggle-slider {
+    background: var(--settings-toggle-off-bg);
+    border: 1px solid var(--settings-toggle-off-border);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .toggle-slider::before {
+    background: var(--settings-toggle-thumb);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .toggle-switch input:checked + .toggle-slider {
+    background: var(--settings-toggle-on-bg);
+    border-color: var(--settings-toggle-on-border);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .toggle-switch input:is(:focus-visible, .is-focused) + .toggle-slider {
+    outline: 2px solid var(--settings-action-focus-ring);
+    outline-offset: 2px;
+}
+
+html:root #settings-modal.modal-overlay .toggle-switch input:disabled + .toggle-slider {
+    background: var(--settings-input-disabled-bg);
+    border-color: var(--settings-input-disabled-border);
+    cursor: not-allowed;
+    opacity: 0.55;
 }
