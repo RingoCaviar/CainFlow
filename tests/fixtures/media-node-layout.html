@@ -60,7 +60,7 @@
             row.append(template.content.cloneNode(true));
         }
 
-        requestAnimationFrame(() => requestAnimationFrame(() => {
+        setTimeout(() => {
             const portraitRatio = 768 / 1376;
             const results = [];
             for (const row of document.querySelectorAll('.fixture-row')) {
@@ -87,7 +87,7 @@
                 }
             }
             document.getElementById('layout-result').textContent = JSON.stringify(results);
-        }));
+        }, 0);
     </script>
 </body>
 </html>

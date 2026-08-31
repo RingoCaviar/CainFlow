@@ -443,7 +443,8 @@ test('loading a legacy session assigns one unique stable identity to the active 
 
     assert.equal(await api.loadState(), true);
     assert.equal(state.workflowTabs[0].workflowId, 'duplicate-id');
-    assert.equal(state.workflowTabs[0].identityPendingSave, true);
+    assert.equal(state.workflowTabs[0].identityPendingSave, undefined);
+    assert.equal(workflowDesk.snapshot().open[0].pendingExplicitSave, true);
     assert.equal(state.workflowTabs[1].workflowId, 'generated-workflow-id');
     assert.equal(state.workflowTabs[1].data.workflowId, 'generated-workflow-id');
     assert.equal(workflowDesk.snapshot().active.workflowId, 'generated-workflow-id');

@@ -91,10 +91,12 @@ export function createWorkflowSelectionAdapter({
     enterSafeEmpty,
     tabColorCount = 6
 }) {
+    const isWorkflowRunning = (workflowId) => workflowDesk.snapshot().open
+        .some((record) => record.workflowId === workflowId && record.running === true);
     async function activate(name, { reloadFromFile = false, closeToken = null } = {}) {
         if (!name) return false;
         const existingTab = getWorkflowTab(name);
-        if (reloadFromFile && existingTab?.running === true) {
+        if (reloadFromFile && isWorkflowRunning(existingTab?.workflowId)) {
             showToast('工作流正在后台运行，暂不能从文件重载', 'warning');
             return false;
         }
@@ -156,7 +158,7 @@ export function createWorkflowSelectionAdapter({
                     async commit() {
                         const currentTab = (state.workflowTabs || [])
                             .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
-                        if ((reloadedData && currentTab?.running === true) || !targetRevision.isCurrent()) return false;
+                        if ((reloadedData && isWorkflowRunning(currentTab?.workflowId)) || !targetRevision.isCurrent()) return false;
                         snapshotActiveWorkflow();
                         const previousActiveName = getActiveWorkflow()?.label || '';
                         const previousActiveTab = getWorkflowTab(previousActiveName);
@@ -248,21 +250,18 @@ export function createWorkflowSelectionAdapter({
                     identityRepair: identityOwnership === 'external-copy' ? (() => {
                                 const previous = {
                                     workflowId: tab.workflowId,
-                                    documentWorkflowId: tab.data?.workflowId,
-                                    identityPendingSave: tab.identityPendingSave
+                                    documentWorkflowId: tab.data?.workflowId
                                 };
                                 return {
                                     commit: ({ workflowId }) => {
                                         tab.workflowId = workflowId;
                                         if (tab.data && typeof tab.data === 'object') tab.data.workflowId = workflowId;
-                                        tab.identityPendingSave = true;
                                     },
                                     rollback: () => {
                                         tab.workflowId = previous.workflowId;
                                         if (tab.data && typeof tab.data === 'object') {
                                             tab.data.workflowId = previous.documentWorkflowId;
                                         }
-                                        tab.identityPendingSave = previous.identityPendingSave;
                                     }
                                 };
                     })() : null,

@@ -8,16 +8,6 @@ function freezeOpenWorkflow(record, activeWorkflowId) {
     });
 }
 
-function freezeWorkflowTabProjection(record) {
-    return Object.freeze({
-        workflowId: record.workflowId,
-        name: record.label,
-        identityPendingSave: record.pendingExplicitSave,
-        running: record.running,
-        active: record.active
-    });
-}
-
 function freezeActiveWorkflow(active) {
     if (!active) return null;
     return Object.freeze({
@@ -109,8 +99,7 @@ function freezeSnapshot({ revision, active, openWorkflows }) {
     return Object.freeze({
         revision,
         active: freezeActiveWorkflow(active),
-        open,
-        tabs: Object.freeze(open.map(freezeWorkflowTabProjection))
+        open
     });
 }
 
@@ -635,12 +624,36 @@ export function createWorkflowDesk({
         return commitCloseBindings(bindings);
     }
 
+    async function runSaveMany(bindings) {
+        const results = [];
+        for (const { workflowId, handleToken } of bindings) {
+            try {
+                const saved = await runIdentityMutation(workflowId, 'save', handleToken);
+                results.push(Object.freeze({
+                    workflowId,
+                    status: saved?.status === 'committed' ? 'committed' : 'failed'
+                }));
+            } catch (error) {
+                results.push(Object.freeze({ workflowId, status: 'failed', error }));
+            }
+        }
+        const frozenResults = Object.freeze(results);
+        return Object.freeze({
+            status: results.every(({ status }) => status === 'committed')
+                ? 'completed'
+                : 'completed-with-failures',
+            results: frozenResults,
+            snapshot: currentSnapshot
+        });
+    }
+
     function workflows(workflowIds) {
         const bindings = Array.from(new Set(workflowIds || []), (workflowId) => {
             const identity = String(workflowId || '').trim();
             return Object.freeze({ workflowId: identity, handleToken: openWorkflows.get(identity)?.handleToken });
         });
         return Object.freeze({
+            save: () => runSaveMany(bindings),
             relabel: (changes, options = {}) => runRelabelMutation(bindings, changes, options),
             close: (options = {}) => runCloseMany(bindings, options)
         });
@@ -701,6 +714,7 @@ export function createWorkflowDesk({
             workflow.identityPendingSave = missingIdentity
                 || duplicatedIdentity
                 || workflow.identityPendingSave === true;
+            const pendingExplicitSave = workflow.identityPendingSave;
             if (missingIdentity) {
                 migrations.push(Object.freeze({
                     kind: 'missing-identity',
@@ -725,9 +739,10 @@ export function createWorkflowDesk({
             restoredOpenWorkflows.set(workflowId, createOpenWorkflowRecord({
                 workflowId,
                 label: workflow.name || '',
-                pendingExplicitSave: workflow.identityPendingSave,
+                pendingExplicitSave,
                 running: workflow.running === true
             }));
+            delete workflow.identityPendingSave;
             normalizedWorkflows.push(workflow);
         }
         return { normalizedWorkflows, migrations, identityAliases, duplicateOwners, restoredOpenWorkflows };

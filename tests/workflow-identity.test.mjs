@@ -1,44 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    ensureUniqueWorkflowIdentities,
-    isWorkflowReferenceActive,
-    normalizeWorkflowReference
+    ensureWorkflowDocumentIdentity,
+    normalizeWorkflowReference,
+    requireStableWorkflowReference
 } from '../js/features/workflow/workflow-identity.js';
 
-test('imported workflow identity collisions are replaced without changing the original', () => {
-    const tabs = [
-        { name: 'original', workflowId: 'same-id', data: { workflowId: 'same-id' } },
-        { name: 'imported-copy', workflowId: 'same-id', data: { workflowId: 'same-id' } }
-    ];
-    const generated = ['replacement-id'];
-
-    ensureUniqueWorkflowIdentities(tabs, () => generated.shift());
-
-    assert.equal(tabs[0].workflowId, 'same-id');
-    assert.equal(tabs[1].workflowId, 'replacement-id');
-    assert.equal(tabs[1].data.workflowId, 'replacement-id');
-});
-
 test('legacy workflows receive identities lazily', () => {
-    const tabs = [{ name: 'legacy', data: {} }];
-    ensureUniqueWorkflowIdentities(tabs, () => 'generated-id');
-    assert.equal(tabs[0].workflowId, 'generated-id');
-    assert.equal(tabs[0].data.workflowId, 'generated-id');
+    const tab = { name: 'legacy', data: {} };
+    ensureWorkflowDocumentIdentity(tab, () => 'generated-id');
+    assert.equal(tab.workflowId, 'generated-id');
+    assert.equal(tab.data.workflowId, 'generated-id');
 });
 
 test('normalized workflow references require identity and ignore mutable labels', () => {
     const reference = normalizeWorkflowReference({ workflowId: 'workflow-a', workflowName: 'old-name' });
-    assert.equal(isWorkflowReferenceActive(reference, {
-        activeWorkflowId: 'workflow-a',
-        activeWorkflowName: 'new-name'
-    }), true);
+    assert.deepEqual(requireStableWorkflowReference(reference), reference);
     assert.deepEqual(normalizeWorkflowReference('old-name'), {
         workflowName: '',
         workflowId: ''
     });
-    assert.equal(isWorkflowReferenceActive({ workflowName: 'new-name' }, {
-        activeWorkflowId: '',
-        activeWorkflowName: 'new-name'
-    }), false);
+    assert.throws(() => requireStableWorkflowReference({ workflowName: 'new-name' }), TypeError);
 });

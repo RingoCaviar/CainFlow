@@ -54,42 +54,29 @@ test('show publishes one immutable committed Workflow activation snapshot', asyn
         running: false,
         active: true
     }]);
-    assert.deepEqual(snapshot.tabs, [{
-        workflowId: 'workflow-a',
-        name: 'A',
-        identityPendingSave: false,
-        running: false,
-        active: true
-    }]);
     assert.equal(Object.isFrozen(snapshot), true);
     assert.equal(Object.isFrozen(snapshot.active), true);
     assert.equal(Object.isFrozen(snapshot.open), true);
     assert.equal(Object.isFrozen(snapshot.open[0]), true);
-    assert.equal(Object.isFrozen(snapshot.tabs), true);
-    assert.equal(Object.isFrozen(snapshot.tabs[0]), true);
+    assert.equal('tabs' in snapshot, false);
     assert.equal('editorView' in snapshot.active, false);
 });
 
-test('snapshot-derived tab projection follows Open Workflow record authority', async () => {
+test('immutable Open Workflow records follow WorkflowDesk authority', async () => {
     const { desk } = createHarness();
     await desk.show({ workflowId: 'workflow-a', label: 'A' });
     await desk.show({ workflowId: 'workflow-b', label: 'B' });
 
     const before = desk.snapshot();
-    assert.deepEqual(before.tabs, [
-        { workflowId: 'workflow-a', name: 'A', identityPendingSave: false, running: false, active: false },
-        { workflowId: 'workflow-b', name: 'B', identityPendingSave: false, running: false, active: true }
-    ]);
+    assert.equal('tabs' in before, false);
 
     desk.workflow('workflow-a').runningChanged(true);
     desk.workflow('workflow-a').labelChanged('renamed/A');
 
-    assert.deepEqual(desk.snapshot().tabs, [
-        { workflowId: 'workflow-a', name: 'renamed/A', identityPendingSave: false, running: true, active: false },
-        { workflowId: 'workflow-b', name: 'B', identityPendingSave: false, running: false, active: true }
-    ]);
-    assert.equal(before.tabs[0].name, 'A');
-    assert.equal(before.tabs[0].running, false);
+    assert.equal(desk.snapshot().open[0].label, 'renamed/A');
+    assert.equal(desk.snapshot().open[0].running, true);
+    assert.equal(before.open[0].label, 'A');
+    assert.equal(before.open[0].running, false);
 });
 
 test('identity-bound Workflow handle retains identity for save rename and move', async () => {
@@ -728,6 +715,45 @@ test('failed batch close projection keeps every Open Workflow record', async () 
     assert.deepEqual(desk.snapshot().open.map(({ workflowId }) => workflowId), ['workflow-a', 'workflow-b']);
 });
 
+test('save-all reports every Workflow result without disguising successful writes as rolled back', async () => {
+    const saves = [];
+    const desk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async (target) => target.editorView,
+        mutateWorkflow: async (operation) => {
+            if (operation.kind !== 'save') return { ok: true };
+            saves.push(operation.workflowId);
+            return { ok: operation.workflowId !== 'workflow-b' };
+        }
+    });
+    for (const workflowId of ['workflow-a', 'workflow-b', 'workflow-c']) {
+        await desk.show({
+            workflowId,
+            label: workflowId,
+            pendingExplicitSave: true,
+            editorView: { async commit() { return true; } }
+        });
+    }
+
+    const result = await desk.workflows(['workflow-a', 'workflow-b', 'workflow-c']).save();
+
+    assert.equal(result.status, 'completed-with-failures');
+    assert.deepEqual(result.results, [
+        { workflowId: 'workflow-a', status: 'committed' },
+        { workflowId: 'workflow-b', status: 'failed' },
+        { workflowId: 'workflow-c', status: 'committed' }
+    ]);
+    assert.deepEqual(saves, ['workflow-a', 'workflow-b', 'workflow-c']);
+    assert.deepEqual(desk.snapshot().open.map(({ workflowId, pendingExplicitSave }) => ({
+        workflowId,
+        pendingExplicitSave
+    })), [
+        { workflowId: 'workflow-a', pendingExplicitSave: false },
+        { workflowId: 'workflow-b', pendingExplicitSave: true },
+        { workflowId: 'workflow-c', pendingExplicitSave: false }
+    ]);
+});
+
 test('batch close never commits its close set when a necessary save fails', async () => {
     const saved = [];
     let closeProjectionCommitted = false;
@@ -1272,7 +1298,8 @@ test('restore retains pending explicit save until the Workflow document is expli
         prepareEditorView: async () => ({ async commit() { return true; } })
     });
 
-    assert.equal(result.workflows[0].identityPendingSave, true);
+    assert.equal(result.workflows[0].identityPendingSave, undefined);
+    assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
     assert.equal(desk.snapshot().open[0].pendingExplicitSave, true);
 });
 
@@ -1338,7 +1365,8 @@ test('restore retains the first duplicate Workflow identity and repairs the late
 
     assert.equal(result.workflows[0].workflowId, 'duplicate-id');
     assert.equal(result.workflows[1].workflowId, 'repaired-id');
-    assert.equal(result.workflows[1].identityPendingSave, true);
+    assert.equal(result.workflows[1].identityPendingSave, undefined);
+    assert.equal(desk.snapshot().open[1].pendingExplicitSave, true);
     assert.equal(desk.snapshot().active.workflowId, 'repaired-id');
     assert.equal(diagnostics[0].kind, 'workflow-duplicate-identity-repaired');
 });
