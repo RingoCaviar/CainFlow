@@ -38,6 +38,12 @@ html:root #settings-modal {
     --settings-toggle-on-bg: var(--panel-active-bg);
     --settings-toggle-on-border: var(--panel-active-border);
     --settings-toggle-thumb: var(--text-primary);
+    --settings-slider-accent: var(--panel-accent-text);
+    --settings-slider-track: var(--panel-control-bg);
+    --settings-slider-track-border: var(--panel-control-border);
+    --settings-slider-thumb-bg: var(--settings-dialog-panel-bg);
+    --settings-slider-thumb-border: var(--panel-active-border);
+    --settings-slider-focus-ring: var(--settings-action-focus-ring);
 }
 
 html:root #settings-modal {
@@ -72,8 +78,74 @@ html:root #settings-modal :is(.modal-header h2, .modal-header h3, .settings-tool
     color: var(--text-primary);
 }
 
+html:root #settings-modal.modal-overlay .modal-tabs {
+    background: var(--settings-dialog-section-bg);
+}
+
+html:root #settings-modal.modal-overlay .modal-tab-btn {
+    color: var(--settings-dialog-muted-text);
+}
+
+html:root #settings-modal.modal-overlay .modal-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+html:root #settings-modal.modal-overlay .modal-tab-btn.active {
+    color: var(--settings-action-primary-text);
+}
+
+html:root #settings-modal.modal-overlay :is(.settings-divider, .general-settings-field-divider) {
+    background: var(--settings-dialog-divider);
+}
+
+html:root #settings-modal.modal-overlay :is(.api-config-card, .general-settings-card):hover {
+    border-color: var(--panel-hover-border);
+    box-shadow: var(--settings-dialog-panel-shadow);
+}
+
+html:root #settings-modal.modal-overlay .api-config-card.is-dragging {
+    border-color: var(--panel-active-border);
+    opacity: 0.45;
+}
+
+html:root #settings-modal.modal-overlay .api-config-card.is-drag-target {
+    border-color: var(--panel-active-border);
+    box-shadow: 0 0 0 1px var(--panel-active-border);
+}
+
+html:root #settings-modal.modal-overlay :is(.api-config-card, .general-settings-card) .card-field label {
+    color: var(--settings-dialog-text);
+}
+
 html:root #settings-modal :is(.endpoint-preview, .footer-left, .footer-left span) {
     color: var(--settings-dialog-muted-text);
+}
+
+html:root #settings-modal.modal-overlay .settings-inline-help {
+    background: transparent;
+    border-color: transparent;
+    color: var(--panel-accent-text);
+}
+
+html:root #settings-modal.modal-overlay .settings-inline-help:hover {
+    color: var(--settings-action-primary-hover-text);
+}
+
+html:root #settings-modal.modal-overlay .general-settings-help-trigger {
+    background: var(--settings-action-primary-bg);
+    border-color: var(--settings-action-primary-border);
+    color: var(--settings-action-primary-text);
+}
+
+html:root #settings-modal.modal-overlay :is(.general-settings-help-trigger:hover, .general-settings-help-trigger:focus-visible, .general-settings-help.is-open .general-settings-help-trigger) {
+    background: var(--settings-action-primary-hover-bg);
+    border-color: var(--settings-action-primary-hover-border);
+    color: var(--settings-action-primary-hover-text);
+}
+
+html:root #settings-modal.modal-overlay :is(.general-settings-help-trigger:focus-visible, .settings-inline-help:focus-visible) {
+    outline: 2px solid var(--settings-action-focus-ring);
+    outline-offset: 2px;
 }
 
 html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select) {
@@ -114,6 +186,69 @@ html:root #settings-modal.modal-overlay select option {
     color: var(--text-primary);
 }
 
+html:root #settings-modal.modal-overlay .provider-multiselect-trigger {
+    background: var(--settings-input-bg);
+    border-color: var(--settings-input-border);
+    color: var(--text-primary);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-trigger:is(:hover, [aria-expanded="true"]) {
+    background: var(--settings-input-hover-bg);
+    border-color: var(--settings-input-focus-border);
+    color: var(--settings-input-hover-text);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-trigger:focus-visible {
+    border-color: var(--settings-input-focus-border);
+    box-shadow: 0 0 0 3px var(--settings-input-focus-ring);
+    outline: none;
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-caret {
+    color: var(--settings-dialog-muted-text);
+}
+
+html:root #settings-modal.modal-overlay .provider-toggle-label {
+    color: var(--settings-dialog-muted-text);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-panel {
+    background: var(--settings-dialog-panel-bg);
+    border-color: var(--settings-dialog-panel-border);
+    box-shadow: var(--settings-dialog-panel-shadow);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-panel::-webkit-scrollbar-thumb {
+    background: var(--settings-control-border);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-option {
+    background: var(--settings-control-bg);
+    border-color: var(--settings-input-border);
+    color: var(--text-primary);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-option::before {
+    background: var(--settings-input-bg);
+    border-color: var(--settings-input-border);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-option:is(:hover, [aria-selected="true"]) {
+    background: var(--settings-control-hover-bg);
+    border-color: var(--settings-input-focus-border);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-option:is([aria-selected="true"], :has(input[type="checkbox"]:checked))::before {
+    background: var(--settings-model-provider-accent);
+    border-color: var(--settings-model-provider-accent);
+    box-shadow: 0 0 0 3px var(--settings-primary-action-bg);
+}
+
 html:root #settings-modal.modal-overlay #providers-list .card-name {
     width: 150px;
 }
@@ -127,14 +262,14 @@ html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card
     font-size: 14px;
 }
 
-html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost) {
+html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost, .card-btn-collapse, .eye-toggle-btn) {
     background: var(--settings-action-secondary-bg);
     border-color: var(--settings-action-secondary-border);
     color: var(--settings-action-secondary-text);
     box-shadow: none;
 }
 
-html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost):is(:hover, .is-hovered) {
+html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost, .card-btn-collapse, .eye-toggle-btn):is(:hover, .is-hovered) {
     background: var(--settings-action-secondary-hover-bg);
     border-color: var(--settings-action-secondary-hover-border);
     color: var(--settings-action-secondary-hover-text);
@@ -166,12 +301,12 @@ html:root #settings-modal.modal-overlay :is(.btn-danger, .card-btn-delete, .btn-
     color: var(--settings-action-danger-hover-text);
 }
 
-html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-secondary, .btn-ghost, .btn-danger, .card-btn-delete, .btn-delete-protocol, .card-btn-fetch-models):is(:focus-visible, .is-focused) {
+html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-secondary, .btn-ghost, .card-btn-collapse, .eye-toggle-btn, .btn-danger, .card-btn-delete, .btn-delete-protocol, .card-btn-fetch-models):is(:focus-visible, .is-focused) {
     outline: 2px solid var(--settings-action-focus-ring);
     outline-offset: 2px;
 }
 
-html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-secondary, .btn-ghost, .btn-danger, .card-btn-delete, .btn-delete-protocol, .card-btn-fetch-models):disabled {
+html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-secondary, .btn-ghost, .card-btn-collapse, .eye-toggle-btn, .btn-danger, .card-btn-delete, .btn-delete-protocol, .card-btn-fetch-models):disabled {
     background: var(--settings-input-disabled-bg);
     border-color: var(--settings-input-disabled-border);
     color: var(--settings-input-disabled-text);
@@ -207,4 +342,96 @@ html:root #settings-modal.modal-overlay .toggle-switch input:disabled + .toggle-
     border-color: var(--settings-input-disabled-border);
     cursor: not-allowed;
     opacity: 0.55;
+}
+
+html:root #settings-modal.modal-overlay input[type="checkbox"] {
+    accent-color: var(--panel-accent-text);
+}
+
+html:root #settings-modal.modal-overlay input.notification-volume-slider {
+    --volume-slider-accent: var(--settings-slider-accent);
+    --volume-slider-accent-soft: color-mix(in srgb, var(--settings-slider-accent) 24%, transparent);
+    --volume-slider-track: var(--settings-slider-track);
+    --volume-slider-track-border: var(--settings-slider-track-border);
+    --volume-slider-thumb-bg: var(--settings-slider-thumb-bg);
+    --volume-slider-thumb-border: var(--settings-slider-thumb-border);
+    --volume-slider-thumb-shadow: 0 0 0 1px var(--settings-slider-thumb-border);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay input.notification-volume-slider:is(:focus-visible, .is-focused) {
+    outline: 2px solid var(--settings-slider-focus-ring);
+    outline-offset: 2px;
+}
+
+html:root #settings-modal.modal-overlay :is(.card-type.google, .version-badge) {
+    background: var(--settings-action-primary-bg);
+    border-color: var(--settings-action-primary-border);
+    color: var(--panel-accent-text);
+}
+
+html:root #settings-modal.modal-overlay .card-type.openai {
+    background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+    color: var(--accent-green);
+}
+
+html:root #settings-modal.modal-overlay :is(.retry-input-group, #global-dir-badge, .update-version-summary) {
+    background: var(--settings-control-bg);
+    border-color: var(--settings-control-border);
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .retry-input-group #setting-max-retries {
+    background: transparent;
+    border-left-color: var(--settings-control-border);
+    border-right-color: var(--settings-control-border);
+    color: var(--panel-accent-text);
+}
+
+html:root #settings-modal.modal-overlay .retry-input-group .btn-retry-step {
+    color: var(--settings-control-text);
+}
+
+html:root #settings-modal.modal-overlay .retry-input-group .btn-retry-step:hover {
+    background: var(--settings-control-hover-bg);
+    color: var(--settings-control-hover-text);
+}
+
+html:root #settings-modal.modal-overlay .retry-input-group .btn-retry-step:focus-visible {
+    background: var(--settings-control-hover-bg);
+    color: var(--settings-control-hover-text);
+    outline: 2px solid var(--settings-action-focus-ring);
+    outline-offset: -2px;
+}
+
+html:root #settings-modal.modal-overlay .general-settings-volume-row {
+    --volume-slider-accent: var(--settings-slider-accent);
+    --volume-slider-accent-soft: color-mix(in srgb, var(--settings-slider-accent) 24%, transparent);
+    --volume-slider-track: var(--settings-slider-track);
+    --volume-slider-track-border: var(--settings-slider-track-border);
+    --volume-slider-thumb-bg: var(--settings-slider-thumb-bg);
+    --volume-slider-thumb-border: var(--settings-slider-thumb-border);
+    --volume-slider-thumb-shadow: 0 0 0 1px var(--settings-slider-thumb-border);
+    --volume-slider-badge-bg: var(--settings-control-bg);
+    --volume-slider-badge-border: var(--settings-control-border);
+    --volume-slider-badge-text: var(--settings-control-text);
+}
+
+html:root #settings-modal.modal-overlay .update-status-loading {
+    color: var(--text-dim);
+}
+
+html:root #settings-modal.modal-overlay .update-status-latest {
+    color: var(--accent-green);
+}
+
+html:root #settings-modal.modal-overlay .update-status-new {
+    color: var(--panel-accent-text);
+}
+
+html:root #settings-modal.modal-overlay .update-status-error {
+    color: var(--accent-red);
 }

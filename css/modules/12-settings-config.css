@@ -128,8 +128,7 @@
 }
 
 .api-config-card {
-    background: rgba(0, 0, 0, 0.25);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid transparent;
     border-radius: 10px;
     padding: 14px;
     display: flex;
@@ -137,10 +136,6 @@
     gap: 8px;
     position: relative;
     transition: border-color var(--transition);
-}
-
-.api-config-card:hover {
-    border-color: rgba(255, 255, 255, 0.12);
 }
 
 .api-config-card.is-collapsed {
@@ -194,13 +189,11 @@
 }
 
 .api-config-card.is-dragging {
-    opacity: 0.45;
-    border-color: var(--accent-purple);
+    pointer-events: none;
 }
 
 .api-config-card.is-drag-target {
-    border-color: var(--accent-purple);
-    box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.3);
+    position: relative;
 }
 
 .api-configs-list.is-card-sorting .api-config-card {
@@ -218,7 +211,6 @@
 .api-config-card .card-header .card-name {
     font-size: 13px;
     font-weight: 600;
-    color: var(--accent-cyan);
     cursor: text;
 }
 
@@ -227,16 +219,6 @@
     padding: 2px 8px;
     border-radius: 10px;
     font-weight: 500;
-}
-
-.card-type.google {
-    background: rgba(66, 133, 244, 0.15);
-    color: #4285f4;
-}
-
-.card-type.openai {
-    background: rgba(16, 163, 127, 0.15);
-    color: #10a37f;
 }
 
 .api-config-card .card-row {
@@ -271,18 +253,12 @@
     width: 24px;
     height: 24px;
     border: none;
-    background: transparent;
-    color: var(--text-dim);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transition: color 0.15s;
     padding: 0;
-}
-
-.eye-toggle-btn:hover {
-    color: var(--text-primary);
 }
 
 .eye-toggle-btn svg {
@@ -310,19 +286,8 @@
     transition: border-color var(--transition);
 }
 
-.api-config-card .card-field input:focus,
-.api-config-card .card-field select:focus {
-    border-color: var(--accent-purple);
-}
-
 .api-config-card .card-field select {
-    background-color: #111827;
-    color: #f8fafc;
-}
-
-.api-config-card .card-field select option {
-    background: #111827;
-    color: #f8fafc;
+    background-color: var(--settings-input-bg);
 }
 
 .api-config-card .card-field input.notification-volume-slider {
@@ -342,10 +307,10 @@
     border-radius: 999px;
     background: linear-gradient(
         90deg,
-        var(--accent-purple) 0%,
-        var(--accent-purple) var(--notify-volume-progress),
-        rgba(255, 255, 255, 0.12) var(--notify-volume-progress),
-        rgba(255, 255, 255, 0.12) 100%
+        var(--volume-slider-accent) 0%,
+        var(--volume-slider-accent) var(--notify-volume-progress),
+        var(--volume-slider-track) var(--notify-volume-progress),
+        var(--volume-slider-track) 100%
     );
 }
 
@@ -353,11 +318,11 @@
     width: 18px;
     height: 18px;
     margin-top: -5px;
-    border: 2px solid var(--accent-purple);
+    border: 2px solid var(--volume-slider-thumb-border);
     border-radius: 50%;
-    background: var(--bg-panel);
+    background: var(--volume-slider-thumb-bg);
     box-sizing: border-box;
-    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+    box-shadow: var(--volume-slider-thumb-shadow);
     appearance: none;
     -webkit-appearance: none;
 }
@@ -366,23 +331,23 @@
     height: 8px;
     border: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--volume-slider-track);
 }
 
 .api-config-card .card-field input.notification-volume-slider::-moz-range-progress {
     height: 8px;
     border-radius: 999px;
-    background: var(--accent-purple);
+    background: var(--volume-slider-accent);
 }
 
 .api-config-card .card-field input.notification-volume-slider::-moz-range-thumb {
     width: 18px;
     height: 18px;
-    border: 2px solid var(--accent-purple);
+    border: 2px solid var(--volume-slider-thumb-border);
     border-radius: 50%;
-    background: var(--bg-panel);
+    background: var(--volume-slider-thumb-bg);
     box-sizing: border-box;
-    box-shadow: 0 2px 8px rgba(168, 85, 247, 0.28);
+    box-shadow: var(--volume-slider-thumb-shadow);
 }
 
 /* Hide number input spinners (up/down arrows) */
@@ -414,10 +379,8 @@ input[type=number] {
     width: 22px;
     height: 22px;
     padding: 0;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid transparent;
     border-radius: 50%;
-    color: var(--text-secondary);
     font-size: 12px;
     line-height: 1;
     display: flex;
@@ -429,9 +392,6 @@ input[type=number] {
 }
 
 .card-btn-collapse:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: var(--text-primary);
     transform: scale(1.08);
 }
 
@@ -439,10 +399,8 @@ input[type=number] {
     width: 22px;
     height: 22px;
     padding: 0;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    border: 1px solid transparent;
     border-radius: 50%;
-    color: var(--accent-red);
     font-size: 14px;
     line-height: 1;
     display: flex;
@@ -454,8 +412,6 @@ input[type=number] {
 }
 
 .card-btn-delete:hover {
-    background: rgba(239, 68, 68, 0.3);
-    border-color: rgba(239, 68, 68, 0.5);
     transform: scale(1.1);
 }
 
@@ -482,36 +438,17 @@ input[type=number] {
 #settings-modal .settings-toolbar .btn-accent {
     min-width: 118px;
     padding: 8px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid transparent;
     font-weight: 600;
     letter-spacing: 0.01em;
-    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
-    box-shadow:
-        0 8px 20px rgba(139, 92, 246, 0.24),
-        0 2px 8px rgba(15, 23, 42, 0.16);
 }
 
 #settings-modal .settings-toolbar .btn-accent:hover {
-    background: linear-gradient(135deg, #a78bfa, #7c3aed);
     transform: translateY(-1px);
-    box-shadow:
-        0 12px 26px rgba(139, 92, 246, 0.32),
-        0 4px 12px rgba(15, 23, 42, 0.2);
-}
-
-#settings-modal .settings-toolbar .btn-accent:focus-visible {
-    outline: none;
-    box-shadow:
-        0 0 0 3px rgba(167, 139, 250, 0.24),
-        0 10px 24px rgba(139, 92, 246, 0.28);
 }
 
 .settings-divider {
     height: 1px;
     background: var(--border);
     margin: 20px 0;
-}
-
-.card-btn-delete:hover {
-    background: rgba(239, 68, 68, 0.2);
 }

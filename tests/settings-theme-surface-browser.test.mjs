@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { inflateSync } from 'node:zlib';
 import test from 'node:test';
 
 const chromeCandidates = [
@@ -16,6 +17,53 @@ const chromeCandidates = [
 
 const chromePath = chromeCandidates.find(existsSync);
 const fixturePath = new URL('./fixtures/settings-theme-surface.html', import.meta.url);
+const themeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+
+function decodePng(buffer) {
+    const width = buffer.readUInt32BE(16);
+    const height = buffer.readUInt32BE(20);
+    const chunks = [];
+    for (let offset = 8; offset < buffer.length;) {
+        const length = buffer.readUInt32BE(offset);
+        const type = buffer.toString('ascii', offset + 4, offset + 8);
+        if (type === 'IDAT') chunks.push(buffer.subarray(offset + 8, offset + 8 + length));
+        offset += length + 12;
+    }
+    const packed = inflateSync(Buffer.concat(chunks));
+    const stride = width * 4;
+    const pixels = Buffer.alloc(stride * height);
+    const paeth = (a, b, c) => {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+    };
+    for (let y = 0, source = 0; y < height; y += 1) {
+        const filter = packed[source++];
+        for (let x = 0; x < stride; x += 1) {
+            const raw = packed[source++];
+            const left = x >= 4 ? pixels[y * stride + x - 4] : 0;
+            const up = y ? pixels[(y - 1) * stride + x] : 0;
+            const upperLeft = y && x >= 4 ? pixels[(y - 1) * stride + x - 4] : 0;
+            const prediction = [0, left, up, Math.floor((left + up) / 2), paeth(left, up, upperLeft)][filter];
+            pixels[y * stride + x] = (raw + prediction) & 255;
+        }
+    }
+    return { width, height, pixels };
+}
+
+function pixelDifference(actualBuffer, baselineBuffer) {
+    const actual = decodePng(actualBuffer);
+    const baseline = decodePng(baselineBuffer);
+    assert.deepEqual([actual.width, actual.height], [baseline.width, baseline.height], 'visual baseline dimensions must match');
+    let changed = 0;
+    for (let index = 0; index < actual.pixels.length; index += 4) {
+        const delta = Math.max(...[0, 1, 2, 3].map((channel) => Math.abs(actual.pixels[index + channel] - baseline.pixels[index + channel])));
+        if (delta > 8) changed += 1;
+    }
+    return changed / (actual.width * actual.height);
+}
 
 function parseColor(color) {
     const channels = color.match(/[\d.]+/g).map(Number);
@@ -147,6 +195,9 @@ test('settings surfaces render from the semantic palette in every supported them
             assert.ok(contrastRatio(outlineColor, cardBackground) >= 3, `${measurement.themeId} ${focusedAction.kind} focus outline must meet 3:1`);
         }
         assert.equal(measurement.toggleStates.length, 4);
+        assert.ok(Number(measurement.actual.overlayZIndex) >= Number(measurement.actual.modalLayer), `${measurement.themeId} settings modal must occupy the modal layer`);
+        assert.ok(Number(measurement.actual.overlayZIndex) > Number(measurement.actual.toolbarLayer), `${measurement.themeId} settings modal must cover the toolbar layer`);
+        assert.ok(Number(measurement.actual.overlayZIndex) > Number(measurement.actual.menuLayer), `${measurement.themeId} settings modal must cover ordinary menus`);
         assert.notDeepEqual(
             measurement.toggleStates[0].actual,
             measurement.toggleStates[1].actual,
@@ -170,5 +221,40 @@ test('settings surfaces render from the semantic palette in every supported them
                 `${measurement.themeId} ${kind} focus ring contrast ${focusRatio.toFixed(2)} must meet WCAG 2.2 non-text contrast`,
             );
         }
+    }
+});
+
+test('seven-theme settings state matrix produces distinct browser screenshots', () => {
+    assert.ok(chromePath, 'Chrome or Chromium is required for settings theme screenshots');
+    const outputDir = mkdtempSync(join(tmpdir(), 'cainflow-settings-screenshots-'));
+    const screenshots = [];
+    try {
+        for (const themeId of themeIds) {
+            const profileDir = join(outputDir, `profile-${themeId}`);
+            const screenshotPath = join(outputDir, `${themeId}.png`);
+            const url = new URL(fixturePath);
+            url.searchParams.set('theme', themeId);
+            const result = spawnSync(chromePath, [
+                '--headless=new',
+                '--disable-gpu',
+                '--no-sandbox',
+                '--disable-extensions',
+                `--user-data-dir=${profileDir}`,
+                '--window-size=1280,960',
+                '--virtual-time-budget=1000',
+                `--screenshot=${screenshotPath}`,
+                url.href,
+            ], { encoding: 'utf8', timeout: 15000 });
+            assert.equal(result.status, 0, result.stderr);
+            const screenshot = readFileSync(screenshotPath);
+            assert.ok(screenshot.length > 10_000, `${themeId} screenshot must contain the rendered state matrix`);
+            const approvedBaseline = readFileSync(new URL(`./visual-baselines/settings-theme-surface/${themeId}.png`, import.meta.url));
+            const difference = pixelDifference(screenshot, approvedBaseline);
+            assert.ok(difference <= 0.03, `${themeId} screenshot pixel difference ${(difference * 100).toFixed(3)}% exceeds the approved threshold`);
+            screenshots.push(screenshot.toString('base64'));
+        }
+        assert.equal(new Set(screenshots).size, themeIds.length, 'each theme screenshot must retain a distinct visual identity');
+    } finally {
+        rmSync(outputDir, { recursive: true, force: true });
     }
 });

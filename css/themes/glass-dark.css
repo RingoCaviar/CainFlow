@@ -369,9 +369,7 @@ html[data-app-theme="glass-dark"] .copy-btn:hover {
 }
 
 html[data-app-theme="glass-dark"] .btn-run,
-html[data-app-theme="glass-dark"] .btn-primary,
-html[data-app-theme="glass-dark"] #settings-modal .settings-toolbar .btn-accent,
-html[data-app-theme="glass-dark"] .card-btn-fetch-models {
+html[data-app-theme="glass-dark"] .btn-primary {
     background: linear-gradient(135deg, #4fa7c8, #557fae);
     border-color: rgba(125, 211, 252, 0.3);
     color: #f4f8fb;
@@ -379,9 +377,7 @@ html[data-app-theme="glass-dark"] .card-btn-fetch-models {
 }
 
 html[data-app-theme="glass-dark"] .btn-run:hover,
-html[data-app-theme="glass-dark"] .btn-primary:hover,
-html[data-app-theme="glass-dark"] #settings-modal .settings-toolbar .btn-accent:hover,
-html[data-app-theme="glass-dark"] .card-btn-fetch-models:hover {
+html[data-app-theme="glass-dark"] .btn-primary:hover {
     background: linear-gradient(135deg, #6fbad3, #6f92bd);
     color: #ffffff;
 }
@@ -451,9 +447,7 @@ html[data-app-theme="glass-dark"] .node-body {
 }
 
 html[data-app-theme="glass-dark"] .node-field label,
-html[data-app-theme="glass-dark"] .port-label,
-html[data-app-theme="glass-dark"] #settings-modal .api-config-card .card-field label,
-html[data-app-theme="glass-dark"] #general-settings .general-settings-card .card-field label {
+html[data-app-theme="glass-dark"] .port-label {
     color: #bac8d8;
 }
 
@@ -462,7 +456,6 @@ html[data-app-theme="glass-dark"] .node-field select,
 html[data-app-theme="glass-dark"] .node-field textarea,
 html[data-app-theme="glass-dark"] .save-workflow-box input,
 html[data-app-theme="glass-dark"] .provider-models-search-row input,
-html[data-app-theme="glass-dark"] .provider-multiselect-trigger,
 html[data-app-theme="glass-dark"] .camera-control-value,
 html[data-app-theme="glass-dark"] .camera-control-prompt {
     background: var(--glass-surface-dark) !important;
@@ -478,8 +471,6 @@ html[data-app-theme="glass-dark"] .node-field select:focus,
 html[data-app-theme="glass-dark"] .node-field textarea:focus,
 html[data-app-theme="glass-dark"] .save-workflow-box input:focus,
 html[data-app-theme="glass-dark"] .provider-models-search-row input:focus,
-html[data-app-theme="glass-dark"] .provider-multiselect-trigger:hover,
-html[data-app-theme="glass-dark"] .provider-multiselect-trigger[aria-expanded="true"],
 html[data-app-theme="glass-dark"] .camera-control-value:focus {
     border-color: rgba(125, 211, 252, 0.38) !important;
     box-shadow: 0 0 0 2px var(--glass-focus-ring);
@@ -516,8 +507,7 @@ html[data-app-theme="glass-dark"] .api-settings-help-section,
 html[data-app-theme="glass-dark"] .camera-control-node-preview,
 html[data-app-theme="glass-dark"] .camera-control-node-preview.has-image,
 html[data-app-theme="glass-dark"] .camera-control-editor-panel,
-html[data-app-theme="glass-dark"] .camera-control-stage,
-html[data-app-theme="glass-dark"] #general-settings .update-version-summary {
+html[data-app-theme="glass-dark"] .camera-control-stage {
     background: var(--workflow-card-bg) !important;
     border-color: var(--workflow-card-border) !important;
     box-shadow: none;
@@ -525,16 +515,8 @@ html[data-app-theme="glass-dark"] #general-settings .update-version-summary {
     -webkit-backdrop-filter: var(--glass-blur);
 }
 
-html[data-app-theme="glass-dark"] .workflow-item:hover,
-html[data-app-theme="glass-dark"] .api-config-card:hover,
-html[data-app-theme="glass-dark"] #settings-modal .general-settings-card:hover {
+html[data-app-theme="glass-dark"] .workflow-item:hover {
     background: var(--glass-surface-hover) !important;
-    border-color: var(--glass-border-strong) !important;
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .api-config-card:hover,
-html[data-app-theme="glass-dark"] #settings-modal .general-settings-card:hover {
-    background: var(--glass-card-surface-hover) !important;
     border-color: var(--glass-border-strong) !important;
 }
 
@@ -635,47 +617,20 @@ html[data-app-theme="glass-dark"] .history-card.selected .selection-checkbox::af
     color: #04111f;
 }
 
-html[data-app-theme="glass-dark"] #settings-modal .modal-panel {
-    background: var(--glass-surface);
-    border-color: var(--glass-border);
-    box-shadow: none;
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .modal-tab-btn {
-    color: var(--text-secondary);
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .modal-tab-btn:hover {
-    color: var(--text-primary);
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .modal-tab-btn.active {
-    color: #b7e3f5;
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .settings-toolbar h3,
 html[data-app-theme="glass-dark"] .provider-models-row-name,
 html[data-app-theme="glass-dark"] .api-settings-help-header h3,
 html[data-app-theme="glass-dark"] .api-settings-help-section h4 {
     color: var(--text-primary);
 }
 
-html[data-app-theme="glass-dark"] .provider-multiselect-caret,
-html[data-app-theme="glass-dark"] .provider-toggle-label,
 html[data-app-theme="glass-dark"] .provider-models-subtitle,
 html[data-app-theme="glass-dark"] .provider-models-row-id,
 html[data-app-theme="glass-dark"] .api-settings-help-subtitle,
 html[data-app-theme="glass-dark"] .api-settings-help-section p,
-html[data-app-theme="glass-dark"] .api-settings-help-section li,
-html[data-app-theme="glass-dark"] #general-settings .general-settings-card .card-field p,
-html[data-app-theme="glass-dark"] #general-settings .general-settings-card span,
-html[data-app-theme="glass-dark"] #general-settings .update-status-indicator {
+html[data-app-theme="glass-dark"] .api-settings-help-section li {
     color: var(--text-secondary) !important;
 }
 
-html[data-app-theme="glass-dark"] .provider-multiselect-panel,
 html[data-app-theme="glass-dark"] .theme-menu-panel {
     background: var(--glass-surface);
     border-color: var(--glass-border);
@@ -695,64 +650,25 @@ html[data-app-theme="glass-dark"] .theme-menu-item.is-active {
     border-color: rgba(125, 211, 252, 0.26);
 }
 
-html[data-app-theme="glass-dark"] #settings-modal .card-type.google,
-html[data-app-theme="glass-dark"] .provider-models-badge,
-html[data-app-theme="glass-dark"] #settings-modal .version-badge {
+html[data-app-theme="glass-dark"] .provider-models-badge {
     background: rgba(125, 211, 252, 0.11);
     border-color: rgba(125, 211, 252, 0.22);
     color: #b7e3f5;
 }
 
-html[data-app-theme="glass-dark"] #settings-modal .card-type.openai {
-    background: rgba(139, 216, 173, 0.11);
-    color: #c5ecd4;
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .card-btn-collapse,
-html[data-app-theme="glass-dark"] #settings-modal .eye-toggle-btn,
 html[data-app-theme="glass-dark"] .provider-models-add,
 html[data-app-theme="glass-dark"] .provider-models-close,
-html[data-app-theme="glass-dark"] #settings-modal .retry-input-group,
-html[data-app-theme="glass-dark"] #settings-modal #global-dir-badge,
 html[data-app-theme="glass-dark"] .help-key {
     background: var(--glass-surface) !important;
     border-color: var(--glass-border) !important;
     color: var(--text-secondary);
 }
 
-html[data-app-theme="glass-dark"] #settings-modal .card-btn-collapse:hover,
-html[data-app-theme="glass-dark"] #settings-modal .eye-toggle-btn:hover,
 html[data-app-theme="glass-dark"] .provider-models-add:hover,
 html[data-app-theme="glass-dark"] .provider-models-close:hover {
     background: var(--glass-surface-hover) !important;
     border-color: var(--glass-border-strong) !important;
     color: var(--text-primary);
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .toggle-slider {
-    background: var(--glass-surface-dark);
-    box-shadow: none;
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .toggle-slider::before {
-    background: #d7e3ee;
-    box-shadow: none;
-}
-
-html[data-app-theme="glass-dark"] #settings-modal .toggle-switch input:checked + .toggle-slider {
-    background: linear-gradient(135deg, rgba(125, 211, 252, 0.76), rgba(141, 183, 232, 0.72));
-}
-
-html[data-app-theme="glass-dark"] #settings-modal input[type="checkbox"] {
-    accent-color: var(--accent-primary);
-}
-
-html[data-app-theme="glass-dark"] .settings-inline-help {
-    color: #a7e3f8;
-}
-
-html[data-app-theme="glass-dark"] .settings-inline-help:hover {
-    color: #d7f1fb;
 }
 
 html[data-app-theme="glass-dark"] .node-run-cancel-btn {

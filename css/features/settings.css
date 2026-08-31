@@ -1,47 +1,45 @@
 /* Settings feature extensions */
 :root {
-    --settings-dialog-backdrop: var(--overlay-backdrop, rgba(0, 0, 0, 0.58));
-    --settings-dialog-panel-bg: var(--panel-bg, rgba(22, 22, 42, 0.98));
-    --settings-dialog-panel-border: var(--panel-border, rgba(255, 255, 255, 0.12));
-    --settings-dialog-panel-shadow: var(--panel-shadow-strong, 0 22px 70px rgba(0, 0, 0, 0.58));
-    --settings-dialog-divider: var(--panel-border, rgba(255, 255, 255, 0.08));
-    --settings-dialog-section-bg: var(--panel-bg-soft, rgba(255, 255, 255, 0.045));
-    --settings-dialog-section-border: var(--panel-border, rgba(255, 255, 255, 0.07));
+    --settings-dialog-backdrop: var(--overlay-backdrop);
+    --settings-dialog-panel-bg: var(--panel-bg);
+    --settings-dialog-panel-border: var(--panel-border);
+    --settings-dialog-panel-shadow: var(--panel-shadow-strong);
+    --settings-dialog-divider: var(--panel-border);
+    --settings-dialog-section-bg: var(--panel-bg-soft);
+    --settings-dialog-section-border: var(--panel-border);
     --settings-dialog-text: var(--text-secondary);
     --settings-dialog-muted-text: var(--text-primary);
-    --settings-dialog-code-bg: var(--panel-accent-bg, rgba(255, 255, 255, 0.08));
-    --settings-dialog-code-text: var(--panel-accent-text, var(--accent-cyan));
-    --settings-control-bg: var(--panel-control-bg, rgba(255, 255, 255, 0.04));
-    --settings-control-border: var(--panel-control-border, rgba(255, 255, 255, 0.1));
-    --settings-control-text: var(--panel-control-text, var(--text-secondary));
-    --settings-control-hover-bg: var(--panel-control-hover-bg, rgba(255, 255, 255, 0.08));
-    --settings-control-hover-border: var(--panel-control-hover-border, rgba(255, 255, 255, 0.16));
-    --settings-control-hover-text: var(--panel-control-hover-text, var(--text-primary));
-    --settings-primary-action-bg: var(--panel-accent-bg, rgba(6, 182, 212, 0.12));
-    --settings-primary-action-border: var(--panel-accent-border, rgba(6, 182, 212, 0.24));
-    --settings-primary-action-text: var(--panel-accent-text, var(--accent-cyan));
-    --settings-primary-action-hover-bg: var(--panel-active-bg, rgba(6, 182, 212, 0.2));
-    --settings-primary-action-hover-border: var(--panel-active-border, rgba(6, 182, 212, 0.42));
-    --settings-primary-action-hover-text: var(--panel-control-hover-text, var(--text-primary));
-    --settings-model-provider-accent: var(--settings-primary-action-text, var(--accent-primary, var(--accent-purple)));
-    --settings-input-bg: var(--panel-input-bg, var(--bg-input));
-    --settings-input-border: var(--panel-input-border, var(--border-input));
-    --settings-input-focus-border: var(--panel-active-border, var(--accent-purple));
-    --settings-row-hover-bg: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
-    --settings-badge-bg: var(--panel-accent-bg, rgba(139, 92, 246, 0.14));
-    --settings-badge-text: var(--panel-accent-text, #c4b5fd);
-    --settings-disabled-bg: var(--surface-muted, rgba(255, 255, 255, 0.06));
-    --settings-disabled-border: var(--panel-border, rgba(255, 255, 255, 0.08));
+    --settings-dialog-code-bg: var(--panel-accent-bg);
+    --settings-dialog-code-text: var(--panel-accent-text);
+    --settings-control-bg: var(--panel-control-bg);
+    --settings-control-border: var(--panel-control-border);
+    --settings-control-text: var(--panel-control-text);
+    --settings-control-hover-bg: var(--panel-control-hover-bg);
+    --settings-control-hover-border: var(--panel-control-hover-border);
+    --settings-control-hover-text: var(--panel-control-hover-text);
+    --settings-primary-action-bg: var(--panel-accent-bg);
+    --settings-primary-action-border: var(--panel-accent-border);
+    --settings-primary-action-text: var(--panel-accent-text);
+    --settings-primary-action-hover-bg: var(--panel-active-bg);
+    --settings-primary-action-hover-border: var(--panel-active-border);
+    --settings-primary-action-hover-text: var(--panel-control-hover-text);
+    --settings-model-provider-accent: var(--settings-primary-action-text);
+    --settings-input-bg: var(--panel-input-bg);
+    --settings-input-border: var(--panel-input-border);
+    --settings-input-focus-border: var(--panel-active-border);
+    --settings-row-hover-bg: var(--panel-hover-bg);
+    --settings-badge-bg: var(--panel-accent-bg);
+    --settings-badge-text: var(--panel-accent-text);
+    --settings-disabled-bg: var(--surface-muted);
+    --settings-disabled-border: var(--panel-border);
     --settings-disabled-text: var(--text-dim);
 }
 
 .card-btn-fetch-models {
     height: 29px;
     padding: 0 11px;
-    background: var(--settings-primary-action-bg);
-    border: 1px solid var(--settings-primary-action-border);
+    border: 1px solid transparent;
     border-radius: 6px;
-    color: var(--settings-primary-action-text);
     font-family: var(--font);
     font-size: 13px;
     font-weight: 600;
@@ -49,12 +47,6 @@
     cursor: pointer;
     transition: all var(--transition);
     white-space: nowrap;
-}
-
-.card-btn-fetch-models:hover {
-    background: var(--settings-primary-action-hover-bg);
-    border-color: var(--settings-primary-action-hover-border);
-    color: var(--settings-primary-action-hover-text);
 }
 
 .settings-toolbar-title {
@@ -67,9 +59,6 @@
 
 .settings-inline-help {
     padding: 0;
-    background: transparent;
-    border: 0;
-    color: var(--accent-cyan);
     font-family: var(--font);
     font-size: 12px;
     font-weight: 600;
@@ -77,10 +66,6 @@
     text-decoration: underline;
     text-underline-offset: 3px;
     cursor: pointer;
-}
-
-.settings-inline-help:hover {
-    color: var(--text-primary);
 }
 
 .api-settings-help-dialog {
@@ -292,10 +277,8 @@
 .provider-models-search-row input {
     min-width: 0;
     padding: 8px 10px;
-    background: var(--settings-input-bg);
-    border: 1px solid var(--settings-input-border);
+    border: 1px solid transparent;
     border-radius: var(--radius-xs);
-    color: var(--text-primary);
     font-family: var(--font);
     font-size: 12px;
     outline: none;
@@ -442,21 +425,13 @@
     justify-content: space-between;
     gap: 10px;
     padding: 8px 10px;
-    background: var(--settings-input-bg);
-    border: 1px solid var(--settings-input-border);
+    border: 1px solid transparent;
     border-radius: var(--radius-xs);
-    color: var(--text-primary);
     font-family: var(--font);
     font-size: 12px;
     text-align: left;
     cursor: pointer;
     transition: border-color var(--transition), background var(--transition);
-}
-
-.provider-multiselect-trigger:hover,
-.provider-multiselect-trigger[aria-expanded="true"] {
-    border-color: var(--settings-input-focus-border);
-    background: var(--settings-control-hover-bg);
 }
 
 .provider-multiselect-summary {
@@ -468,7 +443,6 @@
 
 .provider-multiselect-caret {
     flex-shrink: 0;
-    color: var(--text-dim);
     font-size: 12px;
 }
 
@@ -485,10 +459,8 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-gutter: stable;
     padding: 8px;
-    background: var(--settings-dialog-panel-bg);
-    border: 1px solid var(--settings-dialog-panel-border);
+    border: 1px solid transparent;
     border-radius: 8px;
-    box-shadow: var(--settings-dialog-panel-shadow);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -496,15 +468,6 @@
 
 .provider-multiselect-panel::-webkit-scrollbar {
     width: 8px;
-}
-
-.provider-multiselect-panel::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
-    border-radius: 999px;
-}
-
-.provider-multiselect-panel::-webkit-scrollbar-track {
-    background: transparent;
 }
 
 .provider-multiselect-panel.hidden {
@@ -527,10 +490,8 @@
     position: relative;
     min-height: 34px;
     padding: 7px 9px;
-    border: 1px solid var(--settings-input-border);
+    border: 1px solid transparent;
     border-radius: 7px;
-    background: rgba(255, 255, 255, 0.025);
-    color: var(--text-primary);
     font-family: var(--font);
     font-size: 12px;
     font-weight: 400;
@@ -545,14 +506,8 @@
     flex: 0 0 auto;
     width: 17px;
     height: 17px;
-    border: 1px solid var(--settings-input-border);
+    border: 1px solid transparent;
     border-radius: 5px;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
-        var(--settings-input-bg);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 1px 2px rgba(0, 0, 0, 0.12);
     transition:
         background var(--transition),
         border-color var(--transition),
@@ -562,22 +517,14 @@
 
 .provider-multiselect-option[aria-selected="true"]::before,
 .provider-multiselect-option:has(input[type="checkbox"]:checked)::before {
-    border-color: var(--settings-model-provider-accent);
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
-        var(--settings-model-provider-accent);
-    box-shadow:
-        0 0 0 3px var(--settings-primary-action-bg, rgba(139, 92, 246, 0.18)),
-        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    transform: scale(1.02);
 }
 
 .provider-multiselect-option:hover {
-    border-color: var(--settings-input-focus-border);
-    background: var(--settings-control-hover-bg);
+    transform: translateY(-1px);
 }
 
 .provider-multiselect-option:hover::before {
-    border-color: var(--settings-input-focus-border);
     transform: translateY(-1px);
 }
 
@@ -635,7 +582,6 @@
 
 .provider-toggle-label {
     flex-shrink: 0;
-    color: var(--text-dim);
     font-size: 11px;
     white-space: nowrap;
 }
@@ -646,8 +592,7 @@
 }
 
 #settings-modal .toggle-slider {
-    background: rgba(255, 255, 255, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    box-sizing: border-box;
 }
 
 #settings-modal .toggle-slider::before {
@@ -655,23 +600,10 @@
     height: 18px;
     left: 3px;
     top: 3px;
-    background: rgba(255, 255, 255, 0.86);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
-}
-
-#settings-modal .toggle-switch input:checked + .toggle-slider {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.92), rgba(99, 102, 241, 0.92));
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 #settings-modal .toggle-switch input:checked + .toggle-slider::before {
     transform: translateX(18px);
-    background: #ffffff;
-}
-
-#settings-modal .toggle-switch input:focus-visible + .toggle-slider {
-    outline: 2px solid rgba(99, 102, 241, 0.42);
-    outline-offset: 2px;
 }
 
 #settings-modal .modal-panel {
@@ -754,10 +686,8 @@
     width: 22px;
     height: 22px;
     padding: 0;
-    border: 1px solid color-mix(in srgb, var(--settings-primary-action-text) 42%, transparent);
+    border: 1px solid transparent;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--settings-primary-action-bg) 92%, transparent);
-    color: var(--settings-primary-action-text);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -771,11 +701,7 @@
 #general-settings .general-settings-help-trigger:hover,
 #general-settings .general-settings-help-trigger:focus-visible,
 #general-settings .general-settings-help.is-open .general-settings-help-trigger {
-    border-color: var(--settings-primary-action-hover-border);
-    background: var(--settings-primary-action-hover-bg);
-    color: var(--settings-primary-action-hover-text);
     transform: translateY(-1px);
-    outline: none;
 }
 
 .general-settings-floating-help {
@@ -960,9 +886,8 @@
     display: flex;
     align-items: center;
     overflow: hidden;
-    border: 1px solid var(--settings-control-border);
+    border: 1px solid transparent;
     border-radius: 6px;
-    background: var(--settings-control-bg);
     min-height: 40px;
 }
 
@@ -972,8 +897,6 @@
     align-items: center;
     justify-content: center;
     border: 0;
-    background: transparent;
-    color: var(--text-secondary);
     cursor: pointer;
     transition:
         background var(--transition),
@@ -983,21 +906,12 @@
     font-size: 18px !important;
 }
 
-#general-settings .retry-input-group .btn-retry-step:hover,
-#general-settings .retry-input-group .btn-retry-step:focus-visible {
-    background: var(--settings-control-hover-bg);
-    color: var(--settings-control-hover-text);
-    outline: none;
-}
-
 #general-settings #setting-max-retries {
     flex: 1 1 auto;
     min-width: 48px;
     border: 0;
-    border-left: 1px solid rgba(255, 255, 255, 0.05);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
-    background: transparent;
-    color: var(--accent-purple);
+    border-left: 1px solid transparent;
+    border-right: 1px solid transparent;
     padding: 0;
     text-align: center;
     font-weight: 600;
@@ -1019,16 +933,6 @@
 }
 
 #general-settings .general-settings-volume-row {
-    --volume-slider-accent: var(--accent-purple);
-    --volume-slider-accent-soft: rgba(168, 85, 247, 0.22);
-    --volume-slider-track: rgba(255, 255, 255, 0.14);
-    --volume-slider-track-border: rgba(255, 255, 255, 0.12);
-    --volume-slider-thumb-bg: var(--bg-panel);
-    --volume-slider-thumb-border: rgba(255, 255, 255, 0.88);
-    --volume-slider-thumb-shadow: 0 6px 16px rgba(168, 85, 247, 0.28), 0 0 0 1px rgba(168, 85, 247, 0.34);
-    --volume-slider-badge-bg: rgba(255, 255, 255, 0.07);
-    --volume-slider-badge-border: rgba(255, 255, 255, 0.12);
-    --volume-slider-badge-text: var(--text-secondary);
     align-items: center !important;
     flex-wrap: wrap;
     gap: 12px;
@@ -1194,32 +1098,6 @@
     }
 }
 
-html[data-app-theme="light"] #settings-modal .toggle-slider {
-    background: rgba(203, 213, 225, 0.9);
-    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.32);
-}
-
-html[data-app-theme="light"] #settings-modal .toggle-slider::before {
-    background: #ffffff;
-    box-shadow: 0 2px 8px rgba(148, 163, 184, 0.28);
-}
-
-html[data-app-theme="light"] #settings-modal .toggle-switch input:checked + .toggle-slider {
-    background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(14, 165, 233, 0.92));
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-}
-
-html[data-app-theme="light"] #settings-modal .provider-toggle-label {
-    color: #64748b;
-}
-
-html[data-app-theme="light"] .settings-inline-help {
-    color: #0f766e;
-}
-
-html[data-app-theme="light"] .settings-inline-help:hover {
-    color: #134e4a;
-}
 
 @media (max-width: 640px) {
     .settings-toolbar-title {

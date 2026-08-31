@@ -365,9 +365,7 @@ html[data-app-theme="glass-light"] .copy-btn:hover {
 }
 
 html[data-app-theme="glass-light"] .btn-run,
-html[data-app-theme="glass-light"] .btn-primary,
-html[data-app-theme="glass-light"] #settings-modal .settings-toolbar .btn-accent,
-html[data-app-theme="glass-light"] .card-btn-fetch-models {
+html[data-app-theme="glass-light"] .btn-primary {
     background: linear-gradient(135deg, #0ea5e9, #2563eb);
     border-color: rgba(37, 99, 235, 0.28);
     color: #ffffff;
@@ -377,9 +375,7 @@ html[data-app-theme="glass-light"] .card-btn-fetch-models {
 }
 
 html[data-app-theme="glass-light"] .btn-run:hover,
-html[data-app-theme="glass-light"] .btn-primary:hover,
-html[data-app-theme="glass-light"] #settings-modal .settings-toolbar .btn-accent:hover,
-html[data-app-theme="glass-light"] .card-btn-fetch-models:hover {
+html[data-app-theme="glass-light"] .btn-primary:hover {
     background: linear-gradient(135deg, #38bdf8, #3b82f6);
     color: #ffffff;
 }
@@ -456,9 +452,7 @@ html[data-app-theme="glass-light"] .node-body {
 }
 
 html[data-app-theme="glass-light"] .node-field label,
-html[data-app-theme="glass-light"] .port-label,
-html[data-app-theme="glass-light"] #settings-modal .api-config-card .card-field label,
-html[data-app-theme="glass-light"] #general-settings .general-settings-card .card-field label {
+html[data-app-theme="glass-light"] .port-label {
     color: #384860;
 }
 
@@ -467,7 +461,6 @@ html[data-app-theme="glass-light"] .node-field select,
 html[data-app-theme="glass-light"] .node-field textarea,
 html[data-app-theme="glass-light"] .save-workflow-box input,
 html[data-app-theme="glass-light"] .provider-models-search-row input,
-html[data-app-theme="glass-light"] .provider-multiselect-trigger,
 html[data-app-theme="glass-light"] .camera-control-value,
 html[data-app-theme="glass-light"] .camera-control-prompt {
     background: rgba(255, 255, 255, 0.58) !important;
@@ -483,8 +476,6 @@ html[data-app-theme="glass-light"] .node-field select:focus,
 html[data-app-theme="glass-light"] .node-field textarea:focus,
 html[data-app-theme="glass-light"] .save-workflow-box input:focus,
 html[data-app-theme="glass-light"] .provider-models-search-row input:focus,
-html[data-app-theme="glass-light"] .provider-multiselect-trigger:hover,
-html[data-app-theme="glass-light"] .provider-multiselect-trigger[aria-expanded="true"],
 html[data-app-theme="glass-light"] .camera-control-value:focus {
     border-color: rgba(37, 99, 235, 0.42) !important;
     box-shadow:
@@ -511,55 +502,6 @@ html[data-app-theme="glass-light"] .node-select-option {
     color: var(--text-primary);
 }
 
-html[data-app-theme="glass-light"] #general-settings .general-settings-volume-row {
-    --volume-slider-accent: #2563eb;
-    --volume-slider-accent-soft: rgba(37, 99, 235, 0.22);
-    --volume-slider-track: rgba(255, 255, 255, 0.48);
-    --volume-slider-track-border: rgba(255, 255, 255, 0.64);
-    --volume-slider-thumb-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(229, 242, 255, 0.82));
-    --volume-slider-thumb-border: rgba(255, 255, 255, 0.94);
-    --volume-slider-thumb-shadow: 0 10px 22px rgba(44, 71, 97, 0.16), 0 0 0 1px rgba(37, 99, 235, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    --volume-slider-badge-bg: rgba(255, 255, 255, 0.46);
-    --volume-slider-badge-border: rgba(255, 255, 255, 0.64);
-    --volume-slider-badge-text: #1d4ed8;
-}
-
-html[data-app-theme="glass-light"] #general-settings .general-settings-card input.notification-volume-slider::-webkit-slider-runnable-track {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.06)),
-        linear-gradient(
-            90deg,
-            rgba(37, 99, 235, 0.95) 0%,
-            rgba(14, 165, 233, 0.86) var(--notify-volume-progress),
-            rgba(255, 255, 255, 0.46) var(--notify-volume-progress),
-            rgba(255, 255, 255, 0.46) 100%
-        );
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.72),
-        inset 0 -1px 3px rgba(44, 71, 97, 0.1),
-        0 6px 14px rgba(44, 71, 97, 0.08);
-}
-
-html[data-app-theme="glass-light"] #general-settings .general-settings-card input.notification-volume-slider::-moz-range-track {
-    background: rgba(255, 255, 255, 0.46);
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.72),
-        inset 0 -1px 3px rgba(44, 71, 97, 0.1),
-        0 6px 14px rgba(44, 71, 97, 0.08);
-}
-
-html[data-app-theme="glass-light"] #general-settings .general-settings-card input.notification-volume-slider::-moz-range-progress {
-    background: linear-gradient(90deg, rgba(37, 99, 235, 0.95), rgba(14, 165, 233, 0.86));
-}
-
-html[data-app-theme="glass-light"] #general-settings #volume-hint {
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.76),
-        0 6px 16px rgba(44, 71, 97, 0.08);
-    backdrop-filter: blur(14px) saturate(1.16);
-    -webkit-backdrop-filter: blur(14px) saturate(1.16);
-}
-
 html[data-app-theme="glass-light"] .modal-overlay,
 html[data-app-theme="glass-light"] .camera-control-editor-overlay {
     background: rgba(30, 52, 74, 0.24);
@@ -576,8 +518,7 @@ html[data-app-theme="glass-light"] .api-settings-help-section,
 html[data-app-theme="glass-light"] .camera-control-node-preview,
 html[data-app-theme="glass-light"] .camera-control-node-preview.has-image,
 html[data-app-theme="glass-light"] .camera-control-editor-panel,
-html[data-app-theme="glass-light"] .camera-control-stage,
-html[data-app-theme="glass-light"] #general-settings .update-version-summary {
+html[data-app-theme="glass-light"] .camera-control-stage {
     background: var(--workflow-card-bg) !important;
     border-color: var(--workflow-card-border) !important;
     box-shadow: var(--workflow-card-shadow);
@@ -585,9 +526,7 @@ html[data-app-theme="glass-light"] #general-settings .update-version-summary {
     -webkit-backdrop-filter: blur(20px) saturate(1.24);
 }
 
-html[data-app-theme="glass-light"] .workflow-item:hover,
-html[data-app-theme="glass-light"] .api-config-card:hover,
-html[data-app-theme="glass-light"] #settings-modal .general-settings-card:hover {
+html[data-app-theme="glass-light"] .workflow-item:hover {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(238, 248, 255, 0.54)) !important;
     border-color: rgba(37, 99, 235, 0.24) !important;
 }
@@ -709,110 +648,39 @@ html[data-app-theme="glass-light"] .history-card.selected .selection-checkbox::a
     color: #ffffff;
 }
 
-html[data-app-theme="glass-light"] #settings-modal .modal-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.58));
-    border-color: rgba(255, 255, 255, 0.7);
-    box-shadow: var(--panel-shadow-strong);
-}
-
-html[data-app-theme="glass-light"] #settings-modal .modal-tab-btn {
-    color: var(--text-secondary);
-}
-
-html[data-app-theme="glass-light"] #settings-modal .modal-tab-btn:hover {
-    color: var(--text-primary);
-}
-
-html[data-app-theme="glass-light"] #settings-modal .modal-tab-btn.active {
-    color: #1d4ed8;
-}
-
-html[data-app-theme="glass-light"] #settings-modal .settings-toolbar h3,
 html[data-app-theme="glass-light"] .provider-models-row-name,
 html[data-app-theme="glass-light"] .api-settings-help-header h3,
 html[data-app-theme="glass-light"] .api-settings-help-section h4 {
     color: var(--text-primary);
 }
 
-html[data-app-theme="glass-light"] .provider-multiselect-caret,
-html[data-app-theme="glass-light"] .provider-toggle-label,
 html[data-app-theme="glass-light"] .provider-models-subtitle,
 html[data-app-theme="glass-light"] .provider-models-row-id,
 html[data-app-theme="glass-light"] .api-settings-help-subtitle,
 html[data-app-theme="glass-light"] .api-settings-help-section p,
-html[data-app-theme="glass-light"] .api-settings-help-section li,
-html[data-app-theme="glass-light"] #general-settings .general-settings-card .card-field p,
-html[data-app-theme="glass-light"] #general-settings .general-settings-card span,
-html[data-app-theme="glass-light"] #general-settings .update-status-indicator {
+html[data-app-theme="glass-light"] .api-settings-help-section li {
     color: var(--text-secondary) !important;
 }
 
-html[data-app-theme="glass-light"] .provider-multiselect-panel {
-    background: linear-gradient(180deg, #ffffff, #f6fbff);
-    border-color: rgba(126, 151, 172, 0.28);
-    box-shadow: 0 18px 44px rgba(44, 71, 97, 0.18);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-}
-
-html[data-app-theme="glass-light"] #settings-modal .card-type.google,
-html[data-app-theme="glass-light"] .provider-models-badge,
-html[data-app-theme="glass-light"] #settings-modal .version-badge {
+html[data-app-theme="glass-light"] .provider-models-badge {
     background: rgba(37, 99, 235, 0.1);
     border-color: rgba(37, 99, 235, 0.18);
     color: #1d4ed8;
 }
 
-html[data-app-theme="glass-light"] #settings-modal .card-type.openai {
-    background: rgba(5, 150, 105, 0.1);
-    color: #047857;
-}
-
-html[data-app-theme="glass-light"] #settings-modal .card-btn-collapse,
-html[data-app-theme="glass-light"] #settings-modal .eye-toggle-btn,
 html[data-app-theme="glass-light"] .provider-models-add,
 html[data-app-theme="glass-light"] .provider-models-close,
-html[data-app-theme="glass-light"] #settings-modal .retry-input-group,
-html[data-app-theme="glass-light"] #settings-modal #global-dir-badge,
 html[data-app-theme="glass-light"] .help-key {
     background: rgba(255, 255, 255, 0.52) !important;
     border-color: rgba(255, 255, 255, 0.64) !important;
     color: var(--text-secondary);
 }
 
-html[data-app-theme="glass-light"] #settings-modal .card-btn-collapse:hover,
-html[data-app-theme="glass-light"] #settings-modal .eye-toggle-btn:hover,
 html[data-app-theme="glass-light"] .provider-models-add:hover,
 html[data-app-theme="glass-light"] .provider-models-close:hover {
     background: rgba(37, 99, 235, 0.08) !important;
     border-color: rgba(37, 99, 235, 0.22) !important;
     color: var(--accent-primary);
-}
-
-html[data-app-theme="glass-light"] #settings-modal .toggle-slider {
-    background: rgba(148, 163, 184, 0.28);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
-}
-
-html[data-app-theme="glass-light"] #settings-modal .toggle-slider::before {
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 2px 8px rgba(44, 71, 97, 0.16);
-}
-
-html[data-app-theme="glass-light"] #settings-modal .toggle-switch input:checked + .toggle-slider {
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.95), rgba(37, 99, 235, 0.9));
-}
-
-html[data-app-theme="glass-light"] #settings-modal input[type="checkbox"] {
-    accent-color: #2563eb;
-}
-
-html[data-app-theme="glass-light"] .settings-inline-help {
-    color: #0f766e;
-}
-
-html[data-app-theme="glass-light"] .settings-inline-help:hover {
-    color: #134e4a;
 }
 
 html[data-app-theme="glass-light"] .node-run-cancel-btn {
@@ -1012,8 +880,7 @@ html[data-app-theme="glass-light"] .toast,
 html[data-app-theme="glass-light"] .update-modal-panel,
 html[data-app-theme="glass-light"] .provider-models-panel,
 html[data-app-theme="glass-light"] .api-settings-help-panel,
-html[data-app-theme="glass-light"] .theme-menu-panel,
-html[data-app-theme="glass-light"] .provider-multiselect-panel {
+html[data-app-theme="glass-light"] .theme-menu-panel {
     background: var(--glass-surface);
     border-color: var(--glass-border);
     box-shadow: none;
@@ -1078,18 +945,14 @@ html[data-app-theme="glass-light"] .copy-btn {
 }
 
 html[data-app-theme="glass-light"] .btn-run,
-html[data-app-theme="glass-light"] .btn-primary,
-html[data-app-theme="glass-light"] #settings-modal .settings-toolbar .btn-accent,
-html[data-app-theme="glass-light"] .card-btn-fetch-models {
+html[data-app-theme="glass-light"] .btn-primary {
     background: linear-gradient(135deg, #0ea5e9, #2563eb);
     border-color: rgba(37, 99, 235, 0.28);
     color: #ffffff;
 }
 
 html[data-app-theme="glass-light"] .btn-run:hover,
-html[data-app-theme="glass-light"] .btn-primary:hover,
-html[data-app-theme="glass-light"] #settings-modal .settings-toolbar .btn-accent:hover,
-html[data-app-theme="glass-light"] .card-btn-fetch-models:hover {
+html[data-app-theme="glass-light"] .btn-primary:hover {
     background: linear-gradient(135deg, #38bdf8, #3b82f6);
     color: #ffffff;
 }
@@ -1137,7 +1000,6 @@ html[data-app-theme="glass-light"] .node-field select,
 html[data-app-theme="glass-light"] .node-field textarea,
 html[data-app-theme="glass-light"] .save-workflow-box input,
 html[data-app-theme="glass-light"] .provider-models-search-row input,
-html[data-app-theme="glass-light"] .provider-multiselect-trigger,
 html[data-app-theme="glass-light"] .camera-control-value,
 html[data-app-theme="glass-light"] .camera-control-prompt {
     background: var(--glass-surface-dark) !important;
@@ -1156,8 +1018,7 @@ html[data-app-theme="glass-light"] .api-settings-help-section,
 html[data-app-theme="glass-light"] .camera-control-node-preview,
 html[data-app-theme="glass-light"] .camera-control-node-preview.has-image,
 html[data-app-theme="glass-light"] .camera-control-editor-panel,
-html[data-app-theme="glass-light"] .camera-control-stage,
-html[data-app-theme="glass-light"] #general-settings .update-version-summary {
+html[data-app-theme="glass-light"] .camera-control-stage {
     background: var(--glass-card-surface) !important;
     border-color: var(--glass-border) !important;
     box-shadow: none;
@@ -1166,19 +1027,11 @@ html[data-app-theme="glass-light"] #general-settings .update-version-summary {
 }
 
 html[data-app-theme="glass-light"] .workflow-item:hover,
-html[data-app-theme="glass-light"] .api-config-card:hover,
-html[data-app-theme="glass-light"] #settings-modal .general-settings-card:hover,
 html[data-app-theme="glass-light"] .prompt-card:hover,
 html[data-app-theme="glass-light"] .history-card:hover {
     background: var(--glass-card-surface-hover) !important;
     border-color: var(--glass-border-strong) !important;
     box-shadow: none;
-}
-
-html[data-app-theme="glass-light"] #settings-modal .api-config-card:hover,
-html[data-app-theme="glass-light"] #settings-modal .general-settings-card:hover {
-    background: rgba(226, 232, 240, 0.58) !important;
-    border-color: rgba(148, 163, 184, 0.28) !important;
 }
 
 html[data-app-theme="glass-light"] .history-card.selected {

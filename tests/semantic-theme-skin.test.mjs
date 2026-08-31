@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
@@ -57,9 +56,12 @@ test('the settings feature skin owns input and select interaction states', async
     for (const type of ['text', 'password', 'number', 'email', 'url', 'search', 'tel']) {
         assert.match(stylesheet, new RegExp(`\\[type="${type}"\\]`));
     }
-    for (const type of ['checkbox', 'range', 'radio', 'file', 'hidden', 'color', 'date']) {
+    for (const type of ['range', 'radio', 'file', 'hidden', 'color', 'date']) {
         assert.doesNotMatch(stylesheet, new RegExp(`input[^,{]*\\[type="${type}"\\]`));
     }
+    assert.match(stylesheet, /input\[type="checkbox"\]\s*\{[\s\S]*?accent-color:/);
+    assert.match(stylesheet, /input[.]notification-volume-slider\s*\{[\s\S]*?--volume-slider-accent:/);
+    assert.match(stylesheet, /input[.]notification-volume-slider:is\(:focus-visible, [.]is-focused\)/);
     assert.match(stylesheet, /:is\(:hover, \.is-hovered\)/);
     assert.match(stylesheet, /:is\(:focus-visible, \.is-focused\)/);
     assert.match(stylesheet, /:is\(:disabled, \[aria-disabled="true"\]\)/);
@@ -92,23 +94,14 @@ test('the settings feature skin owns button and toggle interaction states', asyn
     assert.match(stylesheet, /\.btn-delete-protocol/);
 });
 
-test('legacy theme button and toggle overrides cannot grow during migration', async () => {
-    const baselines = new Map([
-        ['dark', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
-        ['pro', '3ed8fbffba6ee68f6f4d4b1f201f66aafb8f8b22e4bc9d1a88e86540b528d64e'],
-        ['paper', '499ee269eb79212df71619205e852efad588f71c11435cf1ed521b2a682a7df5'],
-        ['light', '686872947e390de885495f96ef0d9409f14925cb952f33ad2cedb5dbb7264730'],
-        ['glass-light', '92623c50d537044cf48d4222e41e1a3819ee46642c786e7be3f51a497150b37a'],
-        ['glass-dark', '121cf92fc3899f98ab8788ad49c2d0ed4a6a829a90a5b925c1264a82143572f5'],
-        ['pink', 'e01fa9ce6b7c5eab74c0fb022d59b61a6bd221bff69b25241eba495ba26e4488'],
-    ]);
-    for (const [themeId, expected] of baselines) {
+test('theme files cannot target settings DOM after migration', async () => {
+    const settingsSelectors = /#settings-modal|#general-settings|[.](?:api-config-card|general-settings-card|card-btn-fetch-models|settings-inline-help|retry-input-group|provider-toggle-label|provider-multiselect(?:-trigger|-panel|-caret|-option)?|version-badge|card-type|update-status(?:-indicator|-loading|-latest|-new|-error)?|update-version-summary|card-btn-collapse|eye-toggle-btn)\b|#global-dir-badge/;
+    for (const themeId of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
         const stylesheet = await readFile(new URL(`../css/themes/${themeId}.css`, import.meta.url), 'utf8');
-        const legacyRules = [...stylesheet.matchAll(/([^{}]*(?:[.]btn-(?:primary|secondary|danger|ghost|accent)|[.]card-btn-fetch-models|[.]toggle-slider|[.]toggle-switch)[^{}]*\{[^{}]*\})/g)]
-            .map((match) => match[1].replace(/\s+/g, ' ').trim())
-            .sort()
-            .join('\n');
-        assert.equal(createHash('sha256').update(legacyRules).digest('hex'), expected, `${themeId} legacy action overrides may only shrink in #57`);
+        const settingsRules = [...stylesheet.matchAll(/([^{}]+)\{[^{}]*\}/g)]
+            .map((match) => match[1].trim())
+            .filter((selector) => settingsSelectors.test(selector));
+        assert.deepEqual(settingsRules, [], `${themeId} must leave all settings DOM to the feature skin`);
     }
 });
 
@@ -143,5 +136,16 @@ test('theme files cannot restyle migrated settings text inputs or selects', asyn
             [],
             `${themeId} must leave migrated settings controls to settings-theme-skin.css`,
         );
+    }
+});
+
+test('theme files cannot restyle migrated settings structure', async () => {
+    const migratedSelectors = /#settings-modal[^{}]*(?:[.]modal-panel|[.]modal-tabs|[.]modal-tab-btn|[.]settings-toolbar h3|[.]settings-divider|[.](?:api-config-card|general-settings-card):hover)/;
+    for (const themeId of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
+        const stylesheet = await readFile(new URL(`../css/themes/${themeId}.css`, import.meta.url), 'utf8');
+        const rules = [...stylesheet.matchAll(/([^{}]+)\{[^{}]*\}/g)]
+            .map((match) => match[1])
+            .filter((selector) => migratedSelectors.test(selector));
+        assert.deepEqual(rules, [], `${themeId} must leave settings structure to the feature skin`);
     }
 });

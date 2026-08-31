@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <link rel="stylesheet" href="../../index.css">
-    <style>#settings-modal * { transition: none !important; }</style>
+    <style>*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }</style>
 </head>
 <body>
     <div id="settings-modal" class="modal-overlay">
@@ -58,7 +58,9 @@
     <div id="divider-probe" style="position:absolute;left:-9999px;border-top:1px solid var(--settings-dialog-divider)"></div>
     <pre id="surface-result"></pre>
     <script>
-        const themeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        const supportedThemeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        const requestedTheme = new URLSearchParams(location.search).get('theme');
+        const themeIds = supportedThemeIds.includes(requestedTheme) ? [requestedTheme] : supportedThemeIds;
         window.addEventListener('load', () => {
             const root = document.documentElement;
             const panel = document.querySelector('#settings-modal .modal-panel');
@@ -154,6 +156,10 @@
                         footerTextColor: getComputedStyle(footerText).color,
                         headerDivider: getComputedStyle(header).borderBottomColor,
                         footerDivider: getComputedStyle(footer).borderTopColor,
+                        overlayZIndex: getComputedStyle(overlay).zIndex,
+                        toolbarLayer: rootStyle.getPropertyValue('--layer-toolbar').trim(),
+                        menuLayer: rootStyle.getPropertyValue('--layer-menu').trim(),
+                        modalLayer: rootStyle.getPropertyValue('--layer-modal').trim(),
                     },
                     semantic: {
                         panelBackground: panelProbeStyle.background,
@@ -165,6 +171,10 @@
                         footerTextColor: getComputedStyle(mutedTextProbe).color,
                         headerDivider: getComputedStyle(dividerProbe).borderTopColor,
                         footerDivider: getComputedStyle(dividerProbe).borderTopColor,
+                        overlayZIndex: getComputedStyle(overlay).zIndex,
+                        toolbarLayer: rootStyle.getPropertyValue('--layer-toolbar').trim(),
+                        menuLayer: rootStyle.getPropertyValue('--layer-menu').trim(),
+                        modalLayer: rootStyle.getPropertyValue('--layer-modal').trim(),
                     },
                     semanticRolesPresent: [
                         '--panel-bg',

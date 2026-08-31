@@ -202,8 +202,6 @@ html[data-app-theme="paper"] .btn-accent:hover {
 html[data-app-theme="paper"] .node-glass-bg,
 html[data-app-theme="paper"] .history-card,
 html[data-app-theme="paper"] .workflow-item,
-html[data-app-theme="paper"] .api-config-card,
-html[data-app-theme="paper"] .general-settings-card,
 html[data-app-theme="paper"] .cache-info-card,
 html[data-app-theme="paper"] .cache-item {
     background: var(--bg-node);
@@ -215,9 +213,7 @@ html[data-app-theme="paper"] .cache-item {
 
 html[data-app-theme="paper"] .node-glass-bg:hover,
 html[data-app-theme="paper"] .history-card:hover,
-html[data-app-theme="paper"] .workflow-item:hover,
-html[data-app-theme="paper"] .api-config-card:hover,
-html[data-app-theme="paper"] .general-settings-card:hover {
+html[data-app-theme="paper"] .workflow-item:hover {
     border-color: #aaa99f;
     box-shadow: none;
     transform: none;
@@ -234,8 +230,7 @@ html[data-app-theme="paper"] .help-panel-header {
 
 html[data-app-theme="paper"] input,
 html[data-app-theme="paper"] textarea,
-html[data-app-theme="paper"] select,
-html[data-app-theme="paper"] .provider-multiselect-trigger {
+html[data-app-theme="paper"] select {
     background: var(--bg-input);
     border-color: var(--border-input);
     color: #30342e;
@@ -244,8 +239,7 @@ html[data-app-theme="paper"] .provider-multiselect-trigger {
 
 html[data-app-theme="paper"] input:focus,
 html[data-app-theme="paper"] textarea:focus,
-html[data-app-theme="paper"] select:focus,
-html[data-app-theme="paper"] .provider-multiselect-trigger[aria-expanded="true"] {
+html[data-app-theme="paper"] select:focus {
     border-color: var(--accent-primary);
     box-shadow: 0 0 0 2px rgba(78, 118, 105, 0.13);
 }
