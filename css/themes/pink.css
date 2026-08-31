@@ -449,10 +449,7 @@ html[data-app-theme="pink"] .node-clone-badge:focus-visible {
 }
 
 html[data-app-theme="pink"] .node-header,
-html[data-app-theme="pink"] .drawer-subheader,
-html[data-app-theme="pink"] .help-panel-header,
-html[data-app-theme="pink"] .modal-header,
-html[data-app-theme="pink"] .modal-tabs {
+html[data-app-theme="pink"] .drawer-subheader {
     border-color: var(--border-color);
 }
 
@@ -717,17 +714,12 @@ html[data-app-theme="pink"] .painter-size-value {
 
 html[data-app-theme="pink"] .drawer,
 html[data-app-theme="pink"] .drawer-left,
-html[data-app-theme="pink"] .modal-panel,
-html[data-app-theme="pink"] .help-panel,
-html[data-app-theme="pink"] .toast,
-html[data-app-theme="pink"] .update-modal-panel {
+html[data-app-theme="pink"] .toast {
     border-color: var(--border-color);
     box-shadow: var(--panel-shadow);
 }
 
-html[data-app-theme="pink"] .github-link:hover,
-html[data-app-theme="pink"] .modal-close-btn:hover,
-html[data-app-theme="pink"] .help-close-btn:hover {
+html[data-app-theme="pink"] .github-link:hover {
     background: rgba(244, 114, 182, 0.08);
 }
 
@@ -763,8 +755,7 @@ html[data-app-theme="pink"] .drawer-subheader {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 241, 246, 0.94));
 }
 
-html[data-app-theme="pink"] .drawer-header,
-html[data-app-theme="pink"] .help-panel-header {
+html[data-app-theme="pink"] .drawer-header {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 248, 252, 0.98));
 }
 
@@ -993,10 +984,6 @@ html[data-app-theme="pink"] .camera-control-prompt {
     color: var(--text-primary);
 }
 
-html[data-app-theme="pink"] .modal-overlay {
-    background: rgba(76, 5, 25, 0.22);
-}
-
 html[data-app-theme="pink"] .prompt-card-btn,
 html[data-app-theme="pink"] .prompt-card-icon-btn,
 html[data-app-theme="pink"] .prompt-import-btn {
@@ -1013,89 +1000,9 @@ html[data-app-theme="pink"] .prompt-import-btn:hover {
     color: var(--text-primary);
 }
 
-html[data-app-theme="pink"] .provider-models-panel,
-html[data-app-theme="pink"] .api-settings-help-panel {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
-    border-color: rgba(244, 114, 182, 0.2);
-    box-shadow: 0 18px 36px rgba(190, 24, 93, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-html[data-app-theme="pink"] .provider-models-header,
-html[data-app-theme="pink"] .provider-models-search-row,
-html[data-app-theme="pink"] .api-settings-help-header {
-    border-color: rgba(244, 114, 182, 0.18);
-}
-
-html[data-app-theme="pink"] .provider-models-row-name,
-html[data-app-theme="pink"] .api-settings-help-header h3,
-html[data-app-theme="pink"] .api-settings-help-section h4 {
-    color: var(--text-primary);
-}
-
-html[data-app-theme="pink"] .provider-models-search-row input {
-    background: rgba(255, 255, 255, 0.94) !important;
-    border-color: rgba(244, 114, 182, 0.26) !important;
-    color: #6b2148 !important;
-    box-shadow: inset 0 1px 2px rgba(190, 24, 93, 0.03);
-}
-
-html[data-app-theme="pink"] .provider-models-search-row input:focus,
-html[data-app-theme="pink"] .provider-models-search-row input:focus {
-    border-color: rgba(236, 72, 153, 0.34) !important;
-    box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.12);
-}
-
-html[data-app-theme="pink"] .provider-models-subtitle,
-html[data-app-theme="pink"] .provider-models-row-id,
-html[data-app-theme="pink"] .api-settings-help-subtitle,
-html[data-app-theme="pink"] .api-settings-help-section p,
-html[data-app-theme="pink"] .api-settings-help-section li {
-    color: var(--text-dim) !important;
-}
-
-html[data-app-theme="pink"] .provider-models-row:hover,
-html[data-app-theme="pink"] .api-settings-help-close:hover {
-    background: rgba(244, 114, 182, 0.08);
-}
-
-html[data-app-theme="pink"] .provider-models-badge {
-    background: rgba(244, 114, 182, 0.12);
-    color: #be185d;
-}
-
-html[data-app-theme="pink"] .provider-models-add,
-html[data-app-theme="pink"] .provider-models-close {
-    background: rgba(255, 255, 255, 0.86);
-    border-color: rgba(244, 114, 182, 0.22);
-    color: var(--text-secondary);
-}
-
-html[data-app-theme="pink"] .provider-models-add:hover,
-html[data-app-theme="pink"] .provider-models-close:hover {
-    background: rgba(244, 114, 182, 0.08);
-    border-color: rgba(244, 114, 182, 0.28);
-    color: var(--accent-primary);
-}
-
-html[data-app-theme="pink"] .provider-models-add:disabled {
-    background: rgba(255, 255, 255, 0.78);
-    border-color: rgba(244, 114, 182, 0.12);
-    color: var(--text-dim);
-}
-
 html[data-app-theme="pink"] .save-workflow-box,
 html[data-app-theme="pink"] .workflow-action-btn,
 html[data-app-theme="pink"] .help-key {
     background: rgba(255, 255, 255, 0.82) !important;
     border-color: rgba(244, 114, 182, 0.22) !important;
-}
-
-html[data-app-theme="pink"] .api-settings-help-section {
-    background: rgba(255, 255, 255, 0.72);
-    border-color: rgba(244, 114, 182, 0.18);
-}
-
-html[data-app-theme="pink"] .api-settings-help-section code {
-    background: rgba(244, 114, 182, 0.12);
-    color: #be185d;
 }

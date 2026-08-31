@@ -477,10 +477,7 @@ html[data-app-theme="light"] .node-clone-badge:focus-visible {
 }
 
 html[data-app-theme="light"] .node-header,
-html[data-app-theme="light"] .drawer-subheader,
-html[data-app-theme="light"] .help-panel-header,
-html[data-app-theme="light"] .modal-header,
-html[data-app-theme="light"] .modal-tabs {
+html[data-app-theme="light"] .drawer-subheader {
     border-color: var(--border-color);
 }
 
@@ -953,17 +950,10 @@ html[data-app-theme="light"] .origin-dot {
 
 html[data-app-theme="light"] .drawer,
 html[data-app-theme="light"] .drawer-left,
-html[data-app-theme="light"] .modal-panel,
-html[data-app-theme="light"] .help-panel,
-html[data-app-theme="light"] .toast,
-html[data-app-theme="light"] .update-modal-panel {
+html[data-app-theme="light"] .toast {
     background: var(--bg-card);
     border-color: var(--border-color);
     box-shadow: var(--panel-shadow);
-}
-
-html[data-app-theme="light"] .modal-overlay {
-    background: var(--overlay-backdrop);
 }
 
 html[data-app-theme="light"] .prompt-library-title-group h2,
@@ -1073,9 +1063,7 @@ html[data-app-theme="light"] .prompt-import-item.selected .prompt-import-check {
     border-color: rgba(15, 118, 110, 0.36);
 }
 
-html[data-app-theme="light"] .github-link:hover,
-html[data-app-theme="light"] .modal-close-btn:hover,
-html[data-app-theme="light"] .help-close-btn:hover {
+html[data-app-theme="light"] .github-link:hover {
     background: var(--surface-muted);
 }
 
@@ -1108,8 +1096,7 @@ html[data-app-theme="light"] .drawer-subheader {
         linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(243, 246, 255, 0.92));
 }
 
-html[data-app-theme="light"] .drawer-header,
-html[data-app-theme="light"] .help-panel-header {
+html[data-app-theme="light"] .drawer-header {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(249, 251, 255, 0.98));
 }
 

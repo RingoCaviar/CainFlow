@@ -84,7 +84,6 @@
 .api-settings-help-backdrop {
     position: absolute;
     inset: 0;
-    background: var(--settings-dialog-backdrop);
     backdrop-filter: blur(4px);
 }
 
@@ -92,10 +91,8 @@
     position: relative;
     width: min(720px, calc(100vw - 32px));
     max-height: min(760px, calc(100vh - 48px));
-    background: var(--settings-dialog-panel-bg);
-    border: 1px solid var(--settings-dialog-panel-border);
+    border: 1px solid;
     border-radius: 10px;
-    box-shadow: var(--settings-dialog-panel-shadow);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -107,19 +104,17 @@
     justify-content: space-between;
     gap: 12px;
     padding: 16px 18px;
-    border-bottom: 1px solid var(--settings-dialog-divider);
+    border-bottom: 1px solid;
 }
 
 .api-settings-help-header h3 {
     margin: 0;
-    color: var(--text-primary);
     font-size: 16px;
     font-weight: 650;
 }
 
 .api-settings-help-subtitle {
     margin-top: 4px;
-    color: var(--settings-dialog-muted-text);
     font-size: 12px;
     line-height: 1.5;
 }
@@ -130,17 +125,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
     border: 0;
     border-radius: 6px;
-    color: var(--settings-control-text);
     font-size: 20px;
     cursor: pointer;
-}
-
-.api-settings-help-close:hover {
-    background: var(--settings-control-hover-bg);
-    color: var(--settings-control-hover-text);
 }
 
 .api-settings-help-body {
@@ -152,21 +140,18 @@
 
 .api-settings-help-section {
     padding: 14px;
-    background: var(--settings-dialog-section-bg);
-    border: 1px solid var(--settings-dialog-section-border);
+    border: 1px solid;
     border-radius: 8px;
 }
 
 .api-settings-help-section h4 {
     margin: 0 0 8px;
-    color: var(--text-primary);
     font-size: 14px;
     font-weight: 650;
 }
 
 .api-settings-help-section p,
 .api-settings-help-section li {
-    color: var(--settings-dialog-text);
     font-size: 13px;
     line-height: 1.65;
 }
@@ -186,9 +171,7 @@
 
 .api-settings-help-section code {
     padding: 2px 5px;
-    background: var(--settings-dialog-code-bg);
     border-radius: 4px;
-    color: var(--settings-dialog-code-text);
     font-size: 12px;
 }
 
@@ -208,7 +191,6 @@
 .provider-models-backdrop {
     position: absolute;
     inset: 0;
-    background: var(--settings-dialog-backdrop);
     backdrop-filter: blur(4px);
 }
 
@@ -216,10 +198,8 @@
     position: relative;
     width: min(680px, calc(100vw - 32px));
     max-height: min(680px, calc(100vh - 48px));
-    background: var(--settings-dialog-panel-bg);
-    border: 1px solid var(--settings-dialog-panel-border);
+    border: 1px solid;
     border-radius: 10px;
-    box-shadow: var(--settings-dialog-panel-shadow);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -231,19 +211,17 @@
     justify-content: space-between;
     gap: 12px;
     padding: 16px 18px;
-    border-bottom: 1px solid var(--settings-dialog-divider);
+    border-bottom: 1px solid;
 }
 
 .provider-models-header h3 {
     margin: 0;
-    color: var(--text-primary);
     font-size: 16px;
     font-weight: 650;
 }
 
 .provider-models-subtitle {
     margin-top: 4px;
-    color: var(--settings-dialog-muted-text);
     font-size: 12px;
 }
 
@@ -253,17 +231,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
     border: 0;
     border-radius: 6px;
-    color: var(--settings-control-text);
     font-size: 20px;
     cursor: pointer;
-}
-
-.provider-models-close:hover {
-    background: var(--settings-control-hover-bg);
-    color: var(--settings-control-hover-text);
 }
 
 .provider-models-search-row {
@@ -271,26 +242,21 @@
     grid-template-columns: 1fr auto;
     gap: 10px;
     padding: 14px 18px;
-    border-bottom: 1px solid var(--settings-dialog-divider);
+    border-bottom: 1px solid;
 }
 
 .provider-models-search-row input {
     min-width: 0;
     padding: 8px 10px;
-    border: 1px solid transparent;
+    border: 1px solid;
     border-radius: var(--radius-xs);
     font-family: var(--font);
     font-size: 12px;
     outline: none;
 }
 
-.provider-models-search-row input:focus {
-    border-color: var(--settings-input-focus-border);
-}
-
 .provider-models-count {
     padding: 8px 18px 0;
-    color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.4;
 }
@@ -310,16 +276,11 @@
     border-radius: 8px;
 }
 
-.provider-models-row:hover {
-    background: var(--settings-row-hover-bg);
-}
-
 .provider-models-row-main {
     min-width: 0;
 }
 
 .provider-models-row-name {
-    color: var(--text-primary);
     font-size: 13px;
     font-weight: 600;
     overflow: hidden;
@@ -329,7 +290,6 @@
 
 .provider-models-row-id {
     margin-top: 3px;
-    color: var(--settings-dialog-muted-text);
     font-size: 11px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -339,8 +299,7 @@
 .provider-models-badge {
     padding: 3px 7px;
     border-radius: 999px;
-    background: var(--settings-badge-bg);
-    color: var(--settings-badge-text);
+    border: 1px solid;
     font-size: 11px;
     white-space: nowrap;
 }
@@ -351,20 +310,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--settings-primary-action-border);
+    border: 1px solid;
     border-radius: 50%;
-    background: var(--settings-primary-action-bg);
-    color: var(--settings-primary-action-text);
     font-size: 18px;
     font-weight: 700;
     cursor: pointer;
     transition: all var(--transition);
-}
-
-.provider-models-add:hover {
-    background: var(--settings-primary-action-hover-bg);
-    border-color: var(--settings-primary-action-hover-border);
-    color: var(--settings-primary-action-hover-text);
 }
 
 .provider-models-add:disabled {
@@ -372,17 +323,12 @@
     min-width: 48px;
     padding: 0 8px;
     border-radius: 999px;
-    cursor: default;
-    background: var(--settings-disabled-bg);
-    border-color: var(--settings-disabled-border);
-    color: var(--settings-disabled-text);
     font-size: 11px;
     font-weight: 600;
 }
 
 .provider-models-empty {
     padding: 54px 20px;
-    color: var(--text-secondary);
     font-size: 13px;
     text-align: center;
     line-height: 1.6;

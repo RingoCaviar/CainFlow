@@ -64,31 +64,112 @@ html:root .context-menu-item.delete {
     color: var(--menu-danger-text);
 }
 
-html:root :is(.modal, .modal-overlay) {
+html:root :is(.modal, .modal-overlay, .provider-models-backdrop, .api-settings-help-backdrop) {
     background: var(--dialog-backdrop);
 }
 
-html:root :is(.modal-panel, .modal-content, .help-panel, .provider-models-panel, .api-settings-help-panel) {
+html:root :is(.modal, .modal-overlay) {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+html:root :is(.modal-panel, .modal-content, .update-modal-panel, .help-panel, .provider-models-panel, .api-settings-help-panel) {
     background: var(--dialog-surface);
     border-color: var(--dialog-border);
     box-shadow: var(--dialog-shadow);
     color: var(--dialog-text);
 }
 
+html:root .help-panel {
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
 html:root :is(.modal-header, .modal-footer, .help-panel-header, .provider-models-header, .api-settings-help-header) {
     border-color: var(--dialog-divider);
 }
 
-html:root :is(.modal-close, .modal-close-btn, .provider-models-close, .api-settings-help-close) {
+html:root :is(.modal-close, .modal-close-btn, .help-close-btn, .provider-models-close, .api-settings-help-close) {
+    background: transparent;
     color: var(--dialog-muted-text);
 }
 
-html:root :is(.modal-close, .modal-close-btn, .provider-models-close, .api-settings-help-close):is(:hover, :focus-visible) {
+html:root :is(.modal-close, .modal-close-btn, .help-close-btn, .provider-models-close, .api-settings-help-close):is(:hover, :focus-visible, .is-hovered, .is-focused) {
     background: var(--menu-hover-bg);
     color: var(--dialog-text);
 }
 
-html:root :is(.modal-close, .modal-close-btn, .provider-models-close, .api-settings-help-close):focus-visible {
+html:root :is(.modal-close, .modal-close-btn, .help-close-btn, .provider-models-close, .api-settings-help-close):is(:focus-visible, .is-focused) {
     outline: 2px solid var(--menu-focus-ring);
     outline-offset: 2px;
+}
+
+html:root :is(.provider-models-search-row, .provider-models-header, .api-settings-help-header) {
+    border-color: var(--dialog-divider);
+}
+
+html:root .provider-models-search-row input {
+    background: var(--panel-input-bg);
+    border-color: var(--panel-input-border);
+    color: var(--dialog-text);
+    box-shadow: none;
+}
+
+html:root .provider-models-search-row input:focus-visible {
+    border-color: var(--panel-active-border);
+    box-shadow: 0 0 0 3px var(--menu-focus-ring);
+    outline: none;
+}
+
+html:root :is(.provider-models-subtitle, .provider-models-row-id, .api-settings-help-subtitle, .api-settings-help-section p, .api-settings-help-section li) {
+    color: var(--dialog-muted-text);
+}
+
+html:root :is(.provider-models-row-name, .provider-models-count, .provider-models-empty, .api-settings-help-header h3, .api-settings-help-section h4, .modal-header h2, .modal-header h3, .help-panel-header h3) {
+    color: var(--dialog-text);
+}
+
+html:root :is(.provider-models-row, .api-settings-help-close):is(:hover, .is-hovered) {
+    background: var(--menu-hover-bg);
+}
+
+html:root .provider-models-badge {
+    background: var(--panel-accent-bg);
+    border-color: var(--panel-accent-border);
+    color: var(--panel-accent-text);
+}
+
+html:root .provider-models-add {
+    background: var(--panel-control-bg);
+    border-color: var(--panel-control-border);
+    color: var(--panel-control-text);
+}
+
+html:root .provider-models-add:is(:hover, :focus-visible, .is-hovered, .is-focused) {
+    background: var(--panel-control-hover-bg);
+    border-color: var(--panel-control-hover-border);
+    color: var(--panel-control-hover-text);
+}
+
+html:root .provider-models-add:is(:focus-visible, .is-focused) {
+    outline: 2px solid var(--menu-focus-ring);
+    outline-offset: 2px;
+}
+
+html:root .provider-models-add:disabled {
+    background: var(--surface-muted);
+    border-color: var(--dialog-divider);
+    color: var(--dialog-muted-text);
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+html:root .api-settings-help-section {
+    background: var(--panel-bg-soft);
+    border-color: var(--dialog-divider);
+}
+
+html:root .api-settings-help-section code {
+    background: var(--panel-accent-bg);
+    color: var(--panel-accent-text);
 }

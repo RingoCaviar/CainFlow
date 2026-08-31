@@ -34,20 +34,31 @@
         </section>
         <section class="modal-overlay">
             <article class="modal-panel">
-                <header class="modal-header"><h2>通用弹窗</h2><button class="modal-close-btn is-focused">×</button></header>
+                <header class="modal-header"><h2>通用弹窗</h2><div><button class="modal-close-btn">×</button><button class="modal-close-btn is-hovered">×</button><button class="modal-close-btn is-focused">×</button></div></header>
                 <div class="modal-body"><p>代表性弹窗正文，用于验证语义文字与面板对比度。</p></div>
                 <footer class="modal-footer">弹窗页脚</footer>
             </article>
         </section>
     </main>
     <aside class="dialog-probes">
-        <section class="help-panel"><header class="help-panel-header"><h3>帮助</h3></header><div class="help-panel-body">帮助正文</div></section>
-        <div class="provider-models-dialog"><section class="provider-models-panel"><header class="provider-models-header">模型<button class="provider-models-close">×</button></header></section></div>
-        <div class="api-settings-help-dialog"><section class="api-settings-help-panel"><header class="api-settings-help-header">设置帮助<button class="api-settings-help-close">×</button></header></section></div>
+        <section class="help-panel"><header class="help-panel-header"><h3>帮助</h3><div><button class="help-close-btn">×</button><button class="help-close-btn is-hovered">×</button><button class="help-close-btn is-focused">×</button></div></header><div class="help-panel-body">帮助正文</div></section>
+        <div class="provider-models-dialog"><section class="provider-models-panel">
+            <header class="provider-models-header"><div><h3>模型</h3><div class="provider-models-subtitle">选择可用模型</div></div><div><button class="provider-models-close">×</button><button class="provider-models-close is-hovered">×</button><button class="provider-models-close is-focused">×</button></div></header>
+            <div class="provider-models-search-row"><input value="视觉模型"><button class="provider-models-add">+</button></div>
+            <div class="provider-models-list">
+                <div class="provider-models-row is-hovered"><div><div class="provider-models-row-name">Vision Pro</div><div class="provider-models-row-id">vision-pro</div></div><span class="provider-models-badge">默认</span><button class="provider-models-add is-focused">+</button></div>
+                <div class="provider-models-row"><div class="provider-models-row-name">已添加模型</div><span></span><button class="provider-models-add" disabled>已添加</button></div>
+            </div>
+        </section></div>
+        <div class="api-settings-help-dialog"><section class="api-settings-help-panel">
+            <header class="api-settings-help-header"><div><h3>设置帮助</h3><div class="api-settings-help-subtitle">配置说明</div></div><div><button class="api-settings-help-close">×</button><button class="api-settings-help-close is-hovered">×</button><button class="api-settings-help-close is-focused">×</button></div></header>
+            <div class="api-settings-help-body"><section class="api-settings-help-section"><h4>模型标识</h4><p>填写 <code>provider/model</code> 格式。</p></section></div>
+        </section></div>
     </aside>
     <pre id="surface-result"></pre>
     <script>
-        const themeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        const requestedTheme = new URLSearchParams(location.search).get('theme');
+        const themeIds = requestedTheme ? [requestedTheme] : ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
         addEventListener('load', () => {
             const tuple = (element) => {
                 const style = getComputedStyle(element);
@@ -63,12 +74,18 @@
             const panel = document.querySelector('.modal-panel');
             const header = document.querySelector('.modal-header');
             const body = document.querySelector('.modal-body');
-            const close = document.querySelector('.modal-close-btn');
+            const modalCloseElements = [...document.querySelectorAll('.modal-close-btn')];
             const helpPanel = document.querySelector('.help-panel');
             const providerPanel = document.querySelector('.provider-models-panel');
             const settingsHelpPanel = document.querySelector('.api-settings-help-panel');
             const providerDialog = document.querySelector('.provider-models-dialog');
             const settingsHelpDialog = document.querySelector('.api-settings-help-dialog');
+            const providerSearch = document.querySelector('.provider-models-search-row input');
+            const providerRow = document.querySelector('.provider-models-row');
+            const providerBadge = document.querySelector('.provider-models-badge');
+            const providerActions = [...document.querySelectorAll('.provider-models-add')];
+            const helpSection = document.querySelector('.api-settings-help-section');
+            const helpCode = helpSection.querySelector('code');
             const measurements = themeIds.map((themeId) => {
                 root.dataset.appTheme = themeId;
                 const rootStyle = getComputedStyle(root);
@@ -78,15 +95,26 @@
                     themeMenu: tuple(themeMenu),
                     themeMenuStates: themeMenuItems.map((item, index) => ({ state: ['normal', 'focus', 'active'][index], ...tuple(item) })),
                     states: [...document.querySelectorAll('[data-kind="menu"]')].map((item) => ({ state: item.dataset.state, ...tuple(item) })),
-                    dialog: { overlay: tuple(overlay), panel: tuple(panel), header: tuple(header), body: tuple(body), close: tuple(close) },
+                    dialog: { overlay: tuple(overlay), panel: tuple(panel), header: tuple(header), body: tuple(body), closeStates: modalCloseElements.map((item, index) => ({ state: ['normal', 'hover', 'focus'][index], ...tuple(item) })) },
                     auxiliaryDialogs: {
-                        help: { panel: tuple(helpPanel), header: tuple(helpPanel.querySelector('.help-panel-header')) },
-                        provider: { panel: tuple(providerPanel), header: tuple(providerPanel.querySelector('.provider-models-header')), close: tuple(providerPanel.querySelector('.provider-models-close')) },
-                        settingsHelp: { panel: tuple(settingsHelpPanel), header: tuple(settingsHelpPanel.querySelector('.api-settings-help-header')), close: tuple(settingsHelpPanel.querySelector('.api-settings-help-close')) },
+                        help: { panel: tuple(helpPanel), header: tuple(helpPanel.querySelector('.help-panel-header')), closeStates: [...helpPanel.querySelectorAll('.help-close-btn')].map((item, index) => ({ state: ['normal', 'hover', 'focus'][index], ...tuple(item) })) },
+                        provider: { panel: tuple(providerPanel), header: tuple(providerPanel.querySelector('.provider-models-header')), closeStates: [...providerPanel.querySelectorAll('.provider-models-close')].map((item, index) => ({ state: ['normal', 'hover', 'focus'][index], ...tuple(item) })) },
+                        settingsHelp: { panel: tuple(settingsHelpPanel), header: tuple(settingsHelpPanel.querySelector('.api-settings-help-header')), closeStates: [...settingsHelpPanel.querySelectorAll('.api-settings-help-close')].map((item, index) => ({ state: ['normal', 'hover', 'focus'][index], ...tuple(item) })) },
                     },
+                    providerStates: {
+                        search: tuple(providerSearch),
+                        row: tuple(providerRow),
+                        badge: tuple(providerBadge),
+                        action: tuple(providerActions[0]),
+                        focusedAction: tuple(providerActions[1]),
+                        disabledAction: tuple(providerActions[2]),
+                    },
+                    helpStates: { section: tuple(helpSection), code: tuple(helpCode) },
                     semantic: Object.fromEntries([
                         '--menu-surface', '--menu-border', '--menu-text', '--menu-muted-text', '--menu-hover-bg', '--menu-active-bg', '--menu-danger-text', '--menu-focus-ring',
                         '--dialog-backdrop', '--dialog-surface', '--dialog-border', '--dialog-divider', '--dialog-shadow', '--dialog-text', '--dialog-muted-text',
+                        '--panel-input-bg', '--panel-input-border', '--panel-active-border', '--panel-control-bg', '--panel-control-border', '--panel-control-text',
+                        '--panel-control-hover-bg', '--panel-control-hover-border', '--panel-control-hover-text', '--panel-accent-bg', '--panel-accent-border', '--panel-accent-text', '--panel-bg-soft',
                     ].map((role) => [role, rootStyle.getPropertyValue(role).trim()])),
                     layers: {
                         menu: rootStyle.getPropertyValue('--layer-menu').trim(),

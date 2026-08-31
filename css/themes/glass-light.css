@@ -213,12 +213,7 @@ html[data-app-theme="glass-light"] * {
 html[data-app-theme="glass-light"] #toolbar,
 html[data-app-theme="glass-light"] .drawer,
 html[data-app-theme="glass-light"] .drawer-left,
-html[data-app-theme="glass-light"] .modal-panel,
-html[data-app-theme="glass-light"] .help-panel,
-html[data-app-theme="glass-light"] .toast,
-html[data-app-theme="glass-light"] .update-modal-panel,
-html[data-app-theme="glass-light"] .provider-models-panel,
-html[data-app-theme="glass-light"] .api-settings-help-panel {
+html[data-app-theme="glass-light"] .toast {
     background: var(--panel-bg);
     border-color: var(--panel-border);
     box-shadow: var(--panel-shadow-soft);
@@ -434,13 +429,7 @@ html[data-app-theme="glass-light"] .node.running .node-glass-bg {
 
 html[data-app-theme="glass-light"] .node-header,
 html[data-app-theme="glass-light"] .drawer-header,
-html[data-app-theme="glass-light"] .drawer-subheader,
-html[data-app-theme="glass-light"] .help-panel-header,
-html[data-app-theme="glass-light"] .modal-header,
-html[data-app-theme="glass-light"] .modal-tabs,
-html[data-app-theme="glass-light"] .provider-models-header,
-html[data-app-theme="glass-light"] .provider-models-search-row,
-html[data-app-theme="glass-light"] .api-settings-help-header {
+html[data-app-theme="glass-light"] .drawer-subheader {
     background: rgba(255, 255, 255, 0.28);
     border-color: rgba(119, 147, 171, 0.18);
 }
@@ -458,7 +447,6 @@ html[data-app-theme="glass-light"] .node-field input,
 html[data-app-theme="glass-light"] .node-field select,
 html[data-app-theme="glass-light"] .node-field textarea,
 html[data-app-theme="glass-light"] .save-workflow-box input,
-html[data-app-theme="glass-light"] .provider-models-search-row input,
 html[data-app-theme="glass-light"] .camera-control-value,
 html[data-app-theme="glass-light"] .camera-control-prompt {
     background: rgba(255, 255, 255, 0.58) !important;
@@ -473,7 +461,6 @@ html[data-app-theme="glass-light"] .node-field input:focus,
 html[data-app-theme="glass-light"] .node-field select:focus,
 html[data-app-theme="glass-light"] .node-field textarea:focus,
 html[data-app-theme="glass-light"] .save-workflow-box input:focus,
-html[data-app-theme="glass-light"] .provider-models-search-row input:focus,
 html[data-app-theme="glass-light"] .camera-control-value:focus {
     border-color: rgba(37, 99, 235, 0.42) !important;
     box-shadow:
@@ -500,7 +487,6 @@ html[data-app-theme="glass-light"] .node-select-option {
     color: var(--text-primary);
 }
 
-html[data-app-theme="glass-light"] .modal-overlay,
 html[data-app-theme="glass-light"] .camera-control-editor-overlay {
     background: rgba(30, 52, 74, 0.24);
     backdrop-filter: blur(8px);
@@ -512,7 +498,6 @@ html[data-app-theme="glass-light"] .cache-info-card,
 html[data-app-theme="glass-light"] .cache-item,
 html[data-app-theme="glass-light"] .cache-breakdown,
 html[data-app-theme="glass-light"] .save-workflow-box,
-html[data-app-theme="glass-light"] .api-settings-help-section,
 html[data-app-theme="glass-light"] .camera-control-node-preview,
 html[data-app-theme="glass-light"] .camera-control-node-preview.has-image,
 html[data-app-theme="glass-light"] .camera-control-editor-panel,
@@ -610,11 +595,6 @@ html[data-app-theme="glass-light"] #cache-sidebar .cache-action-btn {
     border-radius: var(--cache-card-radius);
 }
 
-html[data-app-theme="glass-light"] .provider-models-row:hover,
-html[data-app-theme="glass-light"] .api-settings-help-close:hover {
-    background: rgba(37, 99, 235, 0.08);
-}
-
 html[data-app-theme="glass-light"] .prompt-library-panel,
 html[data-app-theme="glass-light"] .prompt-import-panel,
 html[data-app-theme="glass-light"] .history-fullscreen-panel {
@@ -644,39 +624,10 @@ html[data-app-theme="glass-light"] .history-card.selected .selection-checkbox::a
     color: #ffffff;
 }
 
-html[data-app-theme="glass-light"] .provider-models-row-name,
-html[data-app-theme="glass-light"] .api-settings-help-header h3,
-html[data-app-theme="glass-light"] .api-settings-help-section h4 {
-    color: var(--text-primary);
-}
-
-html[data-app-theme="glass-light"] .provider-models-subtitle,
-html[data-app-theme="glass-light"] .provider-models-row-id,
-html[data-app-theme="glass-light"] .api-settings-help-subtitle,
-html[data-app-theme="glass-light"] .api-settings-help-section p,
-html[data-app-theme="glass-light"] .api-settings-help-section li {
-    color: var(--text-secondary) !important;
-}
-
-html[data-app-theme="glass-light"] .provider-models-badge {
-    background: rgba(37, 99, 235, 0.1);
-    border-color: rgba(37, 99, 235, 0.18);
-    color: #1d4ed8;
-}
-
-html[data-app-theme="glass-light"] .provider-models-add,
-html[data-app-theme="glass-light"] .provider-models-close,
 html[data-app-theme="glass-light"] .help-key {
     background: rgba(255, 255, 255, 0.52) !important;
     border-color: rgba(255, 255, 255, 0.64) !important;
     color: var(--text-secondary);
-}
-
-html[data-app-theme="glass-light"] .provider-models-add:hover,
-html[data-app-theme="glass-light"] .provider-models-close:hover {
-    background: rgba(37, 99, 235, 0.08) !important;
-    border-color: rgba(37, 99, 235, 0.22) !important;
-    color: var(--accent-primary);
 }
 
 html[data-app-theme="glass-light"] .node-run-cancel-btn {
@@ -869,12 +820,7 @@ html[data-app-theme="glass-light"] {
 html[data-app-theme="glass-light"] #toolbar,
 html[data-app-theme="glass-light"] .drawer,
 html[data-app-theme="glass-light"] .drawer-left,
-html[data-app-theme="glass-light"] .modal-panel,
-html[data-app-theme="glass-light"] .help-panel,
-html[data-app-theme="glass-light"] .toast,
-html[data-app-theme="glass-light"] .update-modal-panel,
-html[data-app-theme="glass-light"] .provider-models-panel,
-html[data-app-theme="glass-light"] .api-settings-help-panel {
+html[data-app-theme="glass-light"] .toast {
     background: var(--glass-surface);
     border-color: var(--glass-border);
     box-shadow: none;
@@ -978,13 +924,7 @@ html[data-app-theme="glass-light"] #canvas-container.is-zooming .node-glass-bg {
 
 html[data-app-theme="glass-light"] .node-header,
 html[data-app-theme="glass-light"] .drawer-header,
-html[data-app-theme="glass-light"] .drawer-subheader,
-html[data-app-theme="glass-light"] .help-panel-header,
-html[data-app-theme="glass-light"] .modal-header,
-html[data-app-theme="glass-light"] .modal-tabs,
-html[data-app-theme="glass-light"] .provider-models-header,
-html[data-app-theme="glass-light"] .provider-models-search-row,
-html[data-app-theme="glass-light"] .api-settings-help-header {
+html[data-app-theme="glass-light"] .drawer-subheader {
     background: var(--glass-surface-soft);
     border-color: var(--glass-border-soft);
 }
@@ -993,7 +933,6 @@ html[data-app-theme="glass-light"] .node-field input,
 html[data-app-theme="glass-light"] .node-field select,
 html[data-app-theme="glass-light"] .node-field textarea,
 html[data-app-theme="glass-light"] .save-workflow-box input,
-html[data-app-theme="glass-light"] .provider-models-search-row input,
 html[data-app-theme="glass-light"] .camera-control-value,
 html[data-app-theme="glass-light"] .camera-control-prompt {
     background: var(--glass-surface-dark) !important;
@@ -1008,7 +947,6 @@ html[data-app-theme="glass-light"] .cache-info-card,
 html[data-app-theme="glass-light"] .cache-item,
 html[data-app-theme="glass-light"] .cache-breakdown,
 html[data-app-theme="glass-light"] .save-workflow-box,
-html[data-app-theme="glass-light"] .api-settings-help-section,
 html[data-app-theme="glass-light"] .camera-control-node-preview,
 html[data-app-theme="glass-light"] .camera-control-node-preview.has-image,
 html[data-app-theme="glass-light"] .camera-control-editor-panel,

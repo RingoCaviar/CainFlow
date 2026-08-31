@@ -33,14 +33,28 @@ test('menu and dialog semantic states render in all supported themes', () => {
         assert.ok(Number(result.layers.drawer) < Number(result.layers.menu));
         assert.ok(Number(result.layers.menu) < Number(result.layers.modal));
         assert.ok(Number(result.layers.modal) < Number(result.layers.popover));
+        assert.deepEqual(parseColor(result.dialog.closeStates.find(({ state }) => state === 'normal').color), parseColor(result.semantic['--dialog-muted-text']));
+        assert.deepEqual(parseColor(result.dialog.closeStates.find(({ state }) => state === 'hover').background), parseColor(result.semantic['--menu-hover-bg']));
         for (const [kind, dialog] of Object.entries(result.auxiliaryDialogs)) {
             assert.deepEqual(parseColor(dialog.panel.background), parseColor(result.semantic['--dialog-surface']), `${result.themeId} ${kind} dialog must use the semantic surface`);
             assert.deepEqual(parseColor(dialog.panel.border), parseColor(result.semantic['--dialog-border']), `${result.themeId} ${kind} dialog must use the semantic border`);
             assert.deepEqual(parseColor(dialog.header.border), parseColor(result.semantic['--dialog-divider']), `${result.themeId} ${kind} header must use the dialog divider`);
-            if (dialog.close) {
-                assert.deepEqual(parseColor(dialog.close.color), parseColor(result.semantic['--dialog-muted-text']), `${result.themeId} ${kind} close must use muted dialog text`);
-            }
+            assert.deepEqual(parseColor(dialog.closeStates.find(({ state }) => state === 'normal').color), parseColor(result.semantic['--dialog-muted-text']), `${result.themeId} ${kind} normal close must use muted text`);
+            assert.deepEqual(parseColor(dialog.closeStates.find(({ state }) => state === 'hover').background), parseColor(result.semantic['--menu-hover-bg']), `${result.themeId} ${kind} hover close must use hover surface`);
+            assert.notEqual(dialog.closeStates.find(({ state }) => state === 'focus').outline, 'none', `${result.themeId} ${kind} close focus must be visible`);
         }
+        assert.deepEqual(parseColor(result.providerStates.search.background), parseColor(result.semantic['--panel-input-bg']));
+        assert.deepEqual(parseColor(result.providerStates.search.border), parseColor(result.semantic['--panel-input-border']));
+        assert.deepEqual(parseColor(result.providerStates.row.background), parseColor(result.semantic['--menu-hover-bg']));
+        assert.deepEqual(parseColor(result.providerStates.badge.background), parseColor(result.semantic['--panel-accent-bg']));
+        assert.deepEqual(parseColor(result.providerStates.badge.border), parseColor(result.semantic['--panel-accent-border']));
+        assert.deepEqual(parseColor(result.providerStates.action.background), parseColor(result.semantic['--panel-control-bg']));
+        assert.deepEqual(parseColor(result.providerStates.focusedAction.background), parseColor(result.semantic['--panel-control-hover-bg']));
+        assert.notEqual(result.providerStates.focusedAction.outline, 'none');
+        assert.equal(result.providerStates.disabledAction.opacity, '0.55');
+        assert.deepEqual(parseColor(result.helpStates.section.background), parseColor(result.semantic['--panel-bg-soft']));
+        assert.deepEqual(parseColor(result.helpStates.section.border), parseColor(result.semantic['--dialog-divider']));
+        assert.deepEqual(parseColor(result.helpStates.code.background), parseColor(result.semantic['--panel-accent-bg']));
         const normal = result.states.find(({ state }) => state === 'normal');
         const menuBackground = composite(parseColor(result.menu.background), [255, 255, 255, 1]);
         const dialogBackground = composite(parseColor(result.dialog.panel.background), [255, 255, 255, 1]);
@@ -49,5 +63,13 @@ test('menu and dialog semantic states render in all supported themes', () => {
         const focus = result.states.find(({ state }) => state === 'focus');
         const focusColor = parseColor(focus.outline.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}/i)[0]);
         assert.ok(contrastRatio(composite(focusColor, menuBackground), menuBackground) >= 3, `${result.themeId} menu focus ring must meet 3:1`);
+        for (const [kind, control] of [
+            ['modal close', result.dialog.closeStates.find(({ state }) => state === 'focus')],
+            ...Object.entries(result.auxiliaryDialogs).map(([kind, dialog]) => [`${kind} close`, dialog.closeStates.find(({ state }) => state === 'focus')]),
+            ['provider action', result.providerStates.focusedAction],
+        ]) {
+            const outlineColor = parseColor(control.outline.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}/i)[0]);
+            assert.ok(contrastRatio(composite(outlineColor, dialogBackground), dialogBackground) >= 3, `${result.themeId} ${kind} focus ring must meet 3:1`);
+        }
     }
 });

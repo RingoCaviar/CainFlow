@@ -4,8 +4,6 @@
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(8px);
     z-index: var(--layer-modal);
     display: flex;
     align-items: center;
@@ -41,13 +39,17 @@
 .modal-content,
 .help-panel,
 .drawer-left {
-    background: var(--panel-bg-strong);
-    border: 1px solid var(--panel-border-strong);
+    border: 1px solid;
     border-radius: 16px;
-    box-shadow: var(--panel-shadow-strong);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+.drawer-left {
+    background: var(--panel-bg-strong);
+    border-color: var(--panel-border-strong);
+    box-shadow: var(--panel-shadow-strong);
 }
 
 .help-panel,
@@ -88,14 +90,13 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--panel-border);
+    border-bottom: 1px solid;
     flex-shrink: 0;
 }
 
 .modal-header h2,
 .modal-header h3 {
     margin: 0;
-    color: var(--text-primary);
     font-size: 16px;
     font-weight: 600;
 }
@@ -103,9 +104,12 @@
 .drawer-header h3,
 .help-panel-header h3 {
     margin: 0;
-    color: var(--text-primary);
     font-size: 15px;
     font-weight: 600;
+}
+
+.drawer-header h3 {
+    color: var(--text-primary);
 }
 
 .github-link {
@@ -130,19 +134,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
     border: none;
     border-radius: 6px;
-    color: var(--text-secondary);
     font-size: 20px;
     cursor: pointer;
     transition: all var(--transition);
-}
-
-.modal-close-btn:hover,
-.modal-close:hover {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
 }
 
 .drawer-content,
@@ -165,11 +161,11 @@
     display: flex;
     justify-content: flex-end;
     padding: 12px 20px;
-    border-top: 1px solid var(--panel-border);
+    border-top: 1px solid;
 }
 
 .modal-header {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid;
 }
 
 .modal-body {
@@ -233,8 +229,6 @@
 
 .help-panel {
     left: -340px;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     border-left: 0;
     font-family: var(--font);
     opacity: 0;
@@ -258,18 +252,12 @@
 }
 
 .help-close-btn {
-    background: transparent;
     border: none;
-    color: var(--text-dim);
     font-size: 24px;
     cursor: pointer;
     line-height: 1;
     padding: 0;
     transition: color 0.2s;
-}
-
-.help-close-btn:hover {
-    color: var(--text-primary);
 }
 
 .help-panel-body {
@@ -827,10 +815,8 @@ body.workflow-sidebar-resizing * {
     max-width: 100%;
     height: auto;
     max-height: 100%;
-    background: var(--bg-modal);
-    border: 1px solid var(--accent-purple);
+    border: 1px solid;
     border-radius: var(--radius-node);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 20px rgba(168, 85, 247, 0.2);
 }
 
 #modal-update .modal-body {

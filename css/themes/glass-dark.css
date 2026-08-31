@@ -232,12 +232,7 @@ html[data-app-theme="glass-dark"] * {
 html[data-app-theme="glass-dark"] #toolbar,
 html[data-app-theme="glass-dark"] .drawer,
 html[data-app-theme="glass-dark"] .drawer-left,
-html[data-app-theme="glass-dark"] .modal-panel,
-html[data-app-theme="glass-dark"] .help-panel,
-html[data-app-theme="glass-dark"] .toast,
-html[data-app-theme="glass-dark"] .update-modal-panel,
-html[data-app-theme="glass-dark"] .provider-models-panel,
-html[data-app-theme="glass-dark"] .api-settings-help-panel {
+html[data-app-theme="glass-dark"] .toast {
     background: var(--panel-bg);
     border-color: var(--panel-border);
     box-shadow: none;
@@ -429,13 +424,7 @@ html[data-app-theme="glass-dark"] .node.running .node-glass-bg {
 
 html[data-app-theme="glass-dark"] .node-header,
 html[data-app-theme="glass-dark"] .drawer-header,
-html[data-app-theme="glass-dark"] .drawer-subheader,
-html[data-app-theme="glass-dark"] .help-panel-header,
-html[data-app-theme="glass-dark"] .modal-header,
-html[data-app-theme="glass-dark"] .modal-tabs,
-html[data-app-theme="glass-dark"] .provider-models-header,
-html[data-app-theme="glass-dark"] .provider-models-search-row,
-html[data-app-theme="glass-dark"] .api-settings-help-header {
+html[data-app-theme="glass-dark"] .drawer-subheader {
     background: var(--glass-surface-soft);
     border-color: var(--glass-border-soft);
 }
@@ -453,7 +442,6 @@ html[data-app-theme="glass-dark"] .node-field input,
 html[data-app-theme="glass-dark"] .node-field select,
 html[data-app-theme="glass-dark"] .node-field textarea,
 html[data-app-theme="glass-dark"] .save-workflow-box input,
-html[data-app-theme="glass-dark"] .provider-models-search-row input,
 html[data-app-theme="glass-dark"] .camera-control-value,
 html[data-app-theme="glass-dark"] .camera-control-prompt {
     background: var(--glass-surface-dark) !important;
@@ -468,7 +456,6 @@ html[data-app-theme="glass-dark"] .node-field input:focus,
 html[data-app-theme="glass-dark"] .node-field select:focus,
 html[data-app-theme="glass-dark"] .node-field textarea:focus,
 html[data-app-theme="glass-dark"] .save-workflow-box input:focus,
-html[data-app-theme="glass-dark"] .provider-models-search-row input:focus,
 html[data-app-theme="glass-dark"] .camera-control-value:focus {
     border-color: rgba(125, 211, 252, 0.38) !important;
     box-shadow: 0 0 0 2px var(--glass-focus-ring);
@@ -489,7 +476,6 @@ html[data-app-theme="glass-dark"] .node-select-option {
     color: var(--text-primary);
 }
 
-html[data-app-theme="glass-dark"] .modal-overlay,
 html[data-app-theme="glass-dark"] .camera-control-editor-overlay {
     background: rgba(5, 10, 18, 0.68);
     backdrop-filter: blur(10px);
@@ -501,7 +487,6 @@ html[data-app-theme="glass-dark"] .cache-info-card,
 html[data-app-theme="glass-dark"] .cache-item,
 html[data-app-theme="glass-dark"] .cache-breakdown,
 html[data-app-theme="glass-dark"] .save-workflow-box,
-html[data-app-theme="glass-dark"] .api-settings-help-section,
 html[data-app-theme="glass-dark"] .camera-control-node-preview,
 html[data-app-theme="glass-dark"] .camera-control-node-preview.has-image,
 html[data-app-theme="glass-dark"] .camera-control-editor-panel,
@@ -574,11 +559,6 @@ html[data-app-theme="glass-dark"] #cache-sidebar .cache-action-btn {
     border-radius: var(--cache-card-radius);
 }
 
-html[data-app-theme="glass-dark"] .provider-models-row:hover,
-html[data-app-theme="glass-dark"] .api-settings-help-close:hover {
-    background: rgba(125, 211, 252, 0.1);
-}
-
 html[data-app-theme="glass-dark"] .prompt-library-panel,
 html[data-app-theme="glass-dark"] .prompt-import-panel,
 html[data-app-theme="glass-dark"] .history-fullscreen-panel {
@@ -613,39 +593,10 @@ html[data-app-theme="glass-dark"] .history-card.selected .selection-checkbox::af
     color: #04111f;
 }
 
-html[data-app-theme="glass-dark"] .provider-models-row-name,
-html[data-app-theme="glass-dark"] .api-settings-help-header h3,
-html[data-app-theme="glass-dark"] .api-settings-help-section h4 {
-    color: var(--text-primary);
-}
-
-html[data-app-theme="glass-dark"] .provider-models-subtitle,
-html[data-app-theme="glass-dark"] .provider-models-row-id,
-html[data-app-theme="glass-dark"] .api-settings-help-subtitle,
-html[data-app-theme="glass-dark"] .api-settings-help-section p,
-html[data-app-theme="glass-dark"] .api-settings-help-section li {
-    color: var(--text-secondary) !important;
-}
-
-html[data-app-theme="glass-dark"] .provider-models-badge {
-    background: rgba(125, 211, 252, 0.11);
-    border-color: rgba(125, 211, 252, 0.22);
-    color: #b7e3f5;
-}
-
-html[data-app-theme="glass-dark"] .provider-models-add,
-html[data-app-theme="glass-dark"] .provider-models-close,
 html[data-app-theme="glass-dark"] .help-key {
     background: var(--glass-surface) !important;
     border-color: var(--glass-border) !important;
     color: var(--text-secondary);
-}
-
-html[data-app-theme="glass-dark"] .provider-models-add:hover,
-html[data-app-theme="glass-dark"] .provider-models-close:hover {
-    background: var(--glass-surface-hover) !important;
-    border-color: var(--glass-border-strong) !important;
-    color: var(--text-primary);
 }
 
 html[data-app-theme="glass-dark"] .node-run-cancel-btn {

@@ -251,10 +251,7 @@ html[data-app-theme="pro"] .search-chips {
 }
 
 html[data-app-theme="pro"] .node-header,
-html[data-app-theme="pro"] .drawer-subheader,
-html[data-app-theme="pro"] .help-panel-header,
-html[data-app-theme="pro"] .modal-header,
-html[data-app-theme="pro"] .modal-tabs {
+html[data-app-theme="pro"] .drawer-subheader {
     border-color: var(--border-color);
 }
 
@@ -287,10 +284,7 @@ html[data-app-theme="pro"] .save-workflow-box input:focus {
 
 html[data-app-theme="pro"] .drawer,
 html[data-app-theme="pro"] .drawer-left,
-html[data-app-theme="pro"] .modal-panel,
-html[data-app-theme="pro"] .help-panel,
-html[data-app-theme="pro"] .toast,
-html[data-app-theme="pro"] .update-modal-panel {
+html[data-app-theme="pro"] .toast {
     border-color: var(--border-color);
     box-shadow: var(--panel-shadow);
 }
@@ -301,10 +295,6 @@ html[data-app-theme="pro"] .workflow-item:hover {
 
 html[data-app-theme="pro"] .update-download-progress__bar {
     background: linear-gradient(90deg, #4f7cff 0%, #56b6d9 100%);
-}
-
-html[data-app-theme="pro"] .modal-overlay {
-    background: rgba(4, 8, 18, 0.74);
 }
 
 html[data-app-theme="pro"] .prompt-card-btn,
@@ -337,91 +327,11 @@ html[data-app-theme="pro"] .cache-breakdown {
     border-color: rgba(148, 163, 184, 0.12) !important;
 }
 
-html[data-app-theme="pro"] .provider-models-panel,
-html[data-app-theme="pro"] .api-settings-help-panel {
-    background: linear-gradient(180deg, rgba(24, 31, 46, 0.98), rgba(18, 24, 36, 0.98));
-    border-color: rgba(148, 163, 184, 0.14);
-    box-shadow: 0 18px 36px rgba(3, 7, 18, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.02);
-}
-
-html[data-app-theme="pro"] .provider-models-header,
-html[data-app-theme="pro"] .provider-models-search-row,
-html[data-app-theme="pro"] .api-settings-help-header {
-    border-color: rgba(148, 163, 184, 0.12);
-}
-
-html[data-app-theme="pro"] .provider-models-row-name,
-html[data-app-theme="pro"] .api-settings-help-header h3,
-html[data-app-theme="pro"] .api-settings-help-section h4 {
-    color: var(--text-primary);
-}
-
-html[data-app-theme="pro"] .provider-models-search-row input {
-    background: rgba(15, 21, 32, 0.94) !important;
-    border-color: rgba(148, 163, 184, 0.16) !important;
-    color: var(--text-primary) !important;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
-}
-
-html[data-app-theme="pro"] .provider-models-search-row input:focus,
-html[data-app-theme="pro"] .provider-models-search-row input:focus {
-    border-color: rgba(93, 124, 255, 0.34) !important;
-    box-shadow: 0 0 0 3px rgba(93, 124, 255, 0.12);
-}
-
-html[data-app-theme="pro"] .provider-models-subtitle,
-html[data-app-theme="pro"] .provider-models-row-id,
-html[data-app-theme="pro"] .api-settings-help-subtitle,
-html[data-app-theme="pro"] .api-settings-help-section p,
-html[data-app-theme="pro"] .api-settings-help-section li {
-    color: var(--text-dim) !important;
-}
-
-html[data-app-theme="pro"] .provider-models-row:hover,
-html[data-app-theme="pro"] .api-settings-help-close:hover {
-    background: rgba(93, 124, 255, 0.08);
-}
-
-html[data-app-theme="pro"] .provider-models-badge {
-    background: rgba(86, 182, 217, 0.12);
-    color: #9dd9ee;
-}
-
-html[data-app-theme="pro"] .provider-models-add,
-html[data-app-theme="pro"] .provider-models-close {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(148, 163, 184, 0.14);
-    color: var(--text-secondary);
-}
-
-html[data-app-theme="pro"] .provider-models-add:hover,
-html[data-app-theme="pro"] .provider-models-close:hover {
-    background: rgba(93, 124, 255, 0.1);
-    border-color: rgba(93, 124, 255, 0.22);
-    color: var(--text-primary);
-}
-
-html[data-app-theme="pro"] .provider-models-add:disabled {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(148, 163, 184, 0.1);
-    color: var(--text-dim);
-}
-
 html[data-app-theme="pro"] .save-workflow-box,
 html[data-app-theme="pro"] .workflow-action-btn,
 html[data-app-theme="pro"] .help-key {
     background: rgba(255, 255, 255, 0.03) !important;
     border-color: rgba(148, 163, 184, 0.14) !important;
-}
-
-html[data-app-theme="pro"] .api-settings-help-section {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(148, 163, 184, 0.12);
-}
-
-html[data-app-theme="pro"] .api-settings-help-section code {
-    background: rgba(86, 182, 217, 0.12);
-    color: #9dd9ee;
 }
 
 html[data-app-theme="pro"] .update-download-status {

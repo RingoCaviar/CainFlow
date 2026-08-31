@@ -220,10 +220,7 @@ html[data-app-theme="paper"] .workflow-item:hover {
 }
 
 html[data-app-theme="paper"] .node-header,
-html[data-app-theme="paper"] .modal-header,
-html[data-app-theme="paper"] .modal-tabs,
-html[data-app-theme="paper"] .drawer-subheader,
-html[data-app-theme="paper"] .help-panel-header {
+html[data-app-theme="paper"] .drawer-subheader {
     background: var(--bg-node-header);
     border-color: #dfdcd4;
 }
@@ -246,8 +243,6 @@ html[data-app-theme="paper"] select:focus {
 
 html[data-app-theme="paper"] .drawer,
 html[data-app-theme="paper"] .drawer-left,
-html[data-app-theme="paper"] .modal-panel,
-html[data-app-theme="paper"] .help-panel,
 html[data-app-theme="paper"] .toast {
     background: #f8f7f3;
     border-color: #d1cec6;
