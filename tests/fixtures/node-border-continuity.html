@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <style>
+        :root {
+            --radius-node: 12px;
+            --bg-node: #ffffff;
+            --bg-node-header: #f3f4f6;
+            --border-node: #0f766e;
+            --shadow-node: none;
+            --transition: 0s;
+        }
+        body { margin: 0; padding: 24px; }
+        .node { position: relative; inset: auto; width: 220px; min-height: 120px; }
+        .node-header { min-height: 42px; box-sizing: border-box; }
+        .node-body { min-height: 78px; background: #ffffff; }
+        .node-ports-row { min-height: 24px; }
+    </style>
+</head>
+<body>
+    <div class="node" id="node">
+        <div class="node-glass-bg" id="shell"></div>
+        <div class="node-header" id="header">标题</div>
+        <div class="node-body" id="body">内容</div>
+        <div class="node-ports-row" id="ports"><div class="node-port output"><span class="port-dot" id="port"></span></div></div>
+        <div class="node-resize-handle" id="resize"></div>
+    </div>
+    <pre id="surface-result"></pre>
+    <script>
+        const style = (id) => getComputedStyle(document.getElementById(id));
+        document.getElementById('surface-result').textContent = JSON.stringify({
+            shell: style('shell').zIndex,
+            header: style('header').zIndex,
+            body: style('body').zIndex,
+            ports: style('ports').zIndex,
+            port: style('port').zIndex,
+            resize: style('resize').zIndex,
+        });
+    </script>
+</body>
+</html>

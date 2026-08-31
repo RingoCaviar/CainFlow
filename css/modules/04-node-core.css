@@ -97,10 +97,17 @@
     box-shadow: var(--shadow-node);
     backdrop-filter: blur(var(--glass-node-blur-radius, 12px));
     -webkit-backdrop-filter: blur(var(--glass-node-blur-radius, 12px));
-    z-index: -1;
-    /* Behind all content and ports */
+    z-index: 0;
+    /* The shell paints above opaque surfaces so its border remains continuous. */
     pointer-events: none;
     transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.node-header,
+.node-body,
+.node-ports-row {
+    position: relative;
+    z-index: 1;
 }
 
 .node:hover .node-glass-bg {
