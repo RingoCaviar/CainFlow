@@ -272,8 +272,6 @@ html[data-app-theme="pro"] .node-body {
 html[data-app-theme="pro"] .node-field input,
 html[data-app-theme="pro"] .node-field select,
 html[data-app-theme="pro"] .node-field textarea,
-html[data-app-theme="pro"] .api-config-card .card-field input,
-html[data-app-theme="pro"] .api-config-card .card-field select,
 html[data-app-theme="pro"] .save-workflow-box input {
     background: rgba(15, 21, 32, 0.92);
     border-color: rgba(148, 163, 184, 0.16);
@@ -283,8 +281,6 @@ html[data-app-theme="pro"] .save-workflow-box input {
 html[data-app-theme="pro"] .node-field input:focus,
 html[data-app-theme="pro"] .node-field select:focus,
 html[data-app-theme="pro"] .node-field textarea:focus,
-html[data-app-theme="pro"] .api-config-card .card-field input:focus,
-html[data-app-theme="pro"] .api-config-card .card-field select:focus,
 html[data-app-theme="pro"] .save-workflow-box input:focus {
     border-color: rgba(93, 124, 255, 0.34);
     box-shadow: 0 0 0 3px rgba(93, 124, 255, 0.12);
@@ -408,7 +404,6 @@ html[data-app-theme="pro"] #settings-modal .modal-tab-btn.active {
 }
 
 html[data-app-theme="pro"] #settings-modal .settings-toolbar h3,
-html[data-app-theme="pro"] #settings-modal #providers-list .card-name,
 html[data-app-theme="pro"] .provider-models-row-name,
 html[data-app-theme="pro"] .api-settings-help-header h3,
 html[data-app-theme="pro"] .api-settings-help-section h4 {
@@ -417,10 +412,6 @@ html[data-app-theme="pro"] .api-settings-help-section h4 {
 
 html[data-app-theme="pro"] #settings-modal .settings-toolbar h3 {
     color: #bcd0ea;
-}
-
-html[data-app-theme="pro"] #settings-modal .api-config-card .card-header .card-name {
-    color: var(--settings-model-provider-accent);
 }
 
 html[data-app-theme="pro"] #settings-modal .api-config-card .card-field label,
@@ -470,14 +461,6 @@ html[data-app-theme="pro"] .settings-inline-help:focus-visible {
     outline-offset: 2px;
 }
 
-html[data-app-theme="pro"] #settings-modal .api-config-card .card-field input,
-html[data-app-theme="pro"] #settings-modal .api-config-card .card-field select,
-html[data-app-theme="pro"] #settings-modal #proxy-ip,
-html[data-app-theme="pro"] #settings-modal #proxy-port,
-html[data-app-theme="pro"] #settings-modal #setting-max-side,
-html[data-app-theme="pro"] #settings-modal #setting-max-retries,
-html[data-app-theme="pro"] #settings-modal #setting-timeout-seconds,
-html[data-app-theme="pro"] #settings-modal .password-wrapper input,
 html[data-app-theme="pro"] .provider-models-search-row input,
 html[data-app-theme="pro"] .provider-multiselect-trigger {
     background: rgba(15, 21, 32, 0.94) !important;
@@ -486,23 +469,11 @@ html[data-app-theme="pro"] .provider-multiselect-trigger {
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
-html[data-app-theme="pro"] #settings-modal .api-config-card .card-field input:focus,
-html[data-app-theme="pro"] #settings-modal .api-config-card .card-field select:focus,
-html[data-app-theme="pro"] #settings-modal #proxy-ip:focus,
-html[data-app-theme="pro"] #settings-modal #proxy-port:focus,
-html[data-app-theme="pro"] #settings-modal #setting-max-side:focus,
-html[data-app-theme="pro"] #settings-modal #setting-max-retries:focus,
-html[data-app-theme="pro"] #settings-modal #setting-timeout-seconds:focus,
 html[data-app-theme="pro"] .provider-models-search-row input:focus,
 html[data-app-theme="pro"] .provider-multiselect-trigger:hover,
 html[data-app-theme="pro"] .provider-multiselect-trigger[aria-expanded="true"] {
     border-color: rgba(93, 124, 255, 0.34) !important;
     box-shadow: 0 0 0 3px rgba(93, 124, 255, 0.12);
-}
-
-html[data-app-theme="pro"] #settings-modal .api-config-card .card-field select option {
-    background: #141b29 !important;
-    color: var(--text-primary) !important;
 }
 
 html[data-app-theme="pro"] .provider-multiselect-panel {

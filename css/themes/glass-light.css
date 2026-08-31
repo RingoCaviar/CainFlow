@@ -227,6 +227,7 @@ html[data-app-theme="glass-light"] .api-settings-help-panel {
     -webkit-backdrop-filter: var(--glass-blur);
 }
 
+
 html[data-app-theme="glass-light"] #toolbar {
     border-bottom-color: rgba(255, 255, 255, 0.7);
     box-shadow: 0 12px 32px rgba(44, 71, 97, 0);
@@ -464,15 +465,7 @@ html[data-app-theme="glass-light"] #general-settings .general-settings-card .car
 html[data-app-theme="glass-light"] .node-field input,
 html[data-app-theme="glass-light"] .node-field select,
 html[data-app-theme="glass-light"] .node-field textarea,
-html[data-app-theme="glass-light"] .api-config-card .card-field input,
-html[data-app-theme="glass-light"] .api-config-card .card-field select,
 html[data-app-theme="glass-light"] .save-workflow-box input,
-html[data-app-theme="glass-light"] #settings-modal #proxy-ip,
-html[data-app-theme="glass-light"] #settings-modal #proxy-port,
-html[data-app-theme="glass-light"] #settings-modal #setting-max-side,
-html[data-app-theme="glass-light"] #settings-modal #setting-max-retries,
-html[data-app-theme="glass-light"] #settings-modal #setting-timeout-seconds,
-html[data-app-theme="glass-light"] #settings-modal .password-wrapper input,
 html[data-app-theme="glass-light"] .provider-models-search-row input,
 html[data-app-theme="glass-light"] .provider-multiselect-trigger,
 html[data-app-theme="glass-light"] .camera-control-value,
@@ -488,14 +481,7 @@ html[data-app-theme="glass-light"] .camera-control-prompt {
 html[data-app-theme="glass-light"] .node-field input:focus,
 html[data-app-theme="glass-light"] .node-field select:focus,
 html[data-app-theme="glass-light"] .node-field textarea:focus,
-html[data-app-theme="glass-light"] .api-config-card .card-field input:focus,
-html[data-app-theme="glass-light"] .api-config-card .card-field select:focus,
 html[data-app-theme="glass-light"] .save-workflow-box input:focus,
-html[data-app-theme="glass-light"] #settings-modal #proxy-ip:focus,
-html[data-app-theme="glass-light"] #settings-modal #proxy-port:focus,
-html[data-app-theme="glass-light"] #settings-modal #setting-max-side:focus,
-html[data-app-theme="glass-light"] #settings-modal #setting-max-retries:focus,
-html[data-app-theme="glass-light"] #settings-modal #setting-timeout-seconds:focus,
 html[data-app-theme="glass-light"] .provider-models-search-row input:focus,
 html[data-app-theme="glass-light"] .provider-multiselect-trigger:hover,
 html[data-app-theme="glass-light"] .provider-multiselect-trigger[aria-expanded="true"],
@@ -506,7 +492,6 @@ html[data-app-theme="glass-light"] .camera-control-value:focus {
         inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
-html[data-app-theme="glass-light"] .api-config-card .card-field select option,
 html[data-app-theme="glass-light"] .node-field select option {
     background: #f8fbff;
     color: var(--text-primary);
@@ -743,15 +728,10 @@ html[data-app-theme="glass-light"] #settings-modal .modal-tab-btn.active {
 }
 
 html[data-app-theme="glass-light"] #settings-modal .settings-toolbar h3,
-html[data-app-theme="glass-light"] #settings-modal #providers-list .card-name,
 html[data-app-theme="glass-light"] .provider-models-row-name,
 html[data-app-theme="glass-light"] .api-settings-help-header h3,
 html[data-app-theme="glass-light"] .api-settings-help-section h4 {
     color: var(--text-primary);
-}
-
-html[data-app-theme="glass-light"] #settings-modal #models-list .card-name {
-    color: var(--settings-model-provider-accent);
 }
 
 html[data-app-theme="glass-light"] .provider-multiselect-caret,
@@ -1155,15 +1135,7 @@ html[data-app-theme="glass-light"] .api-settings-help-header {
 html[data-app-theme="glass-light"] .node-field input,
 html[data-app-theme="glass-light"] .node-field select,
 html[data-app-theme="glass-light"] .node-field textarea,
-html[data-app-theme="glass-light"] .api-config-card .card-field input,
-html[data-app-theme="glass-light"] .api-config-card .card-field select,
 html[data-app-theme="glass-light"] .save-workflow-box input,
-html[data-app-theme="glass-light"] #settings-modal #proxy-ip,
-html[data-app-theme="glass-light"] #settings-modal #proxy-port,
-html[data-app-theme="glass-light"] #settings-modal #setting-max-side,
-html[data-app-theme="glass-light"] #settings-modal #setting-max-retries,
-html[data-app-theme="glass-light"] #settings-modal #setting-timeout-seconds,
-html[data-app-theme="glass-light"] #settings-modal .password-wrapper input,
 html[data-app-theme="glass-light"] .provider-models-search-row input,
 html[data-app-theme="glass-light"] .provider-multiselect-trigger,
 html[data-app-theme="glass-light"] .camera-control-value,

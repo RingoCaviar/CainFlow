@@ -211,7 +211,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
             el.innerHTML = `
                 <div class="card-header">
                     <span class="card-drag-handle" draggable="true" role="img" aria-label="拖动以调整供应商顺序" title="拖动排序">⠿</span>
-                    <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开供应商配置"' : ''} style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:var(--accent-cyan);width:150px" />
+                    <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开供应商配置"' : ''} />
                     <div class="card-header-actions">
                         <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
                         ${prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
@@ -232,7 +232,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                         <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
                     </div>
                     <div class="provider-toggle-row">
-                        <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;color:var(--text-dim);word-break:break-all;line-height:1.4;opacity:0.75;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
+                        <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;word-break:break-all;line-height:1.4;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
                         <label class="settings-toggle-row provider-toggle-label">
                             <span class="settings-toggle-text">自动补全</span>
                             <span class="toggle-switch">

@@ -532,7 +532,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             el.innerHTML = `
                 <div class="card-header">
                     <span class="card-drag-handle" draggable="true" role="img" aria-label="拖动以调整模型顺序" title="拖动排序">⠿</span>
-                    <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开模型配置"' : ''} style="background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:2px 4px;font-size:14px;color:#a855f7;width:200px" />
+                    <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开模型配置"' : ''} />
                     <div class="card-header-actions">
                         ${mod.id !== 'default' ? `<button class="card-btn-delete" data-id="${mod.id}" data-target="model" title="删除此模型">×</button>` : ''}
                     </div>

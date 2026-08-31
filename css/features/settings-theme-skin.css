@@ -1,5 +1,21 @@
 /* Settings owns component selectors; themes provide the semantic panel palette. */
 html:root #settings-modal {
+    --settings-input-bg: var(--panel-input-bg);
+    --settings-input-border: var(--panel-input-border);
+    --settings-input-shadow: none;
+    --settings-input-hover-bg: var(--panel-control-hover-bg);
+    --settings-input-hover-border: var(--panel-control-hover-border);
+    --settings-input-hover-text: var(--panel-control-hover-text);
+    --settings-input-focus-border: var(--panel-active-border);
+    --settings-input-focus-ring: var(--text-primary);
+    --settings-input-disabled-bg: var(--surface-muted);
+    --settings-input-disabled-border: var(--panel-border);
+    --settings-input-disabled-text: var(--text-dim);
+    --settings-input-error-border: var(--accent-red);
+    --settings-input-error-ring: color-mix(in srgb, var(--accent-red) 24%, transparent);
+}
+
+html:root #settings-modal {
     background: var(--settings-dialog-backdrop);
     color: var(--settings-dialog-text);
 }
@@ -33,4 +49,55 @@ html:root #settings-modal :is(.modal-header h2, .modal-header h3, .settings-tool
 
 html:root #settings-modal :is(.endpoint-preview, .footer-left, .footer-left span) {
     color: var(--settings-dialog-muted-text);
+}
+
+html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select) {
+    background: var(--settings-input-bg);
+    border-color: var(--settings-input-border);
+    color: var(--text-primary);
+    box-shadow: var(--settings-input-shadow);
+    transition: background var(--transition), border-color var(--transition), color var(--transition), box-shadow var(--transition);
+}
+
+html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select):is(:hover, .is-hovered) {
+    background: var(--settings-input-hover-bg);
+    border-color: var(--settings-input-hover-border);
+    color: var(--settings-input-hover-text);
+}
+
+html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select):is(:focus-visible, .is-focused) {
+    border-color: var(--settings-input-focus-border);
+    box-shadow: 0 0 0 3px var(--settings-input-focus-ring);
+    outline: none;
+}
+
+html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select):is(:disabled, [aria-disabled="true"]) {
+    background: var(--settings-input-disabled-bg);
+    border-color: var(--settings-input-disabled-border);
+    color: var(--settings-input-disabled-text);
+    cursor: not-allowed;
+    opacity: 1;
+}
+
+html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select):is([aria-invalid="true"], .is-invalid) {
+    border-color: var(--settings-input-error-border);
+    box-shadow: 0 0 0 3px var(--settings-input-error-ring);
+}
+
+html:root #settings-modal.modal-overlay select option {
+    background: var(--settings-input-bg);
+    color: var(--text-primary);
+}
+
+html:root #settings-modal.modal-overlay #providers-list .card-name {
+    width: 150px;
+}
+
+html:root #settings-modal.modal-overlay #models-list .card-name {
+    width: 200px;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name {
+    padding: 2px 4px;
+    font-size: 14px;
 }

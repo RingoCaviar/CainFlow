@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <link rel="stylesheet" href="../../index.css">
+    <style>#state-controls :is(input, select) { transition: none !important; }</style>
 </head>
 <body>
     <div id="settings-modal" class="modal-overlay">
@@ -14,6 +15,18 @@
                     <article class="general-settings-card api-config-card">
                         <div class="card-header"><span class="card-name">界面设置</span></div>
                         <p class="endpoint-preview">调整 CainFlow 的显示方式。</p>
+                        <div class="card-field" id="state-controls">
+                            <input id="proxy-ip" data-kind="input" data-state="normal" value="normal">
+                            <input class="is-hovered" data-kind="input" data-state="hover" value="hover">
+                            <input class="is-focused" data-kind="input" data-state="focus" value="focus">
+                            <input data-kind="input" data-state="disabled" value="disabled" disabled>
+                            <input data-kind="input" data-state="error" value="error" aria-invalid="true">
+                            <select data-kind="select" data-state="normal"><option>normal</option></select>
+                            <select class="is-hovered" data-kind="select" data-state="hover"><option>hover</option></select>
+                            <select class="is-focused" data-kind="select" data-state="focus"><option>focus</option></select>
+                            <select data-kind="select" data-state="disabled" disabled><option>disabled</option></select>
+                            <select data-kind="select" data-state="error" aria-invalid="true"><option>error</option></select>
+                        </div>
                         <span id="card-probe" style="position:absolute;left:-9999px;background:var(--settings-dialog-section-bg);border:1px solid var(--settings-dialog-panel-border)"></span>
                     </article>
                 </section>
@@ -31,6 +44,7 @@
         window.addEventListener('load', () => {
             const root = document.documentElement;
             const panel = document.querySelector('#settings-modal .modal-panel');
+            const overlay = document.querySelector('#settings-modal');
             const card = document.querySelector('#settings-modal .general-settings-card');
             const title = document.querySelector('#settings-modal .modal-header h2');
             const header = document.querySelector('#settings-modal .modal-header');
@@ -45,13 +59,48 @@
             const measurements = themeIds.map((themeId) => {
                 root.dataset.appTheme = themeId;
                 const rootStyle = getComputedStyle(root);
+                const bodyStyle = getComputedStyle(document.body);
                 const panelStyle = getComputedStyle(panel);
                 const cardStyle = getComputedStyle(card);
                 const panelProbeStyle = getComputedStyle(panelProbe);
                 const cardProbeStyle = getComputedStyle(cardProbe);
+                const styleTuple = (element) => {
+                    const style = getComputedStyle(element);
+                    return {
+                        background: style.backgroundColor,
+                        border: style.borderTopColor,
+                        color: style.color,
+                        shadow: style.boxShadow,
+                    };
+                };
+                const semanticStyle = (state) => {
+                    const probe = document.createElement('span');
+                    probe.style.cssText = 'position:absolute;left:-9999px;border:1px solid transparent;';
+                    const stateStyles = {
+                        normal: 'background:var(--settings-input-bg);border-color:var(--settings-input-border);color:var(--text-primary);box-shadow:var(--settings-input-shadow)',
+                        hover: 'background:var(--settings-input-hover-bg);border-color:var(--settings-input-hover-border);color:var(--settings-input-hover-text);box-shadow:var(--settings-input-shadow)',
+                        focus: 'background:var(--settings-input-bg);border-color:var(--settings-input-focus-border);color:var(--text-primary);box-shadow:0 0 0 3px var(--settings-input-focus-ring)',
+                        disabled: 'background:var(--settings-input-disabled-bg);border-color:var(--settings-input-disabled-border);color:var(--settings-input-disabled-text);box-shadow:var(--settings-input-shadow)',
+                        error: 'background:var(--settings-input-bg);border-color:var(--settings-input-error-border);color:var(--text-primary);box-shadow:0 0 0 3px var(--settings-input-error-ring)',
+                    };
+                    probe.style.cssText += stateStyles[state];
+                    document.querySelector('#settings-modal').append(probe);
+                    const result = styleTuple(probe);
+                    probe.remove();
+                    return result;
+                };
+                const controlStates = [...document.querySelectorAll('#state-controls [data-state]')].map((control) => ({
+                    kind: control.dataset.kind,
+                    state: control.dataset.state,
+                    actual: styleTuple(control),
+                    semantic: semanticStyle(control.dataset.state),
+                }));
                 return {
                     themeId,
                     actual: {
+                        rootBackground: rootStyle.backgroundColor,
+                        pageBackground: bodyStyle.backgroundColor,
+                        overlayBackground: getComputedStyle(overlay).backgroundColor,
                         panelBackground: panelStyle.background,
                         panelBorder: panelStyle.borderTopColor,
                         panelShadow: panelStyle.boxShadow,
@@ -81,6 +130,7 @@
                         '--text-secondary',
                         '--text-dim',
                     ].every((role) => rootStyle.getPropertyValue(role).trim() !== ''),
+                    controlStates,
                 };
             });
             document.querySelector('#surface-result').textContent = JSON.stringify(measurements);

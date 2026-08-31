@@ -698,6 +698,7 @@ html[data-app-theme="light"] .painter-header h2 {
     color: var(--text-primary);
 }
 
+
 html[data-app-theme="light"] .painter-header > div > div[style*="width: 1px"] {
     background: rgba(148, 163, 184, 0.28) !important;
 }
@@ -880,8 +881,6 @@ html[data-app-theme="light"] .node-bypass-btn:hover {
 html[data-app-theme="light"] .node-field input,
 html[data-app-theme="light"] .node-field select,
 html[data-app-theme="light"] .node-field textarea,
-html[data-app-theme="light"] .api-config-card .card-field input,
-html[data-app-theme="light"] .api-config-card .card-field select,
 html[data-app-theme="light"] .save-workflow-box input {
     background: var(--bg-input);
     border-color: var(--border-input);
@@ -891,8 +890,6 @@ html[data-app-theme="light"] .save-workflow-box input {
 html[data-app-theme="light"] .node-field input:focus,
 html[data-app-theme="light"] .node-field select:focus,
 html[data-app-theme="light"] .node-field textarea:focus,
-html[data-app-theme="light"] .api-config-card .card-field input:focus,
-html[data-app-theme="light"] .api-config-card .card-field select:focus,
 html[data-app-theme="light"] .save-workflow-box input:focus {
     box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.12);
 }
@@ -904,8 +901,7 @@ html[data-app-theme="light"] .node-field select {
     background-size: 12px 12px;
 }
 
-html[data-app-theme="light"] .node-field select option,
-html[data-app-theme="light"] .api-config-card .card-field select option {
+html[data-app-theme="light"] .node-field select option {
     background: #ffffff;
     color: var(--text-primary);
 }
@@ -925,12 +921,6 @@ html[data-app-theme="light"] .node-select-trigger[aria-expanded="true"] {
 html[data-app-theme="light"] .node-select-panel {
     background: var(--node-select-panel-bg);
     border-color: var(--node-select-panel-border);
-}
-
-html[data-app-theme="light"] .api-config-card .card-field select {
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 12px 12px;
 }
 
 html[data-app-theme="light"] .toggle-slider {
@@ -1148,20 +1138,6 @@ html[data-app-theme="light"] #settings-modal .api-config-card:hover {
         inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
-html[data-app-theme="light"] #settings-modal #providers-list .card-name,
-html[data-app-theme="light"] #settings-modal #models-list .card-name {
-    background: transparent !important;
-    border-bottom-color: rgba(148, 163, 184, 0.28) !important;
-}
-
-html[data-app-theme="light"] #settings-modal #providers-list .card-name {
-    color: #0f766e !important;
-}
-
-html[data-app-theme="light"] #settings-modal #models-list .card-name {
-    color: var(--settings-model-provider-accent) !important;
-}
-
 html[data-app-theme="light"] #settings-modal .card-type.google {
     background: rgba(59, 130, 246, 0.12);
     color: #2563eb;
@@ -1170,42 +1146,6 @@ html[data-app-theme="light"] #settings-modal .card-type.google {
 html[data-app-theme="light"] #settings-modal .card-type.openai {
     background: rgba(15, 118, 110, 0.12);
     color: #0f766e;
-}
-
-html[data-app-theme="light"] #settings-modal .password-wrapper input,
-html[data-app-theme="light"] #settings-modal .api-config-card .card-field input,
-html[data-app-theme="light"] #settings-modal #proxy-ip,
-html[data-app-theme="light"] #settings-modal #proxy-port,
-html[data-app-theme="light"] #settings-modal #setting-max-side,
-html[data-app-theme="light"] #settings-modal #setting-max-retries,
-html[data-app-theme="light"] #settings-modal #setting-timeout-seconds {
-    background: rgba(255, 255, 255, 0.94) !important;
-    border-color: rgba(148, 163, 184, 0.28) !important;
-    color: #223047 !important;
-    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
-}
-
-html[data-app-theme="light"] #settings-modal .api-config-card .card-field select {
-    background-color: rgba(255, 255, 255, 0.96) !important;
-    border-color: rgba(148, 163, 184, 0.32) !important;
-    color: #223047 !important;
-    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
-}
-
-html[data-app-theme="light"] #settings-modal .api-config-card .card-field select option {
-    background: #ffffff !important;
-    color: #223047 !important;
-}
-
-html[data-app-theme="light"] #settings-modal .api-config-card .card-field input:focus,
-html[data-app-theme="light"] #settings-modal .api-config-card .card-field select:focus,
-html[data-app-theme="light"] #settings-modal #proxy-ip:focus,
-html[data-app-theme="light"] #settings-modal #proxy-port:focus,
-html[data-app-theme="light"] #settings-modal #setting-max-side:focus,
-html[data-app-theme="light"] #settings-modal #setting-max-retries:focus,
-html[data-app-theme="light"] #settings-modal #setting-timeout-seconds:focus {
-    border-color: rgba(59, 130, 246, 0.34) !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 html[data-app-theme="light"] #settings-modal .api-config-card .card-field input.notification-volume-slider {
