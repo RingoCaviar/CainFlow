@@ -3,10 +3,14 @@
     --settings-dialog-backdrop: var(--overlay-backdrop);
     --settings-dialog-panel-bg: var(--panel-bg-strong);
     --settings-dialog-panel-border: var(--panel-border-strong);
-    --settings-dialog-panel-shadow: var(--panel-shadow-strong);
     --settings-dialog-divider: var(--panel-border);
-    --settings-dialog-section-bg: var(--panel-bg-soft);
-    --settings-dialog-section-border: var(--panel-border);
+    --settings-dialog-section-bg: var(--panel-section-bg, var(--panel-bg-soft));
+    --settings-dialog-section-border: var(--panel-section-border, var(--panel-border));
+    --settings-dialog-section-shadow: var(--panel-section-shadow, none);
+    --settings-dialog-section-hover-border: var(--panel-section-hover-border, var(--panel-hover-border));
+    --settings-dialog-section-hover-shadow: var(--panel-section-hover-shadow, var(--settings-dialog-section-shadow));
+    --settings-dialog-tabs-bg: var(--panel-tabs-bg, var(--settings-dialog-section-bg));
+    --settings-dialog-heading: var(--panel-heading-accent, var(--accent-cyan));
     --settings-dialog-text: var(--text-secondary);
     --settings-dialog-muted-text: var(--text-primary);
     --settings-dialog-code-bg: var(--panel-accent-bg);

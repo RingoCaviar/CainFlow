@@ -71,6 +71,8 @@
     --panel-accent-bg: rgba(78, 118, 105, 0.1);
     --panel-accent-border: rgba(78, 118, 105, 0.28);
     --panel-accent-text: #34574c;
+    --panel-primary-action-bg: #34574c;
+    --panel-primary-action-text: #ffffff;
     --node-select-bg: #f2f0eb;
     --node-select-border: #d9d5cc;
     --node-select-text: var(--text-primary);

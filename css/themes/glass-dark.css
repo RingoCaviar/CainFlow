@@ -120,6 +120,9 @@
     --panel-accent-bg: var(--glass-accent-soft);
     --panel-accent-border: rgba(125, 211, 252, 0.24);
     --panel-accent-text: #b7e3f5;
+    --panel-primary-action-bg: #0369a1;
+    --panel-primary-action-text: #ffffff;
+    --panel-focus-ring: #7dd3fc;
     --notice-bg: var(--glass-surface);
     --notice-border: var(--glass-border);
     --notice-shadow: none;

@@ -6,8 +6,8 @@ html:root #settings-modal {
     --settings-input-hover-bg: var(--panel-control-hover-bg);
     --settings-input-hover-border: var(--panel-control-hover-border);
     --settings-input-hover-text: var(--panel-control-hover-text);
-    --settings-input-focus-border: var(--panel-active-border);
-    --settings-input-focus-ring: var(--text-primary);
+    --settings-input-focus-border: var(--panel-focus-ring, var(--panel-primary-action-bg, var(--accent-cyan)));
+    --settings-input-focus-ring: var(--panel-focus-ring, var(--panel-primary-action-bg, var(--accent-cyan)));
     --settings-input-disabled-bg: var(--surface-muted);
     --settings-input-disabled-border: var(--panel-border);
     --settings-input-disabled-text: var(--text-dim);
@@ -19,12 +19,14 @@ html:root #settings-modal {
     --settings-action-secondary-hover-bg: var(--panel-control-hover-bg);
     --settings-action-secondary-hover-border: var(--panel-control-hover-border);
     --settings-action-secondary-hover-text: var(--panel-control-hover-text);
-    --settings-action-primary-bg: var(--panel-accent-bg);
-    --settings-action-primary-border: var(--panel-accent-border);
-    --settings-action-primary-text: var(--text-primary);
-    --settings-action-primary-hover-bg: var(--panel-active-bg);
-    --settings-action-primary-hover-border: var(--panel-active-border);
-    --settings-action-primary-hover-text: var(--panel-control-hover-text);
+    --settings-action-primary-bg: var(--panel-primary-action-bg, var(--accent-cyan));
+    --settings-action-primary-border: var(--panel-primary-action-border, var(--accent-cyan));
+    --settings-action-primary-text: var(--panel-primary-action-text, #ffffff);
+    --settings-action-primary-hover-bg: var(--panel-primary-action-hover-bg, color-mix(in srgb, var(--settings-action-primary-bg) 86%, #000000));
+    --settings-action-primary-hover-border: var(--panel-primary-action-hover-border, var(--accent-cyan));
+    --settings-action-primary-hover-text: var(--panel-primary-action-text, #ffffff);
+    --settings-action-primary-shadow: none;
+    --settings-action-primary-hover-shadow: none;
     --settings-action-danger-bg: color-mix(in srgb, var(--accent-red) 14%, transparent);
     --settings-action-danger-border: color-mix(in srgb, var(--accent-red) 38%, transparent);
     --settings-action-danger-text: var(--text-primary);
@@ -32,7 +34,7 @@ html:root #settings-modal {
     --settings-action-danger-hover-bg: color-mix(in srgb, var(--accent-red) 18%, transparent);
     --settings-action-danger-hover-border: var(--accent-red);
     --settings-action-danger-hover-text: var(--text-primary);
-    --settings-action-focus-ring: var(--text-primary);
+    --settings-action-focus-ring: var(--panel-focus-ring, var(--panel-primary-action-bg, var(--accent-cyan)));
     --settings-toggle-off-bg: var(--panel-control-bg);
     --settings-toggle-off-border: var(--panel-control-border);
     --settings-toggle-on-bg: var(--panel-active-bg);
@@ -54,7 +56,8 @@ html:root #settings-modal {
 html:root #settings-modal .modal-panel {
     background: var(--settings-dialog-panel-bg);
     border-color: var(--settings-dialog-panel-border);
-    box-shadow: var(--settings-dialog-panel-shadow);
+    border-radius: 12px;
+    box-shadow: none;
 }
 
 html:root #settings-modal :is(.modal-header, .modal-tabs) {
@@ -67,31 +70,54 @@ html:root #settings-modal .modal-footer {
 
 html:root #settings-modal :is(.api-config-card, .general-settings-card),
 html:root #settings-modal .api-config-card.general-settings-card {
-    --settings-dialog-section-bg: var(--panel-bg-soft);
+    --settings-dialog-section-bg: var(--panel-section-bg, var(--panel-bg-soft));
     background: var(--settings-dialog-section-bg);
     border-color: var(--settings-dialog-panel-border);
     border-style: solid;
     border-width: 1px;
+    border-radius: 8px;
+    box-shadow: var(--settings-dialog-section-shadow);
 }
 
-html:root #settings-modal :is(.modal-header h2, .modal-header h3, .settings-toolbar h3) {
+html:root #settings-modal :is(.modal-header h2, .modal-header h3) {
     color: var(--text-primary);
 }
 
+html:root #settings-modal .settings-toolbar h3 {
+    color: var(--settings-dialog-heading);
+}
+
 html:root #settings-modal.modal-overlay .modal-tabs {
-    background: var(--settings-dialog-section-bg);
+    background: var(--settings-dialog-tabs-bg);
 }
 
 html:root #settings-modal.modal-overlay .modal-tab-btn {
     color: var(--settings-dialog-muted-text);
+    transition: background 140ms ease, color 140ms ease;
+}
+
+html:root #settings-modal.modal-overlay .modal-tab-btn::after {
+    left: 4px;
+    right: 4px;
+    bottom: -1px;
+    width: auto;
+    height: 2px;
+    border-radius: 0;
+    transform: none;
+    transition: background 140ms ease, opacity 140ms ease;
+}
+
+html:root #settings-modal.modal-overlay .modal-tab-btn.active::after {
+    width: auto;
 }
 
 html:root #settings-modal.modal-overlay .modal-tab-btn:hover {
+    background: var(--panel-hover-bg);
     color: var(--text-primary);
 }
 
 html:root #settings-modal.modal-overlay .modal-tab-btn.active {
-    color: var(--settings-action-primary-text);
+    color: var(--settings-dialog-heading);
 }
 
 html:root #settings-modal.modal-overlay :is(.settings-divider, .general-settings-field-divider) {
@@ -99,8 +125,12 @@ html:root #settings-modal.modal-overlay :is(.settings-divider, .general-settings
 }
 
 html:root #settings-modal.modal-overlay :is(.api-config-card, .general-settings-card):hover {
-    border-color: var(--panel-hover-border);
-    box-shadow: var(--settings-dialog-panel-shadow);
+    border-color: var(--settings-dialog-section-hover-border);
+    box-shadow: var(--settings-dialog-section-hover-shadow);
+}
+
+html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"], [type="search"], [type="tel"]), select, button) {
+    border-radius: 6px;
 }
 
 html:root #settings-modal.modal-overlay .api-config-card.is-dragging {
@@ -258,8 +288,50 @@ html:root #settings-modal.modal-overlay #models-list .card-name {
 }
 
 html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name {
-    padding: 2px 4px;
+    min-height: 30px;
+    padding: 4px 8px;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--text-primary);
     font-size: 14px;
+    font-weight: 650;
+    line-height: 1.4;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name:not([readonly]):is(:focus, .is-focused) {
+    background: transparent;
+    border-color: transparent;
+    border-bottom-color: var(--settings-input-focus-border);
+    border-radius: 0;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name:is(:focus, .is-focused) {
+    outline: none;
+    box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .card-drag-handle {
+    width: 28px;
+    height: 30px;
+    flex-basis: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--settings-dialog-muted-text);
+    font-size: 14px;
+    opacity: 0.7;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+html:root #settings-modal.modal-overlay .card-drag-handle:hover {
+    background: var(--panel-hover-bg);
+    border-color: var(--panel-hover-border);
+    color: var(--settings-dialog-heading);
+    opacity: 1;
+}
+
+html:root #settings-modal.modal-overlay :is(.provider-config-card, .model-config-card).is-collapsed .card-header {
+    gap: 10px;
 }
 
 html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost, .card-btn-collapse, .eye-toggle-btn) {
@@ -279,13 +351,14 @@ html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .card-btn
     background: var(--settings-action-primary-bg);
     border-color: var(--settings-action-primary-border);
     color: var(--settings-action-primary-text);
-    box-shadow: none;
+    box-shadow: var(--settings-action-primary-shadow);
 }
 
 html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .card-btn-fetch-models):is(:hover, .is-hovered) {
     background: var(--settings-action-primary-hover-bg);
     border-color: var(--settings-action-primary-hover-border);
     color: var(--settings-action-primary-hover-text);
+    box-shadow: var(--settings-action-primary-hover-shadow);
 }
 
 html:root #settings-modal.modal-overlay :is(.btn-danger, .card-btn-delete, .btn-delete-protocol) {

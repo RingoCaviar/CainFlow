@@ -34,4 +34,6 @@
     --surface-strong: rgba(255, 255, 255, 0.12);
     --bg-dark: var(--bg-toolbar);
     --panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    --panel-primary-action-bg: #0e7490;
+    --panel-primary-action-text: #ffffff;
 }

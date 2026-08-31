@@ -30,6 +30,18 @@ test('settings surfaces render from the semantic palette in every supported them
             rootBackground: _rootBackground,
             pageBackground: _pageBackground,
             overlayBackground: _overlayBackground,
+            cardShadow: _cardShadow,
+            toolbarTitleColor: _toolbarTitleColor,
+            accentActionBackground: _accentActionBackground,
+            accentActionShadow: _accentActionShadow,
+            tabIndicatorHeight: _tabIndicatorHeight,
+            tabIndicatorRadius: _tabIndicatorRadius,
+            tabIndicatorTransform: _tabIndicatorTransform,
+            tabTransition: _tabTransition,
+            cardNameBackground: _cardNameBackground,
+            cardNameShadow: _cardNameShadow,
+            cardNameFocusShadow: _cardNameFocusShadow,
+            cardNameFocusBottomBorder: _cardNameFocusBottomBorder,
             ...surfaceActual
         } = measurement.actual;
         assert.deepEqual(
@@ -72,9 +84,12 @@ test('settings surfaces render from the semantic palette in every supported them
         assert.equal(measurement.actionStates.length, 12);
         for (const action of measurement.actionStates) {
             assert.deepEqual({ actual: action.actual, outline: action.outline }, action.semantic, `${measurement.themeId} ${action.kind} ${action.state} must consume semantic action roles`);
-            assert.notEqual(action.actual.background, 'rgba(0, 0, 0, 0)', `${measurement.themeId} ${action.kind} ${action.state} needs a semantic surface`);
+            assert.ok(
+                action.actual.background !== 'rgba(0, 0, 0, 0)' || action.actual.backgroundImage !== 'none',
+                `${measurement.themeId} ${action.kind} ${action.state} needs a semantic surface`,
+            );
             assert.ok(action.actual.border, `${measurement.themeId} ${action.kind} ${action.state} needs a semantic border`);
-            if (action.state !== 'disabled') {
+            if (action.state !== 'disabled' && action.actual.backgroundImage === 'none') {
                 const actionBackground = composite(parseColor(action.actual.background), cardBackground);
                 const actionText = composite(parseColor(action.actual.color), actionBackground);
                 const actionRatio = contrastRatio(actionText, actionBackground);
@@ -116,6 +131,19 @@ test('settings surfaces render from the semantic palette in every supported them
     }
 });
 
+test('settings tabs and editable card names keep their flat interaction language', () => {
+    for (const measurement of renderFixture()) {
+        assert.equal(measurement.actual.tabIndicatorHeight, '2px', 'active tabs must use a precise two-pixel underline');
+        assert.equal(measurement.actual.tabIndicatorRadius, '0px', 'active tabs must not use a pill indicator');
+        assert.equal(measurement.actual.tabIndicatorTransform, 'none', 'active tab indicator must not move or scale');
+        assert.doesNotMatch(measurement.actual.tabTransition, /\btransform\b|\ball\b/, 'tabs must only animate visual color changes');
+        assert.equal(measurement.actual.cardNameBackground, 'rgba(0, 0, 0, 0)', 'editable card names must not appear as filled fields');
+        assert.equal(measurement.actual.cardNameShadow, 'none', 'editable card names must not use elevation');
+        assert.equal(measurement.actual.cardNameFocusShadow, 'none', 'focused card names must not use a focus box');
+        assert.notEqual(measurement.actual.cardNameFocusBottomBorder, 'rgba(0, 0, 0, 0)', 'focused card names must expose a fine underline');
+    }
+});
+
 test('seven-theme settings state matrix produces distinct browser screenshots', () => {
     verifyScreenshotMatrix({
         fixtureUrl: fixturePath,
@@ -123,4 +151,14 @@ test('seven-theme settings state matrix produces distinct browser screenshots', 
         profilePrefix: 'cainflow-settings-screenshots-',
         themeIds,
     });
+});
+
+test('settings visual treatment remains flat while preserving semantic emphasis', () => {
+    for (const treatment of renderFixture()) {
+        assert.equal(treatment.actual.cardBackground.includes('linear-gradient'), false, 'settings cards must use flat surfaces');
+        assert.equal(treatment.actual.cardShadow, 'none', 'settings cards must not use elevation shadows');
+        assert.equal(treatment.actual.accentActionBackground, 'none', 'settings accent actions must use flat fills');
+        assert.equal(treatment.actual.accentActionShadow, 'none', 'settings accent actions must not use elevation shadows');
+        assert.notEqual(treatment.actual.toolbarTitleColor, treatment.actual.textColor, 'settings headings must retain semantic emphasis');
+    }
 });

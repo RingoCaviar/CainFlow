@@ -101,6 +101,8 @@
     --panel-accent-bg: rgba(244, 114, 182, 0.12);
     --panel-accent-border: rgba(244, 114, 182, 0.24);
     --panel-accent-text: #be185d;
+    --panel-primary-action-bg: #be185d;
+    --panel-primary-action-text: #ffffff;
     --notice-bg: rgba(255, 251, 253, 0.94);
     --notice-border: rgba(244, 114, 182, 0.22);
     --notice-shadow: 0 14px 30px rgba(190, 24, 93, 0.12);

@@ -5,13 +5,23 @@ import test from 'node:test';
 const settingsSurfaceRoles = [
     '--settings-dialog-panel-bg',
     '--settings-dialog-panel-border',
-    '--settings-dialog-panel-shadow',
     '--settings-dialog-divider',
     '--settings-dialog-section-bg',
     '--settings-dialog-section-border',
     '--settings-dialog-text',
     '--settings-dialog-muted-text',
 ];
+
+test('the real application entry loads semantic skins after theme styles', async () => {
+    const entry = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    const themeEntry = entry.indexOf('href="css/themes.css"');
+    const settingsSkin = entry.indexOf('href="css/features/settings-theme-skin.css"');
+    const menuDialogSkin = entry.indexOf('href="css/features/menu-dialog-theme-skin.css"');
+
+    assert.ok(themeEntry >= 0, 'the real application entry must load theme styles');
+    assert.ok(settingsSkin > themeEntry, 'the real application entry must load the settings skin after theme styles');
+    assert.ok(menuDialogSkin > themeEntry, 'the real application entry must load the menu and dialog skin after theme styles');
+});
 
 test('the settings surface contract maps feature roles to the shared panel palette', async () => {
     const stylesheet = await readFile(
