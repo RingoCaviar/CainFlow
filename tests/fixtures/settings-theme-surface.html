@@ -155,6 +155,10 @@
                 const toggleStates = [...document.querySelectorAll('[data-toggle-state]')].map((control) => ({
                     state: control.dataset.toggleState,
                     actual: styleTuple(control.nextElementSibling),
+                    thumb: (() => {
+                        const thumb = getComputedStyle(control.nextElementSibling, '::before');
+                        return { top: thumb.top, transform: thumb.transform };
+                    })(),
                     outline: getComputedStyle(control.nextElementSibling).outline,
                     opacity: getComputedStyle(control.nextElementSibling).opacity,
                 }));

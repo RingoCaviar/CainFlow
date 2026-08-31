@@ -536,26 +536,6 @@
     white-space: nowrap;
 }
 
-#settings-modal .toggle-switch {
-    width: 42px;
-    height: 24px;
-}
-
-#settings-modal .toggle-slider {
-    box-sizing: border-box;
-}
-
-#settings-modal .toggle-slider::before {
-    width: 18px;
-    height: 18px;
-    left: 3px;
-    top: 3px;
-}
-
-#settings-modal .toggle-switch input:checked + .toggle-slider::before {
-    transform: translateX(18px);
-}
-
 #settings-modal .modal-panel {
     width: 1105px;
 }

@@ -37,9 +37,9 @@ html:root #settings-modal {
     --settings-action-focus-ring: var(--panel-focus-ring, var(--panel-primary-action-bg, var(--accent-cyan)));
     --settings-toggle-off-bg: var(--panel-control-bg);
     --settings-toggle-off-border: var(--panel-control-border);
-    --settings-toggle-on-bg: var(--panel-active-bg);
-    --settings-toggle-on-border: var(--panel-active-border);
-    --settings-toggle-thumb: var(--text-primary);
+    --settings-toggle-on-bg: var(--panel-primary-action-bg, var(--accent-cyan));
+    --settings-toggle-on-border: var(--panel-primary-action-border, var(--settings-toggle-on-bg));
+    --settings-toggle-thumb: var(--panel-primary-action-text, #ffffff);
     --settings-slider-accent: var(--panel-accent-text);
     --settings-slider-track: var(--panel-control-bg);
     --settings-slider-track-border: var(--panel-control-border);
@@ -389,20 +389,35 @@ html:root #settings-modal.modal-overlay :is(.btn-primary, .btn-accent, .btn-seco
 }
 
 html:root #settings-modal.modal-overlay .toggle-slider {
+    box-sizing: border-box;
     background: var(--settings-toggle-off-bg);
     border: 1px solid var(--settings-toggle-off-border);
     box-shadow: none;
 }
 
 html:root #settings-modal.modal-overlay .toggle-slider::before {
+    width: 18px;
+    height: 18px;
+    left: 3px;
+    top: 50%;
+    transform: translateY(-50%);
     background: var(--settings-toggle-thumb);
     box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .toggle-switch {
+    width: 42px;
+    height: 24px;
 }
 
 html:root #settings-modal.modal-overlay .toggle-switch input:checked + .toggle-slider {
     background: var(--settings-toggle-on-bg);
     border-color: var(--settings-toggle-on-border);
     box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .toggle-switch input:checked + .toggle-slider::before {
+    transform: translate(18px, -50%);
 }
 
 html:root #settings-modal.modal-overlay .toggle-switch input:is(:focus-visible, .is-focused) + .toggle-slider {

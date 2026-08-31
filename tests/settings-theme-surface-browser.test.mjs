@@ -110,6 +110,10 @@ test('settings surfaces render from the semantic palette in every supported them
             measurement.toggleStates[1].actual,
             `${measurement.themeId} toggle on and off states must be distinct`,
         );
+        const enabledToggle = measurement.toggleStates.find((toggle) => toggle.state === 'on');
+        assert.equal(parseColor(enabledToggle.actual.background)[3], 1, `${measurement.themeId} enabled toggle must have an unambiguous solid state`);
+        assert.equal(enabledToggle.thumb.top, '11px', `${measurement.themeId} enabled toggle thumb must be vertically centered inside its bordered track`);
+        assert.match(enabledToggle.thumb.transform, /matrix\(1, 0, 0, 1, 18, -9\)/, `${measurement.themeId} enabled toggle thumb must preserve vertical centering while moving`);
         assert.notEqual(measurement.toggleStates[2].outline, 'none', `${measurement.themeId} toggle focus must be visible`);
         assert.notEqual(measurement.toggleStates[3].opacity, measurement.toggleStates[0].opacity, `${measurement.themeId} disabled toggle must be visually distinct`);
         for (const kind of ['input', 'select']) {
