@@ -307,6 +307,12 @@ export function createSessionManagerApi({
         saveTimer = setTimeout(saveState, 300);
     }
 
+    function flushSave() {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        return saveState();
+    }
+
     function updateUndoButton() {
         const btn = documentRef.getElementById('btn-undo');
         if (btn) btn.disabled = state.undoStack.length === 0;
@@ -433,6 +439,7 @@ export function createSessionManagerApi({
     return {
         scheduleSave,
         saveState,
+        flushSave,
         saveViewportState,
         loadViewportState,
         setBeforeSave,

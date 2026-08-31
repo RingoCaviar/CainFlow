@@ -13,6 +13,12 @@ const GROUP_DOCUMENTS = [
     { name: 'notice_state', prefix: 'cainflow_', fallback: true }
 ];
 
+const KEEPALIVE_BODY_LIMIT = 60 * 1024;
+
+function canUseKeepalive(body) {
+    return new TextEncoder().encode(body).byteLength <= KEEPALIVE_BODY_LIMIT;
+}
+
 function parseStoredJson(value, fallback = null) {
     try {
         return JSON.parse(value);
@@ -129,12 +135,17 @@ class DiskStorageFacade {
     queueDocument(name, value) {
         this.pending.set(name, value);
         if (!this.flushPromise) {
-            this.flushPromise = Promise.resolve().then(() => this.flush()).catch((error) => {
-                this.lastError = error;
+            this.flushPromise = this.flush().catch((error) => {
                 console.error('CainFlow 硬盘数据保存失败:', error);
-                this.onError?.(error);
+                this.reportError(error);
             });
         }
+    }
+
+    reportError(error) {
+        const shouldNotify = !this.lastError;
+        this.lastError = error;
+        if (shouldNotify) this.onError?.(error);
     }
 
     async flush() {
@@ -143,13 +154,16 @@ class DiskStorageFacade {
                 const batch = Array.from(this.pending.entries());
                 this.pending.clear();
                 try {
-                    await Promise.all(batch.map(([name, value]) => fetch(`/api/storage/documents/${encodeURIComponent(name)}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ value })
-                    }).then((response) => {
+                    await Promise.all(batch.map(async ([name, value]) => {
+                        const body = JSON.stringify({ value });
+                        const response = await fetch(`/api/storage/documents/${encodeURIComponent(name)}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body,
+                            keepalive: canUseKeepalive(body)
+                        });
                         if (!response.ok) throw new Error(`保存 ${name} 失败: HTTP ${response.status}`);
-                    })));
+                    }));
                     this.lastError = null;
                 } catch (error) {
                     batch.forEach(([name, value]) => {
@@ -164,9 +178,8 @@ class DiskStorageFacade {
                 this.retryTimer = setTimeout(() => {
                     this.retryTimer = null;
                     if (!this.flushPromise) this.flushPromise = Promise.resolve().then(() => this.flush()).catch((error) => {
-                        this.lastError = error;
                         console.error('CainFlow 硬盘数据重试保存失败:', error);
-                        this.onError?.(error);
+                        this.reportError(error);
                     });
                 }, 2000);
             }

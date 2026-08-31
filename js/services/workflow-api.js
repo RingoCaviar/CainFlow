@@ -16,7 +16,7 @@ export async function fetchWorkflows() {
     const result = await requestWorkflow('/api/workflows', undefined, '读取工作流列表失败');
     if (result?.ok === false) {
         console.error(result.message);
-        return [];
+        return null;
     }
     const payload = await result.json();
     return Array.isArray(payload) ? payload : (Array.isArray(payload?.workflows) ? payload.workflows : []);
@@ -26,7 +26,7 @@ export async function fetchWorkflowEntries() {
     const result = await requestWorkflow('/api/workflows', undefined, '读取工作流列表失败');
     if (result?.ok === false) {
         console.error(result.message);
-        return { workflows: [], folders: [] };
+        return null;
     }
     const payload = await result.json();
     return Array.isArray(payload)

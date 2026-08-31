@@ -86,6 +86,7 @@ export function createWorkflowSelectionAdapter({
     showToast,
     renderWorkflowList,
     scheduleSave,
+    saveSession = () => {},
     releaseEditorView = () => false,
     releaseWorkflowTabMemory,
     enterSafeEmpty,
@@ -227,7 +228,7 @@ export function createWorkflowSelectionAdapter({
                             onRestoreError: (error) => console.error('Workflow activation rollback failed:', error)
                         });
                     },
-                    finalize() {
+                    async finalize() {
                         editorView.finalize?.();
                         const active = getActiveWorkflow();
                         const effects = [
@@ -235,10 +236,10 @@ export function createWorkflowSelectionAdapter({
                             onConnectionsChanged,
                             () => scheduleAssetCleanup({ includeCanvas: true }),
                             () => showToast(`已打开工作流: ${active?.label || name}`, 'success'),
-                            renderWorkflowList,
-                            () => scheduleSave({ dirty: false })
+                            renderWorkflowList
                         ];
                         effects.forEach((effect) => { try { effect(); } catch (error) { console.warn('Workflow activation finalizer failed:', error); } });
+                        await saveSession();
                     },
                     dispose: () => editorView.dispose?.()
                 };

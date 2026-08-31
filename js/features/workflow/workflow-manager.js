@@ -50,6 +50,7 @@ export function createWorkflowManagerApi({
     updatePortStyles,
     onConnectionsChanged = () => {},
     scheduleSave,
+    saveSession = () => {},
     showToast,
     panelManager,
     clearImageAssets = null,
@@ -142,6 +143,7 @@ export function createWorkflowManagerApi({
         showToast,
         renderWorkflowList,
         scheduleSave,
+        saveSession,
         releaseEditorView: releaseDetachedEditorView,
         releaseWorkflowTabMemory,
         enterSafeEmpty: applySafeEmptyWorkflow,
@@ -401,8 +403,9 @@ export function createWorkflowManagerApi({
         return value === RUN_RESULT_SUCCESS || value === RUN_RESULT_ERROR ? value : '';
     }
 
-    async function fetchWorkflows() {
-        return fetchWorkflowsService();
+    async function fetchWorkflows({ fallback = [] } = {}) {
+        const workflows = await fetchWorkflowsService();
+        return Array.isArray(workflows) ? workflows : fallback;
     }
 
     async function fetchWorkflowEntries() {
@@ -420,7 +423,9 @@ export function createWorkflowManagerApi({
 
     async function getWorkflowEntriesForRender({ forceReload = false } = {}) {
         if (!forceReload && hasCachedWorkflowEntries) return cachedWorkflowEntries;
-        return updateWorkflowEntriesCache(await fetchWorkflowEntries());
+        const entries = await fetchWorkflowEntries();
+        if (!entries) return hasCachedWorkflowEntries ? cachedWorkflowEntries : null;
+        return updateWorkflowEntriesCache(entries);
     }
 
     function removeWorkflowEntriesFromCache(names = []) {
@@ -1392,7 +1397,7 @@ export function createWorkflowManagerApi({
         tab.runResult = '';
     }
 
-    function pruneWorkflowStateToNames(names = []) {
+    async function pruneWorkflowStateToNames(names = []) {
         normalizeWorkflowTabs();
         const validNames = new Set(names.filter((name) => typeof name === 'string' && name));
         const previousTabs = state.workflowTabs || [];
@@ -1402,10 +1407,19 @@ export function createWorkflowManagerApi({
             { workflowId: getActiveWorkflowId(), workflowName: getActiveWorkflowName() }
         );
         const retained = new Set(retainedTabs);
-        previousTabs.forEach((tab) => {
-            if (!retained.has(tab)) releaseWorkflowTabMemory(tab);
+        const staleTabs = previousTabs.filter((tab) => !retained.has(tab));
+        const openWorkflowIds = new Set(workflowDesk.snapshot().open.map(({ workflowId }) => workflowId));
+        const staleOpenWorkflowIds = staleTabs
+            .map(getWorkflowIdentity)
+            .filter((workflowId) => workflowId && openWorkflowIds.has(workflowId));
+        if (staleOpenWorkflowIds.length > 0) {
+            const closed = await workflowDesk.workflows(staleOpenWorkflowIds).close();
+            if (closed.status !== 'committed') return false;
+        }
+        staleTabs.forEach((tab) => {
+            if (!openWorkflowIds.has(getWorkflowIdentity(tab))) releaseWorkflowTabMemory(tab);
         });
-        state.workflowTabs = retainedTabs;
+        state.workflowTabs = (state.workflowTabs || []).filter((tab) => retained.has(tab));
         state.workflowOrder = (state.workflowOrder || []).filter((entry) => (
             entry.startsWith('folder:') || validNames.has(entry)
         ));
@@ -1417,6 +1431,7 @@ export function createWorkflowManagerApi({
         selectedWorkflowNames.forEach((name) => {
             if (!validNames.has(name)) selectedWorkflowNames.delete(name);
         });
+        return true;
     }
 
     function findNextUnsavedName(names) {
@@ -1954,11 +1969,11 @@ export function createWorkflowManagerApi({
     async function renderWorkflowList({ forceReload = true } = {}) {
         const list = documentRef.getElementById('workflow-list');
         const workflowEntries = await getWorkflowEntriesForRender({ forceReload });
-        if (!list) return;
+        if (!list || !workflowEntries) return;
         bindWorkflowListEvents(list);
         const renderSequence = ++workflowListRenderSequence;
         const workflowNames = Array.from(new Set(workflowEntries.workflows || []));
-        pruneWorkflowStateToNames(workflowNames);
+        await pruneWorkflowStateToNames(workflowNames);
         const rootEntries = normalizeWorkflowOrder(workflowNames, workflowEntries.folders);
         pruneWorkflowSelection(workflowNames);
 
@@ -2551,8 +2566,12 @@ export function createWorkflowManagerApi({
     }
 
     async function ensureOpenWorkflow({ useCurrentCanvas = true } = {}) {
-        const names = await fetchWorkflows();
-        pruneWorkflowStateToNames(names);
+        const names = await fetchWorkflows({ fallback: null });
+        if (!Array.isArray(names)) {
+            if (getActiveWorkflowTab()) return true;
+            return ensureActiveWorkflowExists({ inheritCurrentCanvas: useCurrentCanvas });
+        }
+        await pruneWorkflowStateToNames(names);
         const activeTab = getActiveWorkflowTab();
         if (activeTab) return true;
         const fallbackName = names[0] || '';

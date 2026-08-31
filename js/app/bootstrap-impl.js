@@ -50,6 +50,7 @@ import { createCameraControlNodeApi } from '../features/camera/camera-control-no
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
+import { installSessionPersistenceOnExit } from '../features/persistence/session-persistence-lifecycle.js';
 import { createClipboardControllerApi } from '../features/ui/clipboard-controller.js';
 import { createGlobalInteractionsApi } from '../features/ui/global-interactions.js';
 import { createContextMenuControllerApi } from '../features/ui/context-menu-controller.js';
@@ -1323,6 +1324,11 @@ const workflowManagerApi = createWorkflowManagerApi({
     updatePortStyles,
     onConnectionsChanged: () => handleNodeGraphChanged(),
     scheduleSave,
+    saveSession: async () => {
+        if (!saveState()) return false;
+        await diskStorage.flushPromise;
+        return diskStorage.lastError === null;
+    },
     showToast,
     panelManager,
     clearImageAssets,
@@ -1518,6 +1524,7 @@ function copyToClipboard(text) {
 
 getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
+installSessionPersistenceOnExit({ flushSession: () => getSessionManagerApi().flushSave() });
 renderProjectionManager.init();
 interactionPerformanceGuard.init();
 const startupPromise = getStartupControllerApi().initStartup();
