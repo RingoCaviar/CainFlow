@@ -1,0 +1,36 @@
+/* Settings owns component selectors; themes provide the semantic panel palette. */
+html:root #settings-modal {
+    background: var(--settings-dialog-backdrop);
+    color: var(--settings-dialog-text);
+}
+
+html:root #settings-modal .modal-panel {
+    background: var(--settings-dialog-panel-bg);
+    border-color: var(--settings-dialog-panel-border);
+    box-shadow: var(--settings-dialog-panel-shadow);
+}
+
+html:root #settings-modal :is(.modal-header, .modal-tabs) {
+    border-bottom-color: var(--settings-dialog-divider);
+}
+
+html:root #settings-modal .modal-footer {
+    border-top-color: var(--settings-dialog-divider);
+}
+
+html:root #settings-modal :is(.api-config-card, .general-settings-card),
+html:root #settings-modal .api-config-card.general-settings-card {
+    --settings-dialog-section-bg: var(--panel-bg-soft);
+    background: var(--settings-dialog-section-bg);
+    border-color: var(--settings-dialog-panel-border);
+    border-style: solid;
+    border-width: 1px;
+}
+
+html:root #settings-modal :is(.modal-header h2, .modal-header h3, .settings-toolbar h3) {
+    color: var(--text-primary);
+}
+
+html:root #settings-modal :is(.endpoint-preview, .footer-left, .footer-left span) {
+    color: var(--settings-dialog-muted-text);
+}

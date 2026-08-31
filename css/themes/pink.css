@@ -1022,8 +1022,6 @@ html[data-app-theme="pink"] .prompt-import-btn:hover {
     color: var(--text-primary);
 }
 
-html[data-app-theme="pink"] #settings-modal .api-config-card,
-html[data-app-theme="pink"] #settings-modal .general-settings-card,
 html[data-app-theme="pink"] .provider-models-panel,
 html[data-app-theme="pink"] .api-settings-help-panel {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 247, 251, 0.98));
@@ -1090,8 +1088,7 @@ html[data-app-theme="pink"] #general-settings .general-settings-card .card-field
 html[data-app-theme="pink"] #general-settings .general-settings-card .card-field p,
 html[data-app-theme="pink"] #general-settings .general-settings-card span,
 html[data-app-theme="pink"] #general-settings .general-settings-card strong,
-html[data-app-theme="pink"] #general-settings .update-status-indicator,
-html[data-app-theme="pink"] #settings-modal .endpoint-preview {
+html[data-app-theme="pink"] #general-settings .update-status-indicator {
     color: var(--text-secondary) !important;
 }
 
@@ -1277,11 +1274,6 @@ html[data-app-theme="pink"] #settings-modal .update-version-summary,
 html[data-app-theme="pink"] #general-settings .update-version-summary {
     background: rgba(255, 255, 255, 0.76);
     border-color: var(--border-color);
-}
-
-html[data-app-theme="pink"] #settings-modal .footer-left span {
-    color: #aa7d95 !important;
-    opacity: 1 !important;
 }
 
 html[data-app-theme="pink"] .provider-multiselect-panel {

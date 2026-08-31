@@ -525,8 +525,6 @@ html[data-app-theme="glass-dark"] .camera-control-editor-overlay {
 }
 
 html[data-app-theme="glass-dark"] .workflow-item,
-html[data-app-theme="glass-dark"] .api-config-card,
-html[data-app-theme="glass-dark"] #settings-modal .general-settings-card,
 html[data-app-theme="glass-dark"] .cache-info-card,
 html[data-app-theme="glass-dark"] .cache-item,
 html[data-app-theme="glass-dark"] .cache-breakdown,
@@ -694,11 +692,9 @@ html[data-app-theme="glass-dark"] .provider-models-row-id,
 html[data-app-theme="glass-dark"] .api-settings-help-subtitle,
 html[data-app-theme="glass-dark"] .api-settings-help-section p,
 html[data-app-theme="glass-dark"] .api-settings-help-section li,
-html[data-app-theme="glass-dark"] #settings-modal .footer-left span,
 html[data-app-theme="glass-dark"] #general-settings .general-settings-card .card-field p,
 html[data-app-theme="glass-dark"] #general-settings .general-settings-card span,
-html[data-app-theme="glass-dark"] #general-settings .update-status-indicator,
-html[data-app-theme="glass-dark"] #settings-modal .endpoint-preview {
+html[data-app-theme="glass-dark"] #general-settings .update-status-indicator {
     color: var(--text-secondary) !important;
 }
 

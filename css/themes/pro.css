@@ -362,8 +362,6 @@ html[data-app-theme="pro"] .cache-breakdown {
     border-color: rgba(148, 163, 184, 0.12) !important;
 }
 
-html[data-app-theme="pro"] #settings-modal .api-config-card,
-html[data-app-theme="pro"] #settings-modal .general-settings-card,
 html[data-app-theme="pro"] .provider-models-panel,
 html[data-app-theme="pro"] .api-settings-help-panel {
     background: linear-gradient(180deg, rgba(24, 31, 46, 0.98), rgba(18, 24, 36, 0.98));
@@ -430,8 +428,7 @@ html[data-app-theme="pro"] #general-settings .general-settings-card .card-field 
 html[data-app-theme="pro"] #general-settings .general-settings-card .card-field p,
 html[data-app-theme="pro"] #general-settings .general-settings-card span,
 html[data-app-theme="pro"] #general-settings .general-settings-card strong,
-html[data-app-theme="pro"] #general-settings .update-status-indicator,
-html[data-app-theme="pro"] #settings-modal .endpoint-preview {
+html[data-app-theme="pro"] #general-settings .update-status-indicator {
     color: var(--text-secondary) !important;
 }
 
@@ -520,8 +517,7 @@ html[data-app-theme="pro"] .provider-models-subtitle,
 html[data-app-theme="pro"] .provider-models-row-id,
 html[data-app-theme="pro"] .api-settings-help-subtitle,
 html[data-app-theme="pro"] .api-settings-help-section p,
-html[data-app-theme="pro"] .api-settings-help-section li,
-html[data-app-theme="pro"] #settings-modal .footer-left span {
+html[data-app-theme="pro"] .api-settings-help-section li {
     color: var(--text-dim) !important;
 }
 

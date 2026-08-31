@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../index.css">
+</head>
+<body>
+    <div id="settings-modal" class="modal-overlay">
+        <section class="modal-panel">
+            <header class="modal-header"><h2>设置</h2></header>
+            <nav class="modal-tabs"><button class="modal-tab-btn active">通用</button></nav>
+            <main class="modal-body">
+                <section class="settings-section">
+                    <article class="general-settings-card api-config-card">
+                        <div class="card-header"><span class="card-name">界面设置</span></div>
+                        <p class="endpoint-preview">调整 CainFlow 的显示方式。</p>
+                        <span id="card-probe" style="position:absolute;left:-9999px;background:var(--settings-dialog-section-bg);border:1px solid var(--settings-dialog-panel-border)"></span>
+                    </article>
+                </section>
+            </main>
+            <footer class="modal-footer"><span class="footer-left">设置会自动保存</span></footer>
+        </section>
+    </div>
+    <div id="panel-probe" style="position:absolute;left:-9999px;background:var(--settings-dialog-panel-bg);border:1px solid var(--settings-dialog-panel-border);box-shadow:var(--settings-dialog-panel-shadow)"></div>
+    <div id="text-probe" style="position:absolute;left:-9999px;color:var(--text-primary)"></div>
+    <div id="muted-text-probe" style="position:absolute;left:-9999px;color:var(--settings-dialog-muted-text)"></div>
+    <div id="divider-probe" style="position:absolute;left:-9999px;border-top:1px solid var(--settings-dialog-divider)"></div>
+    <pre id="surface-result"></pre>
+    <script>
+        const themeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        window.addEventListener('load', () => {
+            const root = document.documentElement;
+            const panel = document.querySelector('#settings-modal .modal-panel');
+            const card = document.querySelector('#settings-modal .general-settings-card');
+            const title = document.querySelector('#settings-modal .modal-header h2');
+            const header = document.querySelector('#settings-modal .modal-header');
+            const footer = document.querySelector('#settings-modal .modal-footer');
+            const bodyText = document.querySelector('#settings-modal .endpoint-preview');
+            const footerText = document.querySelector('#settings-modal .footer-left');
+            const panelProbe = document.querySelector('#panel-probe');
+            const cardProbe = document.querySelector('#card-probe');
+            const textProbe = document.querySelector('#text-probe');
+            const mutedTextProbe = document.querySelector('#muted-text-probe');
+            const dividerProbe = document.querySelector('#divider-probe');
+            const measurements = themeIds.map((themeId) => {
+                root.dataset.appTheme = themeId;
+                const rootStyle = getComputedStyle(root);
+                const panelStyle = getComputedStyle(panel);
+                const cardStyle = getComputedStyle(card);
+                const panelProbeStyle = getComputedStyle(panelProbe);
+                const cardProbeStyle = getComputedStyle(cardProbe);
+                return {
+                    themeId,
+                    actual: {
+                        panelBackground: panelStyle.background,
+                        panelBorder: panelStyle.borderTopColor,
+                        panelShadow: panelStyle.boxShadow,
+                        cardBackground: cardStyle.background,
+                        textColor: getComputedStyle(title).color,
+                        bodyTextColor: getComputedStyle(bodyText).color,
+                        footerTextColor: getComputedStyle(footerText).color,
+                        headerDivider: getComputedStyle(header).borderBottomColor,
+                        footerDivider: getComputedStyle(footer).borderTopColor,
+                    },
+                    semantic: {
+                        panelBackground: panelProbeStyle.background,
+                        panelBorder: panelProbeStyle.borderTopColor,
+                        panelShadow: panelProbeStyle.boxShadow,
+                        cardBackground: cardProbeStyle.background,
+                        textColor: getComputedStyle(textProbe).color,
+                        bodyTextColor: getComputedStyle(mutedTextProbe).color,
+                        footerTextColor: getComputedStyle(mutedTextProbe).color,
+                        headerDivider: getComputedStyle(dividerProbe).borderTopColor,
+                        footerDivider: getComputedStyle(dividerProbe).borderTopColor,
+                    },
+                    semanticRolesPresent: [
+                        '--panel-bg',
+                        '--panel-shadow-strong',
+                        '--panel-border',
+                        '--panel-bg-soft',
+                        '--text-secondary',
+                        '--text-dim',
+                    ].every((role) => rootStyle.getPropertyValue(role).trim() !== ''),
+                };
+            });
+            document.querySelector('#surface-result').textContent = JSON.stringify(measurements);
+        });
+    </script>
+</body>
+</html>

@@ -1086,12 +1086,6 @@ html[data-app-theme="light"] .prompt-import-item.selected .prompt-import-check {
     border-color: rgba(15, 118, 110, 0.36);
 }
 
-html[data-app-theme="light"] #settings-modal .modal-header,
-html[data-app-theme="light"] #settings-modal .modal-tabs,
-html[data-app-theme="light"] #settings-modal .modal-footer {
-    border-color: var(--border-color) !important;
-}
-
 html[data-app-theme="light"] #settings-modal .modal-tabs {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 255, 0.96));
 }
@@ -1176,11 +1170,6 @@ html[data-app-theme="light"] #settings-modal .card-type.google {
 html[data-app-theme="light"] #settings-modal .card-type.openai {
     background: rgba(15, 118, 110, 0.12);
     color: #0f766e;
-}
-
-html[data-app-theme="light"] #settings-modal .endpoint-preview {
-    color: #7a889d !important;
-    opacity: 1 !important;
 }
 
 html[data-app-theme="light"] #settings-modal .password-wrapper input,
@@ -1333,11 +1322,6 @@ html[data-app-theme="light"] #settings-modal .update-status-error {
 html[data-app-theme="light"] #settings-modal .update-version-summary {
     background: rgba(255, 255, 255, 0.72);
     border-color: var(--border-color);
-}
-
-html[data-app-theme="light"] #settings-modal .footer-left span {
-    color: #7a889d !important;
-    opacity: 1 !important;
 }
 
 html[data-app-theme="light"] .github-link:hover,

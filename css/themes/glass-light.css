@@ -583,8 +583,6 @@ html[data-app-theme="glass-light"] .camera-control-editor-overlay {
 }
 
 html[data-app-theme="glass-light"] .workflow-item,
-html[data-app-theme="glass-light"] .api-config-card,
-html[data-app-theme="glass-light"] #settings-modal .general-settings-card,
 html[data-app-theme="glass-light"] .cache-info-card,
 html[data-app-theme="glass-light"] .cache-item,
 html[data-app-theme="glass-light"] .cache-breakdown,
@@ -763,11 +761,9 @@ html[data-app-theme="glass-light"] .provider-models-row-id,
 html[data-app-theme="glass-light"] .api-settings-help-subtitle,
 html[data-app-theme="glass-light"] .api-settings-help-section p,
 html[data-app-theme="glass-light"] .api-settings-help-section li,
-html[data-app-theme="glass-light"] #settings-modal .footer-left span,
 html[data-app-theme="glass-light"] #general-settings .general-settings-card .card-field p,
 html[data-app-theme="glass-light"] #general-settings .general-settings-card span,
-html[data-app-theme="glass-light"] #general-settings .update-status-indicator,
-html[data-app-theme="glass-light"] #settings-modal .endpoint-preview {
+html[data-app-theme="glass-light"] #general-settings .update-status-indicator {
     color: var(--text-secondary) !important;
 }
 
@@ -1180,8 +1176,6 @@ html[data-app-theme="glass-light"] .camera-control-prompt {
 }
 
 html[data-app-theme="glass-light"] .workflow-item,
-html[data-app-theme="glass-light"] .api-config-card,
-html[data-app-theme="glass-light"] #settings-modal .general-settings-card,
 html[data-app-theme="glass-light"] .cache-info-card,
 html[data-app-theme="glass-light"] .cache-item,
 html[data-app-theme="glass-light"] .cache-breakdown,
