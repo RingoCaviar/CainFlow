@@ -4,6 +4,16 @@
     --bg-card: var(--bg-drawer);
     --border-color: rgba(255, 255, 255, 0.08);
     --text-main: var(--text-primary);
+    --accent-purple: #0e7490;
+    --accent-blue: #0891b2;
+    --accent-cyan: #22d3ee;
+    --accent-green: #34d399;
+    --accent-orange: #fbbf24;
+    --accent-red: #fb7185;
+    --accent-primary: #0e7490;
+    --port-image: #a78bfa;
+    --port-text: #22d3ee;
+    --port-any: #34d399;
     --accent-light: #7dd3fc;
     --node-concurrent-status-panel-bg: rgba(15, 23, 42, 0.88);
     --node-concurrent-status-panel-border: rgba(148, 163, 184, 0.34);
@@ -19,7 +29,7 @@
     --painter-board-check-b: rgba(0, 0, 0, 0.12);
     --painter-board-glow: rgba(34, 211, 238, 0.08);
     --painter-board-sheen: rgba(255, 255, 255, 0.035);
-    --connection-flow-color: rgba(168, 85, 247, 0.95);
+    --connection-flow-color: rgba(34, 211, 238, 0.95);
     --settings-model-provider-accent: var(--accent-cyan);
     --overlay-backdrop: rgba(0, 0, 0, 0.7);
     --panel-bg-strong: var(--bg-drawer);
@@ -27,7 +37,7 @@
     --panel-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.18);
     --panel-shadow-strong: 0 10px 28px rgba(0, 0, 0, 0.22);
     --panel-hover-bg: rgba(255, 255, 255, 0.07);
-    --panel-active-bg: rgba(168, 85, 247, 0.16);
+    --panel-active-bg: rgba(8, 145, 178, 0.16);
     --surface-soft: rgba(255, 255, 255, 0.03);
     --surface-muted: rgba(255, 255, 255, 0.05);
     --surface-hover: rgba(255, 255, 255, 0.08);
