@@ -149,3 +149,16 @@ test('theme files cannot restyle migrated settings structure', async () => {
         assert.deepEqual(rules, [], `${themeId} must leave settings structure to the feature skin`);
     }
 });
+
+test('settings feature browser coverage remains independent of theme identity', async () => {
+    const browserTest = await readFile(
+        new URL('./settings-theme-surface-browser.test.mjs', import.meta.url),
+        'utf8',
+    );
+
+    assert.doesNotMatch(
+        browserTest,
+        /themeId\s*===\s*['"](?:dark|pro|paper|light|glass-light|glass-dark|pink)['"]|measurement\.themeId\s*===/,
+        'settings feature coverage must express shared semantic invariants rather than theme-specific palette policy',
+    );
+});

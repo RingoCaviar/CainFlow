@@ -1,8 +1,8 @@
 /* Settings feature extensions */
 :root {
     --settings-dialog-backdrop: var(--overlay-backdrop);
-    --settings-dialog-panel-bg: var(--panel-bg);
-    --settings-dialog-panel-border: var(--panel-border);
+    --settings-dialog-panel-bg: var(--panel-bg-strong);
+    --settings-dialog-panel-border: var(--panel-border-strong);
     --settings-dialog-panel-shadow: var(--panel-shadow-strong);
     --settings-dialog-divider: var(--panel-border);
     --settings-dialog-section-bg: var(--panel-bg-soft);

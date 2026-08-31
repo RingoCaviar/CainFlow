@@ -6,6 +6,8 @@
     --menu-text: var(--text-primary);
     --menu-muted-text: var(--text-dim);
     --menu-divider: var(--panel-border);
+    --menu-item-surface: var(--panel-control-bg);
+    --menu-item-border: var(--panel-control-border);
     --menu-hover-bg: var(--panel-hover-bg);
     --menu-hover-border: var(--panel-hover-border);
     --menu-active-bg: var(--panel-active-bg);
@@ -30,6 +32,12 @@ html:root :is(.context-menu, .theme-menu-panel) {
 
 html:root :is(.context-menu-header, .theme-menu-item-check) {
     color: var(--menu-muted-text);
+}
+
+html:root .theme-menu-item {
+    background: var(--menu-item-surface);
+    border-color: var(--menu-item-border);
+    color: var(--menu-text);
 }
 
 html:root .context-menu-divider {
