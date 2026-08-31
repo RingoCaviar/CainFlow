@@ -22,6 +22,12 @@
     --connection-flow-color: rgba(168, 85, 247, 0.95);
     --settings-model-provider-accent: var(--accent-cyan);
     --overlay-backdrop: rgba(0, 0, 0, 0.7);
+    --panel-bg-strong: var(--bg-drawer);
+    --panel-border-strong: rgba(255, 255, 255, 0.1);
+    --panel-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.18);
+    --panel-shadow-strong: 0 10px 28px rgba(0, 0, 0, 0.22);
+    --panel-hover-bg: rgba(255, 255, 255, 0.07);
+    --panel-active-bg: rgba(168, 85, 247, 0.16);
     --surface-soft: rgba(255, 255, 255, 0.03);
     --surface-muted: rgba(255, 255, 255, 0.05);
     --surface-hover: rgba(255, 255, 255, 0.08);

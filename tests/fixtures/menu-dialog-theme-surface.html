@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../index.css">
+    <style>
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+        body { min-height: 100vh; }
+        #surface { display: grid; grid-template-columns: 240px 240px 1fr; gap: 24px; padding: 32px; }
+        .context-menu, .theme-menu-panel { position: relative; inset: auto; display: block; }
+        .modal-overlay { position: relative; inset: auto; min-height: 440px; }
+        .modal-panel { width: min(520px, 90%); height: 360px; }
+        .dialog-probes { display: grid; gap: 12px; padding: 12px; }
+        .provider-models-panel, .api-settings-help-panel, .help-panel { position: relative; inset: auto; width: 280px; min-height: 96px; }
+    </style>
+</head>
+<body>
+    <main id="surface">
+        <section class="context-menu">
+            <div class="context-menu-header">节点操作</div>
+            <div class="context-menu-item" data-kind="menu" data-state="normal">普通</div>
+            <div class="context-menu-item is-hovered" data-kind="menu" data-state="hover">悬停</div>
+            <div class="context-menu-item is-focused" tabindex="0" data-kind="menu" data-state="focus">焦点</div>
+            <div class="context-menu-item is-open" data-kind="menu" data-state="open">展开</div>
+            <div class="context-menu-item is-disabled" aria-disabled="true" data-kind="menu" data-state="disabled">禁用</div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item delete" data-kind="menu" data-state="danger">危险</div>
+        </section>
+        <section class="theme-menu-panel">
+            <button class="theme-menu-item">普通主题</button>
+            <button class="theme-menu-item is-focused">焦点主题</button>
+            <button class="theme-menu-item is-active">当前主题</button>
+        </section>
+        <section class="modal-overlay">
+            <article class="modal-panel">
+                <header class="modal-header"><h2>通用弹窗</h2><button class="modal-close-btn is-focused">×</button></header>
+                <div class="modal-body"><p>代表性弹窗正文，用于验证语义文字与面板对比度。</p></div>
+                <footer class="modal-footer">弹窗页脚</footer>
+            </article>
+        </section>
+    </main>
+    <aside class="dialog-probes">
+        <section class="help-panel"><header class="help-panel-header"><h3>帮助</h3></header><div class="help-panel-body">帮助正文</div></section>
+        <div class="provider-models-dialog"><section class="provider-models-panel"><header class="provider-models-header">模型<button class="provider-models-close">×</button></header></section></div>
+        <div class="api-settings-help-dialog"><section class="api-settings-help-panel"><header class="api-settings-help-header">设置帮助<button class="api-settings-help-close">×</button></header></section></div>
+    </aside>
+    <pre id="surface-result"></pre>
+    <script>
+        const themeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        addEventListener('load', () => {
+            const tuple = (element) => {
+                const style = getComputedStyle(element);
+                return { background: style.backgroundColor, border: style.borderTopColor, color: style.color, outline: style.outline, opacity: style.opacity };
+            };
+            const root = document.documentElement;
+            document.querySelector('[data-state="focus"]').focus();
+            const menu = document.querySelector('.context-menu');
+            const themeMenu = document.querySelector('.theme-menu-panel');
+            const themeMenuItems = [...document.querySelectorAll('.theme-menu-item')];
+            const overlay = document.querySelector('.modal-overlay');
+            const panel = document.querySelector('.modal-panel');
+            const header = document.querySelector('.modal-header');
+            const body = document.querySelector('.modal-body');
+            const close = document.querySelector('.modal-close-btn');
+            const helpPanel = document.querySelector('.help-panel');
+            const providerPanel = document.querySelector('.provider-models-panel');
+            const settingsHelpPanel = document.querySelector('.api-settings-help-panel');
+            const providerDialog = document.querySelector('.provider-models-dialog');
+            const settingsHelpDialog = document.querySelector('.api-settings-help-dialog');
+            const measurements = themeIds.map((themeId) => {
+                root.dataset.appTheme = themeId;
+                const rootStyle = getComputedStyle(root);
+                return {
+                    themeId,
+                    menu: tuple(menu),
+                    themeMenu: tuple(themeMenu),
+                    themeMenuStates: themeMenuItems.map((item, index) => ({ state: ['normal', 'focus', 'active'][index], ...tuple(item) })),
+                    states: [...document.querySelectorAll('[data-kind="menu"]')].map((item) => ({ state: item.dataset.state, ...tuple(item) })),
+                    dialog: { overlay: tuple(overlay), panel: tuple(panel), header: tuple(header), body: tuple(body), close: tuple(close) },
+                    auxiliaryDialogs: {
+                        help: { panel: tuple(helpPanel), header: tuple(helpPanel.querySelector('.help-panel-header')) },
+                        provider: { panel: tuple(providerPanel), header: tuple(providerPanel.querySelector('.provider-models-header')), close: tuple(providerPanel.querySelector('.provider-models-close')) },
+                        settingsHelp: { panel: tuple(settingsHelpPanel), header: tuple(settingsHelpPanel.querySelector('.api-settings-help-header')), close: tuple(settingsHelpPanel.querySelector('.api-settings-help-close')) },
+                    },
+                    semantic: Object.fromEntries([
+                        '--menu-surface', '--menu-border', '--menu-text', '--menu-muted-text', '--menu-hover-bg', '--menu-active-bg', '--menu-danger-text', '--menu-focus-ring',
+                        '--dialog-backdrop', '--dialog-surface', '--dialog-border', '--dialog-divider', '--dialog-shadow', '--dialog-text', '--dialog-muted-text',
+                    ].map((role) => [role, rootStyle.getPropertyValue(role).trim()])),
+                    layers: {
+                        menu: rootStyle.getPropertyValue('--layer-menu').trim(),
+                        drawer: rootStyle.getPropertyValue('--layer-drawer').trim(),
+                        modal: rootStyle.getPropertyValue('--layer-modal').trim(),
+                        popover: rootStyle.getPropertyValue('--layer-modal-popover').trim(),
+                    },
+                    actualLayers: {
+                        menu: getComputedStyle(menu).zIndex,
+                        modal: getComputedStyle(overlay).zIndex,
+                        provider: getComputedStyle(providerDialog).zIndex,
+                        settingsHelp: getComputedStyle(settingsHelpDialog).zIndex,
+                        help: getComputedStyle(helpPanel).zIndex,
+                    },
+                };
+            });
+            document.querySelector('#surface-result').textContent = JSON.stringify(measurements);
+        });
+    </script>
+</body>
+</html>

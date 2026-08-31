@@ -1,21 +1,12 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { inflateSync } from 'node:zlib';
 import test from 'node:test';
+import { chromePath, composite, contrastRatio, parseColor, renderComputedFixture } from './helpers/browser-theme-fixture.mjs';
 
-const chromeCandidates = [
-    process.env.CHROME_PATH,
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-].filter(Boolean);
-
-const chromePath = chromeCandidates.find(existsSync);
 const fixturePath = new URL('./fixtures/settings-theme-surface.html', import.meta.url);
 const themeIds = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
 
@@ -65,35 +56,6 @@ function pixelDifference(actualBuffer, baselineBuffer) {
     return changed / (actual.width * actual.height);
 }
 
-function parseColor(color) {
-    const channels = color.match(/[\d.]+/g).map(Number);
-    return [channels[0], channels[1], channels[2], channels[3] ?? 1];
-}
-
-function composite(foreground, background) {
-    const alpha = foreground[3];
-    return [
-        foreground[0] * alpha + background[0] * (1 - alpha),
-        foreground[1] * alpha + background[1] * (1 - alpha),
-        foreground[2] * alpha + background[2] * (1 - alpha),
-        1,
-    ];
-}
-
-function luminance(color) {
-    const linear = color.slice(0, 3).map((channel) => {
-        const value = channel / 255;
-        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
-}
-
-function contrastRatio(foreground, background) {
-    const lighter = Math.max(luminance(foreground), luminance(background));
-    const darker = Math.min(luminance(foreground), luminance(background));
-    return (lighter + 0.05) / (darker + 0.05);
-}
-
 function opaquePageBackground(measurement) {
     const browserCanvas = [255, 255, 255, 1];
     const root = composite(parseColor(measurement.actual.rootBackground), browserCanvas);
@@ -107,26 +69,7 @@ function firstShadowColor(shadow) {
 }
 
 function renderFixture() {
-    assert.ok(chromePath, 'Chrome or Chromium is required for settings theme surface tests');
-    const profileDir = mkdtempSync(join(tmpdir(), 'cainflow-settings-theme-'));
-    try {
-        const result = spawnSync(chromePath, [
-            '--headless=new',
-            '--disable-gpu',
-            '--no-sandbox',
-            '--disable-extensions',
-            `--user-data-dir=${profileDir}`,
-            '--virtual-time-budget=1000',
-            '--dump-dom',
-            fixturePath.href,
-        ], { encoding: 'utf8', timeout: 15000 });
-        assert.equal(result.status, 0, result.stderr);
-        const match = result.stdout.match(/<pre id="surface-result">([^<]+)<\/pre>/);
-        assert.ok(match, 'settings theme fixture should publish computed styles');
-        return JSON.parse(match[1].replaceAll('&quot;', '"'));
-    } finally {
-        rmSync(profileDir, { recursive: true, force: true });
-    }
+    return renderComputedFixture(fixturePath, 'cainflow-settings-theme-');
 }
 
 test('settings surfaces render from the semantic palette in every supported theme', () => {

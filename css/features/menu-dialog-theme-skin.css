@@ -1,0 +1,94 @@
+/* Menus and dialogs own component selectors; themes provide the shared semantic panel palette. */
+:root {
+    --menu-surface: var(--panel-bg-strong);
+    --menu-border: var(--panel-border-strong);
+    --menu-shadow: var(--panel-shadow-soft);
+    --menu-text: var(--text-primary);
+    --menu-muted-text: var(--text-dim);
+    --menu-divider: var(--panel-border);
+    --menu-hover-bg: var(--panel-hover-bg);
+    --menu-hover-border: var(--panel-hover-border);
+    --menu-active-bg: var(--panel-active-bg);
+    --menu-active-border: var(--panel-active-border);
+    --menu-danger-text: var(--accent-red);
+    --menu-focus-ring: var(--panel-accent-text);
+    --dialog-backdrop: var(--overlay-backdrop);
+    --dialog-surface: var(--panel-bg-strong);
+    --dialog-border: var(--panel-border-strong);
+    --dialog-divider: var(--panel-border);
+    --dialog-shadow: var(--panel-shadow-strong);
+    --dialog-text: var(--text-primary);
+    --dialog-muted-text: var(--text-secondary);
+}
+
+html:root :is(.context-menu, .theme-menu-panel) {
+    background: var(--menu-surface);
+    border-color: var(--menu-border);
+    box-shadow: var(--menu-shadow);
+    color: var(--menu-text);
+}
+
+html:root :is(.context-menu-header, .theme-menu-item-check) {
+    color: var(--menu-muted-text);
+}
+
+html:root .context-menu-divider {
+    background: var(--menu-divider);
+}
+
+html:root :is(.context-menu-item, .theme-menu-item):is(:hover, :focus-visible, .is-hovered, .is-focused) {
+    background: var(--menu-hover-bg);
+    border-color: var(--menu-hover-border);
+    color: var(--menu-text);
+}
+
+html:root :is(.context-menu-item.is-open, .theme-menu-item.is-active) {
+    background: var(--menu-active-bg);
+    border-color: var(--menu-active-border);
+    color: var(--menu-text);
+}
+
+html:root :is(.context-menu-item, .theme-menu-item):focus-visible {
+    outline: 2px solid var(--menu-focus-ring);
+    outline-offset: -2px;
+}
+
+html:root .context-menu-item:is(.is-disabled, [aria-disabled="true"]) {
+    background: transparent;
+    color: var(--menu-muted-text);
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+html:root .context-menu-item.delete {
+    color: var(--menu-danger-text);
+}
+
+html:root :is(.modal, .modal-overlay) {
+    background: var(--dialog-backdrop);
+}
+
+html:root :is(.modal-panel, .modal-content, .help-panel, .provider-models-panel, .api-settings-help-panel) {
+    background: var(--dialog-surface);
+    border-color: var(--dialog-border);
+    box-shadow: var(--dialog-shadow);
+    color: var(--dialog-text);
+}
+
+html:root :is(.modal-header, .modal-footer, .help-panel-header, .provider-models-header, .api-settings-help-header) {
+    border-color: var(--dialog-divider);
+}
+
+html:root :is(.modal-close, .modal-close-btn, .provider-models-close, .api-settings-help-close) {
+    color: var(--dialog-muted-text);
+}
+
+html:root :is(.modal-close, .modal-close-btn, .provider-models-close, .api-settings-help-close):is(:hover, :focus-visible) {
+    background: var(--menu-hover-bg);
+    color: var(--dialog-text);
+}
+
+html:root :is(.modal-close, .modal-close-btn, .provider-models-close, .api-settings-help-close):focus-visible {
+    outline: 2px solid var(--menu-focus-ring);
+    outline-offset: 2px;
+}
