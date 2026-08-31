@@ -11,7 +11,7 @@
     --canvas-dot-size: 1.15px;
     --canvas-dot-spacing: 24px;
     --canvas-bg-layers:
-        linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(37, 99, 235, 0.08) 50%, rgba(20, 184, 166, 0.1) 100%);
+        linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(14, 116, 144, 0.08) 50%, rgba(20, 184, 166, 0.1) 100%);
     --bg-toolbar: rgba(255, 255, 255, 0.52);
     --bg-node: rgba(255, 255, 255, 0.42);
     --bg-node-header: rgba(255, 255, 255, 0.24);
@@ -22,14 +22,14 @@
     --text-primary: #172033;
     --text-secondary: #526174;
     --text-dim: #7f8fa2;
-    --accent-purple: #7c3aed;
-    --accent-blue: #2563eb;
+    --accent-purple: #0e7490;
+    --accent-blue: #0284c7;
     --accent-cyan: #0891b2;
     --accent-green: #059669;
     --accent-orange: #ea580c;
     --accent-red: #dc2626;
     --accent-pink: #db2777;
-    --accent-primary: #2563eb;
+    --accent-primary: #0e7490;
     --port-image: #7c3aed;
     --port-text: #0891b2;
     --port-params: #d97706;
@@ -38,11 +38,11 @@
     --shadow-node-hover: 0 30px 74px rgba(44, 71, 97, 0.2), 0 10px 24px rgba(44, 71, 97, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.82);
     --bg-modal: rgba(255, 255, 255, 0.7);
     --bg-drawer: rgba(255, 255, 255, 0.62);
-    --bg-log-item: rgba(37, 99, 235, 0.04);
-    --bg-log-item-hover: rgba(37, 99, 235, 0.08);
+    --bg-log-item: rgba(14, 116, 144, 0.04);
+    --bg-log-item-hover: rgba(14, 116, 144, 0.08);
     --shadow-drawer: -12px 0 48px rgba(44, 71, 97, 0.18);
-    --conn-color: 37, 99, 235;
-    --connection-flow-color: rgba(37, 99, 235, 0.88);
+    --conn-color: 14, 116, 144;
+    --connection-flow-color: rgba(14, 116, 144, 0.88);
     --settings-model-provider-accent: var(--accent-primary);
     --bg-card: rgba(255, 255, 255, 0.58);
     --border-color: rgba(126, 151, 172, 0.24);
@@ -66,13 +66,13 @@
     --node-select-border: rgba(119, 147, 171, 0.3);
     --node-select-text: var(--text-primary);
     --node-select-caret: #64748b;
-    --node-select-focus-border: rgba(37, 99, 235, 0.46);
-    --node-select-focus-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    --node-select-focus-border: rgba(14, 116, 144, 0.46);
+    --node-select-focus-shadow: 0 0 0 3px rgba(14, 116, 144, 0.12);
     --node-select-panel-bg: rgba(255, 255, 255, 0.58);
     --node-select-panel-border: rgba(255, 255, 255, 0.7);
     --node-select-panel-shadow: 0 18px 44px rgba(44, 71, 97, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.72);
     --node-select-option-hover-bg: rgba(14, 165, 233, 0.1);
-    --node-select-option-selected-bg: rgba(37, 99, 235, 0.12);
+    --node-select-option-selected-bg: rgba(14, 116, 144, 0.12);
     --overlay-backdrop: rgba(30, 52, 74, 0.24);
     --surface-soft: rgba(255, 255, 255, 0.34);
     --surface-muted: rgba(255, 255, 255, 0.46);
@@ -90,19 +90,19 @@
     --panel-shadow-strong: 0 28px 76px rgba(44, 71, 97, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.76);
     --panel-hover-bg: rgba(14, 165, 233, 0.08);
     --panel-hover-border: rgba(14, 165, 233, 0.22);
-    --panel-active-bg: rgba(37, 99, 235, 0.1);
-    --panel-active-border: rgba(37, 99, 235, 0.24);
+    --panel-active-bg: rgba(14, 116, 144, 0.1);
+    --panel-active-border: rgba(14, 116, 144, 0.24);
     --panel-control-bg: rgba(255, 255, 255, 0.46);
     --panel-control-border: rgba(255, 255, 255, 0.6);
     --panel-control-text: #64748b;
     --panel-control-hover-bg: rgba(255, 255, 255, 0.72);
-    --panel-control-hover-border: rgba(37, 99, 235, 0.22);
+    --panel-control-hover-border: rgba(14, 116, 144, 0.22);
     --panel-control-hover-text: #1f2b3d;
     --panel-input-bg: rgba(255, 255, 255, 0.62);
     --panel-input-border: rgba(119, 147, 171, 0.28);
-    --panel-accent-bg: rgba(37, 99, 235, 0.1);
-    --panel-accent-border: rgba(37, 99, 235, 0.22);
-    --panel-accent-text: #1d4ed8;
+    --panel-accent-bg: rgba(14, 116, 144, 0.1);
+    --panel-accent-border: rgba(14, 116, 144, 0.22);
+    --panel-accent-text: #0e7490;
     --panel-primary-action-bg: #0e7490;
     --panel-primary-action-text: #ffffff;
     --notice-bg: rgba(255, 255, 255, 0.62);
@@ -114,13 +114,13 @@
     --notice-highlight-bg: rgba(255, 248, 237, 0.68);
     --notice-highlight-border: rgba(234, 88, 12, 0.18);
     --notice-update-bg: rgba(255, 255, 255, 0.64);
-    --notice-update-border: rgba(37, 99, 235, 0.2);
-    --notice-update-icon-bg: rgba(37, 99, 235, 0.12);
-    --notice-update-icon-text: #2563eb;
-    --notice-action-bg: rgba(37, 99, 235, 0.08);
-    --notice-action-border: rgba(37, 99, 235, 0.2);
-    --notice-action-hover-bg: rgba(37, 99, 235, 0.14);
-    --notice-action-hover-border: rgba(37, 99, 235, 0.3);
+    --notice-update-border: rgba(14, 116, 144, 0.2);
+    --notice-update-icon-bg: rgba(14, 116, 144, 0.12);
+    --notice-update-icon-text: #0e7490;
+    --notice-action-bg: rgba(14, 116, 144, 0.08);
+    --notice-action-border: rgba(14, 116, 144, 0.2);
+    --notice-action-hover-bg: rgba(14, 116, 144, 0.14);
+    --notice-action-hover-border: rgba(14, 116, 144, 0.3);
     --notice-close-hover-bg: rgba(15, 23, 42, 0.06);
     --workflow-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.46));
     --workflow-card-border: rgba(255, 255, 255, 0.62);
@@ -135,8 +135,8 @@
     --sidebar-bg: rgba(255, 255, 255, 0.52);
     --sidebar-border: rgba(255, 255, 255, 0.64);
     --sidebar-btn-hover-bg: rgba(255, 255, 255, 0.58);
-    --sidebar-btn-active-bg: rgba(37, 99, 235, 0.11);
-    --sidebar-btn-active-text: #1d4ed8;
+    --sidebar-btn-active-bg: rgba(14, 116, 144, 0.11);
+    --sidebar-btn-active-text: #0e7490;
     --prompt-overlay-bg: rgba(30, 52, 74, 0.24);
     --prompt-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.56));
     --prompt-panel-border: rgba(255, 255, 255, 0.66);
@@ -239,13 +239,13 @@ html[data-app-theme="glass-light"] body.toolbar-pinned #toolbar {
 }
 
 html[data-app-theme="glass-light"] #toolbar::after {
-    background: linear-gradient(90deg, rgba(14, 145, 178, 0.72), rgba(37, 99, 235, 0.72));
-    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.2);
+    background: linear-gradient(90deg, rgba(14, 145, 178, 0.72), rgba(14, 116, 144, 0.72));
+    box-shadow: 0 8px 24px rgba(14, 116, 144, 0.2);
 }
 
 html[data-app-theme="glass-light"] .logo svg {
     color: var(--accent-primary);
-    filter: drop-shadow(0 3px 8px rgba(37, 99, 235, 0.18));
+    filter: drop-shadow(0 3px 8px rgba(14, 116, 144, 0.18));
 }
 
 html[data-app-theme="glass-light"] .logo-version,
@@ -269,7 +269,7 @@ html[data-app-theme="glass-light"] .toolbar-toggle-group {
 }
 
 html[data-app-theme="glass-light"] .toolbar-toggle-group:hover {
-    border-color: rgba(37, 99, 235, 0.22);
+    border-color: rgba(14, 116, 144, 0.22);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.76),
         0 8px 18px rgba(44, 71, 97, 0.1);
@@ -291,12 +291,12 @@ html[data-app-theme="glass-light"] #toolbar .toolbar-toggle-group .toggle-slider
 }
 
 html[data-app-theme="glass-light"] #toolbar .toolbar-toggle-group input:checked + .toggle-slider {
-    background: linear-gradient(135deg, rgba(14, 165, 233, 0.94), rgba(37, 99, 235, 0.92));
-    border-color: rgba(37, 99, 235, 0.32);
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.94), rgba(14, 116, 144, 0.92));
+    border-color: rgba(14, 116, 144, 0.32);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.38),
-        0 0 0 1px rgba(37, 99, 235, 0.12),
-        0 5px 12px rgba(37, 99, 235, 0.14);
+        0 0 0 1px rgba(14, 116, 144, 0.12),
+        0 5px 12px rgba(14, 116, 144, 0.14);
 }
 
 html[data-app-theme="glass-light"] .toolbar-divider {
@@ -355,17 +355,17 @@ html[data-app-theme="glass-light"] .copy-btn:hover {
     border-color: rgba(14, 145, 178, 0.28);
     color: var(--accent-primary);
     box-shadow:
-        0 12px 28px rgba(37, 99, 235, 0.12),
+        0 12px 28px rgba(14, 116, 144, 0.12),
         inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 html[data-app-theme="glass-light"] .btn-run,
 html[data-app-theme="glass-light"] .btn-primary {
-    background: linear-gradient(135deg, #0ea5e9, #2563eb);
-    border-color: rgba(37, 99, 235, 0.28);
+    background: linear-gradient(135deg, #0e7490, #0284c7);
+    border-color: rgba(14, 116, 144, 0.28);
     color: #ffffff;
     box-shadow:
-        0 14px 28px rgba(37, 99, 235, 0.22),
+        0 14px 28px rgba(14, 116, 144, 0.22),
         inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
@@ -418,10 +418,10 @@ html[data-app-theme="glass-light"] .node-glass-bg::before {
 }
 
 html[data-app-theme="glass-light"] .node.selected .node-glass-bg {
-    border-color: rgba(37, 99, 235, 0.34);
+    border-color: rgba(14, 116, 144, 0.34);
     box-shadow:
-        0 0 0 1px rgba(37, 99, 235, 0.12),
-        0 18px 40px rgba(37, 99, 235, 0.16),
+        0 0 0 1px rgba(14, 116, 144, 0.12),
+        0 18px 40px rgba(14, 116, 144, 0.16),
         var(--shadow-node);
 }
 
@@ -464,9 +464,9 @@ html[data-app-theme="glass-light"] .node-field select:focus,
 html[data-app-theme="glass-light"] .node-field textarea:focus,
 html[data-app-theme="glass-light"] .save-workflow-box input:focus,
 html[data-app-theme="glass-light"] .camera-control-value:focus {
-    border-color: rgba(37, 99, 235, 0.42) !important;
+    border-color: rgba(14, 116, 144, 0.42) !important;
     box-shadow:
-        0 0 0 3px rgba(37, 99, 235, 0.12),
+        0 0 0 3px rgba(14, 116, 144, 0.12),
         inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
@@ -513,7 +513,7 @@ html[data-app-theme="glass-light"] .camera-control-stage {
 
 html[data-app-theme="glass-light"] .workflow-item:hover {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(238, 248, 255, 0.54)) !important;
-    border-color: rgba(37, 99, 235, 0.24) !important;
+    border-color: rgba(14, 116, 144, 0.24) !important;
 }
 
 html[data-app-theme="glass-light"] .image-resize-mode-shell {
@@ -678,9 +678,9 @@ html[data-app-theme="glass-light"] .update-download-status {
 
 html[data-app-theme="glass-light"] .update-download-status.info,
 html[data-app-theme="glass-light"] .update-download-toast__cancel {
-    background: rgba(37, 99, 235, 0.08);
-    border-color: rgba(37, 99, 235, 0.18);
-    color: #1d4ed8;
+    background: rgba(14, 116, 144, 0.08);
+    border-color: rgba(14, 116, 144, 0.18);
+    color: #0e7490;
 }
 
 html[data-app-theme="glass-light"] .update-download-status.success {
@@ -696,7 +696,7 @@ html[data-app-theme="glass-light"] .update-download-status.error {
 }
 
 html[data-app-theme="glass-light"] .update-download-progress__bar {
-    background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%);
+    background: linear-gradient(90deg, #0e7490 0%, #0284c7 100%);
 }
 
 html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::-webkit-slider-runnable-track {
@@ -756,8 +756,8 @@ html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::
     --panel-shadow-strong: none;
     --panel-hover-bg: var(--glass-surface-hover);
     --panel-hover-border: var(--glass-border-strong);
-    --panel-active-bg: rgba(37, 99, 235, 0.14);
-    --panel-active-border: rgba(37, 99, 235, 0.26);
+    --panel-active-bg: rgba(14, 116, 144, 0.14);
+    --panel-active-border: rgba(14, 116, 144, 0.26);
     --panel-control-bg: var(--glass-surface);
     --panel-control-border: var(--glass-border);
     --panel-control-hover-bg: var(--glass-surface-hover);
@@ -787,7 +787,7 @@ html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::
     --prompt-card-hover-bg: var(--glass-card-surface-hover);
     --prompt-card-hover-border: var(--glass-border-strong);
     --prompt-card-hover-shadow: none;
-    --prompt-card-selected-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+    --prompt-card-selected-shadow: 0 0 0 2px rgba(14, 116, 144, 0.14);
     --prompt-card-actions-bg: var(--glass-surface-soft);
     --prompt-editor-bg: var(--glass-surface-soft);
     --history-panel-bg: var(--glass-surface);
@@ -810,12 +810,12 @@ html[data-app-theme="glass-light"] .camera-control-sliders input[type="range"]::
     --node-select-panel-border: var(--glass-border);
     --node-select-panel-shadow: none;
     --node-select-option-hover-bg: var(--glass-surface-hover);
-    --node-select-option-selected-bg: rgba(37, 99, 235, 0.14);
+    --node-select-option-selected-bg: rgba(14, 116, 144, 0.14);
 }
 
 html[data-app-theme="glass-light"] {
     background:
-        linear-gradient(135deg, rgba(14, 165, 233, 0.18) 0%, rgba(37, 99, 235, 0.12) 48%, rgba(20, 184, 166, 0.12) 100%),
+        linear-gradient(135deg, rgba(14, 165, 233, 0.18) 0%, rgba(14, 116, 144, 0.12) 48%, rgba(20, 184, 166, 0.12) 100%),
         linear-gradient(135deg, #f8fbff 0%, #eef8fb 42%, #fff7ef 100%);
 }
 
@@ -888,8 +888,8 @@ html[data-app-theme="glass-light"] .copy-btn {
 
 html[data-app-theme="glass-light"] .btn-run,
 html[data-app-theme="glass-light"] .btn-primary {
-    background: linear-gradient(135deg, #0ea5e9, #2563eb);
-    border-color: rgba(37, 99, 235, 0.28);
+    background: linear-gradient(135deg, #0e7490, #0284c7);
+    border-color: rgba(14, 116, 144, 0.28);
     color: #ffffff;
 }
 
