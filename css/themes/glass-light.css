@@ -215,7 +215,6 @@ html[data-app-theme="glass-light"] .drawer,
 html[data-app-theme="glass-light"] .drawer-left,
 html[data-app-theme="glass-light"] .modal-panel,
 html[data-app-theme="glass-light"] .help-panel,
-html[data-app-theme="glass-light"] .context-menu,
 html[data-app-theme="glass-light"] .toast,
 html[data-app-theme="glass-light"] .update-modal-panel,
 html[data-app-theme="glass-light"] .provider-models-panel,
@@ -303,8 +302,7 @@ html[data-app-theme="glass-light"] #toolbar .toolbar-toggle-group input:checked 
         0 5px 12px rgba(37, 99, 235, 0.14);
 }
 
-html[data-app-theme="glass-light"] .toolbar-divider,
-html[data-app-theme="glass-light"] .context-menu-divider {
+html[data-app-theme="glass-light"] .toolbar-divider {
     background: rgba(119, 147, 171, 0.24);
 }
 
@@ -612,8 +610,6 @@ html[data-app-theme="glass-light"] #cache-sidebar .cache-action-btn {
     border-radius: var(--cache-card-radius);
 }
 
-html[data-app-theme="glass-light"] .context-menu-item:hover,
-html[data-app-theme="glass-light"] .context-menu-item.is-open,
 html[data-app-theme="glass-light"] .provider-models-row:hover,
 html[data-app-theme="glass-light"] .api-settings-help-close:hover {
     background: rgba(37, 99, 235, 0.08);
@@ -875,12 +871,10 @@ html[data-app-theme="glass-light"] .drawer,
 html[data-app-theme="glass-light"] .drawer-left,
 html[data-app-theme="glass-light"] .modal-panel,
 html[data-app-theme="glass-light"] .help-panel,
-html[data-app-theme="glass-light"] .context-menu,
 html[data-app-theme="glass-light"] .toast,
 html[data-app-theme="glass-light"] .update-modal-panel,
 html[data-app-theme="glass-light"] .provider-models-panel,
-html[data-app-theme="glass-light"] .api-settings-help-panel,
-html[data-app-theme="glass-light"] .theme-menu-panel {
+html[data-app-theme="glass-light"] .api-settings-help-panel {
     background: var(--glass-surface);
     border-color: var(--glass-border);
     box-shadow: none;

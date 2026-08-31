@@ -225,8 +225,7 @@ html[data-app-theme="light"] .logo-version {
     background: var(--surface-muted);
 }
 
-html[data-app-theme="light"] .toolbar-divider,
-html[data-app-theme="light"] .context-menu-divider {
+html[data-app-theme="light"] .toolbar-divider {
     background: var(--border-color);
 }
 
@@ -956,7 +955,6 @@ html[data-app-theme="light"] .drawer,
 html[data-app-theme="light"] .drawer-left,
 html[data-app-theme="light"] .modal-panel,
 html[data-app-theme="light"] .help-panel,
-html[data-app-theme="light"] .context-menu,
 html[data-app-theme="light"] .toast,
 html[data-app-theme="light"] .update-modal-panel {
     background: var(--bg-card);
@@ -1081,14 +1079,6 @@ html[data-app-theme="light"] .help-close-btn:hover {
     background: var(--surface-muted);
 }
 
-html[data-app-theme="light"] .context-menu-item:hover {
-    background: rgba(67, 56, 202, 0.08);
-}
-
-html[data-app-theme="light"] .context-menu-item.is-open {
-    background: rgba(67, 56, 202, 0.1);
-}
-
 html[data-app-theme="light"] .toast {
     border-color: rgba(148, 163, 184, 0.28);
 }
@@ -1191,11 +1181,6 @@ html[data-app-theme="light"] .history-fullscreen-rail {
 
 html[data-app-theme="light"] .history-card-meta-sub {
     color: var(--text-secondary);
-}
-
-html[data-app-theme="light"] #workflow-context-menu,
-html[data-app-theme="light"] #context-menu {
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
 }
 
 html[data-app-theme="light"] .update-migration-notice {

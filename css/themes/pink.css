@@ -227,8 +227,7 @@ html[data-app-theme="pink"] .logo-version {
     background: var(--surface-muted);
 }
 
-html[data-app-theme="pink"] .toolbar-divider,
-html[data-app-theme="pink"] .context-menu-divider {
+html[data-app-theme="pink"] .toolbar-divider {
     background: var(--border-color);
 }
 
@@ -720,7 +719,6 @@ html[data-app-theme="pink"] .drawer,
 html[data-app-theme="pink"] .drawer-left,
 html[data-app-theme="pink"] .modal-panel,
 html[data-app-theme="pink"] .help-panel,
-html[data-app-theme="pink"] .context-menu,
 html[data-app-theme="pink"] .toast,
 html[data-app-theme="pink"] .update-modal-panel {
     border-color: var(--border-color);
@@ -729,12 +727,10 @@ html[data-app-theme="pink"] .update-modal-panel {
 
 html[data-app-theme="pink"] .github-link:hover,
 html[data-app-theme="pink"] .modal-close-btn:hover,
-html[data-app-theme="pink"] .help-close-btn:hover,
-html[data-app-theme="pink"] .context-menu-item:hover {
+html[data-app-theme="pink"] .help-close-btn:hover {
     background: rgba(244, 114, 182, 0.08);
 }
 
-html[data-app-theme="pink"] .context-menu-item.is-open,
 html[data-app-theme="pink"] .workflow-item:hover {
     background: rgba(236, 72, 153, 0.1);
 }
@@ -840,11 +836,6 @@ html[data-app-theme="pink"] .history-fullscreen-rail {
 
 html[data-app-theme="pink"] .history-card-meta-sub {
     color: var(--text-secondary);
-}
-
-html[data-app-theme="pink"] #workflow-context-menu,
-html[data-app-theme="pink"] #context-menu {
-    box-shadow: 0 18px 40px rgba(190, 24, 93, 0.16);
 }
 
 html[data-app-theme="pink"] .update-migration-notice {

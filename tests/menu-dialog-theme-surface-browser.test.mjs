@@ -25,6 +25,7 @@ test('menu and dialog semantic states render in all supported themes', () => {
         assert.deepEqual(parseColor(result.themeMenuStates.find(({ state }) => state === 'active').background), parseColor(result.semantic['--menu-active-bg']));
         assert.ok(Number(result.actualLayers.modal) > Number(result.actualLayers.menu));
         assert.equal(result.actualLayers.menu, result.layers.menu);
+        assert.equal(Number(result.actualLayers.submenu), Number(result.layers.menu) + 1);
         assert.equal(result.actualLayers.modal, result.layers.modal);
         assert.equal(result.actualLayers.provider, result.layers.popover);
         assert.equal(result.actualLayers.settingsHelp, result.layers.popover);

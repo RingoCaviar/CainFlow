@@ -234,7 +234,6 @@ html[data-app-theme="glass-dark"] .drawer,
 html[data-app-theme="glass-dark"] .drawer-left,
 html[data-app-theme="glass-dark"] .modal-panel,
 html[data-app-theme="glass-dark"] .help-panel,
-html[data-app-theme="glass-dark"] .context-menu,
 html[data-app-theme="glass-dark"] .toast,
 html[data-app-theme="glass-dark"] .update-modal-panel,
 html[data-app-theme="glass-dark"] .provider-models-panel,
@@ -311,8 +310,7 @@ html[data-app-theme="glass-dark"] #toolbar .toolbar-toggle-group input:checked +
     border-color: rgba(125, 211, 252, 0.28);
 }
 
-html[data-app-theme="glass-dark"] .toolbar-divider,
-html[data-app-theme="glass-dark"] .context-menu-divider {
+html[data-app-theme="glass-dark"] .toolbar-divider {
     background: var(--glass-divider);
 }
 
@@ -576,8 +574,6 @@ html[data-app-theme="glass-dark"] #cache-sidebar .cache-action-btn {
     border-radius: var(--cache-card-radius);
 }
 
-html[data-app-theme="glass-dark"] .context-menu-item:hover,
-html[data-app-theme="glass-dark"] .context-menu-item.is-open,
 html[data-app-theme="glass-dark"] .provider-models-row:hover,
 html[data-app-theme="glass-dark"] .api-settings-help-close:hover {
     background: rgba(125, 211, 252, 0.1);
@@ -629,25 +625,6 @@ html[data-app-theme="glass-dark"] .api-settings-help-subtitle,
 html[data-app-theme="glass-dark"] .api-settings-help-section p,
 html[data-app-theme="glass-dark"] .api-settings-help-section li {
     color: var(--text-secondary) !important;
-}
-
-html[data-app-theme="glass-dark"] .theme-menu-panel {
-    background: var(--glass-surface);
-    border-color: var(--glass-border);
-    box-shadow: none;
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-}
-
-html[data-app-theme="glass-dark"] .theme-menu-item:hover,
-html[data-app-theme="glass-dark"] .theme-menu-item:focus-visible {
-    background: var(--glass-surface-hover);
-    border-color: var(--glass-border-strong);
-}
-
-html[data-app-theme="glass-dark"] .theme-menu-item.is-active {
-    background: rgba(125, 211, 252, 0.13);
-    border-color: rgba(125, 211, 252, 0.26);
 }
 
 html[data-app-theme="glass-dark"] .provider-models-badge {

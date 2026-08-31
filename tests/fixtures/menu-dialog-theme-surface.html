@@ -26,6 +26,7 @@
             <div class="context-menu-divider"></div>
             <div class="context-menu-item delete" data-kind="menu" data-state="danger">危险</div>
         </section>
+        <section class="context-menu context-menu-submenu"><div class="context-menu-item">子菜单</div></section>
         <section class="theme-menu-panel">
             <button class="theme-menu-item">普通主题</button>
             <button class="theme-menu-item is-focused">焦点主题</button>
@@ -55,6 +56,7 @@
             const root = document.documentElement;
             document.querySelector('[data-state="focus"]').focus();
             const menu = document.querySelector('.context-menu');
+            const submenu = document.querySelector('.context-menu-submenu');
             const themeMenu = document.querySelector('.theme-menu-panel');
             const themeMenuItems = [...document.querySelectorAll('.theme-menu-item')];
             const overlay = document.querySelector('.modal-overlay');
@@ -94,6 +96,7 @@
                     },
                     actualLayers: {
                         menu: getComputedStyle(menu).zIndex,
+                        submenu: getComputedStyle(submenu).zIndex,
                         modal: getComputedStyle(overlay).zIndex,
                         provider: getComputedStyle(providerDialog).zIndex,
                         settingsHelp: getComputedStyle(settingsHelpDialog).zIndex,

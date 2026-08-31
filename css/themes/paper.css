@@ -248,25 +248,12 @@ html[data-app-theme="paper"] .drawer,
 html[data-app-theme="paper"] .drawer-left,
 html[data-app-theme="paper"] .modal-panel,
 html[data-app-theme="paper"] .help-panel,
-html[data-app-theme="paper"] .context-menu,
-html[data-app-theme="paper"] .toast,
-html[data-app-theme="paper"] .theme-menu-panel {
+html[data-app-theme="paper"] .toast {
     background: #f8f7f3;
     border-color: #d1cec6;
     box-shadow: var(--panel-shadow-soft);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-}
-
-html[data-app-theme="paper"] .theme-menu-item:hover,
-html[data-app-theme="paper"] .theme-menu-item:focus-visible {
-    background: #efede7;
-    color: #252823;
-}
-
-html[data-app-theme="paper"] .theme-menu-item.is-active {
-    background: rgba(78, 118, 105, 0.11);
-    color: #34574c;
 }
 
 html[data-app-theme="paper"] ::-webkit-scrollbar-thumb {
