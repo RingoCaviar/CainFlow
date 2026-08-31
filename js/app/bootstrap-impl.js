@@ -827,7 +827,8 @@ function getSessionManagerApi() {
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
-            getActiveWorkflow: () => workflowManagerApi?.getActiveWorkflow?.() || null,
+            getWorkflowSnapshot: () => workflowManagerApi?.workflowDesk?.snapshot?.()
+                || Object.freeze({ active: null, open: Object.freeze([]) }),
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,

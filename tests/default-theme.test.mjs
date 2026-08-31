@@ -62,7 +62,16 @@ test('the UI bootstrap persistence fallback uses the default theme policy', () =
         showToast() {},
         addNode() {},
         updateAllConnections() {},
-        updatePortStyles() {}
+        updatePortStyles() {},
+        getWorkflowSnapshot: () => ({
+            active: null,
+            open: [{
+                workflowId: 'migrated-id',
+                label: 'legacy',
+                pendingExplicitSave: true,
+                running: false
+            }]
+        })
     });
 
     assert.equal(sessionManager.saveState(), true);

@@ -16,7 +16,7 @@ export function createSessionManagerApi({
     updateAllConnections,
     updatePortStyles,
     onConnectionsChanged = () => {},
-    getActiveWorkflow = () => null,
+    getWorkflowSnapshot = () => Object.freeze({ active: null, open: Object.freeze([]) }),
     clearOrphanedNodeAssets = async () => true,
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
@@ -226,22 +226,47 @@ export function createSessionManagerApi({
         try {
             onBeforeSave({ dirty: false });
             const data = sanitizeWorkflowDataForSessionCache(nodeSerializer.buildStatePayload());
-            data.workflowTabs = Array.isArray(state.workflowTabs)
-                ? state.workflowTabs.map((tab) => ({
-                    workflowId: tab.workflowId || tab.data?.workflowId || '',
-                    name: tab.name,
-                    data: sanitizeWorkflowDataForSessionCache(tab.data),
-                    dirty: tab.dirty === true,
-                    identityPendingSave: tab.identityPendingSave === true,
-                    colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
-                    runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
-                }))
+            const workflowSnapshot = getWorkflowSnapshot();
+            const presentationByWorkflowId = new Map(
+                (Array.isArray(state.workflowTabs) ? state.workflowTabs : [])
+                    .map((tab) => [tab?.workflowId || tab?.data?.workflowId || '', tab])
+                    .filter(([workflowId]) => workflowId)
+            );
+            const authoritativeLabelByPresentationLabel = new Map();
+            for (const record of workflowSnapshot?.open || []) {
+                const tab = presentationByWorkflowId.get(record.workflowId);
+                if (!tab?.data || typeof tab.data !== 'object') {
+                    throw new Error(`Open Workflow document is unavailable: ${record.workflowId}`);
+                }
+                if (typeof tab.name === 'string' && tab.name) {
+                    authoritativeLabelByPresentationLabel.set(tab.name, record.label);
+                }
+            }
+            const rewriteOpenWorkflowLabel = (label) => (
+                authoritativeLabelByPresentationLabel.get(label) ?? label
+            );
+            data.workflowTabs = Array.isArray(workflowSnapshot?.open)
+                ? workflowSnapshot.open.map((record) => {
+                    const tab = presentationByWorkflowId.get(record.workflowId);
+                    return {
+                        workflowId: record.workflowId,
+                        name: record.label,
+                        data: sanitizeWorkflowDataForSessionCache(tab.data),
+                        dirty: tab.dirty === true,
+                        identityPendingSave: record.pendingExplicitSave === true,
+                        running: record.running === true,
+                        colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
+                        runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
+                    };
+                })
                 : [];
-            const activeWorkflow = getActiveWorkflow();
+            const activeWorkflow = workflowSnapshot?.active;
             data.activeWorkflowName = activeWorkflow?.label || '';
             data.activeWorkflowId = activeWorkflow?.workflowId || '';
             data.workflowOrder = Array.isArray(state.workflowOrder)
-                ? state.workflowOrder.filter((name) => typeof name === 'string' && name)
+                ? state.workflowOrder
+                    .filter((name) => typeof name === 'string' && name)
+                    .map(rewriteOpenWorkflowLabel)
                 : [];
             data.workflowFolders = Array.isArray(state.workflowFolders)
                 ? state.workflowFolders
@@ -249,7 +274,11 @@ export function createSessionManagerApi({
                         id: typeof folder?.id === 'string' ? folder.id : '',
                         name: typeof folder?.name === 'string' ? folder.name : '',
                         collapsed: folder?.collapsed === true,
-                        items: Array.isArray(folder?.items) ? folder.items.filter((name) => typeof name === 'string' && name) : []
+                        items: Array.isArray(folder?.items)
+                            ? folder.items
+                                .filter((name) => typeof name === 'string' && name)
+                                .map(rewriteOpenWorkflowLabel)
+                            : []
                     }))
                     .filter((folder) => folder.id && folder.name)
                 : [];
