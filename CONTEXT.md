@@ -90,9 +90,9 @@ _Avoid_: Provider-specific branch, protocol script
 A model-ID-selected specialization within one Declarative protocol configuration. It supplies model-specific request encoding, media rules, parameter constraints, and overrides without becoming a separate compatibility format or a node-level mode.
 _Avoid_: Separate model protocol, node mode
 
-**Asynchronous video API compatibility format**:
-The compatibility format for declarative video APIs that create an asynchronous video task and later query its status and result. It is named for this stable request contract, not for a provider's deployment topology or commercial routing.
-_Avoid_: Relay video format, provider-specific video format
+**6789 relay video compatibility format**:
+The built-in compatibility format for the supplied 6789 relay video API. It creates an asynchronous task and later queries its status and result; its display name identifies the documented relay interface rather than implying support for every asynchronous video API.
+_Avoid_: Generic asynchronous video API format
 
 **Protocol constraint**:
 A declared limit on values or connected media that a Protocol variant accepts. CainFlow prevents invalid values in the node UI and rejects any invalid execution without silently discarding inputs or coercing values.

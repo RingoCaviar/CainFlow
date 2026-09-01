@@ -11,6 +11,10 @@ import {
 import { resolveProviderUrl } from '../js/features/execution/provider-request-utils.js';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
 
+test('the built-in video format is visibly named for the documented 6789 relay API', () => {
+    assert.equal(RelayVideoProtocol.label, '6789中转视频');
+});
+
 test('a fetched nano-banana model is persisted with the Google Gemini format', () => {
     const models = [];
     const config = addFetchedModelToCollection({ models,
