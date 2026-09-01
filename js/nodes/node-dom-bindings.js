@@ -632,6 +632,11 @@ export function createNodeDomBindingsApi({
         const model = state.models.find((item) => item.id === modelSelect.value);
         const provider = model ? getResolvedProviderForModel(model, state.providers, providerSelect?.value || '') : null;
         const protocol = getEffectiveProtocol(model, provider);
+        const declaredProtocol = getVideoGenerateSelectedProtocol(id);
+        const declaredVariant = declaredProtocol?.variants?.[model?.modelId];
+        const hasVariantMismatch = Object.keys(declaredProtocol?.variants || {}).length > 0 && !declaredVariant;
+        const promptField = documentRef.getElementById(`${id}-prompt-field`);
+        const aspectField = documentRef.getElementById(`${id}-aspect-field`);
         const meta = getVideoProtocolOptionMeta(protocol);
         const isDoubaoProtocol = protocol === 'doubao-video';
         const supportsSizeParamToggle = protocol === 'veo-unified' || protocol === 'veo-openai';
@@ -645,6 +650,8 @@ export function createNodeDomBindingsApi({
         const durationMax = 12;
 
         if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', !supportsSizeParamToggle);
+        if (promptField) promptField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant?.parameters?.prompt || declaredProtocol?.parameters?.prompt));
+        if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant));
         if (enhanceField) enhanceField.classList.toggle('hidden', !meta.supportsEnhancePrompt);
         if (upsampleField) upsampleField.classList.toggle('hidden', !meta.supportsUpsample);
         if (doubaoResolutionField) doubaoResolutionField.classList.toggle('hidden', !isDoubaoProtocol);
@@ -722,17 +729,17 @@ export function createNodeDomBindingsApi({
         const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
         const model = state.models.find((candidate) => candidate.id === modelId);
         const variant = protocol?.variants?.[model?.modelId];
-        const acceptsSingleReference = variant?.referenceImage?.maxCount === 1;
+        const usesDeclaredReferenceImages = Boolean(variant?.referenceImage);
         const root = documentRef.getElementById(id);
         if (!root || !node) return;
         ['image_1', 'image_2'].forEach((portName) => {
             const port = root.querySelector(`.node-port.input[data-port="${portName}"]`);
-            if (port) port.classList.toggle('hidden', acceptsSingleReference);
+            if (port) port.classList.toggle('hidden', usesDeclaredReferenceImages);
         });
         const referencePort = root.querySelector('.node-port.input[data-port="referenceImages"]');
         if (!referencePort) return;
         referencePort.classList.toggle('hidden', false);
-        if (acceptsSingleReference) {
+        if (variant?.referenceImage?.maxCount === 1) {
             referencePort.removeAttribute('data-multiple');
             referencePort.dataset.baseLabel = '参考图';
         } else {
@@ -1476,7 +1483,6 @@ export function createNodeDomBindingsApi({
 
     const VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
         'referenceImages',
-        'prompt',
         'model',
         'aspect',
         'aspect_ratio',
@@ -1560,7 +1566,16 @@ export function createNodeDomBindingsApi({
         }
 
         syncVideoGenerateProtocolParams(id);
-        const extraProtocol = getVideoGenerateExtraProtocol(getVideoGenerateSelectedProtocol(id));
+        const selectedProtocol = getVideoGenerateSelectedProtocol(id);
+        const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
+        const model = state.models.find((candidate) => candidate.id === modelId);
+        const hasVariants = Object.keys(selectedProtocol?.variants || {}).length > 0;
+        const hasVariant = Boolean(selectedProtocol?.variants?.[model?.modelId]);
+        if (hasVariants && !hasVariant) {
+            container.innerHTML = '<div class="node-error-msg">当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。</div>';
+            return;
+        }
+        const extraProtocol = getVideoGenerateExtraProtocol(selectedProtocol);
         container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'video', node.data || {}) : '';
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);

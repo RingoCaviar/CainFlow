@@ -134,6 +134,26 @@ _Avoid_: Embedded protocol key, model key
 The variable video-node controls and input ports derived from a selected Declarative protocol configuration and its Protocol variant. Prompt entry, execution state, task recovery, and result presentation remain stable video-node behavior.
 _Avoid_: Per-protocol video node UI, request-only protocol editor
 
+**Protocol-driven generation card**:
+The request-parameter controls and input ports on a generation node, rendered only from the selected model's Declarative protocol configuration and exact Protocol variant. Provider selection, run count, execution state, recovery, result presentation, and download remain CainFlow controls. Parameter drafts belong to their model and Protocol variant, so an unsupported draft is retained but neither shown nor sent after a model switch.
+_Avoid_: Hard-coded generation request fields, shared parameter values across incompatible model variants
+
+**Protocol-driven video card rollout**:
+The first Protocol-driven generation card delivery covers video only. Every supported built-in video format must declare its equivalent parameters before it uses the shared renderer; a user-owned protocol without declared editable parameters shows an explicit safe state rather than falling back to legacy request controls. Protocol declaration order and `layout` hints determine parameter presentation.
+_Avoid_: Parallel video and image-card migration, legacy UI fallback for incomplete protocols
+
+**Inactive protocol draft**:
+A saved parameter value or connection that belongs to a previously selected model variant or a removed protocol declaration. CainFlow preserves it without rendering or sending it; switching back to a compatible declaration can restore it. If an inactive connection exceeds the selected variant's limits, CainFlow identifies it and blocks execution instead of deleting or silently omitting it.
+_Avoid_: Destructive model switching, silently ignored incompatible connection
+
+**Video card validation state**:
+The aggregated, pre-request validity of the selected model's Protocol variant, declared parameters, and input connections. CainFlow shows actionable summary and field-level feedback, disables execution while invalid, and never sends a partial request. A card also shows a concise read-only identity and constraint summary for its selected compatibility format and model variant; provider changes alone do not change that contract.
+_Avoid_: Provider-dependent same-model semantics, request-time-only validation
+
+**Protocol variant draft initialization**:
+The first selection of a model's Protocol variant fills only its missing fields from declared defaults. Subsequent selections restore that variant's saved draft. A protocol upgrade may initialize newly declared missing fields but must never overwrite a user-supplied value.
+_Avoid_: Resetting values on every model switch, protocol upgrades overwriting user input
+
 **Protocol vertical slice**:
 The first delivery of a new Declarative protocol capability together with one production protocol that exercises it. CainFlow will use the 6789 video protocol as the first slice and migrate existing protocols separately.
 _Avoid_: Big-bang protocol migration, hard-coded pilot

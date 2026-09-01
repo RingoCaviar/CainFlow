@@ -633,6 +633,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormField({
             label: '视频比例',
             fieldClass: 'node-field--full',
+            fieldId: `${id}-aspect-field`,
             content: `
                 <div class="video-ratio-param-row">
                     <select id="${id}-aspect">
@@ -718,6 +719,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormField({
             label: '提示词',
             fieldClass: 'node-video-prompt-field',
+            fieldId: `${id}-prompt-field`,
             content: `<textarea class="video-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的视频..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
         })}
         <div class="node-field node-video-result-field">

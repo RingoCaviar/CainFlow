@@ -933,8 +933,15 @@ export function createAsyncMediaExecutionApi({
         if (!videoId) throw new Error('当前节点没有可恢复的任务 ID');
 
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
-        const prompt = String(node.data?.prompt || documentRef.getElementById(`${nodeId}-prompt`)?.value || '').trim();
-        const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, { ...(node.data?.protocolParams || {}), prompt });
+        const prompt = String(node.data?.prompt
+            || node.data?.protocolParams?.prompt
+            || documentRef.getElementById(`${nodeId}-param-prompt`)?.value
+            || documentRef.getElementById(`${nodeId}-prompt`)?.value
+            || '').trim();
+        const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, {
+            ...(node.data?.protocolParams || {}),
+            ...(prompt ? { prompt } : {})
+        });
         const responseArea = documentRef.getElementById(`${nodeId}-response`);
         const downloadBtn = documentRef.getElementById(`${nodeId}-download-video`);
         const resumeBtn = documentRef.getElementById(`${nodeId}-resume-video`);
@@ -1038,7 +1045,10 @@ export function createAsyncMediaExecutionApi({
         if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
         node.providerId = resolvedProviderId;
 
-        const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
+        const userPrompt = (getPrimaryTextInput(inputs.prompt)
+            || documentRef.getElementById(`${id}-param-prompt`)?.value
+            || documentRef.getElementById(`${id}-prompt`)?.value
+            || '').trim();
         const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
         const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
         const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
