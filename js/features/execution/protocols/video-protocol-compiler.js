@@ -149,7 +149,9 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
     if (!protocol.id || !Array.isArray(protocol.taskTypes) || !protocol.taskTypes.includes('video')) {
         throw new Error('视频协议必须声明 id 和 video taskType');
     }
-    for (const [modelId, variant] of Object.entries(protocol.variants || {})) {
+    const variants = Object.entries(protocol.variants || {});
+    if (variants.length === 0) throw new Error('声明式视频协议必须配置至少一个精确模型变体');
+    for (const [modelId, variant] of variants) {
         const prefix = `变体 “${modelId}”`;
         const encoding = variant.requestEncoding || protocol.requestEncoding || 'json';
         if (!['json', 'multipart'].includes(encoding)) throw new Error(`${prefix} 的 requestEncoding 仅支持 json 或 multipart`);
@@ -233,6 +235,7 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
         protocolId: protocol.id,
         schemaVersion: protocol.schemaVersion,
         variantId: modelId,
+        authentication: clone(authentication),
         create: {
             method: 'POST',
             url: authenticatedCreate.url,
@@ -259,9 +262,12 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
 }
 
 export function redactProtocolPreview(request = {}, authentication = {}) {
+    const authenticationHeader = authentication.location === 'header'
+        ? String(authentication.field || '').toLowerCase()
+        : '';
     const headers = Object.fromEntries(Object.entries(request.headers || {}).map(([key, value]) => [
         key,
-        SECRET_HEADER_NAMES.has(key.toLowerCase()) ? '<REDACTED>' : value
+        (SECRET_HEADER_NAMES.has(key.toLowerCase()) || key.toLowerCase() === authenticationHeader) ? '<REDACTED>' : value
     ]));
     const redactUrl = (value) => {
         if (!value || authentication.location !== 'query' || !authentication.field) return value;

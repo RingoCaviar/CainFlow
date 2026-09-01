@@ -410,6 +410,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             showToast('协议不存在', 'error');
             return;
         }
+        editProtocolConfig(protocol);
+    }
+
+    function editProtocolConfig(protocol) {
         setSaveStatus();
 
         // 使用干净草稿编辑，避免直接修改注册表中的运行时协议对象。
@@ -1163,7 +1167,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 setSaveStatus();
                 return;
             }
-            if (data.taskTypes?.includes('video') && Object.keys(data.variants || {}).length > 0) {
+            if (data.taskTypes?.includes('video')) {
                 validateVideoProtocolConfiguration(data);
             }
 
@@ -1248,6 +1252,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         try {
             data = collectEditorData();
             if (!data) return;
+            if (data.taskTypes?.includes('video')) validateVideoProtocolConfiguration(data);
+            updatePreviewWithNodeValues();
         } catch (error) {
             showToast(`导出失败: ${error.message}`, 'error');
             return;
@@ -1273,10 +1279,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 throw new Error(`协议 ID “${imported.id}” 已存在，请先修改导入文件中的 ID`);
             }
             const userProtocol = cleanProtocolConfig(imported);
-            registerProtocol(userProtocol);
-            notifyProtocolRegistryChange(userProtocol.id);
-            renderProtocolList();
-            editProtocol(userProtocol.id);
+            editProtocolConfig(userProtocol);
             showToast(`协议 ${userProtocol.id} 已导入；确认预览后点击保存`, 'success');
         } catch (error) {
             showToast(`导入失败: ${error.message}`, 'error');
@@ -1775,10 +1778,6 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     },
                     apiKey: 'sk-example-api-key-1234567890'
                 });
-                const authentication = tempProtocol.authentication || {
-                    location: tempProtocol.apikeyLocation,
-                    field: String(tempProtocol.apikeyField || '').split(':')[0].trim()
-                };
                 const preview = redactProtocolPreview({
                     method: plan.create.method,
                     url: plan.create.url,
@@ -1787,7 +1786,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     body: plan.create.body,
                     fields: plan.create.fields,
                     query_url_template: plan.queryUrl('task-example')
-                }, authentication);
+                }, plan.authentication);
                 previewContainer.innerHTML = `<pre><code>${escapeHtmlForPreview(JSON.stringify(preview, null, 2))}</code></pre>`;
                 return;
             }

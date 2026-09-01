@@ -99,10 +99,33 @@ test('redacts API keys from query-authenticated preview URLs', () => {
     assert.equal(preview.query_url_template, 'https://relay.example/v1/videos/task-example?key=%3CREDACTED%3E');
 });
 
+test('redacts variant-owned custom authentication headers and query fields', () => {
+    const customHeader = redactProtocolPreview({ headers: { 'X-Token': 'secret' } }, {
+        location: 'header', field: 'X-Token'
+    });
+    assert.equal(customHeader.headers['X-Token'], '<REDACTED>');
+    const variantProtocol = {
+        ...protocol,
+        variants: {
+            'model-a': {
+                ...protocol.variants['model-a'],
+                authentication: { location: 'query', field: 'token', template: '{apikey}' }
+            }
+        }
+    };
+    const plan = compileVideoProtocol({
+        protocol: variantProtocol, endpoint: 'https://relay.example', modelId: 'model-a',
+        parameters: { prompt: 'lake', seconds: 5 }, apiKey: 'secret'
+    });
+    assert.equal(plan.authentication.field, 'token');
+    assert.doesNotMatch(redactProtocolPreview({ url: plan.create.url }, plan.authentication).url, /secret/);
+});
+
 test('validates and imports complete declarative video protocol configurations offline', () => {
     assert.equal(validateVideoProtocolConfiguration(protocol), true);
     assert.equal(importVideoProtocolConfiguration(JSON.stringify(protocol)).id, 'async-video-api');
     assert.throws(() => importVideoProtocolConfiguration('{bad json'), /JSON/);
+    assert.throws(() => validateVideoProtocolConfiguration({ ...protocol, variants: {} }), /至少一个精确模型变体/);
     assert.throws(() => validateVideoProtocolConfiguration({
         ...protocol,
         variants: { 'model-a': { ...protocol.variants['model-a'], requestEncoding: 'script' } }
