@@ -135,7 +135,7 @@ function readRuntimeProtocolParams(node, doc) {
     return params;
 }
 
-function serializeRuntimeNode(node, doc) {
+export function serializeRuntimeNode(node, doc) {
     const serialized = {
         id: node.id,
         type: node.type,

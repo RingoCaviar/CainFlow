@@ -10,6 +10,7 @@ import {
     updateVideoProtocolInputPortVisibility
 } from '../js/nodes/video-protocol-card.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
+import { serializeRuntimeNode } from '../js/features/workflow/workflow-runtime-manager.js';
 import {
     activateProtocolVariantDraft,
     applyProtocolVariantSnapshot,
@@ -74,7 +75,7 @@ test('variant draft snapshots persist the active form values without losing inac
     });
 });
 
-test('runtime and clipboard serializers can apply the same variant snapshot contract', () => {
+test('variant snapshot application retains active and inactive drafts', () => {
     const serialized = { type: 'VideoGenerate' };
     applyProtocolVariantSnapshot(serialized, {
         protocolVariantKey: 'async-video-api:kling-o3',
@@ -91,6 +92,26 @@ test('runtime and clipboard serializers can apply the same variant snapshot cont
             'async-video-api:kling-o3': { seconds: 12 },
             'async-video-api:minimax-h3': { seconds: 8 }
         }
+    });
+});
+
+test('workflow runtime snapshots persist active and inactive video variant drafts', () => {
+    const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
+    const serialized = serializeRuntimeNode({
+        id: 'video-runtime', type: 'VideoGenerate', x: 0, y: 0, enabled: true,
+        data: {
+            protocolVariantKey: 'async-video-api:kling-o3',
+            protocolVariantDrafts: {
+                'async-video-api:kling-o3': { seconds: 3 },
+                'async-video-api:minimax-h3': { seconds: 8 }
+            },
+            protocolParams: { seconds: 12 }
+        }
+    }, documentRef);
+    assert.equal(serialized.protocolVariantKey, 'async-video-api:kling-o3');
+    assert.deepEqual(serialized.protocolVariantDrafts, {
+        'async-video-api:kling-o3': { seconds: 12 },
+        'async-video-api:minimax-h3': { seconds: 8 }
     });
 });
 
