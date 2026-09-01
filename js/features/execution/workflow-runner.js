@@ -15,6 +15,32 @@ import {
 import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 
+export function shouldRunNodeForEachInput(node, inputs) {
+    if (!node) return false;
+    if (node.type === 'ImageMerge' || node.type === 'TextMerge' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'Text') return false;
+    return Object.entries(inputs || {}).some(([portName, value]) => (
+        Array.isArray(value) && value.length > 0 && !isMultiConnectionInput(node.type, portName)
+    ));
+}
+
+export function buildInputBatches(node, inputs) {
+    const entries = Object.entries(inputs || {});
+    if (entries.length === 0) return [{}];
+
+    return entries.reduce((batches, [key, value]) => {
+        const values = Array.isArray(value) && value.length > 0 && !isMultiConnectionInput(node?.type, key)
+            ? value
+            : [value];
+        const nextBatches = [];
+        batches.forEach((batch) => {
+            values.forEach((item) => {
+                nextBatches.push({ ...batch, [key]: item });
+            });
+        });
+        return nextBatches;
+    }, [{}]);
+}
+
 /**
  * 负责整条工作流的运行编排，包括前置校验、逐节点执行、重试与状态收尾。
  */
@@ -1015,38 +1041,11 @@ export function createWorkflowRunnerApi({
         return inputs;
     }
 
-    function isBatchInputValue(value) {
-        return Array.isArray(value) && value.length > 0;
-    }
-
     function isFixedTextChatWithCachedResult(node) {
         if (node?.type !== 'TextChat') return false;
         const fixedToggle = documentRef.getElementById(`${node.id}-fixed`);
         const isFixed = fixedToggle ? fixedToggle.checked : false;
         return isFixed && node.isSucceeded === true && typeof node.data?.text === 'string' && node.data.text.length > 0;
-    }
-
-    function shouldRunNodeForEachInput(node, inputs) {
-        if (!node) return false;
-        if (isFixedTextChatWithCachedResult(node)) return false;
-        if (node.type === 'ImageMerge' || node.type === 'TextMerge' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'Text') return false;
-        return Object.values(inputs || {}).some(isBatchInputValue);
-    }
-
-    function buildInputBatches(inputs) {
-        const entries = Object.entries(inputs || {});
-        if (entries.length === 0) return [{}];
-
-        return entries.reduce((batches, [key, value]) => {
-            const values = isBatchInputValue(value) ? value : [value];
-            const nextBatches = [];
-            batches.forEach((batch) => {
-                values.forEach((item) => {
-                    nextBatches.push({ ...batch, [key]: item });
-                });
-            });
-            return nextBatches;
-        }, [{}]);
     }
 
     function isConcurrentRequestModeEnabled() {
@@ -1411,8 +1410,8 @@ export function createWorkflowRunnerApi({
     }
 
     async function executeNodeWithInputBatches(node, inputs, signal) {
-        const shouldRunBatches = shouldRunNodeForEachInput(node, inputs);
-        const batches = shouldRunBatches ? buildInputBatches(inputs) : [inputs || {}];
+        const shouldRunBatches = !isFixedTextChatWithCachedResult(node) && shouldRunNodeForEachInput(node, inputs);
+        const batches = shouldRunBatches ? buildInputBatches(node, inputs) : [inputs || {}];
         prepareApiNodeGenerationProgress(node, batches.length);
 
         if (!shouldRunBatches) {
