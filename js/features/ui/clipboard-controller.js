@@ -6,6 +6,7 @@ import {
     collectConnectionSnapshotsForNodes
 } from '../../canvas/connection-copy-utils.js';
 import { migrateLegacyNodeData, migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
+import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 
 export function createClipboardControllerApi({
     state,
@@ -196,6 +197,7 @@ export function createClipboardControllerApi({
                 serialized.protocolParams = readNodeProtocolParams(id, node);
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
             } else if (node.type === 'VideoGenerate') {
+                applyProtocolVariantSnapshot(serialized, node.data, readNodeProtocolParams(id, node));
                 serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
                 serialized.useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
                 serialized.enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;

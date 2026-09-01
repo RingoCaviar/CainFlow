@@ -29,6 +29,7 @@ import {
 import { createDetachedWorkflowViewBuilder } from './detached-workflow-view-builder.js';
 import { createWorkflowLayoutElements, createWorkflowLayoutHost } from './workflow-layout-host.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
+import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 
 const WORKFLOW_RUNTIME_STATE_KEYS = [
     'autoRetry',
@@ -248,6 +249,7 @@ function serializeRuntimeNode(node, doc) {
                 serialized.concurrentRequestStatus = normalizeConcurrentRequestStatusPayload(node.data.concurrentRequestStatus);
             }
         } else if (node.type === 'VideoGenerate') {
+            applyProtocolVariantSnapshot(serialized, node.data, readRuntimeProtocolParams(node, doc));
             serialized.aspect = readElementControlValue(doc, `${node.id}-aspect`, '16:9');
             serialized.useVideoSizeParam = readElementControlValue(doc, `${node.id}-use-size-param`, false) === true;
             serialized.enhancePrompt = readElementControlValue(doc, `${node.id}-enhance-prompt`, false) === true;

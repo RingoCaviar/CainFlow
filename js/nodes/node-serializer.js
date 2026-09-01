@@ -5,7 +5,7 @@ import { normalizeConcurrentRequestStatusPayload } from '../features/execution/c
 import {
     getCanonicalImageList
 } from '../features/execution/execution-data-utils.js';
-import { snapshotProtocolVariantDrafts } from './protocol-variant-drafts.js';
+import { applyProtocolVariantSnapshot } from './protocol-variant-drafts.js';
 
 const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
@@ -196,8 +196,7 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.doubaoGenerateAudio = documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true;
                     serialized.doubaoWatermark = documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true;
                     serialized.doubaoSeed = documentRef.getElementById(`${id}-doubao-seed`)?.value || '';
-                    serialized.protocolParams = readNodeProtocolParams(id, node);
-                    Object.assign(serialized, snapshotProtocolVariantDrafts(node.data, serialized.protocolParams));
+                    applyProtocolVariantSnapshot(serialized, node.data, readNodeProtocolParams(id, node));
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                     serialized.videoId = node.data?.videoId || '';
                     serialized.videoUrl = node.data?.videoUrl || '';

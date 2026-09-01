@@ -12,6 +12,7 @@ import {
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import {
     activateProtocolVariantDraft,
+    applyProtocolVariantSnapshot,
     saveProtocolVariantDraft,
     snapshotProtocolVariantDrafts
 } from '../js/nodes/protocol-variant-drafts.js';
@@ -69,6 +70,26 @@ test('variant draft snapshots persist the active form values without losing inac
         protocolVariantDrafts: {
             'async-video-api:kling-o3': { seconds: 12, size: '1280x960' },
             'async-video-api:minimax-h3': { seconds: 8, size: '1440x1920' }
+        }
+    });
+});
+
+test('runtime and clipboard serializers can apply the same variant snapshot contract', () => {
+    const serialized = { type: 'VideoGenerate' };
+    applyProtocolVariantSnapshot(serialized, {
+        protocolVariantKey: 'async-video-api:kling-o3',
+        protocolVariantDrafts: {
+            'async-video-api:kling-o3': { seconds: 3 },
+            'async-video-api:minimax-h3': { seconds: 8 }
+        }
+    }, { seconds: 12 });
+    assert.deepEqual(serialized, {
+        type: 'VideoGenerate',
+        protocolParams: { seconds: 12 },
+        protocolVariantKey: 'async-video-api:kling-o3',
+        protocolVariantDrafts: {
+            'async-video-api:kling-o3': { seconds: 12 },
+            'async-video-api:minimax-h3': { seconds: 8 }
         }
     });
 });

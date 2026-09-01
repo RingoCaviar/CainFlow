@@ -43,3 +43,9 @@ export function snapshotProtocolVariantDrafts(data = {}, activeParameters = data
         protocolVariantDrafts: drafts
     };
 }
+
+export function applyProtocolVariantSnapshot(target = {}, data = {}, activeParameters = data.protocolParams || {}) {
+    target.protocolParams = { ...activeParameters };
+    Object.assign(target, snapshotProtocolVariantDrafts(data, activeParameters));
+    return target;
+}
