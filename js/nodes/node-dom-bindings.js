@@ -23,6 +23,7 @@ import { getProtocolParameterValues, renderProtocolParameters } from './protocol
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
 import { describeVideoProtocolCard } from './video-protocol-card.js';
+import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -1538,10 +1539,7 @@ export function createNodeDomBindingsApi({
         const extraProtocol = getVideoGenerateExtraProtocol(getVideoGenerateSelectedProtocol(id));
         if (!extraProtocol) return;
         node.data = node.data || {};
-        node.data.protocolParams = {
-            ...(node.data.protocolParams || {}),
-            ...getProtocolParameterValues(id, extraProtocol, 'video', documentRef)
-        };
+        node.data = saveProtocolVariantDraft(node.data, getProtocolParameterValues(id, extraProtocol, 'video', documentRef));
     }
 
     function bindVideoGenerateProtocolParamInputs(id, root) {
@@ -1573,7 +1571,6 @@ export function createNodeDomBindingsApi({
             delete node.data.systemPrompt;
         }
 
-        syncVideoGenerateProtocolParams(id);
         const selectedProtocol = getVideoGenerateSelectedProtocol(id);
         const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
         const model = state.models.find((candidate) => candidate.id === modelId);
@@ -1583,6 +1580,15 @@ export function createNodeDomBindingsApi({
             container.innerHTML = '<div class="node-error-msg">当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。</div>';
             return;
         }
+        const draftKey = getProtocolVariantDraftKey(selectedProtocol?.id, model?.modelId);
+        if (draftKey && node.data.protocolVariantKey !== draftKey) {
+            node.data = activateProtocolVariantDraft(node.data, {
+                protocolId: selectedProtocol.id,
+                modelId: model.modelId,
+                parameters: selectedProtocol.parameters
+            });
+        }
+        syncVideoGenerateProtocolParams(id);
         const extraProtocol = getVideoGenerateExtraProtocol(selectedProtocol);
         container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'video', node.data || {}) : '';
         bindZoomSettleGuard(container);

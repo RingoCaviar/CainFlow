@@ -111,8 +111,11 @@ function normalizeImages(inputs = {}) {
 function compileMediaFields(variant = {}, inputs = {}) {
     const images = normalizeImages(inputs);
     const rule = variant.referenceImage;
-    if (!rule) return { images, fields: [] };
-    const maxCount = rule.maxCount;
+    if (!rule) {
+        if (images.length > 0) throw new Error('当前模型变体不支持参考图输入，请移除不活动连接后重试。');
+        return { images, fields: [] };
+    }
+    const maxCount = rule.maxCount ?? variant.parameters?.referenceImages?.portCount;
     if (Number.isFinite(maxCount) && images.length > maxCount) {
         throw new Error(`此模型最多支持 ${maxCount} 张参考图，当前连接了 ${images.length} 张`);
     }

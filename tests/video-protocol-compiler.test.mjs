@@ -166,6 +166,20 @@ test('compiles Kling O3 as JSON without images and multipart with ordered repeat
         ['images', 'data:image/png;base64,AAAA']
     ]);
     assert.throws(() => compileVideoProtocol({ ...base, parameters: { ...base.parameters, seconds: 2 } }), /seconds.*3/);
+    assert.throws(() => compileVideoProtocol({
+        ...base,
+        inputs: { referenceImages: Array.from({ length: 6 }, (_, index) => `https://example.test/${index}.png`) }
+    }), /最多支持 5 张/);
+});
+
+test('rejects inactive image connections before creating a request', () => {
+    assert.throws(() => compileVideoProtocol({
+        protocol,
+        endpoint: 'https://relay.example',
+        modelId: 'model-a',
+        parameters: { prompt: 'A quiet lake', seconds: 5 },
+        inputs: { referenceImages: ['https://example.test/a.png'] }
+    }), /不支持参考图输入/);
 });
 
 test('multipart transport uploads Base64 reference images as files and keeps remote URLs as strings', async () => {
