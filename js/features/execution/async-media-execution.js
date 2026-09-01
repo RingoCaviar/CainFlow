@@ -1066,6 +1066,7 @@ export function createAsyncMediaExecutionApi({
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
         const normalizedModelId = String(modelCfg.modelId || '').toLowerCase();
 
+        if (node.data?.videoCardExecutionBlockedReason) throw new Error(node.data.videoCardExecutionBlockedReason);
         if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
         if (!prompt.trim()) throw new Error('请输入提示词');
         if (protocol === 'doubao-video') {

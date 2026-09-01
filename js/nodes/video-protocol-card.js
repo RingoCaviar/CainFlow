@@ -11,16 +11,26 @@ export function describeVideoProtocolCard(protocol, modelId) {
     const hasVariants = Object.keys(variants).length > 0;
     const variant = variants[modelId] || null;
     const isUnmatched = hasVariants && !variant;
-    if (!protocol) return { isDeclared: false, isUnmatched: false, summary: '' };
+    if (!protocol) return { isDeclared: false, isIncomplete: false, isUnmatched: false, summary: '' };
     if (isUnmatched) {
         return {
             isDeclared: true,
+            isIncomplete: false,
             isUnmatched: true,
             summary: `${protocol.label || protocol.id} · ${modelId || '未选择模型'} · 未配置变体`
         };
     }
 
     const parameters = getVariantParameters(protocol, variant);
+    const isIncomplete = Object.keys(parameters).length === 0;
+    if (isIncomplete) {
+        return {
+            isDeclared: false,
+            isIncomplete: true,
+            isUnmatched: false,
+            summary: `${protocol.label || protocol.id} · ${modelId || '未选择模型'} · 未声明可编辑视频参数`
+        };
+    }
     const constraints = [];
     const duration = parameters.seconds || parameters.duration;
     if (duration?.min !== undefined || duration?.max !== undefined) {
@@ -32,6 +42,7 @@ export function describeVideoProtocolCard(protocol, modelId) {
 
     return {
         isDeclared: Object.keys(parameters).length > 0,
+        isIncomplete: false,
         isUnmatched: false,
         summary: [protocol.label || protocol.id, modelId, ...constraints].filter(Boolean).join(' · ')
     };

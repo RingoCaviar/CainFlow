@@ -9,6 +9,7 @@ import { activateProtocolVariantDraft, saveProtocolVariantDraft } from '../js/no
 test('Kling card contract exposes the exact variant identity and constraints', () => {
     assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'kling-o3'), {
         isDeclared: true,
+        isIncomplete: false,
         isUnmatched: false,
         summary: '6789中转视频 · kling-o3 · 时长 3–15 秒 · 最多 5 张参考图'
     });
@@ -17,6 +18,7 @@ test('Kling card contract exposes the exact variant identity and constraints', (
 test('MiniMax card contract retains its own exact limits', () => {
     assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'minimax-h3'), {
         isDeclared: true,
+        isIncomplete: false,
         isUnmatched: false,
         summary: '6789中转视频 · minimax-h3 · 时长 4–15 秒 · 最多 1 张参考图'
     });
@@ -25,6 +27,7 @@ test('MiniMax card contract retains its own exact limits', () => {
 test('an unmatched declared video variant enters a safe card state', () => {
     assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'unknown-video'), {
         isDeclared: true,
+        isIncomplete: false,
         isUnmatched: true,
         summary: '6789中转视频 · unknown-video · 未配置变体'
     });
@@ -52,4 +55,13 @@ test('built-in video parameters remain declaration-owned after the legacy contro
     assert.equal(parameters.duration.exposed, true);
     assert.equal(DoubaoVideoProtocol.parameters.resolution.exposed, true);
     assert.equal(DoubaoVideoProtocol.parameters.camera_fixed.exposed, true);
+});
+
+test('a user-owned video protocol without editable parameters has a safe card error', () => {
+    assert.deepEqual(describeVideoProtocolCard({ id: 'user-video', label: 'User video', parameters: {} }, 'model-a'), {
+        isDeclared: false,
+        isIncomplete: true,
+        isUnmatched: false,
+        summary: 'User video · model-a · 未声明可编辑视频参数'
+    });
 });

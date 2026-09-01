@@ -607,6 +607,7 @@ export function createNodeDomBindingsApi({
     }
 
     function syncVideoGenerateProtocolFields(id) {
+        const node = state.nodes.get(id);
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
         const providerSelect = documentRef.getElementById(`${id}-provider`);
         const aspectSelect = documentRef.getElementById(`${id}-aspect`);
@@ -654,8 +655,9 @@ export function createNodeDomBindingsApi({
         const durationMax = 12;
 
         if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', cardContract.isDeclared || !supportsSizeParamToggle);
-        if (promptField) promptField.classList.toggle('hidden', hasVariantMismatch || cardContract.isDeclared);
-        if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || cardContract.isDeclared);
+        const hasSafeCardError = hasVariantMismatch || cardContract.isIncomplete;
+        if (promptField) promptField.classList.toggle('hidden', hasSafeCardError || cardContract.isDeclared);
+        if (aspectField) aspectField.classList.toggle('hidden', hasSafeCardError || cardContract.isDeclared);
         if (protocolSummary) {
             protocolSummary.textContent = cardContract.summary;
             protocolSummary.classList.toggle('hidden', !cardContract.summary);
@@ -727,6 +729,10 @@ export function createNodeDomBindingsApi({
         if (!isDoubaoProtocol && doubaoGenerateAudioInput) doubaoGenerateAudioInput.checked = false;
         if (!isDoubaoProtocol && doubaoWatermarkInput) doubaoWatermarkInput.checked = false;
         if (!isDoubaoProtocol && doubaoSeedInput) doubaoSeedInput.value = '';
+        node.data = node.data || {};
+        node.data.videoCardExecutionBlockedReason = hasSafeCardError
+            ? '当前视频协议未声明完整的模型变体或可编辑参数；请在协议编辑器中补齐后重试。'
+            : '';
         refreshVideoGenerateProtocolParams(id);
         syncVideoReferenceImagePorts(id);
     }
@@ -1569,6 +1575,10 @@ export function createNodeDomBindingsApi({
         const hasVariant = Boolean(selectedProtocol?.variants?.[model?.modelId]);
         if (hasVariants && !hasVariant) {
             container.innerHTML = '<div class="node-error-msg">当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。</div>';
+            return;
+        }
+        if (selectedProtocol && Object.keys(selectedProtocol.parameters || {}).length === 0) {
+            container.innerHTML = '<div class="node-error-msg">当前协议未声明可编辑视频参数；请在协议编辑器中补齐后重试。</div>';
             return;
         }
         const draftKey = getProtocolVariantDraftKey(selectedProtocol?.id, model?.modelId);
