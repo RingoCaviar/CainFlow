@@ -4,6 +4,7 @@ import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-v
 import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unified.js';
 import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
 import { describeVideoProtocolCard } from '../js/nodes/video-protocol-card.js';
+import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import {
     activateProtocolVariantDraft,
     saveProtocolVariantDraft,
@@ -64,6 +65,39 @@ test('variant draft snapshots persist the active form values without losing inac
             'async-video-api:kling-o3': { seconds: 12, size: '1280x960' },
             'async-video-api:minimax-h3': { seconds: 8, size: '1440x1920' }
         }
+    });
+});
+
+test('workflow serialization persists active and inactive video variant drafts', () => {
+    const controls = new Map([
+        ['video-1-apiconfig', { value: 'model-config-1' }],
+        ['video-1-provider', { value: 'provider-1' }],
+        ['video-1-generation-count', { value: '1' }]
+    ]);
+    const documentRef = {
+        getElementById: (id) => controls.get(id) || null,
+        querySelectorAll: () => []
+    };
+    const state = {
+        nodes: new Map([['video-1', {
+            type: 'VideoGenerate', x: 10, y: 20, enabled: true,
+            data: {
+                protocolVariantKey: 'async-video-api:kling-o3',
+                protocolVariantDrafts: {
+                    'async-video-api:kling-o3': { seconds: 3 },
+                    'async-video-api:minimax-h3': { seconds: 8 }
+                },
+                protocolParams: { seconds: 12 }
+            }
+        }]]),
+        connections: []
+    };
+
+    const [serialized] = createNodeSerializer({ state, documentRef }).serializeNodes();
+    assert.equal(serialized.protocolVariantKey, 'async-video-api:kling-o3');
+    assert.deepEqual(serialized.protocolVariantDrafts, {
+        'async-video-api:kling-o3': { seconds: 12 },
+        'async-video-api:minimax-h3': { seconds: 8 }
     });
 });
 
