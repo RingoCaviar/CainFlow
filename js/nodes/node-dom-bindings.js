@@ -653,22 +653,22 @@ export function createNodeDomBindingsApi({
         const durationMin = modelId.includes('seedance-1-5-pro') ? 4 : 2;
         const durationMax = 12;
 
-        if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', !supportsSizeParamToggle);
+        if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', cardContract.isDeclared || !supportsSizeParamToggle);
         if (promptField) promptField.classList.toggle('hidden', hasVariantMismatch || cardContract.isDeclared);
-        if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant));
+        if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || cardContract.isDeclared);
         if (protocolSummary) {
             protocolSummary.textContent = cardContract.summary;
             protocolSummary.classList.toggle('hidden', !cardContract.summary);
         }
-        if (enhanceField) enhanceField.classList.toggle('hidden', !meta.supportsEnhancePrompt);
-        if (upsampleField) upsampleField.classList.toggle('hidden', !meta.supportsUpsample);
-        if (doubaoResolutionField) doubaoResolutionField.classList.toggle('hidden', !isDoubaoProtocol);
-        if (doubaoDurationField) doubaoDurationField.classList.toggle('hidden', !isDoubaoProtocol);
-        if (doubaoCameraFixedField) doubaoCameraFixedField.classList.toggle('hidden', !isDoubaoProtocol);
-        if (doubaoGenerateAudioField) doubaoGenerateAudioField.classList.toggle('hidden', !isDoubaoProtocol);
-        if (doubaoWatermarkField) doubaoWatermarkField.classList.toggle('hidden', !isDoubaoProtocol);
-        if (doubaoSeedField) doubaoSeedField.classList.toggle('hidden', !isDoubaoProtocol);
-        if (doubaoNoteField) doubaoNoteField.classList.toggle('hidden', !isDoubaoProtocol);
+        if (enhanceField) enhanceField.classList.toggle('hidden', cardContract.isDeclared || !meta.supportsEnhancePrompt);
+        if (upsampleField) upsampleField.classList.toggle('hidden', cardContract.isDeclared || !meta.supportsUpsample);
+        if (doubaoResolutionField) doubaoResolutionField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
+        if (doubaoDurationField) doubaoDurationField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
+        if (doubaoCameraFixedField) doubaoCameraFixedField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
+        if (doubaoGenerateAudioField) doubaoGenerateAudioField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
+        if (doubaoWatermarkField) doubaoWatermarkField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
+        if (doubaoSeedField) doubaoSeedField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
+        if (doubaoNoteField) doubaoNoteField.classList.toggle('hidden', cardContract.isDeclared || !isDoubaoProtocol);
         if (!meta.supportsEnhancePrompt && enhanceInput) enhanceInput.checked = false;
         if (!meta.supportsUpsample && upsampleInput) upsampleInput.checked = false;
         if (isDoubaoProtocol && aspectSelect) {
@@ -1492,16 +1492,7 @@ export function createNodeDomBindingsApi({
 
     const VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
         'referenceImages',
-        'model',
-        'aspect',
-        'aspect_ratio',
-        'resolution',
-        'duration',
-        'camera_fixed',
-        'generate_audio',
-        'watermark',
-        'seed',
-        'loop'
+        'model'
     ]);
 
     function getVideoGenerateExtraProtocol(protocol) {

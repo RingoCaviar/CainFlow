@@ -46,7 +46,7 @@ export const VeoUnifiedProtocol = {
 
         image_3: {
             id: 'image_3',
-            exposed: false,
+            exposed: true,
             inputPort: true,
             portType: 'image',
             portOnly: true,
@@ -62,7 +62,7 @@ export const VeoUnifiedProtocol = {
 
         image_4: {
             id: 'image_4',
-            exposed: false,
+            exposed: true,
             inputPort: true,
             portType: 'image',
             portOnly: true,

@@ -45,3 +45,11 @@ test('built-in video protocols expose their declared card contracts without vari
     assert.equal(describeVideoProtocolCard(VeoUnifiedProtocol, 'veo-3').isDeclared, true);
     assert.equal(describeVideoProtocolCard(DoubaoVideoProtocol, 'seedance').isDeclared, true);
 });
+
+test('built-in video parameters remain declaration-owned after the legacy control migration', () => {
+    const parameters = VeoUnifiedProtocol.parameters;
+    assert.equal(parameters.aspect_ratio.exposed, true);
+    assert.equal(parameters.duration.exposed, true);
+    assert.equal(DoubaoVideoProtocol.parameters.resolution.exposed, true);
+    assert.equal(DoubaoVideoProtocol.parameters.camera_fixed.exposed, true);
+});

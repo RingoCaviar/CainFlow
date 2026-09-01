@@ -46,7 +46,7 @@ export const DoubaoVideoProtocol = {
 
         image_3: {
             id: 'image_3',
-            exposed: false,
+            exposed: true,
             inputPort: true,
             portType: 'image',
             portOnly: true,
@@ -62,7 +62,7 @@ export const DoubaoVideoProtocol = {
 
         image_4: {
             id: 'image_4',
-            exposed: false,
+            exposed: true,
             inputPort: true,
             portType: 'image',
             portOnly: true,
@@ -78,7 +78,7 @@ export const DoubaoVideoProtocol = {
 
         image_5: {
             id: 'image_5',
-            exposed: false,
+            exposed: true,
             inputPort: true,
             portType: 'image',
             portOnly: true,
@@ -170,7 +170,7 @@ export const DoubaoVideoProtocol = {
 
         camera_fixed: {
             id: 'camera_fixed',
-            exposed: false,
+            exposed: true,
             inputPort: false,
             dataType: 'boolean',
             uiControl: 'toggle',
@@ -182,7 +182,7 @@ export const DoubaoVideoProtocol = {
 
         generate_audio: {
             id: 'generate_audio',
-            exposed: false,
+            exposed: true,
             inputPort: false,
             dataType: 'boolean',
             uiControl: 'toggle',
