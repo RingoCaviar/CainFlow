@@ -1484,7 +1484,13 @@ export function createNodeDomBindingsApi({
         const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
         const provider = getResolvedProviderForModel(model, state.providers, providerId);
         const protocolId = getEffectiveProtocol(model, provider);
-        return getProtocol(protocolId) || null;
+        const protocol = getProtocol(protocolId) || null;
+        const variant = protocol?.variants?.[model?.modelId];
+        if (!variant) return protocol;
+        return {
+            ...protocol,
+            parameters: { ...(protocol.parameters || {}), ...(variant.parameters || {}) }
+        };
     }
 
     function syncVideoGenerateProtocolParams(id) {

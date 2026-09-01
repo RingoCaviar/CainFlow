@@ -20,6 +20,8 @@ import {
     getResolvedProviderIdForModel,
     resolveProviderUrl
 } from './provider-request-utils.js';
+import { getProtocol } from './protocols/index.js';
+import { compileVideoProtocol } from './protocols/video-protocol-compiler.js';
 import { getPrimaryTextInput } from './execution-data-utils.js';
 import { escapeHtml } from '../../core/common-utils.js';
 
@@ -277,6 +279,38 @@ export function createAsyncMediaExecutionApi({
         });
     }
 
+    async function buildVideoRequestPayload(protocolPlan, requestBody) {
+        if (!protocolPlan || protocolPlan.create.encoding !== 'multipart') {
+            return JSON.stringify(requestBody);
+        }
+        const formData = new FormData();
+        for (const [field, value] of protocolPlan.create.fields) {
+            const imageMatch = typeof value === 'string' && value.match(/^data:(image\/[^;]+);base64,(.+)$/i);
+            if (!imageMatch) {
+                formData.append(field, String(value));
+                continue;
+            }
+            const bytes = Uint8Array.from(atob(imageMatch[2]), (character) => character.charCodeAt(0));
+            const mimeType = imageMatch[1];
+            const extension = mimeType.split('/')[1] || 'png';
+            formData.append(field, new Blob([bytes], { type: mimeType }), `reference.${extension}`);
+        }
+        return formData;
+    }
+
+    function compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, parameters = {}, inputs = {}) {
+        const declarativeProtocol = getProtocol(protocol);
+        if (!declarativeProtocol?.variants) return null;
+        return compileVideoProtocol({
+            protocol: declarativeProtocol,
+            endpoint: apiCfg.endpoint,
+            modelId: modelCfg.modelId,
+            parameters,
+            inputs,
+            apiKey: apiCfg.apikey
+        });
+    }
+
     async function pollVideoGeneration({
         node,
         apiCfg,
@@ -284,7 +318,8 @@ export function createAsyncMediaExecutionApi({
         protocol,
         videoId,
         signal,
-        prompt
+        prompt,
+        protocolPlan = null
     }) {
         const maxAttempts = 180;
         const intervalMs = 10000;
@@ -297,15 +332,15 @@ export function createAsyncMediaExecutionApi({
                 throw abortError;
             }
 
-            const url = resolveProviderUrl(apiCfg, modelCfg, 'video', {
+            const url = protocolPlan ? protocolPlan.queryUrl(videoId) : resolveProviderUrl(apiCfg, modelCfg, 'video', {
                 action: 'query',
                 videoId
             });
             const requestBody = null;
             const headers = getProxyHeaders(url, 'GET', {
-                Authorization: `Bearer ${apiCfg.apikey}`,
+                ...(protocolPlan?.create.headers || { Authorization: `Bearer ${apiCfg.apikey}` }),
                 Accept: 'application/json',
-                'Content-Type': 'application/json'
+                ...(protocolPlan ? {} : { 'Content-Type': 'application/json' })
             });
 
             logRequestToPanel(
@@ -378,11 +413,15 @@ export function createAsyncMediaExecutionApi({
             });
             if (!pollResult) continue;
             const { result } = pollResult;
-            const status = extractVideoStatus(result, protocol);
-            const extracted = extractVideoResult(result, protocol);
+            const status = protocolPlan ? protocolPlan.parseStatus(result) : extractVideoStatus(result, protocol);
+            const extracted = protocolPlan
+                ? { url: protocolPlan.parseResultUrl(result), revisedPrompt: '' }
+                : extractVideoResult(result, protocol);
             const videoUrlMeta = classifyVideoUrlForLog(extracted.url);
 
-            if (status === 'completed' || status === 'succeeded' || status === 'success' || extracted.url) {
+            const completedStatuses = protocolPlan?.asyncTask?.completedStatuses || ['completed', 'succeeded', 'success'];
+            const failedStatuses = protocolPlan?.asyncTask?.failedStatuses || ['failed', 'error', 'cancelled', 'canceled'];
+            if (completedStatuses.includes(status) || extracted.url) {
                 let finalUrl = extracted.url;
                 if (finalUrl) {
                     addLog('info', `视频结果链接: ${modelCfg.name} (${attempt}/${maxAttempts})`, `已识别为${videoUrlMeta.label}`, {
@@ -419,7 +458,7 @@ export function createAsyncMediaExecutionApi({
                 };
             }
 
-            if (status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled') {
+            if (failedStatuses.includes(status)) {
                 throw new Error(`视频生成失败，当前状态：${status || 'unknown'}`);
             }
 
@@ -906,6 +945,7 @@ export function createAsyncMediaExecutionApi({
 
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
         const prompt = String(node.data?.prompt || documentRef.getElementById(`${nodeId}-prompt`)?.value || '').trim();
+        const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, { ...(node.data?.protocolParams || {}), prompt });
         const responseArea = documentRef.getElementById(`${nodeId}-response`);
         const downloadBtn = documentRef.getElementById(`${nodeId}-download-video`);
         const resumeBtn = documentRef.getElementById(`${nodeId}-resume-video`);
@@ -928,7 +968,8 @@ export function createAsyncMediaExecutionApi({
                 protocol,
                 videoId,
                 signal,
-                prompt
+                prompt,
+                protocolPlan
             });
             if (finalResult.videoUrl) {
                 updateVideoGenerationStatus(nodeId, `下载中：任务 ${videoId} 已完成，正在缓存视频...`, 'progress');
@@ -1050,9 +1091,10 @@ export function createAsyncMediaExecutionApi({
         if (downloadBtn) downloadBtn.disabled = true;
 
         for (let index = 0; index < generationCount; index += 1) {
-            const url = resolveProviderUrl(apiCfg, modelCfg, 'video', { action: 'create' });
+            const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, { ...(node.data?.protocolParams || {}), prompt }, inputs);
+            const url = protocolPlan?.create.url || resolveProviderUrl(apiCfg, modelCfg, 'video', { action: 'create' });
             const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
-            const requestBody = protocol === 'veo-openai'
+            const requestBody = protocolPlan?.create.body || (protocol === 'veo-openai'
                 ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, inputs })
                 : (protocol === 'doubao-video'
                     ? buildDoubaoVideoRequest({
@@ -1067,8 +1109,8 @@ export function createAsyncMediaExecutionApi({
                         seed: doubaoSeed,
                         inputs
                     })
-                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, enhancePrompt, enableUpsample, inputs }));
-            const headers = getProxyHeaders(url, 'POST', {
+                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, enhancePrompt, enableUpsample, inputs })));
+            const headers = getProxyHeaders(url, 'POST', protocolPlan?.create.headers || {
                 Authorization: `Bearer ${apiCfg.apikey}`
             });
 
@@ -1093,7 +1135,7 @@ export function createAsyncMediaExecutionApi({
                 const response = await fetchRef('/proxy', {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify(requestBody),
+                    body: await buildVideoRequestPayload(protocolPlan, requestBody),
                     signal
                 });
 
@@ -1112,7 +1154,7 @@ export function createAsyncMediaExecutionApi({
                 }
 
                 const createResult = await parseJsonResponseOrThrow(response, createResponseContext);
-                const videoId = extractVideoTaskId(createResult, protocol);
+                const videoId = protocolPlan ? protocolPlan.parseTaskId(createResult) : extractVideoTaskId(createResult, protocol);
                 if (!videoId) throw new Error('视频创建成功，但接口没有返回任务 ID');
                 return {
                     createResult,
@@ -1159,7 +1201,8 @@ export function createAsyncMediaExecutionApi({
                 protocol,
                 videoId: createSummary.videoId || videoId,
                 signal,
-                prompt
+                prompt,
+                protocolPlan
             });
             await saveVideoGenerationToHistory(node, finalResult, modelCfg, signal);
             results.push(stripVideoHistoryPayload(finalResult));

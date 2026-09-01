@@ -4,14 +4,12 @@
 import {
     getVideoProtocolOptionMeta as getRegisteredVideoProtocolOptionMeta,
     getProtocolSelectOptions,
-    isKnownModelProtocol,
-    MODEL_PROTOCOL_IDS
+    isKnownModelProtocol
 } from './model-protocol-registry.js';
 import { getProtocol } from './protocols/index.js';
 import { normalizeImageList } from './execution-data-utils.js';
 import { requireModelCompatibilityFormat } from './model-compatibility-format.js';
 
-const VALID_PROTOCOLS = new Set(MODEL_PROTOCOL_IDS);
 
 function getImageInputKeys(inputs = {}) {
     return Object.keys(inputs)
@@ -87,7 +85,7 @@ export function getVideoProtocolOptionMeta(protocol = '') {
 }
 
 function getProtocolValue(protocol) {
-    return isKnownModelProtocol(protocol) && VALID_PROTOCOLS.has(protocol) ? protocol : '';
+    return isKnownModelProtocol(protocol) ? protocol : '';
 }
 
 function getFingerprintProtocol(model = {}) {

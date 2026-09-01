@@ -77,3 +77,59 @@ _Avoid_: Unbounded log, complete request archive
 **Diagnostic level**:
 The user's choice of how much successful runtime activity CainFlow records for diagnosis; it does not weaken the hard disk budget. It expresses diagnostic intent rather than a retention duration.
 _Avoid_: Log retention days, log storage quota
+
+**Declarative protocol configuration**:
+A user-editable protocol definition that expresses common provider behavior such as endpoint paths, authentication, parameters, media-field mapping, asynchronous task polling, and response extraction, without executable code.
+_Avoid_: Scripted protocol, arbitrary protocol code
+
+**Transport adapter**:
+A CainFlow-supplied implementation that turns a Declarative protocol configuration into a correctly encoded provider request or handles transport behavior not safely expressible in configuration, such as multipart file upload.
+_Avoid_: Provider-specific branch, protocol script
+
+**Protocol variant**:
+A model-ID-selected specialization within one Declarative protocol configuration. It supplies model-specific request encoding, media rules, parameter constraints, and overrides without becoming a separate compatibility format or a node-level mode.
+_Avoid_: Separate model protocol, node mode
+
+**Protocol constraint**:
+A declared limit on values or connected media that a Protocol variant accepts. CainFlow prevents invalid values in the node UI and rejects any invalid execution without silently discarding inputs or coercing values.
+_Avoid_: Best-effort fallback, silent normalization
+
+**Protocol schema version**:
+The version of the persisted Declarative protocol configuration shape. CainFlow migrates known older versions during loading, while a configuration from an unknown newer version is preserved but not executed or edited.
+_Avoid_: Unversioned protocol format
+
+**Built-in protocol configuration**:
+A read-only Declarative protocol configuration supplied and maintained by CainFlow. A user may copy it into a User-owned protocol configuration but cannot modify the supplied original.
+_Avoid_: Editable built-in protocol
+
+**User-owned protocol configuration**:
+A Declarative protocol configuration created by a user or copied from a Built-in protocol configuration. CainFlow preserves it across upgrades and does not overwrite it with the corresponding built-in configuration.
+_Avoid_: Overridable built-in protocol
+
+**Protocol validation**:
+The two-layer verification of a Declarative protocol configuration: offline schema and constraint validation with a redacted request preview, plus an explicitly user-initiated network test. Saving or importing a configuration never initiates a provider request.
+_Avoid_: Save-time provider test
+
+**Protocol variant selector**:
+The exact model ID used to select a Protocol variant. CainFlow does not infer variants from wildcard or regular-expression matching.
+_Avoid_: Variant pattern, guessed model variant
+
+**Unmatched protocol variant**:
+A model assigned a Declarative protocol configuration but lacking a Protocol variant selected by its exact model ID. CainFlow rejects its execution before a provider request is sent.
+_Avoid_: Default guessed variant, nearest-match variant
+
+**Async task mapping**:
+The declared provider-specific mapping from an asynchronous task response to task ID, state, terminal outcome, and result media. CainFlow owns polling cadence, timeout, cancellation, recovery, and diagnostic behavior.
+_Avoid_: Per-protocol polling policy
+
+**Protocol authentication rule**:
+The non-secret declaration of where and how CainFlow places a provider's API key in a request. The key itself belongs only to the linked provider configuration and is excluded from protocol persistence, export, and previews.
+_Avoid_: Embedded protocol key, model key
+
+**Protocol-driven video controls**:
+The variable video-node controls and input ports derived from a selected Declarative protocol configuration and its Protocol variant. Prompt entry, execution state, task recovery, and result presentation remain stable video-node behavior.
+_Avoid_: Per-protocol video node UI, request-only protocol editor
+
+**Protocol vertical slice**:
+The first delivery of a new Declarative protocol capability together with one production protocol that exercises it. CainFlow will use the 6789 video protocol as the first slice and migrate existing protocols separately.
+_Avoid_: Big-bang protocol migration, hard-coded pilot

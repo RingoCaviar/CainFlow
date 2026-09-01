@@ -1,7 +1,7 @@
 /**
  * 维护模型兼容格式的统一注册表，作为设置页、节点 UI 与执行层的单一来源。
  */
-import { getProtocol } from './protocols/index.js';
+import { getAllProtocols, getProtocol } from './protocols/index.js';
 
 const MODEL_PROTOCOLS = Object.freeze({
     google: Object.freeze({
@@ -90,12 +90,22 @@ function getRegisteredProtocolOverride(protocol = '') {
 }
 
 export function isKnownModelProtocol(protocol = '') {
-    return Object.prototype.hasOwnProperty.call(MODEL_PROTOCOLS, protocol);
+    return Object.prototype.hasOwnProperty.call(MODEL_PROTOCOLS, protocol) || Boolean(getProtocol(protocol));
 }
 
 export function getModelProtocolConfig(protocol = '') {
     const baseConfig = MODEL_PROTOCOLS[protocol] || null;
-    if (!baseConfig) return null;
+    if (!baseConfig) {
+        const registered = getRegisteredProtocolOverride(protocol);
+        if (!registered) return null;
+        return {
+            id: protocol,
+            label: registered.label || protocol,
+            defaultTaskTypes: registered.taskTypes,
+            videoMeta: registered.videoMeta || null,
+            helpText: getProtocol(protocol)?.helpText || ''
+        };
+    }
 
     const registeredOverride = getRegisteredProtocolOverride(protocol);
     if (!registeredOverride) return baseConfig;
@@ -124,11 +134,18 @@ export function getVideoProtocolOptionMeta(protocol = '') {
 }
 
 export function getProtocolSelectOptions(taskType = '') {
-    return MODEL_PROTOCOL_IDS
+    const ids = [...new Set([...MODEL_PROTOCOL_IDS, ...getProtocolSelectOptionsFromRegistry(taskType).map((option) => option.value)])];
+    return ids
         .map((id) => getModelProtocolConfig(id))
         .filter((config) => !taskType || config.defaultTaskTypes.includes(taskType))
         .map((config) => ({
             value: config.id,
             label: config.label
         }));
+}
+
+function getProtocolSelectOptionsFromRegistry(taskType = '') {
+    return getAllProtocols()
+        .filter((protocol) => !taskType || protocol.taskTypes?.includes(taskType))
+        .map((protocol) => ({ value: protocol.id, label: protocol.label || protocol.id }));
 }

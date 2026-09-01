@@ -4,6 +4,7 @@
  */
 
 import { wrapConfigProtocol } from './request-builder.js';
+import { migrateProtocolConfiguration } from './video-protocol-compiler.js';
 
 // 协议存储
 const PROTOCOLS = new Map();
@@ -32,7 +33,7 @@ export function registerProtocol(protocol) {
     console.log('[registerProtocol] 注册协议:', protocol.id, '标签:', protocol.label);
 
     // 自动包装纯配置协议（添加 buildUrl/buildRequest/parseResponse 函数）
-    const wrappedProtocol = wrapConfigProtocol(protocol);
+    const wrappedProtocol = wrapConfigProtocol(migrateProtocolConfiguration(protocol));
 
     PROTOCOLS.set(protocol.id, wrappedProtocol);
     console.log('[registerProtocol] 协议', protocol.id, '已注册，当前共有', PROTOCOLS.size, '个协议');

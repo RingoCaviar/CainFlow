@@ -5,6 +5,7 @@
 
 import { getAllProtocols, getProtocol, registerProtocol, loadProtocols, deleteProtocol as removeProtocol } from '../execution/protocols/index.js';
 import { wrapConfigProtocol } from '../execution/protocols/request-builder.js';
+import { compileVideoProtocol, redactProtocolPreview } from '../execution/protocols/video-protocol-compiler.js';
 
 export function createProtocolDeveloperPanel({ documentRef, showToast, refreshImageGenerateNodes = null, onProtocolRegistryChange = null }) {
     const panelId = 'protocol-developer-panel';
@@ -25,6 +26,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     ]);
     const PROTOCOL_CONFIG_KEYS = [
         'id',
+        'schemaVersion',
         'label',
         'taskTypes',
         'helpText',
@@ -35,7 +37,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'parameters',
         'responsePath',
         'fixedParams',
-        'videoMeta'
+        'videoMeta',
+        'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask'
     ];
     const PARAMETER_CONFIG_KEYS = [
         'id',
@@ -95,6 +98,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     function cleanProtocolConfig(protocol = {}) {
         const cleanProtocol = pickSerializableFields(protocol, PROTOCOL_CONFIG_KEYS);
         cleanProtocol.id = String(cleanProtocol.id || '').trim();
+        cleanProtocol.schemaVersion = Number(cleanProtocol.schemaVersion || 1);
         cleanProtocol.label = String(cleanProtocol.label || cleanProtocol.id || '').trim();
         cleanProtocol.taskTypes = Array.isArray(cleanProtocol.taskTypes) ? cleanProtocol.taskTypes.filter(Boolean) : ['image'];
         cleanProtocol.urlTemplate = typeof cleanProtocol.urlTemplate === 'string' ? cleanProtocol.urlTemplate : '{{endpoint}}/v1/endpoint';
@@ -258,6 +262,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                                         <input type="text" id="protocol-apikey-field" placeholder="例如: Authorization: Bearer {apikey}" />
                                         <small style="color: var(--text-secondary); font-size: 12px;">支持模板格式，使用 {apikey} 作为 API Key 的占位符</small>
                                     </div>
+                                    <div class="protocol-field" style="grid-column: 1 / -1;">
+                                        <label>视频高级配置（JSON）</label>
+                                        <textarea id="protocol-video-advanced" rows="10" placeholder='{"variants":{"model-id":{"requestEncoding":"json","createPath":"/v1/videos","queryPath":"/v1/videos/{{taskId}}","asyncTask":{"taskIdPath":"id","statusPath":"status","completedStatuses":["completed"],"resultPath":"video_url"}}}}'></textarea>
+                                        <small style="color: var(--text-secondary); font-size: 12px;">用于模型变体、异步任务映射和鉴权规则。仅保存声明式 JSON，不支持脚本。</small>
+                                    </div>
                                 </div>
 
                                 <!-- 参数列表 -->
@@ -295,6 +304,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 </div>
                 <div class="footer-actions">
                     <button id="btn-export-protocol" class="btn btn-secondary btn-sm hidden">导出JSON</button>
+                    <button id="btn-test-protocol" class="btn btn-secondary btn-sm hidden">测试连通性</button>
                     <button id="btn-save-protocol" class="btn btn-primary hidden">💾 保存配置</button>
                 </div>
             </div>
@@ -340,7 +350,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 </div>
                 <div class="protocol-card-footer">
                     <button class="btn btn-sm btn-ghost btn-edit-protocol" data-protocol-id="${protocol.id}">
-                        编辑参数
+                        ${isBuiltInProtocol ? '复制并编辑' : '编辑参数'}
                     </button>
                     <button class="btn btn-sm btn-ghost btn-view-json" data-protocol-id="${protocol.id}">
                         查看JSON
@@ -357,7 +367,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         listContainer.querySelectorAll('.btn-edit-protocol').forEach(btn => {
             btn.addEventListener('click', () => {
                 const protocolId = btn.dataset.protocolId;
-                editProtocol(protocolId);
+                if (BUILT_IN_PROTOCOL_IDS.has(protocolId)) copyProtocol(protocolId);
+                else editProtocol(protocolId);
             });
         });
 
@@ -418,7 +429,13 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         // 显示底部按钮
         documentRef.getElementById('btn-save-protocol').classList.remove('hidden');
         documentRef.getElementById('btn-export-protocol').classList.remove('hidden');
+        documentRef.getElementById('btn-test-protocol').classList.remove('hidden');
         documentRef.getElementById('btn-delete-protocol-footer').classList.toggle('hidden', BUILT_IN_PROTOCOL_IDS.has(draftProtocol.id));
+        const readOnly = draftProtocol.readOnly === true;
+        documentRef.getElementById('btn-save-protocol').disabled = readOnly;
+        documentRef.getElementById('btn-test-protocol').disabled = readOnly;
+        documentRef.getElementById('btn-add-parameter').disabled = readOnly;
+        if (readOnly) setSaveStatus('此协议来自更新版本的 CainFlow，只能导出，不能编辑或执行。', 'warning');
 
         // 显示返回按钮
         documentRef.getElementById('btn-back-to-list').classList.remove('hidden');
@@ -444,6 +461,15 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         // 填充API Key配置
         documentRef.getElementById('protocol-apikey-location').value = draftProtocol.apikeyLocation || 'header';
         documentRef.getElementById('protocol-apikey-field').value = draftProtocol.apikeyField || '';
+        documentRef.getElementById('protocol-video-advanced').value = JSON.stringify({
+            schemaVersion: draftProtocol.schemaVersion || 1,
+            variants: draftProtocol.variants || {},
+            authentication: draftProtocol.authentication,
+            requestEncoding: draftProtocol.requestEncoding,
+            createPath: draftProtocol.createPath,
+            queryPath: draftProtocol.queryPath,
+            asyncTask: draftProtocol.asyncTask
+        }, null, 2);
 
         // 渲染参数列表
         renderParametersList(draftProtocol.parameters || {});
@@ -940,6 +966,36 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             apikeyLocation: documentRef.getElementById('protocol-apikey-location').value,
             apikeyField: documentRef.getElementById('protocol-apikey-field').value.trim()
         });
+        const advancedRaw = documentRef.getElementById('protocol-video-advanced')?.value.trim() || '';
+        if (advancedRaw) {
+            let advanced;
+            try {
+                advanced = JSON.parse(advancedRaw);
+            } catch (_) {
+                throw new Error('视频高级配置必须是有效 JSON');
+            }
+            ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask']
+                .forEach((key) => {
+                    if (advanced[key] !== undefined) nextProtocol[key] = advanced[key];
+                });
+            if (advanced.variants !== undefined && (typeof advanced.variants !== 'object' || Array.isArray(advanced.variants))) {
+                throw new Error('视频高级配置中的 variants 必须是对象');
+            }
+            Object.entries(advanced.variants || {}).forEach(([modelId, variant]) => {
+                if (!modelId || !variant || typeof variant !== 'object' || Array.isArray(variant)) {
+                    throw new Error('每个模型变体必须是以模型 ID 为键的对象');
+                }
+                if (!variant.createPath && !advanced.createPath && !nextProtocol.createPath) {
+                    throw new Error(`模型变体 “${modelId}” 未配置创建路径`);
+                }
+                if (!variant.queryPath && !advanced.queryPath && !nextProtocol.queryPath) {
+                    throw new Error(`模型变体 “${modelId}” 未配置查询路径`);
+                }
+                if (!variant.asyncTask && !advanced.asyncTask && !nextProtocol.asyncTask) {
+                    throw new Error(`模型变体 “${modelId}” 未配置异步任务映射`);
+                }
+            });
+        }
 
         // 收集协议用途
         const taskTypes = [];
@@ -1084,6 +1140,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
      * 保存协议
      */
     async function saveProtocol() {
+        if (currentEditingProtocol?.readOnly) {
+            showToast('此协议为只读，不能保存', 'warning');
+            return;
+        }
         setSaveStatus('正在保存配置...', 'saving');
         try {
             const data = collectEditorData();
@@ -1094,6 +1154,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
             // 准备覆盖配置数据（只保存可配置的部分）
             const overrideData = {
+                schemaVersion: data.schemaVersion,
                 label: data.label,
                 helpText: data.helpText,
                 urlTemplate: data.urlTemplate,
@@ -1104,7 +1165,13 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 parameters: data.parameters,
                 responsePath: data.responsePath,
                 fixedParams: data.fixedParams,
-                videoMeta: data.videoMeta
+                videoMeta: data.videoMeta,
+                variants: data.variants,
+                authentication: data.authentication,
+                requestEncoding: data.requestEncoding,
+                createPath: data.createPath,
+                queryPath: data.queryPath,
+                asyncTask: data.asyncTask
             };
 
             // 调用后端API保存到文件
@@ -1183,6 +1250,49 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         showToast(`协议配置已导出`, 'success');
     }
 
+    async function testProtocolConnectivity() {
+        let data;
+        try {
+            data = collectEditorData();
+        } catch (error) {
+            showToast(`无法测试：${error.message}`, 'error');
+            return;
+        }
+        const endpoint = prompt('输入要测试的供应商基础地址（不会创建任务）:', '');
+        if (!endpoint) return;
+        let requestPath = data.createPath || data.urlTemplate;
+        if (data.variants && Object.keys(data.variants).length > 0) {
+            const modelId = prompt('输入要测试的精确模型 ID（仅选择其创建路径）:', Object.keys(data.variants)[0]);
+            if (!modelId) return;
+            const variant = data.variants[modelId];
+            if (!variant) {
+                showToast('该模型 ID 未配置协议变体', 'error');
+                return;
+            }
+            requestPath = variant.createPath || requestPath;
+        }
+        const targetUrl = String(requestPath || '').replace('{{endpoint}}', endpoint.replace(/\/+$/, ''));
+        if (!/^https?:\/\//i.test(targetUrl)) {
+            showToast('请求路径模板必须生成 http 或 https 地址', 'error');
+            return;
+        }
+        setSaveStatus('正在测试连通性…', 'saving');
+        try {
+            const response = await fetch('/proxy', {
+                method: 'POST',
+                headers: {
+                    'x-target-url': encodeURIComponent(targetUrl),
+                    'x-target-method': 'OPTIONS'
+                }
+            });
+            setSaveStatus(`连通性测试收到 HTTP ${response.status}（未创建任务）`, response.ok ? 'success' : 'warning');
+            showToast(`供应商已响应 HTTP ${response.status}；未发送生成请求`, response.ok ? 'success' : 'warning');
+        } catch (error) {
+            setSaveStatus(`连通性测试失败：${error.message}`, 'error');
+            showToast(`连通性测试失败：${error.message}`, 'error');
+        }
+    }
+
     /**
      * 返回列表
      */
@@ -1194,6 +1304,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         // 隐藏底部按钮
         documentRef.getElementById('btn-save-protocol').classList.add('hidden');
         documentRef.getElementById('btn-export-protocol').classList.add('hidden');
+        documentRef.getElementById('btn-test-protocol').classList.add('hidden');
         documentRef.getElementById('btn-delete-protocol-footer').classList.add('hidden');
 
         // 隐藏返回按钮
@@ -1298,6 +1409,21 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         editProtocol(protocolId);
     }
 
+    function copyProtocol(protocolId) {
+        const source = getProtocol(protocolId);
+        if (!source) return;
+        const protocolIdCopy = prompt('输入副本协议 ID（英文）:', `${protocolId}-copy`);
+        if (!protocolIdCopy || !/^[a-z][a-z0-9\-]*$/.test(protocolIdCopy) || getProtocol(protocolIdCopy)) {
+            showToast('副本协议 ID 无效或已存在', 'error');
+            return;
+        }
+        const copy = cleanProtocolConfig({ ...source, id: protocolIdCopy, label: `${source.label} 副本` });
+        registerProtocol(copy);
+        notifyProtocolRegistryChange(copy.id);
+        renderProtocolList();
+        editProtocol(copy.id);
+    }
+
     /**
      * 删除协议
      */
@@ -1356,6 +1482,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         // 导出按钮
         documentRef.getElementById('btn-export-protocol').addEventListener('click', exportProtocol);
+        documentRef.getElementById('btn-test-protocol').addEventListener('click', testProtocolConnectivity);
 
         // 添加参数按钮
         documentRef.getElementById('btn-add-parameter').addEventListener('click', addParameter);
@@ -1560,6 +1687,15 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 parameters: currentParameters
             };
 
+            const advancedRaw = documentRef.getElementById('protocol-video-advanced')?.value.trim() || '';
+            if (advancedRaw) {
+                const advanced = JSON.parse(advancedRaw);
+                ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask']
+                    .forEach((key) => {
+                        if (advanced[key] !== undefined) tempProtocol[key] = advanced[key];
+                    });
+            }
+
             // 如果配置了图片编辑路径，添加到 urlTemplates
             if (imageEditPath) {
                 tempProtocol.urlTemplates = {
@@ -1587,6 +1723,30 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 parameters: {},
                 inputs: {}
             };
+
+            if (tempProtocol.variants && Object.keys(tempProtocol.variants).length > 0) {
+                const modelId = Object.keys(tempProtocol.variants)[0];
+                const plan = compileVideoProtocol({
+                    protocol: tempProtocol,
+                    endpoint: mockApiConfig.endpoint,
+                    modelId,
+                    parameters: {
+                        prompt: currentParameters.prompt ? '这是一个测试提示词' : undefined
+                    },
+                    apiKey: 'sk-example-api-key-1234567890'
+                });
+                const preview = redactProtocolPreview({
+                    method: plan.create.method,
+                    url: plan.create.url,
+                    headers: plan.create.headers,
+                    encoding: plan.create.encoding,
+                    body: plan.create.body,
+                    fields: plan.create.fields,
+                    query_url_template: plan.queryUrl('task-example')
+                });
+                previewContainer.innerHTML = `<pre><code>${escapeHtmlForPreview(JSON.stringify(preview, null, 2))}</code></pre>`;
+                return;
+            }
 
             // 从节点预览UI中读取值
             documentRef.querySelectorAll('.node-preview-control').forEach(control => {
@@ -1761,6 +1921,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         documentRef.getElementById('protocol-url-template-image-edit').addEventListener('input', debouncedPreview);
         documentRef.getElementById('protocol-apikey-location').addEventListener('change', refreshPreview);
         documentRef.getElementById('protocol-apikey-field').addEventListener('input', debouncedPreview);
+        documentRef.getElementById('protocol-video-advanced').addEventListener('input', debouncedPreview);
 
         // 监听协议用途变化
         documentRef.getElementById('task-type-chat').addEventListener('change', refreshPreview);

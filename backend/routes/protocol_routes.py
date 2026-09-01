@@ -191,6 +191,7 @@ def build_serializable_protocol_config(protocol_id, raw_config):
     """按协议配置白名单生成可序列化对象"""
     top_level_defaults = {
         'id': protocol_id,
+        'schemaVersion': raw_config.get('schemaVersion') or 1,
         'label': raw_config.get('label') or protocol_id,
         'taskTypes': raw_config.get('taskTypes') or ['image'],
         'urlTemplate': raw_config.get('urlTemplate') or '{{endpoint}}/v1/endpoint',
@@ -204,7 +205,10 @@ def build_serializable_protocol_config(protocol_id, raw_config):
         }
     }
 
-    for optional_key in ('helpText', 'urlTemplates', 'fixedParams', 'videoMeta'):
+    for optional_key in (
+        'helpText', 'urlTemplates', 'fixedParams', 'videoMeta', 'variants',
+        'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask'
+    ):
         if optional_key in raw_config and raw_config.get(optional_key) not in (None, ''):
             top_level_defaults[optional_key] = raw_config.get(optional_key)
 
