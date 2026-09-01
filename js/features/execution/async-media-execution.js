@@ -22,6 +22,7 @@ import {
 } from './provider-request-utils.js';
 import { getProtocol } from './protocols/index.js';
 import { compileVideoProtocol } from './protocols/video-protocol-compiler.js';
+import { buildMultipartFormData } from './protocols/multipart-transport-adapter.js';
 import { getPrimaryTextInput } from './execution-data-utils.js';
 import { escapeHtml } from '../../core/common-utils.js';
 
@@ -283,19 +284,7 @@ export function createAsyncMediaExecutionApi({
         if (!protocolPlan || protocolPlan.create.encoding !== 'multipart') {
             return JSON.stringify(requestBody);
         }
-        const formData = new FormData();
-        for (const [field, value] of protocolPlan.create.fields) {
-            const imageMatch = typeof value === 'string' && value.match(/^data:(image\/[^;]+);base64,(.+)$/i);
-            if (!imageMatch) {
-                formData.append(field, String(value));
-                continue;
-            }
-            const bytes = Uint8Array.from(atob(imageMatch[2]), (character) => character.charCodeAt(0));
-            const mimeType = imageMatch[1];
-            const extension = mimeType.split('/')[1] || 'png';
-            formData.append(field, new Blob([bytes], { type: mimeType }), `reference.${extension}`);
-        }
-        return formData;
+        return buildMultipartFormData(protocolPlan.create.fields);
     }
 
     function compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, parameters = {}, inputs = {}) {

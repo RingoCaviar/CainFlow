@@ -158,7 +158,8 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
     });
 
     const media = compileMediaFields(variant, inputs);
-    const encoding = variant.requestEncoding || protocol.requestEncoding || 'json';
+    const encoding = (media.images.length > 0 && variant.requestEncodingWhenReferenceImages)
+        || variant.requestEncoding || protocol.requestEncoding || 'json';
     if (encoding === 'json') {
         media.fields.forEach(([field, value]) => {
             if (Object.hasOwn(requestBody, field)) {

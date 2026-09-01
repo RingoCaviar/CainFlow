@@ -16,6 +16,19 @@ export const RelayVideoProtocol = {
         referenceImages: { id: 'referenceImages', label: '参考图输入', exposed: true, inputPort: true, portType: 'image', portCount: 1, portLabel: '参考图', portOnly: true, taskTypes: ['video'] }
     },
     variants: {
+        'kling-o3': {
+            requestEncoding: 'json',
+            requestEncodingWhenReferenceImages: 'multipart',
+            createPath: '/v1/videos',
+            queryPath: '/v1/videos/{{taskId}}',
+            referenceImage: { field: 'images', mode: 'repeat-field' },
+            parameters: {
+                seconds: { id: 'seconds', label: '时长（秒）', exposed: true, dataType: 'number', uiControl: 'number', requestField: 'seconds', min: 3, max: 15, defaultValue: 3 },
+                size: { id: 'size', label: '尺寸', exposed: true, dataType: 'string', uiControl: 'select', requestField: 'size', options: [{ value: '960x1280', label: '960×1280' }], defaultValue: '960x1280' },
+                referenceImages: { id: 'referenceImages', label: '参考图输入', exposed: true, inputPort: true, portType: 'image', portCount: 5, portLabel: '参考图 {index}', portOnly: true }
+            },
+            asyncTask: { taskIdPath: 'id', statusPath: 'status', completedStatuses: ['completed'], resultPath: 'video_url' }
+        },
         'minimax-h3': {
             requestEncoding: 'json',
             createPath: '/v1/videos',

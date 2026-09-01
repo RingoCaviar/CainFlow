@@ -9,6 +9,7 @@ import {
 import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { requireModelCompatibilityFormat } from '../js/features/execution/model-compatibility-format.js';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
+import { buildMultipartFormData } from '../js/features/execution/protocols/multipart-transport-adapter.js';
 
 const protocol = {
     id: 'relay-video',
@@ -150,4 +151,30 @@ test('compiles the relay MiniMax H3 JSON video request and task lifecycle', () =
         protocol: RelayVideoProtocol, endpoint: 'https://relay.example', modelId: 'minimax-h3',
         parameters: { prompt: 'x', seconds: 4, size: '1440x1920' }, inputs: { referenceImages: ['a', 'b'] }
     }), /最多支持 1 张/);
+});
+
+test('compiles Kling O3 as JSON without images and multipart with ordered repeated images', () => {
+    const base = { protocol: RelayVideoProtocol, endpoint: 'https://relay.example', modelId: 'kling-o3', parameters: { prompt: '人物转身', seconds: 3, size: '960x1280' } };
+    const noImagePlan = compileVideoProtocol(base);
+    assert.equal(noImagePlan.create.encoding, 'json');
+    assert.deepEqual(noImagePlan.create.body, { model: 'kling-o3', prompt: '人物转身', seconds: 3, size: '960x1280' });
+    const imagePlan = compileVideoProtocol({ ...base, inputs: { referenceImages: ['https://example.test/a.png', 'data:image/png;base64,AAAA'] } });
+    assert.equal(imagePlan.create.encoding, 'multipart');
+    assert.deepEqual(imagePlan.create.fields.slice(-2), [
+        ['images', 'https://example.test/a.png'],
+        ['images', 'data:image/png;base64,AAAA']
+    ]);
+    assert.throws(() => compileVideoProtocol({ ...base, parameters: { ...base.parameters, seconds: 2 } }), /seconds.*3/);
+});
+
+test('multipart transport uploads Base64 reference images as files and keeps remote URLs as strings', async () => {
+    const formData = buildMultipartFormData([
+        ['images', 'https://example.test/a.png'],
+        ['images', 'data:image/png;base64,AAAA']
+    ]);
+    const images = formData.getAll('images');
+    assert.equal(images[0], 'https://example.test/a.png');
+    assert.ok(images[1] instanceof Blob);
+    assert.equal(images[1].type, 'image/png');
+    assert.equal(await images[1].arrayBuffer().then((buffer) => buffer.byteLength), 3);
 });
