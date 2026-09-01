@@ -91,8 +91,14 @@ test('workflow execution rejects a model whose compatibility format is empty', (
     );
 });
 
-test('a configured MiniMax H3 model can use the loaded relay video compatibility format', () => {
+test('a configured MiniMax H3 model can use the loaded async video API compatibility format', () => {
     assert.equal(requireModelCompatibilityFormat({
         name: 'MiniMax H3', modelId: 'minimax-h3', protocol: RelayVideoProtocol.id
+    }), 'async-video-api');
+});
+
+test('the retired relay-video identifier resolves to the async video API protocol', () => {
+    assert.equal(requireModelCompatibilityFormat({
+        name: 'Legacy MiniMax H3', modelId: 'minimax-h3', protocol: 'relay-video'
     }), 'relay-video');
 });

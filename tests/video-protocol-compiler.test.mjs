@@ -13,7 +13,7 @@ import { buildMultipartFormData } from '../js/features/execution/protocols/multi
 import { createProxyHeadersGetter } from '../js/services/api-client.js';
 
 const protocol = {
-    id: 'relay-video',
+    id: 'async-video-api',
     label: 'Relay video',
     schemaVersion: 1,
     taskTypes: ['video'],

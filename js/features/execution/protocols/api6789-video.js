@@ -1,12 +1,12 @@
-/** 中转视频协议：Kling O3 与 MiniMax H3 由精确模型变体区分。 */
+/** 异步视频 API 协议：Kling O3 与 MiniMax H3 由精确模型变体区分。 */
 import { registerProtocol } from './index.js';
 
 export const RelayVideoProtocol = {
-    id: 'relay-video',
-    label: '中转视频',
+    id: 'async-video-api',
+    label: '异步视频 API',
     schemaVersion: 1,
     taskTypes: ['video'],
-    helpText: '中转视频接口：按模型选择 Kling O3 或 MiniMax H3 请求格式。',
+    helpText: '异步视频 API：按模型选择 Kling O3 或 MiniMax H3 的请求格式。',
     apikeyLocation: 'header',
     apikeyField: 'Authorization: Bearer {apikey}',
     parameters: {

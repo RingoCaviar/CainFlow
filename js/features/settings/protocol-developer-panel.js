@@ -22,6 +22,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'veo-unified',
         'veo-openai',
         'doubao-video',
+        'async-video-api',
         'relay-video',
         'agnesimage'
     ]);

@@ -17,6 +17,7 @@ const BUILT_IN_PROTOCOL_IDS = new Set([
     'veo-unified',
     'veo-openai',
     'doubao-video',
+    'async-video-api',
     'relay-video',
     'agnesimage'
 ]);
@@ -46,7 +47,8 @@ export function registerProtocol(protocol) {
  * @returns {Object|null} 协议对象
  */
 export function getProtocol(id) {
-    return PROTOCOLS.get(id) || null;
+    const canonicalId = id === 'relay-video' ? 'async-video-api' : id;
+    return PROTOCOLS.get(canonicalId) || null;
 }
 
 /**
