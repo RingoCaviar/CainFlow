@@ -1,0 +1,193 @@
+/* Nodes and canvas own their selectors; themes provide only the semantic palette. */
+html:root #canvas-container {
+    --node-surface: var(--bg-node);
+    --node-header-surface: var(--bg-node-header);
+    --node-body-surface: transparent;
+    --node-border: var(--border-node);
+    --node-border-hover: var(--panel-hover-border, var(--node-border));
+    --node-border-selected: var(--panel-active-border, var(--accent-primary));
+    --node-selected-ring: var(--accent-primary);
+    --node-border-running: var(--accent-cyan);
+    --node-border-success: var(--accent-green);
+    --node-border-error: var(--accent-red);
+    --node-border-locked: var(--node-border);
+    --node-running-glow-subtle: color-mix(in srgb, var(--node-border-running) 28%, transparent);
+    --node-running-glow-soft: color-mix(in srgb, var(--node-border-running) 12%, transparent);
+    --node-running-glow-strong: color-mix(in srgb, var(--node-border-running) 60%, transparent);
+    --node-running-glow-wide: color-mix(in srgb, var(--node-border-running) 22%, transparent);
+    --node-running-glow-filter: color-mix(in srgb, var(--node-border-running) 70%, transparent);
+    --node-section-divider: color-mix(in srgb, var(--node-border) 78%, transparent);
+    --canvas-connection-selected: var(--accent-primary);
+    --canvas-connection-insert-target: color-mix(in srgb, var(--accent-orange) 62%, transparent);
+    --canvas-connection-preview: color-mix(in srgb, var(--accent-green) 92%, transparent);
+    --canvas-connection-preview-glow: color-mix(in srgb, var(--accent-green) 48%, transparent);
+    --canvas-connection-pending: color-mix(in srgb, var(--accent-primary) 64%, transparent);
+    --canvas-connection-flow: var(--connection-flow-color, var(--accent-primary));
+    --canvas-connection-flow-glow: color-mix(in srgb, var(--canvas-connection-flow) 30%, transparent);
+    --canvas-origin-axis: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+    --canvas-origin-dot: var(--accent-primary);
+    --canvas-origin-glow: color-mix(in srgb, var(--accent-primary) 46%, transparent);
+    --node-field-label: var(--text-secondary);
+    --node-control-surface: var(--bg-input);
+    --node-control-border: var(--border-input);
+    --node-control-focus: var(--accent-primary);
+    --node-port-surface: var(--bg-node);
+    --node-port-ring: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    --node-shell-shadow: var(--shadow-node);
+    --node-shell-hover-shadow: var(--shadow-node-hover);
+    --node-glass-filter: none;
+    --node-glass-filter-active: var(--node-glass-filter);
+    --node-cancel-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-node));
+    --node-cancel-bg-hover: color-mix(in srgb, var(--accent-red) 16%, var(--bg-node));
+    --node-cancel-border: color-mix(in srgb, var(--accent-red) 42%, transparent);
+    --node-cancel-text: color-mix(in srgb, var(--accent-red) 72%, var(--text-primary));
+    --node-clone-bg: color-mix(in srgb, var(--accent-cyan) 10%, var(--bg-node));
+    --node-clone-border: color-mix(in srgb, var(--accent-cyan) 40%, transparent);
+    --node-clone-text: var(--accent-primary);
+    --node-danger-surface: color-mix(in srgb, var(--accent-red) 14%, var(--bg-node));
+    --node-danger-border: color-mix(in srgb, var(--accent-red) 44%, transparent);
+    --node-danger-text: color-mix(in srgb, var(--accent-red) 72%, var(--text-primary));
+    --node-danger-shadow: var(--panel-shadow-strong, 0 14px 32px rgba(0, 0, 0, 0.28));
+    --node-status-running-surface: color-mix(in srgb, var(--accent-cyan) 14%, transparent);
+    --node-status-idle-text: var(--accent-primary);
+    --node-status-idle-surface: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    --node-status-idle-border: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    --node-status-running-border: color-mix(in srgb, var(--accent-cyan) 30%, transparent);
+    --node-status-running-shadow: color-mix(in srgb, var(--accent-cyan) 20%, transparent);
+    --node-status-success-surface: color-mix(in srgb, var(--accent-green) 10%, transparent);
+    --node-status-success-border: color-mix(in srgb, var(--accent-green) 24%, transparent);
+    --node-status-success-glow: color-mix(in srgb, var(--accent-green) 20%, transparent);
+    --node-status-error-surface: color-mix(in srgb, var(--accent-red) 10%, transparent);
+    --node-status-error-border: color-mix(in srgb, var(--accent-red) 24%, transparent);
+    --node-batch-source-border: var(--accent-green);
+    --node-batch-source-ring: color-mix(in srgb, var(--node-batch-source-border) 26%, transparent);
+    --node-batch-source-glow: color-mix(in srgb, var(--node-batch-source-border) 62%, transparent);
+    --node-batch-source-shell-ring: color-mix(in srgb, var(--node-batch-source-border) 58%, transparent);
+    --node-batch-source-shell-glow: color-mix(in srgb, var(--node-batch-source-border) 46%, transparent);
+    --node-batch-source-label-border: color-mix(in srgb, var(--node-batch-source-border) 72%, var(--text-primary));
+    --node-batch-source-label-surface: color-mix(in srgb, var(--node-batch-source-border) 24%, var(--bg-node));
+    --node-batch-source-label-text: color-mix(in srgb, var(--node-batch-source-border) 72%, var(--text-primary));
+    --node-batch-source-label-shadow: var(--node-danger-shadow);
+    --node-batch-dimmed-border: color-mix(in srgb, var(--text-dim) 42%, transparent);
+    --node-batch-dimmed-opacity: 0.38;
+    --node-batch-dimmed-filter: grayscale(1) saturate(0.45);
+    --node-connection-insert-border: var(--accent-green);
+    --node-connection-insert-ring: color-mix(in srgb, var(--node-connection-insert-border) 55%, transparent);
+    --node-connection-insert-glow: color-mix(in srgb, var(--node-connection-insert-border) 35%, transparent);
+    --node-connection-shake-border: var(--accent-orange);
+    --node-connection-shake-ring: color-mix(in srgb, var(--node-connection-shake-border) 45%, transparent);
+    --node-connection-shake-glow: color-mix(in srgb, var(--node-connection-shake-border) 36%, transparent);
+    --node-connection-detached-border: var(--accent-green);
+    --node-connection-detached-ring: color-mix(in srgb, var(--node-connection-detached-border) 48%, transparent);
+    --node-connection-detached-glow: color-mix(in srgb, var(--node-connection-detached-border) 45%, transparent);
+}
+
+html:root #canvas-container .node-glass-bg {
+    background: var(--node-surface);
+    border: 1px solid var(--node-border);
+    box-shadow: var(--node-shell-shadow);
+    backdrop-filter: var(--node-glass-filter-active);
+    -webkit-backdrop-filter: var(--node-glass-filter-active);
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+html:root #canvas-container .node:hover .node-glass-bg { border-color: var(--node-border-hover); box-shadow: var(--node-shell-hover-shadow); }
+html:root #canvas-container .node.selected { box-shadow: 0 0 0 calc(2px / var(--canvas-zoom, 1)) var(--node-selected-ring) !important; }
+html:root #canvas-container .node.selected .node-glass-bg { border-color: var(--node-border-selected); box-shadow: none; }
+html:root #canvas-container .node.running .node-glass-bg { border-color: var(--node-border-running) !important; border-width: 2px !important; }
+html:root #canvas-container .node.workflow-running-locked .node-glass-bg { border-color: var(--node-border-locked); border-width: 1px; }
+html:root #canvas-container .node.completed .node-glass-bg { border-color: var(--node-border-success); box-shadow: 0 0 12px var(--node-status-success-glow); }
+html:root #canvas-container .node.error .node-glass-bg { border-color: var(--node-border-error); }
+html:root #canvas-container .node-header { background: var(--node-header-surface); border-bottom-color: var(--node-border); }
+html:root #canvas-container .node-body { background: var(--node-body-surface); }
+html:root #canvas-container :is(.node-field label, .port-label) { color: var(--node-field-label); }
+html:root #canvas-container :is(.node-field input, .node-field select, .node-field textarea) { background: var(--node-control-surface); border-color: var(--node-control-border); }
+html:root #canvas-container :is(.node-field input, .node-field select, .node-field textarea):focus { border-color: var(--node-control-focus); }
+html:root #canvas-container .port-dot { background: var(--node-port-surface); }
+html:root #canvas-container .port-dot.connected { box-shadow: 0 0 0 3px var(--node-port-ring); }
+html:root #canvas-container .node-run-cancel-btn { --node-run-cancel-bg: var(--node-cancel-bg); --node-run-cancel-bg-hover: var(--node-cancel-bg-hover); --node-run-cancel-border: var(--node-cancel-border); --node-run-cancel-border-hover: var(--node-cancel-border); --node-run-cancel-text: var(--node-cancel-text); --node-run-cancel-progress-fill: var(--accent-red); }
+html:root #canvas-container .node-clone-badge { background: var(--node-clone-bg); border-color: var(--node-clone-border); color: var(--node-clone-text); }
+html:root #canvas-container .node.batch-connection-source,
+html:root #canvas-container .node.selected.batch-connection-source { box-shadow: var(--node-shell-shadow) !important; }
+html:root #canvas-container .node.batch-connection-source::before {
+    content: "";
+    position: absolute;
+    inset: calc(-8px / var(--canvas-zoom, 1));
+    z-index: 70;
+    box-sizing: border-box;
+    border: calc(6px / var(--canvas-zoom, 1)) solid var(--node-batch-source-border);
+    border-radius: calc(var(--radius-node) + 8px);
+    box-shadow: 0 0 0 calc(3px / var(--canvas-zoom, 1)) var(--node-batch-source-ring), 0 0 calc(28px / var(--canvas-zoom, 1)) var(--node-batch-source-glow);
+    pointer-events: none;
+}
+html:root #canvas-container .node.batch-connection-source .node-glass-bg,
+html:root #canvas-container .node.selected.batch-connection-source .node-glass-bg {
+    border-color: var(--node-batch-source-border);
+    border-width: 3px;
+    box-shadow: inset 0 0 0 2px var(--node-batch-source-shell-ring), 0 0 calc(18px / var(--canvas-zoom, 1)) var(--node-batch-source-shell-glow);
+}
+html:root #canvas-container .node.batch-connection-source::after {
+    content: "批量连线源节点";
+    position: absolute;
+    left: 50%;
+    top: calc(-34px / var(--canvas-zoom, 1));
+    z-index: 80;
+    transform: translateX(-50%);
+    box-sizing: border-box;
+    min-width: max-content;
+    height: calc(26px / var(--canvas-zoom, 1));
+    padding: 0 calc(10px / var(--canvas-zoom, 1));
+    border: calc(1px / var(--canvas-zoom, 1)) solid var(--node-batch-source-label-border);
+    border-radius: calc(999px / var(--canvas-zoom, 1));
+    background: var(--node-batch-source-label-surface);
+    color: var(--node-batch-source-label-text);
+    box-shadow: 0 calc(8px / var(--canvas-zoom, 1)) calc(18px / var(--canvas-zoom, 1)) var(--node-batch-source-label-shadow);
+    font-size: calc(12px / var(--canvas-zoom, 1));
+    font-weight: 800;
+    line-height: calc(24px / var(--canvas-zoom, 1));
+    pointer-events: none;
+    white-space: nowrap;
+}
+html:root #canvas-container .node.batch-connection-dimmed .node-glass-bg { border-color: var(--node-batch-dimmed-border); }
+html:root #canvas-container .node.batch-connection-dimmed { opacity: var(--node-batch-dimmed-opacity); filter: var(--node-batch-dimmed-filter); }
+html:root #canvas-container .node.connection-insert-candidate .node-glass-bg {
+    border-color: var(--node-connection-insert-border);
+    box-shadow: 0 0 0 calc(2px / var(--canvas-zoom, 1)) var(--node-connection-insert-ring), 0 0 28px var(--node-connection-insert-glow), var(--node-shell-shadow);
+}
+html:root #canvas-container .node.connection-shake-armed .node-glass-bg {
+    border-color: var(--node-connection-shake-border);
+    box-shadow: 0 0 0 calc(3px / var(--canvas-zoom, 1)) var(--node-connection-shake-ring), 0 0 30px var(--node-connection-shake-glow), var(--node-shell-shadow);
+}
+html:root #canvas-container .node.connection-shake-detached .node-glass-bg {
+    border-color: var(--node-connection-detached-border);
+    box-shadow: 0 0 0 calc(4px / var(--canvas-zoom, 1)) var(--node-connection-detached-ring), 0 0 36px var(--node-connection-detached-glow), var(--node-shell-shadow);
+}
+html:root #canvas-container.canvas-dense-mode .node-glass-bg { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; box-shadow: none !important; }
+
+/*
+ * Glass is a localized material exception: the light-theme multi-stop sheen and
+ * dark-theme translucent material cannot be represented by one shared surface
+ * role without erasing their distinct identities. The exception stays here so
+ * the feature skin remains the only owner of node selectors; interaction states
+ * disable its expensive compositing without knowing the active theme.
+ */
+html[data-app-theme^="glass"] #canvas-container {
+    --node-glass-filter: blur(var(--glass-node-blur-radius, 12px));
+}
+html[data-app-theme="glass-light"] #canvas-container {
+    --node-surface: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.42) 58%, rgba(236, 254, 255, 0.34)), rgba(255, 255, 255, 0.38);
+    --node-header-surface: rgba(255, 255, 255, 0.28);
+    --node-body-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
+    --node-control-surface: rgba(255, 255, 255, 0.58);
+    --node-control-border: rgba(119, 147, 171, 0.28);
+    --node-field-label: #384860;
+}
+html[data-app-theme="glass-dark"] #canvas-container {
+    --node-surface: rgba(var(--glass-node-surface-rgb), var(--glass-node-opacity));
+    --node-header-surface: var(--glass-surface-soft);
+    --node-control-surface: var(--glass-surface-dark);
+    --node-control-border: var(--glass-border-soft);
+    --node-field-label: #bac8d8;
+}
+html:root #canvas-container:is(.is-zooming, .is-panning),
+html:root body.is-interacting #canvas-container { --node-glass-filter-active: none; }

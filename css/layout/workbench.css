@@ -28,6 +28,8 @@
     --toast-right-offset: 20px;
     --toast-bottom-offset: 20px;
     --toast-settings-bottom-offset: clamp(128px, 18vh, 220px);
+    --workbench-frame-border: var(--panel-border, var(--border-subtle));
+    --workbench-canvas-border: color-mix(in srgb, var(--workbench-frame-border) 82%, transparent);
 }
 
 body {
@@ -149,6 +151,7 @@ body.sidebar-pinned #side-bar {
 
 #canvas-container {
     background-color: var(--canvas-bg-color, var(--bg-canvas));
+    box-shadow: inset 0 0 0 1px var(--workbench-canvas-border);
 }
 
 #canvas-container::before {
@@ -160,95 +163,6 @@ body.sidebar-pinned #side-bar {
         stroke-width var(--motion-fast),
         stroke-opacity var(--motion-fast),
         stroke var(--motion-fast);
-}
-
-.node-glass-bg {
-    transition:
-        border-color var(--motion-fast),
-        box-shadow var(--motion-fast),
-        background var(--motion-fast);
-}
-
-.node.selected .node-glass-bg {
-    border-color: var(--panel-active-border);
-    box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--accent-primary) 28%, transparent),
-        var(--shadow-node-hover);
-}
-
-.node-header {
-    min-height: 40px;
-    background: var(--surface-node-header);
-    border-bottom-color: var(--border-subtle);
-}
-
-.node-title {
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.node-delete,
-.node-bypass-btn,
-.node-collapse-btn {
-    width: var(--node-action-size);
-    height: var(--node-action-size);
-    border: 1px solid transparent;
-    background: var(--surface-control);
-    opacity: 0.52;
-    transition:
-        background var(--motion-fast),
-        border-color var(--motion-fast),
-        color var(--motion-fast),
-        opacity var(--motion-fast),
-        transform var(--motion-fast);
-}
-
-.node:hover .node-delete,
-.node:hover .node-bypass-btn,
-.node:hover .node-collapse-btn,
-.node:focus-within .node-delete,
-.node:focus-within .node-bypass-btn,
-.node:focus-within .node-collapse-btn {
-    opacity: 0.86;
-}
-
-.node-delete:hover,
-.node-bypass-btn:hover,
-.node-collapse-btn:hover {
-    border-color: var(--border-subtle);
-}
-
-.node-ports-row {
-    border-bottom-color: var(--border-subtle);
-}
-
-.node-port {
-    min-height: var(--node-port-hit-size);
-}
-
-.port-label {
-    color: var(--text-secondary);
-}
-
-.port-dot {
-    width: var(--node-port-dot-size);
-    height: var(--node-port-dot-size);
-    border-width: 2px;
-    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent);
-    transition:
-        background var(--motion-fast),
-        border-color var(--motion-fast),
-        box-shadow var(--motion-fast),
-        transform var(--motion-fast);
-}
-
-.port-dot:hover {
-    transform: scale(1.18);
-    box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 14%, transparent);
-}
-
-.port-dot.connected {
-    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent);
 }
 
 .context-menu {
@@ -371,13 +285,6 @@ body:has(#settings-modal:not(.hidden)) {
 .cache-item,
 .prompt-card {
     contain: layout paint;
-}
-
-#canvas-container.is-zooming .node-glass-bg,
-#canvas-container.is-panning .node-glass-bg,
-body.is-interacting .node-glass-bg {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
 }
 
 body.is-interacting .connection-path,

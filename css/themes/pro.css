@@ -245,41 +245,19 @@ html[data-app-theme="pro"] #btn-theme-toggle:hover {
     background: linear-gradient(180deg, rgba(37, 47, 67, 0.98), rgba(25, 33, 48, 0.98));
     border-color: rgba(86, 182, 217, 0.3);
 }
-
-html[data-app-theme="pro"] .node-glass-bg,
 html[data-app-theme="pro"] .history-card,
 html[data-app-theme="pro"] .workflow-item,
 html[data-app-theme="pro"] .search-chips {
     box-shadow: var(--shadow-node);
 }
-
-html[data-app-theme="pro"] .node-header,
 html[data-app-theme="pro"] .drawer-subheader {
     border-color: var(--border-color);
 }
-
-html[data-app-theme="pro"] .node-header {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
-        rgba(7, 10, 18, 0.12);
-}
-
-html[data-app-theme="pro"] .node-body {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
-}
-
-html[data-app-theme="pro"] .node-field input,
-html[data-app-theme="pro"] .node-field select,
-html[data-app-theme="pro"] .node-field textarea,
 html[data-app-theme="pro"] .save-workflow-box input {
     background: rgba(15, 21, 32, 0.92);
     border-color: rgba(148, 163, 184, 0.16);
     color: var(--text-primary);
 }
-
-html[data-app-theme="pro"] .node-field input:focus,
-html[data-app-theme="pro"] .node-field select:focus,
-html[data-app-theme="pro"] .node-field textarea:focus,
 html[data-app-theme="pro"] .save-workflow-box input:focus {
     border-color: rgba(93, 124, 255, 0.34);
     box-shadow: 0 0 0 3px rgba(93, 124, 255, 0.12);

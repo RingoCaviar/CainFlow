@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <script>
+    </script>
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/03-canvas.css">
+    <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <link rel="stylesheet" href="../../css/components/nodes.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+    <style>
+        body { margin: 0; }
+        #canvas-container { position: relative; width: 800px; height: 500px; }
+        .node { position: relative; display: inline-flex; width: 160px; min-height: 120px; margin: 20px; vertical-align: top; }
+        .node-header { min-height: 38px; box-sizing: border-box; }
+        .node-body { min-height: 58px; }
+        #popup-node { position: absolute; left: 280px; top: 400px; margin: 0; }
+        .popup-layer-probe { position: absolute; left: 0; bottom: 100%; z-index: 2; width: 320px; height: 120px; background: transparent; }
+    </style>
+</head>
+<body><div id="canvas-container">
+    <div class="node" id="normal"><div class="node-glass-bg"></div><div class="node-header">Normal</div><div class="node-body"></div></div>
+    <div class="node" id="hovered"><div class="node-glass-bg"></div><div class="node-header">Hovered</div><div class="node-body"></div></div>
+    <div class="node selected" id="selected"><div class="node-glass-bg"></div><div class="node-header">Selected</div><div class="node-body"></div></div>
+    <div class="node running" id="running"><div class="node-glass-bg"></div><div class="node-header">Running</div><div class="node-body"></div></div>
+    <div class="node error" id="error"><div class="node-glass-bg"></div><div class="node-header">Error</div><div class="node-body"></div></div>
+    <div class="node batch-connection-dimmed" id="batch-dimmed"><div class="node-glass-bg"></div><div class="node-header">Batch dimmed</div><div class="node-body"></div></div>
+    <div class="node connection-insert-candidate" id="connection-insert-candidate"><div class="node-glass-bg"></div><div class="node-header">Insert candidate</div><div class="node-body"></div></div>
+    <div class="node connection-shake-armed" id="connection-shake-armed"><div class="node-glass-bg"></div><div class="node-header">Shake armed</div><div class="node-body"></div></div>
+    <div class="node connection-shake-detached" id="connection-shake-detached"><div class="node-glass-bg"></div><div class="node-header">Shake detached</div><div class="node-body"></div></div>
+    <div class="node error" id="popup-node"><div class="node-glass-bg"></div><div class="node-header">Popup</div><div class="node-body"></div><div class="popup-layer-probe" aria-hidden="true"></div><div class="node-concurrent-status-error-popover" id="error-popover">Representative error message</div></div>
+    <div class="node disabled" id="disabled"><div class="node-glass-bg"></div><div class="node-header">Disabled</div><div class="node-body"></div></div>
+    <div class="node" id="focused"><div class="node-glass-bg"></div><div class="node-header">Focused</div><div class="node-body"><div class="node-field"><input id="focused-control" value="Focus" aria-label="Focused control"></div></div></div>
+</div><pre id="surface-result"></pre>
+<script>
+    const shell = (id) => getComputedStyle(document.querySelector(`#${id} .node-glass-bg`));
+    window.addEventListener('load', () => {
+        const requestedTheme = new URLSearchParams(location.search).get('theme');
+        const interaction = new URLSearchParams(location.search).get('interaction');
+        const themeIds = requestedTheme ? [requestedTheme] : ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        const root = document.documentElement;
+        document.getElementById('canvas-container').classList.toggle('is-zooming', interaction === 'zoom');
+        const focusedControl = document.getElementById('focused-control');
+        const errorPopover = document.getElementById('error-popover');
+        const popupLayerProbe = document.querySelector('.popup-layer-probe');
+        const gestureIds = ['connection-insert-candidate', 'connection-shake-armed', 'connection-shake-detached'];
+        const measureTheme = (themeId) => {
+            root.dataset.appTheme = themeId;
+            focusedControl.focus({ preventScroll: true });
+            const popoverRect = errorPopover.getBoundingClientRect();
+            const overlapPoint = { x: popoverRect.left + 16, y: popoverRect.bottom - 16 };
+            const topmostAtOverlap = document.elementFromPoint(overlapPoint.x, overlapPoint.y)?.id;
+            const popoverStyle = getComputedStyle(errorPopover);
+            const batchDimmedStyle = getComputedStyle(document.getElementById('batch-dimmed'));
+            const connectionGestures = Object.fromEntries(gestureIds.map((id) => [id, { border: shell(id).borderTopColor, nodeShadow: getComputedStyle(document.getElementById(id)).boxShadow }]));
+            return Object.fromEntries(
+                ['normal', 'selected', 'running', 'error', 'disabled'].map((id) => [id, { border: shell(id).borderTopColor, width: shell(id).borderTopWidth, nodeShadow: getComputedStyle(document.getElementById(id)).boxShadow, opacity: getComputedStyle(document.getElementById(id)).opacity, backdropFilter: shell(id).backdropFilter, backgroundImage: shell(id).backgroundImage }])
+                    .concat([['focusedControl', { border: getComputedStyle(focusedControl).borderTopColor }], ['errorPopover', { topmostAtOverlap, textColor: popoverStyle.color, surfaceColor: popoverStyle.backgroundColor, canvasColor: getComputedStyle(document.getElementById('canvas-container')).backgroundColor, probeZIndex: getComputedStyle(popupLayerProbe).zIndex, zIndex: popoverStyle.zIndex }], ['connectionGestures', connectionGestures], ['batchDimmed', { opacity: batchDimmedStyle.opacity, filter: batchDimmedStyle.filter }]]),
+            );
+        };
+        document.getElementById('surface-result').textContent = JSON.stringify(Object.fromEntries(themeIds.map((themeId) => [themeId, measureTheme(themeId)])));
+    });
+</script></body></html>

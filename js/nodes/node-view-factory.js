@@ -1073,14 +1073,14 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
     const previewActionLabel = hasVideo ? '查看视频' : '查看图片';
 
     return `
-        <div class="save-no-path-warning" id="${id}-path-warning" style="color:#ef4444; font-size:11px; margin-bottom:10px; display:${showWarning ? 'block' : 'none'}; font-weight:500;">
+        <div class="save-no-path-warning ${showWarning ? '' : 'hidden'}" id="${id}-path-warning">
             ⚠️ 未设置全局保存目录，保存节点无法自动落盘
         </div>
         <div class="save-preview-container ${hasMultipleImages ? 'has-multiple-images' : ''}" id="${id}-save-preview" data-save-mode="${hasVideo ? 'video' : 'image'}">
             ${(imageList.length > 0 || totalCount > 0)
                 ? renderRestoredMultiImagePreview(imageList, previewIndex, '待保存', 'save-preview-placeholder', '运行后显示图片', totalCount)
                 : (hasVideo
-                    ? `<video src="${escapeHtml(videoData.url || '')}" controls preload="metadata" playsinline style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"></video>`
+                    ? `<video class="save-preview-video" src="${escapeHtml(videoData.url || '')}" controls preload="metadata" playsinline></video>`
                     : '<div class="save-preview-placeholder">运行后显示图片或视频</div>')}
         </div>
         <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>

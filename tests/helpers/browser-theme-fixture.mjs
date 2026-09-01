@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { inflateSync } from 'node:zlib';
 
 export const chromePath = [
@@ -18,6 +18,8 @@ export function parseColor(color) {
         const expanded = hex.length === 3 ? [...hex].map((value) => value + value).join('') : hex;
         return [0, 2, 4].map((offset) => Number.parseInt(expanded.slice(offset, offset + 2), 16)).concat(1);
     }
+    const srgb = color.match(/^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)$/);
+    if (srgb) return srgb.slice(1, 4).map((value) => Number(value) * 255).concat(Number(srgb[4] ?? 1));
     const values = color.match(/[\d.]+/g).map(Number);
     return [values[0], values[1], values[2], values[3] ?? 1];
 }
@@ -128,6 +130,90 @@ export function renderComputedFixture(fixtureUrl, profilePrefix) {
         assert.ok(match, 'fixture must publish computed styles');
         return JSON.parse(match[1].replaceAll('&quot;', '"'));
     } finally {
+        rmSync(profile, { recursive: true, force: true });
+    }
+}
+
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function connectToPage(port, expectedUrl) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+        try {
+            const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
+            const page = targets.find((target) => target.type === 'page' && target.url === expectedUrl.href);
+            if (page) return page.webSocketDebuggerUrl;
+        } catch {}
+        await delay(25);
+    }
+    throw new Error('Chrome did not expose a debugging page');
+}
+
+async function createCdpClient(webSocketUrl) {
+    const socket = new WebSocket(webSocketUrl);
+    await new Promise((resolve, reject) => {
+        socket.addEventListener('open', resolve, { once: true });
+        socket.addEventListener('error', reject, { once: true });
+    });
+    let sequence = 0;
+    const pending = new Map();
+    socket.addEventListener('message', ({ data }) => {
+        const message = JSON.parse(data);
+        const resolve = pending.get(message.id);
+        if (resolve) {
+            pending.delete(message.id);
+            resolve(message);
+        }
+    });
+    return {
+        async send(method, params = {}) {
+            const id = ++sequence;
+            const response = await new Promise((resolve, reject) => {
+                pending.set(id, resolve);
+                socket.send(JSON.stringify({ id, method, params }));
+                setTimeout(() => {
+                    if (pending.delete(id)) reject(new Error(`CDP command timed out: ${method}`));
+                }, 5000);
+            });
+            if (response.error) throw new Error(response.error.message);
+            return response.result;
+        },
+        close() { socket.close(); },
+    };
+}
+
+export async function renderHoveredFixture(fixtureUrl, profilePrefix) {
+    assert.ok(chromePath, 'Chrome or Chromium is required for browser surface tests');
+    const profile = mkdtempSync(join(tmpdir(), profilePrefix));
+    const port = 20000 + Math.floor(Math.random() * 20000);
+    const browser = spawn(chromePath, [
+        '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, '--window-size=1280,960', fixtureUrl.href,
+    ], { stdio: 'ignore' });
+    let client;
+    try {
+        client = await createCdpClient(await connectToPage(port, fixtureUrl));
+        let fixtureReady = false;
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+            const ready = await client.send('Runtime.evaluate', { expression: 'document.readyState === "complete" && Boolean(document.getElementById("hovered"))' });
+            if (ready.result.value) {
+                fixtureReady = true;
+                break;
+            }
+            await delay(25);
+        }
+        assert.ok(fixtureReady, 'hover fixture must finish loading');
+        const bounds = await client.send('Runtime.evaluate', { expression: 'JSON.stringify(document.getElementById("hovered").getBoundingClientRect().toJSON())', returnByValue: true });
+        const rectangle = JSON.parse(bounds.result.value);
+        const normal = await client.send('Runtime.evaluate', { expression: 'JSON.stringify({ border: getComputedStyle(document.querySelector("#hovered .node-glass-bg")).borderTopColor, shadow: getComputedStyle(document.querySelector("#hovered .node-glass-bg")).boxShadow })', returnByValue: true });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1, button: 'none', pointerType: 'mouse' });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rectangle.x + rectangle.width / 2, y: rectangle.y + rectangle.height / 2, button: 'none', pointerType: 'mouse' });
+        await delay(250);
+        const hovered = await client.send('Runtime.evaluate', { expression: 'JSON.stringify({ matchesHover: document.getElementById("hovered").matches(":hover"), border: getComputedStyle(document.querySelector("#hovered .node-glass-bg")).borderTopColor, shadow: getComputedStyle(document.querySelector("#hovered .node-glass-bg")).boxShadow })', returnByValue: true });
+        return { ...JSON.parse(hovered.result.value), normal: JSON.parse(normal.result.value) };
+    } finally {
+        client?.close();
+        browser.kill();
+        await new Promise((resolve) => browser.once('exit', resolve));
         rmSync(profile, { recursive: true, force: true });
     }
 }

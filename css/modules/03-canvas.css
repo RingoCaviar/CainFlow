@@ -55,18 +55,18 @@
 @keyframes connection-pulse {
     0% {
         stroke-width: 4;
-        filter: drop-shadow(0 0 2px var(--accent-purple));
+        filter: drop-shadow(0 0 2px var(--canvas-connection-pending));
     }
 
     50% {
         stroke-opacity: 1;
         stroke-width: 6;
-        filter: drop-shadow(0 0 8px var(--accent-purple));
+        filter: drop-shadow(0 0 8px var(--canvas-connection-pending));
     }
 
     100% {
         stroke-width: 4;
-        filter: drop-shadow(0 0 2px var(--accent-purple));
+        filter: drop-shadow(0 0 2px var(--canvas-connection-pending));
     }
 }
 
@@ -81,7 +81,7 @@
 }
 
 .connection-path.selected {
-    stroke: #a855f7 !important;
+    stroke: var(--canvas-connection-selected) !important;
     /* Force solid purple for selection as requested */
     stroke-width: 3.5;
     stroke-opacity: 1;
@@ -91,18 +91,18 @@
 }
 
 .connection-path.connection-insert-target {
-    stroke: rgba(245, 158, 11, 0.38) !important;
+    stroke: var(--canvas-connection-insert-target) !important;
     stroke-width: 4;
     stroke-dasharray: 9 7;
 }
 
 .connection-insert-preview-path {
-    stroke: rgba(16, 185, 129, 0.92);
+    stroke: var(--canvas-connection-preview);
     stroke-width: 4;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-dasharray: 10 6;
-    filter: drop-shadow(0 0 7px rgba(16, 185, 129, 0.48));
+    filter: drop-shadow(0 0 7px var(--canvas-connection-preview-glow));
     pointer-events: none !important;
     animation: dash-flow 0.7s linear infinite;
 }
@@ -118,11 +118,11 @@
 
 .connection-flow-arrow {
     fill: none;
-    stroke: var(--connection-flow-color, rgba(168, 85, 247, 0.95));
+    stroke: var(--canvas-connection-flow);
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
-    filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.28));
+    filter: drop-shadow(0 0 4px var(--canvas-connection-flow-glow));
 }
 
 .connection-breathing {
@@ -174,7 +174,7 @@
 }
 
 .temp-connection {
-    stroke: rgba(168, 85, 247, 0.6);
+    stroke: var(--canvas-connection-pending);
     stroke-width: 2;
     stroke-dasharray: 8 4;
     animation: dash-flow 0.5s linear infinite;
@@ -188,16 +188,16 @@
 
 /* ===== Origin Crosshairs ===== */
 .origin-axis {
-    stroke: rgba(168, 85, 247, 0.4);
+    stroke: var(--canvas-origin-axis);
     stroke-width: 1px;
     stroke-dasharray: 5, 5;
     vector-effect: non-scaling-stroke;
 }
 
 .origin-dot {
-    fill: var(--accent-purple);
+    fill: var(--canvas-origin-dot);
     opacity: 0.8;
-    filter: drop-shadow(0 0 4px var(--accent-purple));
+    filter: drop-shadow(0 0 4px var(--canvas-origin-glow));
     vector-effect: non-scaling-stroke;
 }
 

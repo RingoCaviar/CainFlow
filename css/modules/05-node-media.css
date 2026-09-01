@@ -841,6 +841,21 @@
     border-radius: var(--radius-sm);
 }
 
+.save-no-path-warning {
+    margin-bottom: 10px;
+    color: var(--accent-red);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.save-preview-video {
+    width: 100%;
+    height: 100%;
+    border-radius: var(--radius-node);
+    background: color-mix(in srgb, var(--bg-input) 84%, transparent);
+    object-fit: contain;
+}
+
 .image-save-preview-nav {
     position: absolute;
     top: 50%;

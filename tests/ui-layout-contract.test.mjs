@@ -38,6 +38,12 @@ test('Canvas interaction keeps the background grid visible while zooming and pan
     );
 });
 
+test('the workbench exposes a non-layout-shifting canvas frame role', () => {
+    assert.match(workbench, /--workbench-frame-border:\s*var\(--panel-border/);
+    assert.match(workbench, /--workbench-canvas-border:\s*color-mix/);
+    assert.match(workbench, /#canvas-container\s*\{[\s\S]*?box-shadow:\s*inset 0 0 0 1px var\(--workbench-canvas-border\)/);
+});
+
 test('Canvas zoom does not promote the whole node layer to a composited transform layer', () => {
     assert.doesNotMatch(
         canvas,

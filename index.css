@@ -22,4 +22,5 @@
 @import './css/themes.css';
 @import './css/features/settings-theme-skin.css';
 @import './css/features/menu-dialog-theme-skin.css';
+@import './css/features/node-canvas-theme-skin.css';
 /* CainFlow 的样式总入口，聚合基础层、布局层、组件层和遗留样式。 */

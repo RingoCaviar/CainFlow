@@ -396,54 +396,11 @@ html[data-app-theme="glass-dark"] #btn-theme-toggle {
     border-color: rgba(125, 211, 252, 0.24);
     color: #b7e3f5;
 }
-
-html[data-app-theme="glass-dark"] .node-glass-bg {
-    overflow: hidden;
-    background: rgba(var(--glass-node-surface-rgb), var(--glass-node-opacity));
-    border-color: var(--border-node);
-    box-shadow: var(--shadow-node);
-    backdrop-filter: blur(var(--glass-node-blur-radius));
-    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius));
-}
-
-html[data-app-theme="glass-dark"] .node-glass-bg::before {
-    display: none;
-}
-
-html[data-app-theme="glass-dark"] .node.selected .node-glass-bg {
-    background: rgba(var(--glass-node-surface-hover-rgb), var(--glass-node-opacity));
-    border-color: var(--glass-border-strong);
-    box-shadow: none;
-}
-
-html[data-app-theme="glass-dark"] #canvas-container.is-zooming .node-glass-bg {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
-html[data-app-theme="glass-dark"] .node.running .node-glass-bg {
-    border-color: var(--accent-cyan) !important;
-}
-
-html[data-app-theme="glass-dark"] .node-header,
 html[data-app-theme="glass-dark"] .drawer-header,
 html[data-app-theme="glass-dark"] .drawer-subheader {
     background: var(--glass-surface-soft);
     border-color: var(--glass-border-soft);
 }
-
-html[data-app-theme="glass-dark"] .node-body {
-    background: transparent;
-}
-
-html[data-app-theme="glass-dark"] .node-field label,
-html[data-app-theme="glass-dark"] .port-label {
-    color: #bac8d8;
-}
-
-html[data-app-theme="glass-dark"] .node-field input,
-html[data-app-theme="glass-dark"] .node-field select,
-html[data-app-theme="glass-dark"] .node-field textarea,
 html[data-app-theme="glass-dark"] .save-workflow-box input,
 html[data-app-theme="glass-dark"] .camera-control-value,
 html[data-app-theme="glass-dark"] .camera-control-prompt {
@@ -454,29 +411,10 @@ html[data-app-theme="glass-dark"] .camera-control-prompt {
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
 }
-
-html[data-app-theme="glass-dark"] .node-field input:focus,
-html[data-app-theme="glass-dark"] .node-field select:focus,
-html[data-app-theme="glass-dark"] .node-field textarea:focus,
 html[data-app-theme="glass-dark"] .save-workflow-box input:focus,
 html[data-app-theme="glass-dark"] .camera-control-value:focus {
     border-color: rgba(125, 211, 252, 0.38) !important;
     box-shadow: 0 0 0 2px var(--glass-focus-ring);
-}
-
-html[data-app-theme="glass-dark"] .node-field select option {
-    background: #111a28;
-    color: var(--text-primary);
-}
-
-html[data-app-theme="glass-dark"] .node-select-trigger,
-html[data-app-theme="glass-dark"] .node-select-panel {
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-}
-
-html[data-app-theme="glass-dark"] .node-select-option {
-    color: var(--text-primary);
 }
 
 html[data-app-theme="glass-dark"] .camera-control-editor-overlay {
@@ -600,44 +538,6 @@ html[data-app-theme="glass-dark"] .help-key {
     background: var(--glass-surface) !important;
     border-color: var(--glass-border) !important;
     color: var(--text-secondary);
-}
-
-html[data-app-theme="glass-dark"] .node-run-cancel-btn {
-    --node-run-cancel-bg: rgba(238, 139, 153, 0.14);
-    --node-run-cancel-bg-hover: rgba(238, 139, 153, 0.22);
-    --node-run-cancel-bg-active: #b85260;
-    --node-run-cancel-border: rgba(238, 139, 153, 0.28);
-    --node-run-cancel-border-hover: rgba(238, 139, 153, 0.4);
-    --node-run-cancel-text: #f3c1c8;
-    --node-run-cancel-progress-track: rgba(255, 228, 230, 0.15);
-    --node-run-cancel-progress-fill: var(--accent-red);
-    --node-run-cancel-shadow: 0 6px 18px rgba(76, 5, 25, 0.16);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-}
-
-html[data-app-theme="glass-dark"] .node-run-cancel-btn:hover,
-html[data-app-theme="glass-dark"] .node-run-cancel-btn.is-holding {
-    background: var(--node-run-cancel-bg-hover);
-    border-color: var(--node-run-cancel-border-hover);
-}
-
-html[data-app-theme="glass-dark"] .node-run-cancel-btn.is-canceling {
-    background: var(--node-run-cancel-bg-active);
-    color: var(--node-run-cancel-text-active);
-}
-
-html[data-app-theme="glass-dark"] .node-clone-badge {
-    background: rgba(125, 211, 252, 0.11);
-    border-color: rgba(125, 211, 252, 0.26);
-    color: #b7e3f5;
-    box-shadow: none;
-}
-
-html[data-app-theme="glass-dark"] .node-clone-badge:hover,
-html[data-app-theme="glass-dark"] .node-clone-badge:focus-visible {
-    background: rgba(125, 211, 252, 0.16);
-    border-color: rgba(125, 211, 252, 0.36);
 }
 
 html[data-app-theme="glass-dark"] .update-download-status {

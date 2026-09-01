@@ -54,13 +54,6 @@
     visibility: hidden;
 }
 
-/* Dense mode reduces expensive compositing without changing node data or layout. */
-#canvas-container.canvas-dense-mode .node-glass-bg {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    box-shadow: none !important;
-}
-
 #canvas-container.canvas-dense-mode .node,
 #canvas-container.canvas-dense-mode .port-dot,
 #canvas-container.canvas-dense-mode .node-time-badge {
@@ -84,23 +77,16 @@
 
 .node.selected {
     z-index: 2000 !important;
-    box-shadow: 0 0 0 calc(2px / var(--canvas-zoom, 1)) var(--accent-primary) !important;
     transition: none !important;
 }
 
 .node-glass-bg {
     position: absolute;
     inset: 0;
-    background: var(--bg-node);
-    border: 1px solid var(--border-node);
     border-radius: var(--radius-node);
-    box-shadow: var(--shadow-node);
-    backdrop-filter: blur(var(--glass-node-blur-radius, 12px));
-    -webkit-backdrop-filter: blur(var(--glass-node-blur-radius, 12px));
     z-index: 0;
     /* The shell paints above opaque surfaces so its border remains continuous. */
     pointer-events: none;
-    transition: border-color var(--transition), box-shadow var(--transition);
 }
 
 .node-header,
@@ -110,78 +96,9 @@
     z-index: 1;
 }
 
-.node:hover .node-glass-bg {
-    box-shadow: var(--shadow-node-hover);
-}
-
 .node.selected {
     transition: none;
     /* Instant selection feedback */
-}
-
-.node.selected .node-glass-bg {
-    border-color: var(--accent-primary);
-    box-shadow: none;
-}
-
-.node.batch-connection-source,
-.node.selected.batch-connection-source {
-    box-shadow: var(--shadow-node) !important;
-}
-
-.node.batch-connection-source::before {
-    content: "";
-    position: absolute;
-    inset: calc(-8px / var(--canvas-zoom, 1));
-    z-index: 70;
-    box-sizing: border-box;
-    border: calc(6px / var(--canvas-zoom, 1)) solid var(--accent-green, #10b981);
-    border-radius: calc(var(--radius-node) + 8px);
-    box-shadow:
-        0 0 0 calc(3px / var(--canvas-zoom, 1)) color-mix(in srgb, var(--accent-green, #10b981) 26%, transparent),
-        0 0 calc(28px / var(--canvas-zoom, 1)) color-mix(in srgb, var(--accent-green, #10b981) 62%, transparent);
-    pointer-events: none;
-}
-
-.node.batch-connection-source .node-glass-bg,
-.node.selected.batch-connection-source .node-glass-bg {
-    border-color: var(--accent-green, #10b981);
-    border-width: 3px;
-    box-shadow:
-        inset 0 0 0 2px color-mix(in srgb, var(--accent-green, #10b981) 58%, transparent),
-        0 0 calc(18px / var(--canvas-zoom, 1)) color-mix(in srgb, var(--accent-green, #10b981) 46%, transparent);
-}
-
-.node.batch-connection-source::after {
-    content: "批量连线源节点";
-    position: absolute;
-    left: 50%;
-    top: calc(-34px / var(--canvas-zoom, 1));
-    z-index: 80;
-    transform: translateX(-50%);
-    box-sizing: border-box;
-    min-width: max-content;
-    height: calc(26px / var(--canvas-zoom, 1));
-    padding: 0 calc(10px / var(--canvas-zoom, 1));
-    border: calc(1px / var(--canvas-zoom, 1)) solid color-mix(in srgb, var(--accent-green, #10b981) 72%, white);
-    border-radius: calc(999px / var(--canvas-zoom, 1));
-    background: color-mix(in srgb, var(--accent-green, #10b981) 24%, rgba(8, 18, 14, 0.96));
-    color: color-mix(in srgb, var(--accent-green, #10b981) 72%, white);
-    box-shadow: 0 calc(8px / var(--canvas-zoom, 1)) calc(18px / var(--canvas-zoom, 1)) rgba(0, 0, 0, 0.28);
-    font-size: calc(12px / var(--canvas-zoom, 1));
-    font-weight: 800;
-    line-height: calc(24px / var(--canvas-zoom, 1));
-    pointer-events: none;
-    white-space: nowrap;
-}
-
-.node.batch-connection-dimmed {
-    opacity: 0.38;
-    filter: grayscale(1) saturate(0.45);
-}
-
-.node.batch-connection-dimmed .node-glass-bg {
-    border-color: color-mix(in srgb, var(--text-dim) 42%, transparent);
 }
 
 /* Only degrade heavy content for the node that is actively being dragged/resized. */
@@ -198,43 +115,19 @@
     user-select: none;
 }
 
-.node.connection-insert-candidate .node-glass-bg {
-    border-color: rgba(16, 185, 129, 0.95);
-    box-shadow:
-        0 0 0 calc(2px / var(--canvas-zoom, 1)) rgba(16, 185, 129, 0.55),
-        0 0 28px rgba(16, 185, 129, 0.35),
-        var(--shadow-node);
-}
-
-.node.connection-shake-armed .node-glass-bg {
-    border-color: rgba(245, 158, 11, 0.92);
-    box-shadow:
-        0 0 0 calc(3px / var(--canvas-zoom, 1)) rgba(245, 158, 11, 0.45),
-        0 0 30px rgba(245, 158, 11, 0.36),
-        var(--shadow-node);
-}
-
-.node.connection-shake-detached .node-glass-bg {
-    border-color: rgba(16, 185, 129, 0.95);
-    box-shadow:
-        0 0 0 calc(4px / var(--canvas-zoom, 1)) rgba(16, 185, 129, 0.48),
-        0 0 36px rgba(16, 185, 129, 0.45),
-        var(--shadow-node);
-}
-
 @keyframes node-running-super-glow {
 
     0%,
     100% {
-        box-shadow: 0 0 4px 1px rgba(34, 211, 238, 0.28), 0 0 8px 2px rgba(34, 211, 238, 0.08);
+        box-shadow: 0 0 4px 1px var(--node-running-glow-subtle), 0 0 8px 2px var(--node-running-glow-soft);
         background: transparent;
-        filter: drop-shadow(0 0 2px rgba(34, 211, 238, 0.3));
+        filter: drop-shadow(0 0 2px var(--node-running-glow-subtle));
     }
 
     50% {
-        box-shadow: 0 0 12px 4px rgba(34, 211, 238, 0.6), 0 0 22px 8px rgba(34, 211, 238, 0.22);
+        box-shadow: 0 0 12px 4px var(--node-running-glow-strong), 0 0 22px 8px var(--node-running-glow-wide);
         background: transparent;
-        filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.7));
+        filter: drop-shadow(0 0 5px var(--node-running-glow-filter));
     }
 }
 
@@ -244,18 +137,8 @@
     overflow: visible !important;
 }
 
-.node.running .node-glass-bg {
-    border-color: #22d3ee !important;
-    border-width: 2px !important;
-}
-
 .node.workflow-running-locked {
     pointer-events: none;
-}
-
-.node.workflow-running-locked .node-glass-bg {
-    border-color: var(--border-node);
-    border-width: 1px;
 }
 
 .node.workflow-running-locked::after {
@@ -300,20 +183,6 @@
     pointer-events: none;
 }
 
-.node.completed .node-glass-bg {
-    border-color: var(--accent-green);
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
-}
-
-.node.error .node-glass-bg {
-    border-color: var(--accent-red);
-}
-
-#canvas-container.is-zooming .node-glass-bg {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-}
-
 /* Node resize handle 鈥?Reduced hitbox to avoid interference with image dragging */
 .node-resize-handle {
     position: absolute;
@@ -356,7 +225,7 @@
     padding: 8px 12px;
     background: var(--bg-node-header);
     border-radius: var(--radius-node) var(--radius-node) 0 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid var(--node-section-divider);
     cursor: grab;
     position: relative;
     user-select: none;
@@ -411,8 +280,8 @@
 .node-time-badge {
     font-family: var(--font-mono);
     font-size: 10px;
-    color: var(--accent-cyan);
-    background: rgba(6, 182, 212, 0.1);
+    color: var(--node-status-idle-text);
+    background: var(--node-status-idle-surface);
     padding: 2px 6px;
     border-radius: 4px;
     opacity: 0.8;
@@ -420,7 +289,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    border: 1px solid rgba(6, 182, 212, 0.1);
+    border: 1px solid var(--node-status-idle-border);
     transition: all var(--transition);
     min-width: 50px;
     height: 20px;
@@ -429,22 +298,22 @@
 
 .node.running .node-time-badge {
     opacity: 1;
-    background: rgba(34, 211, 238, 0.15);
-    border-color: rgba(34, 211, 238, 0.3);
-    box-shadow: 0 0 10px rgba(34, 211, 238, 0.2);
+    background: var(--node-status-running-surface);
+    border-color: var(--node-status-running-border);
+    box-shadow: 0 0 10px var(--node-status-running-shadow);
 }
 
 .node.completed .node-time-badge {
     opacity: 1;
     color: var(--accent-green);
-    background: rgba(16, 185, 129, 0.1);
-    border-color: rgba(16, 185, 129, 0.2);
+    background: var(--node-status-success-surface);
+    border-color: var(--node-status-success-border);
 }
 
 .node.error .node-time-badge {
     color: var(--accent-red);
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.2);
+    background: var(--node-status-error-surface);
+    border-color: var(--node-status-error-border);
 }
 
 .node-delete {
@@ -949,7 +818,7 @@
     column-gap: 16px;
     align-items: start;
     padding: 6px 12px 5px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid var(--node-section-divider);
 }
 
 .node-ports-row.has-inputs-only,

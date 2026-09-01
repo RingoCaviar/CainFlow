@@ -201,8 +201,6 @@ html[data-app-theme="paper"] .btn-accent:hover {
     color: #ffffff;
     box-shadow: none;
 }
-
-html[data-app-theme="paper"] .node-glass-bg,
 html[data-app-theme="paper"] .history-card,
 html[data-app-theme="paper"] .workflow-item,
 html[data-app-theme="paper"] .cache-info-card,
@@ -213,16 +211,12 @@ html[data-app-theme="paper"] .cache-item {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
 }
-
-html[data-app-theme="paper"] .node-glass-bg:hover,
 html[data-app-theme="paper"] .history-card:hover,
 html[data-app-theme="paper"] .workflow-item:hover {
     border-color: #aaa99f;
     box-shadow: none;
     transform: none;
 }
-
-html[data-app-theme="paper"] .node-header,
 html[data-app-theme="paper"] .drawer-subheader {
     background: var(--bg-node-header);
     border-color: #dfdcd4;

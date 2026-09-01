@@ -80,10 +80,10 @@
     isolation: isolate;
     padding: 12px 14px;
     border-radius: 10px;
-    border: 1px solid rgba(248, 113, 113, 0.34);
-    background: rgb(24, 10, 14);
-    color: #fecaca;
-    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.36);
+    border: 1px solid var(--node-danger-border);
+    background: var(--node-danger-surface);
+    color: var(--node-danger-text);
+    box-shadow: var(--node-danger-shadow);
     font-size: 12px;
     line-height: 1.6;
     white-space: pre-wrap;
@@ -102,17 +102,17 @@
 
 .node-run-cancel-btn {
     --node-cancel-progress: 0;
-    --node-run-cancel-bg: rgba(63, 16, 22, 0.94);
-    --node-run-cancel-bg-hover: rgba(95, 20, 28, 0.98);
-    --node-run-cancel-bg-active: rgba(127, 29, 29, 0.98);
-    --node-run-cancel-border: rgba(248, 113, 113, 0.42);
-    --node-run-cancel-border-hover: rgba(248, 113, 113, 0.72);
-    --node-run-cancel-border-active: rgba(248, 113, 113, 0.82);
-    --node-run-cancel-text: #fecaca;
-    --node-run-cancel-text-active: #ffffff;
-    --node-run-cancel-progress-track: rgba(255, 255, 255, 0.18);
-    --node-run-cancel-progress-fill: #fb7185;
-    --node-run-cancel-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+    --node-run-cancel-bg: var(--node-cancel-bg, color-mix(in srgb, var(--accent-red) 14%, var(--bg-node)));
+    --node-run-cancel-bg-hover: var(--node-cancel-bg-hover, color-mix(in srgb, var(--accent-red) 20%, var(--bg-node)));
+    --node-run-cancel-bg-active: var(--node-danger-surface, var(--node-run-cancel-bg-hover));
+    --node-run-cancel-border: var(--node-cancel-border, color-mix(in srgb, var(--accent-red) 42%, transparent));
+    --node-run-cancel-border-hover: var(--node-cancel-border, var(--node-run-cancel-border));
+    --node-run-cancel-border-active: var(--node-danger-border, var(--node-run-cancel-border));
+    --node-run-cancel-text: var(--node-cancel-text, var(--accent-red));
+    --node-run-cancel-text-active: var(--text-primary);
+    --node-run-cancel-progress-track: color-mix(in srgb, var(--node-run-cancel-text) 18%, transparent);
+    --node-run-cancel-progress-fill: var(--accent-red);
+    --node-run-cancel-shadow: var(--node-danger-shadow, var(--shadow-node));
     position: absolute;
     left: 50%;
     bottom: -50px;
@@ -247,10 +247,10 @@
     height: 30px;
     min-width: 74px;
     padding: 0 12px;
-    border: 1px solid rgba(34, 211, 238, 0.42);
+    border: 1px solid var(--node-clone-border, color-mix(in srgb, var(--accent-cyan) 42%, transparent));
     border-radius: 999px;
-    background: rgba(10, 32, 41, 0.94);
-    color: #cffafe;
+    background: var(--node-clone-bg, color-mix(in srgb, var(--accent-cyan) 12%, var(--bg-node)));
+    color: var(--node-clone-text, var(--accent-primary));
     font: inherit;
     font-size: 13px;
     font-weight: 700;
