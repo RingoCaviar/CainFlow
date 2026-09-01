@@ -242,38 +242,38 @@ html:root #settings-modal.modal-overlay .provider-toggle-label {
     color: var(--settings-dialog-muted-text);
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-panel {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-panel, .provider-multiselect-panel-floating) {
     background: var(--settings-dialog-panel-bg);
     border-color: var(--settings-dialog-panel-border);
     box-shadow: var(--settings-dialog-panel-shadow);
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-panel::-webkit-scrollbar-thumb {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-panel, .provider-multiselect-panel-floating)::-webkit-scrollbar-thumb {
     background: var(--settings-control-border);
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-panel::-webkit-scrollbar-track {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-panel, .provider-multiselect-panel-floating)::-webkit-scrollbar-track {
     background: transparent;
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-option {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-option, .provider-multiselect-panel-floating .provider-multiselect-option) {
     background: var(--settings-control-bg);
     border-color: var(--settings-input-border);
     color: var(--text-primary);
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-option::before {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-option, .provider-multiselect-panel-floating .provider-multiselect-option)::before {
     background: var(--settings-input-bg);
     border-color: var(--settings-input-border);
     box-shadow: none;
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-option:is(:hover, [aria-selected="true"]) {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-option, .provider-multiselect-panel-floating .provider-multiselect-option):is(:hover, [aria-selected="true"]) {
     background: var(--settings-control-hover-bg);
     border-color: var(--settings-input-focus-border);
 }
 
-html:root #settings-modal.modal-overlay .provider-multiselect-option:is([aria-selected="true"], :has(input[type="checkbox"]:checked))::before {
+html:root :is(#settings-modal.modal-overlay .provider-multiselect-option, .provider-multiselect-panel-floating .provider-multiselect-option):is([aria-selected="true"], :has(input[type="checkbox"]:checked))::before {
     background: var(--settings-model-provider-accent);
     border-color: var(--settings-model-provider-accent);
     box-shadow: 0 0 0 3px var(--settings-primary-action-bg);

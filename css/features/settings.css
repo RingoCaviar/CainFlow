@@ -485,7 +485,8 @@
     white-space: nowrap;
 }
 
-#settings-modal .provider-multiselect-option input[type="checkbox"] {
+#settings-modal .provider-multiselect-option input[type="checkbox"],
+.provider-multiselect-panel-floating .provider-multiselect-option input[type="checkbox"] {
     position: absolute !important;
     width: 1px !important;
     height: 1px !important;
@@ -497,16 +498,20 @@
     border: 0 !important;
 }
 
-#settings-modal .provider-multiselect-option input[type="checkbox"]::after {
+#settings-modal .provider-multiselect-option input[type="checkbox"]::after,
+.provider-multiselect-panel-floating .provider-multiselect-option input[type="checkbox"]::after {
     content: none;
 }
 
-#settings-modal .provider-multiselect-option:hover input[type="checkbox"] {
+#settings-modal .provider-multiselect-option:hover input[type="checkbox"],
+.provider-multiselect-panel-floating .provider-multiselect-option:hover input[type="checkbox"] {
     transform: none;
 }
 
 #settings-modal .provider-multiselect-option input[type="checkbox"]:checked::after,
-#settings-modal .provider-multiselect-option[aria-selected="true"] input[type="checkbox"]::after {
+#settings-modal .provider-multiselect-option[aria-selected="true"] input[type="checkbox"]::after,
+.provider-multiselect-panel-floating .provider-multiselect-option input[type="checkbox"]:checked::after,
+.provider-multiselect-panel-floating .provider-multiselect-option[aria-selected="true"] input[type="checkbox"]::after {
     content: none;
 }
 

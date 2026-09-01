@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../index.css">
+</head>
+<body>
+    <div id="settings-modal" class="modal-overlay"><section class="modal-panel"></section></div>
+    <div id="floating-provider-panel" class="provider-multiselect-panel provider-multiselect-panel-floating">
+        <div class="provider-multiselect-option" aria-selected="true"><input type="checkbox" checked><span>6789中转供应商</span></div>
+    </div>
+    <pre id="surface-result"></pre>
+    <script>
+        addEventListener('load', () => {
+            const panel = document.getElementById('floating-provider-panel');
+            const option = panel.querySelector('.provider-multiselect-option');
+            document.getElementById('surface-result').textContent = JSON.stringify({
+                panelBackground: getComputedStyle(panel).backgroundColor,
+                panelBorder: getComputedStyle(panel).borderTopColor,
+                optionBackground: getComputedStyle(option).backgroundColor,
+                optionColor: getComputedStyle(option).color,
+                checkboxOpacity: getComputedStyle(option.querySelector('input')).opacity
+            });
+        });
+    </script>
+</body>
+</html>
