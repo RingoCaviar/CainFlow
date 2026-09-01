@@ -132,7 +132,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     }
 
     function setDraftProtocol(protocol) {
-        draftProtocol = cleanProtocolConfig(protocol);
+        draftProtocol = protocol?.readOnly === true ? cloneSerializable(protocol) : cleanProtocolConfig(protocol);
         currentEditingProtocol = draftProtocol;
     }
 
@@ -421,10 +421,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         setDraftProtocol(protocol);
 
         // 如果协议的 parameters 中没有 model 参数，自动添加一个
-        if (!draftProtocol.parameters) {
+        if (!draftProtocol.readOnly && !draftProtocol.parameters) {
             draftProtocol.parameters = {};
         }
-        if (!draftProtocol.parameters.model) {
+        if (!draftProtocol.readOnly && !draftProtocol.parameters.model) {
             draftProtocol.parameters.model = {
                 id: 'model',
                 label: '模型',
@@ -452,7 +452,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         documentRef.getElementById('btn-save-protocol').disabled = readOnly;
         documentRef.getElementById('btn-test-protocol').disabled = readOnly;
         documentRef.getElementById('btn-add-parameter').disabled = readOnly;
-        if (readOnly) setSaveStatus('此协议来自更新版本的 CainFlow，只能导出，不能编辑或执行。', 'warning');
+        if (readOnly) {
+            documentRef.getElementById('protocol-editor-view').querySelectorAll('input, textarea, select, button')
+                .forEach((control) => { control.disabled = true; });
+            setSaveStatus('此协议来自更新版本的 CainFlow，只能原样导出，不能编辑或执行。', 'warning');
+        }
 
         // 显示返回按钮
         documentRef.getElementById('btn-back-to-list').classList.remove('hidden');
@@ -1252,16 +1256,18 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     function exportProtocol() {
         let data = null;
         try {
-            data = collectEditorData();
+            data = currentEditingProtocol?.readOnly === true
+                ? cloneSerializable(currentEditingProtocol)
+                : collectEditorData();
             if (!data) return;
-            if (data.taskTypes?.includes('video')) validateVideoProtocolConfiguration(data);
-            updatePreviewWithNodeValues();
+            if (!data.readOnly && data.taskTypes?.includes('video')) validateVideoProtocolConfiguration(data);
+            if (!data.readOnly) updatePreviewWithNodeValues();
         } catch (error) {
             showToast(`导出失败: ${error.message}`, 'error');
             return;
         }
 
-        const json = JSON.stringify(cleanProtocolConfig(data), null, 2);
+        const json = JSON.stringify(data.readOnly ? data : cleanProtocolConfig(data), null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = documentRef.createElement('a');
