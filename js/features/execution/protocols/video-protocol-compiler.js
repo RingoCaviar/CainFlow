@@ -144,6 +144,51 @@ export function migrateProtocolConfiguration(rawProtocol = {}) {
     };
 }
 
+export function validateVideoProtocolConfiguration(rawProtocol = {}) {
+    const protocol = migrateProtocolConfiguration(rawProtocol);
+    if (!protocol.id || !Array.isArray(protocol.taskTypes) || !protocol.taskTypes.includes('video')) {
+        throw new Error('视频协议必须声明 id 和 video taskType');
+    }
+    for (const [modelId, variant] of Object.entries(protocol.variants || {})) {
+        const prefix = `变体 “${modelId}”`;
+        const encoding = variant.requestEncoding || protocol.requestEncoding || 'json';
+        if (!['json', 'multipart'].includes(encoding)) throw new Error(`${prefix} 的 requestEncoding 仅支持 json 或 multipart`);
+        if (!(variant.createPath || protocol.createPath)) throw new Error(`${prefix} 缺少 createPath`);
+        if (!(variant.queryPath || protocol.queryPath)) throw new Error(`${prefix} 缺少 queryPath`);
+        const asyncTask = variant.asyncTask || protocol.asyncTask || {};
+        for (const field of ['taskIdPath', 'statusPath', 'resultPath']) {
+            if (!String(asyncTask[field] || '').trim()) throw new Error(`${prefix} 的 asyncTask 缺少 ${field}`);
+        }
+        if (!Array.isArray(asyncTask.completedStatuses) || asyncTask.completedStatuses.length === 0) {
+            throw new Error(`${prefix} 的 asyncTask 缺少 completedStatuses`);
+        }
+        if (variant.referenceImage) {
+            if (!['repeat-field', 'single-string'].includes(variant.referenceImage.mode)) {
+                throw new Error(`${prefix} 的 referenceImage mode 不受支持`);
+            }
+            if (!String(variant.referenceImage.field || '').trim()) throw new Error(`${prefix} 的 referenceImage 缺少 field`);
+        }
+        const definitions = { ...(protocol.parameters || {}), ...(variant.parameters || {}) };
+        for (const [paramId, definition] of Object.entries(definitions)) {
+            if (definition.min !== undefined && definition.max !== undefined && Number(definition.min) > Number(definition.max)) {
+                throw new Error(`${prefix} 的参数 “${paramId}” min 不能大于 max`);
+            }
+        }
+    }
+    return true;
+}
+
+export function importVideoProtocolConfiguration(json) {
+    let parsed;
+    try {
+        parsed = typeof json === 'string' ? JSON.parse(json) : clone(json);
+    } catch (error) {
+        throw new Error(`协议 JSON 无法解析：${error.message}`);
+    }
+    validateVideoProtocolConfiguration(parsed);
+    return migrateProtocolConfiguration(parsed);
+}
+
 export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId, parameters = {}, inputs = {}, apiKey = '' } = {}) {
     const protocol = migrateProtocolConfiguration(rawProtocol);
     if (protocol.readOnly) throw new Error(protocol.executionBlockedReason);
@@ -213,10 +258,25 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
     };
 }
 
-export function redactProtocolPreview(request = {}) {
+export function redactProtocolPreview(request = {}, authentication = {}) {
     const headers = Object.fromEntries(Object.entries(request.headers || {}).map(([key, value]) => [
         key,
         SECRET_HEADER_NAMES.has(key.toLowerCase()) ? '<REDACTED>' : value
     ]));
-    return { ...clone(request), headers };
+    const redactUrl = (value) => {
+        if (!value || authentication.location !== 'query' || !authentication.field) return value;
+        try {
+            const url = new URL(value);
+            if (url.searchParams.has(authentication.field)) url.searchParams.set(authentication.field, '<REDACTED>');
+            return url.toString();
+        } catch {
+            return value;
+        }
+    };
+    return {
+        ...clone(request),
+        headers,
+        url: redactUrl(request.url),
+        query_url_template: redactUrl(request.query_url_template)
+    };
 }

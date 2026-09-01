@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import {
     compileVideoProtocol,
+    importVideoProtocolConfiguration,
     migrateProtocolConfiguration,
-    redactProtocolPreview
+    redactProtocolPreview,
+    validateVideoProtocolConfiguration
 } from '../js/features/execution/protocols/video-protocol-compiler.js';
 import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { requireModelCompatibilityFormat } from '../js/features/execution/model-compatibility-format.js';
@@ -86,6 +88,33 @@ test('redacts API keys from protocol previews', () => {
     });
     assert.deepEqual(preview.headers, { Authorization: '<REDACTED>', 'X-API-Key': '<REDACTED>' });
     assert.deepEqual(preview.body, { prompt: 'safe' });
+});
+
+test('redacts API keys from query-authenticated preview URLs', () => {
+    const preview = redactProtocolPreview({
+        url: 'https://relay.example/v1/videos?key=secret',
+        query_url_template: 'https://relay.example/v1/videos/task-example?key=secret'
+    }, { location: 'query', field: 'key' });
+    assert.equal(preview.url, 'https://relay.example/v1/videos?key=%3CREDACTED%3E');
+    assert.equal(preview.query_url_template, 'https://relay.example/v1/videos/task-example?key=%3CREDACTED%3E');
+});
+
+test('validates and imports complete declarative video protocol configurations offline', () => {
+    assert.equal(validateVideoProtocolConfiguration(protocol), true);
+    assert.equal(importVideoProtocolConfiguration(JSON.stringify(protocol)).id, 'async-video-api');
+    assert.throws(() => importVideoProtocolConfiguration('{bad json'), /JSON/);
+    assert.throws(() => validateVideoProtocolConfiguration({
+        ...protocol,
+        variants: { 'model-a': { ...protocol.variants['model-a'], requestEncoding: 'script' } }
+    }), /requestEncoding/);
+    assert.throws(() => validateVideoProtocolConfiguration({
+        ...protocol,
+        variants: { 'model-a': { ...protocol.variants['model-a'], asyncTask: { taskIdPath: 'id' } } }
+    }), /asyncTask.*statusPath/);
+    assert.throws(() => validateVideoProtocolConfiguration({
+        ...protocol,
+        variants: { 'model-a': { ...protocol.variants['model-a'], referenceImage: { mode: 'unknown' } } }
+    }), /referenceImage.*mode/);
 });
 
 test('compiles multipart media fields and query authentication without silently dropping either', () => {

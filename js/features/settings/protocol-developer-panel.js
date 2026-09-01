@@ -5,7 +5,12 @@
 
 import { getAllProtocols, getProtocol, registerProtocol, loadProtocols, deleteProtocol as removeProtocol } from '../execution/protocols/index.js';
 import { wrapConfigProtocol } from '../execution/protocols/request-builder.js';
-import { compileVideoProtocol, redactProtocolPreview } from '../execution/protocols/video-protocol-compiler.js';
+import {
+    compileVideoProtocol,
+    importVideoProtocolConfiguration,
+    redactProtocolPreview,
+    validateVideoProtocolConfiguration
+} from '../execution/protocols/video-protocol-compiler.js';
 
 export function createProtocolDeveloperPanel({ documentRef, showToast, refreshImageGenerateNodes = null, onProtocolRegistryChange = null }) {
     const panelId = 'protocol-developer-panel';
@@ -154,10 +159,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         if (!Array.isArray(protocol.taskTypes) || protocol.taskTypes.length === 0) {
             throw new Error('至少选择一个适用用途');
         }
-        if (!protocol.urlTemplate || typeof protocol.urlTemplate !== 'string') {
+        if ((!protocol.urlTemplate || typeof protocol.urlTemplate !== 'string')
+            && !(protocol.createPath || Object.values(protocol.variants || {}).some((variant) => variant?.createPath))) {
             throw new Error('请填写请求路径模板');
         }
-        if (!protocol.apikeyField || typeof protocol.apikeyField !== 'string') {
+        if ((!protocol.apikeyField || typeof protocol.apikeyField !== 'string') && !protocol.authentication?.field) {
             throw new Error('请填写 API Key 字段名');
         }
 
@@ -208,7 +214,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     <div class="protocol-dev-section">
                         <div class="parameters-section-header">
                             <h3>已注册的协议</h3>
-                            <button id="btn-create-protocol" class="btn btn-primary btn-sm">+ 创建新协议</button>
+                            <div class="header-actions">
+                                <button id="btn-import-protocol" class="btn btn-secondary btn-sm">导入 JSON</button>
+                                <input id="protocol-import-file" type="file" accept="application/json,.json" class="hidden" />
+                                <button id="btn-create-protocol" class="btn btn-primary btn-sm">+ 创建新协议</button>
+                            </div>
                         </div>
                         <div id="protocol-list" class="protocol-list"></div>
                     </div>
@@ -1153,6 +1163,9 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 setSaveStatus();
                 return;
             }
+            if (data.taskTypes?.includes('video') && Object.keys(data.variants || {}).length > 0) {
+                validateVideoProtocolConfiguration(data);
+            }
 
             // 准备覆盖配置数据（只保存可配置的部分）
             const overrideData = {
@@ -1250,6 +1263,24 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         URL.revokeObjectURL(url);
 
         showToast(`协议配置已导出`, 'success');
+    }
+
+    async function importProtocolFile(file) {
+        if (!file) return;
+        try {
+            const imported = importVideoProtocolConfiguration(await file.text());
+            if (getProtocol(imported.id) || BUILT_IN_PROTOCOL_IDS.has(imported.id)) {
+                throw new Error(`协议 ID “${imported.id}” 已存在，请先修改导入文件中的 ID`);
+            }
+            const userProtocol = cleanProtocolConfig(imported);
+            registerProtocol(userProtocol);
+            notifyProtocolRegistryChange(userProtocol.id);
+            renderProtocolList();
+            editProtocol(userProtocol.id);
+            showToast(`协议 ${userProtocol.id} 已导入；确认预览后点击保存`, 'success');
+        } catch (error) {
+            showToast(`导入失败: ${error.message}`, 'error');
+        }
     }
 
     async function testProtocolConnectivity() {
@@ -1478,6 +1509,13 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         // 创建协议按钮
         documentRef.getElementById('btn-create-protocol').addEventListener('click', createProtocol);
+        const importFile = documentRef.getElementById('protocol-import-file');
+        documentRef.getElementById('btn-import-protocol').addEventListener('click', () => importFile.click());
+        importFile.addEventListener('change', async () => {
+            const [file] = importFile.files || [];
+            await importProtocolFile(file);
+            importFile.value = '';
+        });
 
         // 保存按钮
         documentRef.getElementById('btn-save-protocol').addEventListener('click', saveProtocol);
@@ -1737,6 +1775,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     },
                     apiKey: 'sk-example-api-key-1234567890'
                 });
+                const authentication = tempProtocol.authentication || {
+                    location: tempProtocol.apikeyLocation,
+                    field: String(tempProtocol.apikeyField || '').split(':')[0].trim()
+                };
                 const preview = redactProtocolPreview({
                     method: plan.create.method,
                     url: plan.create.url,
@@ -1745,7 +1787,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     body: plan.create.body,
                     fields: plan.create.fields,
                     query_url_template: plan.queryUrl('task-example')
-                });
+                }, authentication);
                 previewContainer.innerHTML = `<pre><code>${escapeHtmlForPreview(JSON.stringify(preview, null, 2))}</code></pre>`;
                 return;
             }
