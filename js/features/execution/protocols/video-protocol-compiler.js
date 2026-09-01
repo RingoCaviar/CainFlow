@@ -65,8 +65,9 @@ function applyAuthentication({ url, body, authentication, apiKey }) {
 }
 
 function getAuthenticationRule(protocol = {}, variant = {}) {
-    if (variant.authentication) return variant.authentication;
-    if (protocol.authentication) return protocol.authentication;
+    const normalize = (rule) => ({ ...rule, location: rule.location || 'header' });
+    if (variant.authentication) return normalize(variant.authentication);
+    if (protocol.authentication) return normalize(protocol.authentication);
     const fieldTemplate = String(protocol.apikeyField || 'Authorization');
     const [field = 'Authorization', ...valueParts] = fieldTemplate.split(':');
     return {
@@ -146,6 +147,7 @@ export function migrateProtocolConfiguration(rawProtocol = {}) {
 
 export function validateVideoProtocolConfiguration(rawProtocol = {}) {
     const protocol = migrateProtocolConfiguration(rawProtocol);
+    if (protocol.readOnly) return true;
     if (!protocol.id || !Array.isArray(protocol.taskTypes) || !protocol.taskTypes.includes('video')) {
         throw new Error('视频协议必须声明 id 和 video taskType');
     }
@@ -155,6 +157,10 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
         const prefix = `变体 “${modelId}”`;
         const encoding = variant.requestEncoding || protocol.requestEncoding || 'json';
         if (!['json', 'multipart'].includes(encoding)) throw new Error(`${prefix} 的 requestEncoding 仅支持 json 或 multipart`);
+        if (variant.requestEncodingWhenReferenceImages
+            && !['json', 'multipart'].includes(variant.requestEncodingWhenReferenceImages)) {
+            throw new Error(`${prefix} 的 requestEncodingWhenReferenceImages 仅支持 json 或 multipart`);
+        }
         if (!(variant.createPath || protocol.createPath)) throw new Error(`${prefix} 缺少 createPath`);
         if (!(variant.queryPath || protocol.queryPath)) throw new Error(`${prefix} 缺少 queryPath`);
         const asyncTask = variant.asyncTask || protocol.asyncTask || {};
@@ -164,6 +170,18 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
         if (!Array.isArray(asyncTask.completedStatuses) || asyncTask.completedStatuses.length === 0) {
             throw new Error(`${prefix} 的 asyncTask 缺少 completedStatuses`);
         }
+        for (const statusField of ['failedStatuses', 'cancelledStatuses']) {
+            if (asyncTask[statusField] !== undefined && !Array.isArray(asyncTask[statusField])) {
+                throw new Error(`${prefix} 的 asyncTask.${statusField} 必须是数组`);
+            }
+        }
+        const authentication = getAuthenticationRule(protocol, variant);
+        if (!['header', 'query'].includes(authentication.location)) {
+            throw new Error(`${prefix} 的 authentication.location 仅支持 header 或 query`);
+        }
+        if (!String(authentication.field || '').trim()) throw new Error(`${prefix} 的 authentication 缺少 field`);
+        const template = String(authentication.template || '{apikey}');
+        if (!template.includes('{apikey}')) throw new Error(`${prefix} 的 authentication.template 必须使用 {apikey} 占位符`);
         if (variant.referenceImage) {
             if (!['repeat-field', 'single-string'].includes(variant.referenceImage.mode)) {
                 throw new Error(`${prefix} 的 referenceImage mode 不受支持`);
@@ -172,6 +190,10 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
         }
         const definitions = { ...(protocol.parameters || {}), ...(variant.parameters || {}) };
         for (const [paramId, definition] of Object.entries(definitions)) {
+            if (!definition || typeof definition !== 'object') throw new Error(`${prefix} 的参数 “${paramId}” 定义无效`);
+            if (definition.options !== undefined && !Array.isArray(definition.options)) {
+                throw new Error(`${prefix} 的参数 “${paramId}” options 必须是数组`);
+            }
             if (definition.min !== undefined && definition.max !== undefined && Number(definition.min) > Number(definition.max)) {
                 throw new Error(`${prefix} 的参数 “${paramId}” min 不能大于 max`);
             }
@@ -187,8 +209,9 @@ export function importVideoProtocolConfiguration(json) {
     } catch (error) {
         throw new Error(`协议 JSON 无法解析：${error.message}`);
     }
-    validateVideoProtocolConfiguration(parsed);
-    return migrateProtocolConfiguration(parsed);
+    const migrated = migrateProtocolConfiguration(parsed);
+    if (!migrated.readOnly) validateVideoProtocolConfiguration(migrated);
+    return migrated;
 }
 
 export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId, parameters = {}, inputs = {}, apiKey = '' } = {}) {
@@ -262,7 +285,7 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
 }
 
 export function redactProtocolPreview(request = {}, authentication = {}) {
-    const authenticationHeader = authentication.location === 'header'
+    const authenticationHeader = (authentication.location || 'header') === 'header'
         ? String(authentication.field || '').toLowerCase()
         : '';
     const headers = Object.fromEntries(Object.entries(request.headers || {}).map(([key, value]) => [

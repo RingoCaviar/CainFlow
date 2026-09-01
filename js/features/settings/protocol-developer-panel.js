@@ -45,7 +45,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'responsePath',
         'fixedParams',
         'videoMeta',
-        'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask'
+        'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask',
+        'readOnly', 'executionBlockedReason'
     ];
     const PARAMETER_CONFIG_KEYS = [
         'id',
@@ -1169,6 +1170,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             }
             if (data.taskTypes?.includes('video')) {
                 validateVideoProtocolConfiguration(data);
+                updatePreviewWithNodeValues();
             }
 
             // 准备覆盖配置数据（只保存可配置的部分）

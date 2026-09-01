@@ -104,6 +104,7 @@ test('redacts variant-owned custom authentication headers and query fields', () 
         location: 'header', field: 'X-Token'
     });
     assert.equal(customHeader.headers['X-Token'], '<REDACTED>');
+    assert.equal(redactProtocolPreview({ headers: { 'X-Token': 'secret' } }, { field: 'X-Token' }).headers['X-Token'], '<REDACTED>');
     const variantProtocol = {
         ...protocol,
         variants: {
@@ -126,6 +127,17 @@ test('validates and imports complete declarative video protocol configurations o
     assert.equal(importVideoProtocolConfiguration(JSON.stringify(protocol)).id, 'async-video-api');
     assert.throws(() => importVideoProtocolConfiguration('{bad json'), /JSON/);
     assert.throws(() => validateVideoProtocolConfiguration({ ...protocol, variants: {} }), /至少一个精确模型变体/);
+    assert.equal(importVideoProtocolConfiguration(JSON.stringify({
+        id: 'future', schemaVersion: 2, taskTypes: ['video'], futureShape: true
+    })).readOnly, true);
+    assert.throws(() => validateVideoProtocolConfiguration({
+        ...protocol,
+        authentication: { location: 'cookie', field: 'token', template: '{apikey}' }
+    }), /authentication.location/);
+    assert.throws(() => validateVideoProtocolConfiguration({
+        ...protocol,
+        authentication: { location: 'header', field: 'X-Token', template: 'embedded-secret' }
+    }), /\{apikey\}/);
     assert.throws(() => validateVideoProtocolConfiguration({
         ...protocol,
         variants: { 'model-a': { ...protocol.variants['model-a'], requestEncoding: 'script' } }
