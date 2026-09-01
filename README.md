@@ -77,8 +77,6 @@ CainFlow 主项目使用 [GNU GPL v3.0](LICENSE)。
 
 ## Star History
 
-## Star History
-
 <a href="https://www.star-history.com/?repos=RingoCaviar%2FCainFlow&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=RingoCaviar/CainFlow&type=date&theme=dark&legend=top-left&sealed_token=ErPREOiLPf_MgRHRjFBFOm6yZ_2VgGZ6llwmO7R2ajhyoPMmiICEqY5HjvTWvzCoPHfNPQWqJElimP95_jQv7g2iWaTfy5vGm_kTV-hc1udk3dtfeWJFbIcuvafqcqAQVIK3GjfzKozPwJ95gWJtAeEwd11U5L8ZSuH90OXHsylHvas5rjC4cAd7G3JH" />
