@@ -52,54 +52,6 @@ export const DoubaoVideoProtocol = {
             step: 1
         },
 
-        image_3: {
-            id: 'image_3',
-            exposed: true,
-            inputPort: true,
-            portType: 'image',
-            portOnly: true,
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'array',
-            uiControl: 'number',
-            label: '参考图 3',
-            defaultValue: '',
-            requestField: 'content',
-            taskTypes: ['video']
-        },
-
-        image_4: {
-            id: 'image_4',
-            exposed: true,
-            inputPort: true,
-            portType: 'image',
-            portOnly: true,
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'array',
-            uiControl: 'number',
-            label: '参考图 4',
-            defaultValue: '',
-            requestField: 'content',
-            taskTypes: ['video']
-        },
-
-        image_5: {
-            id: 'image_5',
-            exposed: true,
-            inputPort: true,
-            portType: 'image',
-            portOnly: true,
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'array',
-            uiControl: 'number',
-            label: '参考图 5',
-            defaultValue: '',
-            requestField: 'content',
-            taskTypes: ['video']
-        },
-
         systemPrompt: {
             id: 'systemPrompt',
             requestField: 'prompt',

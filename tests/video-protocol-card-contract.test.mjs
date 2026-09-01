@@ -4,7 +4,11 @@ import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-v
 import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unified.js';
 import { VeoOpenAIProtocol } from '../js/features/execution/protocols/veo-openai.js';
 import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
-import { describeVideoProtocolCard, getVideoProtocolInputPorts } from '../js/nodes/video-protocol-card.js';
+import {
+    describeVideoProtocolCard,
+    getVideoProtocolInputPorts,
+    updateVideoProtocolInputPortVisibility
+} from '../js/nodes/video-protocol-card.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import {
     activateProtocolVariantDraft,
@@ -115,6 +119,34 @@ test('built-in video card input ports come only from each protocol declaration',
     assert.deepEqual(getVideoProtocolInputPorts(RelayVideoProtocol, 'kling-o3'), ['referenceImages']);
     assert.deepEqual(getVideoProtocolInputPorts(RelayVideoProtocol, 'minimax-h3'), ['referenceImages']);
     assert.deepEqual(getVideoProtocolInputPorts({ id: 'user-video', parameters: {} }, 'custom'), []);
+});
+
+test('declared video input ports drive the rendered card visibility and multiplicity', () => {
+    const createPort = (name) => ({
+        dataset: { port: name, type: 'image', multiple: 'true' },
+        hidden: false,
+        classList: { toggle(_name, hidden) { this.owner.hidden = hidden; }, owner: null },
+        removeAttribute(attribute) { if (attribute === 'data-multiple') delete this.dataset.multiple; }
+    });
+    const ports = ['image_1', 'image_2', 'referenceImages'].map(createPort);
+    ports.forEach((port) => { port.classList.owner = port; });
+    const root = {
+        querySelectorAll: () => ports,
+        querySelector: () => ports[2]
+    };
+
+    updateVideoProtocolInputPortVisibility(
+        root,
+        getVideoProtocolInputPorts(RelayVideoProtocol, 'minimax-h3'),
+        RelayVideoProtocol.variants['minimax-h3']
+    );
+    assert.deepEqual(ports.map((port) => port.hidden), [true, true, false]);
+    assert.equal(ports[2].dataset.multiple, undefined);
+    assert.equal(ports[2].dataset.baseLabel, '参考图');
+
+    updateVideoProtocolInputPortVisibility(root, getVideoProtocolInputPorts(VeoUnifiedProtocol, 'veo-3'));
+    assert.deepEqual(ports.map((port) => port.hidden), [false, false, false]);
+    assert.equal(ports[2].dataset.multiple, 'true');
 });
 
 test('built-in video parameters remain declaration-owned after the legacy control migration', () => {

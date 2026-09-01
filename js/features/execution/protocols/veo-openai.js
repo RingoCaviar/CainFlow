@@ -57,54 +57,6 @@ export const VeoOpenAIProtocol = {
             step: 1
         },
 
-        image_3: {
-            id: 'image_3',
-            exposed: false,
-            inputPort: true,
-            portType: 'image',
-            portOnly: true,
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'array',
-            uiControl: 'number',
-            label: '参考图 3',
-            defaultValue: '',
-            requestField: 'Ingredients_images',
-            taskTypes: ['video']
-        },
-
-        image_4: {
-            id: 'image_4',
-            exposed: false,
-            inputPort: true,
-            portType: 'image',
-            portOnly: true,
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'array',
-            uiControl: 'number',
-            label: '参考图 4',
-            defaultValue: '',
-            requestField: 'Ingredients_images',
-            taskTypes: ['video']
-        },
-
-        image_5: {
-            id: 'image_5',
-            exposed: false,
-            inputPort: true,
-            portType: 'image',
-            portOnly: true,
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'array',
-            uiControl: 'number',
-            label: '参考图 5',
-            defaultValue: '',
-            requestField: 'Ingredients_images',
-            taskTypes: ['video']
-        },
-
         systemPrompt: {
             id: 'systemPrompt',
             requestField: 'prompt',

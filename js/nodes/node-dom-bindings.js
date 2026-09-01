@@ -22,7 +22,11 @@ import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-opena
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
-import { describeVideoProtocolCard, getVideoProtocolInputPorts } from './video-protocol-card.js';
+import {
+    describeVideoProtocolCard,
+    getVideoProtocolInputPorts,
+    updateVideoProtocolInputPortVisibility
+} from './video-protocol-card.js';
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
 
 export function createNodeDomBindingsApi({
@@ -743,22 +747,9 @@ export function createNodeDomBindingsApi({
         const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
         const model = state.models.find((candidate) => candidate.id === modelId);
         const variant = protocol?.variants?.[model?.modelId];
-        const declaredPorts = new Set(getVideoProtocolInputPorts(protocol, model?.modelId));
         const root = documentRef.getElementById(id);
         if (!root || !node) return;
-        ['image_1', 'image_2'].forEach((portName) => {
-            const port = root.querySelector(`.node-port.input[data-port="${portName}"]`);
-            if (port) port.classList.toggle('hidden', !declaredPorts.has(portName));
-        });
-        const referencePort = root.querySelector('.node-port.input[data-port="referenceImages"]');
-        if (!referencePort) return;
-        referencePort.classList.toggle('hidden', !declaredPorts.has('referenceImages'));
-        if (variant?.referenceImage?.maxCount === 1) {
-            referencePort.removeAttribute('data-multiple');
-            referencePort.dataset.baseLabel = '参考图';
-        } else {
-            referencePort.dataset.multiple = 'true';
-        }
+        updateVideoProtocolInputPortVisibility(root, getVideoProtocolInputPorts(protocol, model?.modelId), variant);
     }
 
     function bindNodePorts(container) {

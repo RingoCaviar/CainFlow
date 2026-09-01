@@ -12,7 +12,27 @@ export function getVideoProtocolInputPorts(protocol, modelId) {
     const variant = variants[modelId] || null;
     if (!protocol || (hasVariants && !variant)) return [];
     const parameters = getVariantParameters(protocol, variant);
-    return ['image_1', 'image_2', 'referenceImages'].filter((id) => parameters[id]?.inputPort === true);
+    return Object.entries(parameters)
+        .filter(([, definition]) => definition?.inputPort === true
+            && definition.portType === 'image'
+            && (!Array.isArray(definition.taskTypes) || definition.taskTypes.includes('video')))
+        .map(([id]) => id);
+}
+
+export function updateVideoProtocolInputPortVisibility(root, declaredPortIds = [], variant = null) {
+    if (!root) return;
+    const declaredPorts = new Set(declaredPortIds);
+    root.querySelectorAll('.node-port.input[data-type="image"]').forEach((port) => {
+        port.classList.toggle('hidden', !declaredPorts.has(port.dataset.port));
+    });
+    const referencePort = root.querySelector('.node-port.input[data-port="referenceImages"]');
+    if (!referencePort || !declaredPorts.has('referenceImages')) return;
+    if (variant?.referenceImage?.maxCount === 1) {
+        referencePort.removeAttribute('data-multiple');
+        referencePort.dataset.baseLabel = '参考图';
+    } else {
+        referencePort.dataset.multiple = 'true';
+    }
 }
 
 export function describeVideoProtocolCard(protocol, modelId) {
