@@ -32,3 +32,14 @@ export function saveProtocolVariantDraft(data = {}, parameters = {}) {
         protocolParams: { ...(data.protocolParams || {}), ...parameters }
     };
 }
+
+/** Capture the active form at a persistence boundary while retaining inactive drafts. */
+export function snapshotProtocolVariantDrafts(data = {}, activeParameters = data.protocolParams || {}) {
+    const key = data.protocolVariantKey || '';
+    const drafts = { ...(data.protocolVariantDrafts || {}) };
+    if (key) drafts[key] = { ...(drafts[key] || {}), ...activeParameters };
+    return {
+        protocolVariantKey: key,
+        protocolVariantDrafts: drafts
+    };
+}

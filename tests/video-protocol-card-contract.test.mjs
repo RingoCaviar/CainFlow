@@ -4,7 +4,11 @@ import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-v
 import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unified.js';
 import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
 import { describeVideoProtocolCard } from '../js/nodes/video-protocol-card.js';
-import { activateProtocolVariantDraft, saveProtocolVariantDraft } from '../js/nodes/protocol-variant-drafts.js';
+import {
+    activateProtocolVariantDraft,
+    saveProtocolVariantDraft,
+    snapshotProtocolVariantDrafts
+} from '../js/nodes/protocol-variant-drafts.js';
 
 test('Kling card contract exposes the exact variant identity and constraints', () => {
     assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'kling-o3'), {
@@ -42,6 +46,25 @@ test('variant drafts restore prior values and only initialize newly declared def
     assert.deepEqual(data.protocolParams, { seconds: 4, size: '1440x1920' });
     data = activateProtocolVariantDraft(data, { protocolId: 'async-video-api', modelId: 'kling-o3', parameters: { ...kling, loop: { defaultValue: false } } });
     assert.deepEqual(data.protocolParams, { seconds: 12, size: '960x1280', loop: false });
+});
+
+test('variant draft snapshots persist the active form values without losing inactive variants', () => {
+    const data = {
+        protocolVariantKey: 'async-video-api:kling-o3',
+        protocolVariantDrafts: {
+            'async-video-api:kling-o3': { seconds: 3, size: '960x1280' },
+            'async-video-api:minimax-h3': { seconds: 8, size: '1440x1920' }
+        },
+        protocolParams: { seconds: 3, size: '960x1280' }
+    };
+
+    assert.deepEqual(snapshotProtocolVariantDrafts(data, { seconds: 12, size: '1280x960' }), {
+        protocolVariantKey: 'async-video-api:kling-o3',
+        protocolVariantDrafts: {
+            'async-video-api:kling-o3': { seconds: 12, size: '1280x960' },
+            'async-video-api:minimax-h3': { seconds: 8, size: '1440x1920' }
+        }
+    });
 });
 
 test('built-in video protocols expose their declared card contracts without variants', () => {

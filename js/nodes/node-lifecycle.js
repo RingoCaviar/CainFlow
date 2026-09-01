@@ -1213,6 +1213,12 @@ export function createNodeLifecycleApi({
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
         }
+        if (effectiveRestoreData?.protocolVariantDrafts) {
+            nodeData.data.protocolVariantDrafts = clonePlainValue(effectiveRestoreData.protocolVariantDrafts);
+        }
+        if (typeof effectiveRestoreData?.protocolVariantKey === 'string') {
+            nodeData.data.protocolVariantKey = effectiveRestoreData.protocolVariantKey;
+        }
         const restoredCollapsedExpandedHeight = Number(effectiveRestoreData?.collapsedCollapsedExpandedHeight || effectiveRestoreData?.collapsedExpandedHeight);
         if (nodeData.collapsed && Number.isFinite(restoredCollapsedExpandedHeight) && restoredCollapsedExpandedHeight > 0) {
             nodeData.collapsedExpandedHeight = Math.round(restoredCollapsedExpandedHeight);
