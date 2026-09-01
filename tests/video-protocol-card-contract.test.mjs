@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
+import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unified.js';
+import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
 import { describeVideoProtocolCard } from '../js/nodes/video-protocol-card.js';
 import { activateProtocolVariantDraft, saveProtocolVariantDraft } from '../js/nodes/protocol-variant-drafts.js';
 
@@ -37,4 +39,9 @@ test('variant drafts restore prior values and only initialize newly declared def
     assert.deepEqual(data.protocolParams, { seconds: 4, size: '1440x1920' });
     data = activateProtocolVariantDraft(data, { protocolId: 'async-video-api', modelId: 'kling-o3', parameters: { ...kling, loop: { defaultValue: false } } });
     assert.deepEqual(data.protocolParams, { seconds: 12, size: '960x1280', loop: false });
+});
+
+test('built-in video protocols expose their declared card contracts without variants', () => {
+    assert.equal(describeVideoProtocolCard(VeoUnifiedProtocol, 'veo-3').isDeclared, true);
+    assert.equal(describeVideoProtocolCard(DoubaoVideoProtocol, 'seedance').isDeclared, true);
 });

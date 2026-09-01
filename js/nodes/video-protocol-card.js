@@ -11,7 +11,7 @@ export function describeVideoProtocolCard(protocol, modelId) {
     const hasVariants = Object.keys(variants).length > 0;
     const variant = variants[modelId] || null;
     const isUnmatched = hasVariants && !variant;
-    if (!protocol || !hasVariants) return { isDeclared: false, isUnmatched: false, summary: '' };
+    if (!protocol) return { isDeclared: false, isUnmatched: false, summary: '' };
     if (isUnmatched) {
         return {
             isDeclared: true,
@@ -31,7 +31,7 @@ export function describeVideoProtocolCard(protocol, modelId) {
     if (maxImages !== undefined) constraints.push(`最多 ${maxImages} 张参考图`);
 
     return {
-        isDeclared: true,
+        isDeclared: Object.keys(parameters).length > 0,
         isUnmatched: false,
         summary: [protocol.label || protocol.id, modelId, ...constraints].filter(Boolean).join(' · ')
     };

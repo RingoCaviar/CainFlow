@@ -654,8 +654,8 @@ export function createNodeDomBindingsApi({
         const durationMax = 12;
 
         if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', !supportsSizeParamToggle);
-        if (promptField) promptField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant?.parameters?.prompt || declaredProtocol?.parameters?.prompt));
-        if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant));
+        if (promptField) promptField.classList.toggle('hidden', hasVariantMismatch || cardContract.isDeclared);
+        if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || cardContract.isDeclared);
         if (protocolSummary) {
             protocolSummary.textContent = cardContract.summary;
             protocolSummary.classList.toggle('hidden', !cardContract.summary);
@@ -1492,16 +1492,7 @@ export function createNodeDomBindingsApi({
 
     const VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
         'referenceImages',
-        'model',
-        'aspect',
-        'aspect_ratio',
-        'resolution',
-        'duration',
-        'camera_fixed',
-        'generate_audio',
-        'watermark',
-        'seed',
-        'loop'
+        'model'
     ]);
 
     function getVideoGenerateExtraProtocol(protocol) {
