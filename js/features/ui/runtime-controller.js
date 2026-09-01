@@ -1,6 +1,10 @@
 import { canUseCanvasShortcuts, isTextEditingTarget } from './shortcut-guard.js';
 import { installUiBoundaryAudit } from './ui-boundary-audit.js';
 
+export function hasOpenImmersivePreview(documentRef = document) {
+    return documentRef.querySelector('.fullscreen-overlay.active') !== null;
+}
+
 /**
  * 负责运行时全局监听，包括快捷键、窗口焦点、模态框关闭与工具栏高度同步。
  */
@@ -75,7 +79,7 @@ export function createRuntimeControllerApi({
         }
 
         function isImmersivePreviewOpen() {
-            if (documentRef.querySelector('.fullscreen-overlay')) return true;
+            if (hasOpenImmersivePreview(documentRef)) return true;
             const historyPreview = documentRef.getElementById('history-preview-modal');
             if (historyPreview && !historyPreview.classList.contains('hidden')) return true;
             return false;
