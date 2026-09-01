@@ -17,6 +17,8 @@ import {
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
+import { getProtocol } from '../features/execution/protocols/index.js';
+import { describeVideoProtocolCard } from './video-protocol-card.js';
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -563,6 +565,8 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         .join('');
     const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
     const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
+    const declaredProtocol = getProtocol(protocol);
+    const protocolCard = describeVideoProtocolCard(declaredProtocol, selectedModel?.modelId);
     const protocolMeta = getVideoProtocolOptionMeta(protocol);
     const doubaoRatioOptions = DOUBAO_VIDEO_RATIO_OPTIONS;
     const doubaoResolutionOptions = DOUBAO_VIDEO_RESOLUTION_OPTIONS;
@@ -619,6 +623,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             fieldId: `${id}-provider-field`,
             content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
         })}
+        <div class="node-protocol-summary${protocolCard.summary ? '' : ' hidden'}" id="${id}-protocol-summary">${escapeHtml(protocolCard.summary)}</div>
         <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '生成次数',

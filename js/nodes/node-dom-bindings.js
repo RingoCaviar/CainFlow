@@ -22,6 +22,7 @@ import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-opena
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
+import { describeVideoProtocolCard } from './video-protocol-card.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -637,6 +638,8 @@ export function createNodeDomBindingsApi({
         const hasVariantMismatch = Object.keys(declaredProtocol?.variants || {}).length > 0 && !declaredVariant;
         const promptField = documentRef.getElementById(`${id}-prompt-field`);
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
+        const protocolSummary = documentRef.getElementById(`${id}-protocol-summary`);
+        const cardContract = describeVideoProtocolCard(declaredProtocol, model?.modelId);
         const meta = getVideoProtocolOptionMeta(protocol);
         const isDoubaoProtocol = protocol === 'doubao-video';
         const supportsSizeParamToggle = protocol === 'veo-unified' || protocol === 'veo-openai';
@@ -652,6 +655,10 @@ export function createNodeDomBindingsApi({
         if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', !supportsSizeParamToggle);
         if (promptField) promptField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant?.parameters?.prompt || declaredProtocol?.parameters?.prompt));
         if (aspectField) aspectField.classList.toggle('hidden', hasVariantMismatch || Boolean(declaredVariant));
+        if (protocolSummary) {
+            protocolSummary.textContent = cardContract.summary;
+            protocolSummary.classList.toggle('hidden', !cardContract.summary);
+        }
         if (enhanceField) enhanceField.classList.toggle('hidden', !meta.supportsEnhancePrompt);
         if (upsampleField) upsampleField.classList.toggle('hidden', !meta.supportsUpsample);
         if (doubaoResolutionField) doubaoResolutionField.classList.toggle('hidden', !isDoubaoProtocol);
@@ -729,16 +736,17 @@ export function createNodeDomBindingsApi({
         const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
         const model = state.models.find((candidate) => candidate.id === modelId);
         const variant = protocol?.variants?.[model?.modelId];
+        const hasVariantMismatch = Object.keys(protocol?.variants || {}).length > 0 && !variant;
         const usesDeclaredReferenceImages = Boolean(variant?.referenceImage);
         const root = documentRef.getElementById(id);
         if (!root || !node) return;
         ['image_1', 'image_2'].forEach((portName) => {
             const port = root.querySelector(`.node-port.input[data-port="${portName}"]`);
-            if (port) port.classList.toggle('hidden', usesDeclaredReferenceImages);
+            if (port) port.classList.toggle('hidden', hasVariantMismatch || usesDeclaredReferenceImages);
         });
         const referencePort = root.querySelector('.node-port.input[data-port="referenceImages"]');
         if (!referencePort) return;
-        referencePort.classList.toggle('hidden', false);
+        referencePort.classList.toggle('hidden', hasVariantMismatch);
         if (variant?.referenceImage?.maxCount === 1) {
             referencePort.removeAttribute('data-multiple');
             referencePort.dataset.baseLabel = '参考图';

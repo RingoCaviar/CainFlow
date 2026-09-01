@@ -1,19 +1,28 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
+import { describeVideoProtocolCard } from '../js/nodes/video-protocol-card.js';
 
-const bindings = await readFile(new URL('../js/nodes/node-dom-bindings.js', import.meta.url), 'utf8');
-const execution = await readFile(new URL('../js/features/execution/async-media-execution.js', import.meta.url), 'utf8');
-
-test('declared video variants render prompt parameters and replace legacy video inputs', () => {
-    const videoProtocolParams = bindings.match(/const VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set\(\[([\s\S]*?)\]\)/)?.[1] || '';
-    assert.doesNotMatch(videoProtocolParams, /'prompt'/);
-    assert.match(bindings, /promptField\.classList\.toggle\('hidden', hasVariantMismatch \|\| Boolean\(declaredVariant\?\.parameters\?\.prompt/);
-    assert.match(bindings, /aspectField\.classList\.toggle\('hidden', Boolean\(declaredVariant\)\)/);
-    assert.match(bindings, /port\.classList\.toggle\('hidden', usesDeclaredReferenceImages\)/);
-    assert.match(execution, /documentRef\.getElementById\(`\$\{id\}-param-prompt`\)\?\.value/);
+test('Kling card contract exposes the exact variant identity and constraints', () => {
+    assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'kling-o3'), {
+        isDeclared: true,
+        isUnmatched: false,
+        summary: '6789中转视频 · kling-o3 · 时长 3–15 秒 · 最多 5 张参考图'
+    });
 });
 
-test('an unmatched declared video variant renders an actionable safe state', () => {
-    assert.match(bindings, /当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。/);
+test('MiniMax card contract retains its own exact limits', () => {
+    assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'minimax-h3'), {
+        isDeclared: true,
+        isUnmatched: false,
+        summary: '6789中转视频 · minimax-h3 · 时长 4–15 秒 · 最多 1 张参考图'
+    });
+});
+
+test('an unmatched declared video variant enters a safe card state', () => {
+    assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'unknown-video'), {
+        isDeclared: true,
+        isUnmatched: true,
+        summary: '6789中转视频 · unknown-video · 未配置变体'
+    });
 });
