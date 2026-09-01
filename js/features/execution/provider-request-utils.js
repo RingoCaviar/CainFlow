@@ -244,10 +244,11 @@ export function normalizeProviderType(type, provider = {}, fallbackProtocol = ''
 }
 
 export function normalizeModelProtocol(protocol, model = {}, provider = null) {
-    if (isKnownModelProtocol(protocol)) {
-        return protocol;
+    const savedProtocol = protocol === 'relay-video' ? 'async-video-api' : protocol;
+    if (isKnownModelProtocol(savedProtocol)) {
+        return savedProtocol;
     }
-    return getProtocolValue(protocol)
+    return getProtocolValue(savedProtocol)
         || getProtocolValue(provider?.type)
         || inferProtocolFromEndpoint(provider?.endpoint)
         || getFingerprintProtocol(model)

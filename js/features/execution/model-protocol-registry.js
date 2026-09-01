@@ -22,6 +22,12 @@ const MODEL_PROTOCOLS = Object.freeze({
         defaultTaskTypes: ['image'],
         helpText: 'NEW API 原生异步图片模式会提交到 /v1/videos，并通过 /v1/videos/{id} 轮询任务；最终图片会从 image_url、url 或兼容字段 video_url 中读取。'
     }),
+    'async-video-api': Object.freeze({
+        id: 'async-video-api',
+        label: '6789中转视频',
+        defaultTaskTypes: ['video'],
+        helpText: '6789中转视频接口会创建异步视频任务，并通过 /v1/videos/{taskId} 查询结果。'
+    }),
     ttapi: Object.freeze({
         id: 'ttapi',
         label: 'TTAPI Gemini',
