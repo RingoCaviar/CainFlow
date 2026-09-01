@@ -29,6 +29,14 @@ export const VeoOpenAIProtocol = {
 
     // 参数定义
     parameters: {
+        image_1: {
+            id: 'image_1', label: '首帧', exposed: true, inputPort: true, portType: 'image',
+            portOnly: true, requestField: 'image', taskTypes: ['video']
+        },
+        image_2: {
+            id: 'image_2', label: '尾帧', exposed: true, inputPort: true, portType: 'image',
+            portOnly: true, requestField: 'image', taskTypes: ['video']
+        },
         referenceImages: {
             id: 'referenceImages',
             exposed: true,

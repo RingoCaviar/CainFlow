@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
 import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unified.js';
+import { VeoOpenAIProtocol } from '../js/features/execution/protocols/veo-openai.js';
 import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
-import { describeVideoProtocolCard } from '../js/nodes/video-protocol-card.js';
+import { describeVideoProtocolCard, getVideoProtocolInputPorts } from '../js/nodes/video-protocol-card.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import {
     activateProtocolVariantDraft,
@@ -104,6 +105,16 @@ test('workflow serialization persists active and inactive video variant drafts',
 test('built-in video protocols expose their declared card contracts without variants', () => {
     assert.equal(describeVideoProtocolCard(VeoUnifiedProtocol, 'veo-3').isDeclared, true);
     assert.equal(describeVideoProtocolCard(DoubaoVideoProtocol, 'seedance').isDeclared, true);
+});
+
+test('built-in video card input ports come only from each protocol declaration', () => {
+    const frameAndReferencePorts = ['image_1', 'image_2', 'referenceImages'];
+    assert.deepEqual(getVideoProtocolInputPorts(VeoUnifiedProtocol, 'veo-3'), frameAndReferencePorts);
+    assert.deepEqual(getVideoProtocolInputPorts(VeoOpenAIProtocol, 'sora'), frameAndReferencePorts);
+    assert.deepEqual(getVideoProtocolInputPorts(DoubaoVideoProtocol, 'seedance'), frameAndReferencePorts);
+    assert.deepEqual(getVideoProtocolInputPorts(RelayVideoProtocol, 'kling-o3'), ['referenceImages']);
+    assert.deepEqual(getVideoProtocolInputPorts(RelayVideoProtocol, 'minimax-h3'), ['referenceImages']);
+    assert.deepEqual(getVideoProtocolInputPorts({ id: 'user-video', parameters: {} }, 'custom'), []);
 });
 
 test('built-in video parameters remain declaration-owned after the legacy control migration', () => {

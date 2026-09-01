@@ -6,6 +6,15 @@ function getVariantParameters(protocol, variant) {
     return { ...(protocol?.parameters || {}), ...(variant?.parameters || {}) };
 }
 
+export function getVideoProtocolInputPorts(protocol, modelId) {
+    const variants = protocol?.variants || {};
+    const hasVariants = Object.keys(variants).length > 0;
+    const variant = variants[modelId] || null;
+    if (!protocol || (hasVariants && !variant)) return [];
+    const parameters = getVariantParameters(protocol, variant);
+    return ['image_1', 'image_2', 'referenceImages'].filter((id) => parameters[id]?.inputPort === true);
+}
+
 export function describeVideoProtocolCard(protocol, modelId) {
     const variants = protocol?.variants || {};
     const hasVariants = Object.keys(variants).length > 0;
