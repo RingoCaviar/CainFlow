@@ -9,6 +9,7 @@ import {
     requireModelCompatibilityFormat
 } from '../js/features/execution/model-compatibility-format.js';
 import { resolveProviderUrl } from '../js/features/execution/provider-request-utils.js';
+import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
 
 test('a fetched nano-banana model is persisted with the Google Gemini format', () => {
     const models = [];
@@ -88,4 +89,10 @@ test('workflow execution rejects a model whose compatibility format is empty', (
         ),
         /请先在模型设置中手动选择兼容格式/
     );
+});
+
+test('a configured MiniMax H3 model can use the loaded relay video compatibility format', () => {
+    assert.equal(requireModelCompatibilityFormat({
+        name: 'MiniMax H3', modelId: 'minimax-h3', protocol: RelayVideoProtocol.id
+    }), 'relay-video');
 });

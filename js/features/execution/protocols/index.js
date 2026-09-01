@@ -17,6 +17,7 @@ const BUILT_IN_PROTOCOL_IDS = new Set([
     'veo-unified',
     'veo-openai',
     'doubao-video',
+    'relay-video',
     'agnesimage'
 ]);
 
@@ -139,6 +140,7 @@ export async function loadProtocols() {
         import('./veo-unified.js'),
         import('./veo-openai.js'),
         import('./doubao-video.js'),
+        import('./api6789-video.js'),
         // 临时方案：直接导入用户创建的协议
         import('./agnesimage.js').catch(err => console.warn('[loadProtocols] agnesimage 协议未找到:', err))
     ];

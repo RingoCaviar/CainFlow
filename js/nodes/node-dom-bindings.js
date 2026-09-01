@@ -713,6 +713,31 @@ export function createNodeDomBindingsApi({
         if (!isDoubaoProtocol && doubaoWatermarkInput) doubaoWatermarkInput.checked = false;
         if (!isDoubaoProtocol && doubaoSeedInput) doubaoSeedInput.value = '';
         refreshVideoGenerateProtocolParams(id);
+        syncVideoReferenceImagePorts(id);
+    }
+
+    function syncVideoReferenceImagePorts(id) {
+        const node = state.nodes.get(id);
+        const protocol = getVideoGenerateSelectedProtocol(id);
+        const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
+        const model = state.models.find((candidate) => candidate.id === modelId);
+        const variant = protocol?.variants?.[model?.modelId];
+        const acceptsSingleReference = variant?.referenceImage?.maxCount === 1;
+        const root = documentRef.getElementById(id);
+        if (!root || !node) return;
+        ['image_1', 'image_2'].forEach((portName) => {
+            const port = root.querySelector(`.node-port.input[data-port="${portName}"]`);
+            if (port) port.classList.toggle('hidden', acceptsSingleReference);
+        });
+        const referencePort = root.querySelector('.node-port.input[data-port="referenceImages"]');
+        if (!referencePort) return;
+        referencePort.classList.toggle('hidden', false);
+        if (acceptsSingleReference) {
+            referencePort.removeAttribute('data-multiple');
+            referencePort.dataset.baseLabel = '参考图';
+        } else {
+            referencePort.dataset.multiple = 'true';
+        }
     }
 
     function bindNodePorts(container) {

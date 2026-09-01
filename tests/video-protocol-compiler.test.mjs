@@ -8,6 +8,7 @@ import {
 } from '../js/features/execution/protocols/video-protocol-compiler.js';
 import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { requireModelCompatibilityFormat } from '../js/features/execution/model-compatibility-format.js';
+import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
 
 const protocol = {
     id: 'relay-video',
@@ -122,4 +123,31 @@ test('compiles multipart media fields and query authentication without silently 
 test('accepts a registered user-owned protocol as a model compatibility format', () => {
     registerProtocol({ id: 'user-video', label: 'User video', taskTypes: ['video'] });
     assert.equal(requireModelCompatibilityFormat({ name: 'User model', protocol: 'user-video' }), 'user-video');
+});
+
+test('compiles the relay MiniMax H3 JSON video request and task lifecycle', () => {
+    const plan = compileVideoProtocol({
+        protocol: RelayVideoProtocol,
+        endpoint: 'https://relay.example',
+        modelId: 'minimax-h3',
+        parameters: { prompt: '人物自然转身', seconds: 4, size: '1440x1920' },
+        inputs: { referenceImages: ['data:image/png;base64,AAAA'] },
+        apiKey: 'secret'
+    });
+    assert.equal(plan.create.encoding, 'json');
+    assert.equal(plan.create.url, 'https://relay.example/v1/videos');
+    assert.deepEqual(plan.create.body, {
+        model: 'minimax-h3', prompt: '人物自然转身', seconds: 4, size: '1440x1920', input_reference: 'data:image/png;base64,AAAA'
+    });
+    assert.equal(plan.queryUrl('task-1'), 'https://relay.example/v1/videos/task-1');
+    assert.equal(plan.parseStatus({ status: 'completed' }), 'completed');
+    assert.equal(plan.parseResultUrl({ video_url: 'https://example.test/video.mp4' }), 'https://example.test/video.mp4');
+    assert.throws(() => compileVideoProtocol({
+        protocol: RelayVideoProtocol, endpoint: 'https://relay.example', modelId: 'minimax-h3',
+        parameters: { prompt: 'x', seconds: 3, size: '1440x1920' }
+    }), /seconds.*4/);
+    assert.throws(() => compileVideoProtocol({
+        protocol: RelayVideoProtocol, endpoint: 'https://relay.example', modelId: 'minimax-h3',
+        parameters: { prompt: 'x', seconds: 4, size: '1440x1920' }, inputs: { referenceImages: ['a', 'b'] }
+    }), /最多支持 1 张/);
 });
