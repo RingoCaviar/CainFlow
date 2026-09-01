@@ -1099,9 +1099,14 @@ export function createAsyncMediaExecutionApi({
                         inputs
                     })
                     : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, enhancePrompt, enableUpsample, inputs })));
-            const headers = getProxyHeaders(url, 'POST', protocolPlan?.create.headers || {
-                Authorization: `Bearer ${apiCfg.apikey}`
-            });
+            const headers = getProxyHeaders(url, 'POST', protocolPlan
+                ? {
+                    ...protocolPlan.create.headers,
+                    ...(protocolPlan.create.encoding === 'multipart' ? { 'Content-Type': null } : {})
+                }
+                : {
+                    Authorization: `Bearer ${apiCfg.apikey}`
+                });
 
             logRequestToPanel(
                 generationCount > 1 ? `视频请求发送: ${modelCfg.name} (${index + 1}/${generationCount})` : `视频请求发送: ${modelCfg.name}`,

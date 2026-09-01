@@ -10,6 +10,7 @@ import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { requireModelCompatibilityFormat } from '../js/features/execution/model-compatibility-format.js';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
 import { buildMultipartFormData } from '../js/features/execution/protocols/multipart-transport-adapter.js';
+import { createProxyHeadersGetter } from '../js/services/api-client.js';
 
 const protocol = {
     id: 'relay-video',
@@ -177,4 +178,20 @@ test('multipart transport uploads Base64 reference images as files and keeps rem
     assert.ok(images[1] instanceof Blob);
     assert.equal(images[1].type, 'image/png');
     assert.equal(await images[1].arrayBuffer().then((buffer) => buffer.byteLength), 3);
+});
+
+test('multipart video requests leave Content-Type to the browser so it can include a boundary', () => {
+    const plan = compileVideoProtocol({
+        protocol: RelayVideoProtocol,
+        endpoint: 'https://relay.example',
+        modelId: 'kling-o3',
+        parameters: { prompt: '人物转身', seconds: 3, size: '960x1280' },
+        inputs: { referenceImages: ['https://example.test/a.png'] }
+    });
+    const getProxyHeaders = createProxyHeadersGetter(() => ({ requestTimeoutEnabled: false }));
+    const headers = getProxyHeaders(plan.create.url, 'POST', {
+        ...plan.create.headers,
+        'Content-Type': null
+    });
+    assert.equal(headers['Content-Type'], undefined);
 });
