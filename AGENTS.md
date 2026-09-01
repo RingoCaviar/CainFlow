@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues and specs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+Issues and specs use the local tracker under `.scratch/`. See `docs/agents/issue-tracker.md` before creating, reading, updating, or closing an issue.
 
 ### Triage labels
 
@@ -14,4 +14,4 @@ This repository uses the single-context domain documentation layout. See `docs/a
 
 ### Git commits
 
-提交信息使用中文，并保留关联的 GitHub Issue 编号。
+提交信息使用中文，并保留关联的本地 Issue ID。
