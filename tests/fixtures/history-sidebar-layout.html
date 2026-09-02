@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../index.css">
+    <style>
+        :root {
+            --bg-canvas: #111827;
+            --bg-node: #1f2937;
+            --panel-bg: #111827;
+            --panel-border: #374151;
+            --panel-shadow-soft: none;
+            --radius-sm: 6px;
+            --transition: 0ms;
+        }
+
+        /* Model Windows' reserved native scrollbar track. */
+        #history-list {
+            scrollbar-gutter: stable;
+        }
+    </style>
+</head>
+<body>
+    <aside id="history-sidebar" class="drawer active" aria-label="历史记录">
+        <div id="history-list" class="drawer-content history-grid">
+            <article class="history-card"></article>
+            <article class="history-card"></article>
+            <article class="history-card"></article>
+            <article class="history-card"></article>
+            <article class="history-card"></article>
+            <article class="history-card"></article>
+        </div>
+    </aside>
+</body>
+</html>

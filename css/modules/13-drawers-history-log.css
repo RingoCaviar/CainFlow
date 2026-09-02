@@ -276,9 +276,10 @@ body:has(#toolbar [aria-expanded="true"]) .help-panel {
 }
 
 #history-sidebar {
-    /* Base width: col * (thumb + gap) + padding - gap */
-    width: calc(var(--history-grid-cols, 2) * 151px + 10px);
-    right: calc(-1 * (var(--history-grid-cols, 2) * 151px + 10px));
+    /* Reserve space for native vertical scrollbars without scaling thumbnails. */
+    --history-scrollbar-gutter: 17px;
+    width: calc(var(--history-grid-cols, 2) * 151px + 10px + var(--history-scrollbar-gutter));
+    right: calc(-1 * (var(--history-grid-cols, 2) * 151px + 10px + var(--history-scrollbar-gutter)));
 }
 
 #history-sidebar.active {
