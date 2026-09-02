@@ -15,6 +15,7 @@ export function createHistoryFeature({
     getHistoryEntry,
     getHistoryImageBlob,
     createThumbnail,
+    createVideoThumbnail,
     updateHistoryThumb,
     clearHistory,
     deleteHistoryEntry,
@@ -34,6 +35,7 @@ export function createHistoryFeature({
                 getHistoryCount,
                 getHistoryEntry,
                 createThumbnail,
+                createVideoThumbnail,
                 updateHistoryThumb,
                 openHistoryPreview: (item) => historyPreviewApi.openHistoryPreview(item),
                 deleteHistoryEntry
@@ -55,6 +57,7 @@ export function createHistoryFeature({
                 openHistoryPreview: (item) => historyPreviewApi.openHistoryPreview(item),
                 downloadImage,
                 createThumbnail,
+                createVideoThumbnail,
                 updateHistoryThumb,
                 showToast
             });

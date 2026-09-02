@@ -23,6 +23,7 @@ export function createHistoryFullscreenApi({
     openHistoryPreview,
     downloadImage,
     createThumbnail = null,
+    createVideoThumbnail = null,
     updateHistoryThumb = null,
     showToast,
     documentRef = document,
@@ -309,11 +310,11 @@ export function createHistoryFullscreenApi({
     }
 
     function queueVisibleThumbHydration(rows) {
-        if (!createThumbnail || !updateHistoryThumb) return;
+        if ((!createThumbnail && !createVideoThumbnail) || !updateHistoryThumb) return;
         rows
             .filter((row) => row.type === 'cards')
             .flatMap((row) => row.items)
-            .filter((item) => item.hasImage && !item.thumb && !viewState.queuedThumbIds.has(item.id))
+            .filter((item) => (item.hasImage || item.hasVideo || item.mediaType === 'video') && !item.thumb && !viewState.queuedThumbIds.has(item.id))
             .forEach((item) => {
                 viewState.queuedThumbIds.add(item.id);
                 viewState.thumbQueue.push(item);
@@ -338,8 +339,12 @@ export function createHistoryFullscreenApi({
         try {
             const entry = await getHistoryEntry(item.id);
             if (version !== viewState.version) return;
-            if (entry?.image) {
-                const thumb = entry.thumb || await createThumbnail(entry.image);
+            const isVideo = entry?.mediaType === 'video' || entry?.hasVideo || entry?.videoBlob instanceof Blob;
+            const media = isVideo ? (entry?.videoBlob || entry?.video) : entry?.image;
+            const makeThumbnail = isVideo ? createVideoThumbnail : createThumbnail;
+            if (media && typeof makeThumbnail === 'function') {
+                const thumb = entry.thumb || await makeThumbnail(media);
+                if (!thumb) return;
                 if (version !== viewState.version) return;
                 if (!entry.thumb) await updateHistoryThumb(item.id, thumb, entry);
                 if (version !== viewState.version) return;

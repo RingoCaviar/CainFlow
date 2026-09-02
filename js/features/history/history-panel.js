@@ -10,6 +10,7 @@ export function createHistoryPanelApi({
     getHistoryCount = async () => (await getHistoryMetadata()).length,
     getHistoryEntry = async (id) => (await getHistory()).find((entry) => entry.id === id) || null,
     createThumbnail,
+    createVideoThumbnail = null,
     updateHistoryThumb = null,
     openHistoryPreview,
     deleteHistoryEntry,
@@ -37,7 +38,7 @@ export function createHistoryPanelApi({
     }
 
     function queueThumbHydration(items, token) {
-        const missing = items.filter((item) => !item.thumb && item.hasImage);
+        const missing = items.filter((item) => !item.thumb && (item.hasImage || item.hasVideo || item.mediaType === 'video'));
         if (!missing.length) return;
 
         const run = windowRef.requestIdleCallback || ((callback) => setTimeout(() => callback({ timeRemaining: () => 16 }), 16));
@@ -48,8 +49,12 @@ export function createHistoryPanelApi({
                 const item = missing[index++];
                 try {
                     const entry = await hydrateHistoryItem(item.id);
-                    if (!entry?.image) continue;
-                    const thumb = await createThumbnail(entry.image);
+                    const isVideo = entry?.mediaType === 'video' || entry?.hasVideo || entry?.videoBlob instanceof Blob;
+                    const media = isVideo ? (entry.videoBlob || entry.video) : entry?.image;
+                    const makeThumbnail = isVideo ? createVideoThumbnail : createThumbnail;
+                    if (!media || typeof makeThumbnail !== 'function') continue;
+                    const thumb = await makeThumbnail(media);
+                    if (!thumb) continue;
                     if (updateHistoryThumb) await updateHistoryThumb(item.id, thumb, entry);
                     const img = documentRef.querySelector(`#history-list .history-card[data-id="${item.id}"] img`);
                     if (img && token === renderToken) {
