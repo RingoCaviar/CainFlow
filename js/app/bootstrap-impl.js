@@ -1380,6 +1380,17 @@ function refreshImageGenerateNodes(protocolId) {
     connectionProjectionInteractions.nodeGeometryChanged(nodeIds);
 }
 
+function refreshVideoGenerateNodes() {
+    const nodeIds = [];
+    state.nodes.forEach((node, nodeId) => {
+        if (node.type !== 'VideoGenerate') return;
+        nodeIds.push(nodeId);
+        nodeDomBindingsApi?.syncVideoGenerateProtocolFields?.(nodeId);
+        fitNodeToContent(nodeId, { reason: 'protocol-registry-loaded' });
+    });
+    connectionProjectionInteractions.nodeGeometryChanged(nodeIds);
+}
+
 settingsFeature = createSettingsFeature({
     appVersion: APP_VERSION,
     githubRepo: GITHUB_REPO,
@@ -1403,6 +1414,7 @@ settingsFeature = createSettingsFeature({
     fitNodeToContent,
     floatingNoticesApi: getFloatingNoticesApi(),
     refreshImageGenerateNodes,
+    refreshVideoGenerateNodes,
     diagnosticClient,
     localStorageRef: diskStorage,
     documentRef: document

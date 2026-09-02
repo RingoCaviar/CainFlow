@@ -3,6 +3,18 @@ import { createSettingsControllerApi } from '../../features/settings/settings-co
 import { createProtocolDeveloperPanel } from '../../features/settings/protocol-developer-panel.js';
 import { loadProtocols } from '../../features/execution/protocols/index.js';
 
+export function createProtocolRegistryRefreshHandler({
+    renderModels,
+    updateAllNodeModelDropdowns,
+    refreshVideoGenerateNodes = null
+}) {
+    return () => {
+        renderModels();
+        updateAllNodeModelDropdowns();
+        refreshVideoGenerateNodes?.();
+    };
+}
+
 /**
  * Creates the settings feature bootstrap wiring without leaking setup details into the main app bootstrap.
  */
@@ -28,6 +40,7 @@ export function createSettingsFeature({
     fitNodeToContent,
     floatingNoticesApi,
     refreshImageGenerateNodes = null,
+    refreshVideoGenerateNodes = null,
     diagnosticClient,
     documentRef = document,
     localStorageRef
@@ -67,10 +80,11 @@ export function createSettingsFeature({
         localStorageRef
     });
 
-    function refreshProtocolConsumers() {
-        settingsControllerApi.renderModels();
-        settingsControllerApi.updateAllNodeModelDropdowns();
-    }
+    const refreshProtocolConsumers = createProtocolRegistryRefreshHandler({
+        renderModels: settingsControllerApi.renderModels,
+        updateAllNodeModelDropdowns: settingsControllerApi.updateAllNodeModelDropdowns,
+        refreshVideoGenerateNodes
+    });
 
     function ensureProtocolsLoaded() {
         if (protocolsLoaded) return Promise.resolve(true);

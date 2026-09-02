@@ -2912,6 +2912,7 @@ export function createNodeDomBindingsApi({
 
     return {
         bindNodeInteractions,
+        syncVideoGenerateProtocolFields,
         syncTextSplitNodeData,
         syncImageMergeNodes,
         syncAllConnectedInputFieldVisibility,
