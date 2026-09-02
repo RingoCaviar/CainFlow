@@ -209,7 +209,10 @@ test('compiles the relay MiniMax H3 JSON video request and task lifecycle', () =
     });
     assert.equal(plan.queryUrl('task-1'), 'https://relay.example/v1/videos/task-1');
     assert.equal(plan.parseStatus({ status: 'completed' }), 'completed');
-    assert.equal(plan.parseResultUrl({ video_url: 'https://example.test/video.mp4' }), 'https://example.test/video.mp4');
+    assert.equal(
+        plan.parseResultUrl({ metadata: { url: 'https://example.test/video.mp4' } }),
+        'https://example.test/video.mp4'
+    );
     assert.throws(() => compileVideoProtocol({
         protocol: RelayVideoProtocol, endpoint: 'https://relay.example', modelId: 'minimax-h3',
         parameters: { prompt: 'x', seconds: 3, size: '1440x1920' }

@@ -38,7 +38,7 @@ export const RelayVideoProtocol = {
                 seconds: { id: 'seconds', label: '时长（秒）', exposed: true, dataType: 'number', uiControl: 'number', requestField: 'seconds', min: 4, max: 15, defaultValue: 4 },
                 size: { id: 'size', label: '尺寸', exposed: true, dataType: 'string', uiControl: 'select', requestField: 'size', options: [{ value: '1440x1920', label: '1440×1920（3:4）' }], defaultValue: '1440x1920' }
             },
-            asyncTask: { taskIdPath: 'id', statusPath: 'status', completedStatuses: ['completed'], resultPath: 'video_url' }
+            asyncTask: { taskIdPath: 'id', statusPath: 'status', completedStatuses: ['completed'], resultPath: 'metadata.url' }
         }
     }
 };

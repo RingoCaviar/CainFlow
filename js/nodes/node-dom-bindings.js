@@ -957,6 +957,17 @@ export function createNodeDomBindingsApi({
             cloneNode.data.mergeOutputEnabled = mergeOutputEnabled;
         }
 
+        const syncVideoProtocolDraftsToClone = () => {
+            if (cloneNode.type !== 'VideoGenerate') return;
+            cloneNode.data = {
+                ...(cloneNode.data || {}),
+                protocolParams: clonePlainValue(sourceNode.data?.protocolParams || {}),
+                protocolVariantKey: sourceNode.data?.protocolVariantKey || '',
+                protocolVariantDrafts: clonePlainValue(sourceNode.data?.protocolVariantDrafts || {})
+            };
+        };
+        syncVideoProtocolDraftsToClone();
+
         if (cloneNode.type === 'CameraControl') {
             cloneNode.data = clonePlainValue(cloneNode.data || {});
             cloneNode.data.pitch = Number(sourceNode.data?.pitch ?? cloneNode.data.pitch ?? 12);
@@ -998,6 +1009,8 @@ export function createNodeDomBindingsApi({
         if (cloneNode.type === 'Text') renderTextMultiPreview(cloneNode.id);
         if (cloneNode.type === 'TextSplit') syncTextSplitNodeData(cloneNode.id);
         syncNodeFormData(cloneNode.id, cloneNode.type);
+        // Form synchronization reads the clone's rendered controls and can overwrite its copied Protocol variant draft.
+        syncVideoProtocolDraftsToClone();
     }
 
     function syncClonesFromSource(sourceNodeId) {
@@ -1535,13 +1548,20 @@ export function createNodeDomBindingsApi({
         container.querySelectorAll('input, select, textarea').forEach((input) => {
             if (input.dataset.protocolParamBound === '1') return;
             input.dataset.protocolParamBound = '1';
-            const saveProtocolParams = () => {
+            const scheduleProtocolSave = debounce(scheduleSave, 500);
+            const updateProtocolDraft = () => {
                 syncVideoGenerateProtocolParams(id);
                 if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
-                scheduleSave();
+            };
+            const saveProtocolParams = () => {
+                updateProtocolDraft();
+                scheduleProtocolSave();
             };
             input.addEventListener('change', saveProtocolParams);
-            input.addEventListener('input', debounce(saveProtocolParams, 500));
+            input.addEventListener('input', () => {
+                updateProtocolDraft();
+                scheduleProtocolSave();
+            });
         });
     }
 
@@ -1579,7 +1599,6 @@ export function createNodeDomBindingsApi({
                 parameters: selectedProtocol.parameters
             });
         }
-        syncVideoGenerateProtocolParams(id);
         const extraProtocol = getVideoGenerateExtraProtocol(selectedProtocol);
         container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'video', node.data || {}) : '';
         bindZoomSettleGuard(container);

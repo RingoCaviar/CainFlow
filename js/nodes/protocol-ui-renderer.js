@@ -37,6 +37,12 @@ function isPortOnlyParameter(param = {}) {
     return param.portOnly === true || param.id === 'referenceImages';
 }
 
+function getProtocolPromptAttribute(param = {}) {
+    return param.required === true && param.inputPort === true && ['text', 'textarea'].includes(param.uiControl)
+        ? ' data-protocol-prompt="true"'
+        : '';
+}
+
 /**
  * 渲染下拉选择控件
  */
@@ -53,7 +59,7 @@ function renderSelectControl(nodeId, param, value, customValues = {}) {
     const hasCustomOption = options.some(opt => opt.value === 'custom');
     const isCustomSelected = selectedValue === 'custom';
 
-    let html = `<select id="${nodeId}-param-${param.id}" data-param-id="${param.id}">${optionsHtml}</select>`;
+    let html = `<select id="${nodeId}-param-${param.id}" data-param-id="${param.id}"${getProtocolPromptAttribute(param)}>${optionsHtml}</select>`;
 
     // 如果有 custom 选项，添加自定义输入框
     if (hasCustomOption) {
@@ -80,7 +86,7 @@ function renderSelectControl(nodeId, param, value, customValues = {}) {
 function renderTextControl(nodeId, param, value) {
     const currentValue = value !== undefined ? value : param.defaultValue || '';
     const placeholder = param.placeholder || '';
-    return `<input type="text" id="${nodeId}-param-${param.id}" value="${escapeHtml(currentValue)}" placeholder="${escapeHtml(placeholder)}" />`;
+    return `<input type="text" id="${nodeId}-param-${param.id}" value="${escapeHtml(currentValue)}" placeholder="${escapeHtml(placeholder)}"${getProtocolPromptAttribute(param)} />`;
 }
 
 /**
@@ -127,7 +133,7 @@ function renderTextareaControl(nodeId, param, value) {
     const currentValue = value !== undefined ? value : param.defaultValue || '';
     const placeholder = param.placeholder || '';
     const rows = param.rows || 3;
-    return `<textarea id="${nodeId}-param-${param.id}" rows="${rows}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(currentValue)}</textarea>`;
+    return `<textarea id="${nodeId}-param-${param.id}" rows="${rows}" placeholder="${escapeHtml(placeholder)}"${getProtocolPromptAttribute(param)}>${escapeHtml(currentValue)}</textarea>`;
 }
 
 /**

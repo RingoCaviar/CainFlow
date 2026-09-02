@@ -41,6 +41,38 @@ export function buildInputBatches(node, inputs) {
     }, [{}]);
 }
 
+export function getNodePromptValue(node, documentRef = document) {
+    if (!node?.id) return '';
+
+    const values = node.type === 'VideoGenerate'
+        ? [
+            documentRef.querySelector?.(`#${node.id} [data-protocol-prompt="true"]`)?.value,
+            documentRef.getElementById(`${node.id}-param-prompt`)?.value,
+            node.data?.protocolParams?.prompt,
+            node.data?.prompt,
+            documentRef.getElementById(`${node.id}-prompt`)?.value
+        ]
+        : [
+            documentRef.getElementById(`${node.id}-prompt`)?.value,
+            node.data?.prompt
+        ];
+    return values.find((value) => typeof value === 'string' && value.trim()) || '';
+}
+
+export function getNodePromptPortIds(node, documentRef = document) {
+    const portIds = new Set(['prompt']);
+    if (node?.type !== 'VideoGenerate' || !node.id) return Array.from(portIds);
+
+    documentRef.querySelectorAll?.(`#${node.id} [data-protocol-prompt="true"]`).forEach((element) => {
+        const prefix = `${node.id}-param-`;
+        const parameterId = typeof element?.id === 'string' && element.id.startsWith(prefix)
+            ? element.id.slice(prefix.length)
+            : '';
+        if (parameterId && !parameterId.endsWith('-custom')) portIds.add(parameterId);
+    });
+    return Array.from(portIds);
+}
+
 /**
  * 负责整条工作流的运行编排，包括前置校验、逐节点执行、重试与状态收尾。
  */
@@ -1006,8 +1038,10 @@ export function createWorkflowRunnerApi({
     }
 
     function hasPromptInputValue(plan, nodeId) {
+        const node = state.nodes.get(nodeId);
+        const promptPortIds = new Set(getNodePromptPortIds(node, documentRef));
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
-            if (connection.to.port !== 'prompt') continue;
+            if (!promptPortIds.has(connection.to.port)) continue;
             const fromNode = state.nodes.get(connection.from.nodeId);
             const promptValue = getCachedOutputValue(fromNode, connection.from.port);
             if (typeof promptValue === 'string' && promptValue.trim()) return true;
@@ -2029,22 +2063,23 @@ export function createWorkflowRunnerApi({
                 const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
                 if (node.type === 'TextChat' && fixedToggle && fixedToggle.checked && node.isSucceeded) continue;
 
-                const textareaValue = documentRef.getElementById(`${nid}-prompt`)?.value || '';
+                const promptValue = getNodePromptValue(node, documentRef);
                 const hasPromptInput = hasPromptInputValue(plan, nid);
-                if (!hasPromptInput && !textareaValue.trim()) {
+                if (!hasPromptInput && !promptValue.trim()) {
                     emptyPromptNodes.push(nid);
                 }
             }
         }
 
         if (emptyPromptNodes.length > 0) {
-            showToast(`执行中止：当前路径中有 ${emptyPromptNodes.length} 个智能对话节点内容为空`, 'error', 5000);
+            showToast(`执行中止：当前路径中有 ${emptyPromptNodes.length} 个节点提示词为空`, 'error', 5000);
             emptyPromptNodes.forEach((nid) => {
                 const node = state.nodes.get(nid);
                 if (node) {
                     node.isFailed = true;
                     node.el.classList.add('error');
-                    addLog('error', '前置检查未通过', `节点「智能对话」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
+                    const title = nodeConfigs[node.type]?.title || node.type;
+                    addLog('error', '前置检查未通过', `节点「${title}」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
                 }
             });
             connectionProjection?.nodeAppearanceChanged(emptyPromptNodes);

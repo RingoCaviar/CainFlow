@@ -11,6 +11,8 @@ import {
 } from '../js/nodes/video-protocol-card.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import { serializeRuntimeNode } from '../js/features/workflow/workflow-runtime-manager.js';
+import { createClipboardControllerApi } from '../js/features/ui/clipboard-controller.js';
+import { createNodeDomBindingsApi } from '../js/nodes/node-dom-bindings.js';
 import {
     activateProtocolVariantDraft,
     applyProtocolVariantSnapshot,
@@ -45,7 +47,7 @@ test('an unmatched declared video variant enters a safe card state', () => {
     });
 });
 
-test('variant drafts restore prior values and only initialize newly declared defaults', () => {
+test('Protocol variant drafts restore prior values and only initialize newly declared defaults', () => {
     const kling = { seconds: { defaultValue: 3 }, size: { defaultValue: '960x1280' } };
     const minimax = { seconds: { defaultValue: 4 }, size: { defaultValue: '1440x1920' } };
     let data = activateProtocolVariantDraft({}, { protocolId: 'async-video-api', modelId: 'kling-o3', parameters: kling });
@@ -56,7 +58,7 @@ test('variant drafts restore prior values and only initialize newly declared def
     assert.deepEqual(data.protocolParams, { seconds: 12, size: '960x1280', loop: false });
 });
 
-test('variant draft snapshots persist the active form values without losing inactive variants', () => {
+test('Protocol variant draft snapshots persist the authoritative active values without losing inactive variants', () => {
     const data = {
         protocolVariantKey: 'async-video-api:kling-o3',
         protocolVariantDrafts: {
@@ -66,11 +68,26 @@ test('variant draft snapshots persist the active form values without losing inac
         protocolParams: { seconds: 3, size: '960x1280' }
     };
 
-    assert.deepEqual(snapshotProtocolVariantDrafts(data, { seconds: 12, size: '1280x960' }), {
+    assert.deepEqual(snapshotProtocolVariantDrafts(data), {
         protocolVariantKey: 'async-video-api:kling-o3',
         protocolVariantDrafts: {
-            'async-video-api:kling-o3': { seconds: 12, size: '1280x960' },
+            'async-video-api:kling-o3': { seconds: 3, size: '960x1280' },
             'async-video-api:minimax-h3': { seconds: 8, size: '1440x1920' }
+        }
+    });
+});
+
+test('Protocol variant draft writes immediately become the active persisted values', () => {
+    const data = saveProtocolVariantDraft({
+        protocolVariantKey: 'async-video-api:kling-o3',
+        protocolVariantDrafts: { 'async-video-api:minimax-h3': { seconds: 4 } },
+        protocolParams: { seconds: 3 }
+    }, { seconds: 12, size: '1280x960' });
+    assert.deepEqual(snapshotProtocolVariantDrafts(data), {
+        protocolVariantKey: 'async-video-api:kling-o3',
+        protocolVariantDrafts: {
+            'async-video-api:minimax-h3': { seconds: 4 },
+            'async-video-api:kling-o3': { seconds: 12, size: '1280x960' }
         }
     });
 });
@@ -82,8 +99,9 @@ test('variant snapshot application retains active and inactive drafts', () => {
         protocolVariantDrafts: {
             'async-video-api:kling-o3': { seconds: 3 },
             'async-video-api:minimax-h3': { seconds: 8 }
-        }
-    }, { seconds: 12 });
+        },
+        protocolParams: { seconds: 12 }
+    });
     assert.deepEqual(serialized, {
         type: 'VideoGenerate',
         protocolParams: { seconds: 12 },
@@ -95,7 +113,7 @@ test('variant snapshot application retains active and inactive drafts', () => {
     });
 });
 
-test('workflow runtime snapshots persist active and inactive video variant drafts', () => {
+test('workflow runtime snapshots persist active and inactive video Protocol variant drafts', () => {
     const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
     const serialized = serializeRuntimeNode({
         id: 'video-runtime', type: 'VideoGenerate', x: 0, y: 0, enabled: true,
@@ -115,7 +133,7 @@ test('workflow runtime snapshots persist active and inactive video variant draft
     });
 });
 
-test('workflow serialization persists active and inactive video variant drafts', () => {
+test('workflow serialization persists active and inactive video Protocol variant drafts', () => {
     const controls = new Map([
         ['video-1-apiconfig', { value: 'model-config-1' }],
         ['video-1-provider', { value: 'provider-1' }],
@@ -146,6 +164,116 @@ test('workflow serialization persists active and inactive video variant drafts',
         'async-video-api:kling-o3': { seconds: 12 },
         'async-video-api:minimax-h3': { seconds: 8 }
     });
+});
+
+test('workflow serialization reads image generation protocol parameters from its controls', () => {
+    const protocolControl = { id: 'image-1-param-quality', value: 'high', type: 'select-one', tagName: 'SELECT' };
+    const documentRef = {
+        getElementById: (id) => ({
+            'image-1-apiconfig': { value: 'model-config-1' },
+            'image-1-provider': { value: 'provider-1' },
+            'image-1-generation-count': { value: '1' }
+        })[id] || null,
+        querySelectorAll: (selector) => selector === '#image-1-param-quality-custom'
+            ? []
+            : (selector === '#image-1-protocol-params [id^="image-1-param-"]' ? [protocolControl] : [])
+    };
+    const state = {
+        nodes: new Map([['image-1', {
+            type: 'ImageGenerate', x: 0, y: 0, enabled: true,
+            data: { protocolParams: { size: '1024x1024' } }
+        }]]),
+        connections: []
+    };
+
+    const [serialized] = createNodeSerializer({ state, documentRef }).serializeNodes();
+    assert.deepEqual(serialized.protocolParams, { size: '1024x1024', quality: 'high' });
+});
+
+test('clipboard serialization persists active and inactive video Protocol variant drafts', () => {
+    const state = {
+        nodes: new Map([['video-copy', {
+            id: 'video-copy', type: 'VideoGenerate', x: 0, y: 0, enabled: true,
+            data: {
+                protocolVariantKey: 'async-video-api:kling-o3',
+                protocolVariantDrafts: {
+                    'async-video-api:kling-o3': { seconds: 3 },
+                    'async-video-api:minimax-h3': { seconds: 8 }
+                },
+                protocolParams: { seconds: 12 }
+            }
+        }]]),
+        connections: []
+    };
+    const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
+    const clipboard = createClipboardControllerApi({
+        state,
+        documentRef,
+        showToast: () => {},
+        addNode: () => null,
+        updateAllConnections: () => {},
+        updatePortStyles: () => {},
+        scheduleSave: () => {}
+    });
+    const serialized = clipboard.serializeOneNode('video-copy');
+    assert.deepEqual(serialized.protocolVariantDrafts, {
+        'async-video-api:kling-o3': { seconds: 12 },
+        'async-video-api:minimax-h3': { seconds: 8 }
+    });
+});
+
+test('source video draft synchronization replaces a clone active and inactive drafts', () => {
+    const cloneProtocolControl = { id: 'video-clone-param-seconds', value: '3', type: 'number', tagName: 'INPUT' };
+    const emptyElement = {
+        querySelectorAll: () => [],
+        querySelector: () => null
+    };
+    const cloneElement = {
+        querySelectorAll: () => [cloneProtocolControl],
+        querySelector: () => null
+    };
+    const source = {
+        id: 'video-source', type: 'VideoGenerate', isClone: false, el: emptyElement,
+        data: {
+            protocolVariantKey: 'async-video-api:kling-o3',
+            protocolVariantDrafts: {
+                'async-video-api:kling-o3': { seconds: 12 },
+                'async-video-api:minimax-h3': { seconds: 8 }
+            },
+            protocolParams: { seconds: 12 }
+        }
+    };
+    const clone = {
+        id: 'video-clone', type: 'VideoGenerate', isClone: true, cloneSourceId: source.id, el: cloneElement,
+        data: {
+            protocolVariantKey: 'async-video-api:kling-o3',
+            protocolVariantDrafts: {
+                'async-video-api:kling-o3': { seconds: 3 },
+                'async-video-api:minimax-h3': { seconds: 4 }
+            },
+            protocolParams: { seconds: 3 }
+        }
+    };
+    const cloneModelControl = { value: 'clone-model' };
+    const state = {
+        nodes: new Map([[source.id, source], [clone.id, clone]]),
+        connections: [],
+        models: [{ id: 'clone-model', modelId: 'kling-o3', protocol: 'async-video-api' }],
+        providers: []
+    };
+    createNodeDomBindingsApi({
+        state,
+        documentRef: {
+            getElementById: (id) => id === 'video-clone-apiconfig'
+                ? cloneModelControl
+                : (id === 'video-clone-param-seconds' ? cloneProtocolControl : null)
+        },
+        debounce: (fn) => fn,
+        scheduleSave: () => {},
+        updateAllConnections: () => {}
+    }).syncClonesFromSource(source.id);
+    assert.deepEqual(clone.data.protocolVariantDrafts, source.data.protocolVariantDrafts);
+    assert.deepEqual(clone.data.protocolParams, source.data.protocolParams);
 });
 
 test('built-in video protocols expose their declared card contracts without variants', () => {

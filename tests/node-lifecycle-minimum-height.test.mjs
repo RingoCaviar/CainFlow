@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createNodeLifecycleApi } from '../js/nodes/node-lifecycle.js';
+import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 
 function createClassList(...names) {
     const values = new Set(names);
@@ -102,4 +103,56 @@ test('saved textarea height contributes to the generation node minimum height', 
     } finally {
         globalThis.getComputedStyle = originalGetComputedStyle;
     }
+});
+
+test('creating an image generation node completes its initial serialization', () => {
+    const children = [];
+    const nodesLayer = {
+        children,
+        appendChild(element) {
+            element.parentElement = this;
+            children.push(element);
+        }
+    };
+    const documentRef = {
+        defaultView: { setTimeout: () => 0, clearTimeout: () => {} },
+        createElement: () => ({
+            style: {},
+            dataset: {},
+            classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            addEventListener() {},
+            remove() {
+                const index = children.indexOf(this);
+                if (index >= 0) children.splice(index, 1);
+            }
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = {
+        nodes: new Map(), connections: [], selectedNodes: new Set(),
+        nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 }
+    };
+    const serializer = createNodeSerializer({ state, documentRef });
+    const lifecycle = createNodeLifecycleApi({
+        state,
+        nodeConfigs: {
+            ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320 }
+        },
+        createNodeMarkup: () => '<div></div>',
+        nodesLayer,
+        generateId: () => 'image-created',
+        getImageAsset: async () => null,
+        saveImageAsset: async () => false,
+        bindNodeInteractions: () => serializer.serializeNodes(),
+        pushHistory: () => {}, scheduleSave: () => {}, showToast: () => {},
+        updateAllConnections: () => {}, updatePortStyles: () => {},
+        getCacheSidebarActive: () => false, updateCacheUsage: () => {},
+        documentRef
+    });
+
+    assert.equal(lifecycle.addNode('ImageGenerate', 10, 20), 'image-created');
+    assert.equal(state.nodes.has('image-created'), true);
 });

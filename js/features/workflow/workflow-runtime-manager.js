@@ -116,25 +116,6 @@ function readElementControlValue(doc, id, fallback = '') {
     return control.value ?? fallback;
 }
 
-function readRuntimeProtocolParams(node, doc) {
-    const id = node?.id || '';
-    const params = { ...(node?.data?.protocolParams || {}) };
-    doc.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
-        const rawParamId = element.id.slice(`${id}-param-`.length);
-        if (!rawParamId || rawParamId.endsWith('-custom')) return;
-        if (element.type === 'checkbox') {
-            params[rawParamId] = element.checked === true;
-            return;
-        }
-        if (element.tagName === 'SELECT' && element.value === 'custom') {
-            params[rawParamId] = doc.getElementById(`${id}-param-${rawParamId}-custom`)?.value || '';
-            return;
-        }
-        params[rawParamId] = element.value;
-    });
-    return params;
-}
-
 export function serializeRuntimeNode(node, doc) {
     const serialized = {
         id: node.id,
@@ -249,7 +230,7 @@ export function serializeRuntimeNode(node, doc) {
                 serialized.concurrentRequestStatus = normalizeConcurrentRequestStatusPayload(node.data.concurrentRequestStatus);
             }
         } else if (node.type === 'VideoGenerate') {
-            applyProtocolVariantSnapshot(serialized, node.data, readRuntimeProtocolParams(node, doc));
+            applyProtocolVariantSnapshot(serialized, node.data);
             serialized.aspect = readElementControlValue(doc, `${node.id}-aspect`, '16:9');
             serialized.useVideoSizeParam = readElementControlValue(doc, `${node.id}-use-size-param`, false) === true;
             serialized.enhancePrompt = readElementControlValue(doc, `${node.id}-enhance-prompt`, false) === true;

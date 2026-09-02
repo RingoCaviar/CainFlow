@@ -33,10 +33,14 @@ export function saveProtocolVariantDraft(data = {}, parameters = {}) {
     };
 }
 
-/** Capture the active form at a persistence boundary while retaining inactive drafts. */
-export function snapshotProtocolVariantDrafts(data = {}, activeParameters = data.protocolParams || {}) {
+/**
+ * Return the persisted representation of the authoritative active draft while
+ * retaining every inactive Protocol variant draft.
+ */
+export function snapshotProtocolVariantDrafts(data = {}) {
     const key = data.protocolVariantKey || '';
     const drafts = { ...(data.protocolVariantDrafts || {}) };
+    const activeParameters = { ...(data.protocolParams || {}) };
     if (key) drafts[key] = { ...(drafts[key] || {}), ...activeParameters };
     return {
         protocolVariantKey: key,
@@ -44,8 +48,8 @@ export function snapshotProtocolVariantDrafts(data = {}, activeParameters = data
     };
 }
 
-export function applyProtocolVariantSnapshot(target = {}, data = {}, activeParameters = data.protocolParams || {}) {
-    target.protocolParams = { ...activeParameters };
-    Object.assign(target, snapshotProtocolVariantDrafts(data, activeParameters));
+export function applyProtocolVariantSnapshot(target = {}, data = {}) {
+    target.protocolParams = { ...(data.protocolParams || {}) };
+    Object.assign(target, snapshotProtocolVariantDrafts(data));
     return target;
 }

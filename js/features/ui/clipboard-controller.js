@@ -6,6 +6,7 @@ import {
     collectConnectionSnapshotsForNodes
 } from '../../canvas/connection-copy-utils.js';
 import { migrateLegacyNodeData, migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
+import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 
 export function createClipboardControllerApi({
     state,
@@ -56,6 +57,7 @@ export function createClipboardControllerApi({
         return Object.keys(heights).length > 0 ? heights : null;
     }
 
+    // Image nodes remain outside the Protocol variant draft migration.
     function readNodeProtocolParams(id, node) {
         const params = { ...(node?.data?.protocolParams || {}) };
         documentRef.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
@@ -200,6 +202,7 @@ export function createClipboardControllerApi({
                 serialized.useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
                 serialized.enhancePrompt = documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true;
                 serialized.enableUpsample = documentRef.getElementById(`${id}-enable-upsample`)?.checked === true;
+                applyProtocolVariantSnapshot(serialized, node.data);
                 serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                 serialized.videoId = node.data?.videoId || '';
                 serialized.videoUrl = node.data?.videoUrl || '';
