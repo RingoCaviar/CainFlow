@@ -209,6 +209,70 @@ test('pan changes and settlement flow through one projection lease', () => {
     assert.deepEqual(legacyRefreshCalls, []);
 });
 
+test('window blur ends an in-progress middle-button canvas pan', () => {
+    const { canvasListeners, windowListeners, state, projectionCalls, viewportCalls } = createHarness();
+    const startPan = canvasListeners.find(({ type, options }) => type === 'mousedown' && !(options === true || options?.capture));
+    startPan.listener({
+        button: 1, clientX: 100, clientY: 200,
+        target: { closest() { return null; } },
+        preventDefault() {}, stopPropagation() {}
+    });
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240 });
+    windowListeners.find(({ type }) => type === 'blur').listener();
+
+    assert.equal(state.canvas.isPanning, false);
+    assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
+    assert.deepEqual(projectionCalls.at(-1), ['abort', 'pan']);
+});
+
+test('a returned mousemove without the middle button ends a stale canvas pan', () => {
+    const { canvasListeners, windowListeners, state, projectionCalls } = createHarness();
+    const startPan = canvasListeners.find(({ type, options }) => type === 'mousedown' && !(options === true || options?.capture));
+    startPan.listener({
+        button: 1, clientX: 100, clientY: 200,
+        target: { closest() { return null; } },
+        preventDefault() {}, stopPropagation() {}
+    });
+
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240, buttons: 4 });
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240, buttons: 0 });
+
+    assert.equal(state.canvas.isPanning, false);
+    assert.deepEqual(projectionCalls.at(-1), ['abort', 'pan']);
+});
+
+test('window blur ends an in-progress space canvas pan', () => {
+    const { canvasListeners, windowListeners, state, projectionCalls, viewportCalls } = createHarness();
+    const startPan = canvasListeners.find(({ type, options }) => type === 'mousedown' && (options === true || options?.capture));
+    startPan.listener({
+        button: 0, clientX: 100, clientY: 200,
+        target: { closest() { return null; } },
+        preventDefault() {}, stopPropagation() {}
+    });
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240 });
+    windowListeners.find(({ type }) => type === 'blur').listener();
+
+    assert.equal(state.canvas.isPanning, false);
+    assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
+    assert.deepEqual(projectionCalls.at(-1), ['abort', 'pan']);
+});
+
+test('a returned mousemove without the space-pan button ends a stale canvas pan', () => {
+    const { canvasListeners, windowListeners, state, projectionCalls } = createHarness();
+    const startPan = canvasListeners.find(({ type, options }) => type === 'mousedown' && (options === true || options?.capture));
+    startPan.listener({
+        button: 0, clientX: 100, clientY: 200,
+        target: { closest() { return null; } },
+        preventDefault() {}, stopPropagation() {}
+    });
+
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240, buttons: 1 });
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 130, clientY: 240, buttons: 0 });
+
+    assert.equal(state.canvas.isPanning, false);
+    assert.deepEqual(projectionCalls.at(-1), ['abort', 'pan']);
+});
+
 test('node dragging reports targeted changes and settlement through a projection lease', () => {
     const { windowListeners, state, projectionCalls, legacyRefreshCalls } = createHarness();
     const node = state.nodes.get('node-1');
@@ -234,6 +298,30 @@ test('node dragging reports targeted changes and settlement through a projection
         ['finish', 'node-drag']
     ]);
     assert.deepEqual(legacyRefreshCalls, []);
+});
+
+test('window blur settles an in-progress node drag', () => {
+    const { windowListeners, state, projectionCalls } = createHarness();
+    const node = state.nodes.get('node-1');
+    node.el = {
+        classList: createClassList(),
+        style: { left: '', top: '', setProperty() {}, removeProperty() {} }
+    };
+    state.dragging = {
+        nodes: ['node-1'],
+        startX: 0,
+        startY: 0,
+        startPositions: new Map([['node-1', { x: 50, y: 60 }]]),
+        isCloneDrag: false
+    };
+
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 10, clientY: 20 });
+    windowListeners.find(({ type }) => type === 'blur').listener();
+
+    assert.equal(state.dragging, null);
+    assert.equal(node.el.style.left, '60px');
+    assert.equal(node.el.style.top, '80px');
+    assert.deepEqual(projectionCalls.at(-1), ['abort', 'node-drag']);
 });
 
 test('zoom settlement persists only lightweight viewport state', async () => {
