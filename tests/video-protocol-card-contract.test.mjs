@@ -181,15 +181,10 @@ test('workflow serialization reads image generation protocol parameters from its
             ? []
             : (selector === '#image-1-protocol-params [id^="image-1-param-"]' ? [protocolControl] : [])
     };
-    const state = {
-        nodes: new Map([['image-1', {
-            type: 'ImageGenerate', x: 0, y: 0, enabled: true,
-            data: { protocolParams: { size: '1024x1024' } }
-        }]]),
-        connections: []
-    };
-
-    const [serialized] = createNodeSerializer({ state, documentRef }).serializeNodes();
+    const serialized = serializeRuntimeNode({
+        id: 'image-1', type: 'ImageGenerate', x: 0, y: 0, enabled: true,
+        data: { protocolParams: { size: '1024x1024' } }
+    }, documentRef);
     assert.deepEqual(serialized.protocolParams, { size: '1024x1024', quality: 'high' });
 });
 

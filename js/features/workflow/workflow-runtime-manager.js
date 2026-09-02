@@ -116,6 +116,24 @@ function readElementControlValue(doc, id, fallback = '') {
     return control.value ?? fallback;
 }
 
+function readRuntimeProtocolParams(node, doc) {
+    const params = { ...(node?.data?.protocolParams || {}) };
+    doc.querySelectorAll(`#${node.id}-protocol-params [id^="${node.id}-param-"]`).forEach((element) => {
+        const paramId = element.id.slice(`${node.id}-param-`.length);
+        if (!paramId || paramId.endsWith('-custom')) return;
+        if (element.type === 'checkbox') {
+            params[paramId] = element.checked === true;
+            return;
+        }
+        if (element.tagName === 'SELECT' && element.value === 'custom') {
+            params[paramId] = doc.getElementById(`${node.id}-param-${paramId}-custom`)?.value || '';
+            return;
+        }
+        params[paramId] = element.value;
+    });
+    return params;
+}
+
 export function serializeRuntimeNode(node, doc) {
     const serialized = {
         id: node.id,
