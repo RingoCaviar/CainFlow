@@ -5,6 +5,7 @@ import {
     DOUBAO_VIDEO_RATIO_OPTIONS,
     DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
+    getGenerationInputProtocolId,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
@@ -565,7 +566,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         .join('');
     const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
     const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
-    const declaredProtocol = getProtocol(protocol);
+    const declaredProtocol = getProtocol(getGenerationInputProtocolId(selectedModel));
     const protocolCard = describeVideoProtocolCard(declaredProtocol, selectedModel?.modelId);
     const protocolMeta = getVideoProtocolOptionMeta(protocol);
     const doubaoRatioOptions = DOUBAO_VIDEO_RATIO_OPTIONS;

@@ -9,6 +9,7 @@ import {
     isMultiConnectionInput,
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
+import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
 
 export function createConnectionsApi({
     state,
@@ -1376,15 +1377,20 @@ export function createConnectionsApi({
         const toId = src.isOutput ? tgt.nodeId : src.nodeId;
         const toPort = src.isOutput ? tgt.port : src.portName;
         const toNode = getNodeById(toId);
-        const isMultiConnection = isMultiConnectionInput(toNode?.type, toPort);
+        const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
+        if (projectedPolicy && !projectedPolicy.supported) {
+            return showToast('当前模型不支持此输入端口', 'warning');
+        }
+        const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
 
         if (state.connections.find((conn) => conn.from.nodeId === fromId && conn.from.port === fromPort && conn.to.nodeId === toId && conn.to.port === toPort)) {
             return showToast('连接已存在', 'warning');
         }
 
         const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
-        if (isMultiConnection && inputConnections.length >= MAX_REFERENCE_IMAGE_COUNT) {
-            return showToast(`一个参考图接口最多连接 ${MAX_REFERENCE_IMAGE_COUNT} 张图片`, 'warning');
+        const maximumConnections = projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT;
+        if (isMultiConnection && inputConnections.length >= maximumConnections) {
+            return showToast(`此输入端口最多连接 ${maximumConnections} 张图片`, 'warning');
         }
 
         const replacedConnection = isMultiConnection ? null : inputConnections[0];

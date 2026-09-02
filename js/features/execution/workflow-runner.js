@@ -14,6 +14,7 @@ import {
 } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
+import { getProjectedInputValidationReason } from '../../nodes/generation-input-projection.js';
 
 export function shouldRunNodeForEachInput(node, inputs) {
     if (!node) return false;
@@ -62,6 +63,8 @@ export function getNodePromptValue(node, documentRef = document) {
 export function getNodePromptPortIds(node, documentRef = document) {
     const portIds = new Set(['prompt']);
     if (node?.type !== 'VideoGenerate' || !node.id) return Array.from(portIds);
+
+    (node.generationInputProjection?.promptPortIds || []).forEach((portId) => portIds.add(portId));
 
     documentRef.querySelectorAll?.(`#${node.id} [data-protocol-prompt="true"]`).forEach((element) => {
         const prefix = `${node.id}-param-`;
@@ -1075,6 +1078,15 @@ export function createWorkflowRunnerApi({
         return inputs;
     }
 
+    function getVideoInputProjectionError(plan, nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (node?.type !== 'VideoGenerate') return '';
+        const projection = node.generationInputProjection;
+        if (!projection) return '';
+        if (projection.blockedReason) return projection.blockedReason;
+        return getProjectedInputValidationReason(projection, plan.inputConnectionsByNode[nodeId]);
+    }
+
     function isFixedTextChatWithCachedResult(node) {
         if (node?.type !== 'TextChat') return false;
         const fixedToggle = documentRef.getElementById(`${node.id}-fixed`);
@@ -2057,8 +2069,14 @@ export function createWorkflowRunnerApi({
         }
 
         const emptyPromptNodes = [];
+        const invalidVideoInputNodes = [];
         for (const nid of order) {
             const node = state.nodes.get(nid);
+            const videoInputError = getVideoInputProjectionError(plan, nid);
+            if (videoInputError) {
+                invalidVideoInputNodes.push({ id: nid, reason: videoInputError });
+                continue;
+            }
             if (node && node.enabled !== false && (node.type === 'TextChat' || node.type === 'VideoGenerate')) {
                 const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
                 if (node.type === 'TextChat' && fixedToggle && fixedToggle.checked && node.isSucceeded) continue;
@@ -2069,6 +2087,20 @@ export function createWorkflowRunnerApi({
                     emptyPromptNodes.push(nid);
                 }
             }
+        }
+
+        if (invalidVideoInputNodes.length > 0) {
+            showToast(`执行中止：当前路径中有 ${invalidVideoInputNodes.length} 个视频节点输入无效`, 'error', 5000);
+            invalidVideoInputNodes.forEach(({ id, reason }) => {
+                const node = state.nodes.get(id);
+                if (!node) return;
+                node.isFailed = true;
+                node.el.classList.add('error');
+                addLog('error', '前置检查未通过', `节点「视频生成」(${id}) ${reason}`);
+            });
+            connectionProjection?.nodeAppearanceChanged(invalidVideoInputNodes.map(({ id }) => id));
+            finalizeWorkflow();
+            return { started: true, executed: false, reason: 'invalid-video-input-projection' };
         }
 
         if (emptyPromptNodes.length > 0) {

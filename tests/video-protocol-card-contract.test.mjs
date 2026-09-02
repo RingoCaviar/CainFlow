@@ -5,10 +5,13 @@ import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unifi
 import { VeoOpenAIProtocol } from '../js/features/execution/protocols/veo-openai.js';
 import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
 import {
-    describeVideoProtocolCard,
-    getVideoProtocolInputPorts,
-    updateVideoProtocolInputPortVisibility
+    describeVideoProtocolCard
 } from '../js/nodes/video-protocol-card.js';
+import {
+    applyGenerationInputProjection,
+    getProjectionImagePortIds,
+    resolveGenerationInputProjection
+} from '../js/nodes/generation-input-projection.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import { serializeRuntimeNode } from '../js/features/workflow/workflow-runtime-manager.js';
 import { createClipboardControllerApi } from '../js/features/ui/clipboard-controller.js';
@@ -283,12 +286,13 @@ test('built-in video protocols expose their declared card contracts without vari
 
 test('built-in video card input ports come only from each protocol declaration', () => {
     const frameAndReferencePorts = ['image_1', 'image_2', 'referenceImages'];
-    assert.deepEqual(getVideoProtocolInputPorts(VeoUnifiedProtocol, 'veo-3'), frameAndReferencePorts);
-    assert.deepEqual(getVideoProtocolInputPorts(VeoOpenAIProtocol, 'sora'), frameAndReferencePorts);
-    assert.deepEqual(getVideoProtocolInputPorts(DoubaoVideoProtocol, 'seedance'), frameAndReferencePorts);
-    assert.deepEqual(getVideoProtocolInputPorts(RelayVideoProtocol, 'kling-o3'), ['referenceImages']);
-    assert.deepEqual(getVideoProtocolInputPorts(RelayVideoProtocol, 'minimax-h3'), ['referenceImages']);
-    assert.deepEqual(getVideoProtocolInputPorts({ id: 'user-video', parameters: {} }, 'custom'), []);
+    const ports = (protocol, modelId) => getProjectionImagePortIds(resolveGenerationInputProjection({ protocol, modelId, taskType: 'video' }));
+    assert.deepEqual(ports(VeoUnifiedProtocol, 'veo-3'), frameAndReferencePorts);
+    assert.deepEqual(ports(VeoOpenAIProtocol, 'sora'), frameAndReferencePorts);
+    assert.deepEqual(ports(DoubaoVideoProtocol, 'seedance'), frameAndReferencePorts);
+    assert.deepEqual(ports(RelayVideoProtocol, 'kling-o3'), ['referenceImages']);
+    assert.deepEqual(ports(RelayVideoProtocol, 'minimax-h3'), ['referenceImages']);
+    assert.deepEqual(ports({ id: 'user-video', parameters: {} }, 'custom'), []);
 });
 
 test('declared video input ports drive the rendered card visibility and multiplicity', () => {
@@ -305,18 +309,19 @@ test('declared video input ports drive the rendered card visibility and multipli
         querySelector: () => ports[2]
     };
 
-    updateVideoProtocolInputPortVisibility(
-        root,
-        getVideoProtocolInputPorts(RelayVideoProtocol, 'minimax-h3'),
-        RelayVideoProtocol.variants['minimax-h3']
-    );
+    applyGenerationInputProjection(root, resolveGenerationInputProjection({
+        protocol: RelayVideoProtocol, modelId: 'minimax-h3', taskType: 'video'
+    }));
     assert.deepEqual(ports.map((port) => port.hidden), [true, true, false]);
     assert.equal(ports[2].dataset.multiple, undefined);
     assert.equal(ports[2].dataset.baseLabel, '参考图');
 
-    updateVideoProtocolInputPortVisibility(root, getVideoProtocolInputPorts(VeoUnifiedProtocol, 'veo-3'));
+    applyGenerationInputProjection(root, resolveGenerationInputProjection({
+        protocol: VeoUnifiedProtocol, modelId: 'veo-3', taskType: 'video'
+    }));
     assert.deepEqual(ports.map((port) => port.hidden), [false, false, false]);
     assert.equal(ports[2].dataset.multiple, 'true');
+    assert.equal(ports[2].dataset.baseLabel, '参考图 {index}');
 });
 
 test('built-in video parameters remain declaration-owned after the legacy control migration', () => {

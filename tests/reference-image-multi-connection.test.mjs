@@ -16,6 +16,8 @@ import {
     getReferenceImageInputPorts,
     orderInputConnections
 } from '../js/nodes/reference-image-ports.js';
+import { resolveGenerationInputProjection } from '../js/nodes/generation-input-projection.js';
+import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
 
 const connectionsSource = await readFile(new URL('../js/canvas/connections.js', import.meta.url), 'utf8');
 const runnerSource = await readFile(new URL('../js/features/execution/workflow-runner.js', import.meta.url), 'utf8');
@@ -195,6 +197,50 @@ test('pasting cannot exceed the multi-connection input limit', () => {
         externalSkipped: 0
     });
     assert.equal(state.connections.length, 64);
+});
+
+test('pasting obeys the active video generation input projection limit', () => {
+    const portElement = (port, direction, multiple = false) => ({
+        dataset: { port, direction, ...(multiple ? { multiple: 'true' } : {}) }
+    });
+    const nodeElement = (ports) => ({
+        querySelectorAll: (selector) => ports.filter((port) => selector.includes(port.dataset.direction)),
+        classList: { contains: () => false }
+    });
+    const existingConnections = Array.from({ length: 5 }, (_, order) => ({
+        id: `existing-${order}`,
+        from: { nodeId: `existing-source-${order}`, port: 'image' },
+        to: { nodeId: 'target', port: 'referenceImages' },
+        type: 'image', order
+    }));
+    const state = {
+        connections: existingConnections,
+        nodes: new Map([
+            ['new-source', { type: 'ImageImport', el: nodeElement([portElement('image', 'output')]) }],
+            ['target', {
+                type: 'VideoGenerate',
+                generationInputProjection: resolveGenerationInputProjection({
+                    protocol: RelayVideoProtocol, modelId: 'kling-o3', taskType: 'video'
+                }),
+                el: nodeElement([portElement('referenceImages', 'input', true)])
+            }]
+        ]),
+        runningNodeIds: new Set()
+    };
+
+    const result = appendMappedConnectionSnapshots({
+        state,
+        idMap: new Map([['old-source', 'new-source'], ['old-target', 'target']]),
+        internalConnections: [{
+            from: { nodeId: 'old-source', port: 'image' },
+            to: { nodeId: 'old-target', port: 'referenceImages' },
+            type: 'image', order: 5
+        }]
+    });
+
+    assert.equal(result.added, 0);
+    assert.equal(result.skipped, 1);
+    assert.equal(state.connections.length, 5);
 });
 
 test('disconnect-all is blocked while the target runs and records history before mutation', () => {
@@ -387,7 +433,8 @@ test('legacy numbered reference inputs migrate in order and deduplicate the same
 });
 
 test('connection and execution contracts retain multiple reference image sources', () => {
-    assert.match(connectionsSource, /const isMultiConnection = isMultiConnectionInput\(toNode\?\.type, toPort\)/);
+    assert.match(connectionsSource, /getGenerationNodeInputConnectionPolicy\(toNode, toPort\)/);
+    assert.match(connectionsSource, /projectedPolicy\?\.multiple \?\? isMultiConnectionInput\(toNode\?\.type, toPort\)/);
     assert.match(connectionsSource, /if \(!isMultiConnection\) \{[\s\S]*?state\.connections = state\.connections\.filter/);
     assert.match(runnerSource, /isMultiConnectionInput\(node\?\.type, connection\.to\.port\)[\s\S]*?appendReferenceImages\([\s\S]*?outputValue/);
     assert.match(requestUtilsSource, /key === 'referenceImages'/);

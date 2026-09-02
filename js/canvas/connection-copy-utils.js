@@ -7,6 +7,7 @@ import {
     isMultiConnectionInput as supportsMultiConnectionInput,
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
+import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
 export function createConnectionId() {
     return 'c_' + Math.random().toString(36).substr(2, 9);
 }
@@ -79,7 +80,8 @@ function hasInputConnection(state, to) {
 
 function isMultiConnectionInput(state, to) {
     const node = state.nodes.get(to.nodeId);
-    return supportsMultiConnectionInput(node?.type, to.port);
+    const projectedPolicy = getGenerationNodeInputConnectionPolicy(node, to.port);
+    return projectedPolicy?.multiple ?? supportsMultiConnectionInput(node?.type, to.port);
 }
 
 function isNodeRunning(state, nodeId) {
@@ -100,6 +102,9 @@ function canAppendConnection(state, connection) {
         return false;
     }
     const multiConnectionInput = isMultiConnectionInput(state, connection.to);
+    const targetNode = state.nodes.get(connection.to.nodeId);
+    const projectedPolicy = getGenerationNodeInputConnectionPolicy(targetNode, connection.to.port);
+    if (projectedPolicy && !projectedPolicy.supported) return false;
     if (!multiConnectionInput && hasInputConnection(state, connection.to)) {
         return false;
     }
@@ -108,7 +113,7 @@ function canAppendConnection(state, connection) {
             existingConnection.to.nodeId === connection.to.nodeId &&
             existingConnection.to.port === connection.to.port
         )).length;
-        if (connectionCount >= MAX_REFERENCE_IMAGE_COUNT) return false;
+        if (connectionCount >= (projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT)) return false;
     }
     return true;
 }

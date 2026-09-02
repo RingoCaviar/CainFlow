@@ -6,6 +6,7 @@ import {
     DOUBAO_VIDEO_RATIO_OPTIONS,
     DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
+    getGenerationInputProtocolId,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
@@ -22,11 +23,12 @@ import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-opena
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
+import { describeVideoProtocolCard } from './video-protocol-card.js';
 import {
-    describeVideoProtocolCard,
-    getVideoProtocolInputPorts,
-    updateVideoProtocolInputPortVisibility
-} from './video-protocol-card.js';
+    applyGenerationInputProjection,
+    getProjectedInputValidationReason,
+    resolveGenerationInputProjection
+} from './generation-input-projection.js';
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
 
 export function createNodeDomBindingsApi({
@@ -640,8 +642,9 @@ export function createNodeDomBindingsApi({
         const provider = model ? getResolvedProviderForModel(model, state.providers, providerSelect?.value || '') : null;
         const protocol = getEffectiveProtocol(model, provider);
         const declaredProtocol = getVideoGenerateSelectedProtocol(id);
-        const declaredVariant = declaredProtocol?.variants?.[model?.modelId];
-        const hasVariantMismatch = Object.keys(declaredProtocol?.variants || {}).length > 0 && !declaredVariant;
+        const inputProjection = resolveGenerationInputProjection({ protocol: declaredProtocol, modelId: model?.modelId, taskType: 'video' });
+        const projectedConnections = state.connections.filter((connection) => connection.to.nodeId === id);
+        const connectedInputReason = getProjectedInputValidationReason(inputProjection, projectedConnections);
         const promptField = documentRef.getElementById(`${id}-prompt-field`);
         const aspectField = documentRef.getElementById(`${id}-aspect-field`);
         const protocolSummary = documentRef.getElementById(`${id}-protocol-summary`);
@@ -659,12 +662,12 @@ export function createNodeDomBindingsApi({
         const durationMax = 12;
 
         if (sizeParamToggle) sizeParamToggle.classList.toggle('hidden', cardContract.isDeclared || !supportsSizeParamToggle);
-        const hasSafeCardError = hasVariantMismatch || cardContract.isIncomplete;
+        const hasSafeCardError = inputProjection.isUnmatched || inputProjection.isIncomplete || !!inputProjection.blockedReason || !!connectedInputReason;
         if (promptField) promptField.classList.toggle('hidden', hasSafeCardError || cardContract.isDeclared);
         if (aspectField) aspectField.classList.toggle('hidden', hasSafeCardError || cardContract.isDeclared);
         if (protocolSummary) {
-            protocolSummary.textContent = cardContract.summary;
-            protocolSummary.classList.toggle('hidden', !cardContract.summary);
+            protocolSummary.textContent = [cardContract.summary, connectedInputReason].filter(Boolean).join(' · ');
+            protocolSummary.classList.toggle('hidden', !protocolSummary.textContent);
         }
         if (enhanceField) enhanceField.classList.toggle('hidden', cardContract.isDeclared || !meta.supportsEnhancePrompt);
         if (upsampleField) upsampleField.classList.toggle('hidden', cardContract.isDeclared || !meta.supportsUpsample);
@@ -734,22 +737,19 @@ export function createNodeDomBindingsApi({
         if (!isDoubaoProtocol && doubaoWatermarkInput) doubaoWatermarkInput.checked = false;
         if (!isDoubaoProtocol && doubaoSeedInput) doubaoSeedInput.value = '';
         node.data = node.data || {};
-        node.data.videoCardExecutionBlockedReason = hasSafeCardError
+        node.generationInputProjection = inputProjection;
+        node.data.videoCardExecutionBlockedReason = inputProjection.blockedReason || connectedInputReason || (hasSafeCardError
             ? '当前视频协议未声明完整的模型变体或可编辑参数；请在协议编辑器中补齐后重试。'
-            : '';
+            : '');
         refreshVideoGenerateProtocolParams(id);
         syncVideoReferenceImagePorts(id);
     }
 
     function syncVideoReferenceImagePorts(id) {
         const node = state.nodes.get(id);
-        const protocol = getVideoGenerateSelectedProtocol(id);
-        const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
-        const model = state.models.find((candidate) => candidate.id === modelId);
-        const variant = protocol?.variants?.[model?.modelId];
         const root = documentRef.getElementById(id);
         if (!root || !node) return;
-        updateVideoProtocolInputPortVisibility(root, getVideoProtocolInputPorts(protocol, model?.modelId), variant);
+        applyGenerationInputProjection(root, node.generationInputProjection);
     }
 
     function bindNodePorts(container) {
@@ -1518,12 +1518,9 @@ export function createNodeDomBindingsApi({
 
     function getVideoGenerateSelectedProtocol(id) {
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
-        const providerSelect = documentRef.getElementById(`${id}-provider`);
         if (!modelSelect) return null;
         const model = state.models.find((candidate) => candidate.id === modelSelect.value) || null;
-        const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
-        const provider = getResolvedProviderForModel(model, state.providers, providerId);
-        const protocolId = getEffectiveProtocol(model, provider);
+        const protocolId = getGenerationInputProtocolId(model);
         const protocol = getProtocol(protocolId) || null;
         const variant = protocol?.variants?.[model?.modelId];
         if (!variant) return protocol;

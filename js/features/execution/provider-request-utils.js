@@ -259,6 +259,10 @@ export function getEffectiveProtocol(modelCfg = {}, apiCfg = null) {
     return normalizeModelProtocol(modelCfg?.protocol, modelCfg, apiCfg);
 }
 
+export function getGenerationInputProtocolId(modelCfg = {}) {
+    return normalizeModelProtocol(modelCfg?.protocol, modelCfg, null);
+}
+
 export function getImageResolutionOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
     const protocol = getEffectiveProtocol(model, provider);
