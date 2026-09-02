@@ -146,6 +146,8 @@ export function createInitialState() {
         proxy: null,
         requestTimeoutEnabled: true,
         requestTimeoutSeconds: 600,
+        videoRequestTimeoutEnabled: true,
+        videoRequestTimeoutSeconds: 1800,
         autoCheckUpdatesOnLoad: true,
         connectionLineType: 'bezier',
         toolbarPinned: false,

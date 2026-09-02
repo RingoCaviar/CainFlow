@@ -304,6 +304,8 @@ export function createNodeSerializer({ state, documentRef }) {
             proxy: state.proxy,
             requestTimeoutEnabled: state.requestTimeoutEnabled,
             requestTimeoutSeconds: state.requestTimeoutSeconds,
+            videoRequestTimeoutEnabled: state.videoRequestTimeoutEnabled,
+            videoRequestTimeoutSeconds: state.videoRequestTimeoutSeconds,
             autoCheckUpdatesOnLoad: state.autoCheckUpdatesOnLoad !== false,
             historyGridCols: state.historyGridCols
         };

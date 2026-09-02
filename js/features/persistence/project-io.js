@@ -206,6 +206,8 @@ export function createProjectIoApi({
                     proxy: currentState.proxy !== undefined ? currentState.proxy : state.proxy,
                     requestTimeoutEnabled: currentState.requestTimeoutEnabled !== undefined ? currentState.requestTimeoutEnabled : state.requestTimeoutEnabled,
                     requestTimeoutSeconds: currentState.requestTimeoutSeconds !== undefined ? currentState.requestTimeoutSeconds : state.requestTimeoutSeconds,
+                    videoRequestTimeoutEnabled: currentState.videoRequestTimeoutEnabled !== undefined ? currentState.videoRequestTimeoutEnabled : state.videoRequestTimeoutEnabled,
+                    videoRequestTimeoutSeconds: currentState.videoRequestTimeoutSeconds !== undefined ? currentState.videoRequestTimeoutSeconds : state.videoRequestTimeoutSeconds,
                     autoCheckUpdatesOnLoad: currentState.autoCheckUpdatesOnLoad !== undefined ? currentState.autoCheckUpdatesOnLoad : state.autoCheckUpdatesOnLoad,
                     historyGridCols: currentState.historyGridCols !== undefined ? currentState.historyGridCols : state.historyGridCols,
                     workflowSidebarWidth: currentState.workflowSidebarWidth !== undefined ? currentState.workflowSidebarWidth : state.workflowSidebarWidth
@@ -359,6 +361,15 @@ export function createProjectIoApi({
                 const timeoutSeconds = parseInt(data.requestTimeoutSeconds, 10);
                 if (!Number.isNaN(timeoutSeconds) && timeoutSeconds >= 1) {
                     state.requestTimeoutSeconds = timeoutSeconds;
+                }
+            }
+            if (data.videoRequestTimeoutEnabled !== undefined) {
+                state.videoRequestTimeoutEnabled = !!data.videoRequestTimeoutEnabled;
+            }
+            if (data.videoRequestTimeoutSeconds !== undefined) {
+                const timeoutSeconds = parseInt(data.videoRequestTimeoutSeconds, 10);
+                if (!Number.isNaN(timeoutSeconds) && timeoutSeconds >= 1) {
+                    state.videoRequestTimeoutSeconds = timeoutSeconds;
                 }
             }
             if (data.autoCheckUpdatesOnLoad !== undefined) {

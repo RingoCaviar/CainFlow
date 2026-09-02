@@ -26,6 +26,59 @@ import { buildMultipartFormData } from './protocols/multipart-transport-adapter.
 import { getPrimaryTextInput } from './execution-data-utils.js';
 import { escapeHtml } from '../../core/common-utils.js';
 
+export function getVideoRequestTimeoutSeconds(state = {}) {
+    if (state.videoRequestTimeoutEnabled !== true) return 0;
+    const configuredSeconds = parseInt(state.videoRequestTimeoutSeconds, 10);
+    return Number.isFinite(configuredSeconds) && configuredSeconds >= 1 ? configuredSeconds : 1800;
+}
+
+export function getNodeRunTimeoutSeconds(node = {}, state = {}) {
+    if (node.type === 'VideoGenerate') return getVideoRequestTimeoutSeconds(state);
+    if (state.requestTimeoutEnabled !== true) return 0;
+    const configuredSeconds = parseInt(state.requestTimeoutSeconds, 10);
+    return Number.isFinite(configuredSeconds) && configuredSeconds >= 1 ? configuredSeconds : 60;
+}
+
+export function getVideoPollingBudget({
+    timeoutSeconds,
+    nodeStartedAt,
+    now = Date.now(),
+    intervalMs
+} = {}) {
+    const seconds = Number(timeoutSeconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return { remainingMs: Infinity, maxAttempts: Infinity };
+    }
+
+    const startedAt = Number(nodeStartedAt);
+    const effectiveStartedAt = Number.isFinite(startedAt) && startedAt > 0 ? startedAt : now;
+    const remainingMs = Math.max(0, (effectiveStartedAt + seconds * 1000) - now);
+    return {
+        remainingMs,
+        maxAttempts: remainingMs > 0 ? Math.ceil(remainingMs / Math.max(1, Number(intervalMs) || 10000)) : 0
+    };
+}
+
+export function videoTimeoutMinutesToSeconds(value) {
+    const minutes = parseInt(value, 10);
+    return Number.isFinite(minutes) && minutes >= 1 ? minutes * 60 : 0;
+}
+
+export function formatVideoPollingStatus({
+    videoId = '', supplierStatus = '', attempt = 0, maxAttempts = 0, elapsedMs = 0
+} = {}) {
+    const normalizedStatus = String(supplierStatus || '').trim().toLowerCase();
+    const statusLabel = normalizedStatus === 'queued'
+        ? '排队中'
+        : (normalizedStatus === 'processing' || normalizedStatus === 'running' ? '生成中' : (normalizedStatus || '等待供应商更新'));
+    const elapsedSeconds = Math.max(0, Math.floor(Number(elapsedMs || 0) / 1000));
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    const elapsedLabel = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+    const attemptLimit = Number.isFinite(maxAttempts) ? maxAttempts : '∞';
+    return `轮询中：任务 ${videoId}，供应商状态：${statusLabel}；已查询 ${attempt}/${attemptLimit} 次，已等待 ${elapsedLabel}`;
+}
+
 export function createAsyncMediaExecutionApi({
     state,
     documentRef = document,
@@ -280,6 +333,13 @@ export function createAsyncMediaExecutionApi({
         });
     }
 
+    function getVideoProxyHeaders(url, method, extraHeaders = {}) {
+        return getProxyHeaders(url, method, {
+            ...extraHeaders,
+            'x-proxy-timeout': String(getVideoRequestTimeoutSeconds(state))
+        });
+    }
+
     async function buildVideoRequestPayload(protocolPlan, requestBody) {
         if (!protocolPlan || protocolPlan.create.encoding !== 'multipart') {
             return JSON.stringify(requestBody);
@@ -310,8 +370,16 @@ export function createAsyncMediaExecutionApi({
         prompt,
         protocolPlan = null
     }) {
-        const maxAttempts = 180;
         const intervalMs = 10000;
+        const nodeStartedAt = Number.isFinite(node?.runStartedAt) && node.runStartedAt > 0
+            ? node.runStartedAt
+            : Date.now();
+        const pollingBudget = getVideoPollingBudget({
+            timeoutSeconds: getVideoRequestTimeoutSeconds(state),
+            nodeStartedAt,
+            intervalMs
+        });
+        const maxAttempts = pollingBudget.maxAttempts;
         const max404Retries = 5;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -326,7 +394,7 @@ export function createAsyncMediaExecutionApi({
                 videoId
             });
             const requestBody = null;
-            const headers = getProxyHeaders(url, 'GET', {
+            const headers = getVideoProxyHeaders(url, 'GET', {
                 ...(protocolPlan?.create.headers || { Authorization: `Bearer ${apiCfg.apikey}` }),
                 Accept: 'application/json',
                 ...(protocolPlan ? {} : { 'Content-Type': 'application/json' })
@@ -407,6 +475,17 @@ export function createAsyncMediaExecutionApi({
                 ? { url: protocolPlan.parseResultUrl(result), revisedPrompt: '' }
                 : extractVideoResult(result, protocol);
             const videoUrlMeta = classifyVideoUrlForLog(extracted.url);
+
+            const pollingStatus = formatVideoPollingStatus({
+                videoId,
+                supplierStatus: status,
+                attempt,
+                maxAttempts,
+                elapsedMs: Date.now() - nodeStartedAt
+            });
+            commitVideoGenerateOutputs(node, { videoId, status, statusText: pollingStatus, prompt });
+            updateVideoGenerationStatus(node.id, pollingStatus, 'progress');
+            scheduleSave();
 
             const completedStatuses = protocolPlan?.asyncTask?.completedStatuses || ['completed', 'succeeded', 'success'];
             const failedStatuses = protocolPlan?.asyncTask?.failedStatuses || ['failed', 'error', 'cancelled', 'canceled'];
@@ -1111,7 +1190,7 @@ export function createAsyncMediaExecutionApi({
                         inputs
                     })
                     : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, enhancePrompt, enableUpsample, inputs })));
-            const headers = getProxyHeaders(url, 'POST', protocolPlan
+            const headers = getVideoProxyHeaders(url, 'POST', protocolPlan
                 ? {
                     ...protocolPlan.create.headers,
                     ...(protocolPlan.create.encoding === 'multipart' ? { 'Content-Type': null } : {})

@@ -43,7 +43,9 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
     'imageMaxPixels',
     'proxy',
     'requestTimeoutEnabled',
-    'requestTimeoutSeconds'
+    'requestTimeoutSeconds',
+    'videoRequestTimeoutEnabled',
+    'videoRequestTimeoutSeconds'
 ];
 
 const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);

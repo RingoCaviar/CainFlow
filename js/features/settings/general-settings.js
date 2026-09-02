@@ -2,6 +2,7 @@
  * Handles general settings rendering, notification sound, image save warnings, and cache usage.
  */
 import { AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
+import { videoTimeoutMinutesToSeconds } from '../execution/async-media-execution.js';
 import {
     clearLegacyBrowserStorage,
     migrateLegacyBrowserStorage,
@@ -107,7 +108,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
             promptFilename: '开启后，保存节点会用生成该图片时的提示词加时间作为文件名。注意：如果提示词过长，可能导致部分环境下出现文件名相关问题。',
             maxRetries: '初始失败后，最多允许再尝试执行多少轮。',
             concurrentRequestMode: '默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。',
-            timeout: '默认关闭。关闭时会一直等待服务器返回；开启后超过设定秒数仍未返回则判定超时失败。',
+            timeout: '图片与普通工作流的请求超时。视频生成使用独立的超时设置，避免长时间排队的视频任务被图片阈值中断。',
             connectionLineType: '切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。',
             toolbarPinned: '默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。',
             sidebarPinned: '默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。',
@@ -364,7 +365,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('请求超时设置', generalHelpText.timeout, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('图片与普通请求超时', generalHelpText.timeout, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-timeout-enabled" ${state.requestTimeoutEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -373,6 +374,20 @@ export function createGeneralSettings({ ctx, dialogs }) {
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${state.requestTimeoutEnabled ? '1' : '0.55'};">
                             <input type="number" id="setting-timeout-seconds" value="${state.requestTimeoutSeconds || 60}" min="1" step="1" ${state.requestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
                             <span style="font-size:11px; color:var(--text-dim); min-width:20px;">秒</span>
+                        </div>
+                    </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
+                        <div class="general-settings-control-row">
+                            ${dialogs.renderGeneralSettingsHelpLabel('视频生成超时', '视频创建与轮询使用此独立阈值。视频工作流不会使用图片请求超时。', { emphasis: true })}
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-video-timeout-enabled" ${state.videoRequestTimeoutEnabled ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${state.videoRequestTimeoutEnabled ? '1' : '0.55'};">
+                            <input type="number" id="setting-video-timeout-minutes" value="${Math.max(1, Math.ceil((state.videoRequestTimeoutSeconds || 1800) / 60))}" min="1" step="1" ${state.videoRequestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
+                            <span style="font-size:11px; color:var(--text-dim); min-width:20px;">分钟</span>
                         </div>
                     </div>
                 </div>
@@ -476,6 +491,8 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const btnCancelUpdateList = Array.from(documentRef.querySelectorAll('[data-action="cancel-update"]'));
         const timeoutEnabledInput = documentRef.getElementById('setting-timeout-enabled');
         const timeoutSecondsInput = documentRef.getElementById('setting-timeout-seconds');
+        const videoTimeoutEnabledInput = documentRef.getElementById('setting-video-timeout-enabled');
+        const videoTimeoutMinutesInput = documentRef.getElementById('setting-video-timeout-minutes');
         const concurrentRequestModeInput = documentRef.getElementById('setting-concurrent-request-mode');
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
         const toolbarPinnedInput = documentRef.getElementById('setting-toolbar-pinned');
@@ -688,6 +705,24 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 saveState();
             } else {
                 event.target.value = state.requestTimeoutSeconds;
+            }
+        });
+
+        videoTimeoutEnabledInput?.addEventListener('change', (event) => {
+            state.videoRequestTimeoutEnabled = event.target.checked;
+            if (videoTimeoutMinutesInput) videoTimeoutMinutesInput.disabled = !state.videoRequestTimeoutEnabled;
+            const wrapper = videoTimeoutMinutesInput?.parentElement;
+            if (wrapper) wrapper.style.opacity = state.videoRequestTimeoutEnabled ? '1' : '0.55';
+            saveState();
+        });
+
+        videoTimeoutMinutesInput?.addEventListener('change', (event) => {
+            const seconds = videoTimeoutMinutesToSeconds(event.target.value);
+            if (seconds >= 60) {
+                state.videoRequestTimeoutSeconds = seconds;
+                saveState();
+            } else {
+                event.target.value = Math.max(1, Math.ceil((state.videoRequestTimeoutSeconds || 1800) / 60));
             }
         });
 

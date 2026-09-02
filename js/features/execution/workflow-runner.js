@@ -1,4 +1,5 @@
 import { getResolvedProviderForModel } from './provider-request-utils.js';
+import { getNodeRunTimeoutSeconds } from './async-media-execution.js';
 import {
     appendReferenceImages,
     clearCanonicalImageOutput,
@@ -1660,6 +1661,26 @@ export function createWorkflowRunnerApi({
         };
     }
 
+    function startNodeRunTimeout(node, controller) {
+        const timeoutSeconds = getNodeRunTimeoutSeconds(node, state);
+        let timedOut = false;
+        const timeoutId = timeoutSeconds > 0 ? setTimeout(() => {
+            timedOut = true;
+            if (!controller.signal.aborted) controller.abort();
+        }, timeoutSeconds * 1000) : null;
+        return {
+            didTimeout: () => timedOut,
+            clear: () => {
+                if (timeoutId) clearTimeout(timeoutId);
+            }
+        };
+    }
+
+    function normalizeNodeRunError(error, nodeTimeout, node) {
+        if (!nodeTimeout.didTimeout()) return error;
+        return new Error(`节点运行超时（${getNodeRunTimeoutSeconds(node, state)} 秒）`);
+    }
+
     function unregisterNodeCancelHandler(session, nodeId) {
         getRunningNodeCancelHandlers().delete(nodeId);
         session.nodeAbortControllers?.delete(nodeId);
@@ -1762,6 +1783,7 @@ export function createWorkflowRunnerApi({
                 signal,
                 nodeController.signal
             ]);
+            const nodeTimeout = startNodeRunTimeout(currentNode, nodeController);
             session.nodeAbortControllers.set(nid, nodeController);
             getRunningNodeCancelHandlers().set(nid, () => {
                 session.canceledBranchNodeIds.add(nid);
@@ -1812,7 +1834,8 @@ export function createWorkflowRunnerApi({
                 }));
                 scheduleSave();
                 completedNodes.add(nid);
-            } catch (err) {
+            } catch (caughtError) {
+                const err = normalizeNodeRunError(caughtError, nodeTimeout, currentNode);
                 if (isAbortLikeError(err)) {
                     currentNode.runStartedAt = null;
                     clearNodeRunning(nid, currentNode, { status: 'aborted' });
@@ -1834,6 +1857,7 @@ export function createWorkflowRunnerApi({
                 throw err;
             } finally {
                 if (timerId) clearInterval(timerId);
+                nodeTimeout.clear();
                 linkedAbort.cleanup();
                 clearNodeRunning(nid, currentNode);
                 currentNode.runStartedAt = null;
@@ -1858,6 +1882,7 @@ export function createWorkflowRunnerApi({
                 session.controller.signal,
                 mediaNodeController.signal
             ]);
+            const mediaNodeTimeout = startNodeRunTimeout(node, mediaNodeController);
             session.nodeAbortControllers.set(nodeId, mediaNodeController);
             getRunningNodeCancelHandlers().set(nodeId, () => {
                 session.canceledBranchNodeIds.add(nodeId);
@@ -1867,12 +1892,17 @@ export function createWorkflowRunnerApi({
             runningNodes.add(nodeId);
             markNodeRunning(nodeId, node);
             try {
-                await resumeTaskFn(nodeId, linkedResumeAbort.signal);
+                try {
+                    await resumeTaskFn(nodeId, linkedResumeAbort.signal);
+                } catch (caughtError) {
+                    throw normalizeNodeRunError(caughtError, mediaNodeTimeout, node);
+                }
                 node.isSucceeded = true;
                 node.isFailed = false;
                 node.el.classList.add('completed');
                 scheduleSave();
             } finally {
+                mediaNodeTimeout.clear();
                 linkedResumeAbort.cleanup();
                 clearNodeRunning(nodeId, node, { status: node.isSucceeded ? 'completed' : 'aborted' });
                 runningNodes.delete(nodeId);
@@ -2011,16 +2041,6 @@ export function createWorkflowRunnerApi({
             syncRunToolbarState();
             startSucceeded = true;
             started = true;
-            if (state.requestTimeoutEnabled) {
-                const timeoutMs = Math.max(1, parseInt(state.requestTimeoutSeconds, 10) || 60) * 1000;
-                session.timeoutId = setTimeout(() => {
-                    if (session.finalized || session.controller.signal.aborted) return;
-                    session.abortReason = 'timeout';
-                    state.abortReason = 'timeout';
-                    session.stopped = true;
-                    session.controller.abort();
-                }, timeoutMs);
-            }
 
             if (state.notificationsEnabled) {
                 if (!state.notificationAudio) {
@@ -2298,6 +2318,7 @@ export function createWorkflowRunnerApi({
                                 session.controller.signal,
                                 nodeController.signal
                             ]);
+                            const nodeTimeout = startNodeRunTimeout(node, nodeController);
                             session.nodeAbortControllers.set(nid, nodeController);
                             getRunningNodeCancelHandlers().set(nid, () => markNodeBranchCanceled(nid));
 
@@ -2343,7 +2364,8 @@ export function createWorkflowRunnerApi({
                                     addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, createNodeCompletionLogDetails(node, loggedInputs));
                                     scheduleSave();
                                     completedNodes.add(nid);
-                                } catch (err) {
+                                } catch (caughtError) {
+                                    const err = normalizeNodeRunError(caughtError, nodeTimeout, node);
                                     if (isAbortLikeError(err)) {
                                         node.runStartedAt = null;
                                         clearNodeRunning(nid, node, { status: 'aborted' });
@@ -2375,6 +2397,7 @@ export function createWorkflowRunnerApi({
                                     }
                                 } finally {
                                     if (timerId) clearInterval(timerId);
+                                    nodeTimeout.clear();
                                     linkedAbort.cleanup();
                                     clearNodeRunning(nid, node);
                                     unregisterNodeCancelHandler(session, nid);

@@ -458,6 +458,16 @@ export function createUiControllerApi({
                 state.requestTimeoutSeconds = timeoutSeconds;
             }
         }
+        if (settings.videoRequestTimeoutEnabled !== undefined) {
+            state.videoRequestTimeoutEnabled = !!settings.videoRequestTimeoutEnabled;
+        }
+
+        if (settings.videoRequestTimeoutSeconds !== undefined) {
+            const timeoutSeconds = parseInt(settings.videoRequestTimeoutSeconds, 10);
+            if (!Number.isNaN(timeoutSeconds) && timeoutSeconds >= 1) {
+                state.videoRequestTimeoutSeconds = timeoutSeconds;
+            }
+        }
 
         if (settings.autoCheckUpdatesOnLoad !== undefined) {
             state.autoCheckUpdatesOnLoad = settings.autoCheckUpdatesOnLoad !== false;
@@ -500,6 +510,8 @@ export function createUiControllerApi({
                 proxy: state.proxy ? { ...state.proxy } : null,
                 requestTimeoutEnabled: state.requestTimeoutEnabled,
                 requestTimeoutSeconds: state.requestTimeoutSeconds,
+                videoRequestTimeoutEnabled: state.videoRequestTimeoutEnabled,
+                videoRequestTimeoutSeconds: state.videoRequestTimeoutSeconds,
                 autoCheckUpdatesOnLoad: state.autoCheckUpdatesOnLoad !== false,
                 historyGridCols: state.historyGridCols,
                 workflowOrder: Array.isArray(state.workflowOrder) ? state.workflowOrder.filter((name) => typeof name === 'string' && name) : [],
