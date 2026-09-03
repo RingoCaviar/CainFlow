@@ -1189,7 +1189,7 @@ export function createWorkflowRuntimeManager({
                     }
                     node.data.imageAssetReady = true;
                     renderImageSavePreview(nodeId, imageList);
-                } else if (video?.url) {
+                } else if (video?.url || video?.assetKey) {
                     clearCanonicalImageOutput(node);
                     node.data.video = {
                         id: video.id || '',
@@ -1200,7 +1200,12 @@ export function createWorkflowRuntimeManager({
                     };
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
                     const preview = doc.getElementById(`${nodeId}-save-preview`);
-                    if (preview) preview.innerHTML = `<video src="${video.url}" controls preload="metadata" playsinline></video>`;
+                    const source = video.assetKey
+                        ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}`
+                        : '';
+                    if (preview) preview.innerHTML = source
+                        ? `<video src="${source}" controls preload="metadata" playsinline></video>`
+                        : '<div class="save-preview-placeholder">本地视频缓存缺失；请确认后从服务器拉取</div>';
                 } else {
                     clearCanonicalImageOutput(node);
                     delete node.data.video;

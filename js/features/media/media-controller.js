@@ -33,6 +33,11 @@ import {
     isRemoteImageUrl,
     parseResolutionText
 } from './utils/image-validation-utils.js';
+
+export function getVideoPreviewSource(video) {
+    const assetKey = String(video?.assetKey || '').trim();
+    return assetKey ? `/api/storage/assets/${encodeURIComponent(assetKey)}` : '';
+}
 import {
     sanitizeFilenamePart,
     formatFilenameTimestamp,
@@ -556,21 +561,22 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (!previewContainer) return;
 
+        const source = getVideoPreviewSource(video);
         previewContainer.classList.remove('has-multiple-images');
-        previewContainer.dataset.saveMode = video?.url ? 'video' : 'image';
+        previewContainer.dataset.saveMode = source ? 'video' : 'image';
         if (node) {
             clearCanonicalImageOutput(node);
             delete node.data.videoPreviewReleased;
         }
 
-        if (!video?.url) {
+        if (!source) {
             previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
             return;
         }
 
         previewContainer.innerHTML = `
             <video
-                src="${escapeHtml(video.url)}"
+                src="${escapeHtml(source)}"
                 controls
                 preload="metadata"
                 playsinline
@@ -1098,7 +1104,7 @@ export function createMediaControllerApi({
         const currentImage = imageList.length > 0 ? imageList[0] : null;
 
         node.data = node.data || {};
-        if (videoData?.url) {
+        if (videoData?.url || videoData?.assetKey) {
             node.data.video = {
                 id: videoData.id || '',
                 url: videoData.url,
@@ -1142,7 +1148,7 @@ export function createMediaControllerApi({
             if (viewFullBtn) viewFullBtn.disabled = false;
             saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
-        } else if (videoData?.url) {
+        } else if (videoData?.url || videoData?.assetKey) {
             clearCanonicalImageOutput(node);
             renderVideoSavePreview(nodeId, videoData);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
