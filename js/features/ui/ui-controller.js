@@ -16,6 +16,7 @@ import {
     saveWorkflowToFile
 } from '../../services/workflow-api.js';
 import { openDialogStyle1 } from './dialog-style-1.js';
+import { startHistoryDownload } from '../history/history-download.js';
 const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
 export function createUiControllerApi({
@@ -57,6 +58,7 @@ export function createUiControllerApi({
     onConfigWorkflowsImported = async () => {},
     applyWorkflowSidebarWidth = () => {},
     documentRef = document,
+    windowRef = globalThis.window,
     localStorageRef = localStorage,
     indexedDbRef = indexedDB,
     locationRef = location,
@@ -1004,13 +1006,17 @@ export function createUiControllerApi({
             const items = await getHistoryMetadata();
             const selected = items.filter((item) => state.selectedHistoryIds.has(item.id));
 
+            let startedCount = 0;
             for (const item of selected) {
                 const entry = await getHistoryEntry(item.id);
-                if (entry?.image) downloadImage(entry.image, `cainflow_${entry.id}.png`);
+                if (startHistoryDownload(entry, { downloadImage, documentRef, windowRef })) startedCount += 1;
                 await new Promise((resolve) => setTimeout(resolve, 200));
             }
 
-            showToast(`已开始下载 ${selected.length} 张图片`, 'success');
+            const failedCount = selected.length - startedCount;
+            showToast(failedCount > 0
+                ? `已开始保存到本地 ${startedCount} 项；${failedCount} 项未能发起保存`
+                : `已开始保存到本地 ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
             state.historySelectionMode = false;
             state.selectedHistoryIds.clear();
             documentRef.getElementById('history-batch-toolbar').classList.add('hidden');

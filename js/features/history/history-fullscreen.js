@@ -5,6 +5,7 @@ import {
     needsHistoryVideoThumbnail
 } from './history-utils.js';
 import { createHistoryVideoContextMenu } from './history-video-context-menu.js';
+import { startHistoryDownload } from './history-download.js';
 
 const CARD_MIN_WIDTH = 230;
 const CARD_GAP = 12;
@@ -590,30 +591,16 @@ export function createHistoryFullscreenApi({
             return;
         }
         const selected = viewState.items.filter((item) => state.selectedHistoryIds.has(item.id));
+        let startedCount = 0;
         for (const item of selected) {
             const entry = await getHistoryEntry(item.id);
-            if (entry?.mediaType === 'video' || entry?.videoBlob) {
-                const blob = entry.videoBlob || entry.video;
-                if (blob instanceof Blob) {
-                    const url = URL.createObjectURL(blob);
-                    const link = documentRef.createElement('a');
-                    const mime = String(entry.videoMimeType || blob.type || '').toLowerCase();
-                    const ext = mime.includes('webm') ? '.webm' : mime.includes('quicktime') ? '.mov' : '.mp4';
-                    link.href = url;
-                    link.download = `cainflow_${entry.id}${ext}`;
-                    documentRef.body.appendChild(link);
-                    link.click();
-                    documentRef.body.removeChild(link);
-                    windowRef.setTimeout(() => URL.revokeObjectURL(url), 1000);
-                } else if (entry.videoUrl) {
-                    windowRef.open(entry.videoUrl, '_blank', 'noopener,noreferrer');
-                }
-            } else if (entry?.image) {
-                downloadImage(entry.image, `cainflow_${entry.id}.png`);
-            }
+            if (startHistoryDownload(entry, { downloadImage, documentRef, windowRef })) startedCount += 1;
             await new Promise((resolve) => setTimeout(resolve, 180));
         }
-        showToast(`已开始下载 ${selected.length} 条历史记录`, 'success');
+        const failedCount = selected.length - startedCount;
+        showToast(failedCount > 0
+            ? `已开始保存到本地 ${startedCount} 项；${failedCount} 项未能发起保存`
+            : `已开始保存到本地 ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
     }
 
     async function handleClearHistory() {

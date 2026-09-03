@@ -2,6 +2,7 @@
  * 管理历史记录详情预览，包括图片查看、下载、复制与删除等交互。
  */
 import { escapeHistoryHtml, formatHistoryGenerationDuration, formatHistoryVideoSize } from './history-utils.js';
+import { startHistoryDownload } from './history-download.js';
 
 export function createHistoryPreviewApi({
     getHistory,
@@ -220,27 +221,6 @@ export function createHistoryPreviewApi({
         return { src: item.image || '', objectUrl: '' };
     }
 
-    function downloadBlob(blob, filename) {
-        if (!(blob instanceof Blob)) return false;
-        const url = URL.createObjectURL(blob);
-        const link = documentRef.createElement('a');
-        link.href = url;
-        link.download = filename;
-        documentRef.body.appendChild(link);
-        link.click();
-        documentRef.body.removeChild(link);
-        windowRef.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        return true;
-    }
-
-    function getVideoExtension(item) {
-        const mime = String(item?.videoMimeType || item?.videoBlob?.type || '').toLowerCase();
-        if (mime.includes('webm')) return '.webm';
-        if (mime.includes('quicktime') || mime.includes('mov')) return '.mov';
-        if (mime.includes('x-matroska') || mime.includes('mkv')) return '.mkv';
-        return '.mp4';
-    }
-
     function setPreviewVideoSource(item, token) {
         const video = getPreviewVideoElement();
         if (!video || token !== previewState.loadToken) return '';
@@ -307,12 +287,8 @@ export function createHistoryPreviewApi({
         btnDownload.onclick = async (e) => {
             e.stopPropagation();
             const fullItem = await getFullHistoryItem(previewState.currentItem || item);
-            if (isVideoHistoryItem(fullItem)) {
-                if (downloadBlob(fullItem.videoBlob || fullItem.video, `cainflow_${fullItem.id}${getVideoExtension(fullItem)}`)) return;
-                if (fullItem.videoUrl) windowRef.open(fullItem.videoUrl, '_blank', 'noopener,noreferrer');
-                return;
-            }
-            if (fullItem?.image) downloadImage(fullItem.image, `cainflow_${fullItem.id}.png`);
+            const started = startHistoryDownload(fullItem, { downloadImage, documentRef, windowRef });
+            showToast(started ? '已开始保存到本地' : '没有可保存的媒体，或保存未能发起', started ? 'success' : 'error');
         };
         btnCopy.onclick = (e) => {
             e.stopPropagation();

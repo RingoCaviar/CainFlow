@@ -237,6 +237,11 @@
     inset: 0;
 }
 
+/* The history preview is a modal; its download feedback must not sit beneath it. */
+#history-preview-modal:not(.hidden) ~ #toast-container {
+    z-index: calc(var(--layer-modal) + 1);
+}
+
 /* ===== Log Drawer ===== */
 /* Drawer (Sidebar) System */
 .drawer {

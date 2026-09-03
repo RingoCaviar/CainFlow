@@ -8,12 +8,17 @@ export function createUiUtils({
     navigatorRef = navigator
 }) {
     function downloadImage(dataUrl, filename) {
-        const link = documentRef.createElement('a');
-        link.href = dataUrl;
-        link.download = filename || 'cainflow_export.png';
-        documentRef.body.appendChild(link);
-        link.click();
-        documentRef.body.removeChild(link);
+        try {
+            const link = documentRef.createElement('a');
+            link.href = dataUrl;
+            link.download = filename || 'cainflow_export.png';
+            documentRef.body.appendChild(link);
+            link.click();
+            documentRef.body.removeChild(link);
+            return true;
+        } catch (error) {
+            return false;
+        }
     }
 
     function copyToClipboard(text) {
