@@ -53,7 +53,7 @@ export function createHistoryPanelApi({
                     const media = isVideo ? (entry.videoBlob || entry.video) : entry?.image;
                     const makeThumbnail = isVideo ? createVideoThumbnail : createThumbnail;
                     if (!media || typeof makeThumbnail !== 'function') continue;
-                    const thumb = await makeThumbnail(media);
+                    const thumb = await makeThumbnail(media, 256, entry.videoAssetKey || entry.imageAssetKey || `history:${item.id}`);
                     if (!thumb) continue;
                     if (updateHistoryThumb) await updateHistoryThumb(item.id, thumb, entry);
                     const img = documentRef.querySelector(`#history-list .history-card[data-id="${item.id}"] img`);

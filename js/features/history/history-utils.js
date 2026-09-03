@@ -2,6 +2,7 @@
  * 历史记录渲染、按天分组和时间标签的通用工具。
  */
 const TRANSPARENT_HISTORY_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const VIDEO_HISTORY_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"%3E%3Crect width="256" height="256" fill="%23111827"/%3E%3Cpath d="M96 72v112l88-56z" fill="%23e2e8f0"/%3E%3Ctext x="128" y="224" fill="%2394a3b8" font-family="sans-serif" font-size="22" text-anchor="middle"%3EVIDEO%3C/text%3E%3C/svg%3E';
 
 export function escapeHistoryHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -106,10 +107,11 @@ export function buildHistoryCardMarkup({
     const isVideo = item.mediaType === 'video' || item.hasVideo;
     const videoSizeText = escapeHistoryHtml(formatHistoryVideoSize(item.videoSizeBytes));
     const imageClass = thumb ? '' : 'history-card-img-pending';
+    const previewSource = thumb || (isVideo ? VIDEO_HISTORY_PLACEHOLDER : TRANSPARENT_HISTORY_PIXEL);
 
     return `
         <article class="history-card ${selectedClass} ${multiClass} ${compactClass} ${isVideo ? 'history-card-video' : ''}" data-id="${item.id}" draggable="${isVideo ? 'false' : 'true'}" data-media-type="${isVideo ? 'video' : 'image'}">
-            <img class="${imageClass}" src="${escapeHistoryHtml(thumb || TRANSPARENT_HISTORY_PIXEL)}" loading="lazy" decoding="async" draggable="false" alt="${prompt}" />
+            <img class="${imageClass}" src="${escapeHistoryHtml(previewSource)}" loading="lazy" decoding="async" draggable="false" alt="${prompt}" />
             ${isVideo ? '<span class="history-card-video-badge" title="视频">VIDEO</span>' : ''}
             ${durationText ? `<span class="history-card-duration" title="${isVideo ? '视频生成耗时' : '生图耗时'} ${durationText}">${durationText}</span>` : ''}
             <div class="selection-checkbox"></div>

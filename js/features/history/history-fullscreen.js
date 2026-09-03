@@ -343,7 +343,7 @@ export function createHistoryFullscreenApi({
             const media = isVideo ? (entry?.videoBlob || entry?.video) : entry?.image;
             const makeThumbnail = isVideo ? createVideoThumbnail : createThumbnail;
             if (media && typeof makeThumbnail === 'function') {
-                const thumb = entry.thumb || await makeThumbnail(media);
+                const thumb = entry.thumb || await makeThumbnail(media, 256, entry.videoAssetKey || entry.imageAssetKey || `history:${item.id}`);
                 if (!thumb) return;
                 if (version !== viewState.version) return;
                 if (!entry.thumb) await updateHistoryThumb(item.id, thumb, entry);

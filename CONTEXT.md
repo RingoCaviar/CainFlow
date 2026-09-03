@@ -82,6 +82,10 @@ _Avoid_: Node-owned media copy, history-owned media copy
 A user-confirmed download of a missing locally referenced Media asset from its retained remote result URL. CainFlow never starts recovery automatically; it reports the transfer's progress, completion, cancellation, or failure on the requesting node.
 _Avoid_: Automatic cache refill, silent remote fallback
 
+**History video thumbnail hydration**:
+The view-triggered generation of a missing history-video thumbnail from its locally persisted Media asset. It never recovers the video from a remote URL. A successful thumbnail becomes durable; a failed attempt remains eligible for a future view session.
+_Avoid_: Automatic Media asset recovery, permanently failed thumbnail
+
 **Diagnostic level**:
 The user's choice of how much successful runtime activity CainFlow records for diagnosis; it does not weaken the hard disk budget. It expresses diagnostic intent rather than a retention duration.
 _Avoid_: Log retention days, log storage quota

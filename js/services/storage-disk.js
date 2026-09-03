@@ -108,25 +108,72 @@ function createThumbnail(dataUrl, size = 256) {
     });
 }
 
-function createVideoThumbnail(videoSource, size = 256) {
+function getStableVideoThumbnailPosition(seed) {
+    let hash = 2166136261;
+    for (const char of String(seed || 'video-thumbnail')) {
+        hash ^= char.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return 0.1 + ((hash >>> 0) / 0xffffffff) * 0.8;
+}
+
+function createVideoThumbnail(videoSource, size = 256, seed = '') {
     return new Promise((resolve) => {
         const video = document.createElement('video');
         let objectUrl = '';
+        let finished = false;
+        let seekingFrame = false;
+        let capturePoints = [];
+        let captureIndex = 0;
+        const timeout = setTimeout(() => finish(''), 8000);
         const finish = (value = '') => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timeout);
             if (objectUrl) URL.revokeObjectURL(objectUrl);
             resolve(value);
         };
-        video.muted = true;
-        video.onloadeddata = () => {
+        const captureFrame = () => {
             try {
                 const canvas = document.createElement('canvas');
                 canvas.width = size;
                 canvas.height = size;
                 const context = canvas.getContext('2d');
                 context.drawImage(video, 0, 0, size, size);
-                finish(canvas.toDataURL('image/webp', 0.8));
-            } catch { finish(''); }
+                const thumbnail = canvas.toDataURL('image/webp', 0.8);
+                if (thumbnail) finish(thumbnail);
+                else captureNextFrame();
+            } catch { captureNextFrame(); }
         };
+        const captureNextFrame = () => {
+            const captureAt = capturePoints[captureIndex++];
+            if (!Number.isFinite(captureAt)) {
+                finish('');
+                return;
+            }
+            try {
+                seekingFrame = true;
+                video.currentTime = captureAt;
+            } catch { captureNextFrame(); }
+        };
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'auto';
+        video.onloadedmetadata = () => {
+            const duration = Number(video.duration);
+            if (!Number.isFinite(duration) || duration <= 0) {
+                captureFrame();
+                return;
+            }
+            try {
+                const primaryPosition = getStableVideoThumbnailPosition(seed);
+                const alternatePosition = 0.1 + ((primaryPosition - 0.1 + 0.4) % 0.8);
+                capturePoints = [duration * primaryPosition, duration * alternatePosition];
+                captureNextFrame();
+            } catch { captureFrame(); }
+        };
+        video.onseeked = captureFrame;
+        video.onloadeddata = () => { if (!seekingFrame) captureFrame(); };
         video.onerror = () => finish('');
         if (videoSource instanceof Blob) {
             objectUrl = URL.createObjectURL(videoSource);
@@ -219,7 +266,7 @@ export function createDiskStorageApi(getState) {
                 : await putMediaAsset(mediaBlob, 'node', data?.nodeId || `history:${id}`);
             const mediaKey = mediaAsset?.asset_key || '';
             if (!mediaKey) return false;
-            const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob) : await createThumbnail(data.image));
+            const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob, 256, mediaKey) : await createThumbnail(data.image));
             const thumbKey = `thumb:${mediaKey}`;
             if (thumb) await putAsset(thumbKey, thumb, 'thumbnail');
             const entry = {
