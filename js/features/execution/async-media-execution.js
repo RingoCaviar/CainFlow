@@ -349,7 +349,7 @@ export function createAsyncMediaExecutionApi({
 
     function compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, parameters = {}, inputs = {}) {
         const declarativeProtocol = getProtocol(protocol);
-        if (!declarativeProtocol?.variants) return null;
+        if (!declarativeProtocol?.variants || Object.keys(declarativeProtocol.variants).length === 0) return null;
         return compileVideoProtocol({
             protocol: declarativeProtocol,
             endpoint: apiCfg.endpoint,
@@ -1133,6 +1133,8 @@ export function createAsyncMediaExecutionApi({
         const protocolParams = node.data?.protocolParams || {};
         const aspect = protocolParams.size || protocolParams.aspect_ratio || protocolParams.aspect || documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
         const useVideoSizeParam = protocolParams.size !== undefined || documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
+        const videoDuration = protocolParams.duration ?? '';
+        const videoLoop = protocolParams.loop === true;
         const enhancePrompt = protocolParams.enhance_prompt ?? (documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true);
         const enableUpsample = protocolParams.enable_upsample ?? (documentRef.getElementById(`${id}-enable-upsample`)?.checked === true);
         const doubaoResolution = protocolParams.resolution ?? documentRef.getElementById(`${id}-doubao-resolution`)?.value ?? '';
@@ -1175,7 +1177,7 @@ export function createAsyncMediaExecutionApi({
             const url = protocolPlan?.create.url || resolveProviderUrl(apiCfg, modelCfg, 'video', { action: 'create' });
             const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
             const requestBody = protocolPlan?.create.body || (protocol === 'veo-openai'
-                ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, inputs })
+                ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, inputs })
                 : (protocol === 'doubao-video'
                     ? buildDoubaoVideoRequest({
                         modelCfg,
@@ -1189,7 +1191,7 @@ export function createAsyncMediaExecutionApi({
                         seed: doubaoSeed,
                         inputs
                     })
-                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, enhancePrompt, enableUpsample, inputs })));
+                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, enhancePrompt, enableUpsample, inputs })));
             const headers = getVideoProxyHeaders(url, 'POST', protocolPlan
                 ? {
                     ...protocolPlan.create.headers,

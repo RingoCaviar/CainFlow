@@ -295,7 +295,8 @@ export function createContextMenuControllerApi({
     function stringifyRequestBodyPreview(preview, showFull = false) {
         const payload = showFull ? preview : {
             ...preview,
-            requestBody: redactLongRequestValue(preview.requestBody, 'requestBody')
+            requestBody: redactLongRequestValue(preview.requestBody, 'requestBody'),
+            multipartFields: redactLongRequestValue(preview.multipartFields, 'multipartFields')
         };
         return JSON.stringify(payload, null, 2);
     }

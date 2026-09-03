@@ -114,6 +114,10 @@ _Avoid_: Overridable built-in protocol
 The two-layer verification of a Declarative protocol configuration: offline schema and constraint validation with a redacted request preview, plus an explicitly user-initiated network test. Saving or importing a configuration never initiates a provider request.
 _Avoid_: Save-time provider test
 
+**Request plan**:
+The complete, validated snapshot of one generation request derived from the current node controls, connected inputs, selected Model compatibility format, and Protocol variant. CainFlow uses the same Request plan for request preview and execution; a preview redacts credentials and never sends the request.
+_Avoid_: Separate preview request body, preview-only request builder
+
 **Protocol variant selector**:
 The exact model ID used to select a Protocol variant. CainFlow does not infer variants from wildcard or regular-expression matching.
 _Avoid_: Variant pattern, guessed model variant

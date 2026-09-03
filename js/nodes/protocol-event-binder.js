@@ -191,7 +191,32 @@ export function bindProtocolParameters(nodeId, protocol, taskType, el, state, sc
         bindProtocolParameter(nodeId, paramId, param, element, state, scheduleSave, onPortRefresh, documentRef);
     });
 
-    // 绑定数字加减按钮事件
+    bindProtocolNumberStepControls(el, documentRef);
+}
+
+/**
+ * 绑定协议数字参数的步进控件，并在直接输入时同步按钮状态。
+ */
+export function bindProtocolNumberStepControls(el, documentRef = document) {
+    if (!el) return;
+
+    bindProtocolNumberStepButtons(el, documentRef);
+
+    // 为数字输入框添加 input 事件，更新按钮状态
+    const numberInputs = el.querySelectorAll('input[type="number"]');
+    numberInputs.forEach(input => {
+        input.addEventListener('input', () => {
+            updateNumberStepButtonStates(input, documentRef);
+        });
+        // 初始化按钮状态
+        updateNumberStepButtonStates(input, documentRef);
+    });
+}
+
+/** 绑定协议数字参数的加减按钮。 */
+export function bindProtocolNumberStepButtons(el, documentRef = document) {
+    if (!el) return;
+
     const numberStepButtons = el.querySelectorAll('.number-step');
     numberStepButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -223,16 +248,6 @@ export function bindProtocolParameters(nodeId, protocol, taskType, el, state, sc
             // 更新按钮状态
             updateNumberStepButtonStates(input, documentRef);
         });
-    });
-
-    // 为数字输入框添加 input 事件，更新按钮状态
-    const numberInputs = el.querySelectorAll('input[type="number"]');
-    numberInputs.forEach(input => {
-        input.addEventListener('input', () => {
-            updateNumberStepButtonStates(input, documentRef);
-        });
-        // 初始化按钮状态
-        updateNumberStepButtonStates(input, documentRef);
     });
 }
 

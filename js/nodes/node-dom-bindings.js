@@ -21,6 +21,7 @@ import { getProtocol } from '../features/execution/protocols/index.js';
 import { TtapiProtocol } from '../features/execution/protocols/ttapi.js';
 import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-openai.js';
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
+import { bindProtocolNumberStepControls } from './protocol-event-binder.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
 import { describeVideoProtocolCard } from './video-protocol-card.js';
@@ -1497,6 +1498,7 @@ export function createNodeDomBindingsApi({
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindImageGenerateProtocolParamInputs(id, container);
+        bindProtocolNumberStepControls(container, documentRef);
     }
 
     const VIDEO_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
@@ -1601,6 +1603,7 @@ export function createNodeDomBindingsApi({
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindVideoGenerateProtocolParamInputs(id, container);
+        bindProtocolNumberStepControls(container, documentRef);
         fitNodeToContent(id);
     }
 

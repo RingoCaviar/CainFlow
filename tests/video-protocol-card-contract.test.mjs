@@ -16,6 +16,7 @@ import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import { serializeRuntimeNode } from '../js/features/workflow/workflow-runtime-manager.js';
 import { createClipboardControllerApi } from '../js/features/ui/clipboard-controller.js';
 import { createNodeDomBindingsApi } from '../js/nodes/node-dom-bindings.js';
+import { bindProtocolNumberStepControls } from '../js/nodes/protocol-event-binder.js';
 import {
     activateProtocolVariantDraft,
     applyProtocolVariantSnapshot,
@@ -334,4 +335,36 @@ test('a user-owned video protocol without editable parameters has a safe card er
         isUnmatched: false,
         summary: 'User video · model-a · 未声明可编辑视频参数'
     });
+});
+
+test('video protocol duration step buttons update their rendered numeric input', () => {
+    const listeners = new Map();
+    let inputEvents = 0;
+    const input = {
+        id: 'video-1-param-duration', value: '5',
+        getAttribute(name) { return ({ 'data-min': '4', 'data-max': '12' })[name] ?? null; },
+        addEventListener(type, listener) {
+            if (type === 'input') {
+                listeners.set(type, () => { inputEvents += 1; listener(); });
+            } else {
+                listeners.set(type, listener);
+            }
+        },
+        dispatchEvent(event) { listeners.get(event.type)?.(event); return true; }
+    };
+    const button = {
+        getAttribute(name) { return ({ 'data-target': input.id, 'data-step': '1' })[name] ?? null; },
+        addEventListener(type, listener) { listeners.set(`button:${type}`, listener); }
+    };
+    const documentRef = {
+        getElementById: (id) => id === input.id ? input : null,
+        querySelectorAll: () => [button]
+    };
+    const root = { querySelectorAll: (selector) => selector === '.number-step' ? [button] : [input] };
+
+    bindProtocolNumberStepControls(root, documentRef);
+    listeners.get('button:click')();
+
+    assert.equal(input.value, 6);
+    assert.equal(inputEvents, 1);
 });

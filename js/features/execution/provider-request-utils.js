@@ -807,6 +807,8 @@ export function buildUnifiedVideoRequest({
     prompt,
     aspectRatio,
     useSizeParam = false,
+    duration = '',
+    loop = false,
     enhancePrompt = false,
     enableUpsample = false,
     inputs = {}
@@ -817,6 +819,8 @@ export function buildUnifiedVideoRequest({
     };
 
     applyVideoRatioParam(requestBody, aspectRatio, useSizeParam);
+    if (duration) requestBody.duration = duration;
+    requestBody.loop = loop === true;
     requestBody.enhance_prompt = enhancePrompt === true;
     requestBody.enable_upsample = enableUpsample === true;
 
@@ -829,13 +833,15 @@ export function buildUnifiedVideoRequest({
     return applyCustomRequestParams(requestBody, inputs);
 }
 
-export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, useSizeParam = false, inputs = {} }) {
+export function buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio, useSizeParam = false, duration = '', loop = false, inputs = {} }) {
     const requestBody = {
         model: modelCfg.modelId,
         prompt
     };
 
     applyVideoRatioParam(requestBody, aspectRatio, useSizeParam);
+    if (duration) requestBody.duration = duration;
+    requestBody.loop = loop === true;
 
     const frameImages = getUnifiedVideoFrameImages(inputs);
     if (frameImages.length > 0) requestBody.image = frameImages;

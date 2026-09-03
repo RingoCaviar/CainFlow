@@ -34,6 +34,8 @@ import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnection
 import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
+import { getProtocol } from './protocols/index.js';
+import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 
 export function createExecutionCoreApi({
     state,
@@ -1263,25 +1265,63 @@ export function createExecutionCoreApi({
     function buildVideoGenerateRequestPreview(node, inputs) {
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'video');
-        const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
+        const userPrompt = (getPrimaryTextInput(inputs.prompt)
+            || documentRef.getElementById(`${id}-param-prompt`)?.value
+            || documentRef.getElementById(`${id}-prompt`)?.value
+            || '').trim();
         const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
         const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
-        const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
-        const useVideoSizeParam = documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
+        const protocolParams = node.data?.protocolParams || {};
+        const declaredProtocol = getProtocol(protocol);
+        const declaredPlan = Object.keys(declaredProtocol?.variants || {}).length > 0
+            ? compileVideoProtocol({
+                protocol: declaredProtocol,
+                endpoint: apiCfg.endpoint,
+                modelId: modelCfg.modelId,
+                parameters: { ...protocolParams, prompt },
+                inputs,
+                apiKey: apiCfg.apikey
+            })
+            : null;
+        if (declaredPlan) {
+            const safePlan = redactProtocolPreview({
+                url: declaredPlan.create.url,
+                headers: declaredPlan.create.headers,
+                body: declaredPlan.create.body
+            }, declaredPlan.authentication);
+            return {
+                nodeId: id,
+                nodeType: node.type,
+                model: modelCfg.name || modelCfg.modelId,
+                provider: apiCfg.name || apiCfg.id || '',
+                protocol,
+                method: declaredPlan.create.method,
+                url: safePlan.url,
+                headers: safePlan.headers,
+                contentType: declaredPlan.create.encoding === 'multipart' ? 'multipart/form-data' : 'application/json',
+                requestBody: safePlan.body,
+                multipartFields: declaredPlan.create.encoding === 'multipart' ? declaredPlan.create.fields : undefined
+            };
+        }
+        const aspect = protocolParams.size || protocolParams.aspect_ratio || protocolParams.aspect
+            || documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
+        const useVideoSizeParam = protocolParams.size !== undefined || documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
         const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
+        const videoDuration = protocolParams.duration ?? '';
+        const videoLoop = protocolParams.loop === true;
         const requestBody = protocol === 'veo-openai'
-            ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, inputs })
+            ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, inputs })
             : (protocol === 'doubao-video'
                 ? buildDoubaoVideoRequest({
                     modelCfg,
                     prompt,
                     aspectRatio: aspect,
-                    resolution: documentRef.getElementById(`${id}-doubao-resolution`)?.value || '',
-                    duration: documentRef.getElementById(`${id}-doubao-duration`)?.value || '',
-                    cameraFixed: documentRef.getElementById(`${id}-doubao-camera-fixed`)?.checked === true,
-                    generateAudio: documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true,
-                    watermark: documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true,
-                    seed: documentRef.getElementById(`${id}-doubao-seed`)?.value || '',
+                    resolution: protocolParams.resolution ?? documentRef.getElementById(`${id}-doubao-resolution`)?.value ?? '',
+                    duration: protocolParams.duration ?? documentRef.getElementById(`${id}-doubao-duration`)?.value ?? '',
+                    cameraFixed: protocolParams.camera_fixed ?? (documentRef.getElementById(`${id}-doubao-camera-fixed`)?.checked === true),
+                    generateAudio: protocolParams.generate_audio ?? (documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true),
+                    watermark: protocolParams.watermark ?? (documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true),
+                    seed: protocolParams.seed ?? documentRef.getElementById(`${id}-doubao-seed`)?.value ?? '',
                     inputs
                 })
                 : buildUnifiedVideoRequest({
@@ -1289,8 +1329,10 @@ export function createExecutionCoreApi({
                     prompt,
                     aspectRatio: aspect,
                     useSizeParam,
-                    enhancePrompt: documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true,
-                    enableUpsample: documentRef.getElementById(`${id}-enable-upsample`)?.checked === true,
+                    duration: videoDuration,
+                    loop: videoLoop,
+                    enhancePrompt: protocolParams.enhance_prompt ?? (documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true),
+                    enableUpsample: protocolParams.enable_upsample ?? (documentRef.getElementById(`${id}-enable-upsample`)?.checked === true),
                     inputs
                 }));
         return {
@@ -1422,7 +1464,10 @@ export function createExecutionCoreApi({
 
     function buildImageGeneratePrompt(node, inputs = {}) {
         const id = node?.id || '';
-        const userPrompt = (getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '').trim();
+        const userPrompt = (getPrimaryTextInput(inputs.prompt)
+            || documentRef.getElementById(`${id}-param-prompt`)?.value
+            || documentRef.getElementById(`${id}-prompt`)?.value
+            || '').trim();
         const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
         const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
 
