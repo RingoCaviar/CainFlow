@@ -55,6 +55,7 @@ class StorageServiceTests(unittest.TestCase):
             item = service.get_history(10)
             self.assertEqual('test', item['prompt'])
             self.assertIn('/api/storage/assets/', item['thumb'])
+            self.assertEqual(5, item['thumbSizeBytes'])
             self.assertTrue(service.delete_history(10))
             self.assertIsNone(service.get_asset_info('history:10'))
             self.assertIsNone(service.get_asset_info('thumb:history:10'))

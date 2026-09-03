@@ -1,4 +1,5 @@
-import { buildHistoryCardMarkup } from './history-utils.js';
+import { buildHistoryCardMarkup, needsHistoryVideoThumbnail } from './history-utils.js';
+import { createHistoryVideoContextMenu } from './history-video-context-menu.js';
 
 /**
  * 管理轻量级历史侧栏。
@@ -12,6 +13,7 @@ export function createHistoryPanelApi({
     createThumbnail,
     createVideoThumbnail = null,
     updateHistoryThumb = null,
+    regenerateHistoryVideoThumbnail = null,
     openHistoryPreview,
     deleteHistoryEntry,
     documentRef = document,
@@ -20,6 +22,7 @@ export function createHistoryPanelApi({
     const SIDEBAR_LIMIT = 100;
     let renderToken = 0;
     let sidebarObserver = null;
+    const videoContextMenu = createHistoryVideoContextMenu({ documentRef, windowRef });
 
     function applyHistoryGridCols(cols) {
         let normalized = Number(cols) || 2;
@@ -38,7 +41,7 @@ export function createHistoryPanelApi({
     }
 
     function queueThumbHydration(items, token) {
-        const missing = items.filter((item) => !item.thumb && (item.hasImage || item.hasVideo || item.mediaType === 'video'));
+        const missing = items.filter((item) => (!item.thumb || needsHistoryVideoThumbnail(item)) && (item.hasImage || item.hasVideo || item.mediaType === 'video'));
         if (!missing.length) return;
 
         const run = windowRef.requestIdleCallback || ((callback) => setTimeout(() => callback({ timeRemaining: () => 16 }), 16));
@@ -129,6 +132,13 @@ export function createHistoryPanelApi({
             setTimeout(() => {
                 state.draggedHistoryImage = null;
             }, 0);
+        };
+
+        list.oncontextmenu = async (event) => {
+            const card = event.target.closest('.history-card');
+            if (!card || card.dataset.mediaType !== 'video' || typeof regenerateHistoryVideoThumbnail !== 'function') return;
+            event.preventDefault();
+            videoContextMenu.open(event, () => regenerateHistoryVideoThumbnail(Number(card.dataset.id)));
         };
 
         list.onclick = async (event) => {

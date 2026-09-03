@@ -117,6 +117,18 @@ function getStableVideoThumbnailPosition(seed) {
     return 0.1 + ((hash >>> 0) / 0xffffffff) * 0.8;
 }
 
+function isNearBlackVideoFrame(context, size) {
+    try {
+        const pixels = context.getImageData(0, 0, size, size).data;
+        for (let index = 0; index < pixels.length; index += 16) {
+            if (pixels[index] > 12 || pixels[index + 1] > 12 || pixels[index + 2] > 12) return false;
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function createVideoThumbnail(videoSource, size = 256, seed = '') {
     return new Promise((resolve) => {
         const video = document.createElement('video');
@@ -125,11 +137,13 @@ function createVideoThumbnail(videoSource, size = 256, seed = '') {
         let seekingFrame = false;
         let capturePoints = [];
         let captureIndex = 0;
+        let renderedFrameTimeout = null;
         const timeout = setTimeout(() => finish(''), 8000);
         const finish = (value = '') => {
             if (finished) return;
             finished = true;
             clearTimeout(timeout);
+            clearTimeout(renderedFrameTimeout);
             if (objectUrl) URL.revokeObjectURL(objectUrl);
             resolve(value);
         };
@@ -140,6 +154,10 @@ function createVideoThumbnail(videoSource, size = 256, seed = '') {
                 canvas.height = size;
                 const context = canvas.getContext('2d');
                 context.drawImage(video, 0, 0, size, size);
+                if (isNearBlackVideoFrame(context, size)) {
+                    captureNextFrame();
+                    return;
+                }
                 const thumbnail = canvas.toDataURL('image/webp', 0.8);
                 if (thumbnail) finish(thumbnail);
                 else captureNextFrame();
@@ -172,7 +190,21 @@ function createVideoThumbnail(videoSource, size = 256, seed = '') {
                 captureNextFrame();
             } catch { captureFrame(); }
         };
-        video.onseeked = captureFrame;
+        video.onseeked = () => {
+            if (typeof video.requestVideoFrameCallback === 'function') {
+                const captureRenderedFrame = () => {
+                    clearTimeout(renderedFrameTimeout);
+                    captureFrame();
+                };
+                video.requestVideoFrameCallback(captureRenderedFrame);
+                // A paused video can dispatch `seeked` without scheduling a
+                // compositor frame. Do not leave history hydration waiting
+                // for the overall timeout in that case.
+                renderedFrameTimeout = setTimeout(captureRenderedFrame, 100);
+            } else {
+                captureFrame();
+            }
+        };
         video.onloadeddata = () => { if (!seekingFrame) captureFrame(); };
         video.onerror = () => finish('');
         if (videoSource instanceof Blob) {

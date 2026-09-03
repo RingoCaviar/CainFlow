@@ -385,11 +385,13 @@ class StorageService:
 
     def _history_row_to_dict(self, row):
         item = json.loads(row['metadata_json'])
+        thumb_info = self.get_asset_info(row['thumb_asset_key']) if row['thumb_asset_key'] else None
         item.update({
             'id': row['id'], 'timestamp': row['timestamp'], 'mediaType': row['media_type'],
             'imageAssetKey': row['asset_key'] if row['media_type'] == 'image' else '',
             'videoAssetKey': row['asset_key'] if row['media_type'] == 'video' else '',
             'thumbAssetKey': row['thumb_asset_key'] or '',
+            'thumbSizeBytes': int(thumb_info['size_bytes']) if thumb_info else 0,
         })
         if row['thumb_asset_key']:
             item['thumb'] = f"/api/storage/assets/{quote(row['thumb_asset_key'], safe='')}"

@@ -61,6 +61,11 @@ export function formatHistoryVideoSize(sizeBytes) {
     return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 1 : 2)} MB`;
 }
 
+export function needsHistoryVideoThumbnail(item) {
+    const isVideo = item?.mediaType === 'video' || item?.hasVideo;
+    return isVideo && (!item.thumb || Number(item.thumbSizeBytes) < 1024);
+}
+
 export function groupHistoryItems(items, now = Date.now()) {
     const groups = [];
     const map = new Map();

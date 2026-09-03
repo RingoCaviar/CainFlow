@@ -1,8 +1,10 @@
 import {
     buildHistoryCardMarkup,
     escapeHistoryHtml,
-    groupHistoryItems
+    groupHistoryItems,
+    needsHistoryVideoThumbnail
 } from './history-utils.js';
+import { createHistoryVideoContextMenu } from './history-video-context-menu.js';
 
 const CARD_MIN_WIDTH = 230;
 const CARD_GAP = 12;
@@ -25,6 +27,7 @@ export function createHistoryFullscreenApi({
     createThumbnail = null,
     createVideoThumbnail = null,
     updateHistoryThumb = null,
+    regenerateHistoryVideoThumbnail = null,
     showToast,
     documentRef = document,
     windowRef = window,
@@ -53,6 +56,7 @@ export function createHistoryFullscreenApi({
         }
     };
     let modalObserver = null;
+    const videoContextMenu = createHistoryVideoContextMenu({ documentRef, windowRef });
 
     function getEls() {
         return {
@@ -314,7 +318,7 @@ export function createHistoryFullscreenApi({
         rows
             .filter((row) => row.type === 'cards')
             .flatMap((row) => row.items)
-            .filter((item) => (item.hasImage || item.hasVideo || item.mediaType === 'video') && !item.thumb && !viewState.queuedThumbIds.has(item.id))
+            .filter((item) => (item.hasImage || item.hasVideo || item.mediaType === 'video') && (!item.thumb || needsHistoryVideoThumbnail(item)) && !viewState.queuedThumbIds.has(item.id))
             .forEach((item) => {
                 viewState.queuedThumbIds.add(item.id);
                 viewState.thumbQueue.push(item);
@@ -343,10 +347,12 @@ export function createHistoryFullscreenApi({
             const media = isVideo ? (entry?.videoBlob || entry?.video) : entry?.image;
             const makeThumbnail = isVideo ? createVideoThumbnail : createThumbnail;
             if (media && typeof makeThumbnail === 'function') {
-                const thumb = entry.thumb || await makeThumbnail(media, 256, entry.videoAssetKey || entry.imageAssetKey || `history:${item.id}`);
+                const thumb = !needsHistoryVideoThumbnail(entry) && entry.thumb
+                    ? entry.thumb
+                    : await makeThumbnail(media, 256, entry.videoAssetKey || entry.imageAssetKey || `history:${item.id}`);
                 if (!thumb) return;
                 if (version !== viewState.version) return;
-                if (!entry.thumb) await updateHistoryThumb(item.id, thumb, entry);
+                if (!entry.thumb || needsHistoryVideoThumbnail(entry)) await updateHistoryThumb(item.id, thumb, entry);
                 if (version !== viewState.version) return;
                 item.thumb = thumb;
                 viewState.itemMap.set(item.id, item);
@@ -419,6 +425,13 @@ export function createHistoryFullscreenApi({
             setTimeout(() => {
                 state.draggedHistoryImage = null;
             }, 0);
+        });
+
+        list.addEventListener('contextmenu', async (event) => {
+            const card = event.target.closest('.history-card');
+            if (!card || card.dataset.mediaType !== 'video' || typeof regenerateHistoryVideoThumbnail !== 'function') return;
+            event.preventDefault();
+            videoContextMenu.open(event, () => regenerateHistoryVideoThumbnail(Number(card.dataset.id)));
         });
 
         viewState.cardEventsBound = true;

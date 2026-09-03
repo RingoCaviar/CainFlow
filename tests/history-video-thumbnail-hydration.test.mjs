@@ -117,6 +117,163 @@ test('video history thumbnail captures a stable pseudo-random frame away from th
     }
 });
 
+test('video history thumbnail waits for the rendered frame after seeking', async () => {
+    const originalDocument = globalThis.document;
+    const originalUrl = globalThis.URL;
+    let frameReady = false;
+    let drewBeforeFrameReady = false;
+
+    const video = {
+        duration: 8,
+        set src(_value) { queueMicrotask(() => this.onloadedmetadata?.()); },
+        set currentTime(_value) {
+            queueMicrotask(() => this.onseeked?.());
+        },
+        requestVideoFrameCallback(callback) {
+            queueMicrotask(() => {
+                frameReady = true;
+                callback();
+            });
+        }
+    };
+
+    globalThis.document = {
+        createElement(tag) {
+            if (tag === 'video') return video;
+            if (tag === 'canvas') return {
+                getContext: () => ({ drawImage() { if (!frameReady) drewBeforeFrameReady = true; } }),
+                getImageData: () => ({ data: new Uint8ClampedArray([40, 20, 10, 255]) }),
+                toDataURL: () => 'data:image/webp;base64,rendered-frame'
+            };
+            throw new Error(`unexpected element: ${tag}`);
+        }
+    };
+    globalThis.URL = { createObjectURL: () => 'blob:video', revokeObjectURL() {} };
+
+    try {
+        const thumbnail = await createDiskStorageApi(() => ({})).createVideoThumbnail(new Blob(['video']), 256, 'media:video-2');
+        assert.equal(thumbnail, 'data:image/webp;base64,rendered-frame');
+        assert.equal(drewBeforeFrameReady, false);
+    } finally {
+        globalThis.document = originalDocument;
+        globalThis.URL = originalUrl;
+    }
+});
+
+test('video history thumbnail falls back when a paused video never invokes requestVideoFrameCallback', async () => {
+    const originalDocument = globalThis.document;
+    const originalUrl = globalThis.URL;
+    const video = {
+        duration: 8,
+        set src(_value) { queueMicrotask(() => this.onloadedmetadata?.()); },
+        set currentTime(_value) { queueMicrotask(() => this.onseeked?.()); },
+        requestVideoFrameCallback() {}
+    };
+
+    globalThis.document = {
+        createElement(tag) {
+            if (tag === 'video') return video;
+            if (tag === 'canvas') return {
+                getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray([40, 20, 10, 255]) }) }),
+                toDataURL: () => 'data:image/webp;base64,fallback-frame'
+            };
+            throw new Error(`unexpected element: ${tag}`);
+        }
+    };
+    globalThis.URL = { createObjectURL: () => 'blob:video', revokeObjectURL() {} };
+
+    try {
+        const thumbnail = await Promise.race([
+            createDiskStorageApi(() => ({})).createVideoThumbnail(new Blob(['video']), 256, 'media:video-fallback'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('render-frame fallback timed out')), 250))
+        ]);
+        assert.equal(thumbnail, 'data:image/webp;base64,fallback-frame');
+    } finally {
+        globalThis.document = originalDocument;
+        globalThis.URL = originalUrl;
+    }
+});
+
+test('video history thumbnail rejects a black frame and captures its alternate frame', async () => {
+    const originalDocument = globalThis.document;
+    const originalUrl = globalThis.URL;
+    let captureCount = 0;
+
+    const video = {
+        duration: 8,
+        set src(_value) { queueMicrotask(() => this.onloadedmetadata?.()); },
+        set currentTime(_value) { queueMicrotask(() => this.onseeked?.()); },
+        requestVideoFrameCallback(callback) { queueMicrotask(callback); }
+    };
+    globalThis.document = {
+        createElement(tag) {
+            if (tag === 'video') return video;
+            if (tag === 'canvas') return {
+                getContext: () => ({
+                    drawImage() { captureCount += 1; },
+                    getImageData: () => ({ data: new Uint8ClampedArray(captureCount === 1 ? [0, 0, 0, 255] : [40, 20, 10, 255]) })
+                }),
+                toDataURL: () => 'data:image/webp;base64,alternate-frame'
+            };
+            throw new Error(`unexpected element: ${tag}`);
+        }
+    };
+    globalThis.URL = { createObjectURL: () => 'blob:video', revokeObjectURL() {} };
+
+    try {
+        const thumbnail = await createDiskStorageApi(() => ({})).createVideoThumbnail(new Blob(['video']), 256, 'media:video-3');
+        assert.equal(thumbnail, 'data:image/webp;base64,alternate-frame');
+        assert.equal(captureCount, 2);
+    } finally {
+        globalThis.document = originalDocument;
+        globalThis.URL = originalUrl;
+    }
+});
+
+test('history sidebar repairs a tiny video thumbnail', async () => {
+    const documentRef = createPanelDocument();
+    let thumbnailCalls = 0;
+    let savedThumbnail = '';
+    const panel = createHistoryPanelApi({
+        state: { selectedHistoryIds: new Set(), historySelectionMode: false },
+        getHistoryMetadata: async () => [{ id: 9, mediaType: 'video', hasVideo: true, thumb: '/thumb.webp', thumbSizeBytes: 702, timestamp: 1 }],
+        getHistoryCount: async () => 1,
+        getHistoryEntry: async () => ({ id: 9, mediaType: 'video', videoBlob: new Blob(['video']), thumb: '/thumb.webp', thumbSizeBytes: 702 }),
+        createThumbnail: async () => '',
+        createVideoThumbnail: async () => { thumbnailCalls += 1; return 'data:image/webp;base64,repaired'; },
+        updateHistoryThumb: async (_id, thumb) => { savedThumbnail = thumb; },
+        openHistoryPreview() {}, deleteHistoryEntry: async () => {}, documentRef,
+        windowRef: { requestIdleCallback(callback) { queueMicrotask(() => callback({ timeRemaining: () => 16 })); } }
+    });
+
+    await panel.renderHistoryList();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(thumbnailCalls, 1);
+    assert.equal(savedThumbnail, 'data:image/webp;base64,repaired');
+});
+
+test('right-clicking a video history card suppresses the native context menu', async () => {
+    const documentRef = createPanelDocument();
+    const panel = createHistoryPanelApi({
+        state: { selectedHistoryIds: new Set(), historySelectionMode: false },
+        getHistoryMetadata: async () => [{ id: 10, mediaType: 'video', hasVideo: true, thumb: '', timestamp: 1 }],
+        getHistoryCount: async () => 1,
+        getHistoryEntry: async () => null,
+        createThumbnail: async () => '', createVideoThumbnail: async () => '', updateHistoryThumb: async () => false,
+        regenerateHistoryVideoThumbnail: async () => {},
+        openHistoryPreview() {}, deleteHistoryEntry: async () => {}, documentRef,
+        windowRef: { requestIdleCallback(callback) { queueMicrotask(() => callback({ timeRemaining: () => 16 })); } }
+    });
+
+    await panel.renderHistoryList();
+    let prevented = false;
+    await documentRef.list.oncontextmenu({
+        target: { closest: () => ({ dataset: { mediaType: 'video', id: '10' } }) },
+        preventDefault() { prevented = true; }, clientX: 0, clientY: 0
+    });
+    assert.equal(prevented, true);
+});
+
 test('video history without a thumbnail renders a VIDEO placeholder while hydration is pending', () => {
     const markup = buildHistoryCardMarkup({
         item: { id: 8, mediaType: 'video', hasVideo: true, thumb: '', timestamp: 1 },

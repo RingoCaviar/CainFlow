@@ -26,6 +26,23 @@ export function createHistoryFeature({
 }) {
     let historyPreviewApi = null;
 
+    async function regenerateHistoryVideoThumbnail(id) {
+        const entry = await getHistoryEntry(id);
+        const video = entry?.videoBlob || entry?.video;
+        if (!(video instanceof Blob)) {
+            showToast('本地视频不可用，无法重新生成缩略图', 'warning');
+            return false;
+        }
+        const thumbnail = await createVideoThumbnail(video, 256, entry.videoAssetKey || `history:${id}`);
+        if (!thumbnail || !await updateHistoryThumb(id, thumbnail)) {
+            showToast('重新生成视频缩略图失败', 'warning');
+            return false;
+        }
+        await renderHistoryList();
+        showToast('已重新生成视频缩略图', 'success');
+        return true;
+    }
+
     function getHistoryPanelApi() {
         if (!registry.historyPanelApi) {
             registry.historyPanelApi = createHistoryPanelApi({
@@ -37,6 +54,7 @@ export function createHistoryFeature({
                 createThumbnail,
                 createVideoThumbnail,
                 updateHistoryThumb,
+                regenerateHistoryVideoThumbnail,
                 openHistoryPreview: (item) => historyPreviewApi.openHistoryPreview(item),
                 deleteHistoryEntry
             });
@@ -59,6 +77,7 @@ export function createHistoryFeature({
                 createThumbnail,
                 createVideoThumbnail,
                 updateHistoryThumb,
+                regenerateHistoryVideoThumbnail,
                 showToast
             });
         }
