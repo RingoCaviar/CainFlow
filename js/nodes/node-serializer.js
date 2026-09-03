@@ -223,6 +223,7 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.video = {
                         id: node.data.video.id || '',
                         url: node.data.video.url || '',
+                        assetKey: node.data.video.assetKey || '',
                         status: node.data.video.status || '',
                         prompt: node.data.video.prompt || ''
                     };

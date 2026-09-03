@@ -1384,6 +1384,7 @@ export function createNodeLifecycleApi({
                 nodeData.data.video = {
                     id: nodeData.data.videoId,
                     url: `/api/storage/assets/${encodeURIComponent(nodeData.data.videoAssetKey)}`,
+                    assetKey: nodeData.data.videoAssetKey,
                     status: nodeData.data.videoStatus,
                     prompt: effectiveRestoreData?.prompt || ''
                 };

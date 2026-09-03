@@ -156,3 +156,42 @@ test('creating an image generation node completes its initial serialization', ()
     assert.equal(lifecycle.addNode('ImageGenerate', 10, 20), 'image-created');
     assert.equal(state.nodes.has('image-created'), true);
 });
+
+test('restoring a video generation node exposes its local Media asset to connected save nodes', () => {
+    const children = [];
+    const nodesLayer = {
+        children,
+        appendChild(element) { children.push(element); }
+    };
+    const documentRef = {
+        defaultView: { setTimeout: () => 0, clearTimeout: () => {} },
+        createElement: () => ({
+            style: {}, dataset: {},
+            classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {}
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = {
+        nodes: new Map(), connections: [], selectedNodes: new Set(),
+        nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 }
+    };
+    const lifecycle = createNodeLifecycleApi({
+        state,
+        nodeConfigs: {
+            VideoGenerate: { title: '视频生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320 }
+        },
+        createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'video-restored',
+        getImageAsset: async () => null, saveImageAsset: async () => false,
+        bindNodeInteractions: () => {}, pushHistory: () => {}, scheduleSave: () => {}, showToast: () => {},
+        updateAllConnections: () => {}, updatePortStyles: () => {},
+        getCacheSidebarActive: () => false, updateCacheUsage: () => {}, documentRef
+    });
+
+    lifecycle.addNode('VideoGenerate', 0, 0, {
+        id: 'video-restored', videoId: 'result-1', videoAssetKey: 'media:abc', videoStatus: 'completed'
+    }, true);
+
+    assert.equal(state.nodes.get('video-restored').data.video.assetKey, 'media:abc');
+});

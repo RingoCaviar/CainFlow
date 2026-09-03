@@ -1382,6 +1382,19 @@ export function createMediaControllerApi({
     }
 
     async function refreshAllRecoverableMediaNodes(options = {}) {
+        let restoredLegacyVideoSave = false;
+        for (const node of state.nodes.values()) {
+            if (node?.enabled === false || node?.type !== 'ImageSave' || node.data?.video?.assetKey) continue;
+            const incomingVideo = state.connections.find((connection) => (
+                connection?.to?.nodeId === node.id && connection.to.port === 'video'
+            ));
+            const sourceVideo = incomingVideo ? getNodeById(incomingVideo.from?.nodeId)?.data?.video : null;
+            if (!sourceVideo?.assetKey) continue;
+            await syncImageSaveNode(node.id, { images: [], video: sourceVideo });
+            restoredLegacyVideoSave = true;
+        }
+        if (restoredLegacyVideoSave) scheduleSave();
+
         const sourceNodeIds = Array.from(state.nodes.values())
             .filter((node) => (
                 node?.enabled !== false

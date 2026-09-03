@@ -197,6 +197,21 @@ test('save-node video persistence keeps the local Media asset identity', () => {
     assert.equal(serialized.video.assetKey, 'media:abc');
 });
 
+test('session serialization preserves a save-node local Media asset identity for canvas restore', () => {
+    const state = {
+        nodes: new Map([['save-video', {
+            id: 'save-video', type: 'ImageSave', x: 0, y: 0, enabled: true,
+            data: { video: { id: 'result-1', url: '/api/storage/assets/media%3Aabc', assetKey: 'media:abc' } }
+        }]]),
+        connections: []
+    };
+    const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
+
+    const [serialized] = createNodeSerializer({ state, documentRef }).serializeNodes();
+
+    assert.equal(serialized.video.assetKey, 'media:abc');
+});
+
 test('clipboard serialization persists active and inactive video Protocol variant drafts', () => {
     const state = {
         nodes: new Map([['video-copy', {
