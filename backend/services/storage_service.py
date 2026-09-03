@@ -457,6 +457,13 @@ class StorageService:
         self.initialize()
         keep_keys = {str(key) for key in (keep_keys or []) if str(key)}
         with self._connect() as db:
+            if mode == 'node-orphans':
+                placeholders = ','.join('?' for _ in keep_keys) or "''"
+                db.execute(
+                    f'''DELETE FROM media_asset_refs
+                        WHERE owner_type='node' AND owner_id NOT IN ({placeholders})''',
+                    tuple(keep_keys),
+                )
             history_keys = {
                 value for row in db.execute('SELECT asset_key, thumb_asset_key FROM history')
                 for value in row if value

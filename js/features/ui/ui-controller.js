@@ -1171,6 +1171,14 @@ export function createUiControllerApi({
     }
 
     async function clearCurrentNodeAssetsOnly() {
+        if (clearOrphanedNodeAssets) {
+            await refreshRecoverableMediaNodes();
+            const cleared = await clearOrphanedNodeAssets(collectRetainedNodeAssetIds());
+            if (!cleared) return false;
+            if (clearOrphanedHistoryAssets) await clearOrphanedHistoryAssets();
+            return true;
+        }
+
         if (clearImageAssets) {
             const cleared = await clearImageAssets({ preserveHistory: true });
             if (!cleared) return false;

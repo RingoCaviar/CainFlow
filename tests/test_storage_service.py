@@ -83,6 +83,21 @@ class StorageServiceTests(unittest.TestCase):
             with self.assertRaises(StorageError):
                 service.put_media_asset(b'new-content', 'video/mp4', 'node', 'three')
 
+    def test_node_orphan_cleanup_removes_stale_node_media_but_keeps_retained_and_history_media(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            stale = service.put_media_asset(b'stale-node-media', 'image/png', 'node', 'stale-node')
+            retained = service.put_media_asset(b'retained-node-media', 'image/png', 'node', 'active-node')
+            historical = service.put_media_asset(b'historical-media', 'image/png', 'node', 'stale-node')
+            service.add_media_reference('history', '1', historical['asset_key'])
+
+            result = service.cleanup_assets('node-orphans', ['active-node'])
+
+            self.assertEqual(1, result['assetsDeleted'])
+            self.assertIsNone(service.get_asset_info(stale['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(historical['asset_key']))
+
     def test_export_directory_requires_absolute_writable_path_and_avoids_overwrite(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
