@@ -1194,6 +1194,7 @@ export function createWorkflowRuntimeManager({
                     node.data.video = {
                         id: video.id || '',
                         url: video.url,
+                        assetKey: video.assetKey || '',
                         status: video.status || '',
                         prompt: video.prompt || ''
                     };

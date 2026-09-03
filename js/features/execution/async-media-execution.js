@@ -213,6 +213,7 @@ export function createAsyncMediaExecutionApi({
             node.data.video = {
                 id: videoId,
                 url: videoUrl,
+                assetKey: node.data.videoAssetKey || '',
                 status,
                 prompt
             };
@@ -1320,6 +1321,7 @@ export function createAsyncMediaExecutionApi({
                 ? {
                     id: lastResult.videoId,
                     url: lastResult.videoUrl,
+                    assetKey: lastResult.videoAssetKey || '',
                     status: lastResult.status,
                     prompt
                 }

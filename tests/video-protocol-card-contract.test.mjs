@@ -189,6 +189,14 @@ test('workflow serialization reads image generation protocol parameters from its
     assert.deepEqual(serialized.protocolParams, { size: '1024x1024', quality: 'high' });
 });
 
+test('save-node video persistence keeps the local Media asset identity', () => {
+    const serialized = serializeRuntimeNode({
+        id: 'save-video', type: 'ImageSave', x: 0, y: 0, enabled: true,
+        data: { video: { id: 'result-1', url: 'https://provider.example/video.mp4', assetKey: 'media:abc' } }
+    }, { getElementById: () => null, querySelectorAll: () => [] });
+    assert.equal(serialized.video.assetKey, 'media:abc');
+});
+
 test('clipboard serialization persists active and inactive video Protocol variant drafts', () => {
     const state = {
         nodes: new Map([['video-copy', {

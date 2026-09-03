@@ -1344,10 +1344,16 @@ export function createNodeLifecycleApi({
         if (normalizedType === 'ImageSave' && effectiveRestoreData?.video && typeof effectiveRestoreData.video === 'object') {
             nodeData.data.video = {
                 id: effectiveRestoreData.video.id || '',
-                url: effectiveRestoreData.video.url || '',
+                url: effectiveRestoreData.video.assetKey
+                    ? `/api/storage/assets/${encodeURIComponent(effectiveRestoreData.video.assetKey)}`
+                    : '',
+                assetKey: effectiveRestoreData.video.assetKey || '',
                 status: effectiveRestoreData.video.status || '',
                 prompt: effectiveRestoreData.video.prompt || ''
             };
+            if (!nodeData.data.video.url && effectiveRestoreData.video.url) {
+                nodeData.data.videoMissingLocalAsset = true;
+            }
         }
         if (normalizedType === 'CameraControl') {
             nodeData.data.pitch = Number.isFinite(Number(effectiveRestoreData?.pitch)) ? Number(effectiveRestoreData.pitch) : 12;

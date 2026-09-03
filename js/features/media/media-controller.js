@@ -1102,6 +1102,7 @@ export function createMediaControllerApi({
             node.data.video = {
                 id: videoData.id || '',
                 url: videoData.url,
+                assetKey: videoData.assetKey || '',
                 status: videoData.status || '',
                 prompt: videoData.prompt || ''
             };
