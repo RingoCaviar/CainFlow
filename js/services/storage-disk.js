@@ -50,6 +50,30 @@ async function putAsset(key, value, kind = 'asset') {
     return response.ok;
 }
 
+async function putMediaAsset(value, ownerType, ownerId) {
+    const blob = value instanceof Blob ? value : dataUrlToBlob(value);
+    if (!blob || blob.size === 0 || !ownerType || !ownerId) return null;
+    const response = await fetch('/api/storage/media-assets', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': blob.type || 'application/octet-stream',
+            'X-CainFlow-Media-Owner-Type': String(ownerType),
+            'X-CainFlow-Media-Owner-Id': String(ownerId)
+        },
+        body: blob
+    });
+    if (!response.ok) return null;
+    return (await response.json()).asset || null;
+}
+
+async function referenceMediaAsset(ownerType, ownerId, assetKey) {
+    const response = await fetch('/api/storage/media-assets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reference', ownerType, ownerId, assetKey })
+    });
+    return response.ok;
+}
+
 async function getAssetBlob(key) {
     try {
         const response = await fetch(assetUrl(key), { cache: 'no-store' });
@@ -190,8 +214,11 @@ export function createDiskStorageApi(getState) {
             const media = mediaType === 'video' ? (data.videoBlob || data.video) : data.image;
             const mediaBlob = media instanceof Blob ? media : dataUrlToBlob(media);
             if (!mediaBlob) return false;
-            const mediaKey = `${HISTORY_ASSET_KEY_PREFIX}${id}`;
-            if (!await putAsset(mediaKey, mediaBlob, 'history')) return false;
+            const mediaAsset = data?.mediaAssetKey
+                ? { asset_key: data.mediaAssetKey }
+                : await putMediaAsset(mediaBlob, 'node', data?.nodeId || `history:${id}`);
+            const mediaKey = mediaAsset?.asset_key || '';
+            if (!mediaKey) return false;
             const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob) : await createThumbnail(data.image));
             const thumbKey = `thumb:${mediaKey}`;
             if (thumb) await putAsset(thumbKey, thumb, 'thumbnail');
@@ -206,7 +233,9 @@ export function createDiskStorageApi(getState) {
             const response = await fetch('/api/storage/history', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry)
             });
-            return response.ok;
+            if (!response.ok) return false;
+            data.mediaAssetKey = mediaKey;
+            return { success: true, assetKey: mediaKey };
         } catch (error) {
             console.warn('Disk history save failed:', error);
             return false;
@@ -254,6 +283,7 @@ export function createDiskStorageApi(getState) {
     return {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
         saveImageAsset, getImageAsset, getImageAssetBlob, saveImageAssetList, getImageAssetList,
+        putMediaAsset, referenceMediaAsset,
         saveImageImportAsset, deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
         clearImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import' }),
         clearOrphanedImageImportAssets: (keys) => postMaintenance('clear-assets', { mode: 'image-import-orphans', keepKeys: Array.from(keys || []) }),

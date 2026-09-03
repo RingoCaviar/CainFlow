@@ -59,6 +59,29 @@ class StorageServiceTests(unittest.TestCase):
             self.assertIsNone(service.get_asset_info('history:10'))
             self.assertIsNone(service.get_asset_info('thumb:history:10'))
 
+    def test_media_asset_keeps_content_until_its_last_reference_is_removed(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'shared-video', 'video/mp4', 'node', 'video-1')
+            key = asset['asset_key']
+            service.add_media_reference('history', '100', key)
+            self.assertFalse(service.delete_asset(key))
+            service.remove_media_reference('history', '100', key)
+            self.assertIsNotNone(service.get_asset_info(key))
+            service.remove_media_reference('node', 'video-1', key)
+            self.assertIsNone(service.get_asset_info(key))
+
+    def test_media_asset_deduplicates_by_digest_and_enforces_cache_limit(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            service.set_media_cache_limit(12)
+            first = service.put_media_asset(b'same-content', 'video/mp4', 'node', 'one')
+            second = service.put_media_asset(b'same-content', 'video/mp4', 'history', 'two')
+            self.assertEqual(first['asset_key'], second['asset_key'])
+            self.assertEqual(12, service.get_stats()['mediaBytes'])
+            with self.assertRaises(StorageError):
+                service.put_media_asset(b'new-content', 'video/mp4', 'node', 'three')
+
     def test_export_directory_requires_absolute_writable_path_and_avoids_overwrite(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

@@ -351,6 +351,7 @@ export function createExecutionCoreApi({
                     videoSizeBytes: entry?.videoBlob?.size || entry?.videoSizeBytes || 0
                 });
             }
+            return saved;
         } catch (error) {
             addLog('warning', '视频历史保存异常', '视频已经生成成功，但保存历史记录时发生异常，不影响本次生成结果继续传递到下游。', {
                 nodeId: entry?.nodeId,
@@ -358,6 +359,7 @@ export function createExecutionCoreApi({
                 videoUrl: entry?.videoUrl,
                 error: error?.message || String(error)
             });
+            return false;
         }
     }
 

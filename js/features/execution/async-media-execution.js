@@ -196,6 +196,7 @@ export function createAsyncMediaExecutionApi({
         node.data = node.data || {};
         if (Object.prototype.hasOwnProperty.call(payload, 'videoId')) node.data.videoId = payload.videoId || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'videoUrl')) node.data.videoUrl = payload.videoUrl || '';
+        if (Object.prototype.hasOwnProperty.call(payload, 'videoAssetKey')) node.data.videoAssetKey = payload.videoAssetKey || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'status')) node.data.videoStatus = payload.status || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'statusText')) node.data.videoStatusText = payload.statusText || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'prompt')) node.data.prompt = payload.prompt || '';
@@ -236,7 +237,7 @@ export function createAsyncMediaExecutionApi({
             const videoBlob = result.videoBlob instanceof Blob
                 ? result.videoBlob
                 : await downloadGeneratedVideo(result.videoUrl, { signal });
-            await saveVideoGenerationHistoryEntry({
+            const saved = await saveVideoGenerationHistoryEntry({
                 nodeId: node.id,
                 video: videoBlob,
                 videoBlob,
@@ -248,6 +249,7 @@ export function createAsyncMediaExecutionApi({
                 model: modelCfg?.name || '',
                 generationDurationSeconds: getNodeGenerationDurationSeconds(node)
             });
+            if (saved?.assetKey) result.videoAssetKey = saved.assetKey;
             addLog('info', '视频历史缓存完成', '视频结果已下载并写入历史记录缓存。', {
                 nodeId: node.id,
                 model: modelCfg?.name || '',

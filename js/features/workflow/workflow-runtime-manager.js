@@ -263,6 +263,7 @@ export function serializeRuntimeNode(node, doc) {
             serialized.doubaoSeed = readElementControlValue(doc, `${node.id}-doubao-seed`, '');
             serialized.videoId = node.data?.videoId || '';
             serialized.videoUrl = node.data?.videoUrl || '';
+            serialized.videoAssetKey = node.data?.videoAssetKey || '';
             serialized.videoStatus = node.data?.videoStatus || '';
             serialized.videoStatusText = node.data?.videoStatusText || '';
             serialized.videoCreateHttpStatus = node.data?.videoCreateHttpStatus || '';
@@ -631,6 +632,7 @@ export function createWorkflowRuntimeManager({
         [
             'videoId',
             'videoUrl',
+            'videoAssetKey',
             'videoStatus',
             'videoStatusText',
             'videoCreateHttpStatus',

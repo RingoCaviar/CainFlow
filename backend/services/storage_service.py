@@ -14,9 +14,10 @@ from urllib.parse import quote
 from backend import config
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 HISTORY_MAX_ENTRIES = 1000
 HISTORY_RETENTION_DAYS = 365
+DEFAULT_MEDIA_CACHE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024
 DOCUMENT_NAMES = {
     'session', 'ui_bootstrap', 'prompt_library', 'logs_state',
     'request_statistics', 'update_state', 'network_detection',
@@ -99,7 +100,28 @@ class StorageService:
                     FOREIGN KEY(thumb_asset_key) REFERENCES assets(asset_key) ON DELETE SET NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
+                CREATE TABLE IF NOT EXISTS media_asset_refs (
+                    owner_type TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    asset_key TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY(owner_type, owner_id, asset_key),
+                    FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_media_asset_refs_asset ON media_asset_refs(asset_key);
             ''')
+            # Existing history rows predate the reference index.  Backfill them
+            # idempotently so an upgrade never makes retained history collectible.
+            now = int(time.time() * 1000)
+            db.execute('''
+                INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                SELECT 'history', CAST(id AS TEXT), asset_key, ? FROM history
+            ''', (now,))
+            db.execute('''
+                INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                SELECT 'history-thumbnail', CAST(id AS TEXT), thumb_asset_key, ? FROM history
+                WHERE thumb_asset_key IS NOT NULL
+            ''', (now,))
             db.execute(
                 'INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                 ('schema_version', str(SCHEMA_VERSION)),
@@ -238,6 +260,9 @@ class StorageService:
             row = db.execute('SELECT relative_path FROM assets WHERE asset_key=?', (str(asset_key),)).fetchone()
             if not row:
                 return False
+            ref_count = db.execute('SELECT COUNT(*) FROM media_asset_refs WHERE asset_key=?', (str(asset_key),)).fetchone()[0]
+            if ref_count:
+                return False
             try:
                 db.execute('DELETE FROM assets WHERE asset_key=?', (str(asset_key),))
             except sqlite3.IntegrityError:
@@ -249,6 +274,82 @@ class StorageService:
             except OSError:
                 pass
         return True
+
+    def get_media_cache_limit(self):
+        value = self.get_meta('media_cache_limit_bytes', DEFAULT_MEDIA_CACHE_LIMIT_BYTES)
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return DEFAULT_MEDIA_CACHE_LIMIT_BYTES
+
+    def set_media_cache_limit(self, limit_bytes):
+        try:
+            limit = int(limit_bytes)
+        except (TypeError, ValueError) as error:
+            raise StorageError('Media cache limit must be a whole number of bytes') from error
+        if limit < 0:
+            raise StorageError('Media cache limit cannot be negative')
+        self.set_meta('media_cache_limit_bytes', limit)
+        return limit
+
+    def _media_cache_bytes(self, db):
+        return db.execute('''
+            SELECT COALESCE(SUM(size_bytes), 0) FROM assets
+            WHERE kind='media'
+        ''').fetchone()[0]
+
+    def add_media_reference(self, owner_type, owner_id, asset_key):
+        self.initialize()
+        owner_type, owner_id, asset_key = (str(value or '').strip() for value in (owner_type, owner_id, asset_key))
+        if not owner_type or not owner_id or not asset_key:
+            raise StorageError('Media asset reference owner and asset key are required')
+        with self._lock, self._connect() as db:
+            if not db.execute('SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone():
+                raise StorageError('Media asset does not exist')
+            db.execute('''
+                INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                VALUES(?, ?, ?, ?)
+            ''', (owner_type, owner_id, asset_key, int(time.time() * 1000)))
+        return self.get_asset_info(asset_key)
+
+    def remove_media_reference(self, owner_type, owner_id, asset_key=None):
+        self.initialize()
+        with self._lock, self._connect() as db:
+            if asset_key:
+                db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=? AND asset_key=?',
+                           (str(owner_type), str(owner_id), str(asset_key)))
+            else:
+                db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=?',
+                           (str(owner_type), str(owner_id)))
+        return self.cleanup_unreferenced_media_assets()
+
+    def put_media_asset(self, body, mime_type, owner_type, owner_id):
+        """Store one canonical Media asset and atomically attach an owner reference."""
+        if not isinstance(body, (bytes, bytearray)) or not body:
+            raise StorageError('Asset body is empty')
+        digest = hashlib.sha256(bytes(body)).hexdigest()
+        asset_key = f'media:{digest}'
+        self.initialize()
+        # A cache write may reclaim only assets with no durable owner first;
+        # referenced results are never evicted to make room for another result.
+        self.cleanup_unreferenced_media_assets()
+        with self._lock, self._connect() as db:
+            exists = db.execute('SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone()
+            if not exists and self._media_cache_bytes(db) + len(body) > self.get_media_cache_limit():
+                raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
+        self.put_asset(asset_key, body, mime_type, 'media')
+        return self.add_media_reference(owner_type, owner_id, asset_key)
+
+    def cleanup_unreferenced_media_assets(self):
+        self.initialize()
+        with self._connect() as db:
+            keys = [row[0] for row in db.execute('''
+                SELECT asset_key FROM assets WHERE kind IN ('media', 'history', 'thumbnail') AND NOT EXISTS (
+                    SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key
+                )
+            ''')]
+        deleted = sum(1 for key in keys if self.delete_asset(key))
+        return {'assetsDeleted': deleted, 'orphanFilesDeleted': self.cleanup_orphan_files()}
 
     def save_history(self, entry):
         self.initialize()
@@ -274,6 +375,11 @@ class StorageService:
                     metadata_json=excluded.metadata_json
             ''', (history_id, timestamp, media_type, asset_key, thumb_asset_key,
                   json.dumps(metadata, ensure_ascii=False, separators=(',', ':'))))
+            db.execute('INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at) VALUES(?, ?, ?, ?)',
+                       ('history', str(history_id), asset_key, int(time.time() * 1000)))
+            if thumb_asset_key:
+                db.execute('INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at) VALUES(?, ?, ?, ?)',
+                           ('history-thumbnail', str(history_id), thumb_asset_key, int(time.time() * 1000)))
         self.trim_history()
         return history_id
 
@@ -310,11 +416,10 @@ class StorageService:
         entry = self.get_history(history_id)
         if not entry:
             return False
-        keys = [entry.get('imageAssetKey'), entry.get('videoAssetKey'), entry.get('thumbAssetKey')]
         with self._lock, self._connect() as db:
             db.execute('DELETE FROM history WHERE id=?', (int(history_id),))
-        for key in filter(None, keys):
-            self.delete_asset(key)
+            db.execute("DELETE FROM media_asset_refs WHERE owner_id=? AND owner_type IN ('history', 'history-thumbnail')", (str(history_id),))
+        self.cleanup_unreferenced_media_assets()
         return True
 
     def clear_history(self):
@@ -372,6 +477,8 @@ class StorageService:
                 delete_keys.append(key)
             elif mode == 'orphans' and kind == 'thumbnail' and key not in history_keys:
                 delete_keys.append(key)
+            elif mode == 'media-orphans' and kind == 'media':
+                delete_keys.append(key)
         deleted = sum(1 for key in delete_keys if self.delete_asset(key))
         return {'assetsDeleted': deleted, 'orphanFilesDeleted': self.cleanup_orphan_files()}
 
@@ -409,6 +516,8 @@ class StorageService:
         with self._connect() as db:
             documents = db.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
             assets, asset_bytes = db.execute('SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets').fetchone()
+            media_assets, media_bytes = db.execute("SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind='media'").fetchone()
+            media_references = db.execute('SELECT COUNT(*) FROM media_asset_refs').fetchone()[0]
             history = db.execute('SELECT COUNT(*) FROM history').fetchone()[0]
             document_bytes = db.execute('SELECT COALESCE(SUM(LENGTH(value_json)), 0) FROM documents').fetchone()[0]
             history_bytes = db.execute("SELECT COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind IN ('history', 'thumbnail')").fetchone()[0]
@@ -419,6 +528,8 @@ class StorageService:
             'historyBytes': history_bytes, 'imageImportBytes': import_bytes,
             'nodeAssetBytes': max(0, asset_bytes - history_bytes - import_bytes),
             'totalBytes': asset_bytes + document_bytes,
+            'mediaAssets': media_assets, 'mediaBytes': media_bytes,
+            'mediaReferences': media_references, 'mediaCacheLimitBytes': self.get_media_cache_limit(),
         }
 
     def get_export_directory(self):

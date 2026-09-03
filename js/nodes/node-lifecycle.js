@@ -1367,19 +1367,24 @@ export function createNodeLifecycleApi({
             nodeData.data.enableUpsample = effectiveRestoreData?.enableUpsample === true;
             nodeData.data.videoId = effectiveRestoreData?.videoId || '';
             nodeData.data.videoUrl = effectiveRestoreData?.videoUrl || '';
+            nodeData.data.videoAssetKey = effectiveRestoreData?.videoAssetKey || '';
             nodeData.data.videoStatus = effectiveRestoreData?.videoStatus || '';
             nodeData.data.videoStatusText = effectiveRestoreData?.videoStatusText || '';
             nodeData.data.videoCreateHttpStatus = effectiveRestoreData?.videoCreateHttpStatus || '';
             nodeData.data.videoCreateStatus = effectiveRestoreData?.videoCreateStatus || '';
             nodeData.data.videoStatusUpdateTime = effectiveRestoreData?.videoStatusUpdateTime || '';
             nodeData.data.videoEnhancedPrompt = effectiveRestoreData?.videoEnhancedPrompt || '';
-            if (nodeData.data.videoUrl) {
+            if (nodeData.data.videoAssetKey) {
                 nodeData.data.video = {
                     id: nodeData.data.videoId,
-                    url: nodeData.data.videoUrl,
+                    url: `/api/storage/assets/${encodeURIComponent(nodeData.data.videoAssetKey)}`,
                     status: nodeData.data.videoStatus,
                     prompt: effectiveRestoreData?.prompt || ''
                 };
+            } else if (nodeData.data.videoUrl) {
+                // Legacy remote results are intentionally not preloaded after restart.
+                // Recovery is an explicit user action so provider URLs are never fetched silently.
+                nodeData.data.videoMissingLocalAsset = true;
             }
         }
         if (normalizedType === 'ImageGenerate') {

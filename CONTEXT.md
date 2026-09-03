@@ -74,6 +74,14 @@ _Avoid_: Provider order
 A locally stored record used to investigate CainFlow requests, failures, and runtime behavior within a hard total disk budget. Errors have retention priority, while successful requests may be sampled.
 _Avoid_: Unbounded log, complete request archive
 
+**Media asset**:
+One locally persisted image or video result, identified independently of any node or history record. Generation nodes and history records may reference the same Media asset; deleting one reference never deletes the asset while another reference remains.
+_Avoid_: Node-owned media copy, history-owned media copy
+
+**Media asset recovery**:
+A user-confirmed download of a missing locally referenced Media asset from its retained remote result URL. CainFlow never starts recovery automatically; it reports the transfer's progress, completion, cancellation, or failure on the requesting node.
+_Avoid_: Automatic cache refill, silent remote fallback
+
 **Diagnostic level**:
 The user's choice of how much successful runtime activity CainFlow records for diagnosis; it does not weaken the hard disk budget. It expresses diagnostic intent rather than a retention duration.
 _Avoid_: Log retention days, log storage quota

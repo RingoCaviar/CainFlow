@@ -200,6 +200,7 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                     serialized.videoId = node.data?.videoId || '';
                     serialized.videoUrl = node.data?.videoUrl || '';
+                    serialized.videoAssetKey = node.data?.videoAssetKey || '';
                     serialized.videoStatus = node.data?.videoStatus || '';
                     serialized.videoStatusText = node.data?.videoStatusText || '';
                     serialized.videoCreateHttpStatus = node.data?.videoCreateHttpStatus || '';

@@ -73,6 +73,10 @@ def handle_get(handler):
     if path == '/api/storage/maintenance':
         write_json(handler, storage_service.get_stats())
         return True
+    if path.startswith('/api/storage/media-assets/'):
+        info = storage_service.get_asset_info(unquote(path[len('/api/storage/media-assets/'):]))
+        write_json(handler, {'asset': info}, status=200 if info else 404)
+        return True
     if path == '/api/storage/migration':
         write_json(handler, {
             'completed': storage_service.get_meta('browser_migration_completed') == '1',
@@ -105,6 +109,15 @@ def handle_put(handler):
             )
             write_json(handler, {'success': True, 'asset': info})
             return True
+        if path == '/api/storage/media-assets':
+            body = read_request_body(handler)
+            info = storage_service.put_media_asset(
+                body, handler.headers.get('Content-Type', 'application/octet-stream'),
+                handler.headers.get('X-CainFlow-Media-Owner-Type', ''),
+                handler.headers.get('X-CainFlow-Media-Owner-Id', ''),
+            )
+            write_json(handler, {'success': True, 'asset': info})
+            return True
     except StorageError as error:
         write_error(handler, 400, str(error))
         return True
@@ -119,6 +132,20 @@ def handle_post(handler):
         if path == '/api/storage/history':
             history_id = storage_service.save_history(read_json_body(handler))
             write_json(handler, {'success': True, 'id': history_id})
+            return True
+        if path == '/api/storage/media-assets':
+            data = read_json_body(handler)
+            action = str(data.get('action') or '')
+            if action == 'reference':
+                asset = storage_service.add_media_reference(data.get('ownerType'), data.get('ownerId'), data.get('assetKey'))
+                result = {'asset': asset}
+            elif action == 'unreference':
+                result = storage_service.remove_media_reference(data.get('ownerType'), data.get('ownerId'), data.get('assetKey'))
+            elif action == 'cache-limit':
+                result = {'mediaCacheLimitBytes': storage_service.set_media_cache_limit(data.get('limitBytes'))}
+            else:
+                raise StorageError('Unknown media asset action')
+            write_json(handler, {'success': True, **result})
             return True
         if path == '/api/storage/maintenance':
             data = read_json_body(handler)
