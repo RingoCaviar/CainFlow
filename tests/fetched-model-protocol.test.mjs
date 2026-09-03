@@ -15,6 +15,10 @@ test('the built-in video format is visibly named for the documented 6789 relay A
     assert.equal(RelayVideoProtocol.label, '6789中转视频');
 });
 
+test('the fetched-model list labels the 6789 relay video compatibility format', () => {
+    assert.equal(getModelCompatibilityFormatLabel('async-video-api'), '6789中转视频');
+});
+
 test('a fetched nano-banana model is persisted with the Google Gemini format', () => {
     const models = [];
     const config = addFetchedModelToCollection({ models,
@@ -43,6 +47,19 @@ test('fetched Grok text and image models are persisted with the OpenAI format', 
     assert.equal(inferModelCompatibilityFormat({ id: 'xai-chat' }), '');
 });
 
+test('a fetched Kling O3 model is persisted with the 6789 relay video format', () => {
+    const models = [];
+    const config = addFetchedModelToCollection({
+        models,
+        generatedId: 'mod_kling_o3',
+        providerId: 'provider_relay',
+        fetchedModel: { id: 'kling-o3', name: 'Kling O3' },
+        taskType: 'video'
+    });
+
+    assert.equal(config.protocol, 'async-video-api');
+});
+
 test('model compatibility format uses only reliable model-name keywords', () => {
     for (const id of ['gemini-2.5-pro', 'banana-fast', 'nano-banana-fast', 'nano banana pro', 'nano_banana']) {
         assert.equal(inferModelCompatibilityFormat({ id }), 'google', id);
@@ -53,6 +70,7 @@ test('model compatibility format uses only reliable model-name keywords', () => 
     for (const id of ['doubao-video', 'seedance-1.0']) {
         assert.equal(inferModelCompatibilityFormat({ id }), 'doubao-video', id);
     }
+    assert.equal(inferModelCompatibilityFormat({ id: 'kling-2.6' }), '');
 });
 
 test('provider and endpoint metadata never determine model compatibility format', () => {

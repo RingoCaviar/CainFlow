@@ -10,6 +10,7 @@ export function inferModelCompatibilityFormat(model = {}) {
     if (/(?:^|[^a-z0-9])(?:ttapi|veo|newapi|new-api)(?:$|[^a-z0-9])/.test(fingerprint)) return '';
     if (/(?:^|[^a-z0-9])(?:gemini|banana)(?:$|[^a-z0-9])/.test(fingerprint)) return 'google';
     if (/(?:^|[^a-z0-9])(?:doubao|seedance)(?:$|[^a-z0-9])/.test(fingerprint)) return 'doubao-video';
+    if (/(?:^|[^a-z0-9])kling-o3(?:$|[^a-z0-9])/.test(fingerprint)) return 'async-video-api';
     if (
         fingerprint.includes('grok') ||
         /\b(?:gpt|openai)\b/.test(fingerprint) ||
@@ -25,6 +26,7 @@ export function getModelCompatibilityFormatLabel(protocol = '') {
     if (protocol === 'google') return 'Google / Gemini';
     if (protocol === 'openai') return 'OpenAI';
     if (protocol === 'doubao-video') return '豆包视频';
+    if (protocol === 'async-video-api') return '6789中转视频';
     return '未识别 · 需手动选择';
 }
 
