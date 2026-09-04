@@ -1283,6 +1283,8 @@ function getWorkflowRuntimeManagerApi() {
             saveWorkflowNodeMediaAsset,
             saveWorkflowNodeMediaAssets,
             releaseWorkflowNodeMediaAssets,
+            referenceMediaAsset,
+            removeMediaReference,
             saveHistoryEntry,
             renderHistoryList: (...args) => historyFeature.renderHistoryList(...args),
             logRequestToPanel,
