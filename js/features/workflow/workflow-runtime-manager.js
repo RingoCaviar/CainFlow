@@ -166,6 +166,10 @@ export function serializeRuntimeNode(node, doc) {
         ? node.imageImportAssetKey
         : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
     const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
+    const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+        ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key)
+        : (imageAssetKey.startsWith('media:') ? [imageAssetKey] : []);
+    if (mediaAssetKeys.length > 0) serialized.mediaAssetKeys = mediaAssetKeys;
     if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
         if (usesCanonicalImages) {
             if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;

@@ -58,6 +58,8 @@ export function createExecutionCoreApi({
     saveImageAsset,
     saveImageAssetList = async () => false,
     saveWorkflowNodeMediaAsset = async () => null,
+    saveWorkflowNodeMediaAssets = async () => [],
+    releaseWorkflowNodeMediaAssets = async () => false,
     deleteImageAsset,
     dataURLtoBlob,
     blobToDataUrl,
@@ -217,6 +219,7 @@ export function createExecutionCoreApi({
         if (!node) return 0;
         node.data = node.data || {};
         if (assetKey) node.data.imageAssetKey = assetKey;
+        if (typeof assetKey === 'string' && assetKey.startsWith('media:')) node.data.mediaAssetKeys = [assetKey];
         node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
         delete node.data.imageAssetReady;
         delete node.data.imageMemoryReleased;
@@ -248,19 +251,28 @@ export function createExecutionCoreApi({
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return;
         const workflowId = getActiveWorkflowId();
+        const previousMediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.slice() : [];
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         const saveTask = async () => {
+            const mediaAssets = imageList.length > 1 && workflowId
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id)
+                : [];
             const mediaAsset = imageList.length === 1 && workflowId
                 ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
                 : null;
-            const savedAssetKey = mediaAsset?.asset_key || assetKey;
-            const saved = mediaAsset
+            const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
+            const saved = mediaAsset || mediaAssets.length === imageList.length
                 ? true
                 : (imageList.length > 1
                     ? await saveImageAssetList(assetKey, imageList)
                     : await saveImageAsset(assetKey, imageList[0]));
             if (saved) {
                 markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
+                if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
+                if ((mediaAsset || mediaAssets.length === imageList.length) && previousMediaAssetKeys.length > 0) {
+                    const nextKeys = node.data.mediaAssetKeys || [savedAssetKey];
+                    await releaseWorkflowNodeMediaAssets(previousMediaAssetKeys.filter((key) => !nextKeys.includes(key)), workflowId, node.id);
+                }
                 await releaseNodeImageData(node.id);
             } else {
                 markNodeImageAssetFailed(node, token);

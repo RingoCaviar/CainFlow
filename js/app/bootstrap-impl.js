@@ -245,6 +245,8 @@ const {
     deleteHandle,
     saveImageAsset,
     saveWorkflowNodeMediaAsset,
+    saveWorkflowNodeMediaAssets,
+    releaseWorkflowNodeMediaAssets,
     saveWorkflowImportMediaAsset,
     getImageAsset,
     saveImageAssetList,
@@ -257,6 +259,7 @@ const {
     clearImageImportAssets,
     clearImageAssets,
     clearOrphanedNodeAssets,
+    referenceMediaAsset,
     clearOrphanedImageImportAssets,
     createThumbnail,
     createVideoThumbnail,
@@ -1173,6 +1176,8 @@ function getExecutionCoreApi() {
             saveImageAsset,
             saveImageAssetList,
             saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
             deleteImageAsset,
             dataURLtoBlob,
             blobToDataUrl,
@@ -1350,6 +1355,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     panelManager,
     clearImageAssets,
     clearOrphanedNodeAssets,
+    referenceMediaAsset,
     clearUndoStack: () => {
         state.undoStack = [];
         updateUndoButton();

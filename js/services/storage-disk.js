@@ -278,6 +278,18 @@ export function createDiskStorageApi(getState) {
         if (!workflowId || !nodeId) return null;
         return putMediaAsset(value, 'workflow-node', ownerId);
     }
+    async function saveWorkflowNodeMediaAssets(values, workflowId, nodeId) {
+        const items = Array.isArray(values) ? values.filter(Boolean) : [];
+        const assets = await Promise.all(items.map((value) => saveWorkflowNodeMediaAsset(value, workflowId, nodeId)));
+        return assets.filter((asset) => asset?.asset_key);
+    }
+    async function releaseWorkflowNodeMediaAssets(keys, workflowId, nodeId) {
+        const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
+        if (!workflowId || !nodeId) return false;
+        const results = await Promise.all((Array.isArray(keys) ? keys : []).filter(Boolean)
+            .map((key) => removeMediaReference('workflow-node', ownerId, key)));
+        return results.every(Boolean);
+    }
     async function saveWorkflowImportMediaAsset(value, workflowId, nodeId) {
         const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
         if (!workflowId || !nodeId) return null;
@@ -385,6 +397,8 @@ export function createDiskStorageApi(getState) {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
         saveImageAsset, getImageAsset, getImageAssetBlob, saveImageAssetList, getImageAssetList,
         saveWorkflowNodeMediaAsset,
+        saveWorkflowNodeMediaAssets,
+        releaseWorkflowNodeMediaAssets,
         saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         saveImageImportAsset, deleteImageAsset, deleteImageImportAsset: deleteImageAsset,

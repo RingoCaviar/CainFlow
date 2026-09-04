@@ -55,6 +55,7 @@ export function createWorkflowManagerApi({
     panelManager,
     clearImageAssets = null,
     clearOrphanedNodeAssets = null,
+    referenceMediaAsset = async () => false,
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
@@ -70,6 +71,16 @@ export function createWorkflowManagerApi({
     windowRef = window,
     localStorageRef = localStorage
 }) {
+    async function referenceCopiedWorkflowMedia(workflowData, workflowId) {
+        const refs = (workflowData?.nodes || []).flatMap((node) => (node?.mediaAssetKeys || [])
+            .filter((key) => typeof key === 'string' && key));
+        for (const node of workflowData?.nodes || []) {
+            for (const key of node?.mediaAssetKeys || []) {
+                if (!await referenceMediaAsset('workflow-node', `${workflowId}:${node.id}`, key)) return false;
+            }
+        }
+        return refs.length === 0 || true;
+    }
     const WORKFLOW_VERSION = '1.3';
     const TAB_COLORS = 6;
     const RUN_RESULT_SUCCESS = 'success';
@@ -216,6 +227,7 @@ export function createWorkflowManagerApi({
                     data
                 })
                 : await saveWorkflowToFile(operation.label, data);
+            if (ok && !await referenceCopiedWorkflowMedia(data, operation.newWorkflowId)) return false;
             const createdTab = operation.registerOpen !== false ? {
                     workflowId: operation.newWorkflowId,
                     name: operation.label,
