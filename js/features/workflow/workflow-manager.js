@@ -722,7 +722,7 @@ export function createWorkflowManagerApi({
             state.nodes.forEach((node, id) => {
                 const nodeId = node?.id || id;
                 ids.add(nodeId);
-                const workflowId = state.activeWorkflowId;
+                const workflowId = getActiveWorkflowId();
                 if (workflowId && nodeId) ids.add(`${workflowId}:${nodeId}`);
             });
         }
