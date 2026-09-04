@@ -51,6 +51,44 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
 const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
 const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
+export function createRuntimeForwardedMediaReferenceApi({ runtimeState, workflowId, referenceMediaAsset, removeMediaReference }) {
+    const getRuntimeNode = (nodeId) => runtimeState.nodes.get(nodeId);
+    const getMediaKeys = (node) => (Array.isArray(node?.data?.mediaAssetKeys)
+        ? node.data.mediaAssetKeys
+        : [node?.imageImportAssetKey, node?.data?.imageImportAssetKey, node?.data?.imageAssetKey])
+        .filter((key) => typeof key === 'string' && key.startsWith('media:'));
+    const getForwardedKeys = (nodeId, ports = ['image']) => runtimeState.connections
+        .filter((connection) => connection?.to?.nodeId === nodeId && ports.includes(connection.to.port))
+        .flatMap((connection) => getMediaKeys(getRuntimeNode(connection.from?.nodeId)));
+    const syncForwardedKeys = async (node, keys) => {
+        const previous = getMediaKeys(node);
+        const ownerId = `${workflowId}:${node.id}`;
+        const added = [];
+        for (const key of [...new Set(keys.filter((key) => !previous.includes(key)))]) {
+            if (await referenceMediaAsset('workflow-node', ownerId, key)) {
+                added.push(key);
+                continue;
+            }
+            await Promise.all([...new Set([...added, ...previous])]
+                .map((addedKey) => removeMediaReference('workflow-node', ownerId, addedKey)));
+            delete node.data.mediaAssetKeys;
+            return false;
+        }
+        await Promise.all([...new Set(previous.filter((key) => !keys.includes(key)))]
+            .map((key) => removeMediaReference('workflow-node', ownerId, key)));
+        if (keys.length === 0) {
+            delete node.data.mediaAssetKeys;
+            return false;
+        }
+        node.data.mediaAssetKeys = keys;
+        node.data.imageAssetKey = keys[0];
+        node.data.imageCount = keys.length;
+        node.data.imageAssetReady = true;
+        return true;
+    };
+    return { getForwardedKeys, syncForwardedKeys };
+}
+
 function clonePlainValue(value) {
     if (value === undefined) return undefined;
     if (value === null || typeof value !== 'object') return value;
@@ -1084,39 +1122,9 @@ export function createWorkflowRuntimeManager({
 
     function createRuntimeMediaApi(runtimeState, doc, workflowId) {
         const getRuntimeNode = (nodeId) => runtimeState.nodes.get(nodeId);
-        const getMediaKeys = (node) => (Array.isArray(node?.data?.mediaAssetKeys)
-            ? node.data.mediaAssetKeys
-            : [node?.imageImportAssetKey, node?.data?.imageImportAssetKey, node?.data?.imageAssetKey])
-            .filter((key) => typeof key === 'string' && key.startsWith('media:'));
-        const getForwardedKeys = (nodeId, ports = ['image']) => runtimeState.connections
-            .filter((connection) => connection?.to?.nodeId === nodeId && ports.includes(connection.to.port))
-            .flatMap((connection) => getMediaKeys(getRuntimeNode(connection.from?.nodeId)));
-        const syncForwardedKeys = async (node, keys) => {
-            const previous = getMediaKeys(node);
-            const ownerId = `${workflowId}:${node.id}`;
-            const added = [];
-            for (const key of [...new Set(keys.filter((key) => !previous.includes(key)))]) {
-                if (await referenceMediaAsset('workflow-node', ownerId, key)) {
-                    added.push(key);
-                    continue;
-                }
-                await Promise.all([...new Set([...added, ...previous])]
-                    .map((addedKey) => removeMediaReference('workflow-node', ownerId, addedKey)));
-                delete node.data.mediaAssetKeys;
-                return false;
-            }
-            await Promise.all([...new Set(previous.filter((key) => !keys.includes(key)))]
-                .map((key) => removeMediaReference('workflow-node', ownerId, key)));
-            if (keys.length === 0) {
-                delete node.data.mediaAssetKeys;
-                return false;
-            }
-            node.data.mediaAssetKeys = keys;
-            node.data.imageAssetKey = keys[0];
-            node.data.imageCount = keys.length;
-            node.data.imageAssetReady = true;
-            return true;
-        };
+        const { getForwardedKeys, syncForwardedKeys } = createRuntimeForwardedMediaReferenceApi({
+            runtimeState, workflowId, referenceMediaAsset, removeMediaReference
+        });
         const {
             createPreviewPlaceholder,
             ensureElement,
