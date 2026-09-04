@@ -1,4 +1,18 @@
 /* Shared theme plumbing and theme-switcher UI styles. */
+:root:not([data-app-theme]),
+:root[data-app-theme="dark"],
+:root[data-app-theme="pro"],
+:root[data-app-theme="glass-dark"] {
+    color-scheme: dark;
+}
+
+:root[data-app-theme="paper"],
+:root[data-app-theme="light"],
+:root[data-app-theme="glass-light"],
+:root[data-app-theme="pink"] {
+    color-scheme: light;
+}
+
 #btn-theme-toggle {
     width: 160px;
     min-width: 160px;

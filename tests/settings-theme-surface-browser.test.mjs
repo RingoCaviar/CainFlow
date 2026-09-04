@@ -42,6 +42,7 @@ test('settings surfaces render from the semantic palette in every supported them
             cardNameShadow: _cardNameShadow,
             cardNameFocusShadow: _cardNameFocusShadow,
             cardNameFocusBottomBorder: _cardNameFocusBottomBorder,
+            colorScheme: _colorScheme,
             ...surfaceActual
         } = measurement.actual;
         assert.deepEqual(
@@ -132,6 +133,26 @@ test('settings surfaces render from the semantic palette in every supported them
                 `${measurement.themeId} ${kind} focus ring contrast ${focusRatio.toFixed(2)} must meet WCAG 2.2 non-text contrast`,
             );
         }
+    }
+});
+
+test('native controls use the system color scheme that matches every supported theme', () => {
+    const expectedColorSchemes = {
+        dark: 'dark',
+        pro: 'dark',
+        paper: 'light',
+        light: 'light',
+        'glass-light': 'light',
+        'glass-dark': 'dark',
+        pink: 'light',
+    };
+
+    for (const measurement of renderFixture()) {
+        assert.equal(
+            measurement.actual.colorScheme,
+            expectedColorSchemes[measurement.themeId],
+            `${measurement.themeId} native controls must use the matching system color scheme`,
+        );
     }
 });
 
