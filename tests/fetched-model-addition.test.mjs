@@ -102,3 +102,9 @@ test('binding an unrecognized fetched model to another provider repeats the manu
     assert.ok(harness.events.some((event) => event.startsWith('toast:warning:无法自动识别')));
     assert.equal(harness.events.some((event) => event.includes('已将供应商绑定')), false);
 });
+
+test('a fetched MiniMax H3 model is classified as video', () => {
+    const harness = createHarness();
+
+    assert.equal(harness.api.inferFetchedModelTaskType('minimax-h3', { name: 'MiniMax H3' }), 'video');
+});

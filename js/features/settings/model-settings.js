@@ -137,6 +137,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             fingerprint.includes('seedance') ||
             fingerprint.includes('sora') ||
             fingerprint.includes('kling') ||
+            /(?:^|[^a-z0-9])minimax[-_\s]?h3(?:$|[^a-z0-9])/.test(fingerprint) ||
             fingerprint.includes('hailuo') ||
             fingerprint.includes('runway') ||
             fingerprint.includes('wanx') ||
