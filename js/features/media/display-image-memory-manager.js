@@ -97,6 +97,10 @@ export function createDisplayImageMemoryManager({
 
     function getStoredImageAssetKey(node) {
         if (!node) return '';
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        if (mediaAssetKeys.length > 0) return mediaAssetKeys[0];
         if (isImageImportUploadNode(node)) {
             return [
                 node.imageImportAssetKey,
@@ -169,7 +173,10 @@ export function createDisplayImageMemoryManager({
     }
 
     function isDisplayImageAssetReady(node) {
-        const assetKey = getStoredImageAssetKey(node);
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        const assetKey = mediaAssetKeys[0] || getStoredImageAssetKey(node);
         if (!assetKey) return false;
         const stateEntry = displayImageAssetState.get(assetKey) || displayImageAssetState.get(node?.id);
         return node?.data?.imageAssetReady === true
@@ -452,6 +459,11 @@ export function createDisplayImageMemoryManager({
     async function readStoredImages(assetKey) {
         if (!assetKey) return [];
         try {
+            const mediaAssetKeys = Array.isArray(assetKey) ? assetKey : [assetKey];
+            if (mediaAssetKeys.length > 1 && mediaAssetKeys.every((key) => typeof key === 'string' && key.startsWith('media:'))) {
+                const images = await Promise.all(mediaAssetKeys.map((key) => getImageAsset(key)));
+                return normalizeImageList(images);
+            }
             let restoredImages = typeof getImageAssetList === 'function'
                 ? await getImageAssetList(assetKey)
                 : [];
@@ -467,7 +479,10 @@ export function createDisplayImageMemoryManager({
     }
 
     async function ensureManagedImageAssetReady(node) {
-        const assetKey = getStoredImageAssetKey(node);
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        const assetKey = mediaAssetKeys[0] || getStoredImageAssetKey(node);
         if (!node?.data || !assetKey) return false;
         if (isDisplayImageAssetReady(node)) return true;
 
@@ -816,12 +831,15 @@ export function createDisplayImageMemoryManager({
             return currentImageList;
         }
 
-        const assetKey = getStoredImageAssetKey(node);
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        const assetKey = mediaAssetKeys[0] || getStoredImageAssetKey(node);
         if (!assetKey) {
             return currentImageList;
         }
 
-        const restoredImages = await readStoredImages(assetKey);
+        const restoredImages = await readStoredImages(mediaAssetKeys.length > 0 ? mediaAssetKeys : assetKey);
 
         if (restoredImages.length > 0) {
             return applyRestoredImagesToNode(node, restoredImages, assetKey);

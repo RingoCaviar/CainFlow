@@ -76,6 +76,8 @@ export function createMediaControllerApi({
     saveImageImportAsset = async () => '',
     saveWorkflowImportMediaAsset = async () => null,
     getActiveWorkflowId = () => '',
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
@@ -476,6 +478,59 @@ export function createMediaControllerApi({
         return video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim()
             ? video
             : null;
+    }
+
+    function getNodeMediaAssetKeys(node) {
+        const keys = Array.isArray(node?.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys
+            : [node?.data?.imageAssetKey, node?.imageImportAssetKey, node?.data?.imageImportAssetKey];
+        return keys.filter((key, index, list) => (
+            typeof key === 'string' && key.startsWith('media:') && list.indexOf(key) === index
+        ));
+    }
+
+    function getForwardedMediaAssetKeys(nodeId, ports = ['image']) {
+        return state.connections
+            .filter((connection) => connection?.to?.nodeId === nodeId && ports.includes(connection.to.port))
+            .flatMap((connection) => getNodeMediaAssetKeys(getNodeById(connection.from?.nodeId)))
+            .filter((key, index, list) => list.indexOf(key) === index);
+    }
+
+    async function syncForwardedMediaAssetKeys(node, keys) {
+        const workflowId = getActiveWorkflowId();
+        if (!node?.id || !workflowId || keys.length === 0) return false;
+        const previousKeys = getNodeMediaAssetKeys(node);
+        const addedKeys = keys.filter((key) => !previousKeys.includes(key));
+        for (const key of addedKeys) {
+            if (await referenceMediaAsset('workflow-node', `${workflowId}:${node.id}`, key)) continue;
+            await Promise.all(addedKeys
+                .slice(0, addedKeys.indexOf(key))
+                .map((addedKey) => removeMediaReference('workflow-node', `${workflowId}:${node.id}`, addedKey)));
+            return false;
+        }
+        const removedKeys = previousKeys.filter((key) => !keys.includes(key));
+        if (removedKeys.length > 0) {
+            await Promise.all(removedKeys.map((key) => (
+                removeMediaReference('workflow-node', `${workflowId}:${node.id}`, key)
+            )));
+        }
+        node.data = node.data || {};
+        node.data.mediaAssetKeys = keys.slice();
+        node.data.imageAssetKey = keys[0];
+        node.data.imageCount = keys.length;
+        node.data.imageAssetReady = true;
+        node.data.imageHydratedAt = Date.now();
+        return true;
+    }
+
+    async function releaseForwardedMediaAssetKeys(node) {
+        const workflowId = getActiveWorkflowId();
+        const keys = getNodeMediaAssetKeys(node);
+        if (!node?.id || !workflowId || keys.length === 0) return;
+        await Promise.all(keys.map((key) => (
+            removeMediaReference('workflow-node', `${workflowId}:${node.id}`, key)
+        )));
+        delete node.data.mediaAssetKeys;
     }
 
     function getStoredSaveVideos(node) {
@@ -1077,9 +1132,11 @@ export function createMediaControllerApi({
             });
             renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
-            saveDisplayImageAssetSoon(nodeId, imageList);
+            const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId));
+            if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             clearDisplayImageAssetState(nodeId);
             if (previewContainer) {
@@ -1165,7 +1222,8 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            saveDisplayImageAssetSoon(nodeId, imageList);
+            const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId));
+            if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else if (videoData?.url || videoData?.assetKey) {
             clearCanonicalImageOutput(node);
@@ -1179,6 +1237,7 @@ export function createMediaControllerApi({
                 resolutionBadge.style.display = 'none';
             }
         } else {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             delete node.data.video;
             clearDisplayImageAssetState(nodeId);
@@ -1280,6 +1339,7 @@ export function createMediaControllerApi({
         else delete node.data.compareImageB;
 
         if (!nextImageB) {
+            await releaseForwardedMediaAssetKeys(node);
             node.imageData = null;
             delete node.data.image;
             delete node.data.imageAssetKey;
@@ -1294,7 +1354,8 @@ export function createMediaControllerApi({
 
         node.data.image = nextImageB;
         node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
-        if (node.imageData) {
+        const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId, ['imageB']));
+        if (node.imageData && !forwarded) {
             markNodeImageAssetPending(node, nodeId, 1);
             const ok = await saveImageAsset(nodeId, node.imageData);
             if (ok) markNodeImageAssetReady(node, nodeId, 1);
@@ -3000,6 +3061,7 @@ export function createMediaControllerApi({
         renderImagePreviewImage,
         renderImageSavePreview,
         renderImageComparePreview,
+        getNodeFullscreenImageContext,
         releaseNodeImageData,
         clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
         scheduleDisplayImageMemorySweep,
