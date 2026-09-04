@@ -259,6 +259,7 @@ const {
     clearOrphanedNodeAssets,
     referenceMediaAsset,
     removeMediaReference,
+    putMediaAsset,
     clearOrphanedImageImportAssets,
     createThumbnail,
     createVideoThumbnail,
@@ -1362,6 +1363,11 @@ const workflowManagerApi = createWorkflowManagerApi({
     clearImageAssets,
     clearOrphanedNodeAssets,
     referenceMediaAsset,
+    removeMediaReference,
+    putMediaAsset,
+    getImageAsset,
+    getImageAssetList,
+    deleteImageAsset,
     clearUndoStack: () => {
         state.undoStack = [];
         updateUndoButton();

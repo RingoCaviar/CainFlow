@@ -32,6 +32,7 @@ import {
     retainActiveWorkflowTabDuringRefresh
 } from './workflow-tab-revision.js';
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
+import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
     getWorkflowMoveEligibility,
     hasRunningWorkflowInFolder,
@@ -56,6 +57,11 @@ export function createWorkflowManagerApi({
     clearImageAssets = null,
     clearOrphanedNodeAssets = null,
     referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
+    putMediaAsset = async () => null,
+    getImageAsset = async () => null,
+    getImageAssetList = async () => [],
+    deleteImageAsset = async () => false,
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
@@ -71,6 +77,9 @@ export function createWorkflowManagerApi({
     windowRef = window,
     localStorageRef = localStorage
 }) {
+    const legacyMediaMigration = createLegacyMediaMigrationCoordinator({
+        getImageAsset, getImageAssetList, putMediaAsset, referenceMediaAsset, removeMediaReference, deleteImageAsset
+    });
     async function referenceCopiedWorkflowMedia(workflowData, workflowId) {
         const refs = (workflowData?.nodes || []).flatMap((node) => (node?.mediaAssetKeys || [])
             .filter((key) => typeof key === 'string' && key));
@@ -450,12 +459,22 @@ export function createWorkflowManagerApi({
     }
 
     async function saveWorkflowToFile(name, data) {
-        const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(data));
-        if (result !== true) {
-            showToast(result.message, 'error');
+        let migration = null;
+        try {
+            migration = await legacyMediaMigration.stageWorkflow(data);
+            const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(data));
+            if (result !== true) {
+                await migration?.rollback();
+                showToast(result.message, 'error');
+                return false;
+            }
+            await migration?.commit();
+            return true;
+        } catch (error) {
+            await migration?.rollback();
+            showToast(error?.message || '图片缓存迁移失败', 'error');
             return false;
         }
-        return true;
     }
 
     async function loadWorkflowFromFile(name) {
