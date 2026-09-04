@@ -1171,6 +1171,28 @@ export function createWorkflowRunnerApi({
             if (responseArea) responseArea.innerHTML = node.lastResponse;
             node.isSucceeded = true;
             connectionProjection?.nodeGeometryChanged(node.id);
+            return;
+        }
+
+        if (node.type === 'VideoGenerate') {
+            const videos = results
+                .map((result) => result?.video)
+                .filter((video) => video && typeof video === 'object' && video.url);
+            node.data = node.data || {};
+            if (videos.length === 0) {
+                delete node.data.videos;
+                delete node.data.video;
+                return;
+            }
+            const lastVideo = videos[videos.length - 1];
+            node.data.videos = videos.slice();
+            node.data.video = lastVideo;
+            node.data.videoId = lastVideo.id || '';
+            node.data.videoUrl = lastVideo.url || '';
+            node.data.videoAssetKey = lastVideo.assetKey || '';
+            node.data.videoStatus = lastVideo.status || '';
+            node.isSucceeded = true;
+            connectionProjection?.nodeGeometryChanged(node.id);
         }
     }
 

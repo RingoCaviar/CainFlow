@@ -72,6 +72,7 @@ export function createExecutionCoreApi({
     syncCameraControlNode = () => '',
     fitNodeToContent,
     scheduleSave = () => {},
+    onNodeResultUpdated = () => {},
     getAbortMessage,
     connectionProjection = null,
     getImageHistorySidebarActive = () => false
@@ -1575,6 +1576,7 @@ export function createExecutionCoreApi({
         refreshDependentImageResizePreviews,
         connectionProjection,
         scheduleSave,
+        onNodeResultUpdated,
         requestNodeFit
     });
 
@@ -2309,16 +2311,17 @@ export function createExecutionCoreApi({
         ImageSave: async (node, inputs) => {
             const { id } = node;
             const imageList = normalizeImageList(inputs.image);
-            const videoData = inputs.video && typeof inputs.video === 'object' ? inputs.video : null;
-            const imgData = imageList.length > 0 ? imageList[imageList.length - 1] : null;
-            if (imgData) {
-                await syncImageSaveNode(id, { images: imageList, video: null });
-                await autoSaveToDir(id, { images: imageList, video: null });
+            const videoList = (Array.isArray(inputs.video) ? inputs.video : [inputs.video])
+                .filter((video) => video && typeof video === 'object' && video.url);
+            const previewVideo = videoList[videoList.length - 1] || null;
+            if (imageList.length > 0 || videoList.length > 0) {
+                const payload = { images: imageList, video: previewVideo, videos: videoList };
+                await syncImageSaveNode(id, payload);
+                await autoSaveToDir(id, payload);
+            }
+            if (imageList.length > 0) {
                 await refreshDependentImageResizePreviews(id);
-            } else if (videoData?.url) {
-                await syncImageSaveNode(id, { images: [], video: videoData });
-                await autoSaveToDir(id, { images: [], video: videoData });
-            } else {
+            } else if (videoList.length === 0) {
                 await syncImageSaveNode(id, { images: [], video: null });
                 await refreshDependentImageResizePreviews(id);
             }

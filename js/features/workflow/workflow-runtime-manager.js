@@ -270,6 +270,9 @@ export function serializeRuntimeNode(node, doc) {
             serialized.videoCreateStatus = node.data?.videoCreateStatus || '';
             serialized.videoStatusUpdateTime = node.data?.videoStatusUpdateTime || '';
             serialized.videoEnhancedPrompt = node.data?.videoEnhancedPrompt || '';
+            if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
+                serialized.videos = clonePlainValue(node.data.videos);
+            }
             if (node.data?.video) serialized.video = clonePlainValue(node.data.video);
         } else {
             serialized.sysprompt = readElementControlValue(doc, `${node.id}-sysprompt`, '');
@@ -281,6 +284,9 @@ export function serializeRuntimeNode(node, doc) {
     }
     if (node.type === 'ImageSave') {
         serialized.filename = readElementControlValue(doc, `${node.id}-filename`, 'generated_image');
+        if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
+            serialized.videos = clonePlainValue(node.data.videos);
+        }
         if (node.data?.video) serialized.video = clonePlainValue(node.data.video);
     }
     if (node.type === 'ImageMerge' || node.type === 'TextMerge') {
@@ -977,6 +983,11 @@ export function createWorkflowRuntimeManager({
         const node = state.nodes.get(nodeId);
         if (!node?.el) return;
 
+        if (payload.status === 'result-updated') {
+            void syncVisibleNodeResult(reference, nodeId);
+            return;
+        }
+
         if (payload.status === 'concurrent-request-status') {
             renderVisibleConcurrentRequestStatus(node, payload.concurrentRequestStatus);
             return;
@@ -1529,6 +1540,10 @@ export function createWorkflowRuntimeManager({
             syncCameraControlNode: (nodeId, imageValue) => runtimeCameraApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
+            onNodeResultUpdated: (nodeId) => {
+                syncRuntimeNodeSnapshot(context, nodeId, { applyToCanvas: false });
+                void syncVisibleNodeResult({ workflowId, workflowName }, nodeId);
+            },
             getAbortMessage,
             updateAllConnections: skipHiddenConnectionRefresh,
             getImageHistorySidebarActive: () => documentRef.getElementById('history-sidebar')?.classList.contains('active')

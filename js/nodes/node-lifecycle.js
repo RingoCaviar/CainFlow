@@ -1350,6 +1350,15 @@ export function createNodeLifecycleApi({
         if (normalizedType === 'ImageGenerate' && restoredImages.length > 0) {
             nodeData.generationCompletedCount = restoredImages.length;
         }
+        if (normalizedType === 'ImageSave' && Array.isArray(effectiveRestoreData?.videos)) {
+            nodeData.data.videos = effectiveRestoreData.videos.map((video) => ({
+                id: video?.id || '',
+                url: video?.assetKey ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}` : (video?.url || ''),
+                assetKey: video?.assetKey || '',
+                status: video?.status || '',
+                prompt: video?.prompt || ''
+            }));
+        }
         if (normalizedType === 'ImageSave' && effectiveRestoreData?.video && typeof effectiveRestoreData.video === 'object') {
             nodeData.data.video = {
                 id: effectiveRestoreData.video.id || '',
@@ -1389,6 +1398,15 @@ export function createNodeLifecycleApi({
             nodeData.data.videoCreateStatus = effectiveRestoreData?.videoCreateStatus || '';
             nodeData.data.videoStatusUpdateTime = effectiveRestoreData?.videoStatusUpdateTime || '';
             nodeData.data.videoEnhancedPrompt = effectiveRestoreData?.videoEnhancedPrompt || '';
+            if (Array.isArray(effectiveRestoreData?.videos)) {
+                nodeData.data.videos = effectiveRestoreData.videos.map((video) => ({
+                    id: video?.id || '',
+                    url: video?.assetKey ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}` : (video?.url || ''),
+                    assetKey: video?.assetKey || '',
+                    status: video?.status || '',
+                    prompt: video?.prompt || ''
+                }));
+            }
             if (nodeData.data.videoAssetKey) {
                 nodeData.data.video = {
                     id: nodeData.data.videoId,

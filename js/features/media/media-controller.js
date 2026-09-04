@@ -470,10 +470,17 @@ export function createMediaControllerApi({
     }
 
     function getStoredSaveVideo(node) {
-        const video = node?.data?.video;
+        const video = getStoredSaveVideos(node).at(-1);
         return video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim()
             ? video
             : null;
+    }
+
+    function getStoredSaveVideos(node) {
+        const videos = Array.isArray(node?.data?.videos) && node.data.videos.length > 0
+            ? node.data.videos
+            : [node?.data?.video];
+        return videos.filter((video) => video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim());
     }
 
     function getStoredImagePreviewList(node) {
@@ -1100,11 +1107,20 @@ export function createMediaControllerApi({
         const resolutionBadge = documentRef.getElementById(`${nodeId}-res`);
 
         const imageList = normalizeImageList(imageData?.images ?? imageData);
-        const videoData = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
+        const videoList = (Array.isArray(imageData?.videos) ? imageData.videos : [imageData?.video])
+            .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey));
+        const videoData = videoList[videoList.length - 1] || null;
         const currentImage = imageList.length > 0 ? imageList[0] : null;
 
         node.data = node.data || {};
         if (videoData?.url || videoData?.assetKey) {
+            node.data.videos = videoList.map((video) => ({
+                id: video.id || '',
+                url: video.url || '',
+                assetKey: video.assetKey || '',
+                status: video.status || '',
+                prompt: video.prompt || ''
+            }));
             node.data.video = {
                 id: videoData.id || '',
                 url: videoData.url,
@@ -1113,6 +1129,7 @@ export function createMediaControllerApi({
                 prompt: videoData.prompt || ''
             };
         } else {
+            delete node.data.videos;
             delete node.data.video;
         }
 
@@ -1929,27 +1946,29 @@ export function createMediaControllerApi({
         manualSaveBtn.addEventListener('click', async () => {
             const node = getNodeById(id);
             const images = await getStoredImageSaveListAsync(node);
-            const video = getStoredSaveVideo(node);
-            if (!node || (images.length === 0 && !video?.url)) return showToast('没有可保存的内容', 'warning');
+            const videos = getStoredSaveVideos(node);
+            if (!node || (images.length === 0 && videos.length === 0)) return showToast('没有可保存的内容', 'warning');
             const filename = el.querySelector(`#${id}-filename`).value || 'image';
-            if (images.length === 0 && video?.url) {
+            if (images.length === 0 && videos.length > 0) {
                 try {
-                    const filenameBase = buildVideoSaveFilenameBase(id, video, filename || 'video');
-                    const link = documentRef.createElement('a');
-                    link.href = video.url;
-                    link.download = `${filenameBase}${detectVideoExtensionFromSource(video)}`;
-                    link.rel = 'noopener noreferrer';
-                    link.target = '_blank';
-                    documentRef.body.appendChild(link);
-                    link.click();
-                    setTimeout(() => {
-                        if (link.parentNode) documentRef.body.removeChild(link);
-                    }, 100);
-                    addLog('info', '视频手动下载已发起', '浏览器已直接发起视频下载请求。', {
-                        sourceVideoUrl: video.url,
-                        filenameBase
+                    videos.forEach((video, index) => {
+                        const filenameBase = buildVideoSaveFilenameBase(id, video, filename || 'video');
+                        const link = documentRef.createElement('a');
+                        link.href = video.url;
+                        link.download = `${filenameBase}${videos.length > 1 ? `_${index + 1}` : ''}${detectVideoExtensionFromSource(video)}`;
+                        link.rel = 'noopener noreferrer';
+                        link.target = '_blank';
+                        documentRef.body.appendChild(link);
+                        link.click();
+                        setTimeout(() => {
+                            if (link.parentNode) documentRef.body.removeChild(link);
+                        }, 100);
+                        addLog('info', '视频手动下载已发起', '浏览器已直接发起视频下载请求。', {
+                            sourceVideoUrl: video.url,
+                            filenameBase
+                        });
                     });
-                    showToast('已发起视频下载', 'success');
+                    showToast(videos.length > 1 ? `已发起 ${videos.length} 个视频下载` : '已发起视频下载', 'success');
                 } catch (err) {
                     console.error('Manual save video error:', err);
                     showToast('保存失败: ' + (err?.message || String(err)), 'error');
@@ -1997,8 +2016,10 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (!node) return;
         const images = normalizeImageList(dataUrl?.images ?? dataUrl);
-        const video = dataUrl?.video && typeof dataUrl.video === 'object' ? dataUrl.video : null;
-        if (images.length === 0 && !video?.url) return;
+        const videos = (Array.isArray(dataUrl?.videos) ? dataUrl.videos : [dataUrl?.video])
+            .filter((video) => video && typeof video === 'object' && video.url);
+        const video = videos[videos.length - 1] || null;
+        if (images.length === 0 && videos.length === 0) return;
         const handle = state.globalSaveDirHandle;
         if (!handle) {
             showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
@@ -2034,17 +2055,18 @@ export function createMediaControllerApi({
                     await writable.close();
                     savedFilenames.push(filename);
                 }
-            } else if (video?.url) {
-                const filenameBase = buildVideoSaveFilenameBase(nodeId, video, prefix, { includeTimestamp: true });
+            }
+            for (const [videoIndex, currentVideo] of videos.entries()) {
+                const filenameBase = buildVideoSaveFilenameBase(nodeId, currentVideo, prefix, { includeTimestamp: true });
                 updateVideoAutoSaveToast(nodeId, {
-                    subtitle: '正在通过后端下载视频并保存到目录...',
+                    subtitle: videos.length > 1 ? `正在保存视频 ${videoIndex + 1}/${videos.length}...` : '正在通过后端下载视频并保存到目录...',
                     stage: '后端下载中',
                     loaded: 0,
                     total: 0,
                     status: '准备中',
                     speedBytesPerSecond: 0
                 });
-                const blob = await downloadGeneratedVideo(video.url, {
+                const blob = await downloadGeneratedVideo(currentVideo.url, {
                     filenameBase,
                     onProgress: ({ loaded, total, speedBytesPerSecond, done }) => {
                         updateVideoAutoSaveToast(nodeId, {
@@ -2057,7 +2079,7 @@ export function createMediaControllerApi({
                         });
                     }
                 });
-                const extension = detectVideoExtensionFromSource(video, blob);
+                const extension = detectVideoExtensionFromSource(currentVideo, blob);
                 const { fileHandle, filename } = await getAvailableFileHandle(
                     handle,
                     filenameBase,
@@ -2076,12 +2098,18 @@ export function createMediaControllerApi({
                 await writable.write(blob);
                 await writable.close();
                 savedFilenames.push(filename);
-                completeVideoAutoSaveToast(nodeId, `视频已自动保存：${filename}`);
+                completeVideoAutoSaveToast(nodeId, videos.length > 1
+                    ? `已自动保存 ${videoIndex + 1}/${videos.length}：${filename}`
+                    : `视频已自动保存：${filename}`);
             }
             showToast(
-                images.length > 1
-                    ? `已自动保存 ${images.length} 张图片`
-                    : (images.length === 1 ? `图片已自动保存: ${savedFilenames[0]}` : `视频已自动保存: ${savedFilenames[0]}`),
+                images.length > 0 && videos.length > 0
+                    ? `已自动保存 ${images.length} 张图片和 ${videos.length} 个视频`
+                    : (images.length > 1
+                        ? `已自动保存 ${images.length} 张图片`
+                        : (images.length === 1
+                            ? `图片已自动保存: ${savedFilenames[0]}`
+                            : (videos.length > 1 ? `已自动保存 ${videos.length} 个视频` : `视频已自动保存: ${savedFilenames[0]}`))),
                 'success'
             );
             addLog('success', '自动保存成功', `已保存至: ${handle.name}/${savedFilenames.join(', ')}`);

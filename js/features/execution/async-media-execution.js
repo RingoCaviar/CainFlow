@@ -109,6 +109,7 @@ export function createAsyncMediaExecutionApi({
     refreshDependentImageResizePreviews,
     connectionProjection = null,
     scheduleSave = () => {},
+    onNodeResultUpdated = () => {},
     requestNodeFit = () => {}
 }) {
     function recordProviderNodeRequest(node, apiCfg, modelCfg, url, responseOrOptions = {}, options = {}) {
@@ -489,6 +490,7 @@ export function createAsyncMediaExecutionApi({
             commitVideoGenerateOutputs(node, { videoId, status, statusText: pollingStatus, prompt });
             updateVideoGenerationStatus(node.id, pollingStatus, 'progress');
             scheduleSave();
+            onNodeResultUpdated(node.id);
 
             const completedStatuses = protocolPlan?.asyncTask?.completedStatuses || ['completed', 'succeeded', 'success'];
             const failedStatuses = protocolPlan?.asyncTask?.failedStatuses || ['failed', 'error', 'cancelled', 'canceled'];
@@ -1276,6 +1278,7 @@ export function createAsyncMediaExecutionApi({
                 });
             }
             scheduleSave();
+            onNodeResultUpdated(id);
             updateVideoGenerationStatus(
                 id,
                 generationCount > 1

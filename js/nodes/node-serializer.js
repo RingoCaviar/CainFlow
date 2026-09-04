@@ -208,6 +208,12 @@ export function createNodeSerializer({ state, documentRef }) {
                     serialized.videoCreateStatus = node.data?.videoCreateStatus || '';
                     serialized.videoStatusUpdateTime = node.data?.videoStatusUpdateTime || '';
                     serialized.videoEnhancedPrompt = node.data?.videoEnhancedPrompt || '';
+                    if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
+                        serialized.videos = node.data.videos.map((video) => ({
+                            id: video?.id || '', url: video?.url || '', assetKey: video?.assetKey || '',
+                            status: video?.status || '', prompt: video?.prompt || ''
+                        }));
+                    }
                 } else {
                     serialized.sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
                     serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
@@ -220,6 +226,12 @@ export function createNodeSerializer({ state, documentRef }) {
 
             if (node.type === 'ImageSave') {
                 serialized.filename = documentRef.getElementById(`${id}-filename`)?.value || 'generated_image';
+                if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
+                    serialized.videos = node.data.videos.map((video) => ({
+                        id: video?.id || '', url: video?.url || '', assetKey: video?.assetKey || '',
+                        status: video?.status || '', prompt: video?.prompt || ''
+                    }));
+                }
                 if (node.data?.video && typeof node.data.video === 'object') {
                     serialized.video = {
                         id: node.data.video.id || '',
