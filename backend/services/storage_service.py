@@ -464,6 +464,8 @@ class StorageService:
                         WHERE owner_type IN ('node', 'workflow-node') AND owner_id NOT IN ({placeholders})''',
                     tuple(keep_keys),
                 )
+            elif mode == 'image-import':
+                db.execute("DELETE FROM media_asset_refs WHERE owner_type='workflow-import'")
             history_keys = {
                 value for row in db.execute('SELECT asset_key, thumb_asset_key FROM history')
                 for value in row if value
@@ -489,7 +491,11 @@ class StorageService:
             elif mode == 'media-orphans' and kind == 'media':
                 delete_keys.append(key)
         deleted = sum(1 for key in delete_keys if self.delete_asset(key))
-        return {'assetsDeleted': deleted, 'orphanFilesDeleted': self.cleanup_orphan_files()}
+        media_cleanup = self.cleanup_unreferenced_media_assets()
+        return {
+            'assetsDeleted': deleted + media_cleanup['assetsDeleted'],
+            'orphanFilesDeleted': media_cleanup['orphanFilesDeleted']
+        }
 
     def clear_temporary(self):
         deleted = 0

@@ -74,6 +74,8 @@ export function createMediaControllerApi({
     saveImageAsset,
     saveImageAssetList = async () => false,
     saveImageImportAsset = async () => '',
+    saveWorkflowImportMediaAsset = async () => null,
+    getActiveWorkflowId = () => '',
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
@@ -1675,7 +1677,8 @@ export function createMediaControllerApi({
             node.imageData = data;
             node.data = node.data || {};
             node.data.image = data;
-            const assetKey = await saveImageImportAsset(nodeId, data, node.imageImportAssetKey);
+            const mediaAsset = await saveWorkflowImportMediaAsset(data, getActiveWorkflowId(), nodeId);
+            const assetKey = mediaAsset?.asset_key || await saveImageImportAsset(nodeId, data, node.imageImportAssetKey);
             if (assetKey) {
                 node.imageImportAssetKey = assetKey;
                 node.data.imageImportAssetKey = assetKey;
@@ -1704,7 +1707,8 @@ export function createMediaControllerApi({
         node.imageData = imageData;
         node.data = node.data || {};
         node.data.image = imageData;
-        const assetKey = await saveImageImportAsset(nodeId, imageData, node.imageImportAssetKey);
+        const mediaAsset = await saveWorkflowImportMediaAsset(imageData, getActiveWorkflowId(), nodeId);
+        const assetKey = mediaAsset?.asset_key || await saveImageImportAsset(nodeId, imageData, node.imageImportAssetKey);
         if (assetKey) {
             node.imageImportAssetKey = assetKey;
             node.data.imageImportAssetKey = assetKey;

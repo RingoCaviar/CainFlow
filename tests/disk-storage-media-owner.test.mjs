@@ -49,6 +49,24 @@ test('saving a generated node image scopes its Media asset owner to the workflow
     }
 });
 
+test('saving an uploaded image scopes its Media asset owner to the workflow import', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({ url, options });
+        return new Response(JSON.stringify({ asset: { asset_key: 'media:imported-image' } }), { status: 200 });
+    };
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        await storage.saveWorkflowImportMediaAsset('data:image/png;base64,aGVsbG8=', 'workflow-a', 'import-a');
+        const mediaWrite = requests.find(({ url }) => url === '/api/storage/media-assets');
+        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Type'], 'workflow-import');
+        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Id'], 'workflow-a:import-a');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('failed history persistence releases the provisional history owner', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

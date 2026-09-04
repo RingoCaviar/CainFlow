@@ -130,6 +130,18 @@ class StorageServiceTests(unittest.TestCase):
             self.assertIsNone(service.get_asset_info(stale['asset_key']))
             self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
 
+    def test_clearing_image_imports_releases_only_workflow_import_references(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            shared = service.put_media_asset(b'imported-image', 'image/png', 'workflow-import', 'workflow-a:import-a')
+            service.add_media_reference('history', '1', shared['asset_key'])
+
+            service.cleanup_assets('image-import')
+
+            self.assertIsNotNone(service.get_asset_info(shared['asset_key']))
+            service.remove_media_reference('history', '1', shared['asset_key'])
+            self.assertIsNone(service.get_asset_info(shared['asset_key']))
+
     def test_export_directory_requires_absolute_writable_path_and_avoids_overwrite(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

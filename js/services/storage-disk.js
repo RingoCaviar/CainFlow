@@ -278,6 +278,11 @@ export function createDiskStorageApi(getState) {
         if (!workflowId || !nodeId) return null;
         return putMediaAsset(value, 'workflow-node', ownerId);
     }
+    async function saveWorkflowImportMediaAsset(value, workflowId, nodeId) {
+        const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
+        if (!workflowId || !nodeId) return null;
+        return putMediaAsset(value, 'workflow-import', ownerId);
+    }
     async function getImageAsset(key) { return blobToDataUrl(await getAssetBlob(key)); }
     async function getImageAssetBlob(key) { return getAssetBlob(key); }
     async function saveImageAssetList(key, images) {
@@ -380,6 +385,7 @@ export function createDiskStorageApi(getState) {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
         saveImageAsset, getImageAsset, getImageAssetBlob, saveImageAssetList, getImageAssetList,
         saveWorkflowNodeMediaAsset,
+        saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         saveImageImportAsset, deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
         clearImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import' }),
