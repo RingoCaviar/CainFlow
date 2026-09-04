@@ -98,6 +98,7 @@ export function createNodeSerializer({ state, documentRef }) {
             }
             const textareaHeights = getNodeTextareaHeights(id);
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
+            if (node.type === 'TextChat') serialized.chatLayoutVersion = 3;
 
             const usesCanonicalImages = CANONICAL_IMAGE_NODE_TYPES.has(node.type);
             const images = getCanonicalImageList(node, { includeResizePreview: false });

@@ -1913,7 +1913,7 @@ export function createNodeDomBindingsApi({
             .filter((textarea) => !textarea.classList.contains('text-split-delimiter'))
             .filter((textarea) => {
                 if (!isChatNode) return true;
-                return textarea.closest('.node-chat-prompt-field') || textarea.id.endsWith('-prompt');
+                return textarea.closest('.node-chat-prompt-field') || textarea.closest('.node-chat-system-field');
             })
             .map((textarea) => {
                 const { style, minHeight, startHeight } = getResizeTargetBaseMetrics(textarea);
@@ -1921,6 +1921,7 @@ export function createNodeDomBindingsApi({
                 const contentHeight = Math.max(minHeight, (textarea.scrollHeight || startHeight) + borderY);
                 return {
                     el: textarea,
+                    resizeRole: 'chat-input',
                     startHeight,
                     minHeight,
                     contentHeight,
@@ -1936,6 +1937,7 @@ export function createNodeDomBindingsApi({
                     const { minHeight, startHeight } = getResizeTargetBaseMetrics(responseArea);
                     return {
                         el: responseArea,
+                        resizeRole: 'chat-response',
                         startHeight,
                         minHeight,
                         // Chat responses should only resize with the node, not expand to reveal all content.

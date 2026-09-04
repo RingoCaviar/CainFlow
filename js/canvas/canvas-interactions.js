@@ -393,6 +393,7 @@ export function createCanvasInteractionsApi({
             return {
                 target,
                 resizeEl,
+                resizeRole: target.resizeRole || '',
                 minHeight,
                 startHeight,
                 maxHeight,
@@ -480,9 +481,10 @@ export function createCanvasInteractionsApi({
                 (item) => Math.min(item.clippedNeed, item.maxHeight - item.nextHeight),
                 (item) => item.clippedNeed
             );
+            const chatResponseTargets = activeTargets.filter((item) => item.resizeRole === 'chat-response');
             distributeExtra(
                 remainingDelta,
-                activeTargets,
+                chatResponseTargets.length ? chatResponseTargets : activeTargets,
                 (item) => item.maxHeight - item.nextHeight,
                 (item) => item.weight
             );

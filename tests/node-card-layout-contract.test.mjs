@@ -6,6 +6,7 @@ const core = await readFile(new URL('../css/modules/04-node-core.css', import.me
 const media = await readFile(new URL('../css/modules/05-node-media.css', import.meta.url), 'utf8');
 const interactions = await readFile(new URL('../js/canvas/canvas-interactions.js', import.meta.url), 'utf8');
 const bindings = await readFile(new URL('../js/nodes/node-dom-bindings.js', import.meta.url), 'utf8');
+const serializer = await readFile(new URL('../js/nodes/node-serializer.js', import.meta.url), 'utf8');
 const controls = await readFile(new URL('../css/modules/07-node-controls.css', import.meta.url), 'utf8');
 const textStyles = await readFile(new URL('../css/modules/06-node-text.css', import.meta.url), 'utf8');
 const lifecycle = await readFile(new URL('../js/nodes/node-lifecycle.js', import.meta.url), 'utf8');
@@ -80,6 +81,17 @@ test('compact text and result areas define the normal minimum content height', (
     assert.match(textStyles, /\.node-chat \.node-chat-prompt-field textarea\s*\{[\s\S]*?min-height:\s*72px;/);
     assert.match(textStyles, /\.node-chat \.node-chat-system-field textarea\s*\{[\s\S]*?min-height:\s*72px;/);
     assert.match(textStyles, /\.node-chat \.chat-response-area\s*\{[\s\S]*?height:\s*120px;/);
+});
+
+test('chat cards use all manually allocated height and resize both prompt fields', () => {
+    assert.match(textStyles, /\.node-chat \.node-body\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow:\s*hidden;/);
+    assert.match(bindings, /textarea\.closest\('\.node-chat-prompt-field'\)\s*\|\|\s*textarea\.closest\('\.node-chat-system-field'\)/);
+    assert.match(bindings, /resizeRole:\s*'chat-input'/);
+    assert.match(bindings, /resizeRole:\s*'chat-response'/);
+    assert.match(interactions, /chatResponseTargets[\s\S]*?resizeRole === 'chat-response'/);
+    assert.match(serializer, /node\.type === 'TextChat'\) serialized\.chatLayoutVersion = 3;/);
+    assert.match(lifecycle, /shouldNormalizeLegacyChatLayout[\s\S]*?effectiveRestoreData\.chatLayoutVersion !== 3/);
+    assert.match(lifecycle, /const \{ textareaHeights, \.\.\.restoredChatData \} = effectiveRestoreData;/);
 });
 
 test('generation progress stays inside the node body padding', () => {

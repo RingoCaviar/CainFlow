@@ -1119,9 +1119,18 @@ export function createNodeLifecycleApi({
             if (!silent) showToast(`未注册的节点类型：${normalizedType}`, 'error', 5000);
             return null;
         }
-        const effectiveRestoreData = restoreData || getNodeDefaultRestoreData(normalizedType);
+        let effectiveRestoreData = restoreData || getNodeDefaultRestoreData(normalizedType);
         const restoreLayoutOptions = silent ? { save: false } : {};
         const id = effectiveRestoreData?.id ? effectiveRestoreData.id : generateId();
+        const shouldNormalizeLegacyChatLayout = normalizedType === 'TextChat'
+            && effectiveRestoreData
+            && effectiveRestoreData.chatLayoutVersion !== 3;
+        if (shouldNormalizeLegacyChatLayout) {
+            const { textareaHeights, ...restoredChatData } = effectiveRestoreData;
+            effectiveRestoreData = restoredChatData;
+        }
+        const restoredUserResized = effectiveRestoreData?.userResized === true;
+        const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
         el.id = id;

@@ -8,6 +8,13 @@
     /* Manual sizing enabled, no hard constraints here to allow free scaling */
 }
 
+/* A taller chat card gives its body, rather than an empty tail, the extra space. */
+.node-chat .node-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
 .chat-response-wrapper {
     position: relative;
     width: 100%;
