@@ -95,6 +95,7 @@
                 const cardProbeStyle = getComputedStyle(cardProbe);
                 const tabAfterStyle = getComputedStyle(tab, '::after');
                 const cardNameStyle = getComputedStyle(cardName);
+                const nativeOptionStyle = getComputedStyle(document.querySelector('#state-controls select option'));
                 cardName.classList.add('is-focused');
                 const focusedCardNameStyle = getComputedStyle(cardName);
                 const focusedCardNameShadow = focusedCardNameStyle.boxShadow;
@@ -186,6 +187,8 @@
                         menuLayer: rootStyle.getPropertyValue('--layer-menu').trim(),
                         modalLayer: rootStyle.getPropertyValue('--layer-modal').trim(),
                         colorScheme: rootStyle.colorScheme,
+                        nativeOptionBackground: nativeOptionStyle.backgroundColor,
+                        nativeOptionColor: nativeOptionStyle.color,
                         tabIndicatorHeight: tabAfterStyle.height,
                         tabIndicatorRadius: tabAfterStyle.borderRadius,
                         tabIndicatorTransform: tabAfterStyle.transform,

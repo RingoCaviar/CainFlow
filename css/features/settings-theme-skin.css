@@ -212,8 +212,8 @@ html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="t
 }
 
 html:root #settings-modal.modal-overlay select option {
-    background: var(--settings-input-bg);
-    color: var(--text-primary);
+    background: Canvas;
+    color: CanvasText;
 }
 
 html:root #settings-modal.modal-overlay .provider-multiselect-trigger {

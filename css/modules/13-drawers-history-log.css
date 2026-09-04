@@ -86,8 +86,8 @@
 }
 
 .statistics-sort-select option {
-    background-color: var(--node-select-panel-bg);
-    color: var(--node-select-text);
+    background-color: Canvas;
+    color: CanvasText;
 }
 
 .statistics-provider-ranking {

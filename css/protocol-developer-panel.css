@@ -552,8 +552,8 @@
 }
 
 .parameter-row select option {
-    background: var(--bg-secondary, #1a1a1a);
-    color: var(--text-primary, #fff);
+    background: Canvas;
+    color: CanvasText;
     padding: 8px 12px;
 }
 

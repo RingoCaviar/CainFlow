@@ -43,6 +43,8 @@ test('settings surfaces render from the semantic palette in every supported them
             cardNameFocusShadow: _cardNameFocusShadow,
             cardNameFocusBottomBorder: _cardNameFocusBottomBorder,
             colorScheme: _colorScheme,
+            nativeOptionBackground: _nativeOptionBackground,
+            nativeOptionColor: _nativeOptionColor,
             ...surfaceActual
         } = measurement.actual;
         assert.deepEqual(
@@ -152,6 +154,18 @@ test('native controls use the system color scheme that matches every supported t
             measurement.actual.colorScheme,
             expectedColorSchemes[measurement.themeId],
             `${measurement.themeId} native controls must use the matching system color scheme`,
+        );
+    }
+});
+
+test('native select popup options use an opaque readable theme surface', () => {
+    for (const measurement of renderFixture()) {
+        const background = parseColor(measurement.actual.nativeOptionBackground);
+        const foreground = parseColor(measurement.actual.nativeOptionColor);
+        assert.equal(background[3], 1, `${measurement.themeId} native option background must be opaque`);
+        assert.ok(
+            contrastRatio(foreground, background) >= 4.5,
+            `${measurement.themeId} native option text must meet WCAG AA against its popup background`,
         );
     }
 });
