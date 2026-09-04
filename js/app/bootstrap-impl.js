@@ -244,6 +244,7 @@ const {
     getHandle,
     deleteHandle,
     saveImageAsset,
+    saveWorkflowNodeMediaAsset,
     getImageAsset,
     saveImageAssetList,
     getImageAssetList,
@@ -371,6 +372,7 @@ function hasIncomingImageConnectionInWorkflow(nodeId, connections = []) {
 }
 
 function collectRetainedNodeAssetIds() {
+    const activeWorkflowId = workflowManagerApi?.getActiveWorkflowId?.() || '';
     const recoverableDisplayTypes = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare']);
     const shouldRetainNodeAsset = (node, connections = state.connections) => {
         if (!node?.id) return false;
@@ -381,6 +383,11 @@ function collectRetainedNodeAssetIds() {
             return shouldRetainNodeAsset(node, state.connections);
         })
         .map((node) => node.id));
+    if (activeWorkflowId) {
+        Array.from(state.nodes.values()).forEach((node) => {
+            if (node?.id) ids.add(`${activeWorkflowId}:${node.id}`);
+        });
+    }
 
     Array.from(state.nodes.values()).forEach((node) => {
         if (shouldRetainNodeAsset(node, state.connections) && typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
@@ -397,12 +404,14 @@ function collectRetainedNodeAssetIds() {
     (state.workflowTabs || []).forEach((tab) => {
         if (tab?.name === workflowManagerApi?.getActiveWorkflowName?.()) return;
         const workflowNodes = Array.isArray(tab?.data?.nodes) ? tab.data.nodes : [];
+        const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
         const workflowConnections = Array.isArray(tab?.data?.connections) ? tab.data.connections : [];
         workflowNodes.forEach((node) => {
             if (!node?.id) return;
             const retainNodeAsset = shouldRetainNodeAsset(node, workflowConnections);
             if (retainNodeAsset) {
                 ids.add(node.id);
+                if (workflowId) ids.add(`${workflowId}:${node.id}`);
             }
             if (retainNodeAsset && typeof node.imageAssetKey === 'string' && node.imageAssetKey) {
                 ids.add(node.imageAssetKey);
@@ -1158,6 +1167,7 @@ function getExecutionCoreApi() {
             getImageAsset,
             saveImageAsset,
             saveImageAssetList,
+            saveWorkflowNodeMediaAsset,
             deleteImageAsset,
             dataURLtoBlob,
             blobToDataUrl,
@@ -1173,6 +1183,7 @@ function getExecutionCoreApi() {
             syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent,
             scheduleSave,
+            getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
             getAbortMessage: getAbortMessageService,
             connectionProjection: connectionProjectionInteractions,
             getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')

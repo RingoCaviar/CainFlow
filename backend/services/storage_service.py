@@ -461,7 +461,7 @@ class StorageService:
                 placeholders = ','.join('?' for _ in keep_keys) or "''"
                 db.execute(
                     f'''DELETE FROM media_asset_refs
-                        WHERE owner_type='node' AND owner_id NOT IN ({placeholders})''',
+                        WHERE owner_type IN ('node', 'workflow-node') AND owner_id NOT IN ({placeholders})''',
                     tuple(keep_keys),
                 )
             history_keys = {
@@ -526,6 +526,14 @@ class StorageService:
             documents = db.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
             assets, asset_bytes = db.execute('SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets').fetchone()
             media_assets, media_bytes = db.execute("SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind='media'").fetchone()
+            actual_media_bytes = db.execute('''
+                SELECT COALESCE(SUM(size_bytes), 0) FROM (
+                    SELECT relative_path, MAX(size_bytes) AS size_bytes
+                    FROM assets
+                    WHERE kind != 'thumbnail'
+                    GROUP BY relative_path
+                )
+            ''').fetchone()[0]
             media_references = db.execute('SELECT COUNT(*) FROM media_asset_refs').fetchone()[0]
             history = db.execute('SELECT COUNT(*) FROM history').fetchone()[0]
             document_bytes = db.execute('SELECT COALESCE(SUM(LENGTH(value_json)), 0) FROM documents').fetchone()[0]
@@ -538,6 +546,7 @@ class StorageService:
             'nodeAssetBytes': max(0, asset_bytes - history_bytes - import_bytes),
             'totalBytes': asset_bytes + document_bytes,
             'mediaAssets': media_assets, 'mediaBytes': media_bytes,
+            'actualMediaBytes': actual_media_bytes,
             'mediaReferences': media_references, 'mediaCacheLimitBytes': self.get_media_cache_limit(),
         }
 

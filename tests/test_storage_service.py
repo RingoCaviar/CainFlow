@@ -83,6 +83,24 @@ class StorageServiceTests(unittest.TestCase):
             with self.assertRaises(StorageError):
                 service.put_media_asset(b'new-content', 'video/mp4', 'node', 'three')
 
+    def test_actual_media_usage_counts_one_shared_physical_original(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            shared = service.put_media_asset(b'shared-image', 'image/png', 'workflow-node', 'workflow-a:node-a')
+            service.add_media_reference('history', '100', shared['asset_key'])
+            service.put_asset('legacy-node-a', b'shared-image', 'image/png', 'node')
+
+            stats = service.get_stats()
+
+            self.assertEqual(len(b'shared-image'), stats['actualMediaBytes'])
+
+    def test_actual_media_usage_includes_a_legacy_image_original(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            service.put_asset('legacy-node-a', b'legacy-image', 'image/png', 'node')
+
+            self.assertEqual(len(b'legacy-image'), service.get_stats()['actualMediaBytes'])
+
     def test_node_orphan_cleanup_removes_stale_node_media_but_keeps_retained_and_history_media(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
@@ -97,6 +115,20 @@ class StorageServiceTests(unittest.TestCase):
             self.assertIsNone(service.get_asset_info(stale['asset_key']))
             self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
             self.assertIsNotNone(service.get_asset_info(historical['asset_key']))
+
+    def test_node_orphan_cleanup_releases_stale_workflow_node_references(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            stale = service.put_media_asset(b'stale-image', 'image/png', 'workflow-node', 'workflow-a:node-a')
+            retained = service.put_media_asset(b'retained-image', 'image/png', 'workflow-node', 'workflow-a:node-b')
+            service.add_media_reference('history', '1', stale['asset_key'])
+
+            service.cleanup_assets('node-orphans', ['workflow-a:node-b'])
+
+            self.assertIsNotNone(service.get_asset_info(stale['asset_key']))
+            service.remove_media_reference('history', '1', stale['asset_key'])
+            self.assertIsNone(service.get_asset_info(stale['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
 
     def test_export_directory_requires_absolute_writable_path_and_avoids_overwrite(self):
         with tempfile.TemporaryDirectory() as root:

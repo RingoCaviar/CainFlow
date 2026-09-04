@@ -75,8 +75,28 @@ A locally stored record used to investigate CainFlow requests, failures, and run
 _Avoid_: Unbounded log, complete request archive
 
 **Media asset**:
-One locally persisted image or video result, identified independently of any node or history record. Generation nodes and history records may reference the same Media asset; deleting one reference never deletes the asset while another reference remains.
+One locally persisted image or video, identified independently of any workflow node, image import, or history record. Consumers may reference the same Media asset; deleting one reference never deletes the asset while another reference remains.
 _Avoid_: Node-owned media copy, history-owned media copy
+
+**Media asset owner**:
+The durable consumer identity that keeps one or more Media assets alive. A workflow-node owner is the pair of Workflow identity and node ID; an image import, history record, and history thumbnail use their own owner kinds.
+_Avoid_: Asset owner, node asset key
+
+**Media asset reference list**:
+The ordered list of Media asset identities displayed by one workflow node. It represents both a single image and a multi-image result without embedding image data in the workflow document.
+_Avoid_: Image asset key, image import asset key, persisted image list
+
+**Media asset lazy migration**:
+The on-read replacement of legacy embedded or node-owned image data with a Media asset reference list. It writes the new durable form before releasing the legacy copy, so a failed migration remains retryable without data loss.
+_Avoid_: Destructive cache conversion, eager cache rewrite
+
+**Media asset actual usage**:
+The disk space occupied by unique local Media asset files, counted once even when several consumers reference the same original.
+_Avoid_: Sum of cache categories, per-reference usage
+
+**Media asset reference distribution**:
+The overlapping breakdown of unique Media assets referenced by each consumer category. Its categories describe ownership and are not additive disk usage.
+_Avoid_: Cache size breakdown, additive category total
 
 **Media asset recovery**:
 A user-confirmed download of a missing locally referenced Media asset from its retained remote result URL. CainFlow never starts recovery automatically; it reports the transfer's progress, completion, cancellation, or failure on the requesting node.

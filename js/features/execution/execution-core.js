@@ -57,6 +57,7 @@ export function createExecutionCoreApi({
     getImageAsset = async () => null,
     saveImageAsset,
     saveImageAssetList = async () => false,
+    saveWorkflowNodeMediaAsset = async () => null,
     deleteImageAsset,
     dataURLtoBlob,
     blobToDataUrl,
@@ -72,6 +73,7 @@ export function createExecutionCoreApi({
     syncCameraControlNode = () => '',
     fitNodeToContent,
     scheduleSave = () => {},
+    getActiveWorkflowId = () => '',
     onNodeResultUpdated = () => {},
     getAbortMessage,
     connectionProjection = null,
@@ -245,13 +247,20 @@ export function createExecutionCoreApi({
     function saveNodeImageAssetInBackground(node, images, assetKey = node?.id) {
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return;
+        const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         const saveTask = async () => {
-            const saved = imageList.length > 1
-                ? await saveImageAssetList(assetKey, imageList)
-                : await saveImageAsset(assetKey, imageList[0]);
+            const mediaAsset = imageList.length === 1 && workflowId
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
+                : null;
+            const savedAssetKey = mediaAsset?.asset_key || assetKey;
+            const saved = mediaAsset
+                ? true
+                : (imageList.length > 1
+                    ? await saveImageAssetList(assetKey, imageList)
+                    : await saveImageAsset(assetKey, imageList[0]));
             if (saved) {
-                markNodeImageAssetReady(node, assetKey, imageList.length, token);
+                markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
                 await releaseNodeImageData(node.id);
             } else {
                 markNodeImageAssetFailed(node, token);
