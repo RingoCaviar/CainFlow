@@ -1141,7 +1141,7 @@ export function createNodeLifecycleApi({
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
-            userResized: effectiveRestoreData?.userResized === true
+            userResized: restoredUserResized
         });
         el.style.width = initialWidth + 'px';
 
@@ -1197,7 +1197,7 @@ export function createNodeLifecycleApi({
             height: initialHeight,
             defaultWidth: getDefaultNodeWidth(config),
             defaultHeight: getDefaultNodeHeight(config),
-            userResized: effectiveRestoreData?.userResized === true,
+            userResized: initialUserResized,
             collapsed: effectiveRestoreData?.collapsed === true,
             maxHeight: config.maxHeight || null,
             maxWidth: config.maxWidth || null,
