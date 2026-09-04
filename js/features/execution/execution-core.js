@@ -260,6 +260,11 @@ export function createExecutionCoreApi({
             const mediaAsset = imageList.length === 1 && workflowId
                 ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
                 : null;
+            if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
+                await releaseWorkflowNodeMediaAssets(mediaAssets.map((asset) => asset.asset_key), workflowId, node.id);
+                markNodeImageAssetFailed(node, token);
+                return;
+            }
             const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
             const saved = mediaAsset || mediaAssets.length === imageList.length
                 ? true
@@ -268,7 +273,8 @@ export function createExecutionCoreApi({
                     : await saveImageAsset(assetKey, imageList[0]));
             if (saved) {
                 markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
-                if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
+                if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
+                else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
                 if ((mediaAsset || mediaAssets.length === imageList.length) && previousMediaAssetKeys.length > 0) {
                     const nextKeys = node.data.mediaAssetKeys || [savedAssetKey];
                     await releaseWorkflowNodeMediaAssets(previousMediaAssetKeys.filter((key) => !nextKeys.includes(key)), workflowId, node.id);
@@ -294,15 +300,37 @@ export function createExecutionCoreApi({
     async function saveNodeImageAssetNow(node, images, assetKey = node?.id) {
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return false;
+        const workflowId = getActiveWorkflowId();
+        const previousMediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.slice() : [];
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         try {
             const previous = imageAssetSaveChains.get(assetKey);
             if (previous) await previous.catch(() => {});
-            const saved = imageList.length > 1
-                ? await saveImageAssetList(assetKey, imageList)
-                : await saveImageAsset(assetKey, imageList[0]);
+            const mediaAssets = imageList.length > 1 && workflowId
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id)
+                : [];
+            const mediaAsset = imageList.length === 1 && workflowId
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
+                : null;
+            if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
+                await releaseWorkflowNodeMediaAssets(mediaAssets.map((asset) => asset.asset_key), workflowId, node.id);
+                markNodeImageAssetFailed(node, token);
+                return false;
+            }
+            const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
+            const saved = mediaAsset || mediaAssets.length === imageList.length
+                ? true
+                : (imageList.length > 1
+                    ? await saveImageAssetList(assetKey, imageList)
+                    : await saveImageAsset(assetKey, imageList[0]));
             if (saved) {
-                markNodeImageAssetReady(node, assetKey, imageList.length, token);
+                markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
+                if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
+                else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
+                if ((mediaAsset || mediaAssets.length === imageList.length) && previousMediaAssetKeys.length > 0) {
+                    const nextKeys = node.data.mediaAssetKeys || [savedAssetKey];
+                    await releaseWorkflowNodeMediaAssets(previousMediaAssetKeys.filter((key) => !nextKeys.includes(key)), workflowId, node.id);
+                }
                 await releaseNodeImageData(node.id);
                 return true;
             }
@@ -2310,7 +2338,7 @@ export function createExecutionCoreApi({
                 currentIndex: images.length - 1,
                 assetKey: node.id
             });
-            await saveImageAssetList(node.id, images);
+            await saveNodeImageAssetNow(node, images, node.id);
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
             await refreshDependentImageResizePreviews(node.id);

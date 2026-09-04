@@ -426,6 +426,9 @@ export function createWorkflowRuntimeManager({
     deleteImageImportAsset,
     deleteImageAsset,
     saveImageAssetList,
+    saveWorkflowNodeMediaAsset,
+    saveWorkflowNodeMediaAssets,
+    releaseWorkflowNodeMediaAssets,
     saveHistoryEntry,
     renderHistoryList,
     logRequestToPanel,
@@ -1486,6 +1489,9 @@ export function createWorkflowRuntimeManager({
             getImageAssetList,
             saveImageAsset,
             saveImageAssetList,
+            saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
             saveImageImportAsset,
             deleteImageImportAsset,
             showResolutionBadge: async () => {},
@@ -1544,6 +1550,7 @@ export function createWorkflowRuntimeManager({
             syncCameraControlNode: (nodeId, imageValue) => runtimeCameraApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
+            getActiveWorkflowId: () => workflowId,
             onNodeResultUpdated: (nodeId) => {
                 syncRuntimeNodeSnapshot(context, nodeId, { applyToCanvas: false });
                 void syncVisibleNodeResult({ workflowId, workflowName }, nodeId);
