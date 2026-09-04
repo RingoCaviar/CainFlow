@@ -1093,8 +1093,14 @@ export function createWorkflowRuntimeManager({
         const syncForwardedKeys = async (node, keys) => {
             const previous = getMediaKeys(node);
             const ownerId = `${workflowId}:${node.id}`;
+            const added = [];
             for (const key of keys.filter((key) => !previous.includes(key))) {
-                if (!await referenceMediaAsset('workflow-node', ownerId, key)) return false;
+                if (await referenceMediaAsset('workflow-node', ownerId, key)) {
+                    added.push(key);
+                    continue;
+                }
+                await Promise.all(added.map((addedKey) => removeMediaReference('workflow-node', ownerId, addedKey)));
+                return false;
             }
             await Promise.all(previous.filter((key) => !keys.includes(key))
                 .map((key) => removeMediaReference('workflow-node', ownerId, key)));
