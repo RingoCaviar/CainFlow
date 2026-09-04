@@ -498,8 +498,12 @@ export function createMediaControllerApi({
 
     async function syncForwardedMediaAssetKeys(node, keys) {
         const workflowId = getActiveWorkflowId();
-        if (!node?.id || !workflowId || keys.length === 0) return false;
+        if (!node?.id || !workflowId) return false;
         const previousKeys = getNodeMediaAssetKeys(node);
+        if (keys.length === 0) {
+            await releaseForwardedMediaAssetKeys(node);
+            return false;
+        }
         const addedKeys = keys.filter((key) => !previousKeys.includes(key));
         for (const key of addedKeys) {
             if (await referenceMediaAsset('workflow-node', `${workflowId}:${node.id}`, key)) continue;
@@ -1193,6 +1197,7 @@ export function createMediaControllerApi({
         }
 
         if (imageList.some((image) => isRemoteImageUrl(image))) {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             delete node.data.video;
             clearDisplayImageAssetState(nodeId);
@@ -1226,6 +1231,7 @@ export function createMediaControllerApi({
             if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else if (videoData?.url || videoData?.assetKey) {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             renderVideoSavePreview(nodeId, videoData);
             if (manualSaveBtn) manualSaveBtn.disabled = false;

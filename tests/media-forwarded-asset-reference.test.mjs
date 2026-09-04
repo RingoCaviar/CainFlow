@@ -47,3 +47,24 @@ test('display node restores an ordered Media asset reference list without a lega
     ]);
     assert.deepEqual(reads, ['media:first', 'media:second']);
 });
+
+test('preview releases its previous forwarded owner when the next upstream has no Media asset', async () => {
+    const source = { id: 'source', type: 'ImageGenerate', data: {} };
+    const preview = { id: 'preview', type: 'ImagePreview', data: { mediaAssetKeys: ['media:previous'] } };
+    const nodes = new Map([[source.id, source], [preview.id, preview]]);
+    const releases = [];
+    const api = createMediaControllerApi({
+        state: { nodes, connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'preview', port: 'image' } }] },
+        getNodeById: (id) => nodes.get(id), getActiveWorkflowId: () => 'workflow-a',
+        referenceMediaAsset: async () => true,
+        removeMediaReference: async (...args) => { releases.push(args); return true; },
+        saveImageAsset: async () => true,
+        documentRef: { getElementById: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+        windowRef: { requestAnimationFrame: (callback) => callback(), setTimeout: () => 1, clearTimeout: () => {}, addEventListener: () => {} },
+        estimateDataUrlSize: () => 0, getImageResolution: async () => null,
+        showToast: () => {}, addLog: () => {}, scheduleSave: () => {}
+    });
+    await api.syncImagePreviewNode('preview', 'data:image/png;base64,bGVnYWN5');
+    assert.deepEqual(releases, [['workflow-node', 'workflow-a:preview', 'media:previous']]);
+    assert.equal('mediaAssetKeys' in preview.data, false);
+});
