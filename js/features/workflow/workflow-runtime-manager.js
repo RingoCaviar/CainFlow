@@ -448,7 +448,24 @@ export function createWorkflowRuntimeManager({
     const workflowRunContexts = new Map();
     const workflowRunViewTimers = new Map();
     const workflowRunViewNodeIds = new Set();
+    const pendingVisibleNodeFitIds = new Set();
+    let visibleNodeFitFrame = null;
     let workflowRunContextSeq = 0;
+
+    function scheduleVisibleNodeFit(nodeId) {
+        if (!nodeId || typeof fitNodeToContent !== 'function') return;
+        pendingVisibleNodeFitIds.add(nodeId);
+        if (visibleNodeFitFrame !== null) return;
+        const scheduleFrame = typeof windowRef.requestAnimationFrame === 'function'
+            ? windowRef.requestAnimationFrame.bind(windowRef)
+            : (callback) => windowRef.setTimeout(callback, 0);
+        visibleNodeFitFrame = scheduleFrame(() => {
+            visibleNodeFitFrame = null;
+            const nodeIds = Array.from(pendingVisibleNodeFitIds);
+            pendingVisibleNodeFitIds.clear();
+            nodeIds.forEach((id) => fitNodeToContent(id));
+        });
+    }
 
     function runBackgroundRuntimeMediaTask(task, label = 'Background runtime media task failed:') {
         if (typeof task !== 'function') return;
@@ -801,6 +818,7 @@ export function createWorkflowRuntimeManager({
             syncCameraControlNode(runtimeNodeId, imageValue);
         }
 
+        scheduleVisibleNodeFit(runtimeNodeId);
         return true;
     }
 
