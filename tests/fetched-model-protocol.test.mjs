@@ -60,6 +60,18 @@ test('a fetched Kling O3 model is persisted with the 6789 relay video format', (
     assert.equal(config.protocol, 'async-video-api');
 });
 
+test('a fetched MiniMax H3 model is persisted with the 6789 relay video format', () => {
+    const models = [];
+    const config = addFetchedModelToCollection({
+        models,
+        generatedId: 'mod_minimax_h3', providerId: 'provider_relay',
+        fetchedModel: { id: 'minimax-h3', name: 'MiniMax H3' },
+        taskType: 'video'
+    });
+
+    assert.equal(config.protocol, 'async-video-api');
+});
+
 test('model compatibility format uses only reliable model-name keywords', () => {
     for (const id of ['gemini-2.5-pro', 'banana-fast', 'nano-banana-fast', 'nano banana pro', 'nano_banana']) {
         assert.equal(inferModelCompatibilityFormat({ id }), 'google', id);
