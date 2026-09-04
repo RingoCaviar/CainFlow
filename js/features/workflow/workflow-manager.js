@@ -712,12 +712,18 @@ export function createWorkflowManagerApi({
             if (tab?.name === getActiveWorkflowName()) return;
             if (!Array.isArray(tab?.data?.nodes)) return;
             tab.data.nodes.forEach((node) => {
-                if (node?.id) ids.add(node.id);
+                if (node?.id) {
+                    ids.add(node.id);
+                    if (tab.workflowId) ids.add(`${tab.workflowId}:${node.id}`);
+                }
             });
         });
         if (includeCanvas) {
             state.nodes.forEach((node, id) => {
-                ids.add(node?.id || id);
+                const nodeId = node?.id || id;
+                ids.add(nodeId);
+                const workflowId = state.activeWorkflowId;
+                if (workflowId && nodeId) ids.add(`${workflowId}:${nodeId}`);
             });
         }
         return ids;

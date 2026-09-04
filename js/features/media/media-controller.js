@@ -484,16 +484,13 @@ export function createMediaControllerApi({
         const keys = Array.isArray(node?.data?.mediaAssetKeys)
             ? node.data.mediaAssetKeys
             : [node?.data?.imageAssetKey, node?.imageImportAssetKey, node?.data?.imageImportAssetKey];
-        return keys.filter((key, index, list) => (
-            typeof key === 'string' && key.startsWith('media:') && list.indexOf(key) === index
-        ));
+        return keys.filter((key) => typeof key === 'string' && key.startsWith('media:'));
     }
 
     function getForwardedMediaAssetKeys(nodeId, ports = ['image']) {
         return state.connections
             .filter((connection) => connection?.to?.nodeId === nodeId && ports.includes(connection.to.port))
-            .flatMap((connection) => getNodeMediaAssetKeys(getNodeById(connection.from?.nodeId)))
-            .filter((key, index, list) => list.indexOf(key) === index);
+            .flatMap((connection) => getNodeMediaAssetKeys(getNodeById(connection.from?.nodeId)));
     }
 
     async function syncForwardedMediaAssetKeys(node, keys) {
@@ -504,15 +501,16 @@ export function createMediaControllerApi({
             await releaseForwardedMediaAssetKeys(node);
             return false;
         }
-        const addedKeys = keys.filter((key) => !previousKeys.includes(key));
+        const addedKeys = [...new Set(keys.filter((key) => !previousKeys.includes(key)))];
         for (const key of addedKeys) {
             if (await referenceMediaAsset('workflow-node', `${workflowId}:${node.id}`, key)) continue;
             await Promise.all(addedKeys
                 .slice(0, addedKeys.indexOf(key))
                 .map((addedKey) => removeMediaReference('workflow-node', `${workflowId}:${node.id}`, addedKey)));
+            await releaseForwardedMediaAssetKeys(node);
             return false;
         }
-        const removedKeys = previousKeys.filter((key) => !keys.includes(key));
+        const removedKeys = [...new Set(previousKeys.filter((key) => !keys.includes(key)))];
         if (removedKeys.length > 0) {
             await Promise.all(removedKeys.map((key) => (
                 removeMediaReference('workflow-node', `${workflowId}:${node.id}`, key)

@@ -68,3 +68,21 @@ test('preview releases its previous forwarded owner when the next upstream has n
     assert.deepEqual(releases, [['workflow-node', 'workflow-a:preview', 'media:previous']]);
     assert.equal('mediaAssetKeys' in preview.data, false);
 });
+
+test('preview retains repeated Media asset keys in its ordered reference list while creating one owner reference', async () => {
+    const source = { id: 'source', type: 'ImageGenerate', data: { mediaAssetKeys: ['media:shared', 'media:shared'] } };
+    const preview = { id: 'preview', type: 'ImagePreview', data: {} };
+    const nodes = new Map([[source.id, source], [preview.id, preview]]);
+    const references = [];
+    const api = createMediaControllerApi({
+        state: { nodes, connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'preview', port: 'image' } }] },
+        getNodeById: (id) => nodes.get(id), getActiveWorkflowId: () => 'workflow-a',
+        referenceMediaAsset: async (...args) => { references.push(args); return true; }, removeMediaReference: async () => true,
+        documentRef: { getElementById: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+        windowRef: { requestAnimationFrame: (callback) => callback(), setTimeout: () => 1, clearTimeout: () => {}, addEventListener: () => {} },
+        estimateDataUrlSize: () => 0, getImageResolution: async () => null, showToast: () => {}, addLog: () => {}, scheduleSave: () => {}
+    });
+    await api.syncImagePreviewNode('preview', ['data:image/png;base64,YQ==', 'data:image/png;base64,YQ==']);
+    assert.deepEqual(preview.data.mediaAssetKeys, ['media:shared', 'media:shared']);
+    assert.deepEqual(references, [['workflow-node', 'workflow-a:preview', 'media:shared']]);
+});
