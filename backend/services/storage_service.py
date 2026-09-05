@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -15,6 +16,11 @@ from backend import config
 
 
 SCHEMA_VERSION = 2
+STORAGE_MODE_VERSION = 1
+INTEGRITY_REPORT_VERSION = 1
+MAX_SAFETY_STATE_BYTES = 64 * 1024
+FAST_CHECK_BUDGET_SECONDS = 1.0
+SAFETY_STATES = {'healthy', 'scan_required', 'scanning', 'gc_suspended', 'repair_required'}
 HISTORY_MAX_ENTRIES = 1000
 HISTORY_RETENTION_DAYS = 365
 DEFAULT_MEDIA_CACHE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024
@@ -30,26 +36,220 @@ class StorageError(Exception):
 
 
 class StorageService:
-    def __init__(self, database_path=None, assets_dir=None, temp_dir=None, exports_dir=None):
+    def __init__(self, database_path=None, assets_dir=None, temp_dir=None, exports_dir=None,
+                 fast_check_budget_seconds=FAST_CHECK_BUDGET_SECONDS):
         self.database_path = database_path or config.DATABASE_PATH
         self.assets_dir = assets_dir or config.ASSETS_DIR
         self.temp_dir = temp_dir or config.DATA_TEMP_DIR
         self.exports_dir = exports_dir or config.EXPORTS_DIR
         self._lock = threading.RLock()
         self._initialized = False
+        self._safety_status = None
+        self._fast_check_budget_seconds = max(0, float(fast_check_budget_seconds))
 
     def initialize(self):
         with self._lock:
             if self._initialized:
                 return
+            fast_check_started = time.monotonic()
             for path in (os.path.dirname(self.database_path), self.assets_dir, self.temp_dir, self.exports_dir):
                 os.makedirs(path, exist_ok=True)
+            schema_version = self._read_schema_version()
+            fast_check_timed_out = time.monotonic() - fast_check_started > self._fast_check_budget_seconds
+            if schema_version == 'unreadable':
+                reason = ('gc_suspended', 'fast_check_timeout') if fast_check_timed_out else ('repair_required', 'database_unreadable')
+                self._initialize_safety_status(reason)
+                self._quarantine_corrupt_database()
+                self._create_schema()
+                self._initialized = True
+                return
+            if schema_version is not None and schema_version > SCHEMA_VERSION:
+                reason = ('gc_suspended', 'fast_check_timeout') if fast_check_timed_out else ('repair_required', 'unknown_schema_version')
+                self._initialize_safety_status(reason)
+                self._initialized = True
+                return
+            schema_structure_changed = (
+                schema_version == SCHEMA_VERSION and not self._has_expected_schema_structure()
+            )
+            fast_check_timed_out = (
+                fast_check_timed_out
+                or time.monotonic() - fast_check_started > self._fast_check_budget_seconds
+            )
+            forced_state = None
+            if schema_version is not None and schema_version != SCHEMA_VERSION:
+                forced_state = ('scan_required', 'schema_version_changed')
+            elif schema_structure_changed:
+                forced_state = ('scan_required', 'schema_structure_changed')
+            if fast_check_timed_out:
+                forced_state = ('gc_suspended', 'fast_check_timeout')
+            # Existing stores publish their bounded structural verdict before any
+            # potentially unbounded schema repair or legacy reference backfill.
+            if schema_version is not None:
+                self._initialize_safety_status(forced_state)
             try:
                 self._create_schema()
             except sqlite3.DatabaseError:
                 self._quarantine_corrupt_database()
                 self._create_schema()
+            if schema_version is None:
+                self._initialize_safety_status(forced_state)
             self._initialized = True
+
+    def _read_schema_version(self):
+        if not os.path.exists(self.database_path):
+            return None
+        connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
+        try:
+            row = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+            return int(row[0]) if row else None
+        except sqlite3.OperationalError as error:
+            return None if 'no such table' in str(error).lower() else 'unreadable'
+        except (sqlite3.DatabaseError, TypeError, ValueError):
+            return 'unreadable'
+        finally:
+            connection.close()
+
+    def _has_expected_schema_structure(self):
+        required = {'meta', 'documents', 'assets', 'history', 'media_asset_refs'}
+        try:
+            connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
+            try:
+                tables = {
+                    row[0] for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+                return required.issubset(tables)
+            finally:
+                connection.close()
+        except sqlite3.DatabaseError:
+            return False
+
+    @property
+    def _safety_path(self):
+        return f'{self.database_path}.media-safety.json'
+
+    def _storage_identities(self):
+        instance_id = os.path.normcase(os.path.abspath(self.database_path))
+        if os.path.exists(self.database_path):
+            try:
+                connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
+                try:
+                    row = connection.execute("SELECT value FROM meta WHERE key='storage_instance_id'").fetchone()
+                    if row and row[0]:
+                        instance_id = str(row[0])
+                finally:
+                    connection.close()
+            except sqlite3.DatabaseError:
+                pass
+        database_identity = hashlib.sha256(instance_id.encode('utf-8')).hexdigest()
+        normalized_directory = os.path.normcase(os.path.abspath(self.assets_dir))
+        directory_identity = hashlib.sha256(normalized_directory.encode('utf-8')).hexdigest()
+        combined = f'{database_identity}|{directory_identity}|{STORAGE_MODE_VERSION}'
+        return database_identity, directory_identity, hashlib.sha256(combined.encode('utf-8')).hexdigest()
+
+    def _write_safety_status(self, status):
+        directory = os.path.dirname(self._safety_path)
+        os.makedirs(directory, exist_ok=True)
+        fd, temporary_path = tempfile.mkstemp(prefix='media-safety-', dir=directory)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as output:
+                json.dump(status, output, ensure_ascii=False, separators=(',', ':'))
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, self._safety_path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+
+    def _initialize_safety_status(self, forced_state=None):
+        database_identity, directory_identity, identity = self._storage_identities()
+        status = None
+        safety_state_unreadable = False
+        try:
+            if os.path.getsize(self._safety_path) > MAX_SAFETY_STATE_BYTES:
+                raise OSError('Safety state exceeds bounded fast-check size')
+            with open(self._safety_path, encoding='utf-8') as source:
+                status = json.load(source)
+        except FileNotFoundError:
+            pass
+        except (OSError, json.JSONDecodeError):
+            safety_state_unreadable = True
+        required_fields = {
+            'storageIdentity', 'databaseIdentity', 'directoryIdentity', 'storageModeVersion',
+            'storageEpoch', 'state', 'reason', 'detectedAt', 'reportVersion',
+            'recoveryConditions', 'cleanShutdown',
+        }
+        safety_state_invalid = isinstance(status, dict) and (
+            not required_fields.issubset(status)
+            or status.get('state') not in SAFETY_STATES
+            or status.get('storageModeVersion') != STORAGE_MODE_VERSION
+            or status.get('reportVersion') != INTEGRITY_REPORT_VERSION
+            or not all(isinstance(status.get(key), str) and status.get(key)
+                       for key in ('storageIdentity', 'databaseIdentity', 'directoryIdentity', 'storageEpoch', 'reason'))
+            or not isinstance(status.get('detectedAt'), int)
+            or not isinstance(status.get('recoveryConditions'), list)
+            or not isinstance(status.get('cleanShutdown'), bool)
+        )
+        if isinstance(status, dict) and not safety_state_invalid:
+            status = {key: status[key] for key in required_fields}
+        if safety_state_invalid:
+            status = None
+        now = int(time.time() * 1000)
+        identity_changed = isinstance(status, dict) and status.get('storageIdentity') != identity
+        unclean_shutdown = isinstance(status, dict) and status.get('cleanShutdown') is False
+        if not isinstance(status, dict) or identity_changed:
+            status = {
+                'storageIdentity': identity,
+                'databaseIdentity': database_identity,
+                'directoryIdentity': directory_identity,
+                'storageModeVersion': STORAGE_MODE_VERSION,
+                'storageEpoch': str(uuid.uuid4()),
+                'state': 'scan_required',
+                'reason': 'storage_identity_changed' if identity_changed else 'first_use',
+                'detectedAt': now,
+                'reportVersion': INTEGRITY_REPORT_VERSION,
+                'recoveryConditions': ['complete_integrity_scan'],
+            }
+        elif unclean_shutdown and status.get('state') in {'healthy', 'scan_required'}:
+            status.update({
+                'state': 'gc_suspended',
+                'reason': 'unclean_shutdown',
+                'detectedAt': now,
+                'recoveryConditions': ['complete_integrity_scan'],
+            })
+        status.setdefault('databaseIdentity', database_identity)
+        status.setdefault('directoryIdentity', directory_identity)
+        if safety_state_unreadable:
+            forced_state = ('repair_required', 'safety_state_unreadable')
+        elif safety_state_invalid:
+            forced_state = ('repair_required', 'safety_state_invalid')
+        if forced_state:
+            recovery_conditions = ['complete_integrity_scan']
+            if forced_state[1] == 'unknown_schema_version':
+                recovery_conditions.insert(0, 'use_supported_application_version')
+            status.update({
+                'state': forced_state[0],
+                'reason': forced_state[1],
+                'detectedAt': now,
+                'recoveryConditions': recovery_conditions,
+            })
+        status['cleanShutdown'] = False
+        self._safety_status = status
+        self._write_safety_status(status)
+
+    def get_storage_safety_status(self):
+        self.initialize()
+        return {key: value for key, value in self._safety_status.items() if key != 'cleanShutdown'}
+
+    def mark_clean_shutdown(self):
+        self.initialize()
+        with self._lock:
+            self._safety_status['cleanShutdown'] = True
+            self._write_safety_status(self._safety_status)
+
+    def _physical_reclamation_allowed(self):
+        return bool(self._safety_status and self._safety_status.get('state') == 'healthy')
 
     @contextmanager
     def _connect(self):
@@ -125,6 +325,10 @@ class StorageService:
             db.execute(
                 'INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                 ('schema_version', str(SCHEMA_VERSION)),
+            )
+            db.execute(
+                'INSERT OR IGNORE INTO meta(key, value) VALUES(?, ?)',
+                ('storage_instance_id', str(uuid.uuid4())),
             )
 
     def _quarantine_corrupt_database(self):
@@ -256,6 +460,8 @@ class StorageService:
 
     def delete_asset(self, asset_key):
         self.initialize()
+        if not self._physical_reclamation_allowed():
+            return False
         with self._lock, self._connect() as db:
             row = db.execute('SELECT relative_path FROM assets WHERE asset_key=?', (str(asset_key),)).fetchone()
             if not row:
@@ -348,8 +554,20 @@ class StorageService:
                     SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key
                 )
             ''')]
+        if not self._physical_reclamation_allowed():
+            return {
+                'assetsDeleted': 0,
+                'orphanFilesDeleted': 0,
+                'gcSuspended': True,
+                'candidatesRetained': len(keys),
+            }
         deleted = sum(1 for key in keys if self.delete_asset(key))
-        return {'assetsDeleted': deleted, 'orphanFilesDeleted': self.cleanup_orphan_files()}
+        return {
+            'assetsDeleted': deleted,
+            'orphanFilesDeleted': self.cleanup_orphan_files(),
+            'gcSuspended': False,
+            'candidatesRetained': 0,
+        }
 
     def save_history(self, entry):
         self.initialize()
@@ -438,6 +656,8 @@ class StorageService:
 
     def cleanup_orphan_files(self):
         self.initialize()
+        if not self._physical_reclamation_allowed():
+            return 0
         with self._connect() as db:
             referenced = {row[0] for row in db.execute('SELECT DISTINCT relative_path FROM assets')}
         deleted = 0
@@ -528,11 +748,13 @@ class StorageService:
 
     def factory_reset(self):
         self.initialize()
+        if not self._physical_reclamation_allowed():
+            raise StorageError('Physical media reclamation is suspended until integrity verification completes')
         with self._lock, self._connect() as db:
             db.execute('DELETE FROM history')
             db.execute('DELETE FROM assets')
             db.execute('DELETE FROM documents')
-            db.execute("DELETE FROM meta WHERE key != 'schema_version'")
+            db.execute("DELETE FROM meta WHERE key NOT IN ('schema_version', 'storage_instance_id')")
         if os.path.isdir(self.assets_dir):
             shutil.rmtree(self.assets_dir)
         os.makedirs(self.assets_dir, exist_ok=True)

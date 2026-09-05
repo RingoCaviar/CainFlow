@@ -1,4 +1,5 @@
 ﻿import os
+import atexit
 import csv
 import socket
 import socketserver
@@ -15,6 +16,7 @@ from backend.services.version_service import get_app_version_tag
 
 socket.setdefaulttimeout(300)
 socketserver.TCPServer.allow_reuse_address = True
+_storage_shutdown_registered = False
 
 
 def run_command(command):
@@ -225,9 +227,13 @@ def print_banner():
 
 
 def initialize_runtime():
+    global _storage_shutdown_registered
     os.chdir(config.STATIC_ROOT)
     config.ensure_runtime_dirs()
     storage_service.initialize()
+    if not _storage_shutdown_registered:
+        atexit.register(storage_service.mark_clean_shutdown)
+        _storage_shutdown_registered = True
     cleanup_update_temp_files()
     diagnostic_service.initialize()
 

@@ -1,4 +1,6 @@
 import os
+import json
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -7,13 +9,20 @@ from backend.services.storage_service import StorageError, StorageService
 
 
 class StorageServiceTests(unittest.TestCase):
-    def make_service(self, root):
-        return StorageService(
+    def make_service(self, root, verified=True):
+        service = StorageService(
             database_path=os.path.join(root, 'data', 'cainflow.db'),
             assets_dir=os.path.join(root, 'data', 'assets'),
             temp_dir=os.path.join(root, 'data', 'temp'),
             exports_dir=os.path.join(root, 'exports'),
         )
+        if verified:
+            service.initialize()
+            service._safety_status.update({
+                'state': 'healthy', 'reason': 'verified', 'recoveryConditions': [],
+            })
+            service._write_safety_status(service._safety_status)
+        return service
 
     def test_documents_are_atomic_json_records(self):
         with tempfile.TemporaryDirectory() as root:
@@ -24,6 +33,200 @@ class StorageServiceTests(unittest.TestCase):
             self.assertEqual('plain-test-key', restored['apikey'])
             with self.assertRaises(StorageError):
                 service.put_document('unknown', {})
+
+    def test_storage_safety_identity_and_epoch_survive_a_clean_restart(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            initial = first.get_storage_safety_status()
+            first.mark_clean_shutdown()
+
+            restarted = self.make_service(root, verified=False)
+            restored = restarted.get_storage_safety_status()
+
+            self.assertEqual('scan_required', initial['state'])
+            self.assertEqual(initial['storageIdentity'], restored['storageIdentity'])
+            self.assertEqual(initial['databaseIdentity'], restored['databaseIdentity'])
+            self.assertEqual(initial['directoryIdentity'], restored['directoryIdentity'])
+            self.assertEqual(initial['storageEpoch'], restored['storageEpoch'])
+            self.assertEqual(1, restored['storageModeVersion'])
+            self.assertEqual(1, restored['reportVersion'])
+            self.assertNotIn(root, repr(restored))
+
+    def test_changing_the_media_directory_creates_a_suspended_storage_epoch(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            initial = first.get_storage_safety_status()
+            first.mark_clean_shutdown()
+            moved = StorageService(
+                database_path=first.database_path,
+                assets_dir=os.path.join(root, 'moved-assets'),
+                temp_dir=first.temp_dir,
+                exports_dir=first.exports_dir,
+            )
+
+            changed = moved.get_storage_safety_status()
+
+            self.assertEqual('scan_required', changed['state'])
+            self.assertEqual('storage_identity_changed', changed['reason'])
+            self.assertNotEqual(initial['storageIdentity'], changed['storageIdentity'])
+            self.assertNotEqual(initial['storageEpoch'], changed['storageEpoch'])
+
+    def test_unknown_newer_schema_fails_closed_without_being_overwritten(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.initialize()
+            first.mark_clean_shutdown()
+            database = sqlite3.connect(first.database_path)
+            try:
+                database.execute("UPDATE meta SET value='999' WHERE key='schema_version'")
+                database.commit()
+            finally:
+                database.close()
+
+            restarted = self.make_service(root, verified=False)
+            status = restarted.get_storage_safety_status()
+
+            self.assertEqual('repair_required', status['state'])
+            self.assertEqual('unknown_schema_version', status['reason'])
+            database = sqlite3.connect(first.database_path)
+            try:
+                version = database.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            finally:
+                database.close()
+            self.assertEqual('999', version)
+
+    def test_known_older_schema_upgrade_requires_an_integrity_scan(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.initialize()
+            first.mark_clean_shutdown()
+            database = sqlite3.connect(first.database_path)
+            try:
+                database.execute("UPDATE meta SET value='1' WHERE key='schema_version'")
+                database.commit()
+            finally:
+                database.close()
+
+            status = self.make_service(root, verified=False).get_storage_safety_status()
+
+            self.assertEqual('scan_required', status['state'])
+            self.assertEqual('schema_version_changed', status['reason'])
+
+    def test_repaired_schema_structure_requires_an_integrity_scan(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.initialize()
+            first.mark_clean_shutdown()
+            database = sqlite3.connect(first.database_path)
+            try:
+                database.execute('DROP TABLE media_asset_refs')
+                database.commit()
+            finally:
+                database.close()
+
+            status = self.make_service(root, verified=False).get_storage_safety_status()
+
+            self.assertEqual('scan_required', status['state'])
+            self.assertEqual('schema_structure_changed', status['reason'])
+
+    def test_unclean_restart_keeps_storage_reclamation_suspended(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.get_storage_safety_status()
+
+            restarted = self.make_service(root, verified=False)
+            status = restarted.get_storage_safety_status()
+
+            self.assertEqual('gc_suspended', status['state'])
+            self.assertEqual('unclean_shutdown', status['reason'])
+            self.assertIn('complete_integrity_scan', status['recoveryConditions'])
+
+    def test_unreadable_persisted_safety_state_fails_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.initialize()
+            first.mark_clean_shutdown()
+            with open(f'{first.database_path}.media-safety.json', 'w', encoding='utf-8') as output:
+                output.write('{broken')
+
+            status = self.make_service(root, verified=False).get_storage_safety_status()
+
+            self.assertEqual('repair_required', status['state'])
+            self.assertEqual('safety_state_unreadable', status['reason'])
+
+    def test_oversized_safety_state_is_not_parsed_during_the_bounded_fast_check(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.initialize()
+            first.mark_clean_shutdown()
+            with open(f'{first.database_path}.media-safety.json', 'w', encoding='utf-8') as output:
+                output.write('{"padding":"' + ('x' * 65537) + '"}')
+
+            status = self.make_service(root, verified=False).get_storage_safety_status()
+
+            self.assertEqual('repair_required', status['state'])
+            self.assertEqual('safety_state_unreadable', status['reason'])
+
+    def test_incomplete_safety_state_fails_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            initial = first.get_storage_safety_status()
+            first.mark_clean_shutdown()
+            with open(f'{first.database_path}.media-safety.json', 'w', encoding='utf-8') as output:
+                json.dump({'storageIdentity': initial['storageIdentity'], 'cleanShutdown': True}, output)
+
+            status = self.make_service(root, verified=False).get_storage_safety_status()
+
+            self.assertEqual('repair_required', status['state'])
+            self.assertEqual('safety_state_invalid', status['reason'])
+
+    def test_unknown_safety_state_version_cannot_claim_the_store_is_healthy(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root, verified=False)
+            first.mark_clean_shutdown()
+            path = f'{first.database_path}.media-safety.json'
+            with open(path, encoding='utf-8') as source:
+                persisted = json.load(source)
+            persisted.update({'state': 'healthy', 'storageModeVersion': 999, 'unknown': 'discard-me'})
+            with open(path, 'w', encoding='utf-8') as output:
+                json.dump(persisted, output)
+
+            status = self.make_service(root, verified=False).get_storage_safety_status()
+
+            self.assertEqual('repair_required', status['state'])
+            self.assertEqual('safety_state_invalid', status['reason'])
+            self.assertNotIn('unknown', status)
+
+    def test_fast_check_timeout_fails_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = StorageService(
+                database_path=os.path.join(root, 'data', 'cainflow.db'),
+                assets_dir=os.path.join(root, 'data', 'assets'),
+                temp_dir=os.path.join(root, 'data', 'temp'),
+                exports_dir=os.path.join(root, 'exports'),
+                fast_check_budget_seconds=0,
+            )
+
+            status = service.get_storage_safety_status()
+
+            self.assertEqual('gc_suspended', status['state'])
+            self.assertEqual('fast_check_timeout', status['reason'])
+
+    def test_suspended_storage_keeps_unreferenced_media_while_owner_and_document_writes_continue(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self.make_service(root)
+            asset = first.put_media_asset(b'keep-me', 'image/png', 'workflow-node', 'wf:preview')
+            first.get_storage_safety_status()
+            restarted = self.make_service(root, verified=False)
+            self.assertEqual('gc_suspended', restarted.get_storage_safety_status()['state'])
+
+            cleanup = restarted.remove_media_reference('workflow-node', 'wf:preview', asset['asset_key'])
+            restarted.put_document('session', {'nodes': []})
+
+            self.assertTrue(cleanup['gcSuspended'])
+            self.assertEqual(1, cleanup['candidatesRetained'])
+            self.assertIsNotNone(restarted.get_asset_info(asset['asset_key']))
+            self.assertEqual({'nodes': []}, restarted.get_document('session')['value'])
 
     def test_assets_are_content_addressed_and_deduplicated_on_disk(self):
         with tempfile.TemporaryDirectory() as root:
@@ -246,17 +449,18 @@ class StorageServiceTests(unittest.TestCase):
 
     def test_factory_reset_preserves_exports(self):
         with tempfile.TemporaryDirectory() as root:
-            service = self.make_service(root)
+            service = self.make_service(root, verified=False)
             service.put_document('session', {'nodes': []})
             exported = service.export_media('keep.bin', b'keep')
             service.put_asset('node:1', b'data')
-            service.factory_reset()
-            self.assertFalse(service.has_user_data())
+            with self.assertRaises(StorageError):
+                service.factory_reset()
+            self.assertTrue(service.has_user_data())
             self.assertTrue(os.path.exists(exported))
 
     def test_corrupt_database_is_quarantined(self):
         with tempfile.TemporaryDirectory() as root:
-            service = self.make_service(root)
+            service = self.make_service(root, verified=False)
             os.makedirs(os.path.dirname(service.database_path), exist_ok=True)
             with open(service.database_path, 'wb') as file:
                 file.write(b'not-a-sqlite-database')
@@ -264,6 +468,9 @@ class StorageServiceTests(unittest.TestCase):
             quarantined = [name for name in os.listdir(os.path.dirname(service.database_path)) if '.corrupt-' in name]
             self.assertEqual(1, len(quarantined))
             self.assertEqual(0, service.get_stats()['documents'])
+            status = service.get_storage_safety_status()
+            self.assertEqual('repair_required', status['state'])
+            self.assertEqual('database_unreadable', status['reason'])
 
 
 if __name__ == '__main__':
