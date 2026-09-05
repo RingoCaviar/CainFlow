@@ -35,6 +35,30 @@ class StorageRouteSecurityTests(unittest.TestCase):
 
         write_json.assert_called_once_with(handler, {'safety': status})
 
+    def test_owner_reference_list_replacement_maps_the_versioned_request_without_media_content(self):
+        handler = make_handler()
+        handler.path = '/api/storage/media-assets'
+        request = {
+            'action': 'replace-owner-reference-list',
+            'workflowId': 'workflow-a', 'ownerType': 'workflow-node', 'ownerId': 'node-a',
+            'operationId': 'operation-a', 'idempotencyKey': 'stable-key',
+            'expectedGeneration': 2, 'documentRevision': 9, 'storageEpoch': 'epoch-a',
+            'assetKeys': ['media:first', 'media:second'], 'cancelled': False,
+        }
+        result = {'status': 'committed', 'generation': 3}
+        with mock.patch.object(storage_routes, 'read_json_body', return_value=request), \
+                mock.patch.object(storage_routes.storage_service, 'replace_media_owner_references', return_value=result) as replace, \
+                mock.patch.object(storage_routes, 'write_json') as write_json:
+            self.assertTrue(storage_routes.handle_post(handler))
+
+        replace.assert_called_once_with(
+            workflow_id='workflow-a', owner_type='workflow-node', owner_id='node-a',
+            operation_id='operation-a', idempotency_key='stable-key', expected_generation=2,
+            document_revision=9, storage_epoch='epoch-a', asset_keys=['media:first', 'media:second'],
+            cancelled=False,
+        )
+        write_json.assert_called_once_with(handler, {'success': True, **result})
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,6 +2,7 @@ import os
 import json
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 
@@ -23,6 +24,11 @@ class StorageServiceTests(unittest.TestCase):
             })
             service._write_safety_status(service._safety_status)
         return service
+
+    def record_manifest(self, service, workflow_id, revision, epoch, owner_id, asset_keys):
+        return service.record_media_workflow_revision(workflow_id, revision, epoch, [{
+            'ownerType': 'workflow-node', 'ownerId': owner_id, 'assetKeys': asset_keys,
+        }])
 
     def test_documents_are_atomic_json_records(self):
         with tempfile.TemporaryDirectory() as root:
@@ -274,6 +280,221 @@ class StorageServiceTests(unittest.TestCase):
             self.assertIsNotNone(service.get_asset_info(key))
             service.remove_media_reference('node', 'video-1', key)
             self.assertIsNone(service.get_asset_info(key))
+
+    def test_replacing_a_new_owner_reference_list_commits_order_and_generation_atomically(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            first = service.put_media_asset(b'first', 'image/png', 'transition', 'op:first')
+            second = service.put_media_asset(b'second', 'image/png', 'transition', 'op:second')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow-a', 7, epoch, 'node-a',
+                                 [first['asset_key'], second['asset_key'], first['asset_key']])
+
+            result = service.replace_media_owner_references(
+                workflow_id='workflow-a', owner_type='workflow-node', owner_id='node-a',
+                operation_id='generation-1', idempotency_key='workflow-a:node-a:generation-1',
+                expected_generation=0, document_revision=7, storage_epoch=epoch,
+                asset_keys=[first['asset_key'], second['asset_key'], first['asset_key']],
+            )
+
+            self.assertEqual({'status': 'committed', 'generation': 1}, result)
+            owner = service.get_media_owner_reference_list('workflow-a', 'workflow-node', 'node-a')
+            self.assertEqual(1, owner['generation'])
+            self.assertEqual(7, owner['documentRevision'])
+            self.assertEqual(
+                [first['asset_key'], second['asset_key'], first['asset_key']],
+                owner['assetKeys'],
+            )
+
+    def test_owner_reference_replacement_replays_the_same_operation_but_rejects_changed_content(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            first = service.put_media_asset(b'first', 'image/png', 'transition', 'op:first')
+            second = service.put_media_asset(b'second', 'image/png', 'transition', 'op:second')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow-a', 7, epoch, 'node-a', [first['asset_key']])
+            request = {
+                'workflow_id': 'workflow-a', 'owner_type': 'workflow-node', 'owner_id': 'node-a',
+                'operation_id': 'generation-1', 'idempotency_key': 'stable-operation-key',
+                'expected_generation': 0, 'document_revision': 7, 'storage_epoch': epoch,
+                'asset_keys': [first['asset_key']],
+            }
+            self.assertEqual('committed', service.replace_media_owner_references(**request)['status'])
+
+            replay = service.replace_media_owner_references(**request)
+
+            self.assertEqual({'status': 'already-committed', 'generation': 1}, replay)
+            with self.assertRaises(StorageError):
+                service.replace_media_owner_references(**{
+                    **request, 'asset_keys': [second['asset_key']],
+                })
+
+    def test_owner_reference_replacement_distinguishes_stale_cancelled_and_reconciliation_results(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'asset', 'image/png', 'transition', 'op:asset')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow-a', 4, epoch, 'node-a', [asset['asset_key']])
+            base = {
+                'workflow_id': 'workflow-a', 'owner_type': 'workflow-node', 'owner_id': 'node-a',
+                'expected_generation': 0, 'document_revision': 4, 'storage_epoch': epoch,
+                'asset_keys': [asset['asset_key']],
+            }
+            self.assertEqual('cancelled', service.replace_media_owner_references(
+                **base, operation_id='cancelled', idempotency_key='cancelled', cancelled=True,
+            )['status'])
+            self.record_manifest(service, 'workflow-missing', 4, epoch, 'node-a', ['media:missing'])
+            self.assertEqual('needs-reconciliation', service.replace_media_owner_references(
+                **{**base, 'workflow_id': 'workflow-missing', 'asset_keys': ['media:missing']},
+                operation_id='missing', idempotency_key='missing',
+            )['status'])
+            committed = service.replace_media_owner_references(
+                **base, operation_id='commit', idempotency_key='commit',
+            )
+            self.assertEqual('committed', committed['status'])
+            stale = service.replace_media_owner_references(
+                **{**base, 'expected_generation': 0, 'document_revision': 3},
+                operation_id='late', idempotency_key='late',
+            )
+            self.assertEqual({'status': 'stale', 'generation': 1}, stale)
+            stale_epoch = service.replace_media_owner_references(
+                **{**base, 'expected_generation': 1, 'storage_epoch': 'old-epoch'},
+                operation_id='old-epoch', idempotency_key='old-epoch',
+            )
+            self.assertEqual({'status': 'stale', 'generation': 1}, stale_epoch)
+
+    def test_interrupted_owner_replacement_keeps_the_previous_complete_owner_list(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            for injected_stage in ('new_owner_established', 'partial_old_reference_released'):
+                old = service.put_media_asset(f'old-{injected_stage}'.encode(), 'image/png',
+                                              'transition', f'old-{injected_stage}')
+                old_second = service.put_media_asset(f'old-second-{injected_stage}'.encode(), 'image/png',
+                                                     'transition', f'old-second-{injected_stage}')
+                new = service.put_media_asset(f'new-{injected_stage}'.encode(), 'image/png',
+                                              'transition', f'new-{injected_stage}')
+                owner_id = f'node-{injected_stage}'
+                workflow_id = f'workflow-{injected_stage}'
+                old_keys = [old['asset_key'], old_second['asset_key']]
+                self.record_manifest(service, workflow_id, 1, epoch, owner_id, old_keys)
+                service.replace_media_owner_references(
+                    workflow_id=workflow_id, owner_type='workflow-node', owner_id=owner_id,
+                    operation_id=f'old-{injected_stage}', idempotency_key=f'old-{injected_stage}',
+                    expected_generation=0, document_revision=1, storage_epoch=epoch,
+                    asset_keys=old_keys,
+                )
+                service.remove_media_reference('transition', f'old-{injected_stage}', old['asset_key'])
+                service.remove_media_reference('transition', f'old-second-{injected_stage}', old_second['asset_key'])
+                self.record_manifest(service, workflow_id, 2, epoch, owner_id, [new['asset_key']])
+                interrupted = StorageService(
+                    database_path=service.database_path, assets_dir=service.assets_dir,
+                    temp_dir=service.temp_dir, exports_dir=service.exports_dir,
+                    transition_fault_injector=lambda stage, target=injected_stage: (
+                        (_ for _ in ()).throw(RuntimeError('injected interruption'))
+                    if stage == target else None
+                    ),
+                )
+
+                with self.assertRaises(RuntimeError):
+                    interrupted.replace_media_owner_references(
+                        workflow_id=workflow_id, owner_type='workflow-node', owner_id=owner_id,
+                        operation_id=f'new-{injected_stage}', idempotency_key=f'new-{injected_stage}',
+                        expected_generation=1, document_revision=2, storage_epoch=epoch,
+                        asset_keys=[new['asset_key']],
+                    )
+
+                owner = service.get_media_owner_reference_list(workflow_id, 'workflow-node', owner_id)
+                if injected_stage == 'new_owner_established':
+                    self.assertEqual(1, owner['generation'])
+                    self.assertEqual(old_keys, owner['assetKeys'])
+                    retry_status = service.replace_media_owner_references(
+                        workflow_id=workflow_id, owner_type='workflow-node', owner_id=owner_id,
+                        operation_id=f'new-{injected_stage}', idempotency_key=f'new-{injected_stage}',
+                        expected_generation=1, document_revision=2, storage_epoch=epoch,
+                        asset_keys=[new['asset_key']],
+                    )['status']
+                    self.assertEqual('committed', retry_status)
+                else:
+                    self.assertEqual(2, owner['generation'])
+                    self.assertEqual([new['asset_key']], owner['assetKeys'])
+                    retry_status = service.replace_media_owner_references(
+                        workflow_id=workflow_id, owner_type='workflow-node', owner_id=owner_id,
+                        operation_id=f'new-{injected_stage}', idempotency_key=f'new-{injected_stage}',
+                        expected_generation=1, document_revision=2, storage_epoch=epoch,
+                        asset_keys=[new['asset_key']],
+                    )['status']
+                    self.assertEqual('needs-reconciliation', retry_status)
+                self.assertIsNotNone(service.get_asset_info(old['asset_key']))
+                self.assertIsNotNone(service.get_asset_info(old_second['asset_key']))
+
+    def test_concurrent_owner_replacements_allow_only_one_generation_cas_winner(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            assets = [
+                service.put_media_asset(value, 'image/png', 'transition', f'op:{index}')
+                for index, value in enumerate((b'one', b'two'))
+            ]
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow-a', 1, epoch, 'node-a', [assets[0]['asset_key']])
+            barrier = threading.Barrier(2)
+            results = []
+
+            def replace(index):
+                contender = StorageService(
+                    database_path=service.database_path, assets_dir=service.assets_dir,
+                    temp_dir=service.temp_dir, exports_dir=service.exports_dir,
+                    transition_fault_injector=lambda stage: barrier.wait()
+                    if stage == 'new_owner_established' else None,
+                )
+                results.append(contender.replace_media_owner_references(
+                    workflow_id='workflow-a', owner_type='workflow-node', owner_id='node-a',
+                    operation_id=f'op-{index}', idempotency_key=f'op-{index}',
+                    expected_generation=0, document_revision=1,
+                    storage_epoch=epoch, asset_keys=[assets[0]['asset_key']],
+                ))
+
+            threads = [threading.Thread(target=replace, args=(index,)) for index in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(['committed', 'stale'], sorted(result['status'] for result in results))
+            self.assertEqual(1, service.get_media_owner_reference_list(
+                'workflow-a', 'workflow-node', 'node-a')['generation'])
+
+    def test_owner_reference_identity_is_unambiguous_across_workflow_and_node_boundaries(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            assets = [service.put_media_asset(value, 'image/png', 'transition', str(index))
+                      for index, value in enumerate((b'one', b'two'))]
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            identities = (('a:b', 'c'), ('a', 'b:c'))
+            for index, (workflow_id, owner_id) in enumerate(identities):
+                self.record_manifest(service, workflow_id, 1, epoch, owner_id,
+                                     [assets[index]['asset_key']])
+                service.replace_media_owner_references(
+                    workflow_id=workflow_id, owner_type='workflow-node', owner_id=owner_id,
+                    operation_id=str(index), idempotency_key=f'identity-{index}',
+                    expected_generation=0, document_revision=1, storage_epoch=epoch,
+                    asset_keys=[assets[index]['asset_key']],
+                )
+
+            for index, (workflow_id, owner_id) in enumerate(identities):
+                self.assertEqual([assets[index]['asset_key']], service.get_media_owner_reference_list(
+                    workflow_id, 'workflow-node', owner_id)['assetKeys'])
+
+    def test_workflow_document_revision_cannot_be_rebound_to_different_media(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            assets = [service.put_media_asset(value, 'image/png', 'transition', str(index))
+                      for index, value in enumerate((b'one', b'two'))]
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow-a', 1, epoch, 'node-a', [assets[0]['asset_key']])
+
+            with self.assertRaises(StorageError):
+                self.record_manifest(service, 'workflow-a', 1, epoch, 'node-a', [assets[1]['asset_key']])
 
     def test_media_asset_deduplicates_by_digest_and_enforces_cache_limit(self):
         with tempfile.TemporaryDirectory() as root:

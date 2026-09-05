@@ -15,7 +15,7 @@ from urllib.parse import quote
 from backend import config
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STORAGE_MODE_VERSION = 1
 INTEGRITY_REPORT_VERSION = 1
 MAX_SAFETY_STATE_BYTES = 64 * 1024
@@ -37,7 +37,8 @@ class StorageError(Exception):
 
 class StorageService:
     def __init__(self, database_path=None, assets_dir=None, temp_dir=None, exports_dir=None,
-                 fast_check_budget_seconds=FAST_CHECK_BUDGET_SECONDS):
+                 fast_check_budget_seconds=FAST_CHECK_BUDGET_SECONDS,
+                 transition_fault_injector=None):
         self.database_path = database_path or config.DATABASE_PATH
         self.assets_dir = assets_dir or config.ASSETS_DIR
         self.temp_dir = temp_dir or config.DATA_TEMP_DIR
@@ -46,6 +47,7 @@ class StorageService:
         self._initialized = False
         self._safety_status = None
         self._fast_check_budget_seconds = max(0, float(fast_check_budget_seconds))
+        self._transition_fault_injector = transition_fault_injector or (lambda _stage: None)
 
     def initialize(self):
         with self._lock:
@@ -110,7 +112,12 @@ class StorageService:
             connection.close()
 
     def _has_expected_schema_structure(self):
-        required = {'meta', 'documents', 'assets', 'history', 'media_asset_refs'}
+        required = {
+            'meta', 'documents', 'assets', 'history', 'media_asset_refs',
+            'media_asset_owners', 'media_asset_owner_items', 'media_asset_transitions',
+            'media_workflow_revisions',
+            'media_workflow_owner_lists',
+        }
         try:
             connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
             try:
@@ -309,6 +316,58 @@ class StorageService:
                     FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_media_asset_refs_asset ON media_asset_refs(asset_key);
+                CREATE TABLE IF NOT EXISTS media_asset_owners (
+                    workflow_id TEXT NOT NULL,
+                    owner_type TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    generation INTEGER NOT NULL,
+                    document_revision INTEGER NOT NULL,
+                    tombstoned INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(workflow_id, owner_type, owner_id)
+                );
+                CREATE TABLE IF NOT EXISTS media_asset_owner_items (
+                    workflow_id TEXT NOT NULL,
+                    owner_type TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    asset_key TEXT NOT NULL,
+                    PRIMARY KEY(workflow_id, owner_type, owner_id, position),
+                    FOREIGN KEY(workflow_id, owner_type, owner_id)
+                        REFERENCES media_asset_owners(workflow_id, owner_type, owner_id) ON DELETE CASCADE,
+                    FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE RESTRICT
+                );
+                CREATE INDEX IF NOT EXISTS idx_media_asset_owner_items_asset
+                    ON media_asset_owner_items(asset_key);
+                CREATE TABLE IF NOT EXISTS media_asset_transitions (
+                    idempotency_key TEXT PRIMARY KEY,
+                    workflow_id TEXT NOT NULL,
+                    owner_type TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    operation_id TEXT NOT NULL,
+                    target_digest TEXT NOT NULL,
+                    expected_generation INTEGER NOT NULL,
+                    document_revision INTEGER NOT NULL,
+                    storage_epoch TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    result_generation INTEGER,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS media_workflow_revisions (
+                    workflow_id TEXT PRIMARY KEY,
+                    document_revision INTEGER NOT NULL,
+                    storage_epoch TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS media_workflow_owner_lists (
+                    workflow_id TEXT NOT NULL,
+                    document_revision INTEGER NOT NULL,
+                    owner_type TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    target_digest TEXT NOT NULL,
+                    PRIMARY KEY(workflow_id, document_revision, owner_type, owner_id),
+                    FOREIGN KEY(workflow_id) REFERENCES media_workflow_revisions(workflow_id) ON DELETE CASCADE
+                );
             ''')
             # Existing history rows predate the reference index.  Backfill them
             # idempotently so an upgrade never makes retained history collectible.
@@ -528,6 +587,238 @@ class StorageService:
                 db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=?',
                            (str(owner_type), str(owner_id)))
         return self.cleanup_unreferenced_media_assets()
+
+    def get_media_owner_reference_list(self, workflow_id, owner_type, owner_id):
+        self.initialize()
+        with self._connect() as db:
+            owner = db.execute('''
+                SELECT generation, document_revision, workflow_id, tombstoned
+                FROM media_asset_owners WHERE workflow_id=? AND owner_type=? AND owner_id=?
+            ''', (str(workflow_id), str(owner_type), str(owner_id))).fetchone()
+            if not owner:
+                return None
+            asset_keys = [row[0] for row in db.execute('''
+                SELECT asset_key FROM media_asset_owner_items
+                WHERE workflow_id=? AND owner_type=? AND owner_id=? ORDER BY position
+            ''', (str(workflow_id), str(owner_type), str(owner_id)))]
+        return {
+            'workflowId': owner['workflow_id'],
+            'generation': owner['generation'],
+            'documentRevision': owner['document_revision'],
+            'tombstoned': bool(owner['tombstoned']),
+            'assetKeys': asset_keys,
+        }
+
+    @staticmethod
+    def _reference_list_digest(asset_keys):
+        return hashlib.sha256(
+            json.dumps(list(asset_keys), ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+        ).hexdigest()
+
+    def record_media_workflow_revision(self, workflow_id, document_revision, storage_epoch,
+                                       owner_reference_lists):
+        self.initialize()
+        workflow_id = str(workflow_id or '').strip()
+        if not workflow_id or str(storage_epoch) != str(self._safety_status['storageEpoch']):
+            raise StorageError('Current workflow identity and storage epoch are required')
+        revision = int(document_revision)
+        manifests = []
+        for item in owner_reference_lists or []:
+            owner_type = str(item.get('ownerType') or '').strip()
+            owner_id = str(item.get('ownerId') or '').strip()
+            keys = [str(key or '').strip() for key in (item.get('assetKeys') or [])]
+            if not owner_type or not owner_id or any(not key for key in keys):
+                raise StorageError('Workflow Media asset manifest is invalid')
+            manifests.append((owner_type, owner_id, self._reference_list_digest(keys)))
+        with self._lock, self._connect() as db:
+            current = db.execute('SELECT document_revision FROM media_workflow_revisions WHERE workflow_id=?',
+                                 (workflow_id,)).fetchone()
+            if current and revision < current['document_revision']:
+                raise StorageError('Workflow document revision cannot move backwards')
+            if current and revision == current['document_revision']:
+                existing = {
+                    (row['owner_type'], row['owner_id'], row['target_digest'])
+                    for row in db.execute('''SELECT owner_type, owner_id, target_digest
+                        FROM media_workflow_owner_lists
+                        WHERE workflow_id=? AND document_revision=?''', (workflow_id, revision))
+                }
+                if existing != set(manifests):
+                    raise StorageError('Workflow document revision is already bound to different media references')
+            db.execute('''INSERT INTO media_workflow_revisions(workflow_id, document_revision, storage_epoch, updated_at)
+                VALUES(?, ?, ?, ?) ON CONFLICT(workflow_id) DO UPDATE SET
+                    document_revision=excluded.document_revision, storage_epoch=excluded.storage_epoch,
+                    updated_at=excluded.updated_at''',
+                (workflow_id, revision, str(storage_epoch), int(time.time() * 1000)))
+            db.execute('DELETE FROM media_workflow_owner_lists WHERE workflow_id=?', (workflow_id,))
+            db.executemany('''INSERT INTO media_workflow_owner_lists(
+                    workflow_id, document_revision, owner_type, owner_id, target_digest
+                ) VALUES(?, ?, ?, ?, ?)''', [
+                    (workflow_id, revision, owner_type, owner_id, digest)
+                    for owner_type, owner_id, digest in manifests
+                ])
+        return revision
+
+    @staticmethod
+    def _formal_reference_owner_id(workflow_id, owner_type, owner_id):
+        identity = json.dumps([workflow_id, owner_type, owner_id], ensure_ascii=False, separators=(',', ':'))
+        return f'owner:{hashlib.sha256(identity.encode("utf-8")).hexdigest()}'
+
+    def replace_media_owner_references(self, *, workflow_id, owner_type, owner_id,
+                                       operation_id, idempotency_key, expected_generation,
+                                       document_revision, storage_epoch, asset_keys, cancelled=False):
+        self.initialize()
+        workflow_id, owner_type, owner_id, operation_id, idempotency_key = (
+            str(value or '').strip() for value in
+            (workflow_id, owner_type, owner_id, operation_id, idempotency_key)
+        )
+        keys = [str(key or '').strip() for key in (asset_keys or [])]
+        if not all((workflow_id, owner_type, owner_id, operation_id, idempotency_key)) or any(not key for key in keys):
+            raise StorageError('Complete Media asset owner transition identity is required')
+        expected_generation = int(expected_generation)
+        document_revision = int(document_revision)
+        now = int(time.time() * 1000)
+        target_digest = self._reference_list_digest(keys)
+        with self._lock, self._connect() as db:
+            transition = db.execute('''SELECT * FROM media_asset_transitions
+                WHERE idempotency_key=?''', (idempotency_key,)).fetchone()
+            if transition:
+                binding = (
+                    workflow_id, owner_type, owner_id, operation_id, target_digest,
+                    expected_generation, document_revision, str(storage_epoch),
+                )
+                persisted_binding = tuple(transition[key] for key in (
+                    'workflow_id', 'owner_type', 'owner_id', 'operation_id', 'target_digest',
+                    'expected_generation', 'document_revision', 'storage_epoch',
+                ))
+                if binding != persisted_binding:
+                    raise StorageError('Idempotency key is already bound to different transition content')
+                if transition['status'] == 'completed':
+                    return {'status': 'already-committed', 'generation': transition['result_generation']}
+                if transition['status'] == 'cancelled':
+                    return {'status': 'cancelled', 'generation': transition['result_generation']}
+                if transition['status'] in {'stale', 'needs-reconciliation'}:
+                    return {'status': transition['status'], 'generation': transition['result_generation']}
+                if transition['status'] in {'owner-promoted', 'old-references-released'}:
+                    db.execute("UPDATE media_asset_transitions SET status='needs-reconciliation' WHERE idempotency_key=?",
+                               (idempotency_key,))
+                    return {
+                        'status': 'needs-reconciliation',
+                        'generation': transition['result_generation'],
+                    }
+            else:
+                db.execute('''INSERT INTO media_asset_transitions(
+                        idempotency_key, workflow_id, owner_type, owner_id, operation_id, target_digest,
+                        expected_generation, document_revision, storage_epoch, status, result_generation, created_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', NULL, ?)''',
+                    (idempotency_key, workflow_id, owner_type, owner_id, operation_id, target_digest,
+                     expected_generation, document_revision, str(storage_epoch), now))
+            owner = db.execute('''SELECT generation, document_revision FROM media_asset_owners
+                WHERE workflow_id=? AND owner_type=? AND owner_id=?''',
+                (workflow_id, owner_type, owner_id)).fetchone()
+            generation = owner['generation'] if owner else 0
+            workflow_revision = db.execute('''SELECT document_revision, storage_epoch
+                FROM media_workflow_revisions WHERE workflow_id=?''', (workflow_id,)).fetchone()
+            manifest = db.execute('''SELECT target_digest FROM media_workflow_owner_lists
+                WHERE workflow_id=? AND document_revision=? AND owner_type=? AND owner_id=?''',
+                (workflow_id, document_revision, owner_type, owner_id)).fetchone()
+            stale = (
+                str(storage_epoch) != str(self._safety_status['storageEpoch'])
+                or not workflow_revision
+                or workflow_revision['storage_epoch'] != str(storage_epoch)
+                or workflow_revision['document_revision'] != document_revision
+                or not manifest or manifest['target_digest'] != target_digest
+                or generation != expected_generation
+                or (owner and document_revision <= owner['document_revision'])
+            )
+            if stale:
+                db.execute("UPDATE media_asset_transitions SET status='stale', result_generation=? WHERE idempotency_key=?",
+                           (generation, idempotency_key))
+                return {'status': 'stale', 'generation': generation}
+            if cancelled:
+                db.execute("UPDATE media_asset_transitions SET status='cancelled' WHERE idempotency_key=?",
+                           (idempotency_key,))
+                return {'status': 'cancelled', 'generation': generation}
+            missing = [key for key in set(keys) if not db.execute(
+                'SELECT 1 FROM assets WHERE asset_key=?', (key,)
+            ).fetchone()]
+            if missing:
+                db.execute("UPDATE media_asset_transitions SET status='needs-reconciliation' WHERE idempotency_key=?",
+                           (idempotency_key,))
+                return {'status': 'needs-reconciliation', 'generation': generation}
+            transition_owner_id = f'transition:{hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()}'
+            db.executemany('''INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                VALUES('media-transition', ?, ?, ?)''', [
+                    (transition_owner_id, key, now) for key in dict.fromkeys(keys)
+                ])
+        self._transition_fault_injector('new_owner_established')
+
+        reference_owner_id = self._formal_reference_owner_id(workflow_id, owner_type, owner_id)
+        with self._lock, self._connect() as db:
+            current_owner = db.execute('''SELECT generation, document_revision FROM media_asset_owners
+                WHERE workflow_id=? AND owner_type=? AND owner_id=?''',
+                (workflow_id, owner_type, owner_id)).fetchone()
+            current_generation = current_owner['generation'] if current_owner else 0
+            current_revision = db.execute('''SELECT document_revision, storage_epoch
+                FROM media_workflow_revisions WHERE workflow_id=?''', (workflow_id,)).fetchone()
+            current_manifest = db.execute('''SELECT target_digest FROM media_workflow_owner_lists
+                WHERE workflow_id=? AND document_revision=? AND owner_type=? AND owner_id=?''',
+                (workflow_id, document_revision, owner_type, owner_id)).fetchone()
+            current_transition = db.execute('SELECT status FROM media_asset_transitions WHERE idempotency_key=?',
+                                            (idempotency_key,)).fetchone()
+            if (current_generation != expected_generation or not current_revision
+                    or current_revision['document_revision'] != document_revision
+                    or current_revision['storage_epoch'] != str(storage_epoch)
+                    or not current_manifest or current_manifest['target_digest'] != target_digest
+                    or not current_transition or current_transition['status'] != 'prepared'):
+                db.execute("UPDATE media_asset_transitions SET status='stale', result_generation=? WHERE idempotency_key=?",
+                           (current_generation, idempotency_key))
+                db.execute("DELETE FROM media_asset_refs WHERE owner_type='media-transition' AND owner_id=?",
+                           (transition_owner_id,))
+                return {'status': 'stale', 'generation': current_generation}
+            old_keys = [row[0] for row in db.execute('''SELECT asset_key FROM media_asset_refs
+                WHERE owner_type=? AND owner_id=?''', (owner_type, reference_owner_id))]
+            next_generation = generation + 1
+            db.execute('''INSERT INTO media_asset_owners(
+                    owner_type, owner_id, workflow_id, generation, document_revision, tombstoned, updated_at
+                ) VALUES(?, ?, ?, ?, ?, 0, ?)
+                ON CONFLICT(workflow_id, owner_type, owner_id) DO UPDATE SET
+                    generation=excluded.generation,
+                    document_revision=excluded.document_revision, tombstoned=0, updated_at=excluded.updated_at
+            ''', (owner_type, owner_id, workflow_id, next_generation, document_revision, now))
+            db.execute('''DELETE FROM media_asset_owner_items
+                WHERE workflow_id=? AND owner_type=? AND owner_id=?''',
+                (workflow_id, owner_type, owner_id))
+            db.executemany('''INSERT INTO media_asset_owner_items(
+                    workflow_id, owner_type, owner_id, position, asset_key
+                ) VALUES(?, ?, ?, ?, ?)''', [
+                    (workflow_id, owner_type, owner_id, position, key) for position, key in enumerate(keys)
+                ])
+            db.executemany('''INSERT INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                VALUES(?, ?, ?, ?) ON CONFLICT(owner_type, owner_id, asset_key) DO NOTHING''', [
+                    (owner_type, reference_owner_id, key, now) for key in dict.fromkeys(keys)
+                ])
+            db.execute('''UPDATE media_asset_transitions
+                SET status='owner-promoted', result_generation=? WHERE idempotency_key=?''',
+                (next_generation, idempotency_key))
+        self._transition_fault_injector('owner_promoted')
+
+        target_set = set(keys)
+        for old_key in old_keys:
+            if old_key in target_set:
+                continue
+            with self._lock, self._connect() as db:
+                db.execute('''DELETE FROM media_asset_refs
+                    WHERE owner_type=? AND owner_id=? AND asset_key=?''',
+                    (owner_type, reference_owner_id, old_key))
+            self._transition_fault_injector('partial_old_reference_released')
+        with self._lock, self._connect() as db:
+            db.execute("UPDATE media_asset_transitions SET status='old-references-released' WHERE idempotency_key=?",
+                       (idempotency_key,))
+            db.execute("DELETE FROM media_asset_refs WHERE owner_type='media-transition' AND owner_id=?",
+                       (transition_owner_id,))
+            db.execute("UPDATE media_asset_transitions SET status='completed' WHERE idempotency_key=?",
+                       (idempotency_key,))
+        return {'status': 'committed', 'generation': next_generation}
 
     def put_media_asset(self, body, mime_type, owner_type, owner_id):
         """Store one canonical Media asset and atomically attach an owner reference."""

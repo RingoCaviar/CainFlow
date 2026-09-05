@@ -148,6 +148,21 @@ def handle_post(handler):
                 result = storage_service.remove_media_reference(data.get('ownerType'), data.get('ownerId'), data.get('assetKey'))
             elif action == 'cache-limit':
                 result = {'mediaCacheLimitBytes': storage_service.set_media_cache_limit(data.get('limitBytes'))}
+            elif action == 'replace-owner-reference-list':
+                result = storage_service.replace_media_owner_references(
+                    workflow_id=data.get('workflowId'), owner_type=data.get('ownerType'),
+                    owner_id=data.get('ownerId'), operation_id=data.get('operationId'),
+                    idempotency_key=data.get('idempotencyKey'),
+                    expected_generation=data.get('expectedGeneration'),
+                    document_revision=data.get('documentRevision'),
+                    storage_epoch=data.get('storageEpoch'), asset_keys=data.get('assetKeys') or [],
+                    cancelled=data.get('cancelled') is True,
+                )
+            elif action == 'record-workflow-revision':
+                result = {'documentRevision': storage_service.record_media_workflow_revision(
+                    data.get('workflowId'), data.get('documentRevision'), data.get('storageEpoch'),
+                    data.get('ownerReferenceLists') or [],
+                )}
             else:
                 raise StorageError('Unknown media asset action')
             write_json(handler, {'success': True, **result})
