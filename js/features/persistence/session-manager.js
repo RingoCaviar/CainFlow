@@ -35,8 +35,12 @@ export function createSessionManagerApi({
         const workflowId = getWorkflowSnapshot()?.active?.workflowId || '';
         if (!workflowId) return;
         for (const node of snapshot?.nodes || []) {
-            const keys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
+            const mediaKeys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
             const ownerType = node?.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
+            const importKey = ownerType === 'workflow-import'
+                ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
+                : '';
+            const keys = mediaKeys?.length > 0 ? mediaKeys : [importKey];
             for (const key of new Set((keys || []).filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
                 await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key);
             }

@@ -82,14 +82,24 @@ export function createWorkflowManagerApi({
         getImageAsset, getImageAssetList, putMediaAsset, referenceMediaAsset, removeMediaReference, deleteImageAsset
     });
     async function referenceCopiedWorkflowMedia(workflowData, workflowId) {
-        const refs = (workflowData?.nodes || []).flatMap((node) => (node?.mediaAssetKeys || [])
-            .filter((key) => typeof key === 'string' && key));
+        const appliedRefs = [];
         for (const node of workflowData?.nodes || []) {
-            for (const key of node?.mediaAssetKeys || []) {
-                if (!await referenceMediaAsset('workflow-node', `${workflowId}:${node.id}`, key)) return false;
+            const ownerType = node?.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
+            const mediaKeys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
+            const importKey = ownerType === 'workflow-import'
+                ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
+                : '';
+            const keys = mediaKeys?.length > 0 ? mediaKeys : [importKey];
+            for (const key of new Set(keys.filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
+                if (!await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key)) {
+                    await Promise.all(appliedRefs.map(({ ownerType: appliedOwnerType, ownerId, assetKey }) =>
+                        removeMediaReference(appliedOwnerType, ownerId, assetKey)));
+                    return false;
+                }
+                appliedRefs.push({ ownerType, ownerId: `${workflowId}:${node.id}`, assetKey: key });
             }
         }
-        return refs.length === 0 || true;
+        return true;
     }
     const WORKFLOW_VERSION = '1.3';
     const TAB_COLORS = 6;
@@ -110,6 +120,7 @@ export function createWorkflowManagerApi({
     let hasCachedWorkflowEntries = false;
     let workflowListRenderSequence = 0;
     const pendingLegacyMediaMigrations = new Map();
+    const pendingMediaReleaseStorageKey = 'cainflow_pending_workflow_media_releases';
     const selectedWorkflowNames = new Set();
     const workflowMutationProjectionTokens = new WeakMap();
     const workflowDesk = createWorkflowDesk({
@@ -125,6 +136,38 @@ export function createWorkflowManagerApi({
         ),
         finalizeWorkflowMutation: (operation) => finalizeWorkflowMutationProjection(operation)
     });
+
+    function readPendingMediaReleases() {
+        try {
+            const value = JSON.parse(localStorageRef?.getItem?.(pendingMediaReleaseStorageKey) || '[]');
+            return [...new Set((Array.isArray(value) ? value : []).filter((id) => typeof id === 'string' && id))];
+        } catch {
+            return [];
+        }
+    }
+
+    function writePendingMediaReleases(workflowIds) {
+        try {
+            localStorageRef?.setItem?.(pendingMediaReleaseStorageKey, JSON.stringify([...new Set(workflowIds)]));
+        } catch (error) {
+            console.warn('Persisting pending workflow media releases failed:', error);
+        }
+    }
+
+    async function releaseOrQueueWorkflowMedia(workflowIds) {
+        const pending = new Set(readPendingMediaReleases());
+        for (const workflowId of new Set(workflowIds.filter(Boolean))) {
+            try {
+                if (await releaseWorkflowMediaAssets(workflowId)) pending.delete(workflowId);
+                else pending.add(workflowId);
+            } catch (error) {
+                pending.add(workflowId);
+                console.warn('Releasing workflow Media owners failed:', error);
+            }
+        }
+        writePendingMediaReleases([...pending]);
+        return pending.size === 0;
+    }
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
     const getActiveWorkflowName = () => getActiveWorkflow()?.label || '';
@@ -520,7 +563,7 @@ export function createWorkflowManagerApi({
             showToast(result.message, 'error');
             return false;
         }
-        if (workflowId) await releaseWorkflowMediaAssets(workflowId);
+        if (workflowId) await releaseOrQueueWorkflowMedia([workflowId]);
         return true;
     }
 
@@ -552,11 +595,26 @@ export function createWorkflowManagerApi({
     }
 
     async function deleteWorkflowFolderOnDisk(name, { deleteContents = false } = {}) {
+        const workflowIds = [];
+        if (deleteContents) {
+            const names = listWorkflowNamesInFolder(name, state.workflowFolders);
+            for (const workflowName of names) {
+                const tab = getWorkflowTab(workflowName);
+                const data = tab?.data || await loadWorkflowFromFileService(workflowName);
+                if (data?.ok === false) {
+                    showToast(data.message, 'error');
+                    return null;
+                }
+                const workflowId = tab?.workflowId || data?.workflowId || '';
+                if (workflowId) workflowIds.push(workflowId);
+            }
+        }
         const result = await deleteWorkflowFolderService(name, { deleteContents });
         if (result?.ok === false) {
             showToast(result.message, 'error');
             return null;
         }
+        if (deleteContents && workflowIds.length > 0) await releaseOrQueueWorkflowMedia(workflowIds);
         return result;
     }
 
@@ -2649,6 +2707,7 @@ export function createWorkflowManagerApi({
     }
 
     function initWorkflow() {
+        void releaseOrQueueWorkflowMedia(readPendingMediaReleases());
         const btnToggle = documentRef.getElementById('btn-toggle-workflow');
         const btnClose = documentRef.getElementById('btn-close-workflow');
         const btnSave = documentRef.getElementById('btn-save-workflow');

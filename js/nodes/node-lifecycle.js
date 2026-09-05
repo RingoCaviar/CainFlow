@@ -24,8 +24,6 @@ export function createNodeLifecycleApi({
     generateId,
     getImageAsset,
     getImageAssetList = async () => [],
-    getActiveWorkflowId = () => '',
-    removeMediaReference = async () => false,
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
@@ -1038,11 +1036,6 @@ export function createNodeLifecycleApi({
         });
     }
 
-    function getNodeMediaAssetKeys(node) {
-        const keys = Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : node?.mediaAssetKeys;
-        return [...new Set((keys || []).filter((key) => typeof key === 'string' && key.startsWith('media:')))];
-    }
-
     function scheduleNodeContentVisibleChecks(nodeId, options = {}) {
         scheduleEnsureNodeContentVisible(nodeId, options);
         const delays = Array.isArray(options.delays) ? options.delays : [50, 150];
@@ -1223,6 +1216,21 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        // Persisted workflow documents keep the complete Media asset sequence at
+        // the node level.  Keep it on the live node as well: `imageAssetKey` is
+        // only a compatibility pointer to the first asset and cannot represent
+        // a batch (nor support releasing every owner on deletion).
+        const restoredMediaAssetKeys = Array.isArray(effectiveRestoreData?.mediaAssetKeys)
+            ? effectiveRestoreData.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        if (restoredMediaAssetKeys.length > 0) {
+            nodeData.data.mediaAssetKeys = restoredMediaAssetKeys.slice();
+            nodeData.data.imageAssetKey = restoredMediaAssetKeys[0];
+            if (normalizedType === 'ImageImport') {
+                nodeData.imageImportAssetKey = restoredMediaAssetKeys[0];
+                nodeData.data.imageImportAssetKey = restoredMediaAssetKeys[0];
+            }
+        }
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
         }
@@ -1556,14 +1564,16 @@ export function createNodeLifecycleApi({
                 const storedImageAssetKey = shouldRestoreCanonicalBatch
                     ? canonicalImageAssetKey
                     : (shouldRestoreRecoverableAsset ? recoverableImageAssetKey : '');
-                const storedImages = isImportUrlMode || imageImportAssetKey || !storedImageAssetKey
-                    ? []
-                    : await getImageAssetList(storedImageAssetKey);
+                const storedImages = restoredMediaAssetKeys.length > 0
+                    ? (await Promise.all(restoredMediaAssetKeys.map((key) => getImageAsset(key)))).filter(Boolean)
+                    : (isImportUrlMode || imageImportAssetKey || !storedImageAssetKey
+                        ? []
+                        : await getImageAssetList(storedImageAssetKey));
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const sourceImages = hasInitialImageList ? restoredImages : storedImages;
                 if (sourceImages.length > 0) {
                     if (isCanonicalImageNodeType(normalizedType)) {
-                        const assetKey = canonicalImageAssetKey || id;
+                        const assetKey = restoredMediaAssetKeys[0] || canonicalImageAssetKey || id;
                         const currentIndex = isDisplayImageNodeType(normalizedType)
                             ? Math.max(0, Math.min(
                                 sourceImages.length - 1,
@@ -1853,18 +1863,13 @@ export function createNodeLifecycleApi({
             node.el.remove();
             state.nodes.delete(nid);
             state.selectedNodes.delete(nid);
-            const workflowId = getActiveWorkflowId();
-            if (workflowId) {
-                for (const assetKey of getNodeMediaAssetKeys(node)) {
-                    void removeMediaReference('workflow-node', `${workflowId}:${nid}`, assetKey);
-                }
-            }
             if (node.type === 'ImageImport') {
                 const importAssetKey = getNodeImageImportAssetKey(node);
                 const ownedAssetKey = importAssetKey || getExpectedImageImportAssetKey(nid);
-                if (ownedAssetKey.startsWith('media:')) {
-                    void removeMediaReference('workflow-import', `${getActiveWorkflowId()}:${nid}`, ownedAssetKey);
-                } else if (!isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
+                // Media owners stay alive for the lifetime of the workflow so
+                // the undo snapshot can safely restore a deleted node. They are
+                // released together when the workflow itself is deleted.
+                if (!ownedAssetKey.startsWith('media:') && !isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
                     void deleteImageImportAsset(ownedAssetKey);
                 }
             }

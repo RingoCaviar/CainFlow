@@ -195,3 +195,39 @@ test('restoring a video generation node exposes its local Media asset to connect
 
     assert.equal(state.nodes.get('video-restored').data.video.assetKey, 'media:abc');
 });
+
+test('restored image batches retain every Media asset key without releasing undo data', () => {
+    const children = [];
+    const nodesLayer = { children, appendChild(element) { children.push(element); } };
+    const documentRef = {
+        defaultView: { setTimeout: () => 0, clearTimeout: () => {} },
+        createElement: () => ({
+            style: {}, dataset: {},
+            classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {}
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 } };
+    const released = [];
+    const lifecycle = createNodeLifecycleApi({
+        state,
+        nodeConfigs: { ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320 } },
+        createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'batch-restored',
+        getImageAsset: async (key) => `data:${key}`, saveImageAsset: async () => false,
+        bindNodeInteractions: () => {}, pushHistory: () => {}, scheduleSave: () => {}, showToast: () => {},
+        updateAllConnections: () => {}, updatePortStyles: () => {}, getCacheSidebarActive: () => false, updateCacheUsage: () => {},
+        getActiveWorkflowId: () => 'workflow-1',
+        removeMediaReference: async (...args) => { released.push(args); return true; },
+        documentRef
+    });
+
+    lifecycle.addNode('ImageGenerate', 0, 0, {
+        id: 'batch-restored', mediaAssetKeys: ['media:first', 'media:second', 'media:first'], imageCount: 3
+    }, true);
+
+    assert.deepEqual(state.nodes.get('batch-restored').data.mediaAssetKeys, ['media:first', 'media:second', 'media:first']);
+    lifecycle.removeNode('batch-restored');
+    assert.deepEqual(released, []);
+});
