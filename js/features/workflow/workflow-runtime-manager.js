@@ -532,17 +532,6 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    function saveRuntimeDisplayImageAssetSoon(nodeId, images) {
-        const imageList = normalizeRuntimeImageList(images);
-        if (imageList.length > 1) {
-            runBackgroundRuntimeMediaTask(() => saveImageAssetList(nodeId, imageList), 'Save runtime display image list failed:');
-            return;
-        }
-        if (imageList[0] && typeof saveImageAsset === 'function') {
-            runBackgroundRuntimeMediaTask(() => saveImageAsset(nodeId, imageList[0]), 'Save runtime display image asset failed:');
-        }
-    }
-
     function syncGlobalRunToolbarState() {
         let activeRunCount = workflowRunContexts.size;
         workflowRunContexts.forEach((context) => {
@@ -1233,12 +1222,8 @@ export function createWorkflowRuntimeManager({
                         hydratedAt: Date.now(),
                         assetReady: false
                     });
-                    if (!await syncForwardedKeys(node, getForwardedKeys(nodeId)) && imageList.length > 1) {
-                        await saveImageAssetList(nodeId, imageList);
-                    } else if (!node.data.mediaAssetKeys && typeof saveImageAsset === 'function') {
-                        await saveImageAsset(nodeId, imageList[0]);
-                    }
-                    node.data.imageAssetReady = true;
+                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId));
+                    node.data.imageAssetReady = forwarded;
                 } else {
                     await syncForwardedKeys(node, []);
                     clearCanonicalImageOutput(node);
@@ -1260,12 +1245,8 @@ export function createWorkflowRuntimeManager({
                         assetReady: false
                     });
                     delete node.data.video;
-                    if (!await syncForwardedKeys(node, getForwardedKeys(nodeId)) && imageList.length > 1) {
-                        await saveImageAssetList(nodeId, imageList);
-                    } else if (!node.data.mediaAssetKeys && typeof saveImageAsset === 'function') {
-                        await saveImageAsset(nodeId, imageList[0]);
-                    }
-                    node.data.imageAssetReady = true;
+                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId));
+                    node.data.imageAssetReady = forwarded;
                     renderImageSavePreview(nodeId, imageList);
                 } else if (video?.url || video?.assetKey) {
                     await syncForwardedKeys(node, []);
@@ -1306,13 +1287,7 @@ export function createWorkflowRuntimeManager({
                     node.data.compareImageB = imageB;
                     node.data.image = imageB;
                     const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId, ['imageB']));
-                    if (!forwarded && typeof imageB === 'string' && /^data:image\//i.test(imageB) && typeof saveImageAsset === 'function') {
-                        node.data.imageAssetKey = nodeId;
-                        node.data.imageCount = 1;
-                        node.data.imageAssetReady = false;
-                        await saveImageAsset(nodeId, imageB);
-                        node.data.imageAssetReady = true;
-                    }
+                    node.data.imageAssetReady = forwarded;
                 } else {
                     await syncForwardedKeys(node, []);
                     delete node.data.compareImageB;

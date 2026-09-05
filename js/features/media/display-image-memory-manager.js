@@ -210,27 +210,14 @@ export function createDisplayImageMemoryManager({
             setAssetState(nodeId, 'failed');
         };
         setAssetState(nodeId, 'pending', { token: saveToken });
-        const saveTask = imageList.length > 1 && typeof saveImageAssetList === 'function'
-            ? () => saveImageAssetList(nodeId, imageList)
-            : (isInlineImageData(currentImage) && typeof saveImageAsset === 'function'
-                ? () => saveImageAsset(nodeId, currentImage)
-                : null);
-        if (saveTask) {
-            runBackgroundMediaTask(async () => {
-                const ok = await saveTask();
-                if (ok) markReady();
-                else markFailed();
-            }, 'Save display image asset failed:');
+        const mediaAssetKeys = Array.isArray(node?.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        if (imageList.length > 0 && mediaAssetKeys.length > 0) {
+            markReady();
             return;
         }
-        if (deleteImageAsset) {
-            runBackgroundMediaTask(async () => {
-                await deleteImageAsset(nodeId);
-                displayImageAssetState.delete(nodeId);
-            }, 'Delete display image asset failed:');
-        } else {
-            displayImageAssetState.delete(nodeId);
-        }
+        markFailed();
     }
 
     function getDisplayImageViewport() {
@@ -497,21 +484,12 @@ export function createDisplayImageMemoryManager({
             return false;
         }
 
-        let ok = false;
-        try {
-            if (imageList.length > 1 && typeof saveImageAssetList === 'function') {
-                ok = await saveImageAssetList(assetKey, imageList);
-            } else if (isInlineImageData(imageList[0]) && typeof saveImageAsset === 'function') {
-                ok = await saveImageAsset(assetKey, imageList[0]);
-            }
-        } catch (error) {
-            console.warn('Save managed image asset before release failed:', error);
-            ok = false;
-        }
-        if (!ok) return false;
+        // Display nodes only forward or read Media assets. Do not recreate the
+        // retired node-local cache from an in-memory preview.
+        if (mediaAssetKeys.length === 0) return false;
 
         node.data.imageCount = Math.max(getStoredImageCount(node), imageList.length);
-        markManagedImageAssetReady(node, assetKey);
+        markManagedImageAssetReady(node, mediaAssetKeys[0]);
         return true;
     }
 
