@@ -107,6 +107,9 @@ export function createWorkflowRunnerApi({
     saveImageAsset = async () => false,
     deleteImageAsset = async () => false,
     saveImageAssetList = async () => false,
+    saveWorkflowNodeMediaAssets = async () => [],
+    releaseWorkflowNodeMediaAssets = async () => false,
+    getActiveWorkflowId = () => '',
     syncImagePreviewNode = async () => {},
     syncImageSaveNode = async () => {},
     refreshDependentImageResizePreviews = () => {},
@@ -1117,6 +1120,21 @@ export function createWorkflowRunnerApi({
         }
     }
 
+    async function persistConcurrentImageResults(node, images) {
+        const workflowId = getActiveWorkflowId();
+        if (!workflowId || !node?.id || images.length === 0) return false;
+        const previousKeys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.slice() : [];
+        const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id);
+        const keys = assets.map((asset) => asset?.asset_key).filter(Boolean);
+        if (keys.length !== images.length) return false;
+        node.data = node.data || {};
+        node.data.mediaAssetKeys = keys;
+        node.data.imageAssetKey = keys[0];
+        await releaseWorkflowNodeMediaAssets(previousKeys.filter((key) => !keys.includes(key)), workflowId, node.id);
+        markRecoverableImageAssetReady(node, keys[0], keys.length);
+        return true;
+    }
+
     async function commitConcurrentBatchResults(node, results = []) {
         if (!node) return;
         if (node.type === 'ImageGenerate') {
@@ -1129,7 +1147,10 @@ export function createWorkflowRunnerApi({
             });
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
-            if (images.length > 1) {
+            if (await persistConcurrentImageResults(node, images)) {
+                // Media asset owner now retains the generation; do not write a
+                // node-local duplicate for concurrent results.
+            } else if (images.length > 1) {
                 if (await saveImageAssetList(node.id, images)) {
                     markRecoverableImageAssetReady(node, node.id, images.length);
                 }
