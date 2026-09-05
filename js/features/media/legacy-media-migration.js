@@ -36,8 +36,15 @@ export function createLegacyMediaMigrationCoordinator({
         for (const node of workflow.nodes || []) {
             const existing = (Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : node?.mediaAssetKeys || [])
                 .filter((key) => key?.startsWith('media:'));
-            if (existing.length) continue;
             const legacyKeys = legacyKeysFromNode(node);
+            const temporaryOwner = `migration:${workflowId}:${node.id}`;
+            if (existing.length) {
+                // A prior save may have reached disk before its formal owner was
+                // promoted. Reusing this stable temporary owner makes that state
+                // recoverable after restart without recreating the original.
+                staged.push({ node, assets: existing, legacyKeys, temporaryOwner, snapshot: null, created: false, ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node' });
+                continue;
+            }
             let values = imageValuesFromNode(node);
             for (const key of legacyKeys) {
                 const list = await getImageAssetList(key);
@@ -46,7 +53,6 @@ export function createLegacyMediaMigrationCoordinator({
             }
             values = values.filter(Boolean);
             if (!values.length) continue;
-            const temporaryOwner = `migration:${workflowId}:${node.id}:${crypto.randomUUID()}`;
             const assets = [];
             try {
                 for (const value of values) {
@@ -61,25 +67,18 @@ export function createLegacyMediaMigrationCoordinator({
             const snapshot = { data: node.data ? { ...node.data } : undefined, mediaAssetKeys: node.mediaAssetKeys, imageImportAssetKey: node.imageImportAssetKey };
             if (node.data && typeof node.data === 'object') node.data.mediaAssetKeys = assets;
             else node.mediaAssetKeys = assets;
-            staged.push({ node, assets, legacyKeys, temporaryOwner, snapshot, ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node' });
+            staged.push({ node, assets, legacyKeys, temporaryOwner, snapshot, created: true, ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node' });
         }
         if (!staged.length) return null;
         let done = false;
         return {
             async commit() {
                 if (done) return true;
-                const promoted = [];
-                try {
-                    for (const item of staged) {
-                        const ownerId = `${workflowId}:${item.node.id}`;
-                        for (const key of [...new Set(item.assets)]) {
-                            if (!await referenceMediaAsset(item.ownerType, ownerId, key)) throw new Error('Unable to promote migrated media reference');
-                            promoted.push({ ownerType: item.ownerType, ownerId, key });
-                        }
+                for (const item of staged) {
+                    const ownerId = `${workflowId}:${item.node.id}`;
+                    for (const key of [...new Set(item.assets)]) {
+                        if (!await referenceMediaAsset(item.ownerType, ownerId, key)) throw new Error('Unable to promote migrated media reference');
                     }
-                } catch (error) {
-                    await Promise.all(promoted.map((item) => removeMediaReference(item.ownerType, item.ownerId, item.key)));
-                    throw error;
                 }
                 for (const item of staged) {
                     await releaseTemporaryAssets(item.assets, item.temporaryOwner);
@@ -91,6 +90,7 @@ export function createLegacyMediaMigrationCoordinator({
             async rollback() {
                 if (done) return;
                 for (const item of staged) {
+                    if (!item.created) continue;
                     if (item.snapshot.data === undefined) delete item.node.data;
                     else item.node.data = item.snapshot.data;
                     item.node.mediaAssetKeys = item.snapshot.mediaAssetKeys;
