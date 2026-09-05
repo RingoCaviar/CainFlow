@@ -645,23 +645,7 @@ export function createWorkflowRunnerApi({
             // Try saving the in-memory copy below.
         }
 
-        const imageList = getRecoverableImageList(node);
-        if (imageList.length === 0) return false;
-
-        let saved = false;
-        try {
-            if (imageList.length > 1 && typeof saveImageAssetList === 'function') {
-                saved = await saveImageAssetList(assetKey, imageList);
-            } else if (typeof saveImageAsset === 'function') {
-                saved = await saveImageAsset(assetKey, imageList[0]);
-            }
-        } catch {
-            saved = false;
-        }
-
-        if (!saved) return false;
-        markRecoverableImageAssetReady(node, assetKey, imageList.length);
-        return true;
+        return false;
     }
 
     async function restoreDisplayNodeImageOutput(node) {
@@ -1147,18 +1131,8 @@ export function createWorkflowRunnerApi({
             });
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
-            if (await persistConcurrentImageResults(node, images)) {
-                // Media asset owner now retains the generation; do not write a
-                // node-local duplicate for concurrent results.
-            } else if (images.length > 1) {
-                if (await saveImageAssetList(node.id, images)) {
-                    markRecoverableImageAssetReady(node, node.id, images.length);
-                }
-            } else if (images.length === 1) {
-                if (await saveImageAsset(node.id, images[0])) {
-                    markRecoverableImageAssetReady(node, node.id, 1);
-                }
-            } else {
+            if (images.length > 0) await persistConcurrentImageResults(node, images);
+            else {
                 await deleteImageAsset(node.id);
             }
             await propagateImagesToDownstreamPreview(node.id, images);
@@ -1622,9 +1596,7 @@ export function createWorkflowRunnerApi({
             if (node.type === 'ImageGenerate') {
                 node.generationCompletedCount = aggregatedImages.length;
             }
-            if (await saveImageAssetList(node.id, aggregatedImages)) {
-                markRecoverableImageAssetReady(node, node.id, aggregatedImages.length);
-            }
+            await persistConcurrentImageResults(node, aggregatedImages);
             await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);

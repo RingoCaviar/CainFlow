@@ -1573,7 +1573,6 @@ export function createNodeLifecycleApi({
                             assetReady: storedImages.length > 0 || effectiveRestoreData?.imageAssetReady === true ? true : undefined,
                             hydratedAt: storedImages.length > 0 ? Date.now() : (effectiveRestoreData?.imageHydratedAt || undefined)
                         });
-                        runBackgroundImageTask(() => saveImageAssetList(assetKey, sourceImages), 'Save restored image list failed:');
                     } else {
                         nodeData.data.images = sourceImages.slice();
                         nodeData.imageDataList = sourceImages.slice();
@@ -1617,28 +1616,6 @@ export function createNodeLifecycleApi({
                     if (!isCanonicalImageNodeType(normalizedType)) {
                         nodeData.imageData = data;
                         nodeData.data.image = data;
-                    }
-
-                    if (normalizedType === 'ImageImport' && !isRemoteImageUrl(data)) {
-                        const preferredImportKey = nodeData.imageImportAssetKey === getExpectedImageImportAssetKey(id)
-                            ? nodeData.imageImportAssetKey
-                            : '';
-                        const savedImportKey = await saveImageImportAsset(id, data, preferredImportKey);
-                        if (savedImportKey) {
-                            const keyChanged = savedImportKey !== nodeData.imageImportAssetKey
-                                || savedImportKey !== nodeData.data.imageImportAssetKey;
-                            nodeData.imageImportAssetKey = savedImportKey;
-                            nodeData.data.imageImportAssetKey = savedImportKey;
-                            if (keyChanged) scheduleSave();
-                        } else if (hasInitialData) {
-                            await saveImageAsset(id, data);
-                        }
-                    } else if (hasInitialData && !isRemoteImageUrl(data)) {
-                        if (isDisplayImageNodeType(normalizedType)) {
-                            runBackgroundImageTask(() => saveImageAsset(id, data), 'Save restored display image asset failed:');
-                        } else {
-                            await saveImageAsset(id, data);
-                        }
                     }
 
                     if (normalizedType === 'ImageImport') {
