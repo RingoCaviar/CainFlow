@@ -28,12 +28,23 @@ export function createLegacyMediaMigrationCoordinator({
     const releaseTemporaryAssets = async (assets, temporaryOwner) => Promise.all(
         assets.map((key) => removeMediaReference('workflow-migration', temporaryOwner, key))
     );
+    const rollbackItems = async (items) => {
+        for (const item of items) {
+            if (!item.created) continue;
+            if (item.snapshot.data === undefined) delete item.node.data;
+            else item.node.data = item.snapshot.data;
+            item.node.mediaAssetKeys = item.snapshot.mediaAssetKeys;
+            item.node.imageImportAssetKey = item.snapshot.imageImportAssetKey;
+            await releaseTemporaryAssets(item.assets, item.temporaryOwner);
+        }
+    };
 
     async function stageWorkflow(workflow) {
         const workflowId = workflow?.workflowId;
         if (!workflowId) return null;
         const staged = [];
-        for (const node of workflow.nodes || []) {
+        try {
+            for (const node of workflow.nodes || []) {
             const existing = (Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : node?.mediaAssetKeys || [])
                 .filter((key) => key?.startsWith('media:'));
             const legacyKeys = legacyKeysFromNode(node);
@@ -68,17 +79,28 @@ export function createLegacyMediaMigrationCoordinator({
             if (node.data && typeof node.data === 'object') node.data.mediaAssetKeys = assets;
             else node.mediaAssetKeys = assets;
             staged.push({ node, assets, legacyKeys, temporaryOwner, snapshot, created: true, ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node' });
+            }
+        } catch (error) {
+            await rollbackItems(staged);
+            throw error;
         }
         if (!staged.length) return null;
         let done = false;
         return {
             async commit() {
                 if (done) return true;
-                for (const item of staged) {
-                    const ownerId = `${workflowId}:${item.node.id}`;
-                    for (const key of [...new Set(item.assets)]) {
-                        if (!await referenceMediaAsset(item.ownerType, ownerId, key)) throw new Error('Unable to promote migrated media reference');
+                const promoted = [];
+                try {
+                    for (const item of staged) {
+                        const ownerId = `${workflowId}:${item.node.id}`;
+                        for (const key of [...new Set(item.assets)]) {
+                            if (!await referenceMediaAsset(item.ownerType, ownerId, key)) throw new Error('Unable to promote migrated media reference');
+                            promoted.push({ ownerType: item.ownerType, ownerId, key });
+                        }
                     }
+                } catch (error) {
+                    await Promise.all(promoted.map((item) => removeMediaReference(item.ownerType, item.ownerId, item.key)));
+                    throw error;
                 }
                 for (const item of staged) {
                     await releaseTemporaryAssets(item.assets, item.temporaryOwner);
@@ -89,14 +111,7 @@ export function createLegacyMediaMigrationCoordinator({
             },
             async rollback() {
                 if (done) return;
-                for (const item of staged) {
-                    if (!item.created) continue;
-                    if (item.snapshot.data === undefined) delete item.node.data;
-                    else item.node.data = item.snapshot.data;
-                    item.node.mediaAssetKeys = item.snapshot.mediaAssetKeys;
-                    item.node.imageImportAssetKey = item.snapshot.imageImportAssetKey;
-                    await releaseTemporaryAssets(item.assets, item.temporaryOwner);
-                }
+                await rollbackItems(staged);
                 done = true;
             }
         };

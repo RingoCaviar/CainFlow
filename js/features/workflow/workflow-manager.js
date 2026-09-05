@@ -108,7 +108,7 @@ export function createWorkflowManagerApi({
     let cachedWorkflowEntries = { workflows: [], folders: [] };
     let hasCachedWorkflowEntries = false;
     let workflowListRenderSequence = 0;
-    const pendingLegacyMediaMigrations = new WeakMap();
+    const pendingLegacyMediaMigrations = new Map();
     const selectedWorkflowNames = new Set();
     const workflowMutationProjectionTokens = new WeakMap();
     const workflowDesk = createWorkflowDesk({
@@ -460,29 +460,30 @@ export function createWorkflowManagerApi({
     }
 
     async function saveWorkflowToFile(name, data) {
-        let migration = pendingLegacyMediaMigrations.get(data) || null;
+        const migrationKey = data?.workflowId || '';
+        let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
         try {
             migration ||= await legacyMediaMigration.stageWorkflow(data);
             const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(data));
             if (result !== true) {
                 await migration?.rollback();
-                pendingLegacyMediaMigrations.delete(data);
+                pendingLegacyMediaMigrations.delete(migrationKey);
                 showToast(result.message, 'error');
                 return false;
             }
             documentPersisted = true;
             await migration?.commit();
-            pendingLegacyMediaMigrations.delete(data);
+            pendingLegacyMediaMigrations.delete(migrationKey);
             return true;
         } catch (error) {
             if (documentPersisted) {
                 // The canonical keys are now durable. Keep their stable temporary
                 // owner alive so a subsequent save or restart can finish promotion.
-                if (migration) pendingLegacyMediaMigrations.set(data, migration);
+                if (migration) pendingLegacyMediaMigrations.set(migrationKey, migration);
             } else {
                 await migration?.rollback();
-                pendingLegacyMediaMigrations.delete(data);
+                pendingLegacyMediaMigrations.delete(migrationKey);
             }
             showToast(error?.message || '图片缓存迁移失败', 'error');
             return false;
@@ -500,7 +501,7 @@ export function createWorkflowManagerApi({
         ensureWorkflowDocumentIdentity({ data: result }, createWorkflowId, result);
         try {
             const migration = await legacyMediaMigration.stageWorkflow(result);
-            if (migration) pendingLegacyMediaMigrations.set(result, migration);
+            if (migration) pendingLegacyMediaMigrations.set(result.workflowId, migration);
         } catch (error) {
             // Reading a legacy workflow must stay non-destructive when its new
             // Media asset cannot be staged; a later read/save can retry.
