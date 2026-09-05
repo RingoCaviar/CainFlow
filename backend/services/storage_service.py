@@ -548,7 +548,7 @@ class StorageService:
             reference_params = []
             reference_filter = ''
             if workflow_id:
-                reference_filter = "WHERE owner_type != 'workflow-node' OR owner_id LIKE ?"
+                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import') OR owner_id LIKE ?"
                 reference_params.append(f'{workflow_id}:%')
             for row in db.execute(f'''
                 SELECT unique_refs.owner_type, COUNT(*) AS assets,

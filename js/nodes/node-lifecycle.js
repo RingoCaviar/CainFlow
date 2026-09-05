@@ -24,6 +24,8 @@ export function createNodeLifecycleApi({
     generateId,
     getImageAsset,
     getImageAssetList = async () => [],
+    getActiveWorkflowId = () => '',
+    removeMediaReference = async () => false,
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
@@ -1849,7 +1851,9 @@ export function createNodeLifecycleApi({
             if (node.type === 'ImageImport') {
                 const importAssetKey = getNodeImageImportAssetKey(node);
                 const ownedAssetKey = importAssetKey || getExpectedImageImportAssetKey(nid);
-                if (!isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
+                if (ownedAssetKey.startsWith('media:')) {
+                    void removeMediaReference('workflow-import', `${getActiveWorkflowId()}:${nid}`, ownedAssetKey);
+                } else if (!isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
                     void deleteImageImportAsset(ownedAssetKey);
                 }
             }
