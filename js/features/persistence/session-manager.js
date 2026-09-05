@@ -20,7 +20,8 @@ export function createSessionManagerApi({
     clearOrphanedNodeAssets = async () => true,
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
-    finalizeMediaRestoreBatch = async () => {}
+    finalizeMediaRestoreBatch = async () => {},
+    referenceMediaAsset = async () => false
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
@@ -29,6 +30,18 @@ export function createSessionManagerApi({
     const viewportStorageKey = 'nodeflow_ai_viewport_state';
     const storageFailureToastIntervalMs = 8000;
     let storageTextEncoder = null;
+
+    async function restoreSnapshotMediaOwners(snapshot) {
+        const workflowId = getWorkflowSnapshot()?.active?.workflowId || '';
+        if (!workflowId) return;
+        for (const node of snapshot?.nodes || []) {
+            const keys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
+            const ownerType = node?.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
+            for (const key of new Set((keys || []).filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
+                await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key);
+            }
+        }
+    }
 
     function getStringStorageBytes(value) {
         const text = String(value ?? '');
@@ -417,6 +430,8 @@ export function createSessionManagerApi({
             if (snapshot.connections && snapshot.connections.length) {
                 state.connections = snapshot.connections;
             }
+
+            await restoreSnapshotMediaOwners(snapshot);
 
             updateAllConnections();
             updatePortStyles();

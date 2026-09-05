@@ -845,6 +845,7 @@ function getSessionManagerApi() {
             onConnectionsChanged: () => handleNodeGraphChanged(),
             getWorkflowSnapshot: () => workflowManagerApi?.workflowDesk?.snapshot?.()
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
+            referenceMediaAsset,
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,
@@ -1033,7 +1034,8 @@ function getContextMenuControllerApi() {
 function getErrorModalControllerApi() {
     if (!registry.errorModalControllerApi) {
         registry.errorModalControllerApi = createErrorModalControllerApi({
-            documentRef: document
+            documentRef: document,
+            onLocateNode: (nodeId) => getWorkflowRunnerApi().focusNode(nodeId)
         });
     }
     return registry.errorModalControllerApi;
