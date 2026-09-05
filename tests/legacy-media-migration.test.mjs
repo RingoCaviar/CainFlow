@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLegacyMediaMigrationCoordinator } from '../js/features/media/legacy-media-migration.js';
+import { createWorkflowManagerApi } from '../js/features/workflow/workflow-manager.js';
 
 test('staged legacy migration keeps old asset until document persistence commits', async () => {
     const calls = []; let serial = 0;
@@ -56,4 +57,24 @@ test('serialized workflow nodes migrate their top-level legacy key', async () =>
     assert.deepEqual(node.mediaAssetKeys, ['media:1']);
     await stage.rollback();
     assert.equal(node.mediaAssetKeys, undefined);
+});
+
+test('loading a legacy workflow stages its Media asset before a later save', async () => {
+    const originalFetch = globalThis.fetch;
+    let staged = 0;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ workflowId: 'wf', nodes: [{ id: 'n', type: 'ImagePreview', imageAssetKey: 'old-key' }], connections: [] }) });
+    try {
+        const manager = createWorkflowManagerApi({
+            state: { workflowTabs: [], nodes: new Map(), connections: [], selectedNodes: new Set(), canvas: {} },
+            nodeSerializer: {}, viewportApi: { updateCanvasTransform() {} }, addNode() {}, updateAllConnections() {}, updatePortStyles() {},
+            scheduleSave() {}, showToast() {}, panelManager: {}, documentRef: { getElementById: () => null }, windowRef: { innerWidth: 0, innerHeight: 0 }, localStorageRef: {},
+            getImageAsset: async () => 'data:image/png;base64,YQ==',
+            putMediaAsset: async () => (staged++, { asset_key: 'media:1' })
+        });
+        const workflow = await manager.loadWorkflowFromFile('legacy');
+        assert.equal(staged, 1);
+        assert.deepEqual(workflow.nodes[0].mediaAssetKeys, ['media:1']);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });

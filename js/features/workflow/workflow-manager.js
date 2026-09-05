@@ -108,6 +108,7 @@ export function createWorkflowManagerApi({
     let cachedWorkflowEntries = { workflows: [], folders: [] };
     let hasCachedWorkflowEntries = false;
     let workflowListRenderSequence = 0;
+    const pendingLegacyMediaMigrations = new WeakMap();
     const selectedWorkflowNames = new Set();
     const workflowMutationProjectionTokens = new WeakMap();
     const workflowDesk = createWorkflowDesk({
@@ -459,19 +460,22 @@ export function createWorkflowManagerApi({
     }
 
     async function saveWorkflowToFile(name, data) {
-        let migration = null;
+        let migration = pendingLegacyMediaMigrations.get(data) || null;
         try {
-            migration = await legacyMediaMigration.stageWorkflow(data);
+            migration ||= await legacyMediaMigration.stageWorkflow(data);
             const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(data));
             if (result !== true) {
                 await migration?.rollback();
+                pendingLegacyMediaMigrations.delete(data);
                 showToast(result.message, 'error');
                 return false;
             }
             await migration?.commit();
+            pendingLegacyMediaMigrations.delete(data);
             return true;
         } catch (error) {
             await migration?.rollback();
+            pendingLegacyMediaMigrations.delete(data);
             showToast(error?.message || '图片缓存迁移失败', 'error');
             return false;
         }
@@ -482,6 +486,17 @@ export function createWorkflowManagerApi({
         if (result?.ok === false) {
             showToast(result.message, 'error');
             return null;
+        }
+        // A legacy document may not yet have an identity. Assign it before staging
+        // the temporary owner so the owner survives tab activation and later save.
+        ensureWorkflowDocumentIdentity({ data: result }, createWorkflowId, result);
+        try {
+            const migration = await legacyMediaMigration.stageWorkflow(result);
+            if (migration) pendingLegacyMediaMigrations.set(result, migration);
+        } catch (error) {
+            // Reading a legacy workflow must stay non-destructive when its new
+            // Media asset cannot be staged; a later read/save can retry.
+            console.warn('Legacy media migration staging failed:', error);
         }
         return result;
     }
