@@ -30,6 +30,10 @@ _Avoid_: Workflow opening, tab switching
 A workflow run that continues while another workflow is active in the editor. Returning to it restores its current visible run state without restarting the run.
 _Avoid_: Hidden run, inactive run
 
+**Node execution failure**:
+The durable visible state of the specific node whose execution ended with a non-cancellation error. It remains visible until that node next executes successfully, exposes a concise cause on the node, and links to the complete error details.
+_Avoid_: Workflow error, global error
+
 **Workflow identity**:
 The stable identity of a workflow across saving, renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity. Copying or saving a workflow as a new workflow creates a new Workflow identity.
 _Avoid_: Workflow name as identity, workflow path as identity
@@ -81,6 +85,26 @@ _Avoid_: Node-owned media copy, history-owned media copy
 **Media asset owner**:
 The durable consumer identity that keeps one or more Media assets alive. A workflow-node owner is the pair of Workflow identity and node ID; an image import, history record, and history thumbnail use their own owner kinds.
 _Avoid_: Asset owner, node asset key
+
+**Media asset ownership transition**:
+The durable replacement of one Media asset owner's reference list. New references become durable before superseded references are released; an interrupted transition may temporarily retain extra references but never makes an owned Media asset collectible.
+_Avoid_: Cache key swap, release-then-store
+
+**Media asset garbage collection**:
+The backend-owned reclamation of Media assets with no Media asset owner references. A client-provided snapshot of visible or open nodes never determines whether a Media asset is collectible.
+_Avoid_: Node cache cleanup, keep-key cleanup
+
+**Media asset integrity report**:
+A versioned, time-stamped diagnostic snapshot comparing durable consumer documents, Media asset owner references, asset metadata, and physical media files. It records repairable and user-actionable inconsistencies but never determines Media asset liveness.
+_Avoid_: Media asset index, cache authority, live reference list
+
+**Missing Media asset**:
+A Media asset identity retained by a durable consumer when either its asset metadata or physical media file is absent. The retained position in a Media asset reference list remains explicit until the user recovers or removes it.
+_Avoid_: Cache miss, silently omitted media
+
+**Unassociated Media asset owner**:
+A Media asset owner reference for which no durable consumer can be established. It is quarantined before collection so an interrupted ownership transition can be reconciled without data loss.
+_Avoid_: Orphaned cache key, stale node
 
 **Media asset reference list**:
 The ordered list of Media asset identities displayed by one workflow node. It represents both a single image and a multi-image result without embedding image data in the workflow document.

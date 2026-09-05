@@ -143,7 +143,9 @@ export function createLogPanelApi({
             message,
             details: sanitized,
             rawDetails,
-            userFacing: meta?.userFacing || null
+            userFacing: meta?.userFacing || null,
+            nodeId: meta?.nodeId || '',
+            nodeTitle: meta?.nodeTitle || ''
         };
         state.logs.unshift(log);
         pruneExpiredLogs({ save: false });
@@ -151,7 +153,7 @@ export function createLogPanelApi({
         persistLogs();
 
         if (type === 'error' && !state.autoRetry) {
-            renderErrorModal(title, message, log.details, '执行错误', log);
+            renderErrorModal(title, message, log.details, log.nodeTitle ? `${log.nodeTitle}：执行错误` : '执行错误', log);
         } else if (type === 'error' && state.autoRetry && elements.btnLogs) {
             elements.btnLogs.classList.add('has-new-error');
         }
@@ -191,7 +193,13 @@ export function createLogPanelApi({
         ensureLogsInitialized();
         const log = state.logs.find((entry) => entry.id === id);
         if (!log) return;
-        renderErrorModal(log.title, log.message, log.details, log.type === 'error' ? '执行错误' : '执行详情', log);
+        renderErrorModal(
+            log.title,
+            log.message,
+            log.details,
+            log.type === 'error' && log.nodeTitle ? `${log.nodeTitle}：执行错误` : (log.type === 'error' ? '执行错误' : '执行详情'),
+            log
+        );
     }
 
     function clearLogs() {

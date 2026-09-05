@@ -191,6 +191,9 @@ function renderNodeHeader(id, config, options = {}) {
                 <span class="node-title">${escapeHtml(displayTitle)}</span>
             </div>
             <div class="header-right">
+                <button type="button" class="node-failure-indicator hidden" data-node-id="${id}" title="查看执行错误" aria-label="查看执行错误">
+                    <span aria-hidden="true">!</span>
+                </button>
                 <span class="node-time-badge" id="${id}-time-container" style="display:none">
                     <div class="heartbeat-dot" id="${id}-heartbeat" title="连接正常"></div>
                     <span id="${id}-time"></span>
@@ -208,6 +211,7 @@ function renderNodeHeader(id, config, options = {}) {
                 </button>
             </div>
         </div>
+        <button type="button" class="node-failure-summary hidden" data-node-id="${id}" title="查看完整错误"></button>
         <div class="node-resize-handle" data-node-id="${id}"></div>
     `;
 }

@@ -1203,8 +1203,8 @@ export function createNodeLifecycleApi({
             maxWidth: config.maxWidth || null,
             dirHandle: null,
             enabled: effectiveRestoreData?.enabled !== false,
-            isSucceeded: effectiveRestoreData?.isFailed === true ? false : (effectiveRestoreData?.isSucceeded || false),
-            isFailed: effectiveRestoreData?.isFailed === true,
+            isSucceeded: effectiveRestoreData?.isSucceeded || false,
+            isFailed: false,
             lastDuration: effectiveRestoreData?.lastDuration || null,
             lastResponse: effectiveRestoreData?.lastResponse || '',
             originalWidth: effectiveRestoreData?.originalWidth || 0,
@@ -1489,7 +1489,6 @@ export function createNodeLifecycleApi({
                 .filter((row) => row.key);
         }
         if (nodeData.isSucceeded) el.classList.add('completed');
-        if (nodeData.isFailed) el.classList.add('error');
         if (!nodeData.enabled) el.classList.add('disabled');
         if (nodeData.collapsed) el.classList.add('collapsed');
         state.nodes.set(id, nodeData);

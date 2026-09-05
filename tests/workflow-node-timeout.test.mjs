@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
+import { clearNodeExecutionFailure, createWorkflowRunnerApi, showNodeExecutionFailure } from '../js/features/execution/workflow-runner.js';
 
 function createNodeElement() {
     return {
@@ -68,4 +68,35 @@ test('runner aborts an individual node at its own timeout and reports a node tim
     assert.equal(receivedSignal.aborted, true);
     assert.equal(result.reason, 'error');
     assert.ok(logs.some((entry) => entry[0] === 'error' && entry[2] === '节点运行超时（1 秒）'));
+});
+
+test('node execution failure marks the node and its named input port until cleared', () => {
+    const classes = new Set();
+    const portClasses = new Set();
+    const indicatorClasses = new Set(['hidden']);
+    const port = { classList: { add: (name) => portClasses.add(name), remove: (name) => portClasses.delete(name) } };
+    const indicator = { classList: { add: (name) => indicatorClasses.add(name), remove: (name) => indicatorClasses.delete(name) }, title: '' };
+    const node = {
+        id: 'compare-1', type: 'ImageCompare', enabled: true, data: {},
+        el: {
+            classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) },
+            querySelector: (selector) => selector.includes('imageB') ? port : (selector === '.node-failure-indicator' ? indicator : null),
+            querySelectorAll: (selector) => selector === '.node-port.execution-error' ? [port] : [],
+            getBoundingClientRect: () => ({ width: 240 })
+        }
+    };
+    const error = new Error('B 输入未连接图片');
+    error.inputPort = 'imageB';
+    showNodeExecutionFailure(node, error);
+
+    assert.equal(node.isFailed, true);
+    assert.equal(node.executionFailure.message, 'B 输入未连接图片');
+    assert.ok(classes.has('error'));
+    assert.ok(portClasses.has('execution-error'));
+    assert.equal(indicatorClasses.has('hidden'), false);
+    clearNodeExecutionFailure(node);
+    assert.equal(node.isFailed, false);
+    assert.equal(classes.has('error'), false);
+    assert.equal(portClasses.has('execution-error'), false);
+    assert.equal(indicatorClasses.has('hidden'), true);
 });

@@ -17,6 +17,45 @@ import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { getProjectedInputValidationReason } from '../../nodes/generation-input-projection.js';
 
+export function clearNodeExecutionFailure(node) {
+    if (!node) return;
+    node.isFailed = false;
+    delete node.executionFailure;
+    node.el?.classList.remove('error');
+    node.el?.querySelectorAll?.('.node-port.execution-error').forEach((port) => {
+        port.classList.remove('execution-error');
+        port.removeAttribute?.('aria-invalid');
+        port.removeAttribute?.('title');
+    });
+    const indicator = node.el?.querySelector?.('.node-failure-indicator');
+    indicator?.classList.add('hidden');
+    if (indicator) indicator.title = '查看执行错误';
+    const summary = node.el?.querySelector?.('.node-failure-summary');
+    summary?.classList.add('hidden');
+    if (summary) summary.textContent = '';
+}
+
+export function showNodeExecutionFailure(node, error) {
+    if (!node) return;
+    const message = error?.message || '未知错误';
+    const inputPort = typeof error?.inputPort === 'string' ? error.inputPort : '';
+    node.isFailed = true;
+    node.executionFailure = { message, inputPort };
+    node.el?.classList.add('error');
+    const indicator = node.el?.querySelector?.('.node-failure-indicator');
+    indicator?.classList.remove('hidden');
+    if (indicator) indicator.title = `执行错误：${message}`;
+    const summary = node.el?.querySelector?.('.node-failure-summary');
+    summary?.classList.remove('hidden');
+    if (summary) summary.textContent = message;
+    if (inputPort) {
+        const port = node.el?.querySelector?.(`.node-port.input[data-port="${inputPort}"]`);
+        port?.classList.add('execution-error');
+        port?.setAttribute?.('aria-invalid', 'true');
+        if (port) port.title = message;
+    }
+}
+
 export function shouldRunNodeForEachInput(node, inputs) {
     if (!node) return false;
     if (node.type === 'ImageMerge' || node.type === 'TextMerge' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'Text') return false;
@@ -114,7 +153,9 @@ export function createWorkflowRunnerApi({
     getAbortMessage,
     playNotificationSound,
     onNodeRunStateChange = () => {},
-    onAutoSaveNodeInjected = () => {}
+    onAutoSaveNodeInjected = () => {},
+    focusCanvasNode = () => {},
+    onWorkflowFailures = () => {}
 }) {
     function isAbortLikeError(err) {
         if (!err) return false;
@@ -518,7 +559,7 @@ export function createWorkflowRunnerApi({
             changedNodeIds.push(nid);
 
             if (!forceReset && preserveFixedCache && isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
-                node.isFailed = false;
+                clearNodeExecutionFailure(node);
                 node.el.classList.add('completed');
                 node.el.classList.remove('error', 'running');
                 continue;
@@ -529,7 +570,7 @@ export function createWorkflowRunnerApi({
             removeConcurrentRequestStatusPanel(node);
             node.data = getPreservedNodeDataForReset(node);
             node.isSucceeded = false;
-            node.isFailed = false;
+            clearNodeExecutionFailure(node);
             if (node.type === 'ImageGenerate') {
                 node.imageData = null;
                 node.imageDataList = [];
@@ -1830,7 +1871,7 @@ export function createWorkflowRunnerApi({
                 if (timerId) clearInterval(timerId);
                 const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
                 currentNode.isSucceeded = true;
-                currentNode.isFailed = false;
+                clearNodeExecutionFailure(currentNode);
                 currentNode.lastDuration = durationSec;
                 currentNode.runStartedAt = null;
                 clearNodeRunning(nid, currentNode, { status: 'completed', durationSec });
@@ -1856,14 +1897,15 @@ export function createWorkflowRunnerApi({
                 }
                 currentNode.runStartedAt = null;
                 currentNode.isSucceeded = false;
-                currentNode.isFailed = true;
+                showNodeExecutionFailure(currentNode, err);
                 clearNodeRunning(nid, currentNode, { status: 'error' });
-                currentNode.el.classList.add('error');
                 const errorMsg = err.message || '未知错误';
                 if (timeBadge) timeBadge.textContent = 'Err';
                 const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
                 addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
-                    userFacing: err.userFacing || null
+                    userFacing: err.userFacing || null,
+                    nodeId: nid,
+                    nodeTitle
                 });
                 throw err;
             } finally {
@@ -1909,7 +1951,7 @@ export function createWorkflowRunnerApi({
                     throw normalizeNodeRunError(caughtError, mediaNodeTimeout, node);
                 }
                 node.isSucceeded = true;
-                node.isFailed = false;
+                clearNodeExecutionFailure(node);
                 node.el.classList.add('completed');
                 scheduleSave();
             } finally {
@@ -2089,9 +2131,9 @@ export function createWorkflowRunnerApi({
             emptyImageNodes.forEach((nid) => {
                 const node = state.nodes.get(nid);
                 if (node) {
-                    node.isFailed = true;
-                    node.el.classList.add('error');
-                    addLog('error', '前置检查未通过', `节点「图片导入」(${nid}) 未载入素材图片`);
+                    const error = new Error('未载入素材图片');
+                    showNodeExecutionFailure(node, error);
+                    addLog('error', '前置检查未通过', `节点「图片导入」(${nid}) 未载入素材图片`, null, { nodeId: nid, nodeTitle: getNodeDisplayTitle(node) });
                 }
             });
             connectionProjection?.nodeAppearanceChanged(emptyImageNodes);
@@ -2125,9 +2167,9 @@ export function createWorkflowRunnerApi({
             invalidVideoInputNodes.forEach(({ id, reason }) => {
                 const node = state.nodes.get(id);
                 if (!node) return;
-                node.isFailed = true;
-                node.el.classList.add('error');
-                addLog('error', '前置检查未通过', `节点「视频生成」(${id}) ${reason}`);
+                const error = new Error(reason);
+                showNodeExecutionFailure(node, error);
+                addLog('error', '前置检查未通过', `节点「视频生成」(${id}) ${reason}`, null, { nodeId: id, nodeTitle: getNodeDisplayTitle(node) });
             });
             connectionProjection?.nodeAppearanceChanged(invalidVideoInputNodes.map(({ id }) => id));
             finalizeWorkflow();
@@ -2139,10 +2181,10 @@ export function createWorkflowRunnerApi({
             emptyPromptNodes.forEach((nid) => {
                 const node = state.nodes.get(nid);
                 if (node) {
-                    node.isFailed = true;
-                    node.el.classList.add('error');
+                    const error = new Error('提示词内容缺失（连线或文本框均无内容）');
+                    showNodeExecutionFailure(node, error);
                     const title = nodeConfigs[node.type]?.title || node.type;
-                    addLog('error', '前置检查未通过', `节点「${title}」(${nid}) 提示词内容缺失（连线或文本框均无内容）`);
+                    addLog('error', '前置检查未通过', `节点「${title}」(${nid}) ${error.message}`, null, { nodeId: nid, nodeTitle: title });
                 }
             });
             connectionProjection?.nodeAppearanceChanged(emptyPromptNodes);
@@ -2363,7 +2405,7 @@ export function createWorkflowRunnerApi({
                                     if (timerId) clearInterval(timerId);
                                     const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
                                     node.isSucceeded = true;
-                                    node.isFailed = false;
+                                    clearNodeExecutionFailure(node);
                                     node.lastDuration = durationSec;
                                     node.runStartedAt = null;
                                     clearNodeRunning(nid, node, { status: 'completed', durationSec });
@@ -2389,14 +2431,15 @@ export function createWorkflowRunnerApi({
                                     }
                                     node.runStartedAt = null;
                                     node.isSucceeded = false;
-                                    node.isFailed = true;
+                                    showNodeExecutionFailure(node, err);
                                     clearNodeRunning(nid, node, { status: 'error' });
-                                    node.el.classList.add('error');
                                     const errorMsg = err.message || '未知错误';
                                     if (timeBadge) timeBadge.textContent = 'Err';
                                     const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
                                     addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
-                                        userFacing: err.userFacing || null
+                                        userFacing: err.userFacing || null,
+                                        nodeId: nid,
+                                        nodeTitle
                                     });
 
                                     failedNodes.add(nid);
@@ -2488,6 +2531,14 @@ export function createWorkflowRunnerApi({
             const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
 
             if (terminatedByError) {
+                onWorkflowFailures(Array.from(failedNodes).map((failedNodeId) => {
+                    const failedNode = state.nodes.get(failedNodeId);
+                    return {
+                        nodeId: failedNodeId,
+                        nodeTitle: getNodeDisplayTitle(failedNode),
+                        message: failedNode?.executionFailure?.message || '未知错误'
+                    };
+                }));
                 dispatchWorkflowCompletionNotice({
                     toastMessage: `工作流运行停止，耗时 ${totalDuration}s`,
                     toastType: 'error',
@@ -2550,6 +2601,7 @@ export function createWorkflowRunnerApi({
         runWorkflow,
         cancelRunningNode,
         resumeVideoNodeBranch,
-        resumeImageNodeBranch
+        resumeImageNodeBranch,
+        focusNode: (nodeId) => focusCanvasNode(nodeId)
     };
 }

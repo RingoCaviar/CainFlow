@@ -294,6 +294,53 @@ const renderProjectionManager = createRenderProjectionManager({
     windowRef: window,
     performanceMonitor: canvasPerformanceMonitor
 });
+function focusCanvasNode(nodeId) {
+    const node = state.nodes.get(nodeId);
+    const rect = canvasContainer?.getBoundingClientRect?.();
+    if (!node || !rect) return false;
+    const zoom = Number(state.canvas.zoom) || 1;
+    const width = Number(node.width) || node.el?.offsetWidth || 220;
+    const height = Number(node.height) || node.el?.offsetHeight || 140;
+    state.canvas.x = rect.width / 2 - (Number(node.x) + width / 2) * zoom;
+    state.canvas.y = rect.height / 2 - (Number(node.y) + height / 2) * zoom;
+    viewportApi.updateCanvasTransform({ connectionRefreshReason: 'node-failure-focus' });
+    renderProjectionManager.focusNode(nodeId);
+    node.el?.classList.add('selected');
+    return true;
+}
+function showWorkflowFailureSummary(failures = []) {
+    if (failures.length < 2) return;
+    const modal = document.getElementById('modal-node-failures');
+    const title = document.getElementById('node-failures-title');
+    const list = document.getElementById('node-failures-list');
+    if (!modal || !list) return;
+    if (title) title.textContent = `${failures.length} 个节点执行失败`;
+    list.innerHTML = '';
+    failures.forEach((failure) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'node-failure-list-item';
+        const message = document.createElement('span');
+        message.className = 'node-failure-list-item__message';
+        message.textContent = `${failure.nodeTitle}：${failure.message}`;
+        const action = document.createElement('span');
+        action.textContent = '定位';
+        button.append(message, action);
+        button.addEventListener('click', () => {
+            closeModal('modal-node-failures');
+            focusCanvasNode(failure.nodeId);
+            const log = state.logs?.find((entry) => entry.type === 'error' && entry.nodeId === failure.nodeId);
+            if (log) getLogPanelApi().showLogDetail(log.id);
+        });
+        list.appendChild(button);
+    });
+    modal.classList.add('active');
+}
+document.addEventListener('cainflow:node-failure-clicked', (event) => {
+    const nodeId = event.detail?.nodeId;
+    const log = state.logs?.find((entry) => entry.type === 'error' && entry.nodeId === nodeId);
+    if (log) getLogPanelApi().showLogDetail(log.id);
+});
 const interactionPerformanceGuard = createInteractionPerformanceGuard({
     state,
     canvasContainer,
@@ -1235,6 +1282,8 @@ function getWorkflowRunnerApi() {
                 handleNodeGraphChanged();
                 scheduleSave();
             },
+            focusCanvasNode,
+            onWorkflowFailures: showWorkflowFailureSummary,
             onNodeRunStateChange: (payload) => {
                 const activeWorkflow = workflowManagerApi.getActiveWorkflow();
                 if (activeWorkflow?.workflowId) {

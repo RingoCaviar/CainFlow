@@ -83,7 +83,6 @@ export function createNodeSerializer({ state, documentRef }) {
                 userResized: node.userResized === true,
                 collapsed: node.collapsed === true,
                 enabled: node.enabled,
-                isFailed: node.isFailed === true || node.el?.classList?.contains('error') === true,
                 lastDuration: node.lastDuration || null
             };
             if (node.collapsed === true && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {

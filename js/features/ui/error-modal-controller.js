@@ -4,7 +4,8 @@ import { sanitizeDetails } from '../../services/api-client.js';
  * 负责错误弹窗的展示、关闭、图片提取预览与完整日志展开逻辑。
  */
 export function createErrorModalControllerApi({
-    documentRef = document
+    documentRef = document,
+    onLocateNode = () => {}
 }) {
     function closeModal(id) {
         const modal = documentRef.getElementById(id);
@@ -94,13 +95,24 @@ export function createErrorModalControllerApi({
                     showErrorModal(title, msg, fullText, modalTitle, {
                         type: log.type,
                         userFacing: log.userFacing || null,
-                        rawDetails: null
+                        rawDetails: null,
+                        nodeId: log.nodeId || '',
+                        nodeTitle: log.nodeTitle || ''
                     });
                 };
             } else {
                 btnFull.classList.add('hidden');
                 btnFull.onclick = null;
             }
+        }
+
+        const locateNodeButton = documentRef.getElementById('btn-locate-error-node');
+        const nodeId = String(log?.nodeId || '');
+        if (locateNodeButton) {
+            locateNodeButton.classList.toggle('hidden', !nodeId);
+            locateNodeButton.onclick = nodeId
+                ? () => onLocateNode(nodeId)
+                : null;
         }
 
         modalEl.classList.add('active');

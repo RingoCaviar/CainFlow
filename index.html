@@ -1341,6 +1341,7 @@
                     </svg>
                     显示完整日志
                 </button>
+                <button id="btn-locate-error-node" class="btn btn-ghost hidden">定位到出错节点</button>
                 <button id="btn-copy-error" class="btn btn-secondary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right:4px;">
@@ -1350,6 +1351,21 @@
                     复制错误
                 </button>
                 <button class="btn btn-primary" onclick="closeModal('modal-error')">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-node-failures" class="modal">
+        <div class="modal-content modal-error-content">
+            <div class="modal-header">
+                <h3 id="node-failures-title">节点执行失败</h3>
+                <button class="modal-close" onclick="closeModal('modal-node-failures')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="node-failures-list" class="node-failures-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('modal-node-failures')">确定</button>
             </div>
         </div>
     </div>

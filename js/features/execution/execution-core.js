@@ -2312,7 +2312,11 @@ export function createExecutionCoreApi({
             const { id } = node;
             const imageA = getPrimaryImageInput(inputs.imageA);
             const imageB = getPrimaryImageInput(inputs.imageB);
-            if (!imageB) throw new Error('B 输入未连接图片');
+            if (!imageB) {
+                const error = new Error('B 输入未连接图片');
+                error.inputPort = 'imageB';
+                throw error;
+            }
             await syncImageCompareNode(id, imageA || null, imageB);
             await refreshDependentImageResizePreviews(id);
         },
