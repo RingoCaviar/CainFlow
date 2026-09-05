@@ -545,6 +545,19 @@ class StorageService:
             document_bytes = db.execute('SELECT COALESCE(SUM(LENGTH(value_json)), 0) FROM documents').fetchone()[0]
             history_bytes = db.execute("SELECT COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind IN ('history', 'thumbnail')").fetchone()[0]
             import_bytes = db.execute("SELECT COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind='image-import'").fetchone()[0]
+            reference_distribution = {}
+            for row in db.execute('''
+                SELECT unique_refs.owner_type, COUNT(*) AS assets,
+                    COALESCE(SUM(unique_assets.size_bytes), 0) AS bytes
+                FROM (
+                    SELECT DISTINCT owner_type, asset_key FROM media_asset_refs
+                ) AS unique_refs
+                JOIN assets AS unique_assets ON unique_assets.asset_key = unique_refs.asset_key
+                GROUP BY unique_refs.owner_type
+            '''):
+                reference_distribution[row['owner_type']] = {
+                    'assets': row['assets'], 'bytes': row['bytes']
+                }
         return {
             'documents': documents, 'documentBytes': document_bytes,
             'assets': assets, 'assetBytes': asset_bytes, 'history': history,
@@ -553,6 +566,7 @@ class StorageService:
             'totalBytes': asset_bytes + document_bytes,
             'mediaAssets': media_assets, 'mediaBytes': media_bytes,
             'actualMediaBytes': actual_media_bytes,
+            'mediaReferenceDistribution': reference_distribution,
             'mediaReferences': media_references, 'mediaCacheLimitBytes': self.get_media_cache_limit(),
         }
 
