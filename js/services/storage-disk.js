@@ -272,7 +272,6 @@ export function createDiskStorageApi(getState) {
         return response.ok;
     }
     async function deleteHandle(key) { return key === 'GLOBAL_SAVE_DIR' ? saveHandle(key, '') : true; }
-    async function saveImageAsset(key, value) { return putAsset(key, value, 'node'); }
     async function saveWorkflowNodeMediaAsset(value, workflowId, nodeId) {
         const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
         if (!workflowId || !nodeId) return null;
@@ -297,9 +296,6 @@ export function createDiskStorageApi(getState) {
     }
     async function getImageAsset(key) { return blobToDataUrl(await getAssetBlob(key)); }
     async function getImageAssetBlob(key) { return getAssetBlob(key); }
-    async function saveImageAssetList(key, images) {
-        return putAsset(key, { type: 'image-list', images: Array.isArray(images) ? images : [] }, 'node-list');
-    }
     async function getImageAssetList(key) {
         const blob = await getAssetBlob(key);
         if (!blob) return [];
@@ -395,7 +391,7 @@ export function createDiskStorageApi(getState) {
     }
     return {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
-        saveImageAsset, getImageAsset, getImageAssetBlob, saveImageAssetList, getImageAssetList,
+        getImageAsset, getImageAssetBlob, getImageAssetList,
         saveWorkflowNodeMediaAsset,
         saveWorkflowNodeMediaAssets,
         releaseWorkflowNodeMediaAssets,
