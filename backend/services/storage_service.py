@@ -503,7 +503,7 @@ class StorageService:
             return {'referencesDeleted': 0, **self.cleanup_unreferenced_media_assets()}
         with self._connect() as db:
             cursor = db.execute('''DELETE FROM media_asset_refs
-                WHERE owner_type IN ('workflow-node', 'workflow-import')
+                WHERE owner_type IN ('workflow-node', 'workflow-import', 'workflow-undo')
                     AND substr(owner_id, 1, length(?) + 1) = ? || ':' ''',
                 (workflow_id, workflow_id))
         cleanup = self.cleanup_unreferenced_media_assets()
@@ -560,7 +560,7 @@ class StorageService:
             reference_params = []
             reference_filter = ''
             if workflow_id:
-                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import') OR substr(owner_id, 1, length(?) + 1) = ? || ':'"
+                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import', 'workflow-undo') OR substr(owner_id, 1, length(?) + 1) = ? || ':'"
                 reference_params.extend([workflow_id, workflow_id])
             for row in db.execute(f'''
                 SELECT unique_refs.owner_type, COUNT(*) AS assets,

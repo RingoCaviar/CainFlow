@@ -196,7 +196,7 @@ test('restoring a video generation node exposes its local Media asset to connect
     assert.equal(state.nodes.get('video-restored').data.video.assetKey, 'media:abc');
 });
 
-test('restored image batches retain every Media asset key without releasing undo data', () => {
+test('restored image batches transfer every owner to the undo snapshot before deletion', async () => {
     const children = [];
     const nodesLayer = { children, appendChild(element) { children.push(element); } };
     const documentRef = {
@@ -211,14 +211,16 @@ test('restored image batches retain every Media asset key without releasing undo
     };
     const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 } };
     const released = [];
+    const protectedForUndo = [];
     const lifecycle = createNodeLifecycleApi({
         state,
         nodeConfigs: { ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320 } },
         createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'batch-restored',
         getImageAsset: async (key) => `data:${key}`, saveImageAsset: async () => false,
-        bindNodeInteractions: () => {}, pushHistory: () => {}, scheduleSave: () => {}, showToast: () => {},
+        bindNodeInteractions: () => {}, pushHistory: () => 'workflow-1:undo-1', scheduleSave: () => {}, showToast: () => {},
         updateAllConnections: () => {}, updatePortStyles: () => {}, getCacheSidebarActive: () => false, updateCacheUsage: () => {},
         getActiveWorkflowId: () => 'workflow-1',
+        referenceMediaAsset: async (...args) => { protectedForUndo.push(args); return true; },
         removeMediaReference: async (...args) => { released.push(args); return true; },
         documentRef
     });
@@ -228,6 +230,13 @@ test('restored image batches retain every Media asset key without releasing undo
     }, true);
 
     assert.deepEqual(state.nodes.get('batch-restored').data.mediaAssetKeys, ['media:first', 'media:second', 'media:first']);
-    lifecycle.removeNode('batch-restored');
-    assert.deepEqual(released, []);
+    await lifecycle.removeNode('batch-restored');
+    assert.deepEqual(protectedForUndo, [
+        ['workflow-undo', 'workflow-1:undo-1:batch-restored', 'media:first'],
+        ['workflow-undo', 'workflow-1:undo-1:batch-restored', 'media:second']
+    ]);
+    assert.deepEqual(released, [
+        ['workflow-node', 'workflow-1:batch-restored', 'media:first'],
+        ['workflow-node', 'workflow-1:batch-restored', 'media:second']
+    ]);
 });

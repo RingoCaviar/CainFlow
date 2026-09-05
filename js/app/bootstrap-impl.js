@@ -846,6 +846,7 @@ function getSessionManagerApi() {
             getWorkflowSnapshot: () => workflowManagerApi?.workflowDesk?.snapshot?.()
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
             referenceMediaAsset,
+            removeMediaReference,
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,
@@ -950,8 +951,7 @@ function getToolbarControllerApi() {
             zoomToFitTarget: () => zoomToFit(),
             cleanupNodeElement: (node) => node?.el && cleanupNodeElement(node),
             clearUndoStack: () => {
-                state.undoStack = [];
-                updateUndoButton();
+                getSessionManagerApi().clearUndoStack();
             },
             clearImageAssets,
             clearWorkflowAssets: (options) => workflowManagerApi.cleanupOpenWorkflowAssets(options),
@@ -1364,8 +1364,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     getImageAssetList,
     deleteImageAsset,
     clearUndoStack: () => {
-        state.undoStack = [];
-        updateUndoButton();
+        getSessionManagerApi().clearUndoStack();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
     recordWorkflowDiagnostic: (record) => diagnosticClient.recordWorkflow({
@@ -1494,8 +1493,7 @@ projectIoFeature = createProjectIoFeature({
     trimHistoryCache,
     cleanupRecoverableNodeAssetCache,
     clearUndoStack: () => {
-        state.undoStack = [];
-        updateUndoButton();
+        getSessionManagerApi().clearUndoStack();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
     beginMediaRestoreBatch,

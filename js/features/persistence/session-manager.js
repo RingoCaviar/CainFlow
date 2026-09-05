@@ -21,7 +21,8 @@ export function createSessionManagerApi({
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
     finalizeMediaRestoreBatch = async () => {},
-    referenceMediaAsset = async () => false
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
@@ -29,11 +30,13 @@ export function createSessionManagerApi({
     const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
     const viewportStorageKey = 'nodeflow_ai_viewport_state';
     const storageFailureToastIntervalMs = 8000;
+    const pendingUndoReleaseStorageKey = 'cainflow_pending_undo_media_releases';
     let storageTextEncoder = null;
 
     async function restoreSnapshotMediaOwners(snapshot) {
         const workflowId = getWorkflowSnapshot()?.active?.workflowId || '';
-        if (!workflowId) return;
+        if (!workflowId) return false;
+        let restored = true;
         for (const node of snapshot?.nodes || []) {
             const mediaKeys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
             const ownerType = node?.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
@@ -42,9 +45,60 @@ export function createSessionManagerApi({
                 : '';
             const keys = mediaKeys?.length > 0 ? mediaKeys : [importKey];
             for (const key of new Set((keys || []).filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
-                await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key);
+                if (!await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key)) restored = false;
             }
         }
+        return restored;
+    }
+
+    function getSnapshotMediaKeys(node) {
+        const keys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
+        const importKey = node?.type === 'ImageImport'
+            ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
+            : '';
+        return [...new Set(((keys?.length > 0 ? keys : [importKey]) || [])
+            .filter((key) => typeof key === 'string' && key.startsWith('media:')))];
+    }
+
+    async function releaseSnapshotMediaOwners(snapshot) {
+        const undoOwnerId = snapshot?.mediaUndoOwnerId || '';
+        if (!undoOwnerId) return true;
+        let released = true;
+        for (const node of snapshot?.nodes || []) {
+            for (const key of getSnapshotMediaKeys(node)) {
+                try {
+                    if (!await removeMediaReference('workflow-undo', `${undoOwnerId}:${node.id}`, key)) released = false;
+                } catch { released = false; }
+            }
+        }
+        return released;
+    }
+
+    function readPendingUndoReleases() {
+        try {
+            const value = JSON.parse(localStorageRef?.getItem?.(pendingUndoReleaseStorageKey) || '[]');
+            return Array.isArray(value) ? value : [];
+        } catch { return []; }
+    }
+
+    function writePendingUndoReleases(snapshots) {
+        try { localStorageRef?.setItem?.(pendingUndoReleaseStorageKey, JSON.stringify(snapshots)); } catch { /* Retry later. */ }
+    }
+
+    async function retryPendingUndoReleases(additional = []) {
+        const failed = [];
+        for (const snapshot of [...readPendingUndoReleases(), ...additional]) {
+            if (!await releaseSnapshotMediaOwners(snapshot)) failed.push(snapshot);
+        }
+        writePendingUndoReleases(failed);
+    }
+
+    function clearUndoStack() {
+        const snapshots = state.undoStack.splice(0).flatMap((raw) => {
+            try { return [JSON.parse(raw)]; } catch { return []; }
+        });
+        void retryPendingUndoReleases(snapshots);
+        updateUndoButton();
     }
 
     function getStringStorageBytes(value) {
@@ -393,16 +447,21 @@ export function createSessionManagerApi({
     }
 
     function pushHistory() {
+        const workflowId = getWorkflowSnapshot()?.active?.workflowId || 'workflow';
+        const mediaUndoOwnerId = `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
         const snapshot = sanitizeWorkflowDataForSessionCache({
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map((connection) => ({ ...connection }))
         });
+        snapshot.mediaUndoOwnerId = mediaUndoOwnerId;
         state.undoStack.push(JSON.stringify(snapshot));
         if (state.undoStack.length > 5) {
-            state.undoStack.shift();
+            const evicted = state.undoStack.shift();
+            try { void retryPendingUndoReleases([JSON.parse(evicted)]); } catch { /* Legacy snapshot. */ }
             cleanupOrphanedNodeAssetsSoon();
         }
         updateUndoButton();
+        return mediaUndoOwnerId;
     }
 
     async function undo() {
@@ -435,7 +494,8 @@ export function createSessionManagerApi({
                 state.connections = snapshot.connections;
             }
 
-            await restoreSnapshotMediaOwners(snapshot);
+            const restoredMediaOwners = await restoreSnapshotMediaOwners(snapshot);
+            if (restoredMediaOwners) await releaseSnapshotMediaOwners(snapshot);
 
             updateAllConnections();
             updatePortStyles();
@@ -466,6 +526,7 @@ export function createSessionManagerApi({
         updateUndoButton,
         undo,
         collectActiveNodeAssetIds,
-        cleanupOrphanedNodeAssetsSoon
+        cleanupOrphanedNodeAssetsSoon,
+        clearUndoStack
     };
 }

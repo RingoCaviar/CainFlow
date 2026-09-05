@@ -198,7 +198,7 @@ export function createRuntimeControllerApi({
 
             if (e.key === 'Delete' && state.selectedNodes.size > 0 && canvasShortcutsEnabled) {
                 e.preventDefault();
-                Array.from(state.selectedNodes).forEach((id) => removeNode(id));
+                removeNode(Array.from(state.selectedNodes)[0]);
             }
             if ((e.key === 'f' || e.key === 'F') && canvasShortcutsEnabled) {
                 e.preventDefault();

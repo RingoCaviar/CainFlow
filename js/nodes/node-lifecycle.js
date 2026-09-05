@@ -24,6 +24,9 @@ export function createNodeLifecycleApi({
     generateId,
     getImageAsset,
     getImageAssetList = async () => [],
+    getActiveWorkflowId = () => '',
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
@@ -1838,7 +1841,7 @@ export function createNodeLifecycleApi({
         return { changed, removedConnectionCount, preservedConnectionCount };
     }
 
-    function removeNode(id, options = {}) {
+    async function removeNode(id, options = {}) {
         const selectedIds = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
         const lockedIds = selectedIds.filter((nid) => isNodeRunning(nid));
         const idsToRemove = selectedIds.filter((nid) => !isNodeRunning(nid));
@@ -1846,12 +1849,33 @@ export function createNodeLifecycleApi({
             showToast(lockedIds.length > 1 ? `有 ${lockedIds.length} 个节点正在运行，暂不能删除` : '节点正在运行，暂不能删除', 'warning');
         }
         if (idsToRemove.length === 0) return;
-        pushHistory();
+        const mediaUndoOwnerId = pushHistory();
         const preservedConnectionCandidates = options.preserveConnections
             ? buildPreservedConnections(idsToRemove)
             : [];
         let removedConnections = false;
         const removingIds = new Set(idsToRemove);
+        const workflowId = getActiveWorkflowId();
+        if (workflowId && mediaUndoOwnerId) {
+            for (const nid of idsToRemove) {
+                const node = state.nodes.get(nid);
+                if (!node) continue;
+                const mediaKeys = Array.isArray(node?.data?.mediaAssetKeys)
+                    ? node.data.mediaAssetKeys
+                    : (node.type === 'ImageImport' ? [getNodeImageImportAssetKey(node)] : []);
+                const ownerType = node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
+                for (const assetKey of new Set(mediaKeys.filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
+                    try {
+                        const protectedForUndo = await referenceMediaAsset('workflow-undo', `${mediaUndoOwnerId}:${nid}`, assetKey);
+                        if (protectedForUndo) await removeMediaReference(ownerType, `${workflowId}:${nid}`, assetKey);
+                    } catch (error) {
+                        // Retaining the workflow owner is safe; a failed handoff
+                        // must never make undo lose the last physical original.
+                        console.warn('Protecting node Media asset for undo failed:', error);
+                    }
+                }
+            }
+        }
         idsToRemove.forEach((nid) => {
             const node = state.nodes.get(nid);
             if (!node) return;
