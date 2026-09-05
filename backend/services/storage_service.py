@@ -461,7 +461,7 @@ class StorageService:
                 placeholders = ','.join('?' for _ in keep_keys) or "''"
                 db.execute(
                     f'''DELETE FROM media_asset_refs
-                        WHERE owner_type IN ('node', 'workflow-node') AND owner_id NOT IN ({placeholders})''',
+                        WHERE owner_type = 'node' AND owner_id NOT IN ({placeholders})''',
                     tuple(keep_keys),
                 )
             elif mode == 'image-import':
@@ -482,7 +482,7 @@ class StorageService:
                 delete_keys.append(key)
             elif mode == 'nodes' and key not in history_keys and kind not in {'image-import', 'thumbnail'}:
                 delete_keys.append(key)
-            elif mode == 'node-orphans' and key not in history_keys and kind not in {'image-import', 'thumbnail'} and key not in keep_keys:
+            elif mode == 'node-orphans' and key not in history_keys and kind in {'node', 'node-list'} and key not in keep_keys:
                 delete_keys.append(key)
             elif mode == 'orphans' and key.startswith('history:') and key not in history_keys:
                 delete_keys.append(key)
@@ -503,8 +503,9 @@ class StorageService:
             return {'referencesDeleted': 0, **self.cleanup_unreferenced_media_assets()}
         with self._connect() as db:
             cursor = db.execute('''DELETE FROM media_asset_refs
-                WHERE owner_type IN ('workflow-node', 'workflow-import') AND owner_id LIKE ?''',
-                (f'{workflow_id}:%',))
+                WHERE owner_type IN ('workflow-node', 'workflow-import')
+                    AND substr(owner_id, 1, length(?) + 1) = ? || ':' ''',
+                (workflow_id, workflow_id))
         cleanup = self.cleanup_unreferenced_media_assets()
         return {'referencesDeleted': cursor.rowcount, **cleanup}
 
@@ -559,8 +560,8 @@ class StorageService:
             reference_params = []
             reference_filter = ''
             if workflow_id:
-                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import') OR owner_id LIKE ?"
-                reference_params.append(f'{workflow_id}:%')
+                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import') OR substr(owner_id, 1, length(?) + 1) = ? || ':'"
+                reference_params.extend([workflow_id, workflow_id])
             for row in db.execute(f'''
                 SELECT unique_refs.owner_type, COUNT(*) AS assets,
                     COALESCE(SUM(unique_assets.size_bytes), 0) AS bytes

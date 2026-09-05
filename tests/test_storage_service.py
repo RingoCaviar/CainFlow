@@ -170,7 +170,7 @@ class StorageServiceTests(unittest.TestCase):
             self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
             self.assertIsNotNone(service.get_asset_info(historical['asset_key']))
 
-    def test_node_orphan_cleanup_releases_stale_workflow_node_references(self):
+    def test_node_orphan_cleanup_preserves_closed_workflow_node_references(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
             stale = service.put_media_asset(b'stale-image', 'image/png', 'workflow-node', 'workflow-a:node-a')
@@ -181,8 +181,10 @@ class StorageServiceTests(unittest.TestCase):
 
             self.assertIsNotNone(service.get_asset_info(stale['asset_key']))
             service.remove_media_reference('history', '1', stale['asset_key'])
+            self.assertIsNotNone(service.get_asset_info(stale['asset_key']))
+            service.release_workflow_media_references('workflow-a')
             self.assertIsNone(service.get_asset_info(stale['asset_key']))
-            self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
+            self.assertIsNone(service.get_asset_info(retained['asset_key']))
 
     def test_shared_media_survives_each_owner_removal_until_the_last_workflow_or_history_owner(self):
         with tempfile.TemporaryDirectory() as root:
@@ -198,6 +200,8 @@ class StorageServiceTests(unittest.TestCase):
             self.assertIsNotNone(service.get_asset_info(shared['asset_key']))
 
             service.remove_media_reference('history', '42', shared['asset_key'])
+            self.assertIsNotNone(service.get_asset_info(shared['asset_key']))
+            service.release_workflow_media_references('workflow-a')
             self.assertIsNone(service.get_asset_info(shared['asset_key']))
 
     def test_clearing_image_imports_releases_only_workflow_import_references(self):

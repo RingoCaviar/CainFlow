@@ -513,7 +513,8 @@ export function createWorkflowManagerApi({
 
     async function deleteWorkflowFile(name) {
         const tab = getWorkflowTab(name);
-        const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
+        const storedData = tab?.data || await loadWorkflowFromFileService(name);
+        const workflowId = tab?.workflowId || storedData?.workflowId || '';
         const result = await deleteWorkflowFileService(name);
         if (result !== true) {
             showToast(result.message, 'error');
