@@ -497,6 +497,17 @@ class StorageService:
             'orphanFilesDeleted': media_cleanup['orphanFilesDeleted']
         }
 
+    def release_workflow_media_references(self, workflow_id):
+        workflow_id = str(workflow_id or '').strip()
+        if not workflow_id:
+            return {'referencesDeleted': 0, **self.cleanup_unreferenced_media_assets()}
+        with self._connect() as db:
+            cursor = db.execute('''DELETE FROM media_asset_refs
+                WHERE owner_type IN ('workflow-node', 'workflow-import') AND owner_id LIKE ?''',
+                (f'{workflow_id}:%',))
+        cleanup = self.cleanup_unreferenced_media_assets()
+        return {'referencesDeleted': cursor.rowcount, **cleanup}
+
     def clear_temporary(self):
         deleted = 0
         stale_before = time.time() - 5 * 60

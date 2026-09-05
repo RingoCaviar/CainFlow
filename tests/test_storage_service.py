@@ -142,6 +142,19 @@ class StorageServiceTests(unittest.TestCase):
 
             self.assertEqual({'assets': 1, 'bytes': 1}, distribution['workflow-import'])
 
+    def test_releasing_workflow_media_keeps_history_shared_original(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            shared = service.put_media_asset(b'shared', 'image/png', 'workflow-import', 'workflow-a:import')
+            stale = service.put_media_asset(b'stale', 'image/png', 'workflow-node', 'workflow-a:node')
+            service.add_media_reference('history', '1', shared['asset_key'])
+
+            result = service.release_workflow_media_references('workflow-a')
+
+            self.assertEqual(2, result['referencesDeleted'])
+            self.assertIsNotNone(service.get_asset_info(shared['asset_key']))
+            self.assertIsNone(service.get_asset_info(stale['asset_key']))
+
     def test_node_orphan_cleanup_removes_stale_node_media_but_keeps_retained_and_history_media(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

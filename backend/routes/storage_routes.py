@@ -162,6 +162,8 @@ def handle_post(handler):
                 result = {'success': True}
             elif action == 'clear-assets':
                 result = storage_service.cleanup_assets(data.get('mode', ''), data.get('keepKeys') or [])
+            elif action == 'release-workflow-media':
+                result = storage_service.release_workflow_media_references(data.get('workflowId'))
             elif action == 'trim-history':
                 storage_service.trim_history()
                 result = {'success': True}

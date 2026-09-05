@@ -289,6 +289,10 @@ export function createDiskStorageApi(getState) {
             .map((key) => removeMediaReference('workflow-node', ownerId, key)));
         return results.every(Boolean);
     }
+    async function releaseWorkflowMediaAssets(workflowId) {
+        if (!workflowId) return false;
+        return postMaintenance('release-workflow-media', { workflowId });
+    }
     async function saveWorkflowImportMediaAsset(value, workflowId, nodeId) {
         const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
         if (!workflowId || !nodeId) return null;
@@ -391,6 +395,7 @@ export function createDiskStorageApi(getState) {
         saveWorkflowNodeMediaAsset,
         saveWorkflowNodeMediaAssets,
         releaseWorkflowNodeMediaAssets,
+        releaseWorkflowMediaAssets,
         saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         deleteImageAsset, deleteImageImportAsset: deleteImageAsset,

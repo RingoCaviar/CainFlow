@@ -1038,6 +1038,11 @@ export function createNodeLifecycleApi({
         });
     }
 
+    function getNodeMediaAssetKeys(node) {
+        const keys = Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : node?.mediaAssetKeys;
+        return [...new Set((keys || []).filter((key) => typeof key === 'string' && key.startsWith('media:')))];
+    }
+
     function scheduleNodeContentVisibleChecks(nodeId, options = {}) {
         scheduleEnsureNodeContentVisible(nodeId, options);
         const delays = Array.isArray(options.delays) ? options.delays : [50, 150];
@@ -1848,6 +1853,12 @@ export function createNodeLifecycleApi({
             node.el.remove();
             state.nodes.delete(nid);
             state.selectedNodes.delete(nid);
+            const workflowId = getActiveWorkflowId();
+            if (workflowId) {
+                for (const assetKey of getNodeMediaAssetKeys(node)) {
+                    void removeMediaReference('workflow-node', `${workflowId}:${nid}`, assetKey);
+                }
+            }
             if (node.type === 'ImageImport') {
                 const importAssetKey = getNodeImageImportAssetKey(node);
                 const ownedAssetKey = importAssetKey || getExpectedImageImportAssetKey(nid);

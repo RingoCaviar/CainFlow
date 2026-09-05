@@ -58,6 +58,7 @@ export function createWorkflowManagerApi({
     clearOrphanedNodeAssets = null,
     referenceMediaAsset = async () => false,
     removeMediaReference = async () => false,
+    releaseWorkflowMediaAssets = async () => false,
     putMediaAsset = async () => null,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
@@ -511,11 +512,14 @@ export function createWorkflowManagerApi({
     }
 
     async function deleteWorkflowFile(name) {
+        const tab = getWorkflowTab(name);
+        const workflowId = tab?.workflowId || tab?.data?.workflowId || '';
         const result = await deleteWorkflowFileService(name);
         if (result !== true) {
             showToast(result.message, 'error');
             return false;
         }
+        if (workflowId) await releaseWorkflowMediaAssets(workflowId);
         return true;
     }
 
