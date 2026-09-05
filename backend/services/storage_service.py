@@ -536,7 +536,6 @@ class StorageService:
                 SELECT COALESCE(SUM(size_bytes), 0) FROM (
                     SELECT relative_path, MAX(size_bytes) AS size_bytes
                     FROM assets
-                    WHERE kind != 'thumbnail'
                     GROUP BY relative_path
                 )
             ''').fetchone()[0]

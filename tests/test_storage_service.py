@@ -101,6 +101,13 @@ class StorageServiceTests(unittest.TestCase):
 
             self.assertEqual(len(b'legacy-image'), service.get_stats()['actualMediaBytes'])
 
+    def test_actual_media_usage_includes_a_thumbnail_physical_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            service.put_asset('thumb:one', b'thumbnail', 'image/png', 'thumbnail')
+
+            self.assertEqual(len(b'thumbnail'), service.get_stats()['actualMediaBytes'])
+
     def test_media_reference_distribution_counts_unique_originals_per_owner_type(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
