@@ -266,11 +266,7 @@ export function createExecutionCoreApi({
                 return;
             }
             const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
-            const saved = mediaAsset || mediaAssets.length === imageList.length
-                ? true
-                : (imageList.length > 1
-                    ? await saveImageAssetList(assetKey, imageList)
-                    : await saveImageAsset(assetKey, imageList[0]));
+            const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
                 markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
                 if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
@@ -318,11 +314,7 @@ export function createExecutionCoreApi({
                 return false;
             }
             const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
-            const saved = mediaAsset || mediaAssets.length === imageList.length
-                ? true
-                : (imageList.length > 1
-                    ? await saveImageAssetList(assetKey, imageList)
-                    : await saveImageAsset(assetKey, imageList[0]));
+            const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
                 markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
                 if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
