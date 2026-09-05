@@ -55,8 +55,6 @@ export function createExecutionCoreApi({
     renderHistoryList,
     showResolutionBadge,
     getImageAsset = async () => null,
-    saveImageAsset,
-    saveImageAssetList = async () => false,
     saveWorkflowNodeMediaAsset = async () => null,
     saveWorkflowNodeMediaAssets = async () => [],
     releaseWorkflowNodeMediaAssets = async () => false,

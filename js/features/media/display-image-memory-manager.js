@@ -22,8 +22,6 @@ export function createDisplayImageMemoryManager({
     getNodeById,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
-    saveImageAsset = async () => false,
-    saveImageAssetList = async () => false,
     deleteImageAsset = null,
     normalizeImageList = () => [],
     isInlineImageData = () => false,
