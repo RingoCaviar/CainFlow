@@ -75,6 +75,7 @@ export function createMediaControllerApi({
     saveImageAssetList = async () => false,
     saveImageImportAsset = async () => '',
     saveWorkflowImportMediaAsset = async () => null,
+    saveWorkflowNodeMediaAsset = async () => null,
     getActiveWorkflowId = () => '',
     referenceMediaAsset = async () => false,
     removeMediaReference = async () => false,
@@ -1360,9 +1361,7 @@ export function createMediaControllerApi({
         node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
         const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId, ['imageB']));
         if (node.imageData && !forwarded) {
-            markNodeImageAssetPending(node, nodeId, 1);
-            const ok = await saveImageAsset(nodeId, node.imageData);
-            if (ok) markNodeImageAssetReady(node, nodeId, 1);
+            delete node.data.imageAssetReady;
         } else {
             delete node.data.imageAssetKey;
             delete node.data.imageCount;
@@ -1557,9 +1556,12 @@ export function createMediaControllerApi({
             node.data.image = result.dataUrl;
             node.imageData = result.dataUrl;
             node.imageDataList = [result.dataUrl];
-            markNodeImageAssetPending(node, nodeId, 1);
-            const saved = await saveImageAsset(nodeId, result.dataUrl);
-            if (saved) markNodeImageAssetReady(node, nodeId, 1);
+            const asset = await saveWorkflowNodeMediaAsset(result.dataUrl, getActiveWorkflowId(), nodeId);
+            if (asset?.asset_key) {
+                node.data.mediaAssetKeys = [asset.asset_key];
+                node.data.imageAssetKey = asset.asset_key;
+                markNodeImageAssetReady(node, asset.asset_key, 1);
+            } else delete node.data.imageAssetReady;
             renderImageResizeResult(nodeId, result);
             scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
 
@@ -1743,14 +1745,11 @@ export function createMediaControllerApi({
             node.data = node.data || {};
             node.data.image = data;
             const mediaAsset = await saveWorkflowImportMediaAsset(data, getActiveWorkflowId(), nodeId);
-            const assetKey = mediaAsset?.asset_key || await saveImageImportAsset(nodeId, data, node.imageImportAssetKey);
+            const assetKey = mediaAsset?.asset_key || '';
             if (assetKey) {
                 node.imageImportAssetKey = assetKey;
                 node.data.imageImportAssetKey = assetKey;
                 markImageImportAssetReady(node, assetKey, 1);
-            } else {
-                const saved = await saveImageAsset(nodeId, data);
-                if (saved) markImageImportAssetReady(node, nodeId, 1);
             }
             await syncImageImportSourceState(nodeId, { refreshDependents: true });
             scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
@@ -1773,14 +1772,11 @@ export function createMediaControllerApi({
         node.data = node.data || {};
         node.data.image = imageData;
         const mediaAsset = await saveWorkflowImportMediaAsset(imageData, getActiveWorkflowId(), nodeId);
-        const assetKey = mediaAsset?.asset_key || await saveImageImportAsset(nodeId, imageData, node.imageImportAssetKey);
+        const assetKey = mediaAsset?.asset_key || '';
         if (assetKey) {
             node.imageImportAssetKey = assetKey;
             node.data.imageImportAssetKey = assetKey;
             markImageImportAssetReady(node, assetKey, 1);
-        } else {
-            const saved = await saveImageAsset(nodeId, imageData);
-            if (saved) markImageImportAssetReady(node, nodeId, 1);
         }
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
         scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
