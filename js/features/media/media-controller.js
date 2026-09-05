@@ -71,7 +71,6 @@ export function createMediaControllerApi({
     getNodeById,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
-    saveImageImportAsset = async () => '',
     saveWorkflowImportMediaAsset = async () => null,
     saveWorkflowNodeMediaAsset = async () => null,
     getActiveWorkflowId = () => '',
@@ -223,13 +222,7 @@ export function createMediaControllerApi({
         ));
     }
 
-    async function clearRecoverableDisplayAsset(nodeId) {
-        if (deleteImageAsset && hasIncomingImageConnection(nodeId)) {
-            await deleteImageAsset(nodeId);
-            return true;
-        }
-        return false;
-    }
+    async function clearRecoverableDisplayAsset() { return false; }
 
     function markNodeImageAssetPending(node, assetKey, imageCount = 1) {
         if (!node) return;
@@ -1143,7 +1136,6 @@ export function createMediaControllerApi({
                 previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
             }
             if (controls) controls.style.display = 'none';
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
@@ -1199,7 +1191,6 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, [], 'URL 图片不支持保存节点');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
@@ -1231,7 +1222,6 @@ export function createMediaControllerApi({
             renderVideoSavePreview(nodeId, videoData);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = true;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             clearDisplayImageAssetState(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
@@ -1245,7 +1235,6 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, [], '无输入图片或视频');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
@@ -1347,7 +1336,6 @@ export function createMediaControllerApi({
             delete node.data.imageCount;
             delete node.data.imageAssetReady;
             delete node.data.imageMemoryReleased;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             clearDisplayImageAssetState(nodeId);
             renderImageCompareEmptyState(nodeId, nextImageA ? '等待 B 输入' : '等待 A / B 输入');
             return;
@@ -1363,7 +1351,6 @@ export function createMediaControllerApi({
             delete node.data.imageCount;
             delete node.data.imageAssetReady;
             delete node.data.imageMemoryReleased;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             clearDisplayImageAssetState(nodeId);
         }
 
@@ -1816,7 +1803,6 @@ export function createMediaControllerApi({
         node.imageUrl = imageUrl;
         node.imageData = null;
         node.data.image = imageUrl;
-        if (deleteImageAsset) await deleteImageAsset(nodeId);
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
         scheduleSave();
     }

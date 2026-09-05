@@ -1130,9 +1130,7 @@ export function createWorkflowRunnerApi({
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
             if (images.length > 0) await persistConcurrentImageResults(node, images);
-            else {
-                await deleteImageAsset(node.id);
-            }
+            else clearCanonicalImageOutput(node);
             await propagateImagesToDownstreamPreview(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);

@@ -71,7 +71,9 @@ def handle_get(handler):
         write_json(handler, {'item': item}, status=200 if item else 404)
         return True
     if path == '/api/storage/maintenance':
-        write_json(handler, storage_service.get_stats())
+        query = parse_qs(parsed.query)
+        workflow_id = (query.get('workflowId') or [''])[0]
+        write_json(handler, storage_service.get_stats(workflow_id))
         return True
     if path.startswith('/api/storage/media-assets/'):
         info = storage_service.get_asset_info(unquote(path[len('/api/storage/media-assets/'):]))

@@ -305,10 +305,6 @@ export function createDiskStorageApi(getState) {
         const value = await blobToDataUrl(blob);
         return value ? [value] : [];
     }
-    async function saveImageImportAsset(nodeId, value, preferredKey = '') {
-        const key = preferredKey?.startsWith(IMAGE_IMPORT_ASSET_KEY_PREFIX) ? preferredKey : `${IMAGE_IMPORT_ASSET_KEY_PREFIX}${nodeId}`;
-        return await putAsset(key, value, 'image-import') ? key : '';
-    }
     async function deleteImageAsset(key) {
         return (await fetch(assetUrl(key), { method: 'DELETE' })).ok;
     }
@@ -397,7 +393,7 @@ export function createDiskStorageApi(getState) {
         releaseWorkflowNodeMediaAssets,
         saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
-        saveImageImportAsset, deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
+        deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
         clearImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import' }),
         clearOrphanedImageImportAssets: (keys) => postMaintenance('clear-assets', { mode: 'image-import-orphans', keepKeys: Array.from(keys || []) }),
         clearImageAssets: ({ preserveHistory = true } = {}) => postMaintenance('clear-assets', { mode: preserveHistory ? 'nodes' : 'all' }),

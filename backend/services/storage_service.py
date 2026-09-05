@@ -526,7 +526,7 @@ class StorageService:
         os.makedirs(self.assets_dir, exist_ok=True)
         self.clear_temporary()
 
-    def get_stats(self):
+    def get_stats(self, workflow_id=''):
         self.initialize()
         with self._connect() as db:
             documents = db.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
@@ -546,15 +546,21 @@ class StorageService:
             history_bytes = db.execute("SELECT COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind IN ('history', 'thumbnail')").fetchone()[0]
             import_bytes = db.execute("SELECT COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind='image-import'").fetchone()[0]
             reference_distribution = {}
-            for row in db.execute('''
+            reference_params = []
+            reference_filter = ''
+            if workflow_id:
+                reference_filter = "WHERE owner_type != 'workflow-node' OR owner_id LIKE ?"
+                reference_params.append(f'{workflow_id}:%')
+            for row in db.execute(f'''
                 SELECT unique_refs.owner_type, COUNT(*) AS assets,
                     COALESCE(SUM(unique_assets.size_bytes), 0) AS bytes
                 FROM (
                     SELECT DISTINCT owner_type, asset_key FROM media_asset_refs
+                    {reference_filter}
                 ) AS unique_refs
                 JOIN assets AS unique_assets ON unique_assets.asset_key = unique_refs.asset_key
                 GROUP BY unique_refs.owner_type
-            '''):
+            ''', reference_params):
                 reference_distribution[row['owner_type']] = {
                     'assets': row['assets'], 'bytes': row['bytes']
                 }

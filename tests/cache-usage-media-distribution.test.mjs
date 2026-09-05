@@ -6,7 +6,8 @@ test('cache usage separates unique physical media from overlapping owner distrib
     const originalFetch = globalThis.fetch;
     const elements = new Map(['cache-size-display', 'usage-workflow-media', 'usage-import-media', 'usage-history', 'usage-thumbnail-media', 'usage-local']
         .map((id) => [id, { textContent: '' }]));
-    globalThis.fetch = async () => ({ ok: true, json: async () => ({
+    let requestedUrl = '';
+    globalThis.fetch = async (url) => (requestedUrl = url, { ok: true, json: async () => ({
         actualMediaBytes: 1024 * 1024,
         documentBytes: 128,
         mediaReferenceDistribution: {
@@ -16,7 +17,7 @@ test('cache usage separates unique physical media from overlapping owner distrib
     }) });
     try {
         const api = createGeneralSettings({
-            ctx: { state: { cacheSizes: {} }, storeHistoryName: 'history', storeAssetsName: 'assets', documentRef: { getElementById: (id) => elements.get(id) || null } },
+            ctx: { state: { cacheSizes: {} }, storeHistoryName: 'history', storeAssetsName: 'assets', getActiveWorkflowId: () => 'workflow-a', documentRef: { getElementById: (id) => elements.get(id) || null } },
             dialogs: {}
         });
         await api.updateCacheUsage();
@@ -24,5 +25,6 @@ test('cache usage separates unique physical media from overlapping owner distrib
         assert.equal(elements.get('usage-workflow-media').textContent, '2 项 · 1.00 MB');
         assert.equal(elements.get('usage-history').textContent, '1 项 · 1.00 MB');
         assert.equal(elements.get('usage-import-media').textContent, '0 项 · 0.00 MB');
+        assert.match(requestedUrl, /workflowId=workflow-a/);
     } finally { globalThis.fetch = originalFetch; }
 });

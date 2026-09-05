@@ -459,7 +459,6 @@ export function createWorkflowRuntimeManager({
     getSystemNotificationApi,
     getImageAsset,
     getImageAssetList,
-    saveImageImportAsset,
     deleteImageImportAsset,
     deleteImageAsset,
     saveWorkflowNodeMediaAsset,
@@ -1225,7 +1224,6 @@ export function createWorkflowRuntimeManager({
                 } else {
                     await syncForwardedKeys(node, []);
                     clearCanonicalImageOutput(node);
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                 }
             },
             syncImageSaveNode: async (nodeId, imageData) => {
@@ -1256,7 +1254,6 @@ export function createWorkflowRuntimeManager({
                         status: video.status || '',
                         prompt: video.prompt || ''
                     };
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                     const preview = doc.getElementById(`${nodeId}-save-preview`);
                     const source = video.assetKey
                         ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}`
@@ -1268,7 +1265,6 @@ export function createWorkflowRuntimeManager({
                     await syncForwardedKeys(node, []);
                     clearCanonicalImageOutput(node);
                     delete node.data.video;
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                     renderImageSavePreview(nodeId, []);
                 }
             },
@@ -1293,7 +1289,6 @@ export function createWorkflowRuntimeManager({
                     delete node.data.imageAssetKey;
                     delete node.data.imageCount;
                     delete node.data.imageAssetReady;
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                 }
             }
         };
@@ -1508,7 +1503,6 @@ export function createWorkflowRuntimeManager({
             saveWorkflowNodeMediaAsset,
             saveWorkflowNodeMediaAssets,
             releaseWorkflowNodeMediaAssets,
-            saveImageImportAsset,
             deleteImageImportAsset,
             showResolutionBadge: async () => {},
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,

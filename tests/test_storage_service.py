@@ -115,6 +115,16 @@ class StorageServiceTests(unittest.TestCase):
             self.assertEqual({'assets': 1, 'bytes': len(b'other-image')}, distribution['workflow-import'])
             self.assertEqual({'assets': 1, 'bytes': len(b'shared-image')}, distribution['history'])
 
+    def test_media_reference_distribution_filters_workflow_node_owners_by_workflow(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            service.put_media_asset(b'a', 'image/png', 'workflow-node', 'workflow-a:node')
+            service.put_media_asset(b'b', 'image/png', 'workflow-node', 'workflow-b:node')
+
+            distribution = service.get_stats('workflow-a')['mediaReferenceDistribution']
+
+            self.assertEqual({'assets': 1, 'bytes': 1}, distribution['workflow-node'])
+
     def test_node_orphan_cleanup_removes_stale_node_media_but_keeps_retained_and_history_media(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

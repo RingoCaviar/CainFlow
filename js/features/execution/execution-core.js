@@ -344,8 +344,6 @@ export function createExecutionCoreApi({
         node.generationCompletedCount = normalizedImages.length;
         if (normalizedImages.length > 0) {
             saveNodeImageAssetInBackground(node, normalizedImages, node.id);
-        } else if (deleteImageAsset) {
-            void deleteImageAsset(node.id);
         }
         if (normalizedImages.length > 0) {
             propagateImagesToDownstreamPreview(node.id, normalizedImages);

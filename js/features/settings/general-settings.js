@@ -30,6 +30,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         applyGlobalAnimationSetting,
         applyCanvasUiSetting,
         fitNodeToContent,
+        getActiveWorkflowId = () => '',
         documentRef,
         windowRef,
         localStorageRef,
@@ -826,7 +827,9 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 state.cacheSizes[storeAssetsName] = null;
             }
 
-            const response = await fetch('/api/storage/maintenance', { cache: 'no-store' });
+            const workflowId = getActiveWorkflowId();
+            const query = workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : '';
+            const response = await fetch(`/api/storage/maintenance${query}`, { cache: 'no-store' });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const stats = await response.json();
             const localBytes = Number(stats.documentBytes || 0);

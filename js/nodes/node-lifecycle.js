@@ -24,7 +24,6 @@ export function createNodeLifecycleApi({
     generateId,
     getImageAsset,
     getImageAssetList = async () => [],
-    saveImageImportAsset = async () => '',
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
