@@ -730,6 +730,17 @@ class StorageService:
                    (transition['idempotency_key'],))
         return {'status': 'already-committed', 'generation': transition['result_generation']}
 
+    def _replay_media_transition(self, db, transition):
+        status = transition['status']
+        if status == 'prepared':
+            return None
+        if status == 'completed':
+            return {'status': 'already-committed', 'generation': transition['result_generation']}
+        if (status in {'owner-promoted', 'old-references-released', 'needs-reconciliation'}
+                and transition['result_generation'] is not None):
+            return self._finish_promoted_media_transition(db, transition)
+        return {'status': status, 'generation': transition['result_generation']}
+
     def recover_media_owner_transitions(self, limit=100, after_cursor=''):
         """Replay a bounded page of durable intents; uncertain records retain their protection."""
         self.initialize()
@@ -793,15 +804,9 @@ class StorageService:
                 ))
                 if binding != persisted_binding:
                     raise StorageError('Idempotency key is already bound to different transition content')
-                if transition['status'] == 'completed':
-                    return {'status': 'already-committed', 'generation': transition['result_generation']}
-                if transition['status'] == 'cancelled':
-                    return {'status': 'cancelled', 'generation': transition['result_generation']}
-                if (transition['status'] in {'owner-promoted', 'old-references-released', 'needs-reconciliation'}
-                        and transition['result_generation'] is not None):
-                    return self._finish_promoted_media_transition(db, transition)
-                if transition['status'] in {'stale', 'needs-reconciliation'}:
-                    return {'status': transition['status'], 'generation': transition['result_generation']}
+                replay = self._replay_media_transition(db, transition)
+                if replay is not None:
+                    return replay
             else:
                 db.execute('''INSERT INTO media_asset_transitions(
                         idempotency_key, workflow_id, owner_type, owner_id, operation_id, target_digest,
@@ -866,12 +871,10 @@ class StorageService:
                 (workflow_id, document_revision, owner_type, owner_id)).fetchone()
             current_transition = db.execute('SELECT * FROM media_asset_transitions WHERE idempotency_key=?',
                                             (idempotency_key,)).fetchone()
-            if current_transition and current_transition['status'] != 'prepared':
-                if current_transition['status'] == 'completed':
-                    return {'status': 'already-committed', 'generation': current_transition['result_generation']}
-                if current_transition['status'] in {'owner-promoted', 'old-references-released'}:
-                    return self._finish_promoted_media_transition(db, current_transition)
-                return {'status': current_transition['status'], 'generation': current_transition['result_generation']}
+            if current_transition:
+                replay = self._replay_media_transition(db, current_transition)
+                if replay is not None:
+                    return replay
             if (current_generation != expected_generation or not current_revision
                     or current_revision['document_revision'] != document_revision
                     or current_revision['storage_epoch'] != str(storage_epoch)

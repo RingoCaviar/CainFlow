@@ -1,6 +1,8 @@
 import os
 import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -464,6 +466,59 @@ class StorageServiceTests(unittest.TestCase):
                     'workflow', 'workflow-node', 'node')['assetKeys'])
                 self.assertEqual(0, restarted.recover_media_owner_transitions()['completed'])
                 self.assertNotIn('media-transition', restarted.get_stats()['mediaReferenceDistribution'])
+
+    def test_application_startup_recovers_pending_ownership_before_clean_process_exit(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'result', 'image/png', 'transition', 'operation')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow', 1, epoch, 'node', [asset['asset_key']])
+
+            def interrupt(stage):
+                if stage == 'new_owner_established':
+                    raise RuntimeError('interrupted')
+
+            service._transition_fault_injector = interrupt
+            with self.assertRaises(RuntimeError):
+                service.replace_media_owner_references(
+                    workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                    operation_id='operation', idempotency_key='operation', expected_generation=0,
+                    document_revision=1, storage_epoch=epoch, asset_keys=[asset['asset_key']],
+                )
+            # Configure the real application in a separate process before importing its services.
+            # Every mutable path stays inside this test's isolated temporary directory.
+            service.mark_clean_shutdown()
+            program = '''
+import os, sys, time
+from backend import config
+root = sys.argv[1]
+config.EXE_DIR = config.STATIC_ROOT = root
+config.MAIN_EXE_PATH = os.path.join(root, 'CainFlow.exe')
+for name, relative in {
+    'WORKFLOWS_DIR': 'workflows', 'LOG_DIR': 'log', 'PROTOCOLS_DIR': 'protocols',
+    'DATA_DIR': 'data', 'ASSETS_DIR': 'data/assets', 'DATA_TEMP_DIR': 'data/temp',
+    'DATABASE_PATH': 'data/cainflow.db', 'EXPORTS_DIR': 'exports',
+}.items():
+    setattr(config, name, os.path.join(root, relative))
+from backend.main import initialize_runtime
+from backend.services.storage_service import storage_service
+initialize_runtime()
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
+    owner = storage_service.get_media_owner_reference_list('workflow', 'workflow-node', 'node')
+    if owner and owner['assetKeys'] == [sys.argv[2]]:
+        break
+    time.sleep(0.01)
+else:
+    raise RuntimeError('Startup did not recover the pending owner')
+'''
+            process = subprocess.run([sys.executable, '-c', program, root, asset['asset_key']],
+                                     capture_output=True, text=True, timeout=10)
+            self.assertEqual(0, process.returncode, process.stderr)
+            restarted = self.make_service(root, verified=False)
+            self.assertEqual('healthy', restarted.get_storage_safety_status()['state'])
+            self.assertNotIn('media-transition', restarted.get_stats()['mediaReferenceDistribution'])
+            self.assertIsNotNone(restarted.get_asset(asset['asset_key']))
 
     def test_late_release_preserves_media_reintroduced_by_a_newer_generation(self):
         with tempfile.TemporaryDirectory() as root:
