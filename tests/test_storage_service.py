@@ -428,6 +428,41 @@ class StorageServiceTests(unittest.TestCase):
                 self.assertIsNotNone(service.get_asset_info(old['asset_key']))
                 self.assertIsNotNone(service.get_asset_info(old_second['asset_key']))
 
+    def test_late_release_preserves_media_reintroduced_by_a_newer_generation(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            first = service.put_media_asset(b'first', 'image/png', 'transition', 'first')
+            second = service.put_media_asset(b'second', 'image/png', 'transition', 'second')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+
+            def replace(revision, asset):
+                self.record_manifest(service, 'workflow-a', revision, epoch, 'node-a', [asset['asset_key']])
+                return service.replace_media_owner_references(
+                    workflow_id='workflow-a', owner_type='workflow-node', owner_id='node-a',
+                    operation_id=f'op-{revision}', idempotency_key=f'op-{revision}',
+                    expected_generation=revision - 1, document_revision=revision,
+                    storage_epoch=epoch, asset_keys=[asset['asset_key']],
+                )
+
+            replace(1, first)
+
+            def overlap(stage):
+                if stage == 'owner_promoted':
+                    service._transition_fault_injector = lambda _stage: None
+                    replace(3, first)
+
+            service._transition_fault_injector = overlap
+            replace(2, second)
+            service.remove_media_reference('transition', 'first')
+            service.remove_media_reference('transition', 'second')
+            service.cleanup_unreferenced_media_assets()
+
+            self.assertEqual([first['asset_key']], service.get_media_owner_reference_list(
+                'workflow-a', 'workflow-node', 'node-a')['assetKeys'])
+            self.assertIsNotNone(service.get_asset(first['asset_key']))
+            self.assertEqual({'assets': 1, 'bytes': 5},
+                             service.get_stats()['mediaReferenceDistribution']['workflow-node'])
+
     def test_concurrent_owner_replacements_allow_only_one_generation_cas_winner(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
@@ -495,6 +530,26 @@ class StorageServiceTests(unittest.TestCase):
 
             with self.assertRaises(StorageError):
                 self.record_manifest(service, 'workflow-a', 1, epoch, 'node-a', [assets[1]['asset_key']])
+
+    def test_interrupted_media_materialization_never_publishes_an_unowned_asset(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+
+            def interrupt(stage):
+                if stage == 'media_materialized':
+                    raise RuntimeError('simulated process interruption')
+
+            service._transition_fault_injector = interrupt
+            with self.assertRaisesRegex(RuntimeError, 'simulated process interruption'):
+                service.put_media_asset(b'new-result', 'image/png', 'media-transition', 'operation-a')
+
+            self.assertEqual(0, service.get_stats()['mediaBytes'])
+            service._transition_fault_injector = lambda _stage: None
+            retried = service.put_media_asset(b'new-result', 'image/png', 'media-transition', 'operation-a')
+            service.cleanup_unreferenced_media_assets()
+            self.assertIsNotNone(service.get_asset(retried['asset_key']))
+            self.assertEqual({'assets': 1, 'bytes': 10},
+                             service.get_stats()['mediaReferenceDistribution']['media-transition'])
 
     def test_media_asset_deduplicates_by_digest_and_enforces_cache_limit(self):
         with tempfile.TemporaryDirectory() as root:

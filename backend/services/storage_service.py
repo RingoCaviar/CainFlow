@@ -467,6 +467,9 @@ class StorageService:
         return os.path.join(digest[:2], f'{digest}{extension}').replace(os.sep, '/')
 
     def put_asset(self, asset_key, body, mime_type='application/octet-stream', kind='asset'):
+        return self._put_asset(asset_key, body, mime_type, kind)
+
+    def _put_asset(self, asset_key, body, mime_type, kind, media_owner=None):
         self.initialize()
         asset_key = str(asset_key or '').strip()
         if not asset_key or len(asset_key) > 300:
@@ -477,20 +480,25 @@ class StorageService:
         digest = hashlib.sha256(body).hexdigest()
         relative_path = self._asset_relative_path(digest, mime_type)
         destination = os.path.join(self.assets_dir, *relative_path.split('/'))
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
-        if not os.path.exists(destination):
-            fd, temporary_path = tempfile.mkstemp(prefix='asset-', dir=self.temp_dir)
-            try:
-                with os.fdopen(fd, 'wb') as output:
-                    output.write(body)
-                    output.flush()
-                    os.fsync(output.fileno())
-                os.replace(temporary_path, destination)
-            finally:
-                if os.path.exists(temporary_path):
-                    os.remove(temporary_path)
         now = int(time.time() * 1000)
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if media_owner:
+                exists = db.execute('SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone()
+                if not exists and self._media_cache_bytes(db) + len(body) > self.get_media_cache_limit():
+                    raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if not os.path.exists(destination):
+                fd, temporary_path = tempfile.mkstemp(prefix='asset-', dir=self.temp_dir)
+                try:
+                    with os.fdopen(fd, 'wb') as output:
+                        output.write(body)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(temporary_path, destination)
+                finally:
+                    if os.path.exists(temporary_path):
+                        os.remove(temporary_path)
             db.execute('''
                 INSERT INTO assets(asset_key, sha256, kind, mime_type, size_bytes, relative_path, created_at)
                 VALUES(?, ?, ?, ?, ?, ?, ?)
@@ -498,6 +506,10 @@ class StorageService:
                     sha256=excluded.sha256, kind=excluded.kind, mime_type=excluded.mime_type,
                     size_bytes=excluded.size_bytes, relative_path=excluded.relative_path
             ''', (asset_key, digest, kind, mime_type or 'application/octet-stream', len(body), relative_path, now))
+            if media_owner:
+                self._transition_fault_injector('media_materialized')
+                db.execute('''INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                    VALUES(?, ?, ?, ?)''', (*media_owner, asset_key, now))
         return self.get_asset_info(asset_key)
 
     def get_asset_info(self, asset_key):
@@ -631,6 +643,7 @@ class StorageService:
                 raise StorageError('Workflow Media asset manifest is invalid')
             manifests.append((owner_type, owner_id, self._reference_list_digest(keys)))
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             current = db.execute('SELECT document_revision FROM media_workflow_revisions WHERE workflow_id=?',
                                  (workflow_id,)).fetchone()
             if current and revision < current['document_revision']:
@@ -679,6 +692,7 @@ class StorageService:
         now = int(time.time() * 1000)
         target_digest = self._reference_list_digest(keys)
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             transition = db.execute('''SELECT * FROM media_asset_transitions
                 WHERE idempotency_key=?''', (idempotency_key,)).fetchone()
             if transition:
@@ -754,6 +768,7 @@ class StorageService:
 
         reference_owner_id = self._formal_reference_owner_id(workflow_id, owner_type, owner_id)
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             current_owner = db.execute('''SELECT generation, document_revision FROM media_asset_owners
                 WHERE workflow_id=? AND owner_type=? AND owner_id=?''',
                 (workflow_id, owner_type, owner_id)).fetchone()
@@ -808,8 +823,13 @@ class StorageService:
                 continue
             with self._lock, self._connect() as db:
                 db.execute('''DELETE FROM media_asset_refs
-                    WHERE owner_type=? AND owner_id=? AND asset_key=?''',
-                    (owner_type, reference_owner_id, old_key))
+                    WHERE owner_type=? AND owner_id=? AND asset_key=?
+                    AND NOT EXISTS (
+                        SELECT 1 FROM media_asset_owner_items
+                        WHERE workflow_id=? AND owner_type=? AND owner_id=? AND asset_key=?
+                    )''',
+                    (owner_type, reference_owner_id, old_key,
+                     workflow_id, owner_type, owner_id, old_key))
             self._transition_fault_injector('partial_old_reference_released')
         with self._lock, self._connect() as db:
             db.execute("UPDATE media_asset_transitions SET status='old-references-released' WHERE idempotency_key=?",
@@ -822,6 +842,9 @@ class StorageService:
 
     def put_media_asset(self, body, mime_type, owner_type, owner_id):
         """Store one canonical Media asset and atomically attach an owner reference."""
+        owner_type, owner_id = (str(value or '').strip() for value in (owner_type, owner_id))
+        if not owner_type or not owner_id:
+            raise StorageError('Media asset reference owner and asset key are required')
         if not isinstance(body, (bytes, bytearray)) or not body:
             raise StorageError('Asset body is empty')
         digest = hashlib.sha256(bytes(body)).hexdigest()
@@ -830,12 +853,7 @@ class StorageService:
         # A cache write may reclaim only assets with no durable owner first;
         # referenced results are never evicted to make room for another result.
         self.cleanup_unreferenced_media_assets()
-        with self._lock, self._connect() as db:
-            exists = db.execute('SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone()
-            if not exists and self._media_cache_bytes(db) + len(body) > self.get_media_cache_limit():
-                raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
-        self.put_asset(asset_key, body, mime_type, 'media')
-        return self.add_media_reference(owner_type, owner_id, asset_key)
+        return self._put_asset(asset_key, body, mime_type, 'media', media_owner=(owner_type, owner_id))
 
     def cleanup_unreferenced_media_assets(self):
         self.initialize()
