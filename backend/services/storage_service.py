@@ -637,6 +637,16 @@ class StorageService:
             'assetKeys': asset_keys,
         }
 
+    def list_media_owner_reference_lists(self, workflow_id):
+        self.initialize()
+        with self._connect() as db:
+            owners = db.execute('''SELECT owner_type, owner_id FROM media_asset_owners
+                WHERE workflow_id=? AND tombstoned=0 ORDER BY owner_type, owner_id''',
+                (str(workflow_id),)).fetchall()
+        return [self.get_media_owner_reference_list(workflow_id, owner['owner_type'], owner['owner_id']) | {
+            'ownerType': owner['owner_type'], 'ownerId': owner['owner_id']
+        } for owner in owners]
+
     @staticmethod
     def _reference_list_digest(asset_keys):
         return hashlib.sha256(

@@ -82,6 +82,17 @@ async function removeMediaReference(ownerType, ownerId, assetKey) {
     return response.ok;
 }
 
+async function postMediaAssetAction(action, extra = {}) {
+    const response = await fetch('/api/storage/media-assets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra })
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    delete payload.success;
+    return payload;
+}
+
 async function getAssetBlob(key) {
     try {
         const response = await fetch(assetUrl(key), { cache: 'no-store' });
@@ -293,6 +304,29 @@ export function createDiskStorageApi(getState) {
         if (!workflowId) return false;
         return postMaintenance('release-workflow-media', { workflowId });
     }
+    async function getStorageSafetyStatus() {
+        const response = await fetch('/api/storage/safety-status', { cache: 'no-store' });
+        return response.ok ? (await response.json()).safety || null : null;
+    }
+    async function getMediaOwnerReferenceList(workflowId, ownerType, ownerId) {
+        const query = new URLSearchParams({ workflowId, ownerType, ownerId });
+        const response = await fetch(`/api/storage/media-owner?${query}`, { cache: 'no-store' });
+        return response.ok ? (await response.json()).owner || null : null;
+    }
+    async function listMediaOwnerReferenceLists(workflowId) {
+        const query = new URLSearchParams({ workflowId });
+        const response = await fetch(`/api/storage/media-owners?${query}`, { cache: 'no-store' });
+        return response.ok ? (await response.json()).owners || [] : null;
+    }
+    async function recordMediaWorkflowRevision(workflowId, documentRevision, storageEpoch, ownerReferenceLists) {
+        const result = await postMediaAssetAction('record-workflow-revision', {
+            workflowId, documentRevision, storageEpoch, ownerReferenceLists
+        });
+        return result?.documentRevision === documentRevision;
+    }
+    async function replaceMediaOwnerReferenceList(request) {
+        return postMediaAssetAction('replace-owner-reference-list', request);
+    }
     async function saveWorkflowImportMediaAsset(value, workflowId, nodeId) {
         const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
         if (!workflowId || !nodeId) return null;
@@ -396,6 +430,11 @@ export function createDiskStorageApi(getState) {
         saveWorkflowNodeMediaAssets,
         releaseWorkflowNodeMediaAssets,
         releaseWorkflowMediaAssets,
+        getStorageSafetyStatus,
+        getMediaOwnerReferenceList,
+        listMediaOwnerReferenceLists,
+        recordMediaWorkflowRevision,
+        replaceMediaOwnerReferenceList,
         saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         deleteImageAsset, deleteImageImportAsset: deleteImageAsset,

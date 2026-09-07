@@ -78,6 +78,18 @@ def handle_get(handler):
     if path == '/api/storage/safety-status':
         write_json(handler, {'safety': storage_service.get_storage_safety_status()})
         return True
+    if path == '/api/storage/media-owner':
+        query = parse_qs(parsed.query)
+        workflow_id = (query.get('workflowId') or [''])[0]
+        owner_type = (query.get('ownerType') or [''])[0]
+        owner_id = (query.get('ownerId') or [''])[0]
+        owner = storage_service.get_media_owner_reference_list(workflow_id, owner_type, owner_id)
+        write_json(handler, {'owner': owner})
+        return True
+    if path == '/api/storage/media-owners':
+        workflow_id = (parse_qs(parsed.query).get('workflowId') or [''])[0]
+        write_json(handler, {'owners': storage_service.list_media_owner_reference_lists(workflow_id)})
+        return True
     if path.startswith('/api/storage/media-assets/'):
         info = storage_service.get_asset_info(unquote(path[len('/api/storage/media-assets/'):]))
         write_json(handler, {'asset': info}, status=200 if info else 404)

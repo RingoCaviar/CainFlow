@@ -34,6 +34,11 @@ import {
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
+    createWorkflowMediaOwnershipCommitter,
+    getWorkflowMediaOwnerType,
+    prepareWorkflowMediaOwnershipCommit
+} from '../media/workflow-media-ownership-commit.js';
+import {
     getWorkflowMoveEligibility,
     hasRunningWorkflowInFolder,
     listWorkflowNamesInFolder,
@@ -59,6 +64,11 @@ export function createWorkflowManagerApi({
     referenceMediaAsset = async () => false,
     removeMediaReference = async () => false,
     releaseWorkflowMediaAssets = async () => false,
+    getStorageSafetyStatus = async () => null,
+    getMediaOwnerReferenceList = async () => null,
+    listMediaOwnerReferenceLists = async () => [],
+    recordMediaWorkflowRevision = async () => false,
+    replaceMediaOwnerReferenceList = async () => null,
     putMediaAsset = async () => null,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
@@ -81,10 +91,17 @@ export function createWorkflowManagerApi({
     const legacyMediaMigration = createLegacyMediaMigrationCoordinator({
         getImageAsset, getImageAssetList, putMediaAsset, referenceMediaAsset, removeMediaReference, deleteImageAsset
     });
+    const mediaOwnershipCommitter = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus,
+        getMediaOwnerReferenceList,
+        listMediaOwnerReferenceLists,
+        recordMediaWorkflowRevision,
+        replaceMediaOwnerReferenceList
+    });
     async function referenceCopiedWorkflowMedia(workflowData, workflowId) {
         const appliedRefs = [];
         for (const node of workflowData?.nodes || []) {
-            const ownerType = node?.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
+            const ownerType = getWorkflowMediaOwnerType(node);
             const mediaKeys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
             const importKey = ownerType === 'workflow-import'
                 ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
@@ -274,6 +291,7 @@ export function createWorkflowManagerApi({
         if (operation.kind === 'copy' || operation.kind === 'save-as') {
             const data = cloneWorkflowData(tab.data);
             data.workflowId = operation.newWorkflowId;
+            data.mediaOwnershipRevision = 0;
             const ok = typeof operation.persist === 'function'
                 ? await operation.persist({
                     workflowId: operation.newWorkflowId,
@@ -507,10 +525,17 @@ export function createWorkflowManagerApi({
         const migrationKey = data?.workflowId || '';
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
+        const previousMediaOwnershipRevision = data?.mediaOwnershipRevision;
         try {
             migration ||= await legacyMediaMigration.stageWorkflow(data);
-            const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(data));
+            const preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
+            data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
+            const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
+                expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0)
+            });
             if (result !== true) {
+                if (previousMediaOwnershipRevision === undefined) delete data.mediaOwnershipRevision;
+                else data.mediaOwnershipRevision = previousMediaOwnershipRevision;
                 await migration?.rollback();
                 pendingLegacyMediaMigrations.delete(migrationKey);
                 showToast(result.message, 'error');
@@ -518,6 +543,10 @@ export function createWorkflowManagerApi({
             }
             documentPersisted = true;
             await migration?.commit();
+            migration = null;
+            if (!await mediaOwnershipCommitter.commitPersistedWorkflow(preparedWorkflow)) {
+                throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
+            }
             pendingLegacyMediaMigrations.delete(migrationKey);
             return true;
         } catch (error) {
@@ -546,6 +575,9 @@ export function createWorkflowManagerApi({
         try {
             const migration = await legacyMediaMigration.stageWorkflow(result);
             if (migration) pendingLegacyMediaMigrations.set(result.workflowId, migration);
+            else if (result.mediaOwnershipRevision) {
+                await mediaOwnershipCommitter.commitPersistedWorkflow(result);
+            }
         } catch (error) {
             // Reading a legacy workflow must stay non-destructive when its new
             // Media asset cannot be staged; a later read/save can retry.

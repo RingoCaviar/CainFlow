@@ -67,12 +67,15 @@ def handle_post(handler):
 
     body = read_request_body(handler, default=b'{}')
     try:
-        save_workflow(name, body)
-        write_text(handler, 'OK')
+        expected_revision = handler.headers.get('x-cainflow-expected-media-ownership-revision')
+        revision = save_workflow(name, body, expected_revision)
+        write_json(handler, {'success': True, 'mediaOwnershipRevision': revision})
     except FileExistsError as exc:
         write_error(handler, 409, 'Workflow already exists', exc)
     except ValueError as exc:
         write_error(handler, 400, 'Invalid workflow payload', exc)
+    except RuntimeError as exc:
+        write_error(handler, 409, 'Workflow changed in another application instance', exc)
     except Exception as exc:
         write_error(handler, 500, 'Failed to save workflow', exc)
     return True

@@ -93,3 +93,39 @@ test('failed history persistence releases the provisional history owner', async 
         globalThis.fetch = originalFetch;
     }
 });
+
+test('versioned Media asset ownership methods map the workflow commit contract', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({ url, options });
+        if (String(url).startsWith('/api/storage/media-owner?')) {
+            return new Response(JSON.stringify({ owner: { generation: 2, assetKeys: ['media:old'] } }), { status: 200 });
+        }
+        if (url === '/api/storage/safety-status') {
+            return new Response(JSON.stringify({ safety: { storageEpoch: 'epoch-1' } }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ success: true, status: 'committed', documentRevision: 5 }), { status: 200 });
+    };
+
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.deepEqual(await storage.getStorageSafetyStatus(), { storageEpoch: 'epoch-1' });
+        assert.deepEqual(await storage.getMediaOwnerReferenceList('workflow-a', 'workflow-node', 'node-a'), {
+            generation: 2, assetKeys: ['media:old']
+        });
+        assert.equal(await storage.recordMediaWorkflowRevision('workflow-a', 5, 'epoch-1', [{
+            ownerType: 'workflow-node', ownerId: 'node-a', assetKeys: ['media:new']
+        }]), true);
+        assert.deepEqual(await storage.replaceMediaOwnerReferenceList({
+            workflowId: 'workflow-a', ownerType: 'workflow-node', ownerId: 'node-a',
+            operationId: 'save-5', idempotencyKey: 'save-5:node-a', expectedGeneration: 2,
+            documentRevision: 5, storageEpoch: 'epoch-1', assetKeys: ['media:new']
+        }), { status: 'committed', documentRevision: 5 });
+
+        assert.equal(JSON.parse(requests.at(-2).options.body).action, 'record-workflow-revision');
+        assert.equal(JSON.parse(requests.at(-1).options.body).action, 'replace-owner-reference-list');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

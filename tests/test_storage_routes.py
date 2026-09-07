@@ -59,6 +59,17 @@ class StorageRouteSecurityTests(unittest.TestCase):
         )
         write_json.assert_called_once_with(handler, {'success': True, **result})
 
+    def test_owner_reference_list_endpoint_returns_the_current_generation(self):
+        handler = make_handler()
+        handler.path = '/api/storage/media-owner?workflowId=workflow-a&ownerType=workflow-node&ownerId=node-a'
+        owner = {'workflowId': 'workflow-a', 'generation': 3, 'assetKeys': ['media:first']}
+        with mock.patch.object(storage_routes.storage_service, 'get_media_owner_reference_list', return_value=owner) as get_owner, \
+                mock.patch.object(storage_routes, 'write_json') as write_json:
+            self.assertTrue(storage_routes.handle_get(handler))
+
+        get_owner.assert_called_once_with('workflow-a', 'workflow-node', 'node-a')
+        write_json.assert_called_once_with(handler, {'owner': owner})
+
 
 if __name__ == '__main__':
     unittest.main()
