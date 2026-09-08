@@ -11,6 +11,29 @@ def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
 
 
 class StorageRouteSecurityTests(unittest.TestCase):
+    def test_integrity_report_endpoint_returns_the_published_report(self):
+        handler = make_handler()
+        handler.path = '/api/storage/integrity-report'
+        report = {'reportId': 'report-a', 'damageItems': []}
+        with mock.patch.object(storage_routes.storage_service, 'get_media_integrity_report', return_value=report), \
+                mock.patch.object(storage_routes, 'write_json') as write_json:
+            self.assertTrue(storage_routes.handle_get(handler))
+
+        write_json.assert_called_once_with(handler, {'report': report}, status=200)
+
+    def test_integrity_scan_endpoint_advances_one_bounded_page(self):
+        handler = make_handler()
+        handler.path = '/api/storage/maintenance'
+        request = {'action': 'scan-media-integrity', 'workflows': [{'workflowId': 'workflow-a'}], 'batchSize': 17}
+        result = {'complete': False, 'cancelled': False, 'checkpoint': {'cursor': 17}}
+        with mock.patch.object(storage_routes, 'read_json_body', return_value=request), \
+                mock.patch.object(storage_routes.storage_service, 'scan_media_integrity_page', return_value=result) as scan, \
+                mock.patch.object(storage_routes, 'write_json') as write_json:
+            self.assertTrue(storage_routes.handle_post(handler))
+
+        scan.assert_called_once_with(request['workflows'], 17, cancelled=False)
+        write_json.assert_called_once_with(handler, {'success': True, **result})
+
     def test_operation_owner_cancellation_maps_the_stable_owner_identity(self):
         handler = make_handler()
         handler.path = '/api/storage/media-assets'

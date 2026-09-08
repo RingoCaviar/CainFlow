@@ -249,6 +249,15 @@ def _recover_media_transitions():
             return
         cursor = result['nextCursor']
         if not cursor:
+            break
+        _storage_recovery_stop.wait(0.05)
+    while not _storage_recovery_stop.is_set():
+        try:
+            scan = storage_service.scan_media_integrity_page(workflows, batch_size=100)
+        except Exception:
+            print('Media integrity scan paused; its safety latch and checkpoint are retained.')
+            return
+        if scan.get('complete'):
             return
         _storage_recovery_stop.wait(0.05)
 

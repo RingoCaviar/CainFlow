@@ -78,6 +78,10 @@ def handle_get(handler):
     if path == '/api/storage/safety-status':
         write_json(handler, {'safety': storage_service.get_storage_safety_status()})
         return True
+    if path == '/api/storage/integrity-report':
+        report = storage_service.get_media_integrity_report()
+        write_json(handler, {'report': report}, status=200 if report else 404)
+        return True
     if path == '/api/storage/media-owner':
         query = parse_qs(parsed.query)
         workflow_id = (query.get('workflowId') or [''])[0]
@@ -203,6 +207,11 @@ def handle_post(handler):
             elif action == 'trim-history':
                 storage_service.trim_history()
                 result = {'success': True}
+            elif action == 'scan-media-integrity':
+                result = storage_service.scan_media_integrity_page(
+                    data.get('workflows') or [], data.get('batchSize') or 100,
+                    cancelled=data.get('cancelled') is True,
+                )
             else:
                 raise StorageError('Unknown maintenance action')
             write_json(handler, {'success': True, **result})

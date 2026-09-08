@@ -1223,6 +1223,116 @@ else:
             self.assertEqual('repair_required', status['state'])
             self.assertEqual('database_unreadable', status['reason'])
 
+    def test_integrity_scan_is_resumable_and_classifies_each_durable_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            present = service.put_asset('media:present', b'present', 'image/png', 'media')
+            missing_file = service.put_asset('media:missing-file', b'missing-file', 'image/png', 'media')
+            os.remove(os.path.join(service.assets_dir, service.get_asset_info(missing_file['asset_key'])['relative_path']))
+            unregistered_path = os.path.join(service.assets_dir, 'unregistered.bin')
+            with open(unregistered_path, 'wb') as output:
+                output.write(b'unregistered')
+            database = sqlite3.connect(service.database_path)
+            try:
+                database.execute('PRAGMA foreign_keys=OFF')
+                database.execute("INSERT INTO media_asset_refs VALUES('history', 'missing-meta', 'missing-key', 1)")
+                database.execute("INSERT INTO media_asset_owners VALUES('wf', 'workflow-node', 'partial', 1, 1, 0, 1)")
+                database.execute("INSERT INTO media_asset_owner_items VALUES('wf', 'workflow-node', 'partial', 1, ?)",
+                                 (present['asset_key'],))
+                database.execute("INSERT INTO media_asset_refs VALUES('workflow-node', ?, ?, 1)",
+                                 (json.dumps(['ghost', 'workflow-node', 'n']), present['asset_key']))
+                database.execute("INSERT INTO media_asset_transitions VALUES('stuck', 'wf', 'workflow-node', 'n', 'op', 'save', 'digest', 0, 1, ?, 'prepared', NULL, 1)",
+                                 (service.get_storage_safety_status()['storageEpoch'],))
+                database.commit()
+            finally:
+                database.close()
+
+            workflows = [{'workflowId': 'wf', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'partial', 'type': 'ImageGenerate', 'output': {'assetKeys': [present['asset_key'], 'missing-key']},
+            }, {
+                'id': 'missing-owner', 'type': 'ImageGenerate', 'output': {'assetKey': present['asset_key']},
+            }]}]
+            first = service.scan_media_integrity_page(workflows, batch_size=1)
+            self.assertFalse(first['complete'])
+
+            restarted = self.make_service(root, verified=False)
+            result = first
+            while not result['complete']:
+                result = restarted.scan_media_integrity_page(workflows, batch_size=2)
+            classes = {item['damageClass'] for item in result['report']['damageItems']}
+            self.assertTrue({'missing_owner', 'missing_file', 'missing_metadata', 'unassociated_owner',
+                             'unregistered_file', 'interrupted_transition', 'partial_reference_list'} <= classes,
+                            classes)
+            self.assertEqual('gc_suspended', restarted.get_storage_safety_status()['state'])
+
+    def test_clean_integrity_report_is_published_with_healthy_state_atomically(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            result = service.scan_media_integrity_page([], batch_size=100)
+
+            self.assertTrue(result['complete'])
+            self.assertEqual([], result['report']['damageItems'])
+            self.assertIsInstance(result['report']['cutoffRevision'], int)
+            status = service.get_storage_safety_status()
+            self.assertEqual('healthy', status['state'])
+            self.assertEqual(result['report']['reportId'], status['reportId'])
+
+    def test_invalid_integrity_checkpoint_requires_repair_and_cancellation_retains_latch(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            with open(service._integrity_checkpoint_path, 'w', encoding='utf-8') as output:
+                json.dump({'scannerVersion': 999}, output)
+
+            with self.assertRaises(StorageError):
+                service.scan_media_integrity_page([], batch_size=1)
+            self.assertEqual('repair_required', service.get_storage_safety_status()['state'])
+
+            os.remove(service._integrity_checkpoint_path)
+            cancelled = service.scan_media_integrity_page([], batch_size=1, cancelled=True)
+            self.assertTrue(cancelled['cancelled'])
+            self.assertNotEqual('healthy', service.get_storage_safety_status()['state'])
+
+    def test_missing_media_report_does_not_reenable_physical_reclamation(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            missing = service.put_asset('media:missing', b'missing', 'image/png', 'media')
+            os.remove(os.path.join(service.assets_dir, missing['relative_path']))
+
+            result = service.scan_media_integrity_page([], batch_size=100)
+
+            self.assertTrue(result['complete'])
+            self.assertEqual({'missing_file'}, {item['damageClass'] for item in result['report']['damageItems']})
+            self.assertEqual('gc_suspended', service.get_storage_safety_status()['state'])
+
+    def test_concurrent_partition_change_is_replayed_before_report_publication(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.put_asset('media:first', b'first', 'image/png', 'media')
+            first = service.scan_media_integrity_page([], batch_size=1)
+            self.assertFalse(first['complete'])
+            service.put_asset('media:second', b'second', 'image/png', 'media')
+
+            replay = service.scan_media_integrity_page([], batch_size=100)
+
+            self.assertFalse(replay['complete'])
+            self.assertIn('assets', replay['checkpoint']['rescanSet'])
+            self.assertIsNone(service.get_media_integrity_report())
+
+    def test_active_integrity_coordinator_lease_rejects_a_second_process(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            now = int(time.time() * 1000)
+            with service._connect() as database:
+                database.execute('''INSERT INTO media_integrity_coordinator(
+                    singleton, coordinator_id, lease_token, lease_expires_at) VALUES(1, 'other', 'token', ?)''',
+                    (now + 60000,))
+
+            with self.assertRaises(StorageError):
+                service.scan_media_integrity_page([], batch_size=1)
+            self.assertNotEqual('healthy', service.get_storage_safety_status()['state'])
+
 
 if __name__ == '__main__':
     unittest.main()
