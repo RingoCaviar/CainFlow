@@ -36,6 +36,7 @@ import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocol } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
+import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
 
 export function createExecutionCoreApi({
     state,
@@ -249,7 +250,6 @@ export function createExecutionCoreApi({
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return;
         const workflowId = getActiveWorkflowId();
-        const previousMediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.slice() : [];
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         const saveTask = async () => {
             const mediaAssets = imageList.length > 1 && workflowId
@@ -259,20 +259,21 @@ export function createExecutionCoreApi({
                 ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
                 : null;
             if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
-                await releaseWorkflowNodeMediaAssets(mediaAssets.map((asset) => asset.asset_key), workflowId, node.id);
                 markNodeImageAssetFailed(node, token);
+                return;
+            }
+            const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
+            if (state.nodes.get(node.id) !== node) {
+                await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
                 return;
             }
             const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
             const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
+                rememberWorkflowMediaOperation(node, mediaAsset ? [mediaAsset] : mediaAssets);
                 markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
                 if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
                 else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
-                if ((mediaAsset || mediaAssets.length === imageList.length) && previousMediaAssetKeys.length > 0) {
-                    const nextKeys = node.data.mediaAssetKeys || [savedAssetKey];
-                    await releaseWorkflowNodeMediaAssets(previousMediaAssetKeys.filter((key) => !nextKeys.includes(key)), workflowId, node.id);
-                }
                 await releaseNodeImageData(node.id);
             } else {
                 markNodeImageAssetFailed(node, token);
@@ -295,7 +296,6 @@ export function createExecutionCoreApi({
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return false;
         const workflowId = getActiveWorkflowId();
-        const previousMediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.slice() : [];
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         try {
             const previous = imageAssetSaveChains.get(assetKey);
@@ -307,20 +307,21 @@ export function createExecutionCoreApi({
                 ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
                 : null;
             if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
-                await releaseWorkflowNodeMediaAssets(mediaAssets.map((asset) => asset.asset_key), workflowId, node.id);
                 markNodeImageAssetFailed(node, token);
+                return false;
+            }
+            const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
+            if (state.nodes.get(node.id) !== node) {
+                await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
                 return false;
             }
             const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
             const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
+                rememberWorkflowMediaOperation(node, mediaAsset ? [mediaAsset] : mediaAssets);
                 markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
                 if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
                 else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
-                if ((mediaAsset || mediaAssets.length === imageList.length) && previousMediaAssetKeys.length > 0) {
-                    const nextKeys = node.data.mediaAssetKeys || [savedAssetKey];
-                    await releaseWorkflowNodeMediaAssets(previousMediaAssetKeys.filter((key) => !nextKeys.includes(key)), workflowId, node.id);
-                }
                 await releaseNodeImageData(node.id);
                 return true;
             }

@@ -29,21 +29,72 @@ test('saving generated-image history creates the Media asset with the history ow
     }
 });
 
-test('saving a generated node image scopes its Media asset owner to the workflow identity', async () => {
+test('saving generated node images scopes one temporary owner to the operation', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];
     globalThis.fetch = async (url, options = {}) => {
         requests.push({ url, options });
+        if (options.method === 'POST') return new Response(JSON.stringify({
+            success: true, assets: [{ asset_key: 'media:first' }, { asset_key: 'media:second' }]
+        }), { status: 200 });
         return new Response(JSON.stringify({ asset: { asset_key: 'media:shared-image' } }), { status: 200 });
     };
 
     try {
         const storage = createDiskStorageApi(() => ({}));
-        await storage.saveWorkflowNodeMediaAsset('data:image/png;base64,aGVsbG8=', 'workflow-a', 'node-a');
+        const assets = await storage.saveWorkflowNodeMediaAssets([
+            'data:image/png;base64,aGVsbG8=', 'data:image/png;base64,d29ybGQ='
+        ], 'workflow-a', 'node-a', 'operation-a');
 
-        const mediaWrite = requests.find(({ url }) => url === '/api/storage/media-assets');
-        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Type'], 'workflow-node');
-        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Id'], 'workflow-a:node-a');
+        const mediaWrites = requests.filter(({ url }) => url === '/api/storage/media-assets');
+        assert.equal(mediaWrites.length, 1);
+        assert.deepEqual(JSON.parse(mediaWrites[0].options.body), {
+            action: 'materialize-owner-list', ownerType: 'workflow-operation',
+            ownerId: '["workflow-a","node-a","operation-a"]',
+            values: ['data:image/png;base64,aGVsbG8=', 'data:image/png;base64,d29ybGQ=']
+        });
+        assert.ok(assets.every((asset) => asset.mediaTemporaryOwnerId === '["workflow-a","node-a","operation-a"]'));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('a failed atomic multi-image materialization publishes no client-side partial list', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({ url, options });
+        return new Response('', { status: 500 });
+    };
+
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.deepEqual(await storage.saveWorkflowNodeMediaAssets([
+            'data:image/png;base64,aGVsbG8=', 'data:image/png;base64,d29ybGQ='
+        ], 'workflow-a', 'node-a', 'operation-a'), []);
+        assert.equal(requests.length, 1);
+        assert.equal(JSON.parse(requests[0].options.body).action, 'materialize-owner-list');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('late operation assets can compensate their own temporary owner through the release seam', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({ url, options });
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+    };
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.equal(await storage.releaseWorkflowNodeMediaAssets([{
+            asset_key: 'media:late', mediaTemporaryOwnerId: 'workflow:node:operation'
+        }], 'workflow', 'node'), true);
+        assert.deepEqual(JSON.parse(requests[0].options.body), {
+            action: 'unreference', ownerType: 'workflow-operation',
+            ownerId: 'workflow:node:operation', assetKey: 'media:late'
+        });
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -60,8 +111,8 @@ test('saving an uploaded image scopes its Media asset owner to the workflow impo
         const storage = createDiskStorageApi(() => ({}));
         await storage.saveWorkflowImportMediaAsset('data:image/png;base64,aGVsbG8=', 'workflow-a', 'import-a');
         const mediaWrite = requests.find(({ url }) => url === '/api/storage/media-assets');
-        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Type'], 'workflow-import');
-        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Id'], 'workflow-a:import-a');
+        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Type'], 'workflow-operation');
+        assert.deepEqual(JSON.parse(mediaWrite.options.headers['X-CainFlow-Media-Owner-Id']).slice(0, 2), ['workflow-a', 'import-a']);
     } finally {
         globalThis.fetch = originalFetch;
     }

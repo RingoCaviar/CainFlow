@@ -50,6 +50,16 @@ async function putAsset(key, value, kind = 'asset') {
     return response.ok;
 }
 
+function workflowOperationOwnerId(workflowId, nodeId, operationId) {
+    return JSON.stringify([String(workflowId).trim(), String(nodeId).trim(), String(operationId)]);
+}
+
+function normalizeOrCreateWorkflowMediaOperationId(value) {
+    const operationId = String(value || '').trim();
+    return operationId || globalThis.crypto?.randomUUID?.()
+        || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 async function putMediaAsset(value, ownerType, ownerId) {
     const blob = value instanceof Blob ? value : dataUrlToBlob(value);
     if (!blob || blob.size === 0 || !ownerType || !ownerId) return null;
@@ -283,21 +293,32 @@ export function createDiskStorageApi(getState) {
         return response.ok;
     }
     async function deleteHandle(key) { return key === 'GLOBAL_SAVE_DIR' ? saveHandle(key, '') : true; }
-    async function saveWorkflowNodeMediaAsset(value, workflowId, nodeId) {
-        const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
+    async function saveWorkflowNodeMediaAsset(value, workflowId, nodeId, requestedOperationId = '') {
+        const operationId = normalizeOrCreateWorkflowMediaOperationId(requestedOperationId);
+        const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', operationId);
         if (!workflowId || !nodeId) return null;
-        return putMediaAsset(value, 'workflow-node', ownerId);
+        const asset = await putMediaAsset(value, 'workflow-operation', ownerId);
+        return asset ? { ...asset, mediaOperationId: operationId, mediaTemporaryOwnerId: ownerId } : null;
     }
-    async function saveWorkflowNodeMediaAssets(values, workflowId, nodeId) {
+    async function saveWorkflowNodeMediaAssets(values, workflowId, nodeId, operationId = '') {
         const items = Array.isArray(values) ? values.filter(Boolean) : [];
-        const assets = await Promise.all(items.map((value) => saveWorkflowNodeMediaAsset(value, workflowId, nodeId)));
-        return assets.filter((asset) => asset?.asset_key);
+        const stableOperationId = normalizeOrCreateWorkflowMediaOperationId(operationId);
+        if (!workflowId || !nodeId || items.length === 0) return [];
+        const ownerId = workflowOperationOwnerId(workflowId, nodeId, stableOperationId);
+        const result = await postMediaAssetAction('materialize-owner-list', {
+            ownerType: 'workflow-operation', ownerId, values: items
+        });
+        return Array.isArray(result?.assets) && result.assets.length === items.length
+            ? result.assets.map((asset) => ({ ...asset, mediaOperationId: stableOperationId, mediaTemporaryOwnerId: ownerId }))
+            : [];
     }
     async function releaseWorkflowNodeMediaAssets(keys, workflowId, nodeId) {
         const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
         if (!workflowId || !nodeId) return false;
         const results = await Promise.all((Array.isArray(keys) ? keys : []).filter(Boolean)
-            .map((key) => removeMediaReference('workflow-node', ownerId, key)));
+            .map((item) => item?.mediaTemporaryOwnerId
+                ? removeMediaReference('workflow-operation', item.mediaTemporaryOwnerId, item.asset_key)
+                : removeMediaReference('workflow-node', ownerId, item)));
         return results.every(Boolean);
     }
     async function releaseWorkflowMediaAssets(workflowId) {
@@ -327,10 +348,12 @@ export function createDiskStorageApi(getState) {
     async function replaceMediaOwnerReferenceList(request) {
         return postMediaAssetAction('replace-owner-reference-list', request);
     }
-    async function saveWorkflowImportMediaAsset(value, workflowId, nodeId) {
-        const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
+    async function saveWorkflowImportMediaAsset(value, workflowId, nodeId, operationId = '') {
+        const stableOperationId = normalizeOrCreateWorkflowMediaOperationId(operationId);
+        const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', stableOperationId);
         if (!workflowId || !nodeId) return null;
-        return putMediaAsset(value, 'workflow-import', ownerId);
+        const asset = await putMediaAsset(value, 'workflow-operation', ownerId);
+        return asset ? { ...asset, mediaOperationId: stableOperationId, mediaTemporaryOwnerId: ownerId } : null;
     }
     async function getImageAsset(key) { return blobToDataUrl(await getAssetBlob(key)); }
     async function getImageAssetBlob(key) { return getAssetBlob(key); }

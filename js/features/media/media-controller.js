@@ -1540,7 +1540,12 @@ export function createMediaControllerApi({
             node.imageData = result.dataUrl;
             node.imageDataList = [result.dataUrl];
             const asset = await saveWorkflowNodeMediaAsset(result.dataUrl, getActiveWorkflowId(), nodeId);
+            if (asset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
+                await removeMediaReference('workflow-operation', asset.mediaTemporaryOwnerId, asset.asset_key);
+                return;
+            }
             if (asset?.asset_key) {
+                rememberWorkflowMediaOperation(node, [asset]);
                 node.data.mediaAssetKeys = [asset.asset_key];
                 node.data.imageAssetKey = asset.asset_key;
                 markNodeImageAssetReady(node, asset.asset_key, 1);
@@ -1728,6 +1733,11 @@ export function createMediaControllerApi({
             node.data = node.data || {};
             node.data.image = data;
             const mediaAsset = await saveWorkflowImportMediaAsset(data, getActiveWorkflowId(), nodeId);
+            if (mediaAsset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
+                await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
+                return;
+            }
+            rememberWorkflowMediaOperation(node, [mediaAsset]);
             const assetKey = mediaAsset?.asset_key || '';
             if (assetKey) {
                 node.imageImportAssetKey = assetKey;
@@ -1755,6 +1765,11 @@ export function createMediaControllerApi({
         node.data = node.data || {};
         node.data.image = imageData;
         const mediaAsset = await saveWorkflowImportMediaAsset(imageData, getActiveWorkflowId(), nodeId);
+        if (mediaAsset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
+            await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
+            return;
+        }
+        rememberWorkflowMediaOperation(node, [mediaAsset]);
         const assetKey = mediaAsset?.asset_key || '';
         if (assetKey) {
             node.imageImportAssetKey = assetKey;
@@ -3060,3 +3075,4 @@ export function createMediaControllerApi({
         openFullscreenPreview
     };
 }
+import { rememberWorkflowMediaOperation } from './workflow-media-operation.js';

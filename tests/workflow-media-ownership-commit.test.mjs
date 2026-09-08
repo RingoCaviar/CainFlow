@@ -41,6 +41,54 @@ test('a persisted Workflow commits complete ordered Media asset owner lists befo
     ]);
 });
 
+test('a workflow operation temporary owner is released only after formal promotion', async () => {
+    const calls = [];
+    const workflow = prepareWorkflowMediaOwnershipCommit({
+        workflowId: 'workflow-a',
+        nodes: [{ id: 'node', type: 'ImagePreview', data: {
+            mediaAssetKeys: ['media:first', 'media:second'],
+            mediaOwnershipTemporaryOwners: [{
+                ownerId: 'workflow-a:node:operation-a', assetKeys: ['media:first', 'media:second']
+            }]
+        } }]
+    });
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        recordMediaWorkflowRevision: async () => (calls.push('document'), true),
+        getMediaOwnerReferenceList: async () => ({ generation: 0 }),
+        replaceMediaOwnerReferenceList: async () => (calls.push('promote'), { status: 'committed' }),
+        removeMediaReference: async (_type, _owner, key) => (calls.push(`release:${key}`), true)
+    });
+
+    assert.equal(await committer.commitPersistedWorkflow(workflow), true);
+    assert.deepEqual(calls, ['document', 'promote', 'release:media:first', 'release:media:second']);
+    assert.equal(workflow.nodes[0].data.mediaOwnershipTemporaryOwners, undefined);
+});
+
+test('overlapping operation owners are all compensated after the newest formal list is promoted', async () => {
+    const released = [];
+    const workflow = prepareWorkflowMediaOwnershipCommit({
+        workflowId: 'workflow-a', nodes: [{ id: 'node', type: 'ImagePreview', data: {
+            mediaAssetKeys: ['media:new'], mediaOwnershipTemporaryOwners: [
+                { ownerId: 'workflow-a:node:old', assetKeys: ['media:old'] },
+                { ownerId: 'workflow-a:node:new', assetKeys: ['media:new'] }
+            ]
+        } }]
+    });
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 2 }),
+        replaceMediaOwnerReferenceList: async () => ({ status: 'committed' }),
+        removeMediaReference: async (_type, ownerId, assetKey) => (released.push([ownerId, assetKey]), true)
+    });
+
+    assert.equal(await committer.commitPersistedWorkflow(workflow), true);
+    assert.deepEqual(released, [
+        ['workflow-a:node:old', 'media:old'], ['workflow-a:node:new', 'media:new']
+    ]);
+});
+
 test('a stale owner promotion leaves the persisted Workflow commit unresolved', async () => {
     const prepared = prepareWorkflowMediaOwnershipCommit({
         workflowId: 'workflow-a',

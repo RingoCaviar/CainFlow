@@ -1,4 +1,5 @@
 import hashlib
+import base64
 import json
 import mimetypes
 import os
@@ -10,12 +11,12 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from urllib.parse import quote
+from urllib.parse import quote, unquote_to_bytes
 
 from backend import config
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo'}
 STORAGE_MODE_VERSION = 1
 INTEGRITY_REPORT_VERSION = 1
@@ -118,6 +119,7 @@ class StorageService:
             'media_asset_owners', 'media_asset_owner_items', 'media_asset_transitions',
             'media_workflow_revisions',
             'media_workflow_owner_lists',
+            'media_operation_owner_items',
         }
         try:
             connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
@@ -364,6 +366,13 @@ class StorageService:
                     storage_epoch TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS media_operation_owner_items (
+                    owner_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    asset_key TEXT NOT NULL,
+                    PRIMARY KEY(owner_id, position),
+                    FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE RESTRICT
+                );
                 CREATE TABLE IF NOT EXISTS media_workflow_owner_lists (
                     workflow_id TEXT NOT NULL,
                     document_revision INTEGER NOT NULL,
@@ -588,7 +597,19 @@ class StorageService:
 
     @staticmethod
     def _assert_legacy_workflow_owner_alive(db, owner_type, owner_id):
-        if owner_type not in {'workflow-node', 'workflow-import', 'workflow-undo'}:
+        if owner_type not in {'workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation'}:
+            return
+        if owner_type == 'workflow-operation':
+            try:
+                identity = json.loads(owner_id)
+                workflow_id = identity[0] if isinstance(identity, list) and len(identity) == 3 else ''
+            except json.JSONDecodeError:
+                workflow_id = ''
+            if not workflow_id:
+                raise StorageError('Invalid workflow operation owner identity')
+            if db.execute('SELECT 1 FROM meta WHERE key=?',
+                          (f'media_workflow_tombstone:{workflow_id}',)).fetchone():
+                raise StorageError('Deleted Workflow identity cannot receive media references')
             return
         # Legacy consumers encode Workflow identity as a colon-delimited prefix.
         # An ambiguous legacy identity fails closed rather than reviving a deleted consumer.
@@ -621,9 +642,14 @@ class StorageService:
             if asset_key:
                 db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=? AND asset_key=?',
                            (str(owner_type), str(owner_id), str(asset_key)))
+                if str(owner_type) == 'workflow-operation':
+                    db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=? AND asset_key=?',
+                               (str(owner_id), str(asset_key)))
             else:
                 db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=?',
                            (str(owner_type), str(owner_id)))
+                if str(owner_type) == 'workflow-operation':
+                    db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (str(owner_id),))
         return self.cleanup_unreferenced_media_assets()
 
     def get_media_owner_reference_list(self, workflow_id, owner_type, owner_id):
@@ -983,6 +1009,74 @@ class StorageService:
         self.cleanup_unreferenced_media_assets()
         return self._put_asset(asset_key, body, mime_type, 'media', media_owner=(owner_type, owner_id))
 
+    def put_media_asset_list(self, values, owner_type, owner_id):
+        """Materialize one operation's complete ordered list and owner refs in one DB transaction."""
+        owner_type, owner_id = (str(value or '').strip() for value in (owner_type, owner_id))
+        if not owner_type or not owner_id or not isinstance(values, list) or not values:
+            raise StorageError('Complete Media asset operation owner list is required')
+        decoded = []
+        for value in values:
+            source = str(value or '')
+            if not source.startswith('data:') or ',' not in source:
+                raise StorageError('Invalid Media asset data URL')
+            header, payload = source.split(',', 1)
+            mime_type = header[5:].split(';', 1)[0] or 'application/octet-stream'
+            try:
+                body = base64.b64decode(payload, validate=True) if ';base64' in header else unquote_to_bytes(payload)
+            except (ValueError, TypeError) as error:
+                raise StorageError('Invalid Media asset data URL') from error
+            if not body:
+                raise StorageError('Asset body is empty')
+            digest = hashlib.sha256(body).hexdigest()
+            decoded.append((f'media:{digest}', body, mime_type, digest))
+        self.initialize()
+        self.cleanup_unreferenced_media_assets()
+        now = int(time.time() * 1000)
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._assert_legacy_workflow_owner_alive(db, owner_type, owner_id)
+            existing_keys = [row[0] for row in db.execute('''SELECT asset_key
+                FROM media_operation_owner_items WHERE owner_id=? ORDER BY position''', (owner_id,))]
+            target_keys = [item[0] for item in decoded]
+            if existing_keys:
+                if existing_keys != target_keys:
+                    raise StorageError('Media operation owner is already bound to a different ordered list')
+                referenced_keys = {row[0] for row in db.execute('''SELECT asset_key FROM media_asset_refs
+                    WHERE owner_type=? AND owner_id=?''', (owner_type, owner_id))}
+                if referenced_keys != set(target_keys):
+                    raise StorageError('Media operation owner requires reconciliation')
+                return [self.get_asset_info(key) for key in target_keys]
+            additional_bytes = sum(len(body) for key, body, _, _ in decoded
+                                   if not db.execute('SELECT 1 FROM assets WHERE asset_key=?', (key,)).fetchone())
+            if self._media_cache_bytes(db) + additional_bytes > self.get_media_cache_limit():
+                raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
+            for asset_key, body, mime_type, digest in decoded:
+                relative_path = self._asset_relative_path(digest, mime_type)
+                destination = os.path.join(self.assets_dir, *relative_path.split('/'))
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                if not os.path.exists(destination):
+                    fd, temporary_path = tempfile.mkstemp(prefix='asset-', dir=self.temp_dir)
+                    try:
+                        with os.fdopen(fd, 'wb') as output:
+                            output.write(body)
+                            output.flush()
+                            os.fsync(output.fileno())
+                        os.replace(temporary_path, destination)
+                    finally:
+                        if os.path.exists(temporary_path):
+                            os.remove(temporary_path)
+                db.execute('''INSERT INTO assets(asset_key, sha256, kind, mime_type, size_bytes, relative_path, created_at)
+                    VALUES(?, ?, 'media', ?, ?, ?, ?) ON CONFLICT(asset_key) DO UPDATE SET
+                    sha256=excluded.sha256, kind=excluded.kind, mime_type=excluded.mime_type,
+                    size_bytes=excluded.size_bytes, relative_path=excluded.relative_path''',
+                    (asset_key, digest, mime_type, len(body), relative_path, now))
+            self._transition_fault_injector('media_materialized')
+            db.executemany('''INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                VALUES(?, ?, ?, ?)''', [(owner_type, owner_id, key, now) for key, *_ in decoded])
+            db.executemany('''INSERT INTO media_operation_owner_items(owner_id, position, asset_key)
+                VALUES(?, ?, ?)''', [(owner_id, position, item[0]) for position, item in enumerate(decoded)])
+        return [self.get_asset_info(key) for key, *_ in decoded]
+
     def cleanup_unreferenced_media_assets(self):
         self.initialize()
         with self._connect() as db:
@@ -1179,10 +1273,13 @@ class StorageService:
                 (now, workflow_id))
             db.execute('DELETE FROM media_workflow_owner_lists WHERE workflow_id=?', (workflow_id,))
             cursor = db.execute('''DELETE FROM media_asset_refs
-                WHERE owner_type IN ('workflow-node', 'workflow-import', 'workflow-undo')
-                    AND substr(owner_id, 1, length(?) + 1) = ? || ':' ''',
-                (workflow_id, workflow_id))
+                WHERE (owner_type IN ('workflow-node', 'workflow-import', 'workflow-undo')
+                    AND substr(owner_id, 1, length(?) + 1) = ? || ':')
+                    OR (owner_type='workflow-operation' AND json_extract(owner_id, '$[0]')=?) ''',
+                (workflow_id, workflow_id, workflow_id))
             references_deleted += cursor.rowcount
+            db.execute("DELETE FROM media_operation_owner_items WHERE json_extract(owner_id, '$[0]')=?",
+                       (workflow_id,))
         cleanup = self.cleanup_unreferenced_media_assets()
         return {'referencesDeleted': references_deleted, **cleanup}
 
@@ -1239,8 +1336,8 @@ class StorageService:
             reference_params = []
             reference_filter = ''
             if workflow_id:
-                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import', 'workflow-undo') OR substr(owner_id, 1, length(?) + 1) = ? || ':'"
-                reference_params.extend([workflow_id, workflow_id])
+                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation') OR (owner_type IN ('workflow-node', 'workflow-import', 'workflow-undo') AND substr(owner_id, 1, length(?) + 1) = ? || ':') OR (owner_type='workflow-operation' AND json_extract(owner_id, '$[0]')=?)"
+                reference_params.extend([workflow_id, workflow_id, workflow_id])
             for row in db.execute(f'''
                 SELECT unique_refs.owner_type, COUNT(*) AS assets,
                     COALESCE(SUM(unique_assets.size_bytes), 0) AS bytes

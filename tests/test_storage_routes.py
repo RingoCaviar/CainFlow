@@ -11,6 +11,21 @@ def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
 
 
 class StorageRouteSecurityTests(unittest.TestCase):
+    def test_operation_owner_list_materialization_maps_one_atomic_request(self):
+        handler = make_handler()
+        handler.path = '/api/storage/media-assets'
+        request = {
+            'action': 'materialize-owner-list', 'ownerType': 'workflow-operation',
+            'ownerId': 'workflow:node:operation', 'values': ['data:image/png;base64,aGVsbG8='],
+        }
+        assets = [{'asset_key': 'media:first'}]
+        with mock.patch.object(storage_routes, 'read_json_body', return_value=request), \
+                mock.patch.object(storage_routes.storage_service, 'put_media_asset_list', return_value=assets) as put, \
+                mock.patch.object(storage_routes, 'write_json') as write_json:
+            self.assertTrue(storage_routes.handle_post(handler))
+        put.assert_called_once_with(request['values'], 'workflow-operation', 'workflow:node:operation')
+        write_json.assert_called_once_with(handler, {'success': True, 'assets': assets})
+
     def test_accepts_local_origin_and_local_cli_without_origin(self):
         self.assertTrue(_is_authorized_local_request(make_handler()))
         self.assertTrue(_is_authorized_local_request(make_handler(origin='')))

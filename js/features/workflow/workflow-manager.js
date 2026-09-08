@@ -96,7 +96,8 @@ export function createWorkflowManagerApi({
         getMediaOwnerReferenceList,
         listMediaOwnerReferenceLists,
         recordMediaWorkflowRevision,
-        replaceMediaOwnerReferenceList
+        replaceMediaOwnerReferenceList,
+        removeMediaReference
     });
     async function referenceCopiedWorkflowMedia(workflowData, workflowId) {
         const appliedRefs = [];

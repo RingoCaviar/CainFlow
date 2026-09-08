@@ -909,6 +909,49 @@ else:
             restarted.add_media_reference('workflow-node', 'workflow-b:new-node', shared['asset_key'])
             self.assertEqual(len(b'shared'), restarted.get_stats()['mediaBytes'])
 
+    def test_workflow_deletion_releases_and_fences_operation_scoped_temporary_owners(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(
+                b'pending', 'image/png', 'workflow-operation', '["workflow-a","node","operation-a"]')
+
+            outcome = service.release_workflow_media_references('workflow-a')
+
+            self.assertEqual(1, outcome['referencesDeleted'])
+            with self.assertRaises(StorageError):
+                service.put_media_asset(
+                    b'late', 'image/png', 'workflow-operation', '["workflow-a","node","operation-b"]')
+            self.assertIsNone(service.get_asset_info(asset['asset_key']))
+
+    def test_operation_media_list_materializes_all_assets_and_references_atomically(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            values = [
+                'data:image/png;base64,aGVsbG8=',
+                'data:image/png;base64,d29ybGQ=',
+            ]
+
+            owner_id = '["workflow","node","operation"]'
+            assets = service.put_media_asset_list(values, 'workflow-operation', owner_id)
+
+            self.assertEqual(2, len(assets))
+            with service._connect() as database:
+                self.assertEqual(2, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=?''', (owner_id,)).fetchone()[0])
+                self.assertEqual(
+                    [asset['asset_key'] for asset in assets],
+                    [row[0] for row in database.execute('''SELECT asset_key FROM media_operation_owner_items
+                        WHERE owner_id=? ORDER BY position''', (owner_id,))])
+            replay = service.put_media_asset_list(values, 'workflow-operation', owner_id)
+            self.assertEqual([asset['asset_key'] for asset in assets], [asset['asset_key'] for asset in replay])
+            with self.assertRaisesRegex(StorageError, 'different ordered list'):
+                service.put_media_asset_list(list(reversed(values)), 'workflow-operation', owner_id)
+            with self.assertRaises(StorageError):
+                service.put_media_asset_list([values[0], 'invalid'], 'workflow-operation', 'workflow:node:failed')
+            with service._connect() as database:
+                self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id='workflow:node:failed' ''').fetchone()[0])
+
     def test_releasing_workflow_media_keeps_history_shared_original(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

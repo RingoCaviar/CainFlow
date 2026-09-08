@@ -181,7 +181,7 @@ test('text merge reports the output node id through the geometry seam', async ()
     assert.deepEqual(calls, ['text-merge']);
 });
 
-test('image resize persists its derived result as a workflow-node Media asset before releasing replaced media', async () => {
+test('image resize retains replaced formal media until the document ownership transition', async () => {
     const node = createNode('resize', 'ImageResize');
     node.data.mediaAssetKeys = ['media:previous'];
     const elements = new Map(Object.entries({
@@ -208,7 +208,10 @@ test('image resize persists its derived result as a workflow-node Media asset be
         }),
         saveWorkflowNodeMediaAsset: async (value, workflowId, nodeId) => {
             writes.push({ value, workflowId, nodeId });
-            return { asset_key: 'media:resized' };
+            return {
+                asset_key: 'media:resized',
+                mediaTemporaryOwnerId: 'workflow-a:resize:operation-a'
+            };
         },
         releaseWorkflowNodeMediaAssets: async (keys, workflowId, nodeId) => {
             releases.push({ keys, workflowId, nodeId });
@@ -227,5 +230,8 @@ test('image resize persists its derived result as a workflow-node Media asset be
     }]);
     assert.deepEqual(node.data.mediaAssetKeys, ['media:resized']);
     assert.equal(node.data.imageAssetKey, 'media:resized');
-    assert.deepEqual(releases, [{ keys: ['media:previous'], workflowId: 'workflow-a', nodeId: 'resize' }]);
+    assert.deepEqual(node.data.mediaOwnershipTemporaryOwners, [{
+        ownerId: 'workflow-a:resize:operation-a', assetKeys: ['media:resized']
+    }]);
+    assert.deepEqual(releases, []);
 });

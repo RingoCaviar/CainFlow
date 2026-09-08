@@ -44,7 +44,8 @@ export function createWorkflowMediaOwnershipCommitter({
     getMediaOwnerReferenceList,
     listMediaOwnerReferenceLists = async () => [],
     recordMediaWorkflowRevision,
-    replaceMediaOwnerReferenceList
+    replaceMediaOwnerReferenceList,
+    removeMediaReference = async () => false
 }) {
     async function commitPersistedWorkflow(workflow) {
         const workflowId = String(workflow?.workflowId || '').trim();
@@ -55,6 +56,11 @@ export function createWorkflowMediaOwnershipCommitter({
         const storageEpoch = String(safety?.storageEpoch || '');
         if (!storageEpoch) return false;
         const ownerReferenceLists = collectWorkflowMediaOwnerLists(workflow);
+        const temporaryOwners = new Map((workflow.nodes || []).map((node) => [
+            `${getWorkflowMediaOwnerType(node)}\0${node.id}`,
+            { node, owners: Array.isArray(node?.data?.mediaOwnershipTemporaryOwners)
+                ? node.data.mediaOwnershipTemporaryOwners : [] }
+        ]));
         const identities = new Set(ownerReferenceLists.map((owner) => `${owner.ownerType}\0${owner.ownerId}`));
         const restoredIdentities = new Set((Array.isArray(workflow.mediaOwnershipRestoreOwnerIds)
             ? workflow.mediaOwnershipRestoreOwnerIds : [])
@@ -98,6 +104,16 @@ export function createWorkflowMediaOwnershipCommitter({
                 assetKeys: owner.assetKeys
             });
             if (!['committed', 'already-committed'].includes(result?.status)) return false;
+            const temporaryOwner = temporaryOwners.get(`${owner.ownerType}\0${owner.ownerId}`);
+            if (temporaryOwner) {
+                const released = await Promise.all(temporaryOwner.owners.flatMap((candidate) => (
+                    Array.isArray(candidate?.assetKeys) ? candidate.assetKeys.map((assetKey) => (
+                        removeMediaReference('workflow-operation', candidate.ownerId, assetKey)
+                    )) : []
+                )));
+                if (!released.every(Boolean)) return false;
+                delete temporaryOwner.node.data.mediaOwnershipTemporaryOwners;
+            }
         }
         return true;
     }

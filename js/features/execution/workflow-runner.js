@@ -1146,14 +1146,17 @@ export function createWorkflowRunnerApi({
     async function persistConcurrentImageResults(node, images) {
         const workflowId = getActiveWorkflowId();
         if (!workflowId || !node?.id || images.length === 0) return false;
-        const previousKeys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.slice() : [];
         const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id);
         const keys = assets.map((asset) => asset?.asset_key).filter(Boolean);
         if (keys.length !== images.length) return false;
+        if (state.nodes.get(node.id) !== node) {
+            await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
+            return false;
+        }
         node.data = node.data || {};
+        rememberWorkflowMediaOperation(node, assets);
         node.data.mediaAssetKeys = keys;
         node.data.imageAssetKey = keys[0];
-        await releaseWorkflowNodeMediaAssets(previousKeys.filter((key) => !keys.includes(key)), workflowId, node.id);
         markRecoverableImageAssetReady(node, keys[0], keys.length);
         return true;
     }
@@ -2605,3 +2608,4 @@ export function createWorkflowRunnerApi({
         focusNode: (nodeId) => focusCanvasNode(nodeId)
     };
 }
+import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
