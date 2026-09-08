@@ -845,6 +845,27 @@ else:
             self.assertFalse(service.get_media_owner_reference_list(
                 'workflow', 'workflow-node', 'node')['tombstoned'])
 
+    def test_redo_can_explicitly_restore_a_tombstoned_node(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'redo-result', 'image/png', 'transition', 'materialize')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow', 1, epoch, 'node', [])
+            service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='workflow-delete:1', idempotency_key='delete-for-redo', expected_generation=0,
+                intent='delete', document_revision=1, storage_epoch=epoch, asset_keys=[])
+            self.record_manifest(service, 'workflow', 2, epoch, 'node', [asset['asset_key']])
+
+            restored = service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='workflow-redo:2', idempotency_key='redo-delete', expected_generation=1,
+                intent='redo', document_revision=2, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+
+            self.assertEqual('committed', restored['status'])
+            self.assertFalse(service.get_media_owner_reference_list(
+                'workflow', 'workflow-node', 'node')['tombstoned'])
+
     def test_transition_intent_is_validated_and_bound_to_the_idempotency_key(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

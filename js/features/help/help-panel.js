@@ -28,6 +28,7 @@ export function createHelpPanelApi({
             <div class="help-item"><span class="help-desc">保存当前工作流</span><span class="help-key">Ctrl + S</span></div>
             <div class="help-item"><span class="help-desc">导入 / 导出工作流</span><span class="help-key">Ctrl + O / E</span></div>
             <div class="help-item"><span class="help-desc">撤回上一步</span><span class="help-key">Ctrl + Z</span></div>
+            <div class="help-item"><span class="help-desc">重做上一步</span><span class="help-key">Ctrl + Y / Ctrl + Shift + Z</span></div>
         </div>
     </div>
     <div class="help-section">

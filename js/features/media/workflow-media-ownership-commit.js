@@ -62,21 +62,21 @@ export function createWorkflowMediaOwnershipCommitter({
                 ? node.data.mediaOwnershipTemporaryOwners : [] }
         ]));
         const identities = new Set(ownerReferenceLists.map((owner) => `${owner.ownerType}\0${owner.ownerId}`));
-        const restoredIdentities = new Set((Array.isArray(workflow.mediaOwnershipRestoreOwnerIds)
+        const restoredOwnerIntents = new Map((Array.isArray(workflow.mediaOwnershipRestoreOwnerIds)
             ? workflow.mediaOwnershipRestoreOwnerIds : [])
             .filter((marker) => Number(marker?.documentRevision) === documentRevision)
-            .map((marker) => marker.ownerId));
+            .map((marker) => [marker.ownerId, marker.intent === 'redo' ? 'redo' : 'undo']));
         const previousOwners = await listMediaOwnerReferenceLists(workflowId);
         if (!Array.isArray(previousOwners)) return false;
         for (const previous of previousOwners) {
             if (!identities.has(`${previous.ownerType}\0${previous.ownerId}`)) {
                 if (previous.tombstoned) continue;
                 ownerReferenceLists.push({ ownerType: previous.ownerType, ownerId: previous.ownerId, assetKeys: [], deleted: true });
-            } else if (previous.tombstoned && restoredIdentities.has(`${previous.ownerType}:${previous.ownerId}`)) {
+            } else if (previous.tombstoned && restoredOwnerIntents.has(`${previous.ownerType}:${previous.ownerId}`)) {
                 const current = ownerReferenceLists.find((owner) => (
                     owner.ownerType === previous.ownerType && owner.ownerId === previous.ownerId
                 ));
-                if (current) current.restored = true;
+                if (current) current.restored = restoredOwnerIntents.get(`${previous.ownerType}:${previous.ownerId}`);
             }
         }
         if (!await recordMediaWorkflowRevision(
@@ -86,7 +86,7 @@ export function createWorkflowMediaOwnershipCommitter({
         for (const owner of ownerReferenceLists) {
             const current = await getMediaOwnerReferenceList(workflowId, owner.ownerType, owner.ownerId);
             if (current?.tombstoned && !owner.restored && !owner.deleted) return false;
-            const operationKind = owner.deleted ? 'workflow-delete' : (owner.restored ? 'workflow-undo' : 'workflow-save');
+            const operationKind = owner.deleted ? 'workflow-delete' : (owner.restored ? `workflow-${owner.restored}` : 'workflow-save');
             const operationId = `${operationKind}:${documentRevision}`;
             const expectedGeneration = Number(current?.documentRevision) === documentRevision
                 ? Math.max(0, Number(current?.generation || 0) - 1)
@@ -96,7 +96,7 @@ export function createWorkflowMediaOwnershipCommitter({
                 ownerType: owner.ownerType,
                 ownerId: owner.ownerId,
                 operationId,
-                intent: owner.deleted ? 'delete' : (owner.restored ? 'undo' : 'save'),
+                intent: owner.deleted ? 'delete' : (owner.restored || 'save'),
                 idempotencyKey: `${workflowId}:${operationId}:${owner.ownerType}:${owner.ownerId}`,
                 expectedGeneration,
                 documentRevision,

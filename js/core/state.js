@@ -158,6 +158,7 @@ export function createInitialState() {
         historyGridCols: 2,
         cacheSizes: {},
         undoStack: [],
+        redoStack: [],
         workflowTabs: [],
         workflowOrder: [],
         workflowFolders: [],

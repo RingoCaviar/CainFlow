@@ -217,6 +217,26 @@ test('restoring a tombstoned node uses an explicit workflow-undo transition', as
     assert.equal(transition.intent, 'undo');
 });
 
+test('Redo restoring a tombstoned node uses an explicit workflow-redo transition', async () => {
+    let transition = null;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        listMediaOwnerReferenceLists: async () => [{
+            ownerType: 'workflow-node', ownerId: 'node', generation: 2, documentRevision: 2, tombstoned: true
+        }],
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 2, documentRevision: 2, tombstoned: true }),
+        replaceMediaOwnerReferenceList: async (request) => (transition = request, { status: 'committed' })
+    });
+    assert.equal(await committer.commitPersistedWorkflow({
+        workflowId: 'workflow-a', mediaOwnershipRevision: 3,
+        mediaOwnershipRestoreOwnerIds: [{ ownerId: 'workflow-node:node', documentRevision: 3, intent: 'redo' }],
+        nodes: [{ id: 'node', type: 'ImagePreview', data: { mediaAssetKeys: ['media:first'] } }]
+    }), true);
+    assert.equal(transition.operationId, 'workflow-redo:3');
+    assert.equal(transition.intent, 'redo');
+});
+
 test('a restore marker from an older document revision cannot authorize a recreated node', async () => {
     let promoted = false;
     const committer = createWorkflowMediaOwnershipCommitter({

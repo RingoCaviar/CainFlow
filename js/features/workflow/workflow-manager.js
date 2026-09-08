@@ -522,7 +522,7 @@ export function createWorkflowManagerApi({
         };
     }
 
-    async function saveWorkflowToFile(name, data) {
+    async function saveWorkflowToFile(name, data, { returnOutcome = false } = {}) {
         const migrationKey = data?.workflowId || '';
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
@@ -540,7 +540,7 @@ export function createWorkflowManagerApi({
                 await migration?.rollback();
                 pendingLegacyMediaMigrations.delete(migrationKey);
                 showToast(result.message, 'error');
-                return false;
+                return returnOutcome ? { ok: false, documentPersisted: false } : false;
             }
             documentPersisted = true;
             await migration?.commit();
@@ -550,7 +550,7 @@ export function createWorkflowManagerApi({
             }
             delete data.mediaOwnershipRestoreOwnerIds;
             pendingLegacyMediaMigrations.delete(migrationKey);
-            return true;
+            return returnOutcome ? { ok: true, documentPersisted: true } : true;
         } catch (error) {
             if (documentPersisted) {
                 // The canonical keys are now durable. Keep their stable temporary
@@ -561,7 +561,7 @@ export function createWorkflowManagerApi({
                 pendingLegacyMediaMigrations.delete(migrationKey);
             }
             showToast(error?.message || '图片缓存迁移失败', 'error');
-            return false;
+            return returnOutcome ? { ok: false, documentPersisted } : false;
         }
     }
 
@@ -1517,13 +1517,20 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function syncActiveWorkflowBeforeSessionSave({ dirty = false, mediaOwnershipRestoreOwnerIds = [] } = {}) {
+    function syncActiveWorkflowBeforeSessionSave({
+        dirty = false,
+        mediaOwnershipRestoreOwnerIds = [],
+        mediaOwnershipRestoreIntent = 'undo',
+        mediaOwnershipClearRestoreMarkers = false
+    } = {}) {
         const tab = snapshotActiveWorkflow({ markDirty: dirty });
+        if (tab && mediaOwnershipClearRestoreMarkers) delete tab.data.mediaOwnershipRestoreOwnerIds;
         if (tab && mediaOwnershipRestoreOwnerIds.length > 0) {
             const documentRevision = Number(tab.data.mediaOwnershipRevision || 0) + 1;
             tab.data.mediaOwnershipRestoreOwnerIds = [...new Set(mediaOwnershipRestoreOwnerIds)].map((ownerId) => ({
                 ownerId,
-                documentRevision
+                documentRevision,
+                intent: mediaOwnershipRestoreIntent === 'redo' ? 'redo' : 'undo'
             }));
         }
         if (tab && dirty) refreshWorkflowCardState(tab.name);
@@ -2423,7 +2430,7 @@ export function createWorkflowManagerApi({
         return workflowTargetActivator.activate(name, { reloadFromFile });
     }
 
-    async function saveActiveWorkflow() {
+    async function saveActiveWorkflow({ silent = false } = {}) {
         const tab = snapshotActiveWorkflow();
         if (!tab) {
             showToast('请先从工作流管理面板打开或新建一个工作流', 'warning');
@@ -2431,12 +2438,23 @@ export function createWorkflowManagerApi({
         }
         if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).save()).status === 'committed') {
             tab.dirty = false;
-            showToast(`工作流「${tab.name}」已保存`, 'success');
+            if (!silent) showToast(`工作流「${tab.name}」已保存`, 'success');
             renderWorkflowList();
             scheduleSave({ dirty: false });
             return true;
         }
         return false;
+    }
+
+    async function persistActiveHistoryTransition() {
+        const tab = snapshotActiveWorkflow();
+        if (!tab) return { committed: false };
+        const outcome = await saveWorkflowToFile(tab.name, tab.data, { returnOutcome: true });
+        if (outcome.ok || outcome.documentPersisted) {
+            tab.dirty = !outcome.ok;
+            return { committed: true, ownershipPending: !outcome.ok };
+        }
+        return { committed: false };
     }
 
     async function saveAllOpenWorkflows() {
@@ -2976,6 +2994,7 @@ export function createWorkflowManagerApi({
         projectWorkflowRunningStateById,
         setWorkflowRunResultById,
         syncActiveWorkflowBeforeSessionSave,
+        persistActiveHistoryTransition,
         cleanupOpenWorkflowAssets,
         ensureOpenWorkflow,
         copyWorkflowById,

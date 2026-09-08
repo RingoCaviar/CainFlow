@@ -184,6 +184,11 @@
             <path d="M3 7v6h6"></path>
             <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
         </symbol>
+        <symbol id="icon-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"></path>
+            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
+        </symbol>
         <symbol id="icon-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
@@ -323,6 +328,12 @@
                         <use href="#icon-undo" />
                     </svg>
                     撤回
+                </button>
+                <button id="btn-redo" class="btn btn-ghost" title="重做上一步 (Ctrl+Y / Ctrl+Shift+Z)" disabled>
+                    <svg class="icon-sm">
+                        <use href="#icon-redo" />
+                    </svg>
+                    重做
                 </button>
                 <div class="toolbar-divider"></div>
                 <button id="btn-clear" class="btn btn-ghost" title="清除画布">

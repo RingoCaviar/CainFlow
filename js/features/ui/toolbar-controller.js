@@ -11,6 +11,7 @@ export function createToolbarControllerApi({
     saveState,
     saveCurrentWorkflow = null,
     undo,
+    redo,
     exportWorkflow,
     importWorkflow,
     showToast,
@@ -134,6 +135,7 @@ export function createToolbarControllerApi({
             }
         });
         documentRef.getElementById('btn-undo')?.addEventListener('click', undo);
+        documentRef.getElementById('btn-redo')?.addEventListener('click', redo);
         documentRef.getElementById('import-file')?.addEventListener('change', (e) => {
             if (e.target.files[0]) importWorkflow(e.target.files[0]);
         });

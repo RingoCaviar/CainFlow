@@ -17,7 +17,7 @@ from backend import config
 
 
 SCHEMA_VERSION = 6
-MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo'}
+MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo', 'redo'}
 MEDIA_OWNER_NODE_TYPES = {
     'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
 }
@@ -921,7 +921,7 @@ class StorageService:
         expected_generation = int(expected_generation)
         document_revision = int(document_revision)
         deleting_consumer = intent == 'delete'
-        restoring_consumer = intent == 'undo'
+        restoring_consumer = intent in ('undo', 'redo')
         if deleting_consumer and keys:
             raise StorageError('A consumer deletion transition must have an empty reference list')
         now = int(time.time() * 1000)

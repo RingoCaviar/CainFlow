@@ -19,6 +19,7 @@ export function createRuntimeControllerApi({
     showToast,
     exportWorkflow,
     undo,
+    redo,
     copySelectedNode,
     pasteNode,
     clipboardControllerApi,
@@ -191,7 +192,12 @@ export function createRuntimeControllerApi({
                 state.skipNextClipboardPasteUntil = Date.now() + 300;
                 pasteNode({ includeExternalConnections: true });
             }
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && canvasShortcutsEnabled) {
+            if ((e.ctrlKey || e.metaKey)
+                && ((e.key === 'y' || e.key === 'Y') || (e.shiftKey && (e.key === 'z' || e.key === 'Z')))
+                && canvasShortcutsEnabled) {
+                e.preventDefault();
+                redo();
+            } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && canvasShortcutsEnabled) {
                 e.preventDefault();
                 undo();
             }

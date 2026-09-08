@@ -883,6 +883,10 @@ async function undo() {
     return getSessionManagerApi().undo();
 }
 
+async function redo() {
+    return getSessionManagerApi().redo();
+}
+
 function getSessionManagerApi() {
     if (!registry.sessionManagerApi) {
         registry.sessionManagerApi = createSessionManagerApi({
@@ -895,6 +899,7 @@ function getSessionManagerApi() {
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
+            persistHistoryTransition: () => workflowManagerApi?.persistActiveHistoryTransition?.(),
             getWorkflowSnapshot: () => workflowManagerApi?.workflowDesk?.snapshot?.()
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
             referenceMediaAsset,
@@ -994,6 +999,7 @@ function getToolbarControllerApi() {
             saveState,
             saveCurrentWorkflow: () => workflowManagerApi.saveActiveWorkflow(),
             undo,
+            redo,
             exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
             importWorkflow: (...args) => projectIoFeature.importWorkflow(...args),
             showToast,
@@ -1173,6 +1179,7 @@ function getRuntimeControllerApi() {
             showToast,
             exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
             undo,
+            redo,
             copySelectedNode,
             pasteNode,
             clipboardControllerApi: getClipboardControllerApi(),
