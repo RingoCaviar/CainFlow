@@ -164,6 +164,7 @@ def handle_post(handler):
                 result = storage_service.replace_media_owner_references(
                     workflow_id=data.get('workflowId'), owner_type=data.get('ownerType'),
                     owner_id=data.get('ownerId'), operation_id=data.get('operationId'),
+                    intent=data.get('intent') or 'save',
                     idempotency_key=data.get('idempotencyKey'),
                     expected_generation=data.get('expectedGeneration'),
                     document_revision=data.get('documentRevision'),

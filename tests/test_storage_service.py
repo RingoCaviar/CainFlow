@@ -805,6 +805,95 @@ else:
             with self.assertRaises(StorageError):
                 self.record_manifest(service, 'workflow', 2, epoch, 'new-node', [asset['asset_key']])
 
+    def test_node_removal_tombstones_its_owner_and_undo_can_explicitly_restore_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'node-result', 'image/png', 'transition', 'materialize')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow', 1, epoch, 'node', [asset['asset_key']])
+            service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='generate-1', idempotency_key='generate-1', expected_generation=0,
+                document_revision=1, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+
+            service.record_media_workflow_revision('workflow', 2, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'node', 'assetKeys': []
+            }])
+            removed = service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='workflow-delete:2', idempotency_key='delete-node', expected_generation=1,
+                intent='delete',
+                document_revision=2, storage_epoch=epoch, asset_keys=[])
+            self.assertEqual('committed', removed['status'])
+            deleted = service.get_media_owner_reference_list('workflow', 'workflow-node', 'node')
+            self.assertTrue(deleted['tombstoned'])
+            self.assertEqual(2, deleted['generation'])
+            self.assertEqual([], deleted['assetKeys'])
+            late = service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='late', idempotency_key='late', expected_generation=1,
+                document_revision=2, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+            self.assertEqual('stale', late['status'])
+
+            self.record_manifest(service, 'workflow', 3, epoch, 'node', [asset['asset_key']])
+            restored = service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='workflow-undo:3', idempotency_key='undo-delete', expected_generation=2,
+                intent='undo',
+                document_revision=3, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+            self.assertEqual('committed', restored['status'])
+            self.assertFalse(service.get_media_owner_reference_list(
+                'workflow', 'workflow-node', 'node')['tombstoned'])
+
+    def test_transition_intent_is_validated_and_bound_to_the_idempotency_key(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'intent', 'image/png', 'transition', 'materialize')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow', 1, epoch, 'node', [asset['asset_key']])
+            request = dict(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='operation', idempotency_key='intent-key', expected_generation=0,
+                document_revision=1, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+
+            with self.assertRaisesRegex(StorageError, 'Unknown Media asset owner transition intent'):
+                service.replace_media_owner_references(**request, intent='restore-anything')
+            self.assertEqual('committed', service.replace_media_owner_references(
+                **request, intent='save')['status'])
+            with self.assertRaisesRegex(StorageError, 'different transition content'):
+                service.replace_media_owner_references(**request, intent='undo')
+            with service._connect() as database:
+                self.assertEqual('save', database.execute(
+                    'SELECT intent FROM media_asset_transitions WHERE idempotency_key=?',
+                    ('intent-key',)).fetchone()[0])
+
+    def test_node_deletion_transition_recovers_after_owner_promotion(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'node-result', 'image/png', 'transition', 'materialize')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow', 1, epoch, 'node', [asset['asset_key']])
+            service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                operation_id='generate', idempotency_key='generate', expected_generation=0,
+                document_revision=1, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+            service.record_media_workflow_revision('workflow', 2, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'node', 'assetKeys': []
+            }])
+            service._transition_fault_injector = lambda stage: (
+                (_ for _ in ()).throw(RuntimeError('crash')) if stage == 'owner_promoted' else None
+            )
+            with self.assertRaisesRegex(RuntimeError, 'crash'):
+                service.replace_media_owner_references(
+                    workflow_id='workflow', owner_type='workflow-node', owner_id='node',
+                    operation_id='workflow-delete:2', idempotency_key='delete', expected_generation=1,
+                    intent='delete',
+                    document_revision=2, storage_epoch=epoch, asset_keys=[])
+            service._transition_fault_injector = lambda _stage: None
+            self.assertEqual(1, service.recover_media_owner_transitions()['completed'])
+            self.assertTrue(service.get_media_owner_reference_list(
+                'workflow', 'workflow-node', 'node')['tombstoned'])
+
     def test_deleted_workflow_rejects_late_legacy_generation_and_reference_after_restart(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

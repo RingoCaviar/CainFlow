@@ -473,6 +473,7 @@ export function createSessionManagerApi({
 
         const raw = state.undoStack.pop();
         const snapshot = migrateLegacyWorkflowData(JSON.parse(raw));
+        const currentNodeIds = new Set([...state.nodes.keys()].map(String));
 
         beginMediaRestoreBatch();
         try {
@@ -509,7 +510,14 @@ export function createSessionManagerApi({
             console.warn('Finalize media restore after undo failed:', error);
         }
         updateUndoButton();
-        onBeforeSave({ dirty: true });
+        onBeforeSave({
+            dirty: true,
+            mediaOwnershipRestoreOwnerIds: (snapshot.nodes || [])
+                .filter((node) => !currentNodeIds.has(String(node.id)))
+                .map((node) => (
+                `${node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node'}:${node.id}`
+                ))
+        });
         saveState();
         cleanupOrphanedNodeAssetsSoon();
         showToast('已撤回上一步操作', 'info');

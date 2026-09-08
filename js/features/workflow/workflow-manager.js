@@ -547,6 +547,7 @@ export function createWorkflowManagerApi({
             if (!await mediaOwnershipCommitter.commitPersistedWorkflow(preparedWorkflow)) {
                 throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
             }
+            delete data.mediaOwnershipRestoreOwnerIds;
             pendingLegacyMediaMigrations.delete(migrationKey);
             return true;
         } catch (error) {
@@ -1515,8 +1516,15 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function syncActiveWorkflowBeforeSessionSave({ dirty = false } = {}) {
+    function syncActiveWorkflowBeforeSessionSave({ dirty = false, mediaOwnershipRestoreOwnerIds = [] } = {}) {
         const tab = snapshotActiveWorkflow({ markDirty: dirty });
+        if (tab && mediaOwnershipRestoreOwnerIds.length > 0) {
+            const documentRevision = Number(tab.data.mediaOwnershipRevision || 0) + 1;
+            tab.data.mediaOwnershipRestoreOwnerIds = [...new Set(mediaOwnershipRestoreOwnerIds)].map((ownerId) => ({
+                ownerId,
+                documentRevision
+            }));
+        }
         if (tab && dirty) refreshWorkflowCardState(tab.name);
     }
 

@@ -133,17 +133,89 @@ test('recovery reuses the original generation for an owner already promoted at t
 
 test('deleting a node commits an empty list for its previous Media asset owner', async () => {
     const manifests = [];
+    let transition = null;
     const committer = createWorkflowMediaOwnershipCommitter({
         getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
         listMediaOwnerReferenceLists: async () => [{ ownerType: 'workflow-node', ownerId: 'deleted', generation: 2 }],
         recordMediaWorkflowRevision: async (_workflowId, _revision, _epoch, owners) => (manifests.push(...owners), true),
         getMediaOwnerReferenceList: async () => ({ generation: 2, documentRevision: 1 }),
-        replaceMediaOwnerReferenceList: async () => ({ status: 'committed' })
+        replaceMediaOwnerReferenceList: async (request) => (transition = request, { status: 'committed' })
     });
     assert.equal(await committer.commitPersistedWorkflow({
         workflowId: 'workflow-a', mediaOwnershipRevision: 2, nodes: []
     }), true);
-    assert.deepEqual(manifests, [{ ownerType: 'workflow-node', ownerId: 'deleted', assetKeys: [] }]);
+    assert.deepEqual(manifests, [{ ownerType: 'workflow-node', ownerId: 'deleted', assetKeys: [], deleted: true }]);
+    assert.equal(transition.operationId, 'workflow-delete:2');
+    assert.equal(transition.intent, 'delete');
+});
+
+test('restoring a tombstoned node uses an explicit workflow-undo transition', async () => {
+    let transition = null;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        listMediaOwnerReferenceLists: async () => [{
+            ownerType: 'workflow-node', ownerId: 'node', generation: 2, documentRevision: 2, tombstoned: true
+        }],
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 2, documentRevision: 2, tombstoned: true }),
+        replaceMediaOwnerReferenceList: async (request) => (transition = request, { status: 'committed' })
+    });
+    assert.equal(await committer.commitPersistedWorkflow({
+        workflowId: 'workflow-a', mediaOwnershipRevision: 3,
+        mediaOwnershipRestoreOwnerIds: [{ ownerId: 'workflow-node:node', documentRevision: 3 }],
+        nodes: [{ id: 'node', type: 'ImagePreview', data: { mediaAssetKeys: ['media:first'] } }]
+    }), true);
+    assert.equal(transition.operationId, 'workflow-undo:3');
+    assert.equal(transition.intent, 'undo');
+});
+
+test('a restore marker from an older document revision cannot authorize a recreated node', async () => {
+    let promoted = false;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        listMediaOwnerReferenceLists: async () => [{ ownerType: 'workflow-node', ownerId: 'node', tombstoned: true }],
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 4, documentRevision: 4, tombstoned: true }),
+        replaceMediaOwnerReferenceList: async () => (promoted = true, { status: 'committed' })
+    });
+
+    assert.equal(await committer.commitPersistedWorkflow({
+        workflowId: 'workflow-a', mediaOwnershipRevision: 5,
+        mediaOwnershipRestoreOwnerIds: [{ ownerId: 'workflow-node:node', documentRevision: 3 }],
+        nodes: [{ id: 'node', type: 'ImagePreview', data: { mediaAssetKeys: ['media:first'] } }]
+    }), false);
+    assert.equal(promoted, false);
+});
+
+test('a recreated node id without explicit Undo cannot restore a tombstoned consumer', async () => {
+    let promoted = false;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        listMediaOwnerReferenceLists: async () => [{ ownerType: 'workflow-node', ownerId: 'node', tombstoned: true }],
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 2, documentRevision: 2, tombstoned: true }),
+        replaceMediaOwnerReferenceList: async () => (promoted = true, { status: 'committed' })
+    });
+    assert.equal(await committer.commitPersistedWorkflow({
+        workflowId: 'workflow-a', mediaOwnershipRevision: 3,
+        nodes: [{ id: 'node', type: 'ImagePreview', data: { mediaAssetKeys: ['media:first'] } }]
+    }), false);
+    assert.equal(promoted, false);
+});
+
+test('a later save skips a consumer that is already tombstoned and still absent', async () => {
+    let transitions = 0;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        listMediaOwnerReferenceLists: async () => [{ ownerType: 'workflow-node', ownerId: 'deleted', tombstoned: true }],
+        recordMediaWorkflowRevision: async (_workflowId, _revision, _epoch, owners) => (assert.deepEqual(owners, []), true),
+        getMediaOwnerReferenceList: async () => null,
+        replaceMediaOwnerReferenceList: async () => (transitions += 1, { status: 'committed' })
+    });
+    assert.equal(await committer.commitPersistedWorkflow({
+        workflowId: 'workflow-a', mediaOwnershipRevision: 3, nodes: []
+    }), true);
+    assert.equal(transitions, 0);
 });
 
 test('an unavailable previous-owner inventory leaves the Workflow ownership commit retryable', async () => {

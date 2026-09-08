@@ -42,6 +42,7 @@ class StorageRouteSecurityTests(unittest.TestCase):
             'action': 'replace-owner-reference-list',
             'workflowId': 'workflow-a', 'ownerType': 'workflow-node', 'ownerId': 'node-a',
             'operationId': 'operation-a', 'idempotencyKey': 'stable-key',
+            'intent': 'save',
             'expectedGeneration': 2, 'documentRevision': 9, 'storageEpoch': 'epoch-a',
             'assetKeys': ['media:first', 'media:second'], 'cancelled': False,
         }
@@ -54,6 +55,7 @@ class StorageRouteSecurityTests(unittest.TestCase):
         replace.assert_called_once_with(
             workflow_id='workflow-a', owner_type='workflow-node', owner_id='node-a',
             operation_id='operation-a', idempotency_key='stable-key', expected_generation=2,
+            intent='save',
             document_revision=9, storage_epoch='epoch-a', asset_keys=['media:first', 'media:second'],
             cancelled=False,
         )
