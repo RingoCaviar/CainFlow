@@ -101,6 +101,22 @@ test('formal owner failure retains stable temporary reference for retry after pe
     assert.deepEqual(calls[0], ['workflow-migration', 'migration:wf:n', 'media:1']);
 });
 
+test('missing image Media asset identities and ordered positions survive legacy migration staging', async () => {
+    const coordinator = createLegacyMediaMigrationCoordinator({
+        getImageAsset: async () => null
+    });
+    const node = { id: 'n', type: 'ImageGenerate', data: {
+        mediaAssetKeys: ['media:present', 'media:missing', 'media:present-after-gap']
+    } };
+
+    const stage = await coordinator.stageWorkflow({ workflowId: 'wf', nodes: [node] });
+
+    assert.ok(stage);
+    assert.deepEqual(node.data.mediaAssetKeys, [
+        'media:present', 'media:missing', 'media:present-after-gap'
+    ]);
+});
+
 test('a later node staging failure rolls back earlier temporary assets', async () => {
     const removed = [];
     let writes = 0;

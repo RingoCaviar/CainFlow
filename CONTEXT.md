@@ -90,6 +90,10 @@ _Avoid_: Asset owner, node asset key
 The durable replacement of one Media asset owner's reference list. New references become durable before superseded references are released; an interrupted transition may temporarily retain extra references but never makes an owned Media asset collectible.
 _Avoid_: Cache key swap, release-then-store
 
+**Media asset transition record**:
+The durable coordination record for one logical Media asset ownership transition. It binds the operation identity, expected owner revision, Workflow document revision, storage epoch, complete old and new reference lists, and recoverable commit stage so retries cannot reinterpret an older intent as a new change.
+_Avoid_: In-memory save state, retry flag
+
 **Media asset garbage collection**:
 The backend-owned reclamation of Media assets with no Media asset owner references. A client-provided snapshot of visible or open nodes never determines whether a Media asset is collectible.
 _Avoid_: Node cache cleanup, keep-key cleanup
@@ -105,6 +109,18 @@ _Avoid_: Cache miss, silently omitted media
 **Unassociated Media asset owner**:
 A Media asset owner reference for which no durable consumer can be established. It is quarantined before collection so an interrupted ownership transition can be reconciled without data loss.
 _Avoid_: Orphaned cache key, stale node
+
+**Media asset quarantine**:
+The recoverable holding state for a Media asset whose ownership cannot yet be established or whose garbage collection has been approved but not finalized. Quarantine preserves the asset identity, content hash, provenance, and recovery record until its retention conditions are satisfied.
+_Avoid_: Trash cache, immediate deletion
+
+**Media asset storage epoch**:
+The durable generation of the Media asset store that every writer must match before committing an ownership transition. A migration advances the epoch so a process holding an older view cannot mutate upgraded storage.
+_Avoid_: Cache version, client version
+
+**Media asset migration backup**:
+A verified, immutable recovery point that binds the database, workflow documents, and a hashed physical-media inventory under one identity before a Media asset schema migration begins.
+_Avoid_: Best-effort cache copy, database-only backup
 
 **Media asset reference list**:
 The ordered list of Media asset identities displayed by one workflow node. It represents both a single image and a multi-image result without embedding image data in the workflow document.
