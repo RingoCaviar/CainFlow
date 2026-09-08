@@ -59,6 +59,55 @@ test('saving generated node images scopes one temporary owner to the operation',
     }
 });
 
+test('cancelling a node generation persists its structured operation owner', async () => {
+    const originalFetch = globalThis.fetch;
+    let request = null;
+    globalThis.fetch = async (url, options = {}) => {
+        request = { url, body: JSON.parse(options.body) };
+        return new Response(JSON.stringify({ success: true, cancelled: true }), { status: 200 });
+    };
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.equal(await storage.cancelWorkflowNodeMediaOperation('workflow-a', 'node-a', 'operation-a'), true);
+        assert.equal(request.url, '/api/storage/media-assets');
+        assert.deepEqual(request.body, {
+            action: 'cancel-operation-owner',
+            ownerId: '["workflow-a","node-a","operation-a"]'
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('a failed Media operation cancellation remains durable and retries on startup', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalStorage = globalThis.localStorage;
+    const values = new Map();
+    globalThis.localStorage = {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, String(value))
+    };
+    let fail = true;
+    globalThis.fetch = async () => {
+        if (fail) throw new Error('offline');
+        return new Response(JSON.stringify({ success: true, cancelled: true }), { status: 200 });
+    };
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.equal(await storage.cancelWorkflowNodeMediaOperation('workflow-a', 'node-a', 'operation-a'), false);
+        assert.deepEqual(JSON.parse(values.get('cainflow_pending_media_operation_cancellations')),
+            ['["workflow-a","node-a","operation-a"]']);
+
+        fail = false;
+        createDiskStorageApi(() => ({}));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.deepEqual(JSON.parse(values.get('cainflow_pending_media_operation_cancellations')), []);
+    } finally {
+        globalThis.fetch = originalFetch;
+        globalThis.localStorage = originalStorage;
+    }
+});
+
 test('a failed atomic multi-image materialization publishes no client-side partial list', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

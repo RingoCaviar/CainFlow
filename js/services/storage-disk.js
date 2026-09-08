@@ -244,6 +244,29 @@ function createVideoThumbnail(videoSource, size = 256, seed = '') {
 }
 
 export function createDiskStorageApi(getState) {
+    const pendingMediaCancellationsKey = 'cainflow_pending_media_operation_cancellations';
+    function readPendingMediaCancellations() {
+        try {
+            const value = JSON.parse(globalThis.localStorage?.getItem?.(pendingMediaCancellationsKey) || '[]');
+            return Array.isArray(value) ? value.filter((ownerId) => typeof ownerId === 'string' && ownerId) : [];
+        } catch { return []; }
+    }
+    function writePendingMediaCancellations(ownerIds) {
+        try {
+            globalThis.localStorage?.setItem?.(pendingMediaCancellationsKey, JSON.stringify([...new Set(ownerIds)]));
+        } catch { /* The caller still receives failure and can retry while this session remains alive. */ }
+    }
+    async function flushPendingMediaCancellations(additionalOwnerIds = []) {
+        const failed = [];
+        for (const ownerId of [...new Set([...readPendingMediaCancellations(), ...additionalOwnerIds])]) {
+            try {
+                const result = await postMediaAssetAction('cancel-operation-owner', { ownerId });
+                if (result?.cancelled !== true) failed.push(ownerId);
+            } catch { failed.push(ownerId); }
+        }
+        writePendingMediaCancellations(failed);
+        return failed.length === 0;
+    }
     function createBackendDirectoryHandle(directory) {
         return {
             kind: 'directory',
@@ -297,7 +320,10 @@ export function createDiskStorageApi(getState) {
         const operationId = normalizeOrCreateWorkflowMediaOperationId(requestedOperationId);
         const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', operationId);
         if (!workflowId || !nodeId) return null;
-        const asset = await putMediaAsset(value, 'workflow-operation', ownerId);
+        const result = await postMediaAssetAction('materialize-owner-list', {
+            ownerType: 'workflow-operation', ownerId, values: [value]
+        });
+        const asset = Array.isArray(result?.assets) && result.assets.length === 1 ? result.assets[0] : null;
         return asset ? { ...asset, mediaOperationId: operationId, mediaTemporaryOwnerId: ownerId } : null;
     }
     async function saveWorkflowNodeMediaAssets(values, workflowId, nodeId, operationId = '') {
@@ -320,6 +346,12 @@ export function createDiskStorageApi(getState) {
                 ? removeMediaReference('workflow-operation', item.mediaTemporaryOwnerId, item.asset_key)
                 : removeMediaReference('workflow-node', ownerId, item)));
         return results.every(Boolean);
+    }
+    async function cancelWorkflowNodeMediaOperation(workflowId, nodeId, operationId) {
+        if (!workflowId || !nodeId || !operationId) return false;
+        const ownerId = workflowOperationOwnerId(workflowId, nodeId, operationId);
+        writePendingMediaCancellations([...readPendingMediaCancellations(), ownerId]);
+        return flushPendingMediaCancellations([ownerId]);
     }
     async function releaseWorkflowMediaAssets(workflowId) {
         if (!workflowId) return false;
@@ -446,11 +478,13 @@ export function createDiskStorageApi(getState) {
         const entry = await getHistoryEntry(id);
         return entry?.mediaType === 'image' ? dataUrlToBlob(entry.image) : null;
     }
+    void flushPendingMediaCancellations();
     return {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
         getImageAsset, getImageAssetBlob, getImageAssetList,
         saveWorkflowNodeMediaAsset,
         saveWorkflowNodeMediaAssets,
+        cancelWorkflowNodeMediaOperation,
         releaseWorkflowNodeMediaAssets,
         releaseWorkflowMediaAssets,
         getStorageSafetyStatus,

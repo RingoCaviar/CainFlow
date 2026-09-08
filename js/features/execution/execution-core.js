@@ -246,24 +246,24 @@ export function createExecutionCoreApi({
         delete node.data.imageAssetSaveToken;
     }
 
-    function saveNodeImageAssetInBackground(node, images, assetKey = node?.id) {
+    function saveNodeImageAssetInBackground(node, images, assetKey = node?.id, signal = null) {
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return;
         const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         const saveTask = async () => {
             const mediaAssets = imageList.length > 1 && workflowId
-                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id)
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, node.activeMediaOperationId)
                 : [];
             const mediaAsset = imageList.length === 1 && workflowId
-                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, node.activeMediaOperationId)
                 : null;
             if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
                 markNodeImageAssetFailed(node, token);
                 return;
             }
             const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
-            if (state.nodes.get(node.id) !== node) {
+            if (signal?.aborted || state.nodes.get(node.id) !== node) {
                 await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
                 return;
             }
@@ -301,10 +301,10 @@ export function createExecutionCoreApi({
             const previous = imageAssetSaveChains.get(assetKey);
             if (previous) await previous.catch(() => {});
             const mediaAssets = imageList.length > 1 && workflowId
-                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id)
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, node.activeMediaOperationId)
                 : [];
             const mediaAsset = imageList.length === 1 && workflowId
-                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, node.activeMediaOperationId)
                 : null;
             if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
                 markNodeImageAssetFailed(node, token);
@@ -332,7 +332,7 @@ export function createExecutionCoreApi({
         return false;
     }
 
-    function commitImageGenerateOutputs(node, images = [], prompt = '') {
+    function commitImageGenerateOutputs(node, images = [], prompt = '', signal = null) {
         const normalizedImages = normalizeImageList(images);
         setCanonicalImageOutput(node, normalizedImages, {
             currentIndex: normalizedImages.length - 1,
@@ -344,7 +344,7 @@ export function createExecutionCoreApi({
         node.imagePromptList = normalizedImages.map(() => prompt || '');
         node.generationCompletedCount = normalizedImages.length;
         if (normalizedImages.length > 0) {
-            saveNodeImageAssetInBackground(node, normalizedImages, node.id);
+            saveNodeImageAssetInBackground(node, normalizedImages, node.id, signal);
         }
         if (normalizedImages.length > 0) {
             propagateImagesToDownstreamPreview(node.id, normalizedImages);
@@ -1898,7 +1898,7 @@ export function createExecutionCoreApi({
                     const completedImages = normalizeImageList(generatedImages);
                     if (rejectedRequests.length > 0) {
                         if (!executionContext.concurrentExecution) {
-                            commitImageGenerateOutputs(node, completedImages, prompt);
+                            commitImageGenerateOutputs(node, completedImages, prompt, signal);
                             await refreshDependentImageResizePreviews(id);
                             connectionProjection?.nodeGeometryChanged(id);
                         }
@@ -1914,7 +1914,7 @@ export function createExecutionCoreApi({
                     }
 
                     if (!executionContext.concurrentExecution) {
-                        commitImageGenerateOutputs(node, completedImages, prompt);
+                        commitImageGenerateOutputs(node, completedImages, prompt, signal);
                         node.isSucceeded = true;
                         await refreshDependentImageResizePreviews(id);
                         connectionProjection?.nodeGeometryChanged(id);
@@ -2043,7 +2043,7 @@ export function createExecutionCoreApi({
                     if (requestResult.recovered) {
                         const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                         generatedImages[nextGenerationIndex - 1] = imageData;
-                        commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt);
+                        commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt, signal);
                         executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                         incrementNodeApiGenerationProgress(node, 1, {
                             current: nextGenerationIndex,
@@ -2064,7 +2064,7 @@ export function createExecutionCoreApi({
 
                     const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                     generatedImages[nextGenerationIndex - 1] = imageData;
-                    commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt);
+                    commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt, signal);
                     executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,

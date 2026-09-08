@@ -107,6 +107,7 @@ class StorageServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             first = self.make_service(root, verified=False)
             first.initialize()
+            previous_epoch = first.get_storage_safety_status()['storageEpoch']
             first.mark_clean_shutdown()
             database = sqlite3.connect(first.database_path)
             try:
@@ -119,6 +120,7 @@ class StorageServiceTests(unittest.TestCase):
 
             self.assertEqual('scan_required', status['state'])
             self.assertEqual('schema_version_changed', status['reason'])
+            self.assertNotEqual(previous_epoch, status['storageEpoch'])
 
     def test_repaired_schema_structure_requires_an_integrity_scan(self):
         with tempfile.TemporaryDirectory() as root:
@@ -364,6 +366,37 @@ class StorageServiceTests(unittest.TestCase):
                 operation_id='old-epoch', idempotency_key='old-epoch',
             )
             self.assertEqual({'status': 'stale', 'generation': 1}, stale_epoch)
+
+    def test_cancelled_generation_stays_fenced_after_restart_and_compensates_only_its_operation_owner(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            cancelled_owner = '["workflow","node","cancelled-operation"]'
+            newer_owner = '["workflow","node","newer-operation"]'
+            cancelled_assets = service.put_media_asset_list(
+                ['data:image/png;base64,Y2FuY2VsbGVk'], 'workflow-operation', cancelled_owner)
+            other = service.put_media_asset(
+                b'newer-result', 'image/png', 'workflow-operation', newer_owner)
+            self.assertTrue(service.cancel_media_operation_owner(cancelled_owner)['cancelled'])
+
+            restarted = self.make_service(root)
+            with self.assertRaisesRegex(StorageError, 'operation was cancelled'):
+                restarted.put_media_asset_list(
+                    ['data:image/png;base64,Y2FuY2VsbGVk'], 'workflow-operation', cancelled_owner)
+            with self.assertRaisesRegex(sqlite3.IntegrityError, 'operation was cancelled'):
+                with restarted._connect() as legacy_writer:
+                    legacy_writer.execute('''INSERT INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                        VALUES('workflow-operation', ?, ?, ?)''',
+                        (cancelled_owner, other['asset_key'], int(time.time() * 1000)))
+            self.assertIsNone(restarted.get_media_owner_reference_list(
+                'workflow', 'workflow-node', 'node'))
+            with restarted._connect() as database:
+                self.assertIsNone(database.execute('''SELECT 1 FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=? AND asset_key=?''',
+                    (cancelled_owner, cancelled_assets[0]['asset_key'])).fetchone())
+            with restarted._connect() as database:
+                remaining_operation_refs = database.execute('''SELECT owner_id, asset_key
+                    FROM media_asset_refs WHERE owner_type='workflow-operation' ORDER BY owner_id''').fetchall()
+            self.assertEqual([(newer_owner, other['asset_key'])], [tuple(row) for row in remaining_operation_refs])
 
     def test_interrupted_owner_replacement_keeps_the_previous_complete_owner_list(self):
         with tempfile.TemporaryDirectory() as root:

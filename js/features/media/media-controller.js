@@ -1539,7 +1539,9 @@ export function createMediaControllerApi({
             node.data.image = result.dataUrl;
             node.imageData = result.dataUrl;
             node.imageDataList = [result.dataUrl];
-            const asset = await saveWorkflowNodeMediaAsset(result.dataUrl, getActiveWorkflowId(), nodeId);
+            const asset = await saveWorkflowNodeMediaAsset(
+                result.dataUrl, getActiveWorkflowId(), nodeId, node.activeMediaOperationId
+            );
             if (asset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
                 await removeMediaReference('workflow-operation', asset.mediaTemporaryOwnerId, asset.asset_key);
                 return;

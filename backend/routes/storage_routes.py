@@ -174,6 +174,8 @@ def handle_post(handler):
             elif action == 'materialize-owner-list':
                 result = {'assets': storage_service.put_media_asset_list(
                     data.get('values'), data.get('ownerType'), data.get('ownerId'))}
+            elif action == 'cancel-operation-owner':
+                result = storage_service.cancel_media_operation_owner(data.get('ownerId'))
             elif action == 'record-workflow-revision':
                 result = {'documentRevision': storage_service.record_media_workflow_revision(
                     data.get('workflowId'), data.get('documentRevision'), data.get('storageEpoch'),

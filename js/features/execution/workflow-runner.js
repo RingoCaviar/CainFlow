@@ -145,6 +145,7 @@ export function createWorkflowRunnerApi({
     getImageAssetList = async () => [],
     deleteImageAsset = async () => false,
     saveWorkflowNodeMediaAssets = async () => [],
+    cancelWorkflowNodeMediaOperation = async () => false,
     releaseWorkflowNodeMediaAssets = async () => false,
     getActiveWorkflowId = () => '',
     syncImagePreviewNode = async () => {},
@@ -157,6 +158,7 @@ export function createWorkflowRunnerApi({
     focusCanvasNode = () => {},
     onWorkflowFailures = () => {}
 }) {
+    const mediaOperationNodeTypes = new Set(['ImageGenerate', 'VideoGenerate']);
     function isAbortLikeError(err) {
         if (!err) return false;
         if (err.name === 'AbortError') return true;
@@ -2318,6 +2320,12 @@ export function createWorkflowRunnerApi({
             if (!isNodeMarkedRunning && !nodeController) return false;
 
             const branchNodeIds = collectDownstreamNodeIds(plan, nodeId);
+            const activeNode = state.nodes.get(nodeId);
+            if (activeNode?.activeMediaOperationId) {
+                void cancelWorkflowNodeMediaOperation(
+                    getActiveWorkflowId(), nodeId, activeNode.activeMediaOperationId
+                ).catch((error) => console.warn('Persisting Media operation cancellation failed:', error));
+            }
             let newlyCanceledCount = 0;
             branchNodeIds.forEach((branchNodeId) => {
                 if (!session.canceledBranchNodeIds.has(branchNodeId)) {
@@ -2370,6 +2378,10 @@ export function createWorkflowRunnerApi({
                             const node = state.nodes.get(nid);
                             const nodeTitle = getNodeDisplayTitle(node);
                             const nodeController = new AbortController();
+                            if (mediaOperationNodeTypes.has(node.type)) {
+                                node.activeMediaOperationId = globalThis.crypto?.randomUUID?.()
+                                    || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+                            }
                             const linkedAbort = createLinkedAbortSignal([
                                 session.controller.signal,
                                 nodeController.signal
@@ -2458,6 +2470,7 @@ export function createWorkflowRunnerApi({
                                     linkedAbort.cleanup();
                                     clearNodeRunning(nid, node);
                                     unregisterNodeCancelHandler(session, nid);
+                                    delete node.activeMediaOperationId;
                                     runningNodes.delete(nid);
                                 }
                             })();

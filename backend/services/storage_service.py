@@ -16,7 +16,7 @@ from urllib.parse import quote, unquote_to_bytes
 from backend import config
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo', 'redo'}
 MEDIA_OWNER_NODE_TYPES = {
     'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
@@ -123,6 +123,7 @@ class StorageService:
             'media_workflow_revisions',
             'media_workflow_owner_lists',
             'media_operation_owner_items',
+            'media_cancelled_operation_owners',
         }
         try:
             connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
@@ -250,6 +251,8 @@ class StorageService:
                 'detectedAt': now,
                 'recoveryConditions': recovery_conditions,
             })
+            if forced_state[1] == 'schema_version_changed':
+                status['storageEpoch'] = str(uuid.uuid4())
         status['cleanShutdown'] = False
         self._safety_status = status
         self._write_safety_status(status)
@@ -377,6 +380,18 @@ class StorageService:
                     PRIMARY KEY(owner_id, position),
                     FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE RESTRICT
                 );
+                CREATE TABLE IF NOT EXISTS media_cancelled_operation_owners (
+                    owner_id TEXT PRIMARY KEY,
+                    cancelled_at INTEGER NOT NULL
+                );
+                CREATE TRIGGER IF NOT EXISTS reject_cancelled_operation_owner_reference
+                BEFORE INSERT ON media_asset_refs
+                WHEN NEW.owner_type='workflow-operation' AND EXISTS(
+                    SELECT 1 FROM media_cancelled_operation_owners WHERE owner_id=NEW.owner_id
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'Media operation was cancelled');
+                END;
                 CREATE TABLE IF NOT EXISTS media_workflow_owner_lists (
                     workflow_id TEXT NOT NULL,
                     document_revision INTEGER NOT NULL,
@@ -1116,6 +1131,9 @@ class StorageService:
         now = int(time.time() * 1000)
         with self._lock, self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            if owner_type == 'workflow-operation' and db.execute(
+                    'SELECT 1 FROM media_cancelled_operation_owners WHERE owner_id=?', (owner_id,)).fetchone():
+                raise StorageError('Media operation was cancelled')
             self._assert_legacy_workflow_owner_alive(db, owner_type, owner_id)
             existing_keys = [row[0] for row in db.execute('''SELECT asset_key
                 FROM media_operation_owner_items WHERE owner_id=? ORDER BY position''', (owner_id,))]
@@ -1159,6 +1177,25 @@ class StorageService:
             db.executemany('''INSERT INTO media_operation_owner_items(owner_id, position, asset_key, storage_epoch)
                 VALUES(?, ?, ?, ?)''', [(owner_id, position, item[0], epoch) for position, item in enumerate(decoded)])
         return [self.get_asset_info(key) for key, *_ in decoded]
+
+    def cancel_media_operation_owner(self, owner_id):
+        self.initialize()
+        try:
+            identity = json.loads(str(owner_id or ''))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            identity = []
+        if (not isinstance(identity, list) or len(identity) != 3
+                or any(not str(value or '').strip() for value in identity)):
+            raise StorageError('Invalid workflow operation owner identity')
+        workflow_id = str(identity[0]).strip()
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('''INSERT OR IGNORE INTO media_cancelled_operation_owners(owner_id, cancelled_at)
+                VALUES(?, ?)''', (owner_id, int(time.time() * 1000)))
+            db.execute('''DELETE FROM media_asset_refs
+                WHERE owner_type='workflow-operation' AND owner_id=?''', (owner_id,))
+            db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (owner_id,))
+        return {'cancelled': True, 'workflowId': workflow_id}
 
     def cleanup_unreferenced_media_assets(self):
         self.initialize()
@@ -1362,6 +1399,8 @@ class StorageService:
                 (workflow_id, workflow_id, workflow_id))
             references_deleted += cursor.rowcount
             db.execute("DELETE FROM media_operation_owner_items WHERE json_extract(owner_id, '$[0]')=?",
+                       (workflow_id,))
+            db.execute("DELETE FROM media_cancelled_operation_owners WHERE json_extract(owner_id, '$[0]')=?",
                        (workflow_id,))
         cleanup = self.cleanup_unreferenced_media_assets()
         return {'referencesDeleted': references_deleted, **cleanup}

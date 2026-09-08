@@ -11,6 +11,22 @@ def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
 
 
 class StorageRouteSecurityTests(unittest.TestCase):
+    def test_operation_owner_cancellation_maps_the_stable_owner_identity(self):
+        handler = make_handler()
+        handler.path = '/api/storage/media-assets'
+        request = {
+            'action': 'cancel-operation-owner',
+            'ownerId': '["workflow-a","node-a","operation-a"]',
+        }
+        result = {'cancelled': True, 'workflowId': 'workflow-a'}
+        with mock.patch.object(storage_routes, 'read_json_body', return_value=request), \
+                mock.patch.object(storage_routes.storage_service, 'cancel_media_operation_owner', return_value=result) as cancel, \
+                mock.patch.object(storage_routes, 'write_json') as write_json:
+            self.assertTrue(storage_routes.handle_post(handler))
+
+        cancel.assert_called_once_with(request['ownerId'])
+        write_json.assert_called_once_with(handler, {'success': True, **result})
+
     def test_operation_owner_list_materialization_maps_one_atomic_request(self):
         handler = make_handler()
         handler.path = '/api/storage/media-assets'
