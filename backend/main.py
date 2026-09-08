@@ -1,6 +1,7 @@
 ﻿import os
 import atexit
 import csv
+import json
 import socket
 import socketserver
 import subprocess
@@ -12,6 +13,7 @@ from backend import config
 from backend.handler import ProxyHTTPRequestHandler
 from backend.services.log_service import diagnostic_service
 from backend.services.storage_service import storage_service
+from backend.services import workflow_service
 from backend.services.update_service import cleanup_update_temp_files
 from backend.services.version_service import get_app_version_tag
 
@@ -230,6 +232,13 @@ def print_banner():
 
 
 def _recover_media_transitions():
+    workflows = []
+    for name in workflow_service.list_workflows(config.WORKFLOWS_DIR).get('workflows', []):
+        try:
+            workflows.append(json.loads(workflow_service.load_workflow(name).decode('utf-8')))
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    storage_service.recover_workflow_operation_owners(workflows)
     cursor = ''
     while not _storage_recovery_stop.is_set():
         try:

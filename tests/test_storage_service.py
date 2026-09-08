@@ -952,6 +952,96 @@ else:
                 self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
                     WHERE owner_type='workflow-operation' AND owner_id='workflow:node:failed' ''').fetchone()[0])
 
+    def test_startup_promotes_operation_owner_proven_by_the_durable_workflow(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner_id = '["workflow","node","operation"]'
+            key = service.put_media_asset_list(
+                ['data:image/png;base64,aGVsbG8='], 'workflow-operation', owner_id)[0]['asset_key']
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'node', 'type': 'ImagePreview', 'data': {
+                    'mediaAssetKeys': [key],
+                    'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': [key]}],
+                }}]}
+
+            self.assertEqual({'completed': 1, 'unresolved': 0},
+                             service.recover_workflow_operation_owners([workflow]))
+            self.assertEqual([key], service.get_media_owner_reference_list(
+                'workflow', 'workflow-node', 'node')['assetKeys'])
+            with service._connect() as database:
+                self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=?''', (owner_id,)).fetchone()[0])
+
+    def test_startup_retains_unassociated_operation_owner(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner_id = '["workflow","node","operation"]'
+            key = service.put_media_asset_list(
+                ['data:image/png;base64,aGVsbG8='], 'workflow-operation', owner_id)[0]['asset_key']
+
+            self.assertEqual({'completed': 0, 'unresolved': 0},
+                             service.recover_workflow_operation_owners([]))
+            with service._connect() as database:
+                self.assertEqual(1, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=? AND asset_key=?''',
+                    (owner_id, key)).fetchone()[0])
+
+    def test_startup_recovery_tombstones_an_owner_deleted_by_the_same_document_revision(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            old = service.put_media_asset(b'old', 'image/png', 'transition', 'old')
+            self.record_manifest(service, 'workflow', 1, epoch, 'deleted', [old['asset_key']])
+            service.replace_media_owner_references(
+                workflow_id='workflow', owner_type='workflow-node', owner_id='deleted',
+                operation_id='save:1', idempotency_key='save:1', expected_generation=0,
+                document_revision=1, storage_epoch=epoch, asset_keys=[old['asset_key']])
+            owner_id = '["workflow","current","operation"]'
+            key = service.put_media_asset_list(
+                ['data:image/png;base64,aGVsbG8='], 'workflow-operation', owner_id)[0]['asset_key']
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 2, 'nodes': [{
+                'id': 'current', 'type': 'ImagePreview', 'data': {'mediaAssetKeys': [key],
+                'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': [key]}]}}]}
+
+            self.assertEqual(2, service.recover_workflow_operation_owners([workflow])['completed'])
+            self.assertTrue(service.get_media_owner_reference_list(
+                'workflow', 'workflow-node', 'deleted')['tombstoned'])
+
+    def test_startup_does_not_promote_an_operation_from_an_old_storage_epoch(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner_id = '["workflow","node","operation"]'
+            key = service.put_media_asset_list(
+                ['data:image/png;base64,aGVsbG8='], 'workflow-operation', owner_id)[0]['asset_key']
+            with service._connect() as database:
+                database.execute("UPDATE media_operation_owner_items SET storage_epoch='old-epoch' WHERE owner_id=?",
+                                 (owner_id,))
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'node', 'type': 'ImagePreview', 'data': {'mediaAssetKeys': [key],
+                'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': [key]}]}}]}
+
+            self.assertEqual({'completed': 0, 'unresolved': 1},
+                             service.recover_workflow_operation_owners([workflow]))
+            self.assertIsNone(service.get_media_owner_reference_list('workflow', 'workflow-node', 'node'))
+
+    def test_startup_releases_every_overlapping_operation_owner_for_the_promoted_node(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            values = ['data:image/png;base64,aGVsbG8=']
+            owner_ids = ['["workflow","node","one"]', '["workflow","node","two"]']
+            key = service.put_media_asset_list(values, 'workflow-operation', owner_ids[0])[0]['asset_key']
+            service.put_media_asset_list(values, 'workflow-operation', owner_ids[1])
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'node', 'type': 'ImagePreview', 'data': {'mediaAssetKeys': [key],
+                'mediaOwnershipTemporaryOwners': [
+                    {'ownerId': owner_id, 'assetKeys': [key]} for owner_id in owner_ids
+                ]}}]}
+
+            self.assertEqual(1, service.recover_workflow_operation_owners([workflow])['completed'])
+            with service._connect() as database:
+                self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' ''').fetchone()[0])
+
     def test_releasing_workflow_media_keeps_history_shared_original(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

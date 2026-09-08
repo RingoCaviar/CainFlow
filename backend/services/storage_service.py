@@ -16,8 +16,11 @@ from urllib.parse import quote, unquote_to_bytes
 from backend import config
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo'}
+MEDIA_OWNER_NODE_TYPES = {
+    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
+}
 STORAGE_MODE_VERSION = 1
 INTEGRITY_REPORT_VERSION = 1
 MAX_SAFETY_STATE_BYTES = 64 * 1024
@@ -370,6 +373,7 @@ class StorageService:
                     owner_id TEXT NOT NULL,
                     position INTEGER NOT NULL,
                     asset_key TEXT NOT NULL,
+                    storage_epoch TEXT NOT NULL,
                     PRIMARY KEY(owner_id, position),
                     FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE RESTRICT
                 );
@@ -388,6 +392,9 @@ class StorageService:
             }
             if 'intent' not in transition_columns:
                 db.execute("ALTER TABLE media_asset_transitions ADD COLUMN intent TEXT NOT NULL DEFAULT 'save'")
+            operation_columns = {row[1] for row in db.execute('PRAGMA table_info(media_operation_owner_items)')}
+            if 'storage_epoch' not in operation_columns:
+                db.execute("ALTER TABLE media_operation_owner_items ADD COLUMN storage_epoch TEXT NOT NULL DEFAULT ''")
             # Existing history rows predate the reference index.  Backfill them
             # idempotently so an upgrade never makes retained history collectible.
             now = int(time.time() * 1000)
@@ -822,6 +829,81 @@ class StorageService:
                 result['unresolved'] += 1
         return result
 
+    def recover_workflow_operation_owners(self, workflows):
+        """Promote operation owners proven by durable workflow documents; retain all uncertain owners."""
+        self.initialize()
+        result = {'completed': 0, 'unresolved': 0}
+        for workflow in workflows or []:
+            try:
+                workflow_id = str(workflow.get('workflowId') or '').strip()
+                revision = int(workflow.get('mediaOwnershipRevision') or 0)
+                if not workflow_id or revision < 1:
+                    continue
+                owner_lists = []
+                recoverable = []
+                for node in workflow.get('nodes') or []:
+                    node_id = str(node.get('id') or '').strip()
+                    data = node.get('data') if isinstance(node.get('data'), dict) else {}
+                    keys = data.get('mediaAssetKeys') if isinstance(data.get('mediaAssetKeys'), list) else node.get('mediaAssetKeys')
+                    keys = [str(key) for key in (keys or []) if str(key).startswith('media:')]
+                    if not node_id or (node.get('type') not in MEDIA_OWNER_NODE_TYPES and not keys):
+                        continue
+                    owner_type = 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node'
+                    owner_lists.append({'ownerType': owner_type, 'ownerId': node_id, 'assetKeys': keys})
+                    for temporary in data.get('mediaOwnershipTemporaryOwners') or []:
+                        if not isinstance(temporary, dict) or temporary.get('assetKeys') != keys:
+                            result['unresolved'] += 1
+                            continue
+                        identity = json.loads(str(temporary.get('ownerId') or ''))
+                        if identity[:2] != [workflow_id, node_id] or len(identity) != 3:
+                            result['unresolved'] += 1
+                            continue
+                        with self._connect() as operation_db:
+                            epochs = {row[0] for row in operation_db.execute(
+                                'SELECT storage_epoch FROM media_operation_owner_items WHERE owner_id=?',
+                                (temporary['ownerId'],))}
+                        if len(epochs) != 1:
+                            result['unresolved'] += 1
+                            continue
+                        recoverable.append((owner_type, node_id, temporary['ownerId'], keys, epochs.pop()))
+                if not recoverable:
+                    continue
+                epoch = str(self.get_storage_safety_status()['storageEpoch'])
+                if any(operation_epoch != epoch for *_, operation_epoch in recoverable):
+                    result['unresolved'] += len(recoverable)
+                    continue
+                identities = {(owner['ownerType'], owner['ownerId']) for owner in owner_lists}
+                for previous in self.list_media_owner_reference_lists(workflow_id):
+                    identity = (previous['ownerType'], previous['ownerId'])
+                    if identity not in identities and not previous['tombstoned']:
+                        owner_lists.append({'ownerType': identity[0], 'ownerId': identity[1],
+                                            'assetKeys': [], 'deleted': True})
+                self.record_media_workflow_revision(workflow_id, revision, epoch, owner_lists)
+                for owner in owner_lists:
+                    owner_type, node_id, keys = owner['ownerType'], owner['ownerId'], owner['assetKeys']
+                    current = self.get_media_owner_reference_list(workflow_id, owner_type, node_id)
+                    expected = (max(0, int(current['generation']) - 1)
+                                if current and int(current.get('documentRevision') or 0) == revision
+                                else int((current or {}).get('generation') or 0))
+                    outcome = self.replace_media_owner_references(
+                        workflow_id=workflow_id, owner_type=owner_type, owner_id=node_id,
+                        operation_id=f'workflow-save:{revision}',
+                        idempotency_key=f'{workflow_id}:workflow-save:{revision}:{owner_type}:{node_id}',
+                        expected_generation=expected, document_revision=revision, storage_epoch=epoch,
+                        asset_keys=keys, intent='delete' if owner.get('deleted') else 'save')
+                    if outcome['status'] not in {'committed', 'already-committed'}:
+                        result['unresolved'] += 1
+                        continue
+                    temporary_owners = [item for item in recoverable
+                                        if item[0] == owner_type and item[1] == node_id]
+                    for temporary_owner in temporary_owners:
+                        for key in keys:
+                            self.remove_media_reference('workflow-operation', temporary_owner[2], key)
+                    result['completed'] += 1
+            except (StorageError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
+                result['unresolved'] += 1
+        return result
+
     def replace_media_owner_references(self, *, workflow_id, owner_type, owner_id,
                                        operation_id, idempotency_key, expected_generation,
                                        document_revision, storage_epoch, asset_keys, intent='save', cancelled=False):
@@ -1073,8 +1155,9 @@ class StorageService:
             self._transition_fault_injector('media_materialized')
             db.executemany('''INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
                 VALUES(?, ?, ?, ?)''', [(owner_type, owner_id, key, now) for key, *_ in decoded])
-            db.executemany('''INSERT INTO media_operation_owner_items(owner_id, position, asset_key)
-                VALUES(?, ?, ?)''', [(owner_id, position, item[0]) for position, item in enumerate(decoded)])
+            epoch = str(self._safety_status['storageEpoch'])
+            db.executemany('''INSERT INTO media_operation_owner_items(owner_id, position, asset_key, storage_epoch)
+                VALUES(?, ?, ?, ?)''', [(owner_id, position, item[0], epoch) for position, item in enumerate(decoded)])
         return [self.get_asset_info(key) for key, *_ in decoded]
 
     def cleanup_unreferenced_media_assets(self):
