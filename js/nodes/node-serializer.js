@@ -6,8 +6,8 @@ import {
     getCanonicalImageList
 } from '../features/execution/execution-data-utils.js';
 import { applyProtocolVariantSnapshot } from './protocol-variant-drafts.js';
-
-const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
+import { readColorResetConfig } from '../features/media/color-reset-config.js';
+import { hasNodeCapability, NODE_CAPABILITIES } from './registry.js';
 
 export function createNodeSerializer({ state, documentRef }) {
     function getOrderedNodes() {
@@ -100,7 +100,7 @@ export function createNodeSerializer({ state, documentRef }) {
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
             if (node.type === 'TextChat') serialized.chatLayoutVersion = 3;
 
-            const usesCanonicalImages = CANONICAL_IMAGE_NODE_TYPES.has(node.type);
+            const usesCanonicalImages = hasNodeCapability(node.type, NODE_CAPABILITIES.CANONICAL_IMAGES);
             const images = getCanonicalImageList(node, { includeResizePreview: false });
             const imageCount = Math.max(
                 images.length,
@@ -155,6 +155,25 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.outputFormat = node.outputFormat || node.resizePreviewMeta?.outputFormat || '';
                 serialized.outputQuality = node.outputQuality || node.resizePreviewMeta?.outputQuality || null;
                 serialized.estimatedBytes = node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null;
+            }
+
+            if (node.type === 'ColorReset') {
+                const config = readColorResetConfig(node, documentRef);
+                serialized.whiteBalanceMode = config.whiteBalanceMode;
+                serialized.whiteBalanceGains = node.whiteBalanceGains || node.data?.whiteBalanceGains || { r: 1, g: 1, b: 1 };
+                serialized.customWhiteBalanceGains = node.customWhiteBalanceGains || node.data?.customWhiteBalanceGains || serialized.whiteBalanceGains;
+                serialized.autoWhiteBalanceGains = node.autoWhiteBalanceGains || node.data?.autoWhiteBalanceGains || { r: 1, g: 1, b: 1 };
+                serialized.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint || node.data?.whiteBalanceSamplePoint || null;
+                serialized.whiteBalanceStatus = node.whiteBalanceStatus || node.data?.whiteBalanceStatus || 'idle';
+                serialized.whiteBalanceMessage = node.whiteBalanceMessage || node.data?.whiteBalanceMessage || '';
+                serialized.temperature = config.temperature;
+                serialized.tint = config.tint;
+                serialized.vibrance = config.vibrance;
+                serialized.saturation = config.saturation;
+                serialized.outputWidth = node.colorResetPreviewMeta?.outputWidth || 0;
+                serialized.outputHeight = node.colorResetPreviewMeta?.outputHeight || 0;
+                serialized.outputFormat = node.colorResetPreviewMeta?.outputFormat || '';
+                serialized.estimatedBytes = node.colorResetPreviewMeta?.estimatedBytes || null;
             }
 
             if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {

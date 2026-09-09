@@ -11,6 +11,7 @@ export const imageCompareNode = {
         { name: 'imageB', type: 'image', label: 'B' }
     ],
     outputs: [{ name: 'image', type: 'image', label: '图片输出' }],
+    capabilities: ['imageResult', 'recoverableImageAsset', 'imageRestore', 'inlineImageData', 'nodeIdImageAsset', 'previewThumbnailRestore'],
     defaultWidth: 280,
     defaultHeight: 340
 };

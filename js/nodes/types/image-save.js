@@ -14,6 +14,7 @@ export const imageSaveNode = {
         { name: 'image', type: 'image', label: '图片输出' },
         { name: 'video', type: 'video', label: '视频输出' }
     ],
+    capabilities: ['imageResult', 'canonicalImages', 'recoverableImageAsset', 'imageRestore', 'inlineImageData'],
     defaultWidth: 240,
     defaultHeight: 340
 };

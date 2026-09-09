@@ -7,6 +7,7 @@ import { imageImportNode } from './types/image-import.js';
 import { imageCompareNode } from './types/image-compare.js';
 import { imageMergeNode } from './types/image-merge.js';
 import { imageResizeNode } from './types/image-resize.js';
+import { colorResetNode } from './types/color-reset.js';
 import { imagePreviewNode } from './types/image-preview.js';
 import { imageSaveNode } from './types/image-save.js';
 import { textChatNode } from './types/text-chat.js';
@@ -15,12 +16,16 @@ import { textNode } from './types/text.js';
 import { textSplitNode } from './types/text-split.js';
 import { cameraControlNode } from './types/camera-control.js';
 import { customParamsNode } from './types/custom-params.js';
+import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.js';
+
+export { NODE_CAPABILITIES } from './node-capabilities.js';
 
 const nodeDefinitions = [
     imageImportNode,
     imageCompareNode,
     imageMergeNode,
     imageResizeNode,
+    colorResetNode,
     imageGenerateNode,
     videoGenerateNode,
     cameraControlNode,
@@ -46,6 +51,10 @@ export function listNodeDefinitions() {
 
 export function getNodeDefinition(type) {
     return NODE_CONFIGS[type] || null;
+}
+
+export function hasNodeCapability(type, capability) {
+    return definitionHasCapability(getNodeDefinition(type), capability);
 }
 
 export function getNodeDefinitionPorts(type, direction) {

@@ -39,7 +39,7 @@ import { createCanvasInteractionsApi } from '../canvas/canvas-interactions.js';
 import { createRenderProjectionManager } from '../canvas/render-projection-manager.js';
 import { createInteractionPerformanceGuard } from '../canvas/interaction-performance-guard.js';
 import { createNodeAutoLayoutApi } from '../canvas/node-auto-layout.js';
-import { NODE_CONFIGS } from '../nodes/registry.js';
+import { hasNodeCapability, NODE_CAPABILITIES, NODE_CONFIGS } from '../nodes/registry.js';
 import { createNodeSerializer } from '../nodes/node-serializer.js';
 import { createNodeMarkup } from '../nodes/node-view-factory.js';
 import { createNodeDomBindingsApi } from '../nodes/node-dom-bindings.js';
@@ -135,6 +135,10 @@ function processImageResolution(dataUrl, maxTotalPixels = null) {
 
 function resizeImageData(dataUrl, options = {}) {
     return mediaUtils.resizeImageData(dataUrl, options);
+}
+
+function processColorResetImage(dataUrl, options = {}) {
+    return mediaUtils.processColorResetImage(dataUrl, options);
 }
 
 function detectOutputFormat(dataUrl) {
@@ -371,10 +375,10 @@ function hasIncomingImageConnectionInWorkflow(nodeId, connections = []) {
 }
 
 function collectRetainedNodeAssetIds() {
-    const recoverableDisplayTypes = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare']);
     const shouldRetainNodeAsset = (node, connections = state.connections) => {
         if (!node?.id) return false;
-        return !(recoverableDisplayTypes.has(node.type) && hasIncomingImageConnectionInWorkflow(node.id, connections));
+        return !(hasNodeCapability(node.type, NODE_CAPABILITIES.RECOVERABLE_IMAGE_ASSET)
+            && hasIncomingImageConnectionInWorkflow(node.id, connections));
     };
     const ids = new Set(Array.from(state.nodes.values())
         .filter((node) => {
@@ -519,6 +523,7 @@ const mediaControllerApi = createMediaControllerApi({
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
+    processColorResetImage,
     detectOutputFormat,
     estimateDataUrlSize,
     getImageResolution,
@@ -574,11 +579,13 @@ const {
     loadImageFile,
     loadImageData,
     setupImageResize,
+    setupColorReset,
     getResizeSourceImage,
     refreshImageResizePreview,
     refreshDependentImageResizePreviews,
     refreshAllImageResizePreviews,
     restoreImageResizePreview,
+    restoreColorResetPreview,
     setupImageSave,
     autoSaveToDir,
     setupImagePreview,
@@ -619,6 +626,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     resumeImageGeneration: (nodeId) => getWorkflowRunnerApi().resumeImageNodeBranch(nodeId),
     setupImageImport,
     setupImageResize,
+    setupColorReset,
     setupImageSave,
     setupImagePreview,
     setupImageCompare,
@@ -1162,8 +1170,10 @@ function getExecutionCoreApi() {
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
+            processColorResetImage,
             autoSaveToDir,
             restoreImageResizePreview,
+            restoreColorResetPreview,
             renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
             releaseNodeImageData: (nodeId, options) => mediaControllerApi.releaseNodeImageData(nodeId, options),
             refreshDependentImageResizePreviews,
@@ -1268,6 +1278,7 @@ function getWorkflowRuntimeManagerApi() {
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
+            processColorResetImage,
             copyToClipboard,
             debounce,
             fitNodeToContent,

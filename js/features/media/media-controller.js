@@ -20,6 +20,16 @@ import {
     normalizeImageList,
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
+import { mapPreviewPointToImage } from './media-utils.js';
+import {
+    readColorResetConfig as readColorResetNodeConfig,
+    resolveWhiteBalanceSampleSelection
+} from './color-reset-config.js';
+import {
+    clearDerivedImagePreview,
+    getDerivedImagePreview,
+    setDerivedImagePreview
+} from '../../nodes/derived-image-preview.js';
 
 // 工具函数模块
 import {
@@ -77,6 +87,7 @@ export function createMediaControllerApi({
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
+    processColorResetImage,
     detectOutputFormat,
     estimateDataUrlSize,
     getImageResolution,
@@ -122,6 +133,7 @@ export function createMediaControllerApi({
         ensureElement,
         removeElements,
         renderDisplayImagePreview,
+        renderColorResetPreview,
         renderReusableComparePreview,
         setImageElementSource,
         updatePlaceholderText,
@@ -203,6 +215,7 @@ export function createMediaControllerApi({
         renderVideoSavePreview,
         renderImageImportUploadState,
         renderImageResizeResult,
+        renderColorResetResult,
         renderImageComparePreview,
         showResolutionBadge,
         ensureElement,
@@ -289,7 +302,7 @@ export function createMediaControllerApi({
         if (node.type === 'ImageCompare') {
             return node.data?.image || node.compareImageB || node.imageData || null;
         }
-        return getCanonicalImage(node) || node.resizePreviewData || null;
+        return getCanonicalImage(node) || getDerivedImagePreview(node) || null;
     }
 
     function setNodePreviewThumbnailValue(node, source, thumbnail = '') {
@@ -1003,6 +1016,249 @@ export function createMediaControllerApi({
         requestNodeFit(nodeId);
     }
 
+    function renderColorResetEmptyState(nodeId, message = '等待上游图片') {
+        clearNodePreviewThumbnail(nodeId);
+        const preview = documentRef.getElementById(`${nodeId}-color-preview`);
+        if (preview) preview.innerHTML = `<div class="preview-placeholder">${message}</div>`;
+        requestNodeFit(nodeId);
+    }
+
+    function renderColorResetResult(nodeId, result) {
+        const preview = documentRef.getElementById(`${nodeId}-color-preview`);
+        const rendered = renderColorResetPreview(preview, result.dataUrl, { overlayId: `${nodeId}-picker-overlay` });
+        if (result?.dataUrl) void cacheNodePreviewThumbnail(nodeId, result.dataUrl);
+        if (rendered.createdImage) requestNodeFit(nodeId);
+    }
+
+    function readColorResetConfig(nodeId) {
+        const node = getNodeById(nodeId);
+        return readColorResetNodeConfig(node, documentRef);
+    }
+
+    async function refreshColorResetPreview(nodeId, options = {}) {
+        const node = getNodeById(nodeId);
+        if (!node || node.type !== 'ColorReset') return null;
+        if (Object.prototype.hasOwnProperty.call(options, 'sourceImage')) node.cancelWhiteBalancePicking?.();
+        const sourceImage = options.sourceImage || await getResizeSourceImageAsync(nodeId);
+        if (!sourceImage) {
+            clearDerivedImagePreview(node);
+            delete node.data.image;
+            renderColorResetEmptyState(nodeId);
+            return null;
+        }
+        if (isRemoteImageUrl(sourceImage)) {
+            clearDerivedImagePreview(node);
+            delete node.data.image;
+            renderColorResetEmptyState(nodeId, 'URL 图片不支持复位颜色节点');
+            return null;
+        }
+        const token = (node.colorResetPreviewToken || 0) + 1;
+        node.colorResetPreviewToken = token;
+        try {
+            const result = await processColorResetImage(sourceImage, readColorResetConfig(nodeId));
+            if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return null;
+            node.data = node.data || {};
+            node.data.image = result.dataUrl;
+            node.imageData = result.dataUrl;
+            node.imageDataList = [result.dataUrl];
+            setDerivedImagePreview(node, result.dataUrl);
+            node.colorResetPreviewMeta = result;
+            const selectedMode = documentRef.getElementById(`${nodeId}-white-balance`)?.value || 'original';
+            if (result.whiteBalanceGains && selectedMode === 'auto') {
+                node.autoWhiteBalanceGains = result.whiteBalanceGains;
+                node.data.autoWhiteBalanceGains = result.whiteBalanceGains;
+            } else if (result.whiteBalanceGains && selectedMode === 'custom' && result.whiteBalanceAnalysis?.status === 'applied') {
+                node.customWhiteBalanceGains = result.whiteBalanceGains;
+                node.whiteBalanceGains = result.whiteBalanceGains;
+                node.data.customWhiteBalanceGains = result.whiteBalanceGains;
+                node.data.whiteBalanceGains = result.whiteBalanceGains;
+            }
+            const analysis = result.whiteBalanceAnalysis;
+            if (analysis) {
+                node.whiteBalanceStatus = analysis.status;
+                node.whiteBalanceMessage = analysis.message;
+                node.data.whiteBalanceStatus = analysis.status;
+                node.data.whiteBalanceMessage = analysis.message;
+                if (analysis.samplePoint) {
+                    node.whiteBalanceSamplePoint = analysis.samplePoint;
+                    node.data.whiteBalanceSamplePoint = analysis.samplePoint;
+                }
+                const status = documentRef.getElementById(`${nodeId}-white-balance-status`);
+                if (status) { status.textContent = analysis.message; status.dataset.status = analysis.status; }
+            }
+            markNodeImageAssetPending(node, nodeId, 1);
+            renderColorResetResult(nodeId, result);
+            if (options.cascade !== false) await refreshDependentImageResizePreviews(nodeId, options);
+            const previousWrite = node.colorResetAssetWrite || Promise.resolve();
+            node.colorResetAssetWrite = previousWrite
+                .catch(() => false)
+                .then(async () => {
+                    if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return false;
+                    const saved = await saveImageAsset(nodeId, result.dataUrl);
+                    if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return false;
+                    if (saved) markNodeImageAssetReady(node, nodeId, 1);
+                    return saved;
+                })
+                .catch(() => false);
+            return result;
+        } catch {
+            renderColorResetEmptyState(nodeId, '预览生成失败');
+            return null;
+        }
+    }
+
+    function setupColorReset(id, el) {
+        const node = getNodeById(id);
+        const preview = el.querySelector(`#${id}-color-preview`);
+        const picker = el.querySelector(`#${id}-white-balance-picker`);
+        const resetWhiteBalanceButton = el.querySelector(`#${id}-reset-white-balance`);
+        const resetColorButton = el.querySelector(`#${id}-reset-color`);
+        const resetAllButton = el.querySelector(`#${id}-reset-all`);
+        const status = el.querySelector(`#${id}-white-balance-status`);
+        const mode = el.querySelector(`#${id}-white-balance`);
+        const dirtyDot = el.querySelector(`#${id}-color-reset-dirty`);
+        const whiteBalanceDirtyBadge = el.querySelector(`#${id}-white-balance-dirty`);
+        const colorDirtyBadge = el.querySelector(`#${id}-color-dirty`);
+        let picking = false;
+        const updateRange = (input) => {
+            const percent = (Number(input.value) + 100) / 2;
+            input.style.setProperty('--range-progress', `${percent}%`);
+        };
+        let refreshTimer = null;
+        const readControl = (name) => Number(el.querySelector(`#${id}-${name}`)?.value) || 0;
+        const updateDirtyState = () => {
+            const whiteBalanceDirty = mode?.value !== 'original' || readControl('temperature') !== 0 || readControl('tint') !== 0;
+            const colorDirty = readControl('vibrance') !== 0 || readControl('saturation') !== 0;
+            whiteBalanceDirtyBadge?.classList.toggle('is-visible', whiteBalanceDirty);
+            colorDirtyBadge?.classList.toggle('is-visible', colorDirty);
+            dirtyDot?.classList.toggle('is-visible', whiteBalanceDirty || colorDirty);
+            el.dataset.whiteBalanceDirty = String(whiteBalanceDirty);
+            el.dataset.colorDirty = String(colorDirty);
+            el.dataset.nodeDirty = String(whiteBalanceDirty || colorDirty);
+        };
+        const queue = () => {
+            if (refreshTimer) windowRef.clearTimeout(refreshTimer);
+            updateDirtyState();
+            refreshTimer = windowRef.setTimeout(() => { void refreshColorResetPreview(id); scheduleSave(); }, 160);
+        };
+        ['temperature', 'tint', 'vibrance', 'saturation'].forEach((name) => {
+            const range = el.querySelector(`#${id}-${name}`);
+            const number = el.querySelector(`#${id}-${name}-value`);
+            updateRange(range);
+            range?.addEventListener('input', () => { number.value = range.value; updateRange(range); queue(); });
+            number?.addEventListener('input', () => { number.value = String(Math.max(-100, Math.min(100, Number(number.value) || 0))); range.value = number.value; updateRange(range); queue(); });
+            const resetScalar = () => { range.value = '0'; number.value = '0'; updateRange(range); queue(); };
+            range?.addEventListener('dblclick', resetScalar);
+            number?.addEventListener('dblclick', resetScalar);
+        });
+        const stopPicking = () => {
+            picking = false; picker?.classList.remove('active'); preview?.classList.remove('is-picking'); picker?.setAttribute('aria-pressed', 'false');
+        };
+        node.cancelWhiteBalancePicking = stopPicking;
+        mode?.addEventListener('change', () => { stopPicking(); updateDirtyState(); void refreshColorResetPreview(id); scheduleSave(); });
+        picker?.addEventListener('click', () => {
+            picking = !picking;
+            picker.classList.toggle('active', picking);
+            picker.setAttribute('aria-pressed', String(picking));
+            preview?.classList.toggle('is-picking', picking);
+            if (status) { status.textContent = picking ? '请在原图预览中点击白色或灰色区域' : (node.whiteBalanceMessage || '原始设置'); status.dataset.status = picking ? 'picking' : (node.whiteBalanceStatus || 'idle'); }
+        });
+        const resetWhiteBalanceState = () => {
+            stopPicking();
+            node.whiteBalanceGains = { r: 1, g: 1, b: 1 };
+            node.customWhiteBalanceGains = { r: 1, g: 1, b: 1 };
+            node.autoWhiteBalanceGains = { r: 1, g: 1, b: 1 };
+            node.whiteBalanceSamplePoint = null;
+            node.whiteBalanceStatus = 'applied';
+            node.whiteBalanceMessage = '原始设置';
+            node.data.whiteBalanceGains = node.whiteBalanceGains;
+            node.data.customWhiteBalanceGains = node.customWhiteBalanceGains;
+            node.data.autoWhiteBalanceGains = node.autoWhiteBalanceGains;
+            delete node.data.whiteBalanceSamplePoint;
+            node.data.whiteBalanceStatus = 'applied'; node.data.whiteBalanceMessage = '原始设置';
+            mode.value = 'original';
+            if (status) { status.textContent = '原始设置'; status.dataset.status = 'applied'; }
+            ['temperature', 'tint'].forEach((name) => {
+                const range = el.querySelector(`#${id}-${name}`); const number = el.querySelector(`#${id}-${name}-value`);
+                if (range) { range.value = '0'; updateRange(range); }
+                if (number) number.value = '0';
+            });
+        };
+        const resetColorState = () => {
+            ['vibrance', 'saturation'].forEach((name) => {
+                const range = el.querySelector(`#${id}-${name}`); const number = el.querySelector(`#${id}-${name}-value`);
+                if (range) { range.value = '0'; updateRange(range); }
+                if (number) number.value = '0';
+            });
+        };
+        const commitReset = async (resetter) => {
+            if (refreshTimer) { windowRef.clearTimeout(refreshTimer); refreshTimer = null; }
+            resetter();
+            updateDirtyState();
+            await refreshColorResetPreview(id);
+            scheduleSave();
+        };
+        resetWhiteBalanceButton?.addEventListener('click', () => { void commitReset(resetWhiteBalanceState); });
+        resetColorButton?.addEventListener('click', () => { void commitReset(resetColorState); });
+        resetAllButton?.addEventListener('click', () => { void commitReset(() => { resetWhiteBalanceState(); resetColorState(); }); });
+        const handlePickerEscape = (event) => {
+            if (!state.nodes.has(id)) { documentRef.removeEventListener('keydown', handlePickerEscape); return; }
+            if (event.key !== 'Escape' || !picking) return;
+            event.preventDefault();
+            stopPicking();
+            if (status) { status.textContent = node.whiteBalanceMessage || '原始设置'; status.dataset.status = node.whiteBalanceStatus || 'idle'; }
+        };
+        documentRef.addEventListener('keydown', handlePickerEscape);
+        preview?.addEventListener('click', async (event) => {
+            if (!picking) { void openStoredImageNodeFullscreen(id); return; }
+            const source = await getResizeSourceImageAsync(id);
+            const image = preview.querySelector('img');
+            if (!source || !image) return;
+            const rect = image.getBoundingClientRect();
+            const sourceInfo = await new Promise((resolve) => {
+                const img = new windowRef.Image(); img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = source;
+            });
+            if (!sourceInfo) return;
+            const mapped = mapPreviewPointToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top, boxWidth: rect.width, boxHeight: rect.height, imageWidth: sourceInfo.naturalWidth, imageHeight: sourceInfo.naturalHeight });
+            if (!mapped) { if (status) { status.textContent = '请点击图片内容区域'; status.dataset.status = 'invalid-sample'; } return; }
+            const candidatePoint = { xRatio: mapped.xRatio, yRatio: mapped.yRatio };
+            let candidateResult;
+            try {
+                candidateResult = await processColorResetImage(source, {
+                    ...readColorResetConfig(id),
+                    whiteBalanceMode: 'custom',
+                    samplePoint: candidatePoint
+                });
+            } catch {
+                candidateResult = { whiteBalanceAnalysis: { status: 'invalid-sample', message: '取样失败，请重新选择' } };
+            }
+            const selection = resolveWhiteBalanceSampleSelection({
+                mode: mode.value,
+                samplePoint: node.whiteBalanceSamplePoint || node.data?.whiteBalanceSamplePoint || null
+            }, candidatePoint, candidateResult.whiteBalanceAnalysis);
+            if (!selection.accepted) {
+                if (status) { status.textContent = selection.message; status.dataset.status = 'invalid-sample'; }
+                return;
+            }
+            node.whiteBalanceSamplePoint = selection.samplePoint;
+            node.data.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint;
+            let custom = mode.querySelector('option[value="custom"]'); custom.hidden = false; mode.value = 'custom';
+            stopPicking();
+            updateDirtyState();
+            await refreshColorResetPreview(id); scheduleSave();
+        });
+        updateDirtyState();
+        if (node?.imageData) renderColorResetResult(id, { dataUrl: node.imageData }); else void refreshColorResetPreview(id);
+        requestNodeFit(id);
+    }
+
+    function restoreColorResetPreview(nodeId, dataUrl, meta = {}) {
+        const node = getNodeById(nodeId);
+        if (!node || !dataUrl) return renderColorResetEmptyState(nodeId);
+        node.data.image = dataUrl; node.imageData = dataUrl; node.imageDataList = [dataUrl]; setDerivedImagePreview(node, dataUrl); node.colorResetPreviewMeta = meta;
+        renderColorResetResult(nodeId, { ...meta, dataUrl });
+    }
+
     function updateImageResizeModeState(nodeId) {
         const modeInput = documentRef.getElementById(`${nodeId}-resize-mode`);
         const scaleSection = documentRef.getElementById(`${nodeId}-scale-section`);
@@ -1346,6 +1602,11 @@ export function createMediaControllerApi({
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
                 continue;
             }
+            if (node.type === 'ColorReset') {
+                await refreshColorResetPreview(nodeId, { ...options, sourceImage, cascade: false });
+                await refreshDependentImageResizePreviews(nodeId, options, visited);
+                continue;
+            }
 
             if (node.type === 'ImagePreview') {
                 const imagePreviewSource = sourceImageList.length > 0 ? sourceImageList : sourceImage;
@@ -1436,7 +1697,7 @@ export function createMediaControllerApi({
         updateImageResizeQualityVisibility(nodeId, sourceImage);
 
         if (!sourceImage) {
-            node.resizePreviewData = null;
+            clearDerivedImagePreview(node);
             node.resizePreviewMeta = null;
             delete node.data.image;
             delete node.data.imageAssetKey;
@@ -1450,7 +1711,7 @@ export function createMediaControllerApi({
         }
 
         if (isRemoteImageUrl(sourceImage)) {
-            node.resizePreviewData = null;
+            clearDerivedImagePreview(node);
             node.resizePreviewMeta = null;
             delete node.data.image;
             delete node.data.imageAssetKey;
@@ -1485,7 +1746,7 @@ export function createMediaControllerApi({
 
             if (!state.nodes.has(nodeId) || node.resizePreviewToken !== token) return null;
 
-            node.resizePreviewData = result.dataUrl;
+            setDerivedImagePreview(node, result.dataUrl);
             node.resizePreviewMeta = result;
             node.data.image = result.dataUrl;
             node.imageData = result.dataUrl;
@@ -1884,7 +2145,7 @@ export function createMediaControllerApi({
             outputQuality: meta.outputQuality || null,
             estimatedBytes: meta.estimatedBytes || estimateDataUrlSize(dataUrl)
         };
-        node.resizePreviewData = dataUrl;
+        setDerivedImagePreview(node, dataUrl);
         node.resizePreviewMeta = result;
         node.data = node.data || {};
         node.data.image = dataUrl;
@@ -2987,12 +3248,15 @@ export function createMediaControllerApi({
         loadImageFile,
         loadImageData,
         setupImageResize,
+        setupColorReset,
         getResizeSourceImage,
         refreshImageResizePreview,
         refreshDependentImageResizePreviews,
         refreshAllImageResizePreviews,
         refreshAllRecoverableMediaNodes,
         restoreImageResizePreview,
+        restoreColorResetPreview,
+        refreshColorResetPreview,
         renderImagePreviewImage,
         renderImageSavePreview,
         renderImageComparePreview,

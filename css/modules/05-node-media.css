@@ -350,6 +350,44 @@
     min-height: 72px;
 }
 
+.node-color-reset .node-header-color {
+    background: linear-gradient(90deg, var(--accent-orange), var(--accent-purple));
+}
+
+.color-reset-panel { display: flex; flex-direction: column; gap: 10px; }
+.color-reset-toolbar, .color-reset-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.color-reset-toolbar { min-height: 28px; padding: 0 2px; }
+.color-reset-flow { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 10px; letter-spacing: 0.02em; }
+.color-reset-dirty-dot { display: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-orange); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-orange) 16%, transparent); }
+.color-reset-dirty-dot.is-visible { display: inline-block; }
+.color-reset-section { display: flex; flex-direction: column; gap: 10px; padding: 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bg-input) 68%, transparent); }
+.color-reset-section-title { display: flex; align-items: center; gap: 7px; color: var(--text-main); font-size: 12px; font-weight: 650; }
+.color-reset-section-dirty { display: none; padding: 1px 5px; border-radius: 999px; color: var(--accent-orange); background: color-mix(in srgb, var(--accent-orange) 12%, transparent); font-size: 9px; font-weight: 600; }
+.color-reset-section-dirty.is-visible { display: inline-flex; }
+.color-reset-reset-btn { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; }
+.color-reset-white-balance-controls { display: flex; gap: 8px; align-items: center; }
+.color-reset-white-balance-controls select { flex: 1; min-width: 0; }
+.color-reset-picker { flex: 0 0 32px; height: 32px; }
+.color-reset-picker.active { color: var(--accent-cyan); outline: 1px solid currentColor; }
+.color-reset-white-balance-status { margin-top: 6px; color: var(--text-dim); font-size: 11px; line-height: 1.4; }
+.color-reset-white-balance-status[data-status="applied"] { color: var(--accent-cyan); }
+.color-reset-white-balance-status[data-status="needs-sample"] { color: var(--accent-orange); }
+.color-reset-white-balance-status[data-status="invalid-sample"] { color: var(--accent-red); }
+.color-reset-slider-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.color-reset-slider-header input[type="number"] { width: 52px; padding: 3px 5px; text-align: right; font-variant-numeric: tabular-nums; }
+.color-reset-range-shell { position: relative; display: flex; align-items: center; min-height: 18px; }
+.color-reset-slider-field input[type="range"] { position: relative; z-index: 1; width: 100%; height: 16px; padding: 0; border: 0; background: transparent; --range-progress: 50%; }
+.color-reset-slider-field input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: var(--color-reset-track); }
+.color-reset-slider-field input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: var(--color-reset-track); }
+.color-reset-range-temperature { --color-reset-track: linear-gradient(90deg, #3b82f6, #a8b2c1 50%, #f59e0b); }
+.color-reset-range-tint { --color-reset-track: linear-gradient(90deg, #22c55e, #a8b2c1 50%, #d946ef); }
+.color-reset-range-vibrance, .color-reset-range-saturation { --color-reset-track: linear-gradient(90deg, #737780, #a8b2c1 50%, #ef4444 68%, #eab308 80%, #22c55e 90%, #3b82f6); }
+.color-reset-range-center { position: absolute; z-index: 2; left: 50%; top: 50%; width: 2px; height: 10px; border-radius: 2px; background: color-mix(in srgb, var(--text-main) 72%, transparent); transform: translate(-50%, -50%); pointer-events: none; }
+.color-reset-preview { min-height: 170px; }
+.color-reset-preview.is-picking { cursor: crosshair; outline: 2px solid var(--accent-cyan); outline-offset: -2px; }
+.color-reset-picker-overlay { display: none; position: absolute; z-index: 3; left: 50%; bottom: 10px; max-width: calc(100% - 20px); padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--accent-cyan) 35%, transparent); border-radius: 999px; color: var(--text-main); background: color-mix(in srgb, var(--bg-card) 82%, transparent); box-shadow: var(--workflow-card-shadow); font-size: 10px; text-align: center; transform: translateX(-50%); pointer-events: none; backdrop-filter: blur(6px); }
+.color-reset-preview.is-picking .color-reset-picker-overlay { display: block; }
+
 .node-preview .preview-container img {
     object-fit: contain;
 }

@@ -985,6 +985,73 @@ function renderImageResizeBody(id, restoreData) {
     `;
 }
 
+function renderColorResetBody(id, restoreData) {
+    const rd = restoreData || {};
+    const mode = ['original', 'auto', 'custom'].includes(rd.whiteBalanceMode) ? rd.whiteBalanceMode : 'original';
+    const values = {
+        temperature: Math.max(-100, Math.min(100, Number(rd.temperature) || 0)),
+        tint: Math.max(-100, Math.min(100, Number(rd.tint) || 0)),
+        vibrance: Math.max(-100, Math.min(100, Number(rd.vibrance) || 0)),
+        saturation: Math.max(-100, Math.min(100, Number(rd.saturation) || 0))
+    };
+    const slider = (key, label) => `
+        <div class="node-field color-reset-slider-field">
+            <div class="color-reset-slider-header"><label>${label}</label><input type="number" id="${id}-${key}-value" min="-100" max="100" step="1" value="${values[key]}" /></div>
+            <div class="color-reset-range-shell color-reset-range-${key}">
+                <input type="range" id="${id}-${key}" min="-100" max="100" step="1" value="${values[key]}" />
+                <span class="color-reset-range-center" aria-hidden="true"></span>
+            </div>
+        </div>`;
+    return `
+        <div class="color-reset-panel">
+            <div class="color-reset-toolbar">
+                <div class="color-reset-flow"><span>白平衡</span><span aria-hidden="true">→</span><span>色彩调整</span><span class="color-reset-dirty-dot" id="${id}-color-reset-dirty" title="节点已有调整" aria-label="节点已有调整"></span></div>
+                <button type="button" class="preview-ctrl-btn color-reset-reset-btn" id="${id}-reset-all" title="全部重置" aria-label="全部重置">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                </button>
+            </div>
+            <div class="preview-container color-reset-preview" id="${id}-color-preview">
+                <div class="preview-placeholder">等待上游图片</div>
+                <div class="color-reset-picker-overlay" id="${id}-picker-overlay">点击图片中的白色或灰色区域</div>
+            </div>
+            <section class="color-reset-section color-reset-white-balance" aria-labelledby="${id}-white-balance-heading">
+                <div class="color-reset-section-heading">
+                    <div class="color-reset-section-title" id="${id}-white-balance-heading"><span>白平衡校正</span><span class="color-reset-section-dirty" id="${id}-white-balance-dirty">已调整</span></div>
+                    <button type="button" class="preview-ctrl-btn color-reset-reset-btn" id="${id}-reset-white-balance" title="重置白平衡" aria-label="重置白平衡">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                    </button>
+                </div>
+                <div class="node-field">
+                <label>模式</label>
+                <div class="color-reset-white-balance-controls">
+                    <select id="${id}-white-balance">
+                        <option value="original" ${mode === 'original' ? 'selected' : ''}>原始设置</option>
+                        <option value="auto" ${mode === 'auto' ? 'selected' : ''}>自动</option>
+                        <option value="custom" ${mode === 'custom' ? 'selected' : ''} ${mode === 'custom' ? '' : 'hidden'}>自定义</option>
+                    </select>
+                    <button type="button" class="preview-ctrl-btn color-reset-picker" id="${id}-white-balance-picker" title="从预览中选取中性色" aria-pressed="false">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 3 2 2-11 11-4 1 1-4Z"/><path d="m14 6 4 4"/></svg>
+                    </button>
+                </div>
+                <div class="color-reset-white-balance-status" id="${id}-white-balance-status" data-status="${escapeHtml(rd.whiteBalanceStatus || 'idle')}" aria-live="polite">${escapeHtml(rd.whiteBalanceMessage || (mode === 'custom' ? '已应用自定义白平衡' : '原始设置'))}</div>
+                </div>
+                ${slider('temperature', '色温')}
+                ${slider('tint', '色调')}
+            </section>
+            <section class="color-reset-section color-reset-color-controls" aria-labelledby="${id}-color-heading">
+                <div class="color-reset-section-heading">
+                    <div class="color-reset-section-title" id="${id}-color-heading"><span>色彩调整</span><span class="color-reset-section-dirty" id="${id}-color-dirty">已调整</span></div>
+                    <button type="button" class="preview-ctrl-btn color-reset-reset-btn" id="${id}-reset-color" title="重置色彩调整" aria-label="重置色彩调整">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                    </button>
+                </div>
+                ${slider('vibrance', '自然饱和度')}
+                ${slider('saturation', '饱和度')}
+            </section>
+            <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
+        </div>`;
+}
+
 function renderTextBody(id, restoreData) {
     const rd = restoreData || {};
     const texts = Array.isArray(rd.texts) && rd.texts.length > 0 ? rd.texts : [];
@@ -1151,6 +1218,7 @@ function renderCustomParamsBody(id, restoreData = {}) {
 function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageImport') return renderImageImportBody(id, restoreData);
     if (type === 'ImageResize') return renderImageResizeBody(id, restoreData);
+    if (type === 'ColorReset') return renderColorResetBody(id, restoreData);
     if (type === 'ImageGenerate') return renderImageGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'VideoGenerate') return renderVideoGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'CameraControl') return renderCameraControlBody(id, restoreData);

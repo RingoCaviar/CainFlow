@@ -6,6 +6,13 @@ import {
     getCanonicalImageList,
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
+import { hasNodeCapability, NODE_CAPABILITIES } from '../../nodes/registry.js';
+import {
+    clearDerivedImagePreview,
+    getDerivedImagePreview,
+    isDerivedImagePreviewNode,
+    setDerivedImagePreview
+} from '../../nodes/derived-image-preview.js';
 
 const DISPLAY_IMAGE_RELEASE_PADDING = 900;
 const DISPLAY_IMAGE_HYDRATE_PADDING = 420;
@@ -38,6 +45,7 @@ export function createDisplayImageMemoryManager({
     renderVideoSavePreview = () => {},
     renderImageImportUploadState = () => {},
     renderImageResizeResult = () => {},
+    renderColorResetResult = () => {},
     renderImageComparePreview = () => {},
     showResolutionBadge = async () => {},
     ensureElement = null,
@@ -81,6 +89,7 @@ export function createDisplayImageMemoryManager({
             || node?.type === 'ImageGenerate'
             || node?.type === 'ImageResize'
             || node?.type === 'ImageCompare'
+            || node?.type === 'ColorReset'
             || isImageImportUploadNode(node);
     }
 
@@ -108,7 +117,7 @@ export function createDisplayImageMemoryManager({
         if (typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
             return node.data.imageAssetKey;
         }
-        if (node.type === 'ImageGenerate' || node.type === 'ImageResize' || node.type === 'ImageCompare') {
+        if (hasNodeCapability(node.type, NODE_CAPABILITIES.NODE_ID_IMAGE_ASSET)) {
             return node.id || '';
         }
         return '';
@@ -122,7 +131,7 @@ export function createDisplayImageMemoryManager({
 
     function getManagedNodeImageList(node) {
         if (!node) return [];
-        if (node.type === 'ImageResize') {
+        if (isDerivedImagePreviewNode(node)) {
             return getFirstNonEmptyImageList(
                 node.data?.imageList,
                 node.data?.images,
@@ -130,7 +139,7 @@ export function createDisplayImageMemoryManager({
                 node.generatedImages,
                 node.data?.image,
                 node.imageData,
-                node.resizePreviewData
+                getDerivedImagePreview(node)
             );
         }
         if (isImageImportUploadNode(node)) {
@@ -572,9 +581,7 @@ export function createDisplayImageMemoryManager({
         node.imageData = null;
         node.imageDataList = [];
         node.generatedImages = [];
-        if (node.type === 'ImageResize') {
-            node.resizePreviewData = null;
-        }
+        clearDerivedImagePreview(node);
     }
 
     async function softReleaseDisplayNodeImages(node) {
@@ -641,7 +648,7 @@ export function createDisplayImageMemoryManager({
             renderImagePreviewImage(node.id, images);
         } else if (node.type === 'ImageSave') {
             renderImageSavePreview(node.id, images);
-        } else if (node.type === 'ImageResize') {
+        } else if (isDerivedImagePreviewNode(node)) {
             renderImageResizeResult(node.id, {
                 ...(node.resizePreviewMeta || {}),
                 dataUrl: images[0],
@@ -650,6 +657,8 @@ export function createDisplayImageMemoryManager({
                 outputQuality: node.outputQuality || node.resizePreviewMeta?.outputQuality || null,
                 estimatedBytes: node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null
             });
+        } else if (node.type === 'ColorReset') {
+            renderColorResetResult(node.id, { ...(node.colorResetPreviewMeta || {}), dataUrl: images[0] });
         } else if (isImageImportUploadNode(node)) {
             renderImageImportUploadState(node.id, images[0]);
         } else if (node.type === 'ImageCompare') {
@@ -770,7 +779,7 @@ export function createDisplayImageMemoryManager({
             node.data.image = currentImage;
             node.imageData = currentImage;
             node.imageDataList = imageList.slice();
-            node.resizePreviewData = currentImage;
+            setDerivedImagePreview(node, currentImage);
             if (assetKey) node.data.imageAssetKey = assetKey;
             node.data.imageCount = imageCount;
             node.data.imageAssetReady = true;
@@ -811,7 +820,7 @@ export function createDisplayImageMemoryManager({
             return inMemoryList;
         }
 
-        const currentImageList = normalizeImageList(node?.data?.image || node?.imageData || node?.resizePreviewData);
+        const currentImageList = normalizeImageList(node?.data?.image || node?.imageData || getDerivedImagePreview(node));
         if (!isManagedImageNode(node)) {
             return currentImageList;
         }

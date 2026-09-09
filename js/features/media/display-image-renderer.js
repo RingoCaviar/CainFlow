@@ -356,6 +356,22 @@ export function createDisplayImageRenderer({
         }
     }
 
+    function renderColorResetPreview(container, image, { overlayId = '' } = {}) {
+        if (!container || typeof image !== 'string' || !image) return { image: null, createdImage: false };
+        removeElements(container, '.preview-placeholder');
+        const existingImage = container.querySelector('img');
+        const imageElement = ensureElement(container, 'img', () => documentRef.createElement('img'));
+        setImageElementSource(imageElement, image, '复位颜色结果预览', { preferImmediateSrc: true });
+        const overlay = ensureElement(container, '.color-reset-picker-overlay', () => {
+            const element = documentRef.createElement('div');
+            element.className = 'color-reset-picker-overlay';
+            element.textContent = '点击图片中的白色或灰色区域';
+            return element;
+        });
+        if (overlayId) overlay.id = overlayId;
+        return { image: imageElement, createdImage: !existingImage };
+    }
+
     return {
         createPreviewNavButton,
         createPreviewPlaceholder,
@@ -363,6 +379,7 @@ export function createDisplayImageRenderer({
         removeElements,
         renderDisplayImagePreview,
         renderReusableComparePreview,
+        renderColorResetPreview,
         renderReusableMultiImagePreview,
         setImageElementSource,
         updatePlaceholderText,

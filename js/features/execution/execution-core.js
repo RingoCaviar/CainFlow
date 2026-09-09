@@ -36,6 +36,7 @@ import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocol } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
+import { readColorResetConfig } from '../media/color-reset-config.js';
 
 export function createExecutionCoreApi({
     state,
@@ -61,8 +62,10 @@ export function createExecutionCoreApi({
     dataURLtoBlob,
     blobToDataUrl,
     resizeImageData,
+    processColorResetImage,
     autoSaveToDir,
     restoreImageResizePreview,
+    restoreColorResetPreview = () => {},
     renderImagePreviewImage = () => {},
     releaseNodeImageData = async () => false,
     refreshDependentImageResizePreviews,
@@ -999,8 +1002,8 @@ export function createExecutionCoreApi({
             if (imageList.length > 1) return imageList;
             if (imageList.length === 1) return imageList[0];
 
-            if (node.type === 'ImageResize') {
-                return node.imageData || node.resizePreviewData || undefined;
+            if (node.type === 'ImageResize' || node.type === 'ColorReset') {
+                return node.imageData || node.resizePreviewData || node.colorResetPreviewData || undefined;
             }
 
             if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
@@ -1622,6 +1625,28 @@ export function createExecutionCoreApi({
             node.estimatedBytes = result.estimatedBytes;
 
             restoreImageResizePreview(id, result.dataUrl, result);
+            showResolutionBadge(id, result.dataUrl);
+            await saveNodeImageAssetNow(node, result.dataUrl, id);
+            await refreshDependentImageResizePreviews(id);
+        },
+        ColorReset: async (node, inputs) => {
+            const sourceImage = getPrimaryImageInput(inputs.image);
+            if (!sourceImage) throw new Error('无输入图片');
+            const id = node.id;
+            const config = readColorResetConfig(node, documentRef);
+            const result = await processColorResetImage(sourceImage, config);
+            node.data.image = result.dataUrl;
+            node.imageData = result.dataUrl;
+            node.imageDataList = [result.dataUrl];
+            node.colorResetPreviewData = result.dataUrl;
+            node.colorResetPreviewMeta = result;
+            const selectedMode = config.whiteBalanceMode;
+            if (selectedMode === 'auto') node.autoWhiteBalanceGains = result.whiteBalanceGains;
+            if (selectedMode === 'custom' && result.whiteBalanceAnalysis?.status === 'applied') {
+                node.customWhiteBalanceGains = result.whiteBalanceGains;
+                node.whiteBalanceGains = result.whiteBalanceGains;
+            }
+            restoreColorResetPreview(id, result.dataUrl, result);
             showResolutionBadge(id, result.dataUrl);
             await saveNodeImageAssetNow(node, result.dataUrl, id);
             await refreshDependentImageResizePreviews(id);
@@ -2444,6 +2469,10 @@ export function createExecutionCoreApi({
 
         if (node.type === 'ImageResize' && isRemoteImageUrl(inputs.image)) {
             throw new Error('URL 图片不支持连接到图片缩放节点');
+        }
+
+        if (node.type === 'ColorReset' && isRemoteImageUrl(inputs.image)) {
+            throw new Error('URL 图片不支持连接到复位颜色节点');
         }
 
         if (node.type === 'ImageSave' && hasRemoteImageValue(inputs.image)) {

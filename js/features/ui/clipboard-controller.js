@@ -7,6 +7,8 @@ import {
 } from '../../canvas/connection-copy-utils.js';
 import { migrateLegacyNodeData, migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
+import { hasNodeCapability, NODE_CAPABILITIES } from '../../nodes/registry.js';
+import { readColorResetConfig } from '../media/color-reset-config.js';
 
 export function createClipboardControllerApi({
     state,
@@ -98,7 +100,7 @@ export function createClipboardControllerApi({
         }
         const textareaHeights = getNodeTextareaHeights(id);
         if (textareaHeights) serialized.textareaHeights = textareaHeights;
-        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageResize' || node.type === 'ImageCompare') {
+        if (hasNodeCapability(node.type, NODE_CAPABILITIES.INLINE_IMAGE_DATA)) {
             serialized.imageData = node.data.image || node.imageData || null;
         }
         const imagePreviewThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()
@@ -177,6 +179,20 @@ export function createClipboardControllerApi({
             serialized.outputFormat = node.outputFormat || node.resizePreviewMeta?.outputFormat || '';
             serialized.outputQuality = node.outputQuality || node.resizePreviewMeta?.outputQuality || null;
             serialized.estimatedBytes = node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null;
+        }
+        if (node.type === 'ColorReset') {
+            const config = readColorResetConfig(node, documentRef);
+            serialized.whiteBalanceMode = config.whiteBalanceMode;
+            serialized.whiteBalanceGains = node.whiteBalanceGains || node.data?.whiteBalanceGains || { r: 1, g: 1, b: 1 };
+            serialized.customWhiteBalanceGains = node.customWhiteBalanceGains || node.data?.customWhiteBalanceGains || serialized.whiteBalanceGains;
+            serialized.autoWhiteBalanceGains = node.autoWhiteBalanceGains || node.data?.autoWhiteBalanceGains || { r: 1, g: 1, b: 1 };
+            serialized.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint || node.data?.whiteBalanceSamplePoint || null;
+            serialized.whiteBalanceStatus = node.whiteBalanceStatus || node.data?.whiteBalanceStatus || 'idle';
+            serialized.whiteBalanceMessage = node.whiteBalanceMessage || node.data?.whiteBalanceMessage || '';
+            serialized.temperature = config.temperature;
+            serialized.tint = config.tint;
+            serialized.vibrance = config.vibrance;
+            serialized.saturation = config.saturation;
         }
         if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
             serialized.referenceImageCount = Math.max(0, parseInt(node.referenceImageCount ?? node.data?.referenceImageCount ?? '5', 10) || 0);

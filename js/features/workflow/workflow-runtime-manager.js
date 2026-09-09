@@ -28,6 +28,8 @@ import {
 } from './workflow-identity.js';
 import { createDetachedWorkflowViewBuilder } from './detached-workflow-view-builder.js';
 import { createWorkflowLayoutElements, createWorkflowLayoutHost } from './workflow-layout-host.js';
+import { hasNodeCapability, NODE_CAPABILITIES } from '../../nodes/registry.js';
+import { readColorResetConfig } from '../media/color-reset-config.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 
@@ -48,8 +50,6 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
     'videoRequestTimeoutSeconds'
 ];
 
-const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
-const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
 function clonePlainValue(value) {
     if (value === undefined) return undefined;
@@ -156,7 +156,7 @@ export function serializeRuntimeNode(node, doc) {
         serialized.cloneSourceId = node.cloneSourceId;
     }
     if (node.customTitle) serialized.customTitle = node.customTitle;
-    const usesCanonicalImages = CANONICAL_IMAGE_NODE_TYPES.has(node.type);
+    const usesCanonicalImages = hasNodeCapability(node.type, NODE_CAPABILITIES.CANONICAL_IMAGES);
     const images = getCanonicalImageList(node, { includeResizePreview: false });
     const imageCount = Math.max(images.length, Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0));
     const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
@@ -166,7 +166,7 @@ export function serializeRuntimeNode(node, doc) {
         ? node.imageImportAssetKey
         : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
     const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
-    if (IMAGE_RESULT_NODE_TYPES.has(node.type)) {
+    if (hasNodeCapability(node.type, NODE_CAPABILITIES.IMAGE_RESULT)) {
         if (usesCanonicalImages) {
             if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
             if (imageCount > 0) serialized.imageCount = imageCount;
@@ -220,6 +220,20 @@ export function serializeRuntimeNode(node, doc) {
         serialized.outputFormat = node.outputFormat || '';
         serialized.outputQuality = node.outputQuality || null;
         serialized.estimatedBytes = node.estimatedBytes || null;
+    }
+    if (node.type === 'ColorReset') {
+        const config = readColorResetConfig(node, doc);
+        serialized.whiteBalanceMode = config.whiteBalanceMode;
+        serialized.whiteBalanceGains = node.whiteBalanceGains || node.data?.whiteBalanceGains || { r: 1, g: 1, b: 1 };
+        serialized.customWhiteBalanceGains = node.customWhiteBalanceGains || node.data?.customWhiteBalanceGains || serialized.whiteBalanceGains;
+        serialized.autoWhiteBalanceGains = node.autoWhiteBalanceGains || node.data?.autoWhiteBalanceGains || { r: 1, g: 1, b: 1 };
+        serialized.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint || node.data?.whiteBalanceSamplePoint || null;
+        serialized.whiteBalanceStatus = node.whiteBalanceStatus || node.data?.whiteBalanceStatus || 'idle';
+        serialized.whiteBalanceMessage = node.whiteBalanceMessage || node.data?.whiteBalanceMessage || '';
+        serialized.temperature = config.temperature;
+        serialized.tint = config.tint;
+        serialized.vibrance = config.vibrance;
+        serialized.saturation = config.saturation;
     }
     if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
         serialized.referenceImageCount = Math.max(0, parseInt(node.referenceImageCount ?? node.data?.referenceImageCount ?? '5', 10) || 0);
@@ -432,6 +446,7 @@ export function createWorkflowRuntimeManager({
     dataURLtoBlob,
     blobToDataUrl,
     resizeImageData,
+    processColorResetImage,
     copyToClipboard,
     debounce,
     fitNodeToContent,
@@ -1456,6 +1471,7 @@ export function createWorkflowRuntimeManager({
             resumeImageGeneration: (nodeId) => runtimeRunnerApi?.resumeImageNodeBranch?.(nodeId),
             setupImageImport: () => {},
             setupImageResize: () => {},
+            setupColorReset: () => {},
             setupImageSave: () => {},
             setupImagePreview: () => {},
             setupImageCompare: () => {},
@@ -1530,8 +1546,10 @@ export function createWorkflowRuntimeManager({
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
+            processColorResetImage,
             autoSaveToDir: runtimeAutoSaveToDir,
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
+            restoreColorResetPreview: () => {},
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,

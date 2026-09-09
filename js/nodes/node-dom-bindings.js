@@ -50,6 +50,7 @@ export function createNodeDomBindingsApi({
     resumeImageGeneration = async () => {},
     setupImageImport,
     setupImageResize,
+    setupColorReset,
     setupImageSave,
     setupImagePreview,
     setupImageCompare,
@@ -2620,6 +2621,7 @@ export function createNodeDomBindingsApi({
             fitNodeToContent(id);
         }
         else if (type === 'ImageResize') setupImageResize(id, el);
+        else if (type === 'ColorReset') setupColorReset(id, el);
         else if (type === 'ImageSave') setupImageSave(id, el);
         else if (type === 'ImagePreview') setupImagePreview(id, el);
         else if (type === 'ImageMerge') {

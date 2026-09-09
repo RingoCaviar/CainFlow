@@ -15,6 +15,7 @@ import {
 import { getReferenceImageCount } from './reference-image-ports.js';
 import { withMinimumMeasurementHeights } from './node-minimum-measurement.js';
 import { settleNodeContentLayout } from './node-layout-settlement.js';
+import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -440,11 +441,11 @@ export function createNodeLifecycleApi({
     }
 
     function isCanonicalImageNodeType(type) {
-        return type === 'ImageGenerate' || type === 'ImageMerge' || isDisplayImageNodeType(type);
+        return definitionHasCapability(nodeConfigs[type], NODE_CAPABILITIES.CANONICAL_IMAGES);
     }
 
     function isRecoverableImageAssetNodeType(type) {
-        return isCanonicalImageNodeType(type) || type === 'ImageResize' || type === 'ImageCompare';
+        return definitionHasCapability(nodeConfigs[type], NODE_CAPABILITIES.RECOVERABLE_IMAGE_ASSET);
     }
 
     function getNodePersistedPreviewThumbnail(node, restoreData = null) {
@@ -1192,6 +1193,15 @@ export function createNodeLifecycleApi({
             resizePreviewData: null,
             resizePreviewMeta: null,
             resizePreviewToken: 0,
+            colorResetPreviewData: null,
+            colorResetPreviewMeta: null,
+            colorResetPreviewToken: 0,
+            whiteBalanceGains: effectiveRestoreData?.whiteBalanceGains || { r: 1, g: 1, b: 1 },
+            customWhiteBalanceGains: effectiveRestoreData?.customWhiteBalanceGains || effectiveRestoreData?.whiteBalanceGains || { r: 1, g: 1, b: 1 },
+            autoWhiteBalanceGains: effectiveRestoreData?.autoWhiteBalanceGains || { r: 1, g: 1, b: 1 },
+            whiteBalanceSamplePoint: effectiveRestoreData?.whiteBalanceSamplePoint || null,
+            whiteBalanceStatus: effectiveRestoreData?.whiteBalanceStatus || 'idle',
+            whiteBalanceMessage: effectiveRestoreData?.whiteBalanceMessage || '',
             providerId: effectiveRestoreData?.providerId || '',
             width: initialWidth,
             height: initialHeight,
@@ -1344,7 +1354,7 @@ export function createNodeLifecycleApi({
             }
         } else if (isDisplayImageNodeType(normalizedType)) {
             nodeData.imagePreviewIndex = 0;
-        } else if (restoredPreviewThumbnail && (normalizedType === 'ImageGenerate' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare' || normalizedType === 'ImageImport')) {
+        } else if (restoredPreviewThumbnail && definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.PREVIEW_THUMBNAIL_RESTORE)) {
             renderRecoverableNodePreviewThumbnail(normalizedType, id, nodeData, restoredPreviewThumbnail, effectiveRestoreData);
         }
         if (normalizedType === 'ImageGenerate' && restoredImages.length > 0) {
@@ -1498,7 +1508,7 @@ export function createNodeLifecycleApi({
         }, true);
         bindNodeSizeObserver(nodeData);
 
-        if (normalizedType === 'ImageImport' || normalizedType === 'ImagePreview' || normalizedType === 'ImageSave' || normalizedType === 'ImageResize' || normalizedType === 'ImageCompare' || normalizedType === 'ImageGenerate' || normalizedType === 'ImageMerge') {
+        if (definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.IMAGE_RESTORE)) {
             enqueueImageRestoreTask(async () => {
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
@@ -1509,6 +1519,7 @@ export function createNodeLifecycleApi({
                     && (normalizedType === 'ImageGenerate'
                         || normalizedType === 'ImageResize'
                         || normalizedType === 'ImageCompare'
+                        || normalizedType === 'ColorReset'
                         || (normalizedType === 'ImageImport' && !isImportUrlMode))
                 );
                 console.info('[media-restore]', {

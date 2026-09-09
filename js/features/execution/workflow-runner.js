@@ -16,6 +16,12 @@ import {
 import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { getProjectedInputValidationReason } from '../../nodes/generation-input-projection.js';
+import {
+    clearDerivedImagePreview,
+    getDerivedImagePreview,
+    isDerivedImagePreviewNode,
+    setDerivedImagePreview
+} from '../../nodes/derived-image-preview.js';
 
 export function shouldRunNodeForEachInput(node, inputs) {
     if (!node) return false;
@@ -588,7 +594,7 @@ export function createWorkflowRunnerApi({
 
     function getRecoverableImageList(node) {
         if (!node) return [];
-        if (node.type === 'ImageResize') {
+        if (isDerivedImagePreviewNode(node)) {
             return getFirstNonEmptyImageList(
                 node.data?.imageList,
                 node.data?.images,
@@ -596,7 +602,7 @@ export function createWorkflowRunnerApi({
                 node.generatedImages,
                 node.data?.image,
                 node.imageData,
-                node.resizePreviewData
+                getDerivedImagePreview(node)
             );
         }
         if (node.type === 'ImageCompare') {
@@ -711,7 +717,7 @@ export function createWorkflowRunnerApi({
             node.imageDataList,
             node.imageData,
             node.generatedImages,
-            node.resizePreviewData,
+            getDerivedImagePreview(node),
             node.compareImageA,
             node.compareImageB
         ];
@@ -762,7 +768,7 @@ export function createWorkflowRunnerApi({
             delete node.data.compareImageB;
         }
         node.imagePromptList = [];
-        node.resizePreviewData = null;
+        clearDerivedImagePreview(node);
         node.resizePreviewMeta = null;
         node.compareImageA = null;
         node.compareImageB = null;
@@ -864,11 +870,11 @@ export function createWorkflowRunnerApi({
         const currentImage = restoredImages[restoredImages.length - 1] || restoredImages[0] || '';
         if (node.type === 'ImageGenerate') {
             node.generationCompletedCount = restoredImages.length;
-        } else if (node.type === 'ImageResize') {
+        } else if (isDerivedImagePreviewNode(node)) {
             node.data.image = currentImage;
             node.imageData = currentImage;
             node.imageDataList = restoredImages.slice();
-            node.resizePreviewData = currentImage;
+            setDerivedImagePreview(node, currentImage);
         } else if (node.type === 'ImageCompare') {
             node.data.image = currentImage;
             node.data.compareImageB = currentImage;

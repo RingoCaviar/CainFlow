@@ -980,6 +980,18 @@
                 <path d="m9 18 6-6-6-6"></path>
             </svg>
         </div>
+        <div class="context-menu-item context-menu-item-submenu" data-submenu-target="context-menu-color-nodes">
+            <span class="context-menu-item-main">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="9"></circle><path d="M12 3v18"></path><path d="M12 12 19 7"></path><path d="M12 12 5 17"></path>
+                </svg>
+                调色
+            </span>
+            <svg class="context-menu-submenu-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"></path>
+            </svg>
+        </div>
         <div class="context-menu-item context-menu-item-submenu" data-submenu-target="context-menu-text-nodes">
             <span class="context-menu-item-main">
                 <svg class="icon-sm">
@@ -1060,6 +1072,16 @@
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
             </svg>
             视频生成
+        </div>
+    </div>
+
+    <div id="context-menu-color-nodes" class="context-menu hidden context-menu-submenu" data-context-submenu>
+        <div class="context-menu-header">调色</div>
+        <div class="context-menu-item" data-type="ColorReset">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9"></circle><path d="M12 3v18"></path><path d="M12 12 19 7"></path><path d="M12 12 5 17"></path>
+            </svg>
+            复位颜色
         </div>
     </div>
 
