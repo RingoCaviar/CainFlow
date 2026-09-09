@@ -47,6 +47,23 @@ import {
     persistWorkflowRenameIfEligible
 } from './workflow-folder-policy.js';
 
+export function workflowHasMissingMedia(tab) {
+    return (tab?.data?.nodes || []).some((node) => (
+        node?.mediaIntegrity?.state === 'missing'
+        || node?.data?.mediaIntegrity?.state === 'missing'
+    ));
+}
+
+export function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult, missingMedia = false }) {
+    if (running) return '\u8fd0\u884c\u4e2d';
+    if (runResult === 'success') return '\u5df2\u5b8c\u6210';
+    if (runResult === 'error') return '\u5931\u8d25';
+    if (missingMedia) return '\u5a92\u4f53\u7f3a\u5931';
+    if (isActive) return '\u5f53\u524d';
+    if (isOpen) return '\u5df2\u6253\u5f00';
+    return '';
+}
+
 export function createWorkflowManagerApi({
     state,
     nodeSerializer,
@@ -945,7 +962,13 @@ export function createWorkflowManagerApi({
         item.classList.toggle('is-run-error', runResult === RUN_RESULT_ERROR);
         item.classList.toggle('is-selected', selectedWorkflowNames.has(name));
         const stateLabel = item.querySelector('.workflow-item-state');
-        if (stateLabel) stateLabel.textContent = getWorkflowCardStateLabel({ isActive, isOpen, running: isWorkflowRunning(tab), runResult });
+        if (stateLabel) stateLabel.textContent = getWorkflowCardStateLabel({
+            isActive,
+            isOpen,
+            running: isWorkflowRunning(tab),
+            runResult,
+            missingMedia: workflowHasMissingMedia(tab)
+        });
     }
 
     function refreshWorkflowSelectionUi() {
@@ -1500,15 +1523,6 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult }) {
-        if (running) return '\u8fd0\u884c\u4e2d';
-        if (runResult === RUN_RESULT_SUCCESS) return '\u5df2\u5b8c\u6210';
-        if (runResult === RUN_RESULT_ERROR) return '\u5931\u8d25';
-        if (isActive) return '\u5f53\u524d';
-        if (isOpen) return '\u5df2\u6253\u5f00';
-        return '';
-    }
-
     function clearWorkflowRunResult(name) {
         const tab = getWorkflowTab(name);
         if (!tab || !tab.runResult) return false;
@@ -1539,6 +1553,13 @@ export function createWorkflowManagerApi({
     function markActiveWorkflowDirty() {
         const tab = snapshotActiveWorkflow({ markDirty: true });
         if (tab) refreshWorkflowCardState(tab.name);
+    }
+
+    function refreshActiveWorkflowIntegrityState() {
+        const tab = snapshotActiveWorkflow({ markDirty: false });
+        if (!tab) return false;
+        refreshWorkflowCardState(tab.name);
+        return true;
     }
 
     function normalizeWorkflowTabs() {
@@ -2175,7 +2196,13 @@ export function createWorkflowManagerApi({
              draggable="true">
             <span class="workflow-select-check" aria-hidden="true"></span>
             <span class="workflow-item-name" title="${escapeHtml(name)}" aria-label="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
-            <span class="workflow-item-state">${getWorkflowCardStateLabel({ isActive, isOpen, running, runResult })}</span>
+            <span class="workflow-item-state">${getWorkflowCardStateLabel({
+                isActive,
+                isOpen,
+                running,
+                runResult,
+                missingMedia: workflowHasMissingMedia(tab)
+            })}</span>
             <span class="workflow-dirty-dot" aria-hidden="true"></span>
         </div>
     `;
@@ -2967,6 +2994,7 @@ export function createWorkflowManagerApi({
         saveActiveWorkflow,
         saveAllOpenWorkflows,
         markActiveWorkflowDirty,
+        refreshActiveWorkflowIntegrityState,
         snapshotActiveWorkflow,
         getActiveWorkflowName,
         getActiveWorkflowId,

@@ -240,3 +240,39 @@ test('restored image batches transfer every owner to the undo snapshot before de
         ['workflow-node', 'workflow-1:batch-restored', 'media:second']
     ]);
 });
+
+test('reopening a node restores Missing Media asset state without Node execution failure', () => {
+    const children = [];
+    const nodesLayer = { children, appendChild(element) { children.push(element); } };
+    const documentRef = {
+        defaultView: { setTimeout: () => 0, clearTimeout: () => {} },
+        createElement: () => ({
+            style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {}
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 } };
+    const lifecycle = createNodeLifecycleApi({
+        state,
+        nodeConfigs: { ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320 } },
+        createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'reopened',
+        getImageAsset: async () => null, saveImageAsset: async () => false,
+        bindNodeInteractions: () => {}, pushHistory: () => {}, scheduleSave: () => {}, showToast: () => {},
+        updateAllConnections: () => {}, updatePortStyles: () => {}, getCacheSidebarActive: () => false,
+        updateCacheUsage: () => {}, documentRef
+    });
+    const mediaIntegrity = {
+        state: 'missing', mediaType: 'image', ownerType: 'workflow-node', itemCount: 2,
+        missingItems: [{ position: 1, assetKey: 'media:missing', workflowId: 'wf', nodeId: 'reopened' }]
+    };
+
+    lifecycle.addNode('ImageGenerate', 0, 0, {
+        id: 'reopened', mediaAssetKeys: ['media:present', 'media:missing'], mediaIntegrity, isFailed: true
+    }, true);
+    const reopened = state.nodes.get('reopened');
+    assert.deepEqual(reopened.data.mediaAssetKeys, ['media:present', 'media:missing']);
+    assert.deepEqual(reopened.data.mediaIntegrity, mediaIntegrity);
+    assert.equal(reopened.isFailed, false);
+});

@@ -1260,6 +1260,7 @@ else:
             }, {
                 'id': 'missing-owner', 'type': 'ImageGenerate', 'output': {'assetKey': present['asset_key']},
             }]}]
+            original_workflows = json.loads(json.dumps(workflows))
             first = service.scan_media_integrity_page(workflows, batch_size=1)
             self.assertFalse(first['complete'])
 
@@ -1275,6 +1276,7 @@ else:
                             classes)
             self.assertEqual(1, repairs_applied)
             self.assertEqual('gc_suspended', restarted.get_storage_safety_status()['state'])
+            self.assertEqual(original_workflows, workflows)
 
     def test_clean_integrity_report_is_published_with_healthy_state_atomically(self):
         with tempfile.TemporaryDirectory() as root:

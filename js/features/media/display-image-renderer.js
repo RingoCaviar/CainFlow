@@ -316,9 +316,13 @@ export function createDisplayImageRenderer({
             node.imagePreviewIndex = index;
             node.data = node.data || {};
         }
-        const image = imageList.length > 1
-            ? (imageList[index] || imageList[0])
-            : (imageList[0] || '');
+        const missingPositions = new Set((node?.data?.mediaIntegrity?.missingItems || [])
+            .map((item) => Number(item.position))
+            .filter(Number.isInteger));
+        const presentIndex = index - Array.from(missingPositions)
+            .filter((position) => position < index)
+            .length;
+        const image = missingPositions.has(index) ? '' : (imageList[presentIndex] || '');
         renderReusableMultiImagePreview(container, image, index, safeTotal, {
             altPrefix,
             placeholderClass,
@@ -326,6 +330,16 @@ export function createDisplayImageRenderer({
             cursor,
             placeholderWithIcon
         });
+        if (!image && missingPositions.has(index) && safeTotal > 1) {
+            ensureElement(container, '.image-save-preview-prev', () => createPreviewNavButton(-1));
+            ensureElement(container, '.image-save-preview-next', () => createPreviewNavButton(1));
+            const counter = ensureElement(container, '.image-save-preview-counter', () => {
+                const element = documentRef.createElement('div');
+                element.className = 'image-save-preview-counter';
+                return element;
+            });
+            counter.textContent = `${index + 1}/${safeTotal}`;
+        }
         return { imageList, totalCount: safeTotal, index, image };
     }
 

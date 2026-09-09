@@ -1234,6 +1234,9 @@ export function createNodeLifecycleApi({
                 nodeData.data.imageImportAssetKey = restoredMediaAssetKeys[0];
             }
         }
+        if (effectiveRestoreData?.mediaIntegrity?.state === 'missing') {
+            nodeData.data.mediaIntegrity = JSON.parse(JSON.stringify(effectiveRestoreData.mediaIntegrity));
+        }
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
         }

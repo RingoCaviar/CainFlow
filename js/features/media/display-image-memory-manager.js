@@ -6,6 +6,7 @@ import {
     getCanonicalImageList,
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
+import { projectMissingMediaAssets, renderMissingMediaPlaceholders } from './missing-media-integrity.js';
 
 const DISPLAY_IMAGE_RELEASE_PADDING = 900;
 const DISPLAY_IMAGE_HYDRATE_PADDING = 420;
@@ -45,7 +46,10 @@ export function createDisplayImageMemoryManager({
     createPreviewNavButton = null,
     documentRef = document,
     windowRef = window,
-    canvasContainer = null
+    canvasContainer = null,
+    getActiveWorkflowId = () => '',
+    showToast = () => {},
+    onMediaIntegrityChanged = () => {}
 }) {
     const displayImageAssetState = new Map();
     const fullscreenPreviewNodeIds = new Set();
@@ -441,10 +445,23 @@ export function createDisplayImageMemoryManager({
         if (node.id && node.id !== assetKey) setAssetState(node.id, 'ready');
     }
 
-    async function readStoredImages(assetKey) {
+    async function readStoredImages(assetKey, node = null) {
         if (!assetKey) return [];
         try {
             const mediaAssetKeys = Array.isArray(assetKey) ? assetKey : [assetKey];
+            if (node && mediaAssetKeys.length > 0 && mediaAssetKeys.every((key) => typeof key === 'string' && key.startsWith('media:'))) {
+                const projected = await projectMissingMediaAssets({
+                    workflowId: getActiveWorkflowId(), node, assetKeys: mediaAssetKeys,
+                    ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node',
+                    loadAsset: getImageAsset,
+                    notify: showToast,
+                    onIntegrityChange: onMediaIntegrityChanged
+                });
+                const config = getManagedPreviewContainerConfig(node);
+                const container = config ? documentRef.getElementById(config.containerId) : null;
+                windowRef.setTimeout(() => renderMissingMediaPlaceholders(node, container, documentRef), 0);
+                return normalizeImageList(projected.filter((item) => !item.missing).map((item) => item.value));
+            }
             if (mediaAssetKeys.length > 1 && mediaAssetKeys.every((key) => typeof key === 'string' && key.startsWith('media:'))) {
                 const images = await Promise.all(mediaAssetKeys.map((key) => getImageAsset(key)));
                 return normalizeImageList(images);
@@ -473,7 +490,7 @@ export function createDisplayImageMemoryManager({
 
         const imageList = getManagedNodeImageList(node);
         if (imageList.length === 0) {
-            const existingImages = await readStoredImages(assetKey);
+            const existingImages = await readStoredImages(assetKey, node);
             if (existingImages.length > 0) {
                 node.data.imageCount = Math.max(getStoredImageCount(node), existingImages.length);
                 markManagedImageAssetReady(node, assetKey);
@@ -815,7 +832,7 @@ export function createDisplayImageMemoryManager({
             return currentImageList;
         }
 
-        const restoredImages = await readStoredImages(mediaAssetKeys.length > 0 ? mediaAssetKeys : assetKey);
+        const restoredImages = await readStoredImages(mediaAssetKeys.length > 0 ? mediaAssetKeys : assetKey, node);
 
         if (restoredImages.length > 0) {
             return applyRestoredImagesToNode(node, restoredImages, assetKey);

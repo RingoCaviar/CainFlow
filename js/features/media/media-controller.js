@@ -86,6 +86,7 @@ export function createMediaControllerApi({
     showToast,
     addLog,
     scheduleSave,
+    onMediaIntegrityChanged = () => {},
     syncCameraControlNodePreview = () => {},
     syncClonesFromSource = () => {},
     openImagePainter,
@@ -212,7 +213,10 @@ export function createMediaControllerApi({
         createPreviewNavButton,
         documentRef,
         windowRef,
-        canvasContainer
+        canvasContainer,
+        getActiveWorkflowId,
+        showToast,
+        onMediaIntegrityChanged
     });
 
     function hasIncomingImageConnection(nodeId) {

@@ -116,6 +116,9 @@ export function createNodeSerializer({ state, documentRef }) {
                 ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key)
                 : (imageAssetKey.startsWith('media:') ? [imageAssetKey] : []);
             if (mediaAssetKeys.length > 0) serialized.mediaAssetKeys = mediaAssetKeys;
+            if (node.data?.mediaIntegrity?.state === 'missing') {
+                serialized.mediaIntegrity = JSON.parse(JSON.stringify(node.data.mediaIntegrity));
+            }
             if (usesCanonicalImages) {
                 if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
                 if (imageCount > 0) serialized.imageCount = imageCount;
