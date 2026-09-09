@@ -32,6 +32,14 @@ class StorageServiceTests(unittest.TestCase):
             'ownerType': 'workflow-node', 'ownerId': owner_id, 'assetKeys': asset_keys,
         }])
 
+    def finish_integrity_scan(self, service, workflows, batch_size=100):
+        repairs = 0
+        while True:
+            result = service.scan_media_integrity_page(workflows, batch_size=batch_size)
+            repairs += result.get('repairsApplied', 0)
+            if result.get('complete'):
+                return result, repairs
+
     def test_documents_are_atomic_json_records(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
@@ -1271,11 +1279,16 @@ else:
     def test_clean_integrity_report_is_published_with_healthy_state_atomically(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, verified=False)
-            result = service.scan_media_integrity_page([], batch_size=100)
+            result, _ = self.finish_integrity_scan(service, [])
 
             self.assertTrue(result['complete'])
             self.assertEqual([], result['report']['damageItems'])
             self.assertIsInstance(result['report']['cutoffRevision'], int)
+            self.assertEqual({
+                'pendingTransitionCount': 0, 'highRiskDamageCount': 0,
+                'quarantineValid': True, 'quarantineItemCount': 0,
+                'collectionCandidateCount': 0,
+            }, result['report']['verification'])
             status = service.get_storage_safety_status()
             self.assertEqual('healthy', status['state'])
             self.assertEqual(result['report']['reportId'], status['reportId'])
@@ -1302,7 +1315,7 @@ else:
             missing = service.put_asset('media:missing', b'missing', 'image/png', 'media')
             os.remove(os.path.join(service.assets_dir, missing['relative_path']))
 
-            result = service.scan_media_integrity_page([], batch_size=100)
+            result, _ = self.finish_integrity_scan(service, [])
 
             self.assertTrue(result['complete'])
             self.assertEqual({'missing_file'}, {item['damageClass'] for item in result['report']['damageItems']})
@@ -1317,10 +1330,82 @@ else:
             service.put_asset('media:second', b'second', 'image/png', 'media')
 
             replay = service.scan_media_integrity_page([], batch_size=100)
+            while not replay['checkpoint']['rescanSet']:
+                replay = service.scan_media_integrity_page([], batch_size=100)
 
             self.assertFalse(replay['complete'])
             self.assertIn('assets', replay['checkpoint']['rescanSet'])
             self.assertIsNone(service.get_media_integrity_report())
+
+    def test_integrity_sources_return_only_the_requested_stable_page(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            for index in range(5):
+                service.put_asset(f'media:{index}', str(index).encode(), 'image/png', 'media')
+
+            first, cursor, done, _ = service._integrity_source_page('assets', 0, 2, [])
+            second, next_cursor, second_done, _ = service._integrity_source_page('assets', cursor, 2, [])
+
+            self.assertEqual(2, len(first))
+            self.assertEqual(2, len(second))
+            self.assertFalse(done)
+            self.assertFalse(second_done)
+            self.assertGreater(next_cursor, cursor)
+            self.assertTrue(set(item['asset_key'] for item in first).isdisjoint(
+                item['asset_key'] for item in second))
+
+    def test_integrity_batch_size_adapts_to_page_cost(self):
+        self.assertEqual(20, StorageService._next_integrity_batch_size(10, 0.001))
+        self.assertEqual(5, StorageService._next_integrity_batch_size(10, 0.1))
+        self.assertEqual(10, StorageService._next_integrity_batch_size(10, 0.02))
+
+    def test_filesystem_change_after_validation_forces_a_rescan_before_publish(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            original_publish = service._publish_integrity_report
+            inserted = False
+
+            def publish(*args, **kwargs):
+                nonlocal inserted
+                if not inserted:
+                    inserted = True
+                    with open(os.path.join(service.assets_dir, 'late.bin'), 'wb') as output:
+                        output.write(b'late')
+                return original_publish(*args, **kwargs)
+
+            service._publish_integrity_report = publish
+            result, _ = self.finish_integrity_scan(service, [])
+
+            self.assertTrue(inserted)
+            self.assertIn('unregistered_file', {
+                item['damageClass'] for item in result['report']['damageItems']})
+
+    def test_changed_workflow_snapshot_is_replayed_before_publication(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:workflow-change', b'change', 'image/png', 'media')
+            service.scan_media_integrity_page([], batch_size=1)
+            workflow = {'workflowId': 'wf', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': asset['asset_key']},
+            }]}
+
+            result, repairs = self.finish_integrity_scan(service, [workflow], batch_size=1)
+
+            self.assertEqual(1, repairs)
+            self.assertEqual([], result['report']['damageItems'])
+
+    def test_invalid_quarantine_state_keeps_the_published_report_guarded(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:quarantine', b'q', 'image/png', 'media')
+            with service._connect() as database:
+                database.execute('''INSERT INTO media_asset_quarantine(asset_key, state, quarantined_at)
+                    VALUES(?, 'invalid', 1)''', (asset['asset_key'],))
+
+            result, _ = self.finish_integrity_scan(service, [])
+
+            self.assertFalse(result['report']['verification']['quarantineValid'])
+            self.assertEqual('gc_suspended', service.get_storage_safety_status()['state'])
 
     def test_active_integrity_coordinator_lease_rejects_a_second_process(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1344,13 +1429,11 @@ else:
                 'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': asset['asset_key']},
             }]}
 
-            repaired = service.scan_media_integrity_page([workflow], batch_size=100)
+            completed, repairs = self.finish_integrity_scan(service, [workflow])
 
-            self.assertFalse(repaired['complete'])
-            self.assertEqual(1, repaired['repairsApplied'])
+            self.assertEqual(1, repairs)
             owner = service.get_media_owner_reference_list('wf', 'workflow-node', 'node-a')
             self.assertEqual([asset['asset_key']], owner['assetKeys'])
-            completed = service.scan_media_integrity_page([workflow], batch_size=100)
             self.assertTrue(completed['complete'])
             self.assertEqual([], completed['report']['damageItems'])
             self.assertEqual('healthy', service.get_storage_safety_status()['state'])
@@ -1362,7 +1445,7 @@ else:
                 'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': 'media:absent'},
             }]}
 
-            result = service.scan_media_integrity_page([workflow], batch_size=100)
+            result, _ = self.finish_integrity_scan(service, [workflow])
 
             self.assertTrue(result['complete'])
             self.assertIn('missing_owner', {item['damageClass'] for item in result['report']['damageItems']})
@@ -1381,7 +1464,7 @@ else:
                 return original(path)
 
             service._inspect_integrity_file = inspect
-            result = service.scan_media_integrity_page([], batch_size=100)
+            result, _ = self.finish_integrity_scan(service, [])
 
             self.assertTrue(result['complete'])
             classes = {item['damageClass'] for item in result['report']['damageItems']}
@@ -1405,7 +1488,7 @@ else:
                 return original(candidate)
 
             service._inspect_integrity_file = inspect
-            result = service.scan_media_integrity_page([], batch_size=100)
+            result, _ = self.finish_integrity_scan(service, [])
 
             self.assertTrue(result['complete'])
             self.assertGreaterEqual(calls, 2)
@@ -1428,7 +1511,7 @@ else:
                 'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': asset['asset_key']},
             }]}
 
-            result = service.scan_media_integrity_page([workflow], batch_size=100)
+            result, _ = self.finish_integrity_scan(service, [workflow])
 
             self.assertTrue(result['complete'])
             self.assertIn('missing_owner', {item['damageClass'] for item in result['report']['damageItems']})

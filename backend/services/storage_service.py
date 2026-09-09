@@ -16,14 +16,14 @@ from urllib.parse import quote, unquote_to_bytes
 from backend import config
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo', 'redo'}
 MEDIA_OWNER_NODE_TYPES = {
     'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
 }
 STORAGE_MODE_VERSION = 1
 INTEGRITY_REPORT_VERSION = 1
-INTEGRITY_SCANNER_VERSION = 1
+INTEGRITY_SCANNER_VERSION = 2
 MAX_SAFETY_STATE_BYTES = 64 * 1024
 FAST_CHECK_BUDGET_SECONDS = 1.0
 SAFETY_STATES = {'healthy', 'scan_required', 'scanning', 'gc_suspended', 'repair_required'}
@@ -127,6 +127,7 @@ class StorageService:
             'media_operation_owner_items',
             'media_cancelled_operation_owners',
             'media_integrity_changes', 'media_integrity_coordinator',
+            'media_asset_quarantine',
         }
         try:
             connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
@@ -296,75 +297,123 @@ class StorageService:
                 os.remove(temporary_path)
 
     @staticmethod
-    def _workflow_media_references(workflows):
-        references = []
-        for workflow in workflows or []:
-            workflow_id = str(workflow.get('workflowId') or '').strip() if isinstance(workflow, dict) else ''
-            revision = int(workflow.get('mediaOwnershipRevision') or 0) if workflow_id else 0
-            for node in workflow.get('nodes') or [] if workflow_id else []:
-                node_id = str(node.get('id') or '').strip() if isinstance(node, dict) else ''
-                if not node_id:
-                    continue
-                owner_type = 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node'
-                keys = []
-                stack = [node]
-                while stack:
-                    value = stack.pop()
-                    if isinstance(value, dict):
-                        for key, child in value.items():
-                            if key in {'assetKey', 'mediaAssetKey'} and isinstance(child, str) and child:
-                                keys.append(child)
-                            elif key in {'assetKeys', 'mediaAssetKeys'} and isinstance(child, list):
-                                keys.extend(str(item) for item in child if item)
-                            else:
-                                stack.append(child)
-                    elif isinstance(value, list):
-                        stack.extend(value)
-                ordered = list(dict.fromkeys(keys))
-                if ordered:
-                    references.append({
-                        'workflowId': workflow_id, 'revision': revision, 'ownerType': owner_type,
-                        'ownerId': node_id, 'assetKeys': ordered,
-                    })
-        return sorted(references, key=lambda item: (item['workflowId'], item['ownerType'], item['ownerId']))
+    def _workflow_node_media_reference(workflow, node):
+        workflow_id = str(workflow.get('workflowId') or '').strip() if isinstance(workflow, dict) else ''
+        node_id = str(node.get('id') or '').strip() if isinstance(node, dict) else ''
+        if not workflow_id or not node_id:
+            return None
+        keys = []
+        stack = [node]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key in {'assetKey', 'mediaAssetKey'} and isinstance(child, str) and child:
+                        keys.append(child)
+                    elif key in {'assetKeys', 'mediaAssetKeys'} and isinstance(child, list):
+                        keys.extend(str(item) for item in child if item)
+                    else:
+                        stack.append(child)
+            elif isinstance(value, list):
+                stack.extend(value)
+        ordered = list(dict.fromkeys(keys))
+        if not ordered:
+            return None
+        return {
+            'workflowId': workflow_id, 'revision': int(workflow.get('mediaOwnershipRevision') or 0),
+            'ownerType': 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node',
+            'ownerId': node_id, 'assetKeys': ordered,
+        }
 
-    def _integrity_partitions(self, workflows):
-        workflow_refs = self._workflow_media_references(workflows)
-        with self._connect() as db:
-            owners = [dict(row) for row in db.execute('''SELECT workflow_id, owner_type, owner_id,
+    @classmethod
+    def _workflow_media_references(cls, workflows):
+        return [reference for workflow in workflows or [] for node in workflow.get('nodes') or []
+                if (reference := cls._workflow_node_media_reference(workflow, node))]
+
+    def _integrity_source_page(self, source, cursor, limit, workflows):
+        """Read at most one bounded evidence page after a stable source cursor."""
+        limit = max(1, min(1000, int(limit)))
+        if source == 'workflows':
+            state = dict(cursor) if isinstance(cursor, dict) else {'workflowIndex': 0, 'nodeIndex': 0}
+            page = []
+            inspected = 0
+            workflow_list = workflows or []
+            while inspected < limit and state['workflowIndex'] < len(workflow_list):
+                workflow = workflow_list[state['workflowIndex']]
+                nodes = workflow.get('nodes') or [] if isinstance(workflow, dict) else []
+                if state['nodeIndex'] >= len(nodes):
+                    state['workflowIndex'] += 1
+                    state['nodeIndex'] = 0
+                    continue
+                node = nodes[state['nodeIndex']]
+                state['nodeIndex'] += 1
+                inspected += 1
+                reference = self._workflow_node_media_reference(workflow, node)
+                if reference:
+                    page.append(reference)
+            done = state['workflowIndex'] >= len(workflow_list)
+            return page, state, done, {}
+        queries = {
+            'owners': '''SELECT rowid AS scan_rowid, workflow_id, owner_type, owner_id,
                 generation, document_revision, tombstoned FROM media_asset_owners
-                ORDER BY workflow_id, owner_type, owner_id''')]
-            owner_items = [dict(row) for row in db.execute('''SELECT workflow_id, owner_type, owner_id,
-                position, asset_key FROM media_asset_owner_items
-                ORDER BY workflow_id, owner_type, owner_id, position''')]
-            refs = [dict(row) for row in db.execute('''SELECT owner_type, owner_id, asset_key
-                FROM media_asset_refs ORDER BY owner_type, owner_id, asset_key''')]
-            assets = [dict(row) for row in db.execute('SELECT * FROM assets ORDER BY asset_key')]
-            transitions = [dict(row) for row in db.execute('''SELECT idempotency_key, workflow_id,
+                WHERE rowid>? ORDER BY rowid LIMIT ?''',
+            'ownerItems': '''SELECT rowid AS scan_rowid, workflow_id, owner_type, owner_id,
+                position, asset_key FROM media_asset_owner_items WHERE rowid>? ORDER BY rowid LIMIT ?''',
+            'references': '''SELECT rowid AS scan_rowid, owner_type, owner_id, asset_key
+                FROM media_asset_refs WHERE rowid>? ORDER BY rowid LIMIT ?''',
+            'assets': '''SELECT rowid AS scan_rowid, * FROM assets WHERE rowid>? ORDER BY rowid LIMIT ?''',
+            'transitions': '''SELECT rowid AS scan_rowid, idempotency_key, workflow_id,
                 owner_type, owner_id, operation_id, status FROM media_asset_transitions
-                WHERE status NOT IN ('completed', 'superseded') ORDER BY idempotency_key''')]
-        files = []
-        source_errors = []
-        root = os.path.realpath(self.assets_dir)
-        for current, _, names in os.walk(root):
-            for name in names:
-                absolute = os.path.realpath(os.path.join(current, name))
-                if os.path.commonpath((root, absolute)) != root:
+                WHERE rowid>? AND status NOT IN ('completed', 'superseded') ORDER BY rowid LIMIT ?''',
+        }
+        if source in queries:
+            with self._connect() as db:
+                fetched = [dict(row) for row in db.execute(queries[source], (int(cursor or 0), limit + 1))]
+            done = len(fetched) <= limit
+            page = fetched[:limit]
+            next_cursor = page[-1]['scan_rowid'] if page else int(cursor or 0)
+            for row in page:
+                row.pop('scan_rowid', None)
+            return page, next_cursor, done, {}
+        if source == 'files':
+            root = os.path.realpath(self.assets_dir)
+            state = dict(cursor) if isinstance(cursor, dict) else {
+                'pendingDirectories': [''], 'currentDirectory': '', 'afterName': '',
+            }
+            page = []
+            directory_revisions = {}
+            while len(page) < limit and (state['currentDirectory'] or state['pendingDirectories']):
+                if not state['currentDirectory']:
+                    state['currentDirectory'] = state['pendingDirectories'].pop(0)
+                    state['afterName'] = ''
+                directory = os.path.realpath(os.path.join(root, state['currentDirectory']))
+                if os.path.commonpath((root, directory)) != root:
                     raise StorageError('Unsafe media path encountered during integrity scan')
-                relative = os.path.relpath(absolute, root).replace(os.sep, '/')
-                files.append(relative)
-                if not self._inspect_integrity_file_with_retry(absolute):
-                    source_errors.append({'source': 'files', 'item': relative, 'stage': 'inspect'})
-        partitions = {
-            'workflows': workflow_refs, 'owners': owners, 'ownerItems': owner_items,
-            'references': refs, 'assets': assets, 'files': sorted(files), 'transitions': transitions,
-            'sourceErrors': source_errors,
-        }
-        revisions = {
-            name: hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-            for name, rows in partitions.items()
-        }
-        return partitions, revisions
+                with os.scandir(directory) as iterator:
+                    entries = sorted(iterator, key=lambda entry: entry.name)
+                directory_revisions[state['currentDirectory']] = os.stat(directory).st_mtime_ns
+                exhausted = True
+                for entry in entries:
+                    if entry.name <= state['afterName']:
+                        continue
+                    state['afterName'] = entry.name
+                    relative = os.path.relpath(entry.path, root).replace(os.sep, '/')
+                    if entry.is_dir(follow_symlinks=False):
+                        state['pendingDirectories'].append(relative)
+                    elif entry.is_file(follow_symlinks=False):
+                        page.append(relative)
+                        if len(page) >= limit:
+                            exhausted = False
+                            break
+                if exhausted:
+                    state['currentDirectory'] = ''
+                    state['afterName'] = ''
+            done = not state['currentDirectory'] and not state['pendingDirectories']
+            return page, state, done, directory_revisions
+        if source == 'sourceErrors':
+            # File errors are collected alongside the bounded file page.
+            return [], cursor, True, {}
+        raise StorageError('Unknown Media integrity scan source')
 
     @staticmethod
     def _inspect_integrity_file(path):
@@ -429,7 +478,7 @@ class StorageService:
                        (int(time.time() * 1000) + 60000,))
             self._write_json_atomic(self._integrity_checkpoint_path, checkpoint)
 
-    def _publish_integrity_report(self, token, cutoff_revision, report, status):
+    def _publish_integrity_report(self, token, cutoff_revision, report, status, directory_revisions):
         """Publish only while ordinary writers are fenced at the declared cutoff."""
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -438,12 +487,31 @@ class StorageService:
                 'SELECT COALESCE(MAX(revision), 0) FROM media_integrity_changes').fetchone()[0])
             if (not lease or lease['coordinator_id'] != self._integrity_coordinator_id
                     or lease['lease_token'] != token or current_revision != int(cutoff_revision)
-                    or str(self._safety_status.get('storageEpoch')) != str(report['storageEpoch'])):
+                    or str(self._safety_status.get('storageEpoch')) != str(report['storageEpoch'])
+                    or not self._integrity_directories_match(directory_revisions)):
                 return False
+            verification = self._integrity_report_verification(db, report['damageItems'])
+            report['verification'] = verification
+            guarded = bool(report['damageItems']) or verification['pendingTransitionCount'] > 0 \
+                or not verification['quarantineValid']
+            status.update({
+                'state': 'gc_suspended' if guarded else 'healthy',
+                'reason': 'integrity_damage_detected' if guarded else 'integrity_scan_complete',
+                'recoveryConditions': (['resolve_integrity_damage', 'complete_integrity_scan']
+                                       if guarded else []),
+            })
             self._safety_status.update(status)
             self._safety_status['integrityReport'] = report
             self._write_safety_status(self._safety_status)
         return True
+
+    def _integrity_directories_match(self, revisions):
+        root = os.path.realpath(self.assets_dir)
+        try:
+            return all(os.stat(os.path.join(root, *relative.split('/'))).st_mtime_ns == expected
+                       for relative, expected in revisions.items())
+        except OSError:
+            return False
 
     @staticmethod
     def _valid_integrity_checkpoint(checkpoint, epoch, partition_names):
@@ -453,7 +521,9 @@ class StorageService:
             'scannerVersion': int, 'reportVersion': int, 'storageEpoch': str, 'scanId': str,
             'sourceIndex': int, 'cursor': int, 'partitionRevisions': dict, 'damageCounts': dict,
             'damageItems': list, 'rescanSet': list, 'rescanCount': int, 'startedAt': int,
-            'cutoffRevision': int,
+            'cutoffRevision': int, 'sourceCursors': dict, 'evidence': dict, 'nextBatchSize': int,
+            'phase': str, 'validationEvidence': dict,
+            'fileDirectoryRevisions': dict, 'validationFileDirectoryRevisions': dict,
         }
         if any(key not in checkpoint or not isinstance(checkpoint[key], expected)
                for key, expected in required.items()):
@@ -464,7 +534,14 @@ class StorageService:
             and checkpoint['storageEpoch'] == epoch
             and 0 <= checkpoint['sourceIndex'] <= len(partition_names)
             and checkpoint['cursor'] >= 0 and checkpoint['rescanCount'] >= 0
+            and 1 <= checkpoint['nextBatchSize'] <= 1000
             and set(checkpoint['partitionRevisions']) == set(partition_names)
+            and set(checkpoint['sourceCursors']) == set(partition_names)
+            and set(checkpoint['evidence']) == set(partition_names)
+            and set(checkpoint['validationEvidence']) == set(partition_names)
+            and all(isinstance(rows, list) for rows in checkpoint['evidence'].values())
+            and all(isinstance(rows, list) for rows in checkpoint['validationEvidence'].values())
+            and checkpoint['phase'] in {'scan', 'validate'}
             and all(isinstance(value, str) for value in checkpoint['partitionRevisions'].values())
             and all(name in partition_names for name in checkpoint['rescanSet'])
         )
@@ -498,19 +575,19 @@ class StorageService:
             self._release_integrity_scan(lease_token)
             self._set_scan_failure('integrity_checkpoint_invalid')
             raise StorageError('Media integrity checkpoint is invalid')
-        try:
-            partitions, revisions = self._integrity_partitions(workflows)
-        except (OSError, sqlite3.DatabaseError, StorageError):
-            self._release_integrity_scan(lease_token)
-            self._set_scan_failure('integrity_source_unreadable')
-            raise StorageError('Media integrity source is unreadable')
-        names = list(partitions)
+        names = partition_names
         now = int(time.time() * 1000)
         if not checkpoint:
             checkpoint = {
                 'scannerVersion': INTEGRITY_SCANNER_VERSION, 'reportVersion': INTEGRITY_REPORT_VERSION,
                 'storageEpoch': epoch, 'scanId': str(uuid.uuid4()), 'sourceIndex': 0, 'cursor': 0,
-                'partitionRevisions': revisions, 'damageCounts': {}, 'damageItems': [],
+                'partitionRevisions': {name: '' for name in names},
+                'sourceCursors': {name: ({'pendingDirectories': [''], 'currentDirectory': '', 'afterName': ''}
+                                         if name == 'files' else 0) for name in names},
+                'evidence': {name: [] for name in names}, 'nextBatchSize': batch_size,
+                'phase': 'scan', 'validationEvidence': {name: [] for name in names},
+                'fileDirectoryRevisions': {}, 'validationFileDirectoryRevisions': {},
+                'damageCounts': {}, 'damageItems': [],
                 'rescanSet': [], 'rescanCount': 0, 'startedAt': now,
                 'cutoffRevision': self._integrity_change_revision(),
             }
@@ -519,35 +596,88 @@ class StorageService:
             'recoveryConditions': ['complete_integrity_scan'],
         })
         self._write_safety_status(self._safety_status)
-        remaining = batch_size
-        while remaining and checkpoint['sourceIndex'] < len(names):
-            source = names[checkpoint['sourceIndex']]
-            rows = partitions[source]
-            start = checkpoint['cursor']
-            stop = min(len(rows), start + remaining)
-            checkpoint['cursor'] = stop
-            remaining -= stop - start
-            if stop >= len(rows):
-                checkpoint['sourceIndex'] += 1
-                checkpoint['cursor'] = 0
+        page_started = time.monotonic()
+        remaining = checkpoint['nextBatchSize']
+        try:
+            while remaining > 0 and checkpoint['sourceIndex'] < len(names):
+                source = names[checkpoint['sourceIndex']]
+                page, next_cursor, done, directory_revisions = self._integrity_source_page(
+                    source, checkpoint['sourceCursors'][source], remaining, workflows)
+                target = (checkpoint['evidence'] if checkpoint['phase'] == 'scan'
+                          else checkpoint['validationEvidence'])
+                target[source].extend(page)
+                if source == 'files':
+                    revision_target = (checkpoint['fileDirectoryRevisions'] if checkpoint['phase'] == 'scan'
+                                       else checkpoint['validationFileDirectoryRevisions'])
+                    revision_target.update(directory_revisions)
+                checkpoint['sourceCursors'][source] = next_cursor
+                if source == 'files':
+                    root = os.path.realpath(self.assets_dir)
+                    for relative in page:
+                        absolute = os.path.join(root, *relative.split('/'))
+                        if not self._inspect_integrity_file_with_retry(absolute):
+                            target['sourceErrors'].append({
+                                'source': 'files', 'item': relative, 'stage': 'inspect'})
+                if done:
+                    checkpoint['partitionRevisions'][source] = self._integrity_partition_digest(
+                        target[source])
+                    checkpoint['sourceIndex'] += 1
+                    checkpoint['cursor'] = 0
+                else:
+                    checkpoint['cursor'] += len(page)
+                remaining -= len(page)
+                if not done:
+                    break
+        except (OSError, sqlite3.DatabaseError, StorageError):
+            self._release_integrity_scan(lease_token)
+            self._set_scan_failure('integrity_source_unreadable')
+            raise StorageError('Media integrity source is unreadable')
+        checkpoint['nextBatchSize'] = self._next_integrity_batch_size(
+            checkpoint['nextBatchSize'], time.monotonic() - page_started)
+        if checkpoint['sourceIndex'] < len(names):
+            self._write_integrity_checkpoint(lease_token, checkpoint)
+            self._release_integrity_scan(lease_token)
+            return {'complete': False, 'cancelled': False, 'nextBatchSize': checkpoint['nextBatchSize'], 'checkpoint': {
+                key: checkpoint[key] for key in ('scanId', 'scannerVersion', 'reportVersion', 'storageEpoch',
+                                                  'sourceIndex', 'cursor', 'partitionRevisions', 'damageCounts', 'rescanSet')
+            }}
+        if checkpoint['phase'] == 'scan':
+            checkpoint.update({
+                'phase': 'validate', 'sourceIndex': 0, 'cursor': 0,
+                'sourceCursors': {name: ({'pendingDirectories': [''], 'currentDirectory': '', 'afterName': ''}
+                                         if name == 'files' else 0) for name in names},
+                'validationEvidence': {name: [] for name in names},
+                'validationFileDirectoryRevisions': {},
+            })
+            self._write_integrity_checkpoint(lease_token, checkpoint)
+            self._release_integrity_scan(lease_token)
+            return {'complete': False, 'cancelled': False, 'nextBatchSize': checkpoint['nextBatchSize'],
+                    'checkpoint': checkpoint}
+        partitions = checkpoint['evidence']
+        validation_revisions = {
+            name: self._integrity_partition_digest(checkpoint['validationEvidence'][name])
+            for name in names
+        }
+        scan_revisions = {
+            name: self._integrity_partition_digest(partitions[name]) for name in names
+        }
         checkpoint['damageItems'] = self._classify_integrity_damage(partitions, workflows)
         counts = {}
         for item in checkpoint['damageItems']:
             counts[item['damageClass']] = counts.get(item['damageClass'], 0) + 1
         checkpoint['damageCounts'] = counts
-        if checkpoint['sourceIndex'] < len(names):
-            self._write_integrity_checkpoint(lease_token, checkpoint)
-            self._release_integrity_scan(lease_token)
-            return {'complete': False, 'cancelled': False, 'checkpoint': {
-                key: checkpoint[key] for key in ('scanId', 'scannerVersion', 'reportVersion', 'storageEpoch',
-                                                  'sourceIndex', 'cursor', 'partitionRevisions', 'damageCounts', 'rescanSet')
-            }}
-        _, final_revisions = self._integrity_partitions(workflows)
-        changed = [name for name in names if final_revisions[name] != checkpoint['partitionRevisions'][name]]
+        final_revisions = validation_revisions
+        changed = [name for name in names if validation_revisions[name] != scan_revisions[name]]
         changed.extend(self._integrity_changed_partitions_after(checkpoint['cutoffRevision']))
         changed = sorted(set(changed))
         if changed:
-            checkpoint.update({'sourceIndex': 0, 'cursor': 0, 'partitionRevisions': final_revisions,
+            checkpoint.update({'sourceIndex': 0, 'cursor': 0,
+                               'partitionRevisions': {name: '' for name in names},
+                               'sourceCursors': {name: ({'pendingDirectories': [''], 'currentDirectory': '', 'afterName': ''}
+                                                        if name == 'files' else 0) for name in names},
+                               'evidence': {name: [] for name in names},
+                               'phase': 'scan', 'validationEvidence': {name: [] for name in names},
+                               'fileDirectoryRevisions': {}, 'validationFileDirectoryRevisions': {},
                                'rescanSet': changed, 'rescanCount': checkpoint['rescanCount'] + 1,
                                'cutoffRevision': self._integrity_change_revision()})
             self._write_integrity_checkpoint(lease_token, checkpoint)
@@ -556,10 +686,14 @@ class StorageService:
         repairs_applied = self._repair_integrity_damage(
             workflows, partitions, checkpoint['damageItems'], checkpoint['scanId'])
         if repairs_applied:
-            repaired_partitions, repaired_revisions = self._integrity_partitions(workflows)
             checkpoint.update({
-                'sourceIndex': 0, 'cursor': 0, 'partitionRevisions': repaired_revisions,
-                'damageItems': self._classify_integrity_damage(repaired_partitions, workflows),
+                'sourceIndex': 0, 'cursor': 0,
+                'partitionRevisions': {name: '' for name in names},
+                'sourceCursors': {name: ({'pendingDirectories': [''], 'currentDirectory': '', 'afterName': ''}
+                                         if name == 'files' else 0) for name in names},
+                'evidence': {name: [] for name in names}, 'damageItems': [],
+                'phase': 'scan', 'validationEvidence': {name: [] for name in names},
+                'fileDirectoryRevisions': {}, 'validationFileDirectoryRevisions': {},
                 'damageCounts': {}, 'rescanSet': ['owners', 'ownerItems', 'references'],
                 'rescanCount': checkpoint['rescanCount'] + 1,
                 'cutoffRevision': self._integrity_change_revision(),
@@ -576,16 +710,18 @@ class StorageService:
             'partitionRevisions': final_revisions, 'damageCounts': counts,
             'damageItems': checkpoint['damageItems'], 'rescanSet': changed,
         }
-        high_risk = bool(report['damageItems']) or bool(changed)
         published_status = {
-            'state': 'gc_suspended' if high_risk else 'healthy',
-            'reason': 'integrity_damage_detected' if high_risk else 'integrity_scan_complete',
             'detectedAt': now, 'reportId': report['reportId'], 'reportPublishedAt': now,
-            'recoveryConditions': ['resolve_integrity_damage', 'complete_integrity_scan'] if high_risk else [],
         }
         if not self._publish_integrity_report(
-                lease_token, checkpoint['cutoffRevision'], report, published_status):
+                lease_token, checkpoint['cutoffRevision'], report, published_status,
+                checkpoint['validationFileDirectoryRevisions']):
             checkpoint.update({'sourceIndex': 0, 'cursor': 0, 'partitionRevisions': final_revisions,
+                               'sourceCursors': {name: ({'pendingDirectories': [''], 'currentDirectory': '', 'afterName': ''}
+                                                        if name == 'files' else 0) for name in names},
+                               'evidence': {name: [] for name in names},
+                               'phase': 'scan', 'validationEvidence': {name: [] for name in names},
+                               'fileDirectoryRevisions': {}, 'validationFileDirectoryRevisions': {},
                                'rescanSet': names, 'rescanCount': checkpoint['rescanCount'] + 1,
                                'cutoffRevision': self._integrity_change_revision()})
             self._write_integrity_checkpoint(lease_token, checkpoint)
@@ -598,6 +734,19 @@ class StorageService:
         self._release_integrity_scan(lease_token)
         return {'complete': True, 'cancelled': False, 'report': report}
 
+    @staticmethod
+    def _integrity_partition_digest(rows):
+        return hashlib.sha256(json.dumps(
+            rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+    @staticmethod
+    def _next_integrity_batch_size(current_size, elapsed_seconds):
+        if elapsed_seconds > 0.05:
+            return max(1, int(current_size) // 2)
+        if elapsed_seconds < 0.01:
+            return min(1000, max(int(current_size) + 1, int(current_size) * 2))
+        return max(1, min(1000, int(current_size)))
+
     def _integrity_change_revision(self):
         with self._connect() as db:
             return int(db.execute('SELECT COALESCE(MAX(revision), 0) FROM media_integrity_changes').fetchone()[0])
@@ -606,6 +755,26 @@ class StorageService:
         with self._connect() as db:
             return [row[0] for row in db.execute('''SELECT DISTINCT partition_name
                 FROM media_integrity_changes WHERE revision>?''', (int(revision),))]
+
+    @staticmethod
+    def _integrity_report_verification(db, damage_items):
+        pending = int(db.execute('''SELECT COUNT(*) FROM media_asset_transitions
+            WHERE status NOT IN ('completed', 'superseded')''').fetchone()[0])
+        invalid_quarantine = int(db.execute('''SELECT COUNT(*) FROM media_asset_quarantine AS quarantine
+            LEFT JOIN assets ON assets.asset_key=quarantine.asset_key
+            WHERE assets.asset_key IS NULL OR quarantine.state NOT IN ('pending', 'quarantined', 'restoring')''').fetchone()[0])
+        quarantined = int(db.execute('SELECT COUNT(*) FROM media_asset_quarantine').fetchone()[0])
+        candidate_count = int(db.execute('''SELECT COUNT(*) FROM assets
+            WHERE NOT EXISTS(SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key)
+              AND NOT EXISTS(SELECT 1 FROM media_asset_owner_items WHERE media_asset_owner_items.asset_key=assets.asset_key)
+              AND NOT EXISTS(SELECT 1 FROM media_asset_quarantine WHERE media_asset_quarantine.asset_key=assets.asset_key)''').fetchone()[0])
+        return {
+            'pendingTransitionCount': pending,
+            'highRiskDamageCount': len(damage_items),
+            'quarantineValid': invalid_quarantine == 0,
+            'quarantineItemCount': quarantined,
+            'collectionCandidateCount': candidate_count,
+        }
 
     def _repair_integrity_damage(self, workflows, partitions, damage_items, scan_id):
         """Add only formal protection proven by a durable workflow; never release or fetch media."""
@@ -616,7 +785,7 @@ class StorageService:
         assets = {row['asset_key']: row for row in partitions['assets']}
         files = set(partitions['files'])
         unreadable_files = {error['item'] for error in partitions['sourceErrors'] if error['source'] == 'files'}
-        expected = self._workflow_media_references(workflows)
+        expected = partitions['workflows']
         manifests_by_workflow = {}
         for item in expected:
             manifests_by_workflow.setdefault((item['workflowId'], item['revision']), []).append({
@@ -868,6 +1037,12 @@ class StorageService:
                     coordinator_id TEXT NOT NULL,
                     lease_token TEXT NOT NULL,
                     lease_expires_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS media_asset_quarantine (
+                    asset_key TEXT PRIMARY KEY,
+                    state TEXT NOT NULL,
+                    quarantined_at INTEGER NOT NULL,
+                    FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE RESTRICT
                 );
                 CREATE TRIGGER IF NOT EXISTS media_integrity_assets_insert AFTER INSERT ON assets
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('assets', unixepoch()*1000); END;

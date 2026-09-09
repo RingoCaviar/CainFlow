@@ -232,12 +232,16 @@ def print_banner():
 
 
 def _recover_media_transitions():
-    workflows = []
-    for name in workflow_service.list_workflows(config.WORKFLOWS_DIR).get('workflows', []):
-        try:
-            workflows.append(json.loads(workflow_service.load_workflow(name).decode('utf-8')))
-        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
+    def load_current_workflows():
+        workflows = []
+        for name in workflow_service.list_workflows(config.WORKFLOWS_DIR).get('workflows', []):
+            try:
+                workflows.append(json.loads(workflow_service.load_workflow(name).decode('utf-8')))
+            except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+        return workflows
+
+    workflows = load_current_workflows()
     storage_service.recover_workflow_operation_owners(workflows)
     cursor = ''
     while not _storage_recovery_stop.is_set():
@@ -253,7 +257,7 @@ def _recover_media_transitions():
         _storage_recovery_stop.wait(0.05)
     while not _storage_recovery_stop.is_set():
         try:
-            scan = storage_service.scan_media_integrity_page(workflows, batch_size=100)
+            scan = storage_service.scan_media_integrity_page(load_current_workflows(), batch_size=100)
         except Exception:
             print('Media integrity scan paused; its safety latch and checkpoint are retained.')
             return
