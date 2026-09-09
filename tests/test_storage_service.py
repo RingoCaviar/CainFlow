@@ -1257,12 +1257,15 @@ else:
 
             restarted = self.make_service(root, verified=False)
             result = first
+            repairs_applied = 0
             while not result['complete']:
                 result = restarted.scan_media_integrity_page(workflows, batch_size=2)
+                repairs_applied += result.get('repairsApplied', 0)
             classes = {item['damageClass'] for item in result['report']['damageItems']}
-            self.assertTrue({'missing_owner', 'missing_file', 'missing_metadata', 'unassociated_owner',
+            self.assertTrue({'missing_file', 'missing_metadata', 'unassociated_owner',
                              'unregistered_file', 'interrupted_transition', 'partial_reference_list'} <= classes,
                             classes)
+            self.assertEqual(1, repairs_applied)
             self.assertEqual('gc_suspended', restarted.get_storage_safety_status()['state'])
 
     def test_clean_integrity_report_is_published_with_healthy_state_atomically(self):
@@ -1332,6 +1335,105 @@ else:
             with self.assertRaises(StorageError):
                 service.scan_media_integrity_page([], batch_size=1)
             self.assertNotEqual('healthy', service.get_storage_safety_status()['state'])
+
+    def test_integrity_scan_repairs_a_proven_missing_formal_owner_then_rescans(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:owned', b'owned', 'image/png', 'media')
+            workflow = {'workflowId': 'wf', 'mediaOwnershipRevision': 4, 'nodes': [{
+                'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': asset['asset_key']},
+            }]}
+
+            repaired = service.scan_media_integrity_page([workflow], batch_size=100)
+
+            self.assertFalse(repaired['complete'])
+            self.assertEqual(1, repaired['repairsApplied'])
+            owner = service.get_media_owner_reference_list('wf', 'workflow-node', 'node-a')
+            self.assertEqual([asset['asset_key']], owner['assetKeys'])
+            completed = service.scan_media_integrity_page([workflow], batch_size=100)
+            self.assertTrue(completed['complete'])
+            self.assertEqual([], completed['report']['damageItems'])
+            self.assertEqual('healthy', service.get_storage_safety_status()['state'])
+
+    def test_integrity_scan_never_repairs_a_missing_media_asset(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            workflow = {'workflowId': 'wf', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': 'media:absent'},
+            }]}
+
+            result = service.scan_media_integrity_page([workflow], batch_size=100)
+
+            self.assertTrue(result['complete'])
+            self.assertIn('missing_owner', {item['damageClass'] for item in result['report']['damageItems']})
+            self.assertIsNone(service.get_media_owner_reference_list('wf', 'workflow-node', 'node-a'))
+
+    def test_local_file_inspection_failure_becomes_damage_and_scan_continues(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            first = service.put_asset('media:first', b'first', 'image/png', 'media')
+            second = service.put_asset('media:second', b'second', 'image/png', 'media')
+            original = service._inspect_integrity_file
+
+            def inspect(path):
+                if path.endswith(first['relative_path'].replace('/', os.sep)):
+                    raise OSError('simulated localized read failure')
+                return original(path)
+
+            service._inspect_integrity_file = inspect
+            result = service.scan_media_integrity_page([], batch_size=100)
+
+            self.assertTrue(result['complete'])
+            classes = {item['damageClass'] for item in result['report']['damageItems']}
+            self.assertIn('source_item_failure', classes)
+            self.assertNotIn('missing_file', classes)
+            self.assertIsNotNone(service.get_asset_info(second['asset_key']))
+
+    def test_integrity_file_inspection_retries_a_transient_local_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:retry', b'retry', 'image/png', 'media')
+            path = os.path.join(service.assets_dir, asset['relative_path'])
+            original = service._inspect_integrity_file
+            calls = 0
+
+            def inspect(candidate):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise OSError('transient')
+                return original(candidate)
+
+            service._inspect_integrity_file = inspect
+            result = service.scan_media_integrity_page([], batch_size=100)
+
+            self.assertTrue(result['complete'])
+            self.assertGreaterEqual(calls, 2)
+            self.assertNotIn('source_item_failure', {
+                item['damageClass'] for item in result['report']['damageItems']})
+
+    def test_integrity_repair_preserves_an_existing_empty_owner_for_reconciliation(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:expected', b'expected', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('wf', 1, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'node-a', 'assetKeys': [asset['asset_key']],
+            }])
+            with service._connect() as database:
+                database.execute('''INSERT INTO media_asset_owners(
+                    workflow_id, owner_type, owner_id, generation, document_revision, tombstoned, updated_at)
+                    VALUES('wf', 'workflow-node', 'node-a', 3, 1, 0, 1)''')
+            workflow = {'workflowId': 'wf', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'node-a', 'type': 'ImageGenerate', 'output': {'assetKey': asset['asset_key']},
+            }]}
+
+            result = service.scan_media_integrity_page([workflow], batch_size=100)
+
+            self.assertTrue(result['complete'])
+            self.assertIn('missing_owner', {item['damageClass'] for item in result['report']['damageItems']})
+            self.assertEqual(3, service.get_media_owner_reference_list(
+                'wf', 'workflow-node', 'node-a')['generation'])
 
 
 if __name__ == '__main__':

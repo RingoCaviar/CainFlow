@@ -344,22 +344,42 @@ class StorageService:
                 owner_type, owner_id, operation_id, status FROM media_asset_transitions
                 WHERE status NOT IN ('completed', 'superseded') ORDER BY idempotency_key''')]
         files = []
+        source_errors = []
         root = os.path.realpath(self.assets_dir)
         for current, _, names in os.walk(root):
             for name in names:
                 absolute = os.path.realpath(os.path.join(current, name))
                 if os.path.commonpath((root, absolute)) != root:
                     raise StorageError('Unsafe media path encountered during integrity scan')
-                files.append(os.path.relpath(absolute, root).replace(os.sep, '/'))
+                relative = os.path.relpath(absolute, root).replace(os.sep, '/')
+                files.append(relative)
+                if not self._inspect_integrity_file_with_retry(absolute):
+                    source_errors.append({'source': 'files', 'item': relative, 'stage': 'inspect'})
         partitions = {
             'workflows': workflow_refs, 'owners': owners, 'ownerItems': owner_items,
             'references': refs, 'assets': assets, 'files': sorted(files), 'transitions': transitions,
+            'sourceErrors': source_errors,
         }
         revisions = {
             name: hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
             for name, rows in partitions.items()
         }
         return partitions, revisions
+
+    @staticmethod
+    def _inspect_integrity_file(path):
+        with open(path, 'rb') as source:
+            source.read(1)
+
+    def _inspect_integrity_file_with_retry(self, path, attempts=3):
+        for attempt in range(max(1, int(attempts))):
+            try:
+                self._inspect_integrity_file(path)
+                return True
+            except OSError:
+                if attempt + 1 < attempts:
+                    time.sleep(0.001 * (2 ** attempt))
+        return False
 
     def _set_scan_failure(self, reason):
         self._safety_status.update({
@@ -470,7 +490,10 @@ class StorageService:
             self._set_scan_failure('integrity_checkpoint_unreadable')
             raise StorageError('Media integrity checkpoint is unreadable')
         epoch = str(self._safety_status['storageEpoch'])
-        partition_names = ['workflows', 'owners', 'ownerItems', 'references', 'assets', 'files', 'transitions']
+        partition_names = [
+            'workflows', 'owners', 'ownerItems', 'references', 'assets', 'files',
+            'transitions', 'sourceErrors',
+        ]
         if checkpoint and not self._valid_integrity_checkpoint(checkpoint, epoch, partition_names):
             self._release_integrity_scan(lease_token)
             self._set_scan_failure('integrity_checkpoint_invalid')
@@ -530,6 +553,21 @@ class StorageService:
             self._write_integrity_checkpoint(lease_token, checkpoint)
             self._release_integrity_scan(lease_token)
             return {'complete': False, 'cancelled': False, 'checkpoint': checkpoint}
+        repairs_applied = self._repair_integrity_damage(
+            workflows, partitions, checkpoint['damageItems'], checkpoint['scanId'])
+        if repairs_applied:
+            repaired_partitions, repaired_revisions = self._integrity_partitions(workflows)
+            checkpoint.update({
+                'sourceIndex': 0, 'cursor': 0, 'partitionRevisions': repaired_revisions,
+                'damageItems': self._classify_integrity_damage(repaired_partitions, workflows),
+                'damageCounts': {}, 'rescanSet': ['owners', 'ownerItems', 'references'],
+                'rescanCount': checkpoint['rescanCount'] + 1,
+                'cutoffRevision': self._integrity_change_revision(),
+            })
+            self._write_integrity_checkpoint(lease_token, checkpoint)
+            self._release_integrity_scan(lease_token)
+            return {'complete': False, 'cancelled': False, 'repairsApplied': repairs_applied,
+                    'checkpoint': checkpoint}
         report = {
             'reportId': checkpoint['scanId'], 'reportVersion': INTEGRITY_REPORT_VERSION,
             'scannerVersion': INTEGRITY_SCANNER_VERSION, 'storageEpoch': epoch,
@@ -569,6 +607,72 @@ class StorageService:
             return [row[0] for row in db.execute('''SELECT DISTINCT partition_name
                 FROM media_integrity_changes WHERE revision>?''', (int(revision),))]
 
+    def _repair_integrity_damage(self, workflows, partitions, damage_items, scan_id):
+        """Add only formal protection proven by a durable workflow; never release or fetch media."""
+        missing_identities = {item['identity'] for item in damage_items
+                              if item['damageClass'] == 'missing_owner'}
+        if not missing_identities:
+            return 0
+        assets = {row['asset_key']: row for row in partitions['assets']}
+        files = set(partitions['files'])
+        unreadable_files = {error['item'] for error in partitions['sourceErrors'] if error['source'] == 'files'}
+        expected = self._workflow_media_references(workflows)
+        manifests_by_workflow = {}
+        for item in expected:
+            manifests_by_workflow.setdefault((item['workflowId'], item['revision']), []).append({
+                'ownerType': item['ownerType'], 'ownerId': item['ownerId'], 'assetKeys': item['assetKeys'],
+            })
+        repaired = 0
+        epoch = str(self._safety_status['storageEpoch'])
+        repair_groups = {}
+        for item in expected:
+            identity = (item['workflowId'], item['ownerType'], item['ownerId'])
+            digest = hashlib.sha256(str(identity).encode()).hexdigest()[:16]
+            valid_files = all(
+                key in assets and assets[key]['relative_path'] in files
+                and assets[key]['relative_path'] not in unreadable_files for key in item['assetKeys'])
+            if digest in missing_identities and item['revision'] and valid_files:
+                repair_groups.setdefault((item['workflowId'], item['revision']), []).append(item)
+        now = int(time.time() * 1000)
+        for (workflow_id, revision), repairs in repair_groups.items():
+            with self._connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                current = db.execute('SELECT document_revision, storage_epoch FROM media_workflow_revisions WHERE workflow_id=?',
+                                     (workflow_id,)).fetchone()
+                if current and (current['document_revision'] > revision or current['storage_epoch'] != epoch):
+                    continue
+                db.execute('''INSERT INTO media_workflow_revisions(workflow_id, document_revision, storage_epoch, updated_at)
+                    VALUES(?, ?, ?, ?) ON CONFLICT(workflow_id) DO UPDATE SET
+                    document_revision=excluded.document_revision, storage_epoch=excluded.storage_epoch,
+                    updated_at=excluded.updated_at''', (workflow_id, revision, epoch, now))
+                db.execute('DELETE FROM media_workflow_owner_lists WHERE workflow_id=?', (workflow_id,))
+                for manifest in manifests_by_workflow[(workflow_id, revision)]:
+                    db.execute('''INSERT INTO media_workflow_owner_lists(
+                        workflow_id, document_revision, owner_type, owner_id, target_digest) VALUES(?, ?, ?, ?, ?)''',
+                        (workflow_id, revision, manifest['ownerType'], manifest['ownerId'],
+                         self._reference_list_digest(manifest['assetKeys'])))
+                for item in repairs:
+                    existing_owner = db.execute('''SELECT generation, document_revision, tombstoned
+                        FROM media_asset_owners WHERE workflow_id=? AND owner_type=? AND owner_id=?''',
+                        (workflow_id, item['ownerType'], item['ownerId'])).fetchone()
+                    if existing_owner:
+                        continue
+                    db.execute('''INSERT INTO media_asset_owners(
+                        workflow_id, owner_type, owner_id, generation, document_revision, tombstoned, updated_at)
+                        VALUES(?, ?, ?, 1, ?, 0, ?)''',
+                        (workflow_id, item['ownerType'], item['ownerId'], revision, now))
+                    db.executemany('''INSERT INTO media_asset_owner_items(
+                        workflow_id, owner_type, owner_id, position, asset_key) VALUES(?, ?, ?, ?, ?)''', [
+                        (workflow_id, item['ownerType'], item['ownerId'], position, key)
+                        for position, key in enumerate(item['assetKeys'])])
+                    reference_owner_id = self._formal_reference_owner_id(
+                        workflow_id, item['ownerType'], item['ownerId'])
+                    db.executemany('''INSERT OR IGNORE INTO media_asset_refs(
+                        owner_type, owner_id, asset_key, created_at) VALUES(?, ?, ?, ?)''', [
+                        (item['ownerType'], reference_owner_id, key, now) for key in item['assetKeys']])
+                    repaired += 1
+        return repaired
+
     def _classify_integrity_damage(self, partitions, workflows):
         damages = []
         assets = {row['asset_key']: row for row in partitions['assets']}
@@ -604,6 +708,8 @@ class StorageService:
         for ref in partitions['references']:
             if ref['owner_type'] not in {'workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation'}:
                 continue
+            if ref['owner_type'] != 'workflow-operation' and str(ref['owner_id']).startswith('owner:'):
+                continue
             try:
                 identity = json.loads(ref['owner_id'])
                 ref_workflow = identity[0]
@@ -613,6 +719,8 @@ class StorageService:
                 add('unassociated_owner', (ref['owner_type'], ref['owner_id']))
         for transition in partitions['transitions']:
             add('interrupted_transition', transition['idempotency_key'], stage=transition['status'])
+        for error in partitions['sourceErrors']:
+            add('source_item_failure', (error['source'], error['item']), stage=error['stage'])
         unique = {(item['damageClass'], item['identity'], item.get('stage')): item for item in damages}
         return sorted(unique.values(), key=lambda item: (item['damageClass'], item['identity']))
 
