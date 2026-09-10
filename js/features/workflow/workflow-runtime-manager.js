@@ -486,6 +486,7 @@ export function createWorkflowRuntimeManager({
     syncCameraControlNode = () => {},
     refreshDependentImageResizePreviews = async () => {},
     restoreImageResizePreview = () => {},
+    restoreColorResetPreview = () => {},
     showResolutionBadge = async () => {},
     visibleNodesLayer = null,
     bindVisibleNodeInteractions = () => {},
@@ -817,6 +818,23 @@ export function createWorkflowRuntimeManager({
                 await refreshDependentImageResizePreviews(runtimeNodeId, { sourceImage: currentImage });
                 await showResolutionBadge(runtimeNodeId, currentImage);
             }
+        } else if (runtimeNode.type === 'ColorReset') {
+            const currentImage = runtimeNode.colorResetPreviewData || runtimeNode?.data?.image || runtimeNode.imageData || '';
+            if (currentImage) {
+                node.colorResetPreviewData = currentImage;
+                node.colorResetPreviewMeta = clonePlainValue(runtimeNode.colorResetPreviewMeta || {});
+                node.imageData = currentImage;
+                node.imageDataList = [currentImage];
+                node.data.image = currentImage;
+                ['whiteBalanceGains', 'customWhiteBalanceGains', 'autoWhiteBalanceGains', 'whiteBalanceSamplePoint', 'whiteBalanceStatus', 'whiteBalanceMessage']
+                    .forEach((key) => {
+                        if (runtimeNode[key] !== undefined) node[key] = clonePlainValue(runtimeNode[key]);
+                        if (runtimeNode?.data?.[key] !== undefined) node.data[key] = clonePlainValue(runtimeNode.data[key]);
+                    });
+                restoreColorResetPreview(runtimeNodeId, currentImage, node.colorResetPreviewMeta);
+                await refreshDependentImageResizePreviews(runtimeNodeId, { sourceImage: currentImage });
+                await showResolutionBadge(runtimeNodeId, currentImage);
+            }
         } else if (runtimeNode.type === 'ImageGenerate') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
             if (images.length > 0) {
@@ -1130,6 +1148,7 @@ export function createWorkflowRuntimeManager({
             ensureElement,
             removeElements,
             renderDisplayImagePreview,
+            renderColorResetPreview,
             renderReusableComparePreview,
             renderReusableMultiImagePreview,
             updatePlaceholderText
@@ -1185,6 +1204,20 @@ export function createWorkflowRuntimeManager({
                         emptyMessage: '等待上游图片',
                         placeholderWithIcon: true
                     });
+                }
+            },
+            restoreColorResetPreview: (nodeId, dataUrl, meta = {}) => {
+                const node = getRuntimeNode(nodeId);
+                if (!node) return;
+                node.colorResetPreviewData = dataUrl || null;
+                node.colorResetPreviewMeta = meta || null;
+                node.imageData = dataUrl || null;
+                node.imageDataList = dataUrl ? [dataUrl] : [];
+                node.data = node.data || {};
+                if (dataUrl) node.data.image = dataUrl;
+                const preview = doc.getElementById(`${nodeId}-color-preview`);
+                if (preview) {
+                    renderColorResetPreview(preview, dataUrl, { overlayId: `${nodeId}-picker-overlay` });
                 }
             },
             renderImagePreviewImage,
@@ -1575,7 +1608,7 @@ export function createWorkflowRuntimeManager({
             processColorResetImage,
             autoSaveToDir: runtimeAutoSaveToDir,
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
-            restoreColorResetPreview: () => {},
+            restoreColorResetPreview: runtimeMediaApi.restoreColorResetPreview,
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,

@@ -33,6 +33,7 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
     };
     const viewportCalls = [];
     const projectionCalls = [];
+    const draggingConnectionCalls = [];
     const legacyRefreshCalls = [];
     const saveCalls = [];
     const viewportSaveCalls = [];
@@ -43,7 +44,9 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
             updateCanvasTransform(options) { viewportCalls.push(options); },
             refreshNodeTextRendering() {}
         },
-        getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {}, updatePortStyles() {},
+        getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {},
+        updateDraggingConnections(draggingState) { draggingConnectionCalls.push(draggingState); },
+        updatePortStyles() {},
         scheduleSave() { saveCalls.push(true); },
         getActiveWorkflowId: () => 'workflow-a',
         saveViewportState(value) { viewportSaveCalls.push(value); },
@@ -70,7 +73,10 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
         requestAnimationFrameRef(callback) { callback(); }
     });
     api.initCanvasInteractions();
-    return { api, canvasListeners, windowListeners, state, viewportCalls, projectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls };
+    return {
+        api, canvasListeners, windowListeners, state, viewportCalls, projectionCalls,
+        draggingConnectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls
+    };
 }
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
@@ -274,19 +280,20 @@ test('a returned mousemove without the space-pan button ends a stale canvas pan'
 });
 
 test('node dragging reports targeted changes and settlement through a projection lease', () => {
-    const { windowListeners, state, projectionCalls, legacyRefreshCalls } = createHarness();
+    const { windowListeners, state, projectionCalls, draggingConnectionCalls, legacyRefreshCalls } = createHarness();
     const node = state.nodes.get('node-1');
     node.el = {
         classList: createClassList(),
         style: { setProperty() {}, removeProperty() {} }
     };
-    state.dragging = {
+    const draggingState = {
         nodes: ['node-1'],
         startX: 0,
         startY: 0,
         startPositions: new Map([['node-1', { x: 50, y: 60 }]]),
         isCloneDrag: false
     };
+    state.dragging = draggingState;
 
     windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 10, clientY: 20 });
     windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
@@ -297,6 +304,8 @@ test('node dragging reports targeted changes and settlement through a projection
         ['changed', 'node-drag'],
         ['finish', 'node-drag']
     ]);
+    assert.equal(draggingConnectionCalls.length, 1);
+    assert.equal(draggingConnectionCalls[0], draggingState);
     assert.deepEqual(legacyRefreshCalls, []);
 });
 

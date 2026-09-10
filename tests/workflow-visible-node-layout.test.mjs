@@ -71,3 +71,68 @@ test('runtime content projections refit every generation card type', async () =>
         finishRun();
     }
 });
+
+test('running a workflow projects a ColorReset result into the visible preview', async () => {
+    const image = 'data:image/png;base64,color-reset-result';
+    const visibleNode = { id: 'color', type: 'ColorReset', enabled: true, data: {}, el: element() };
+    const runtimeNode = {
+        id: 'color', type: 'ColorReset', enabled: true,
+        data: { image }, imageData: image, imageDataList: [image],
+        colorResetPreviewData: image, colorResetPreviewMeta: { outputWidth: 1, outputHeight: 1 }
+    };
+    const state = {
+        nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(),
+        runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {}
+    };
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async () => ({ async commit() { return true; } }),
+        mutateWorkflow: async () => ({ ok: true })
+    });
+    const previewUpdates = [];
+    let finishRun;
+    const pendingRun = new Promise((resolve) => { finishRun = resolve; });
+    let signalResultProjection;
+    const resultProjectionStarted = new Promise((resolve) => { signalResultProjection = resolve; });
+    let manager;
+    manager = createWorkflowRuntimeManager({
+        state,
+        nodeConfigs: { ColorReset: { title: '复位颜色' } },
+        getWorkflowManagerApi: () => ({
+            getActiveWorkflow: () => workflowDesk.snapshot().active,
+            updateWorkflowTabDataById() {}, projectWorkflowRunningStateById() {}, setWorkflowRunResultById() {}
+        }),
+        getWorkflowDesk: () => workflowDesk,
+        scheduleSave() {}, showToast() {}, addLog() {}, fitNodeToContent() {},
+        connectionProjection: { nodeAppearanceChanged() {}, nodeGeometryChanged() {} },
+        restoreColorResetPreview: (...args) => previewUpdates.push(args),
+        documentRef: { getElementById: () => null },
+        windowRef: { requestAnimationFrame: (callback) => { callback(); return 1; }, setInterval: () => 1, clearInterval() {}, setTimeout: (callback) => { callback(); return 1; } },
+        confirmRef: () => true,
+        createRunContext: ({ workflowId, workflowName }) => ({
+            id: `${workflowId}:run`, workflowId, workflowName,
+            state: { nodes: new Map([[runtimeNode.id, runtimeNode]]), runningNodeIds: new Set(), activeRunCount: 1 },
+            activePlanNodeIds: new Set(), baseNodeIds: new Set([runtimeNode.id]), baseConnectionIds: new Set(),
+            resolveExecutionPlan: () => ({ executionOrder: [runtimeNode.id], nodeIds: [runtimeNode.id] }),
+            waitForImageRestores: async () => {},
+            runner: {
+                async runWorkflow() {
+                    manager.applyVisibleNodeRunState({ workflowId, workflowName }, { nodeId: runtimeNode.id, status: 'result-updated', running: true });
+                    signalResultProjection();
+                    await pendingRun;
+                },
+                cancelRunningNode: () => true
+            },
+            serialize: () => ({ nodes: [], connections: [] }), dispose() {}
+        })
+    });
+
+    await workflowDesk.show({ workflowId: 'workflow-color', label: 'Color' });
+    assert.equal(await manager.runWorkflowInContext({ workflowId: 'workflow-color', workflowName: 'Color' }, { nodes: [{ id: 'color' }], connections: [] }), true);
+    await resultProjectionStarted;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(visibleNode.imageData, image);
+    assert.deepEqual(previewUpdates, [[runtimeNode.id, image, runtimeNode.colorResetPreviewMeta]]);
+    finishRun();
+});

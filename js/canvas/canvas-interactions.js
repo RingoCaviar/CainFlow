@@ -13,6 +13,7 @@ export function createCanvasInteractionsApi({
     getPortPosition,
     drawTempConnection,
     updateAllConnections,
+    updateDraggingConnections = null,
     updateDirtyConnections = null,
     scheduleConnectionRefresh = null,
     connectionProjection = null,
@@ -1040,6 +1041,7 @@ export function createCanvasInteractionsApi({
                     }
                 }
                 updateShakeDetach(state.dragging, pos);
+                updateDraggingConnections?.(state.dragging);
                 getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)?.changed();
             }
             if (state.resizing) {
