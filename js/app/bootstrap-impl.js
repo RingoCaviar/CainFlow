@@ -1605,6 +1605,13 @@ uiFeature = createUiFeature({
     clearOrphanedNodeAssets,
     collectRetainedNodeAssetIds,
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
+    getIntegrityWorkflows: () => {
+        const workflow = workflowManagerApi.getActiveWorkflowSnapshot?.();
+        return workflow ? [workflow] : [];
+    },
+    getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
+    getActiveWorkflowName: () => workflowManagerApi.getActiveWorkflowName?.() || '',
+    handleMissingMediaAction: (request) => handleMissingMediaAction(request),
     getHistory,
     getHistoryMetadata,
     getHistoryEntry,

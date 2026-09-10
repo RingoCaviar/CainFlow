@@ -192,8 +192,10 @@ export function createMissingMediaBrowserActions({
                 source: { url: sourceUrl, taskId: node.data?.imageTaskId || '', persisted: true }, localFile
             });
             if (result.status === 'committed') showToast('媒体操作已提交', 'success');
+            return result;
         } catch (error) {
             showToast(error?.message || '媒体操作失败，原引用已保留', 'error');
+            return { status: 'error', error: error?.message || '媒体操作失败，原引用已保留' };
         }
     };
 }

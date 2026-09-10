@@ -17,6 +17,7 @@ import {
 } from '../../services/workflow-api.js';
 import { openDialogStyle1 } from './dialog-style-1.js';
 import { startHistoryDownload } from '../history/history-download.js';
+import { createMediaIntegrityDrawerController, renderMediaIntegrityDrawer } from '../media/media-integrity-drawer.js';
 const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
 export function createUiControllerApi({
@@ -34,6 +35,10 @@ export function createUiControllerApi({
     clearOrphanedNodeAssets = null,
     collectRetainedNodeAssetIds = () => new Set(),
     refreshRecoverableMediaNodes = async () => {},
+    getIntegrityWorkflows = () => [],
+    getActiveWorkflowId = () => '',
+    getActiveWorkflowName = () => '',
+    handleMissingMediaAction = async () => {},
     getHistory,
     getHistoryMetadata = getHistory,
     getHistoryEntry = async (id) => (await getHistory()).find((item) => item.id === id) || null,
@@ -1219,13 +1224,48 @@ export function createUiControllerApi({
 
         if (!btnToggle || !cacheSidebar) return;
 
+        const integrityRoot = documentRef.getElementById('media-integrity-panel');
+        const integrityController = createMediaIntegrityDrawerController({
+            getWorkflows: getIntegrityWorkflows,
+            getNodes: () => [...state.nodes.values()],
+            getWorkflowId: getActiveWorkflowId,
+            getWorkflowName: getActiveWorkflowName,
+            onMissingAction: handleMissingMediaAction,
+            onChange: (integrityState) => renderMediaIntegrityDrawer(integrityRoot, integrityState, {
+                onPause: () => integrityController.pause(), onResume: () => integrityController.resume(),
+                onRetry: () => integrityController.retry(), onScan: () => integrityController.step(),
+                onExport: () => {
+                    const blob = new Blob([JSON.stringify(integrityController.exportDiagnostics(), null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob); const anchor = documentRef.createElement('a');
+                    anchor.href = url; anchor.download = 'cainflow-media-integrity-redacted.json'; anchor.click(); URL.revokeObjectURL(url);
+                },
+                onAction: async (action, item) => {
+                    const node = state.nodes.get(item.nodeId);
+                    if (action === 'locate') { node?.el?.scrollIntoView?.({ block: 'center' }); return; }
+                    if (action === 'details') { alertRef(`${item.workflowName} / ${item.nodeName}\n${item.mediaType} · ${item.positionLabel}\nidentity: ${item.identity}\n来源域: ${item.sourceDomain}`); return; }
+                    await integrityController.runMissingAction(action, item, node);
+                    await refreshRecoverableMediaNodes();
+                },
+                onBatchRecover: async () => {
+                    if (!confirmRef(`确认恢复 ${integrityState.model.recoverableCount} 项媒体？`)) return;
+                    for (const item of integrityState.model.items.filter((candidate) => candidate.recoverable)) {
+                        await integrityController.runMissingAction('remote-recover', item, state.nodes.get(item.nodeId));
+                    }
+                    await refreshRecoverableMediaNodes();
+                }
+            })
+        });
+
         btnToggle.addEventListener('click', () => {
             panelManager.toggle('cache', () => {
                 settingsControllerApi?.updateCacheUsage();
+                integrityController.startMonitoring();
             });
+            if (!cacheSidebar.classList.contains('active')) integrityController.stopMonitoring();
         });
 
         btnClose?.addEventListener('click', () => {
+            integrityController.stopMonitoring();
             cacheSidebar.classList.remove('active');
             btnToggle.classList.remove('active');
         });
