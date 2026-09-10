@@ -28,7 +28,12 @@ import {
 } from './workflow-identity.js';
 import { createDetachedWorkflowViewBuilder } from './detached-workflow-view-builder.js';
 import { createWorkflowLayoutElements, createWorkflowLayoutHost } from './workflow-layout-host.js';
-import { hasNodeCapability, NODE_CAPABILITIES } from '../../nodes/registry.js';
+import {
+    getNodeImageResultPersistence,
+    hasNodeCapability,
+    IMAGE_RESULT_PERSISTENCE,
+    NODE_CAPABILITIES
+} from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
@@ -387,6 +392,31 @@ async function getAvailableRuntimeFileHandle(directoryHandle, baseName, extensio
 
 function normalizeRuntimeImageList(value) {
     return normalizeImageList(value);
+}
+
+export function applyImageSaveMediaState(node, imageData) {
+    node.data = node.data || {};
+    const images = normalizeRuntimeImageList(imageData?.images ?? imageData);
+    const suppliedVideos = Array.isArray(imageData?.videos)
+        ? imageData.videos
+        : [imageData?.video];
+    const videos = suppliedVideos
+        .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey))
+        .map((video) => clonePlainValue(video));
+
+    if (images.length > 0) {
+        delete node.data.video;
+        delete node.data.videos;
+    } else if (videos.length > 0) {
+        node.data.videos = videos;
+        node.data.video = clonePlainValue(videos[videos.length - 1]);
+    }
+
+    return {
+        images,
+        videos: videos.length > 0 ? videos : clonePlainValue(node.data.videos || []),
+        video: videos.length > 0 ? clonePlainValue(videos[videos.length - 1]) : clonePlainValue(node.data.video || null)
+    };
 }
 
 function getRuntimeDisplayImageCount(node) {
@@ -752,6 +782,9 @@ export function createWorkflowRuntimeManager({
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
             await syncImageSaveNode(runtimeNodeId, {
                 images,
+                videos: Array.isArray(runtimeNode?.data?.videos)
+                    ? clonePlainValue(runtimeNode.data.videos)
+                    : [],
                 video: runtimeNode?.data?.video && typeof runtimeNode.data.video === 'object'
                     ? clonePlainValue(runtimeNode.data.video)
                     : null
@@ -789,7 +822,9 @@ export function createWorkflowRuntimeManager({
             if (images.length > 0) {
                 setCanonicalImageOutput(node, images, {
                     currentIndex: runtimeNode.imagePreviewIndex ?? Math.max(0, images.length - 1),
-                    assetKey: runtimeNode?.data?.imageAssetKey || runtimeNode.id,
+                    assetKey: getNodeImageResultPersistence(runtimeNode.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT
+                        ? (runtimeNode?.data?.imageAssetKey || runtimeNode.id)
+                        : '',
                     imageCount: Math.max(images.length, parseInt(runtimeNode?.data?.imageCount || images.length, 10) || images.length),
                     imagePromptList: Array.isArray(runtimeNode?.data?.imagePromptList) ? runtimeNode.data.imagePromptList.slice() : undefined,
                     assetReady: runtimeNode?.data?.imageAssetReady === true,
@@ -1213,9 +1248,7 @@ export function createWorkflowRuntimeManager({
             syncImageSaveNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImageSave') return;
-                const imageList = normalizeRuntimeImageList(imageData?.images ?? imageData);
-                const video = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
-                node.data = node.data || {};
+                const { images: imageList, video } = applyImageSaveMediaState(node, imageData);
                 if (imageList.length > 0) {
                     setCanonicalImageOutput(node, imageList, {
                         currentIndex: 0,
@@ -1224,7 +1257,6 @@ export function createWorkflowRuntimeManager({
                         hydratedAt: Date.now(),
                         assetReady: false
                     });
-                    delete node.data.video;
                     // 等待图片持久化到 IndexedDB，确保切换 tab 后能恢复
                     if (imageList.length > 1) {
                         await saveImageAssetList(nodeId, imageList);
@@ -1235,13 +1267,6 @@ export function createWorkflowRuntimeManager({
                     renderImageSavePreview(nodeId, imageList);
                 } else if (video?.url || video?.assetKey) {
                     clearCanonicalImageOutput(node);
-                    node.data.video = {
-                        id: video.id || '',
-                        url: video.url,
-                        assetKey: video.assetKey || '',
-                        status: video.status || '',
-                        prompt: video.prompt || ''
-                    };
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
                     const preview = doc.getElementById(`${nodeId}-save-preview`);
                     const source = video.assetKey
@@ -1253,6 +1278,7 @@ export function createWorkflowRuntimeManager({
                 } else {
                     clearCanonicalImageOutput(node);
                     delete node.data.video;
+                    delete node.data.videos;
                     if (deleteImageAsset) await deleteImageAsset(nodeId);
                     renderImageSavePreview(nodeId, []);
                 }

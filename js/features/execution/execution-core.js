@@ -37,6 +37,7 @@ import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocol } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
+import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 
 export function createExecutionCoreApi({
     state,
@@ -299,14 +300,13 @@ export function createExecutionCoreApi({
         const normalizedImages = normalizeImageList(images);
         setCanonicalImageOutput(node, normalizedImages, {
             currentIndex: normalizedImages.length - 1,
-            assetKey: node.id,
+            assetKey: '',
             imagePromptList: normalizedImages.map(() => prompt || ''),
-            imageCount: normalizedImages.length,
-            assetReady: false
+            imageCount: normalizedImages.length
         });
         node.imagePromptList = normalizedImages.map(() => prompt || '');
         node.generationCompletedCount = normalizedImages.length;
-        if (normalizedImages.length > 0) {
+        if (getNodeImageResultPersistence(node.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT && normalizedImages.length > 0) {
             saveNodeImageAssetInBackground(node, normalizedImages, node.id);
         } else if (deleteImageAsset) {
             void deleteImageAsset(node.id);
@@ -1011,6 +1011,9 @@ export function createExecutionCoreApi({
             }
         }
         if (portName === 'video') {
+            if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
+                return node.data.videos;
+            }
             return node.data?.video || undefined;
         }
         if (portName === 'text') {
@@ -2290,9 +2293,6 @@ export function createExecutionCoreApi({
             if (imgData) {
                 await syncImagePreviewNode(id, imageList);
                 await refreshDependentImageResizePreviews(id);
-            } else {
-                await syncImagePreviewNode(id, []);
-                await refreshDependentImageResizePreviews(id);
             }
             requestNodeFit(id);
         },
@@ -2337,7 +2337,7 @@ export function createExecutionCoreApi({
             const { id } = node;
             const imageList = normalizeImageList(inputs.image);
             const videoList = (Array.isArray(inputs.video) ? inputs.video : [inputs.video])
-                .filter((video) => video && typeof video === 'object' && video.url);
+                .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey));
             const previewVideo = videoList[videoList.length - 1] || null;
             if (imageList.length > 0 || videoList.length > 0) {
                 const payload = { images: imageList, video: previewVideo, videos: videoList };
@@ -2345,9 +2345,6 @@ export function createExecutionCoreApi({
                 await autoSaveToDir(id, payload);
             }
             if (imageList.length > 0) {
-                await refreshDependentImageResizePreviews(id);
-            } else if (videoList.length === 0) {
-                await syncImageSaveNode(id, { images: [], video: null });
                 await refreshDependentImageResizePreviews(id);
             }
         },

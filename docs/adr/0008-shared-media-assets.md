@@ -1,6 +1,8 @@
 # Share generated media through locally managed Media assets
 
-CainFlow persists every generated image and video as a content-addressed Media asset, then stores durable references from generation nodes and history records instead of storing independent media copies. A Media asset survives while at least one reference remains; deleting a node, workflow, history entry, or an automatically expired history entry only removes that owner's reference.
+CainFlow persists generated images and videos as content-addressed Media assets when a downstream display, save, or derived-result node, or a history record, retains them. A node's declared media capabilities are the authority for whether its image result is transient or persistently recoverable. Those consumers store durable references instead of independent media copies. Generation nodes do not retain durable Media asset references: they produce media during a run and pass it downstream without becoming persistent owners. A Media asset survives while at least one durable reference remains; deleting a node, workflow, history entry, or an automatically expired history entry only removes that owner's reference.
+
+Persistent media source nodes retain their complete ordered media batch; a single current item is only a compatibility view of that batch. Background projection does not change media ownership: it preserves the runtime node's declared persistence policy and cannot create a durable reference for a transient generation node.
 
 CainFlow reads a local Media asset before using any retained provider URL. A missing cached legacy video is a recoverable state, never a silent remote fallback: the user explicitly confirms Media asset recovery, observes progress and terminal state, and may cancel or retry. If cache capacity is exhausted and no unreferenced Media asset can be reclaimed, CainFlow retains the remote result URL and reports that it was not cached.
 

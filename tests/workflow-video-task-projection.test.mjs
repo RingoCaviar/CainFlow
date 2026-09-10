@@ -70,3 +70,121 @@ test('runWorkflowInContext projects the latest running video task over stale vis
     assert.equal(elements.get('video-resume-video').disabled, false);
     finishRun();
 });
+
+test('background image-generation projection does not create a persistent generation-node asset reference', async () => {
+    let finishRun;
+    const pendingRun = new Promise((resolve) => { finishRun = resolve; });
+    const visibleNode = { id: 'image', type: 'ImageGenerate', enabled: true, data: {}, el: element() };
+    const runtimeNode = {
+        id: 'image', type: 'ImageGenerate', enabled: true,
+        data: { imageList: ['generated-image'], imageCount: 1 },
+        imageData: 'generated-image', imageDataList: ['generated-image']
+    };
+    const state = { nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {} };
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async () => ({ async commit() { return true; } }),
+        mutateWorkflow: async () => ({ ok: true })
+    });
+    let runtimeManager;
+    runtimeManager = createWorkflowRuntimeManager({
+        state,
+        nodeConfigs: { ImageGenerate: { title: '图片生成' } },
+        getWorkflowManagerApi: () => ({
+            getActiveWorkflow: () => workflowDesk.snapshot().active,
+            updateWorkflowTabDataById: () => true,
+            projectWorkflowRunningStateById: () => true,
+            setWorkflowRunResultById: () => true
+        }),
+        getWorkflowDesk: () => workflowDesk,
+        confirmRef: () => true,
+        scheduleSave: () => {}, showToast: () => {}, addLog: () => {},
+        connectionProjection: { nodeAppearanceChanged() {}, nodeGeometryChanged() {} },
+        documentRef: { getElementById: () => null, implementation: { createHTMLDocument: () => ({}) } },
+        windowRef: { setInterval: () => 1, clearInterval() {} },
+        createRunContext: ({ workflowId, workflowName }) => ({
+            id: `${workflowId}:run`, workflowId, workflowName,
+            state: { nodes: new Map([[runtimeNode.id, runtimeNode]]), runningNodeIds: new Set(), activeRunCount: 1 },
+            activePlanNodeIds: new Set(), baseNodeIds: new Set([runtimeNode.id]), baseConnectionIds: new Set(),
+            resolveExecutionPlan: () => ({ executionOrder: [runtimeNode.id], nodeIds: [runtimeNode.id] }),
+            waitForImageRestores: async () => {},
+            runner: {
+                async runWorkflow() {
+                    runtimeManager.applyVisibleNodeRunState({ workflowId, workflowName }, { nodeId: runtimeNode.id, status: 'result-updated', running: true });
+                    await pendingRun;
+                },
+                cancelRunningNode: () => true
+            },
+            serialize: () => ({ nodes: [], connections: [] }),
+            dispose() {}
+        })
+    });
+    await workflowDesk.show({ workflowId: 'workflow-image', label: 'Image' });
+
+    assert.equal(await runtimeManager.runWorkflowInContext({ workflowId: 'workflow-image', workflowName: 'Image' }, { nodes: [{ id: 'image' }], connections: [] }), true);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(visibleNode.data.imageList, ['generated-image']);
+    assert.equal(visibleNode.data.imageAssetKey, undefined);
+    finishRun();
+});
+
+test('background save-node projection publishes its complete ordered video batch', async () => {
+    let finishRun;
+    const pendingRun = new Promise((resolve) => { finishRun = resolve; });
+    const videos = [
+        { id: 'first', url: 'first.mp4', assetKey: 'media:first' },
+        { id: 'second', url: 'second.mp4', assetKey: 'media:second' }
+    ];
+    const visibleNode = { id: 'save', type: 'ImageSave', enabled: true, data: {}, el: element() };
+    const runtimeNode = { id: 'save', type: 'ImageSave', enabled: true, data: { videos, video: videos[1] } };
+    const state = { nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {} };
+    const projected = [];
+    const workflowDesk = createWorkflowDesk({
+        resolveSelection: async (selection) => selection,
+        prepareEditorView: async () => ({ async commit() { return true; } }),
+        mutateWorkflow: async () => ({ ok: true })
+    });
+    let runtimeManager;
+    runtimeManager = createWorkflowRuntimeManager({
+        state,
+        nodeConfigs: { ImageSave: { title: '保存' } },
+        getWorkflowManagerApi: () => ({
+            getActiveWorkflow: () => workflowDesk.snapshot().active,
+            updateWorkflowTabDataById: () => true,
+            projectWorkflowRunningStateById: () => true,
+            setWorkflowRunResultById: () => true
+        }),
+        getWorkflowDesk: () => workflowDesk,
+        syncImageSaveNode: async (_nodeId, payload) => { projected.push(payload); },
+        confirmRef: () => true,
+        scheduleSave: () => {}, showToast: () => {}, addLog: () => {},
+        connectionProjection: { nodeAppearanceChanged() {}, nodeGeometryChanged() {} },
+        documentRef: { getElementById: () => null, implementation: { createHTMLDocument: () => ({}) } },
+        windowRef: { setInterval: () => 1, clearInterval() {} },
+        createRunContext: ({ workflowId, workflowName }) => ({
+            id: `${workflowId}:run`, workflowId, workflowName,
+            state: { nodes: new Map([[runtimeNode.id, runtimeNode]]), runningNodeIds: new Set(), activeRunCount: 1 },
+            activePlanNodeIds: new Set(), baseNodeIds: new Set([runtimeNode.id]), baseConnectionIds: new Set(),
+            resolveExecutionPlan: () => ({ executionOrder: [runtimeNode.id], nodeIds: [runtimeNode.id] }),
+            waitForImageRestores: async () => {},
+            runner: {
+                async runWorkflow() {
+                    runtimeManager.applyVisibleNodeRunState({ workflowId, workflowName }, { nodeId: runtimeNode.id, status: 'result-updated', running: true });
+                    await pendingRun;
+                },
+                cancelRunningNode: () => true
+            },
+            serialize: () => ({ nodes: [], connections: [] }),
+            dispose() {}
+        })
+    });
+    await workflowDesk.show({ workflowId: 'workflow-save', label: 'Save' });
+
+    assert.equal(await runtimeManager.runWorkflowInContext({ workflowId: 'workflow-save', workflowName: 'Save' }, { nodes: [{ id: 'save' }], connections: [] }), true);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(projected.at(-1).videos, videos);
+    assert.deepEqual(projected.at(-1).video, videos[1]);
+    finishRun();
+});

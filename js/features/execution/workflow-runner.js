@@ -16,6 +16,7 @@ import {
 import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { getProjectedInputValidationReason } from '../../nodes/generation-input-projection.js';
+import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 import {
     clearDerivedImagePreview,
     getDerivedImagePreview,
@@ -485,6 +486,10 @@ export function createWorkflowRunnerApi({
 
         if (!node?.data || typeof node.data !== 'object') return {};
 
+        if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+            return { ...node.data };
+        }
+
         if (node.type === 'CameraControl') {
             return {
                 pitch: node.data.pitch,
@@ -623,6 +628,24 @@ export function createWorkflowRunnerApi({
         node.data.imageAssetReady = true;
         node.data.imageHydratedAt = Date.now();
         delete node.data.imageMemoryReleased;
+    }
+
+    function retainsPersistentImageResult(node) {
+        return getNodeImageResultPersistence(node?.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT;
+    }
+
+    async function syncImageResultPersistence(node, images, { forceList = false } = {}) {
+        const imageList = normalizeImageList(images);
+        if (!retainsPersistentImageResult(node)) {
+            await deleteImageAsset(node.id);
+            return false;
+        }
+
+        const saved = forceList || imageList.length > 1
+            ? await saveImageAssetList(node.id, imageList)
+            : (imageList.length === 1 ? await saveImageAsset(node.id, imageList[0]) : false);
+        if (saved) markRecoverableImageAssetReady(node, node.id, imageList.length);
+        return saved;
     }
 
     async function ensureRecoverableImageAsset(node, assetKey = node?.id) {
@@ -788,6 +811,15 @@ export function createWorkflowRunnerApi({
             if (!node || node.enabled === false || !hasImageOutputPort(node)) continue;
             if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageSave') continue;
             if (isNodeResultFixed(nodeId)) continue;
+
+            if (!retainsPersistentImageResult(node)) {
+                const bytes = clearIntermediateImageResult(node);
+                if (bytes > 0) {
+                    released.push({ nodeId, title: getNodeDisplayTitle(node), approxBytes: bytes });
+                    releasedBytes += bytes;
+                }
+                continue;
+            }
 
             if (!(await ensureRecoverableImageAsset(node, nodeId))) continue;
             const imageCount = Math.max(
@@ -1129,23 +1161,12 @@ export function createWorkflowRunnerApi({
             const images = results.flatMap((result) => normalizeImageList(result?.images || result?.image));
             setCanonicalImageOutput(node, images, {
                 currentIndex: images.length - 1,
-                assetKey: node.id,
-                imageCount: images.length,
-                assetReady: false
+                assetKey: '',
+                imageCount: images.length
             });
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
-            if (images.length > 1) {
-                if (await saveImageAssetList(node.id, images)) {
-                    markRecoverableImageAssetReady(node, node.id, images.length);
-                }
-            } else if (images.length === 1) {
-                if (await saveImageAsset(node.id, images[0])) {
-                    markRecoverableImageAssetReady(node, node.id, 1);
-                }
-            } else {
-                await deleteImageAsset(node.id);
-            }
+            await syncImageResultPersistence(node, images);
             await propagateImagesToDownstreamPreview(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);
@@ -1600,16 +1621,13 @@ export function createWorkflowRunnerApi({
         if (shouldAggregateImages && aggregatedImages.length > 0) {
             setCanonicalImageOutput(node, aggregatedImages, {
                 currentIndex: aggregatedImages.length - 1,
-                assetKey: node.id,
-                imageCount: aggregatedImages.length,
-                assetReady: false
+                assetKey: retainsPersistentImageResult(node) ? node.id : '',
+                imageCount: aggregatedImages.length
             });
             if (node.type === 'ImageGenerate') {
                 node.generationCompletedCount = aggregatedImages.length;
             }
-            if (await saveImageAssetList(node.id, aggregatedImages)) {
-                markRecoverableImageAssetReady(node, node.id, aggregatedImages.length);
-            }
+            await syncImageResultPersistence(node, aggregatedImages, { forceList: true });
             await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);

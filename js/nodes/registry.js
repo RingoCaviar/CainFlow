@@ -16,9 +16,14 @@ import { textNode } from './types/text.js';
 import { textSplitNode } from './types/text-split.js';
 import { cameraControlNode } from './types/camera-control.js';
 import { customParamsNode } from './types/custom-params.js';
-import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.js';
+import {
+    definitionHasCapability,
+    getImageResultPersistence,
+    IMAGE_RESULT_PERSISTENCE,
+    NODE_CAPABILITIES
+} from './node-capabilities.js';
 
-export { NODE_CAPABILITIES } from './node-capabilities.js';
+export { IMAGE_RESULT_PERSISTENCE, NODE_CAPABILITIES } from './node-capabilities.js';
 
 const nodeDefinitions = [
     imageImportNode,
@@ -55,6 +60,10 @@ export function getNodeDefinition(type) {
 
 export function hasNodeCapability(type, capability) {
     return definitionHasCapability(getNodeDefinition(type), capability);
+}
+
+export function getNodeImageResultPersistence(type) {
+    return getImageResultPersistence(getNodeDefinition(type));
 }
 
 export function getNodeDefinitionPorts(type, direction) {
