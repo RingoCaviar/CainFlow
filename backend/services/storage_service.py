@@ -1409,7 +1409,9 @@ class StorageService:
                     self._write_json_atomic(f'{destination}.recovery.json', record)
                     db.execute('''INSERT OR REPLACE INTO media_asset_quarantine(asset_key, state, quarantined_at)
                         VALUES(?, 'pending', ?)''', (key, now))
+                    self._transition_fault_injector('quarantine_pending')
                     os.replace(source, destination)
+                    self._transition_fault_injector('quarantine_moved')
                     db.execute("UPDATE media_asset_quarantine SET state='quarantined' WHERE asset_key=?", (key,))
                     records.append((key, record))
                     moved += 1
@@ -1492,6 +1494,7 @@ class StorageService:
                 raise StorageError('Abnormal Media asset candidate spike')
             if not self.get_meta('media_gc_observation_started_at'):
                 self.set_meta('media_gc_observation_started_at', int(now_ms or time.time() * 1000))
+            self._transition_fault_injector('audit_recorded')
             return {'eligible': True, 'auditOnly': True, 'candidateCount': len(rows),
                     'candidateBytes': sum(row['size_bytes'] for row in rows)}
         except StorageError:
@@ -2113,6 +2116,8 @@ class StorageService:
                 VALUES(?, ?, ?, ?) ON CONFLICT(owner_type, owner_id, asset_key) DO NOTHING''', [
                     (owner_type, reference_owner_id, key, now) for key in dict.fromkeys(keys)
                 ])
+            db.executemany('DELETE FROM media_gc_candidate_provenance WHERE asset_key=?',
+                           [(key,) for key in dict.fromkeys(keys)])
             db.execute('''UPDATE media_asset_transitions
                 SET status='owner-promoted', result_generation=? WHERE idempotency_key=?''',
                 (next_generation, idempotency_key))

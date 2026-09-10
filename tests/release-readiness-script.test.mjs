@@ -14,3 +14,9 @@ test('release readiness runs Python tests without an undeclared pytest dependenc
     );
     assert.doesNotMatch(validationScript, /& \$PythonCommand -m pytest\b/);
 });
+
+test('release readiness emits and enforces the Media asset safety report', () => {
+    assert.match(validationScript, /media_safety_gate/);
+    assert.match(validationScript, /media-asset-safety-report\.json/);
+    assert.match(validationScript, /Media asset safety gate failed/);
+});

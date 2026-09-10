@@ -140,6 +140,28 @@ class StorageServiceTests(unittest.TestCase):
             self.assertEqual('schema_version_changed', status['reason'])
             self.assertNotEqual(previous_epoch, status['storageEpoch'])
 
+    def test_independently_constructed_v1_schema_fixture_upgrades_forward_without_data_loss(self):
+        with tempfile.TemporaryDirectory() as root:
+            database_path = os.path.join(root, 'data', 'cainflow.db')
+            os.makedirs(os.path.dirname(database_path), exist_ok=True)
+            fixture_path = os.path.join(os.path.dirname(__file__), 'fixtures', 'media-safety-schema-v1.sql')
+            database = sqlite3.connect(database_path)
+            try:
+                with open(fixture_path, encoding='utf-8') as source:
+                    database.executescript(source.read())
+                database.commit()
+            finally:
+                database.close()
+            service = StorageService(database_path, os.path.join(root, 'data', 'assets'),
+                                     os.path.join(root, 'data', 'temp'), os.path.join(root, 'exports'))
+            service.initialize()
+            self.assertEqual({'workflows': []}, service.get_document('session')['value'])
+            self.assertEqual('legacy:fixture', service.get_asset_info('legacy:fixture')['asset_key'])
+            with service._connect() as database:
+                self.assertIsNotNone(database.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_asset_owners'").fetchone())
+            self.assertEqual('scan_required', service.get_storage_safety_status()['state'])
+
     def test_repaired_schema_structure_requires_an_integrity_scan(self):
         with tempfile.TemporaryDirectory() as root:
             first = self.make_service(root, verified=False)
@@ -1591,6 +1613,32 @@ else:
             self.assertEqual('quarantine_restore_conflict', restarted.get_storage_safety_status()['reason'])
             self.assertEqual(1, quarantined['quarantined'])
 
+    def test_quarantine_and_audit_fault_points_fail_closed_with_recovery_evidence(self):
+        for stage in ('quarantine_pending', 'quarantine_moved'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as root:
+                service = self.make_service(root, verified=False)
+                asset = service.put_asset(f'media:{stage}', stage.encode(), 'image/png', 'media')
+                service._transition_fault_injector = lambda current, target=stage: (
+                    (_ for _ in ()).throw(RuntimeError('injected')) if current == target else None)
+                with self.assertRaisesRegex(RuntimeError, 'injected'):
+                    service.quarantine_media_candidates([asset['asset_key']])
+                self.assertEqual('gc_suspended', service.get_storage_safety_status()['state'])
+                if stage == 'quarantine_moved':
+                    service._transition_fault_injector = lambda _stage: None
+                    self.assertTrue(service.restore_quarantined_media(asset['asset_key'])['restored'])
+                self.assertIsNotNone(service.get_asset(asset['asset_key']))
+
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:audit-fault', b'audit', 'image/png', 'media')
+            service.record_media_gc_candidate_provenance('wf', [asset['asset_key']])
+            self.finish_integrity_scan(service, [])
+            service._transition_fault_injector = lambda stage: (
+                (_ for _ in ()).throw(RuntimeError('injected')) if stage == 'audit_recorded' else None)
+            with self.assertRaises(StorageError):
+                service.audit_media_gc_candidates(['wf'])
+            self.assertEqual('media_gc_audit_failed', service.get_storage_safety_status()['reason'])
+
     def test_unregistered_files_enter_versioned_quarantine_without_being_released(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, verified=False)
@@ -1705,6 +1753,30 @@ else:
                 row = database.execute('''SELECT workflow_id FROM media_gc_candidate_provenance
                     WHERE asset_key=?''', (old['asset_key'],)).fetchone()
             self.assertEqual('wf', row['workflow_id'])
+
+    def test_undo_reownership_removes_stale_gc_candidate_provenance(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:undo', b'undo', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+
+            def transition(revision, intent, keys):
+                service.record_media_workflow_revision('wf', revision, epoch, [{
+                    'ownerType': 'workflow-node', 'ownerId': 'node', 'assetKeys': keys}])
+                return service.replace_media_owner_references(
+                    workflow_id='wf', owner_type='workflow-node', owner_id='node',
+                    operation_id=str(revision), idempotency_key=str(revision), intent=intent,
+                    expected_generation=revision - 1, document_revision=revision,
+                    storage_epoch=epoch, asset_keys=keys)
+
+            transition(1, 'save', [asset['asset_key']])
+            transition(2, 'delete', [])
+            transition(3, 'undo', [asset['asset_key']])
+            with service._connect() as database:
+                candidate = database.execute(
+                    'SELECT 1 FROM media_gc_candidate_provenance WHERE asset_key=?',
+                    (asset['asset_key'],)).fetchone()
+            self.assertIsNone(candidate)
 
 
 if __name__ == '__main__':

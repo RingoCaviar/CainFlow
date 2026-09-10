@@ -66,7 +66,7 @@ class DiagnosticServiceTests(unittest.TestCase):
             'error': {'message': 'failed'},
             'request': {
                 'headers': {'Authorization': 'Bearer secret'},
-                'body': {'api_key': 'secret', 'prompt': 'x' * 5000},
+                'body': {'api_key': 'secret', 'prompt': 'private prompt', 'metadata': 'x' * 5000},
             },
         }
         result = self.service.record(payload)

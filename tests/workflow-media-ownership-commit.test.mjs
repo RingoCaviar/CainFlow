@@ -6,6 +6,21 @@ import {
     prepareWorkflowMediaOwnershipCommit
 } from '../js/features/media/workflow-media-ownership-commit.js';
 
+test('a document commit failure never starts owner promotion', async () => {
+    let promotions = 0;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        recordMediaWorkflowRevision: async () => { throw new Error('injected document commit failure'); },
+        getMediaOwnerReferenceList: async () => ({ generation: 0 }),
+        replaceMediaOwnerReferenceList: async () => (promotions += 1, { status: 'committed' })
+    });
+    await assert.rejects(
+        committer.commitPersistedWorkflow({ workflowId: 'workflow-a', mediaOwnershipRevision: 1, nodes: [] }),
+        /injected document commit failure/
+    );
+    assert.equal(promotions, 0);
+});
+
 test('a persisted Workflow commits complete ordered Media asset owner lists before promotion', async () => {
     const workflow = {
         workflowId: 'workflow-a',

@@ -174,6 +174,16 @@ function Invoke-StorageInitializationCheck {
   }
 }
 
+function Invoke-MediaAssetSafetyGate {
+  param([string]$RepoRoot, [string]$PythonCommand)
+  $reportPath = Join-Path $RepoRoot "artifacts\media-asset-safety-report.json"
+  Push-Location $RepoRoot
+  try {
+    & $PythonCommand -m backend.services.media_safety_gate --output $reportPath
+    if ($LASTEXITCODE -ne 0) { throw "Media asset safety gate failed." }
+  } finally { Pop-Location }
+}
+
 function Invoke-WorkflowFixtureChecks {
   param([string]$RepoRoot)
 
@@ -232,6 +242,9 @@ try {
   Write-Step "Validating desktop security and SQLite initialization"
   Invoke-StorageInitializationCheck -RepoRoot $repoRoot -PythonCommand $Python
 
+  Write-Step "Generating Media asset safety report"
+  Invoke-MediaAssetSafetyGate -RepoRoot $repoRoot -PythonCommand $Python
+
   $succeeded = $true
   $summaryLines = @(
     "Repository root: $repoRoot",
@@ -241,6 +254,7 @@ try {
     "Backend compile checks: passed",
     "Complete Python test suite: passed",
     "Desktop and SQLite initialization: passed",
+    "Media asset safety gate: passed",
     "Regression workflow fixtures: passed"
   )
 } catch {

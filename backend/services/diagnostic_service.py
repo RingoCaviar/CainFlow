@@ -13,6 +13,7 @@ SENSITIVE_KEYS = {
     'key', 'api_key', 'apikey', 'api-key', 'x-api-key', 'tt-api-key',
     'token', 'access_token',
 }
+SENSITIVE_BODY_KEY_TOKENS = ('media', 'image', 'video', 'prompt', 'path', 'url')
 LEGACY_LOG_PATTERN = re.compile(r'^backend-\d{4}-\d{2}-\d{2}\.jsonl$')
 SEGMENT_PATTERN = re.compile(r'^diagnostic-(error|success)-\d{8}T\d{6}-\d+\.jsonl(?:\.gz)?$')
 
@@ -202,7 +203,8 @@ class DiagnosticService:
     def _sanitize(self, value):
         if isinstance(value, dict):
             return {
-                str(key): ('[REDACTED]' if str(key).lower() in SENSITIVE_KEYS else self._sanitize(item))
+                str(key): ('[REDACTED]' if str(key).lower() in SENSITIVE_KEYS else
+                           self._sanitize_body(item) if str(key).lower() == 'body' else self._sanitize(item))
                 for key, item in value.items()
             }
         if isinstance(value, list):
@@ -210,6 +212,16 @@ class DiagnosticService:
         if isinstance(value, str) and value.lower().startswith('data:'):
             return f'[data-url omitted; chars={len(value)}]'
         return value
+
+    def _sanitize_body(self, value):
+        if isinstance(value, dict):
+            return {str(key): ('[REDACTED]' if (str(key).lower() in SENSITIVE_KEYS or any(
+                                   token in re.sub(r'[^a-z]', '', str(key).lower())
+                                   for token in SENSITIVE_BODY_KEY_TOKENS))
+                               else self._sanitize_body(item)) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._sanitize_body(item) for item in value]
+        return self._sanitize(value)
 
     def _active_segment(self, priority, fresh=False):
         path = self._active_paths.get(priority)
