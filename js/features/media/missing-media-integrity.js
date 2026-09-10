@@ -54,7 +54,7 @@ export async function projectMissingMediaAssets({
     return items;
 }
 
-export function renderMissingMediaPlaceholders(node, container, documentRef = document) {
+export function renderMissingMediaPlaceholders(node, container, documentRef = document, onAction = () => {}) {
     if (!container) return;
     container.querySelectorAll?.('.missing-media-asset-placeholder').forEach((element) => element.remove());
     const missingItems = node?.data?.mediaIntegrity?.missingItems || [];
@@ -69,7 +69,35 @@ export function renderMissingMediaPlaceholders(node, container, documentRef = do
         placeholder.dataset.mediaType = item.mediaType;
         placeholder.style?.setProperty?.('--missing-media-position', String(item.position));
         placeholder.hidden = item.position !== activePosition;
-        placeholder.textContent = `第 ${item.position + 1} 项本地媒体缺失 · ${item.redactedSource}`;
+        const message = documentRef.createElement('span');
+        message.textContent = `第 ${item.position + 1} 项本地媒体缺失 · ${item.redactedSource}`;
+        placeholder.appendChild(message);
+        const select = documentRef.createElement('input');
+        select.type = 'checkbox';
+        select.className = 'missing-media-asset-select';
+        select.dataset.position = String(item.position);
+        select.setAttribute?.('aria-label', `选择第 ${item.position + 1} 项缺失媒体`);
+        placeholder.appendChild(select);
+        for (const [action, label] of [['remote-recover', '远程恢复'], ['local-recover', '本地恢复'], ['replace', '替换'], ['remove', '移除引用']]) {
+            const button = documentRef.createElement('button');
+            button.type = 'button';
+            button.className = 'missing-media-asset-action';
+            button.dataset.action = action;
+            button.dataset.position = String(item.position);
+            button.textContent = label;
+            button.addEventListener?.('click', () => onAction({ action, item, node }));
+            placeholder.appendChild(button);
+        }
+        const batchRemove = documentRef.createElement('button');
+        batchRemove.type = 'button';
+        batchRemove.className = 'missing-media-asset-action';
+        batchRemove.textContent = '移除已选';
+        batchRemove.addEventListener?.('click', () => onAction({
+            action: 'remove-selected', node,
+            positions: Array.from(container.querySelectorAll?.('.missing-media-asset-select:checked') || [])
+                .map((element) => Number(element.dataset.position))
+        }));
+        placeholder.appendChild(batchRemove);
         container.appendChild(placeholder);
     }
 }

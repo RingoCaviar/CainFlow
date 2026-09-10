@@ -84,6 +84,8 @@ test('each missing position renders a placeholder with its original list index',
     };
     const documentRef = { createElement: () => ({
         className: '', dataset: {}, textContent: '',
+        children: [], appendChild(child) { this.children.push(child); },
+        addEventListener() {},
         style: { setProperty(name, value) { this[name] = value; } }
     }) };
     const node = { data: { mediaIntegrity: { missingItems: [
@@ -95,6 +97,9 @@ test('each missing position renders a placeholder with its original list index',
     assert.deepEqual(children.map((item) => item.dataset.position), ['0', '2']);
     assert.deepEqual(children.map((item) => item.style['--missing-media-position']), ['0', '2']);
     assert.deepEqual(children.map((item) => item.hidden), [false, true]);
+    assert.deepEqual(children[0].children.slice(2, 6).map((item) => item.dataset.action), [
+        'remote-recover', 'local-recover', 'replace', 'remove'
+    ]);
     assert.ok(children.every((item) => item.className === 'missing-media-asset-placeholder'));
 });
 

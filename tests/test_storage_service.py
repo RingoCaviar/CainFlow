@@ -12,6 +12,16 @@ from backend.services.storage_service import StorageError, StorageService
 
 
 class StorageServiceTests(unittest.TestCase):
+    def test_workflow_document_action_is_fenced_by_the_captured_storage_epoch(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            calls = []
+            self.assertEqual('saved', service.run_at_storage_epoch(epoch, lambda: (calls.append('save'), 'saved')[1]))
+            with self.assertRaises(StorageError):
+                service.run_at_storage_epoch('stale-epoch', lambda: calls.append('stale-save'))
+            self.assertEqual(['save'], calls)
+
     def make_service(self, root, verified=True):
         service = StorageService(
             database_path=os.path.join(root, 'data', 'cainflow.db'),

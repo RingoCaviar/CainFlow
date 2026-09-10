@@ -372,7 +372,8 @@ export function createAsyncMediaExecutionApi({
         videoId,
         signal,
         prompt,
-        protocolPlan = null
+        protocolPlan = null,
+        projectUpdates = true
     }) {
         const intervalMs = 10000;
         const nodeStartedAt = Number.isFinite(node?.runStartedAt) && node.runStartedAt > 0
@@ -487,10 +488,12 @@ export function createAsyncMediaExecutionApi({
                 maxAttempts,
                 elapsedMs: Date.now() - nodeStartedAt
             });
-            commitVideoGenerateOutputs(node, { videoId, status, statusText: pollingStatus, prompt });
-            updateVideoGenerationStatus(node.id, pollingStatus, 'progress');
-            scheduleSave();
-            onNodeResultUpdated(node.id);
+            if (projectUpdates) {
+                commitVideoGenerateOutputs(node, { videoId, status, statusText: pollingStatus, prompt });
+                updateVideoGenerationStatus(node.id, pollingStatus, 'progress');
+                scheduleSave();
+                onNodeResultUpdated(node.id);
+            }
 
             const completedStatuses = protocolPlan?.asyncTask?.completedStatuses || ['completed', 'succeeded', 'success'];
             const failedStatuses = protocolPlan?.asyncTask?.failedStatuses || ['failed', 'error', 'cancelled', 'canceled'];
@@ -997,6 +1000,27 @@ export function createAsyncMediaExecutionApi({
         }
     }
 
+    async function recoverAsyncImageTaskMedia(nodeId, signal = null) {
+        const sourceNode = state.nodes.get(nodeId);
+        if (!sourceNode || sourceNode.type !== 'ImageGenerate') throw new Error('未找到可恢复的图片生成节点');
+        const configId = documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '';
+        const modelCfg = state.models.find((model) => model.id === configId);
+        const providerId = getResolvedProviderIdForModel(
+            modelCfg, state.providers,
+            documentRef.getElementById(`${nodeId}-provider`)?.value || sourceNode.providerId || ''
+        );
+        const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, providerId);
+        const imageTaskId = String(sourceNode.data?.imageTaskId || '').trim();
+        if (!modelCfg || !apiCfg || !imageTaskId || getEffectiveProtocol(modelCfg, apiCfg) !== 'newapi-image-async') {
+            throw new Error('持久任务 identity 无法由当前模型配置恢复');
+        }
+        const node = { ...sourceNode, data: { ...sourceNode.data } };
+        const result = await pollAsyncImageGeneration({
+            node, apiCfg, modelCfg, imageTaskId, signal, prompt: String(node.data.prompt || '')
+        });
+        return downloadGeneratedImage(result.imageUrl, signal);
+    }
+
     async function resumeVideoGeneration(nodeId, signal = null) {
         const node = state.nodes.get(nodeId);
         if (!node || node.type !== 'VideoGenerate') {
@@ -1107,6 +1131,30 @@ export function createAsyncMediaExecutionApi({
         } finally {
             if (resumeBtn) resumeBtn.disabled = false;
         }
+    }
+
+    async function recoverVideoTaskMedia(nodeId, signal = null) {
+        const sourceNode = state.nodes.get(nodeId);
+        if (!sourceNode || sourceNode.type !== 'VideoGenerate') throw new Error('未找到可恢复的视频生成节点');
+        const configId = documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '';
+        const modelCfg = state.models.find((model) => model.id === configId);
+        const providerId = getResolvedProviderIdForModel(
+            modelCfg, state.providers,
+            documentRef.getElementById(`${nodeId}-provider`)?.value || sourceNode.providerId || ''
+        );
+        const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, providerId);
+        const videoId = String(sourceNode.data?.videoId || '').trim();
+        if (!modelCfg || !apiCfg || !videoId) throw new Error('持久任务 identity 无法由当前模型配置恢复');
+        const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+        const prompt = String(sourceNode.data?.prompt || sourceNode.data?.protocolParams?.prompt || '').trim();
+        const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, {
+            ...(sourceNode.data?.protocolParams || {}), ...(prompt ? { prompt } : {})
+        });
+        const node = { ...sourceNode, data: { ...sourceNode.data } };
+        const result = await pollVideoGeneration({
+            node, apiCfg, modelCfg, protocol, videoId, signal, prompt, protocolPlan, projectUpdates: false
+        });
+        return downloadGeneratedVideo(result.videoUrl, { signal });
     }
 
     async function runVideoGenerateNode(node, inputs, signal) {
@@ -1336,6 +1384,8 @@ export function createAsyncMediaExecutionApi({
         runAsyncImageGeneration,
         runVideoGenerateNode,
         resumeAsyncImageGeneration,
-        resumeVideoGeneration
+        resumeVideoGeneration,
+        recoverAsyncImageTaskMedia,
+        recoverVideoTaskMedia
     };
 }

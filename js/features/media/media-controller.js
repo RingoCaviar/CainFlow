@@ -87,6 +87,7 @@ export function createMediaControllerApi({
     addLog,
     scheduleSave,
     onMediaIntegrityChanged = () => {},
+    onMissingMediaAction = () => {},
     syncCameraControlNodePreview = () => {},
     syncClonesFromSource = () => {},
     openImagePainter,
@@ -216,7 +217,8 @@ export function createMediaControllerApi({
         canvasContainer,
         getActiveWorkflowId,
         showToast,
-        onMediaIntegrityChanged
+        onMediaIntegrityChanged,
+        onMissingMediaAction
     });
 
     function hasIncomingImageConnection(nodeId) {

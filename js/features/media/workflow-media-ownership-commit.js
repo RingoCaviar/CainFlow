@@ -47,6 +47,36 @@ export function createWorkflowMediaOwnershipCommitter({
     replaceMediaOwnerReferenceList,
     removeMediaReference = async () => false
 }) {
+    const expectedOwnerGenerations = new Map();
+
+    function expectNextOwnerGeneration({ workflowId, ownerType, ownerId, generation, documentRevision, storageEpoch }) {
+        expectedOwnerGenerations.set(`${workflowId}\0${ownerType}\0${ownerId}`, {
+            generation: Number(generation),
+            documentRevision: Number(documentRevision),
+            storageEpoch: String(storageEpoch || '')
+        });
+    }
+
+    function clearExpectedOwnerGeneration({ workflowId, ownerType, ownerId }) {
+        expectedOwnerGenerations.delete(`${workflowId}\0${ownerType}\0${ownerId}`);
+    }
+
+    async function validateExpectedStorageEpoch(workflowId) {
+        const expectations = Array.from(expectedOwnerGenerations.entries())
+            .filter(([key]) => key.startsWith(`${workflowId}\0`));
+        if (expectations.length === 0) return true;
+        const storageEpoch = String((await getStorageSafetyStatus())?.storageEpoch || '');
+        const valid = storageEpoch && expectations.every(([, value]) => value.storageEpoch === storageEpoch);
+        if (!valid) expectations.forEach(([key]) => expectedOwnerGenerations.delete(key));
+        return valid;
+    }
+
+    function getExpectedStorageEpoch(workflowId) {
+        const expectation = Array.from(expectedOwnerGenerations.entries())
+            .find(([key]) => key.startsWith(`${workflowId}\0`));
+        return expectation?.[1]?.storageEpoch || '';
+    }
+
     async function commitPersistedWorkflow(workflow) {
         const workflowId = String(workflow?.workflowId || '').trim();
         const documentRevision = Number(workflow?.mediaOwnershipRevision || 0);
@@ -55,6 +85,13 @@ export function createWorkflowMediaOwnershipCommitter({
         const safety = await getStorageSafetyStatus();
         const storageEpoch = String(safety?.storageEpoch || '');
         if (!storageEpoch) return false;
+        const staleExpectationKeys = Array.from(expectedOwnerGenerations.entries())
+            .filter(([key, value]) => key.startsWith(`${workflowId}\0`) && value.storageEpoch && value.storageEpoch !== storageEpoch)
+            .map(([key]) => key);
+        if (staleExpectationKeys.length > 0) {
+            staleExpectationKeys.forEach((key) => expectedOwnerGenerations.delete(key));
+            return false;
+        }
         const ownerReferenceLists = collectWorkflowMediaOwnerLists(workflow);
         const temporaryOwners = new Map((workflow.nodes || []).map((node) => [
             `${getWorkflowMediaOwnerType(node)}\0${node.id}`,
@@ -88,9 +125,18 @@ export function createWorkflowMediaOwnershipCommitter({
             if (current?.tombstoned && !owner.restored && !owner.deleted) return false;
             const operationKind = owner.deleted ? 'workflow-delete' : (owner.restored ? `workflow-${owner.restored}` : 'workflow-save');
             const operationId = `${operationKind}:${documentRevision}`;
-            const expectedGeneration = Number(current?.documentRevision) === documentRevision
-                ? Math.max(0, Number(current?.generation || 0) - 1)
-                : Number(current?.generation || 0);
+            const expectationKey = `${workflowId}\0${owner.ownerType}\0${owner.ownerId}`;
+            const requestedExpectation = expectedOwnerGenerations.get(expectationKey);
+            if (requestedExpectation?.storageEpoch && requestedExpectation.storageEpoch !== storageEpoch) {
+                expectedOwnerGenerations.delete(expectationKey);
+                return false;
+            }
+            const expectedGeneration = requestedExpectation
+                && requestedExpectation.documentRevision + 1 === documentRevision
+                ? requestedExpectation.generation
+                : (Number(current?.documentRevision) === documentRevision
+                    ? Math.max(0, Number(current?.generation || 0) - 1)
+                    : Number(current?.generation || 0));
             const result = await replaceMediaOwnerReferenceList({
                 workflowId,
                 ownerType: owner.ownerType,
@@ -103,6 +149,7 @@ export function createWorkflowMediaOwnershipCommitter({
                 storageEpoch,
                 assetKeys: owner.assetKeys
             });
+            expectedOwnerGenerations.delete(expectationKey);
             if (!['committed', 'already-committed'].includes(result?.status)) return false;
             const temporaryOwner = temporaryOwners.get(`${owner.ownerType}\0${owner.ownerId}`);
             if (temporaryOwner) {
@@ -118,5 +165,11 @@ export function createWorkflowMediaOwnershipCommitter({
         return true;
     }
 
-    return { commitPersistedWorkflow };
+    return {
+        commitPersistedWorkflow,
+        expectNextOwnerGeneration,
+        clearExpectedOwnerGeneration,
+        validateExpectedStorageEpoch,
+        getExpectedStorageEpoch
+    };
 }

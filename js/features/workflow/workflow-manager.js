@@ -545,11 +545,15 @@ export function createWorkflowManagerApi({
         let documentPersisted = false;
         const previousMediaOwnershipRevision = data?.mediaOwnershipRevision;
         try {
+            if (!await mediaOwnershipCommitter.validateExpectedStorageEpoch(data?.workflowId || '')) {
+                throw new Error('媒体存储版本已变化，请重新确认操作');
+            }
             migration ||= await legacyMediaMigration.stageWorkflow(data);
             const preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
             data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
             const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
-                expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0)
+                expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
+                expectedStorageEpoch: mediaOwnershipCommitter.getExpectedStorageEpoch(data?.workflowId || '')
             });
             if (result !== true) {
                 if (previousMediaOwnershipRevision === undefined) delete data.mediaOwnershipRevision;
@@ -2992,6 +2996,8 @@ export function createWorkflowManagerApi({
         loadWorkflowFromFile,
         openWorkflow,
         saveActiveWorkflow,
+        expectNextMediaOwnerGeneration: (expectation) => mediaOwnershipCommitter.expectNextOwnerGeneration(expectation),
+        clearExpectedMediaOwnerGeneration: (expectation) => mediaOwnershipCommitter.clearExpectedOwnerGeneration(expectation),
         saveAllOpenWorkflows,
         markActiveWorkflowDirty,
         refreshActiveWorkflowIntegrityState,

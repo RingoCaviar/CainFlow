@@ -2517,8 +2517,12 @@ export function createExecutionCoreApi({
         topologicalSort,
         getCachedOutputValue,
         buildNodeRequestPreview,
+        downloadGeneratedImage,
+        downloadGeneratedVideo,
         resumeVideoGeneration: asyncMediaExecution.resumeVideoGeneration,
         resumeAsyncImageGeneration: asyncMediaExecution.resumeAsyncImageGeneration,
+        recoverAsyncImageTaskMedia: asyncMediaExecution.recoverAsyncImageTaskMedia,
+        recoverVideoTaskMedia: asyncMediaExecution.recoverVideoTaskMedia,
         executeNode,
         nodeHandlers
     };

@@ -45,6 +45,7 @@ import { createNodeMarkup } from '../nodes/node-view-factory.js';
 import { createNodeDomBindingsApi } from '../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../nodes/node-lifecycle.js';
 import { createMediaControllerApi } from '../features/media/media-controller.js';
+import { createMissingMediaBrowserActions } from '../features/media/missing-media-action-browser.js';
 import { createImagePainterApi } from '../features/media/image-painter.js';
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
@@ -574,6 +575,7 @@ const helpPanelApi = createHelpPanelApi({
     panelManager
 });
 const settingsModal = document.getElementById('settings-modal');
+let handleMissingMediaAction = async () => {};
 const mediaControllerApi = createMediaControllerApi({
     state,
     getNodeById: (nodeId) => state.nodes.get(nodeId),
@@ -592,6 +594,7 @@ const mediaControllerApi = createMediaControllerApi({
     addLog,
     scheduleSave,
     onMediaIntegrityChanged: () => workflowManagerApi?.refreshActiveWorkflowIntegrityState?.(),
+    onMissingMediaAction: (request) => handleMissingMediaAction(request),
     syncCameraControlNodePreview: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
     syncClonesFromSource: (nodeId) => nodeDomBindingsApi?.syncClonesFromSource(nodeId),
     openImagePainter,
@@ -1458,6 +1461,24 @@ const workflowManagerApi = createWorkflowManagerApi({
     },
     releaseDetachedEditorView: (workflow) => getWorkflowRuntimeManagerApi().releaseEditorView(workflow),
     localStorageRef: diskStorage
+});
+
+handleMissingMediaAction = createMissingMediaBrowserActions({
+    state,
+    workflowManager: workflowManagerApi,
+    getMediaOwnerReferenceList,
+    getStorageSafetyStatus,
+    saveWorkflowNodeMediaAsset,
+    downloadRemoteMedia: (url, mediaType, signal) => mediaType === 'video'
+        ? getExecutionCoreApi().downloadGeneratedVideo(url, { signal })
+        : getExecutionCoreApi().downloadGeneratedImage(url, signal),
+    recoverTaskMedia: async (nodeId, mediaType, signal) => {
+        return mediaType === 'video'
+            ? getExecutionCoreApi().recoverVideoTaskMedia(nodeId, signal)
+            : getExecutionCoreApi().recoverAsyncImageTaskMedia(nodeId, signal);
+    },
+    pushHistory,
+    showToast
 });
 
 function refreshImageGenerateNodes(protocolId) {

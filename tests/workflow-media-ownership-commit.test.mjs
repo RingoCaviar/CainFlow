@@ -41,6 +41,40 @@ test('a persisted Workflow commits complete ordered Media asset owner lists befo
     ]);
 });
 
+test('a confirmed missing-media operation keeps its captured owner generation for CAS', async () => {
+    let request;
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 9 }),
+        replaceMediaOwnerReferenceList: async (value) => (request = value, { status: 'conflict' })
+    });
+    committer.expectNextOwnerGeneration({
+        workflowId: 'workflow-a', ownerType: 'workflow-node', ownerId: 'node-a',
+        generation: 3, documentRevision: 4
+    });
+    const committed = await committer.commitPersistedWorkflow({
+        workflowId: 'workflow-a', mediaOwnershipRevision: 5,
+        nodes: [{ id: 'node-a', type: 'ImageGenerate', data: { mediaAssetKeys: ['media:new'] } }]
+    });
+    assert.equal(committed, false);
+    assert.equal(request.expectedGeneration, 3);
+});
+
+test('a changed storage epoch is rejected before a confirmed document save', async () => {
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-new' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 1 }),
+        replaceMediaOwnerReferenceList: async () => ({ status: 'committed' })
+    });
+    committer.expectNextOwnerGeneration({
+        workflowId: 'workflow-a', ownerType: 'workflow-node', ownerId: 'node-a',
+        generation: 1, documentRevision: 4, storageEpoch: 'epoch-old'
+    });
+    assert.equal(await committer.validateExpectedStorageEpoch('workflow-a'), false);
+});
+
 test('a workflow operation temporary owner is released only after formal promotion', async () => {
     const calls = [];
     const workflow = prepareWorkflowMediaOwnershipCommit({

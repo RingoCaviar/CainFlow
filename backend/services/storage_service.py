@@ -104,6 +104,14 @@ class StorageService:
                 self._initialize_safety_status(forced_state)
             self._initialized = True
 
+    def run_at_storage_epoch(self, expected_epoch, action):
+        """Run a document mutation under the same lock that fences storage epoch changes."""
+        self.initialize()
+        with self._lock:
+            if expected_epoch and str(expected_epoch) != str(self._safety_status.get('storageEpoch') or ''):
+                raise StorageError('Media asset storage epoch changed')
+            return action()
+
     def _read_schema_version(self):
         if not os.path.exists(self.database_path):
             return None

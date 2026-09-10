@@ -49,7 +49,8 @@ export function createDisplayImageMemoryManager({
     canvasContainer = null,
     getActiveWorkflowId = () => '',
     showToast = () => {},
-    onMediaIntegrityChanged = () => {}
+    onMediaIntegrityChanged = () => {},
+    onMissingMediaAction = () => {}
 }) {
     const displayImageAssetState = new Map();
     const fullscreenPreviewNodeIds = new Set();
@@ -459,7 +460,9 @@ export function createDisplayImageMemoryManager({
                 });
                 const config = getManagedPreviewContainerConfig(node);
                 const container = config ? documentRef.getElementById(config.containerId) : null;
-                windowRef.setTimeout(() => renderMissingMediaPlaceholders(node, container, documentRef), 0);
+                windowRef.setTimeout(() => renderMissingMediaPlaceholders(
+                    node, container, documentRef, onMissingMediaAction
+                ), 0);
                 return normalizeImageList(projected.filter((item) => !item.missing).map((item) => item.value));
             }
             if (mediaAssetKeys.length > 1 && mediaAssetKeys.every((key) => typeof key === 'string' && key.startsWith('media:'))) {
