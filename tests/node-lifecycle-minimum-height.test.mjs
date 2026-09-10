@@ -157,6 +157,116 @@ test('creating an image generation node completes its initial serialization', ()
     assert.equal(state.nodes.has('image-created'), true);
 });
 
+test('serializing a current image generation node marks it transient and excludes stale asset keys', () => {
+    const node = {
+        id: 'current-generate', type: 'ImageGenerate', x: 0, y: 0, enabled: true,
+        data: { imageAssetKey: 'stale-generate', imageAssetReady: true, imageCount: 1 },
+        el: { classList: { contains: () => false } }
+    };
+    const serializer = createNodeSerializer({
+        state: { nodes: new Map([[node.id, node]]), connections: [], canvas: { x: 0, y: 0 } },
+        documentRef: { getElementById: () => null, querySelectorAll: () => [] }
+    });
+
+    const [serialized] = serializer.serializeNodes();
+
+    assert.equal(serialized.imageResultPersistence, 'transient');
+    assert.equal(serialized.imageAssetKey, undefined);
+    assert.equal(serialized.imageAssetReady, undefined);
+});
+
+test('a legacy image generation asset remains restorable after its persistence policy became transient', async () => {
+    const children = [];
+    const nodesLayer = { children, appendChild(element) { children.push(element); } };
+    const documentRef = {
+        defaultView: {
+            setTimeout: (callback) => { callback(); return 0; },
+            clearTimeout() {},
+            requestAnimationFrame: (callback) => callback()
+        },
+        createElement: () => ({
+            style: {}, dataset: {},
+            classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {}
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = {
+        nodes: new Map(), connections: [], selectedNodes: new Set(),
+        nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 }
+    };
+    const restoredKeys = [];
+    const lifecycle = createNodeLifecycleApi({
+        state,
+        nodeConfigs: {
+            ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320,
+                capabilities: ['imageResult', 'canonicalImages'] }
+        },
+        createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'legacy-generate',
+        getImageAssetList: async (key) => { restoredKeys.push(key); return ['data:image/png;base64,AAAA']; },
+        getImageAsset: async () => 'data:image/png;base64,AAAA', saveImageAsset: async () => true,
+        saveImageAssetList: async () => true, bindNodeInteractions: () => {}, pushHistory: () => {},
+        scheduleSave: () => {}, showToast: () => {}, updateAllConnections: () => {}, updatePortStyles: () => {},
+        getCacheSidebarActive: () => false, updateCacheUsage: () => {}, documentRef
+    });
+
+    lifecycle.addNode('ImageGenerate', 0, 0, {
+        id: 'legacy-generate', imageAssetKey: 'legacy-generate', imageAssetReady: true,
+        imageMemoryReleased: true, imageCount: 1
+    }, true);
+    await lifecycle.waitForImageRestores();
+
+    assert.deepEqual(restoredKeys, ['legacy-generate']);
+    assert.deepEqual(state.nodes.get('legacy-generate').data.imageList, ['data:image/png;base64,AAAA']);
+    assert.equal(state.nodes.get('legacy-generate').data.imageAssetKey, 'legacy-generate');
+});
+
+test('a transient image generation record never restores a stale asset key', async () => {
+    const children = [];
+    const nodesLayer = { children, appendChild(element) { children.push(element); } };
+    const documentRef = {
+        defaultView: {
+            setTimeout: (callback) => { callback(); return 0; },
+            clearTimeout() {}, requestAnimationFrame: (callback) => callback()
+        },
+        createElement: () => ({
+            style: {}, dataset: {},
+            classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {}
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = {
+        nodes: new Map(), connections: [], selectedNodes: new Set(),
+        nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 }
+    };
+    const restoredKeys = [];
+    const lifecycle = createNodeLifecycleApi({
+        state,
+        nodeConfigs: {
+            ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320,
+                capabilities: ['imageResult', 'canonicalImages'] }
+        },
+        createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'transient-generate',
+        getImageAssetList: async (key) => { restoredKeys.push(key); return ['data:image/png;base64,AAAA']; },
+        getImageAsset: async () => 'data:image/png;base64,AAAA', saveImageAsset: async () => true,
+        saveImageAssetList: async () => true, bindNodeInteractions: () => {}, pushHistory: () => {},
+        scheduleSave: () => {}, showToast: () => {}, updateAllConnections: () => {}, updatePortStyles: () => {},
+        getCacheSidebarActive: () => false, updateCacheUsage: () => {}, documentRef
+    });
+
+    lifecycle.addNode('ImageGenerate', 0, 0, {
+        id: 'transient-generate', imageResultPersistence: 'transient',
+        imageAssetKey: 'stale-generate', imageAssetReady: true, imageCount: 1
+    }, true);
+    await lifecycle.waitForImageRestores();
+
+    assert.deepEqual(restoredKeys, []);
+    assert.equal(state.nodes.get('transient-generate').data.imageAssetKey, undefined);
+});
+
 test('restoring a video generation node exposes its local Media asset to connected save nodes', () => {
     const children = [];
     const nodesLayer = {

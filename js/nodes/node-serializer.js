@@ -109,12 +109,15 @@ export function createNodeSerializer({ state, documentRef }) {
             const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
                 ? node.data.imageAssetKey
                 : '';
+            const preservesLegacyGeneratedAsset = node.type === 'ImageGenerate'
+                && node.data?.imageResultPersistence === 'legacy-persistent';
+            const isTransientImageGeneration = node.type === 'ImageGenerate' && !preservesLegacyGeneratedAsset;
             const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
                 ? node.imageImportAssetKey
                 : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-            const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
+            const hasRecoverableImageAsset = !isTransientImageGeneration && Boolean(imageAssetKey || imageImportAssetKey);
             if (usesCanonicalImages) {
-                if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+                if (imageAssetKey && !isTransientImageGeneration) serialized.imageAssetKey = imageAssetKey;
                 if (imageCount > 0) serialized.imageCount = imageCount;
                 if (imageCount > 1) {
                     serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
@@ -182,6 +185,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
                 if (node.type === 'ImageGenerate') {
+                    serialized.imageResultPersistence = preservesLegacyGeneratedAsset ? 'legacy-persistent' : 'transient';
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
                     serialized.resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
                     serialized.customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';

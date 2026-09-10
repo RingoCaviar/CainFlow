@@ -1301,6 +1301,15 @@ export function createNodeLifecycleApi({
         const restoredAssetKey = typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey
             ? effectiveRestoreData.imageAssetKey
             : '';
+        // Before ImageGenerate became a transient producer, its completed output
+        // was persisted under the node ID.  A transient marker is written by
+        // current versions, while unmarked records remain the legacy format.
+        const hasLegacyImageGenerateAsset = normalizedType === 'ImageGenerate'
+            && !!restoredAssetKey
+            && effectiveRestoreData?.imageResultPersistence !== 'transient';
+        if (hasLegacyImageGenerateAsset) {
+            nodeData.data.imageResultPersistence = 'legacy-persistent';
+        }
         const releasedImageAssetKey = typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey
             ? effectiveRestoreData.imageAssetKey
             : (typeof effectiveRestoreData?.imageImportAssetKey === 'string' ? effectiveRestoreData.imageImportAssetKey : '');
@@ -1313,7 +1322,7 @@ export function createNodeLifecycleApi({
                 nodeData.data.imageAssetKey = releasedImageAssetKey;
             }
         }
-        if (isRecoverableImageAssetNodeType(normalizedType)) {
+        if (isRecoverableImageAssetNodeType(normalizedType) || hasLegacyImageGenerateAsset) {
             const restoredImageCount = Math.max(
                 restoredImages.length,
                 Math.max(0, parseInt(effectiveRestoreData?.imageCount || '0', 10) || 0)
@@ -1508,7 +1517,7 @@ export function createNodeLifecycleApi({
         }, true);
         bindNodeSizeObserver(nodeData);
 
-        if (definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.IMAGE_RESTORE)) {
+        if (definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.IMAGE_RESTORE) || hasLegacyImageGenerateAsset) {
             enqueueImageRestoreTask(async () => {
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
@@ -1516,6 +1525,7 @@ export function createNodeLifecycleApi({
                 const canUseThumbnailOnly = Boolean(
                     previewThumbnail
                     && (nodeData.data?.imageAssetReady === true || nodeData.data?.imageMemoryReleased === true)
+                    && !hasLegacyImageGenerateAsset
                     && (normalizedType === 'ImageGenerate'
                         || normalizedType === 'ImageResize'
                         || normalizedType === 'ImageCompare'
@@ -1540,14 +1550,14 @@ export function createNodeLifecycleApi({
                     scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                     return;
                 }
-                if (nodeData.data?.imageMemoryReleased === true && nodeData.data?.imageAssetKey) {
+                if (!hasLegacyImageGenerateAsset && nodeData.data?.imageMemoryReleased === true && nodeData.data?.imageAssetKey) {
                     scheduleNodeContentVisibleChecks(id, restoreLayoutOptions);
                     return;
                 }
                 const hasInitialData = !!(effectiveRestoreData && effectiveRestoreData.imageData);
                 const hasInitialImageList = restoredImages.length > 0;
                 const imageImportAssetKey = normalizedType === 'ImageImport' ? (nodeData.imageImportAssetKey || effectiveRestoreData?.imageImportAssetKey || '') : '';
-                const recoverableImageAssetKey = isRecoverableImageAssetNodeType(normalizedType)
+                const recoverableImageAssetKey = (isRecoverableImageAssetNodeType(normalizedType) || hasLegacyImageGenerateAsset)
                     ? (nodeData.data?.imageAssetKey || effectiveRestoreData?.imageAssetKey || id)
                     : '';
                 const canonicalImageAssetKey = isCanonicalImageNodeType(normalizedType) ? recoverableImageAssetKey : '';
