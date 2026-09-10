@@ -496,10 +496,10 @@ export function createDiskStorageApi(getState) {
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
         clearImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import' }),
-        clearOrphanedImageImportAssets: (keys) => postMaintenance('clear-assets', { mode: 'image-import-orphans', keepKeys: Array.from(keys || []) }),
+        clearOrphanedImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import-orphans' }),
         clearImageAssets: ({ preserveHistory = true } = {}) => postMaintenance('clear-assets', { mode: preserveHistory ? 'nodes' : 'all' }),
         clearOrphanedHistoryAssets: () => postMaintenance('clear-assets', { mode: 'orphans' }),
-        clearOrphanedNodeAssets: (keys) => postMaintenance('clear-assets', { mode: 'node-orphans', keepKeys: Array.from(keys || []) }),
+        clearOrphanedNodeAssets: () => postMaintenance('clear-assets', { mode: 'node-orphans' }),
         trimHistoryCache: () => postMaintenance('trim-history'), createThumbnail, createVideoThumbnail,
         saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
         updateHistoryThumb, clearHistory: () => postMaintenance('clear-history'), deleteHistoryEntry

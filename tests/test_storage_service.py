@@ -1252,6 +1252,7 @@ else:
                 output.write(b'unregistered')
             database = sqlite3.connect(service.database_path)
             try:
+                database.create_function('cainflow_writer_schema_version', 0, lambda: 10)
                 database.execute('PRAGMA foreign_keys=OFF')
                 database.execute("INSERT INTO media_asset_refs VALUES('history', 'missing-meta', 'missing-key', 1)")
                 database.execute("INSERT INTO media_asset_owners VALUES('wf', 'workflow-node', 'partial', 1, 1, 0, 1)")
@@ -1529,6 +1530,181 @@ else:
             self.assertIn('missing_owner', {item['damageClass'] for item in result['report']['damageItems']})
             self.assertEqual(3, service.get_media_owner_reference_list(
                 'wf', 'workflow-node', 'node-a')['generation'])
+
+    def test_legacy_cleanup_keep_keys_is_audited_but_never_liveness_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:legacy', b'legacy', 'image/png', 'media')
+            result = service.cleanup_assets('node-orphans', [asset['asset_key']])
+            self.assertTrue(result['legacyKeepKeysIgnored'])
+            self.assertEqual(1, result['legacyKeepKeysCount'])
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
+    def test_progressive_workflow_migration_resumes_by_global_cursor_and_never_guesses_identity(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:migrate', b'migrate', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            workflows = [
+                {'name': 'legacy-without-id', 'nodes': [{'id': 'n0', 'output': {'assetKey': asset['asset_key']}}]},
+                {'workflowId': 'wf', 'mediaOwnershipRevision': 2, 'nodes': [{'id': 'n1', 'type': 'ImageGenerate', 'output': {'assetKey': asset['asset_key']}}]},
+            ]
+            service.create_media_migration_backup()
+            first = service.migrate_legacy_media_workflows_page(workflows, epoch, batch_size=1)
+            restarted = self.make_service(root, verified=False)
+            second = restarted.migrate_legacy_media_workflows_page(workflows, epoch, batch_size=1)
+            self.assertFalse(first['complete'])
+            self.assertTrue(second['complete'])
+            self.assertEqual(['wf'], second['migratedWorkflowIds'])
+            self.assertEqual([asset['asset_key']], restarted.get_media_owner_reference_list('wf', 'workflow-node', 'n1')['assetKeys'])
+            second_asset = restarted.put_asset('media:migrate-2', b'migrate-2', 'image/png', 'media')
+            workflows[1]['mediaOwnershipRevision'] = 3
+            workflows[1]['nodes'][0]['output']['assetKey'] = second_asset['asset_key']
+            updated = restarted.migrate_legacy_media_workflows_page(workflows, epoch, batch_size=10)
+            self.assertTrue(updated['complete'])
+            self.assertEqual([second_asset['asset_key']], restarted.get_media_owner_reference_list('wf', 'workflow-node', 'n1')['assetKeys'])
+
+    def test_verified_backup_binds_database_documents_and_media_hash_inventory(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.put_document('session', {'workflow': 'wf'})
+            service.put_asset('media:backup', b'backup', 'image/png', 'media')
+            backup = service.create_media_migration_backup()
+            self.assertTrue(os.path.exists(backup['databasePath']))
+            self.assertEqual(64, len(backup['databaseSha256']))
+            self.assertEqual(64, len(backup['documentsSha256']))
+            self.assertEqual(64, len(backup['mediaInventorySha256']))
+
+    def test_quarantine_restore_never_overwrites_conflicting_content_and_breaker_is_durable(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:q', b'original', 'image/png', 'media')
+            quarantined = service.quarantine_media_candidates([asset['asset_key']], reason='canary')
+            path = os.path.join(service.assets_dir, asset['relative_path'])
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'wb') as output:
+                output.write(b'different')
+            with self.assertRaises(StorageError):
+                service.restore_quarantined_media(asset['asset_key'])
+            self.assertEqual('gc_suspended', service.get_storage_safety_status()['state'])
+            restarted = self.make_service(root, verified=False)
+            self.assertEqual('quarantine_restore_conflict', restarted.get_storage_safety_status()['reason'])
+            self.assertEqual(1, quarantined['quarantined'])
+
+    def test_unregistered_files_enter_versioned_quarantine_without_being_released(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            path = os.path.join(service.assets_dir, 'legacy.bin')
+            with open(path, 'wb') as output:
+                output.write(b'legacy')
+            result = service.quarantine_unregistered_media_files()
+            self.assertEqual(1, result['quarantined'])
+            self.assertFalse(os.path.exists(path))
+            self.assertTrue(os.path.exists(result['items'][0]['quarantinePath']))
+            self.assertGreater(result['items'][0]['releaseAfter'], result['items'][0]['quarantinedAt'])
+
+    def test_gc_canary_requires_clean_observation_and_respects_count_and_byte_limits(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.put_asset('media:a', b'a', 'image/png', 'media')
+            service.put_asset('media:b', b'bb', 'image/png', 'media')
+            service.record_media_gc_candidate_provenance('wf', ['media:a', 'media:b'])
+            result, _ = self.finish_integrity_scan(service, [])
+            now = result['report']['completedAt'] + 8 * 24 * 60 * 60 * 1000
+            service.set_meta('media_gc_observation_started_at', result['report']['completedAt'] - 8 * 24 * 60 * 60 * 1000)
+            limited = service.run_media_gc_canary(['wf'], max_count=1, max_bytes=1, now_ms=now)
+            self.assertTrue(limited['limitExceeded'])
+            self.assertEqual(0, limited['quarantined'])
+            moved = service.run_media_gc_canary(['wf'], max_count=2, max_bytes=3, now_ms=now)
+            self.assertEqual(2, moved['quarantined'])
+
+    def test_audit_only_starts_observation_without_moving_and_spike_opens_durable_breaker(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:audit', b'audit', 'image/png', 'media')
+            service.record_media_gc_candidate_provenance('wf', [asset['asset_key']])
+            self.finish_integrity_scan(service, [])
+            audit = service.audit_media_gc_candidates(['wf'])
+            self.assertEqual(1, audit['candidateCount'])
+            self.assertTrue(os.path.exists(os.path.join(service.assets_dir, asset['relative_path'])))
+            service.set_meta('media_gc_abnormal_candidate_threshold', 0)
+            with self.assertRaises(StorageError):
+                service.audit_media_gc_candidates(['wf'])
+            restarted = self.make_service(root, verified=False)
+            self.assertEqual('abnormal_candidate_spike', restarted.get_storage_safety_status()['reason'])
+
+    def test_formal_authority_switch_advances_epoch_and_rejects_legacy_keep_keys(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            backup = service.create_media_migration_backup()
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.migrate_legacy_media_workflows_page([], epoch)
+            self.finish_integrity_scan(service, [])
+            switched = service.activate_formal_media_authority(backup['backupId'])
+            self.assertNotEqual(epoch, switched['storageEpoch'])
+            with self.assertRaises(StorageError):
+                service.cleanup_assets('node-orphans', ['legacy-node'])
+            orphan = service.put_asset('media:after-switch', b'orphan', 'image/png', 'media')
+            retained = service.cleanup_unreferenced_media_assets()
+            self.assertEqual(1, retained['candidatesRetained'])
+            self.assertIsNotNone(service.get_asset_info(orphan['asset_key']))
+
+            old_application = StorageService(
+                service.database_path, service.assets_dir, service.temp_dir, service.exports_dir,
+                supported_schema_version=9)
+            with self.assertRaises(StorageError):
+                old_application.put_document('session', {'old': 'writer'})
+            with self.assertRaises(StorageError):
+                old_application.put_media_asset(b'old', 'image/png', 'history', 'old')
+            with self.assertRaises(StorageError):
+                old_application.put_media_asset_list(['data:image/png;base64,b2xk'], 'workflow-operation', '["wf","n","op"]')
+            legacy_connection = sqlite3.connect(service.database_path)
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    legacy_connection.execute("INSERT INTO documents VALUES('session', '{}', 1)")
+                with self.assertRaises(sqlite3.OperationalError):
+                    legacy_connection.execute("DELETE FROM assets WHERE asset_key='media:after-switch'")
+            finally:
+                legacy_connection.close()
+
+    def test_workflow_release_records_gc_canary_provenance_in_production_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            asset = service.put_asset('media:released', b'released', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('wf', 1, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'node-a', 'assetKeys': [asset['asset_key']]}])
+            service.replace_media_owner_references(
+                workflow_id='wf', owner_type='workflow-node', owner_id='node-a', operation_id='op',
+                intent='save', idempotency_key='key', expected_generation=0,
+                document_revision=1, storage_epoch=epoch, asset_keys=[asset['asset_key']])
+            service.release_workflow_media_references('wf')
+            with service._connect() as database:
+                row = database.execute('''SELECT workflow_id FROM media_gc_candidate_provenance
+                    WHERE asset_key=?''', (asset['asset_key'],)).fetchone()
+            self.assertEqual('wf', row['workflow_id'])
+
+    def test_node_reference_replacement_records_gc_canary_provenance(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            old = service.put_asset('media:old', b'old', 'image/png', 'media')
+            new = service.put_asset('media:new', b'new', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('wf', 1, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'node-a', 'assetKeys': [old['asset_key']]}])
+            service.replace_media_owner_references(workflow_id='wf', owner_type='workflow-node', owner_id='node-a',
+                operation_id='one', idempotency_key='one', expected_generation=0, document_revision=1,
+                storage_epoch=epoch, asset_keys=[old['asset_key']])
+            service.record_media_workflow_revision('wf', 2, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'node-a', 'assetKeys': [new['asset_key']]}])
+            service.replace_media_owner_references(workflow_id='wf', owner_type='workflow-node', owner_id='node-a',
+                operation_id='two', idempotency_key='two', expected_generation=1, document_revision=2,
+                storage_epoch=epoch, asset_keys=[new['asset_key']])
+            with service._connect() as database:
+                row = database.execute('''SELECT workflow_id FROM media_gc_candidate_provenance
+                    WHERE asset_key=?''', (old['asset_key'],)).fetchone()
+            self.assertEqual('wf', row['workflow_id'])
 
 
 if __name__ == '__main__':

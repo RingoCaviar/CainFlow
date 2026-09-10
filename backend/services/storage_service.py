@@ -16,7 +16,7 @@ from urllib.parse import quote, unquote_to_bytes
 from backend import config
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo', 'redo'}
 MEDIA_OWNER_NODE_TYPES = {
     'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
@@ -44,7 +44,7 @@ class StorageError(Exception):
 class StorageService:
     def __init__(self, database_path=None, assets_dir=None, temp_dir=None, exports_dir=None,
                  fast_check_budget_seconds=FAST_CHECK_BUDGET_SECONDS,
-                 transition_fault_injector=None):
+                 transition_fault_injector=None, supported_schema_version=SCHEMA_VERSION):
         self.database_path = database_path or config.DATABASE_PATH
         self.assets_dir = assets_dir or config.ASSETS_DIR
         self.temp_dir = temp_dir or config.DATA_TEMP_DIR
@@ -55,6 +55,7 @@ class StorageService:
         self._fast_check_budget_seconds = max(0, float(fast_check_budget_seconds))
         self._transition_fault_injector = transition_fault_injector or (lambda _stage: None)
         self._integrity_coordinator_id = str(uuid.uuid4())
+        self._supported_schema_version = int(supported_schema_version)
 
     def initialize(self):
         with self._lock:
@@ -72,7 +73,7 @@ class StorageService:
                 self._create_schema()
                 self._initialized = True
                 return
-            if schema_version is not None and schema_version > SCHEMA_VERSION:
+            if schema_version is not None and schema_version > self._supported_schema_version:
                 reason = ('gc_suspended', 'fast_check_timeout') if fast_check_timed_out else ('repair_required', 'unknown_schema_version')
                 self._initialize_safety_status(reason)
                 self._initialized = True
@@ -136,6 +137,7 @@ class StorageService:
             'media_cancelled_operation_owners',
             'media_integrity_changes', 'media_integrity_coordinator',
             'media_asset_quarantine',
+            'media_gc_candidate_provenance',
         }
         try:
             connection = sqlite3.connect(f'file:{quote(os.path.abspath(self.database_path))}?mode=ro', uri=True, timeout=0.25)
@@ -278,6 +280,13 @@ class StorageService:
         self.initialize()
         return {key: value for key, value in self._safety_status.items()
                 if key not in {'cleanShutdown', 'integrityReport'}}
+
+    def assert_storage_writable(self):
+        self.initialize()
+        minimum = int(self.get_meta('minimum_compatible_schema_version', '0') or 0)
+        if (self._safety_status.get('reason') == 'unknown_schema_version'
+                or minimum > self._supported_schema_version):
+            raise StorageError('This application version cannot write the upgraded storage schema')
 
     def get_media_integrity_report(self):
         self.initialize()
@@ -908,6 +917,8 @@ class StorageService:
     def _connect(self):
         connection = sqlite3.connect(self.database_path, timeout=15)
         try:
+            connection.create_function('cainflow_writer_schema_version', 0,
+                                       lambda: self._supported_schema_version)
             connection.row_factory = sqlite3.Row
             connection.execute('PRAGMA journal_mode=WAL')
             connection.execute('PRAGMA foreign_keys=ON')
@@ -1052,6 +1063,13 @@ class StorageService:
                     quarantined_at INTEGER NOT NULL,
                     FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE RESTRICT
                 );
+                CREATE TABLE IF NOT EXISTS media_gc_candidate_provenance (
+                    asset_key TEXT NOT NULL,
+                    workflow_id TEXT NOT NULL,
+                    observed_at INTEGER NOT NULL,
+                    PRIMARY KEY(asset_key, workflow_id),
+                    FOREIGN KEY(asset_key) REFERENCES assets(asset_key) ON DELETE CASCADE
+                );
                 CREATE TRIGGER IF NOT EXISTS media_integrity_assets_insert AFTER INSERT ON assets
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('assets', unixepoch()*1000); END;
                 CREATE TRIGGER IF NOT EXISTS media_integrity_assets_update AFTER UPDATE ON assets
@@ -1078,6 +1096,36 @@ class StorageService:
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('transitions', unixepoch()*1000); END;
                 CREATE TRIGGER IF NOT EXISTS media_integrity_transitions_delete AFTER DELETE ON media_asset_transitions
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('transitions', unixepoch()*1000); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_documents_insert BEFORE INSERT ON documents
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_documents_update BEFORE UPDATE ON documents
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_assets_insert BEFORE INSERT ON assets
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_assets_update BEFORE UPDATE ON assets
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_refs_insert BEFORE INSERT ON media_asset_refs
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_owners_insert BEFORE INSERT ON media_asset_owners
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_owner_items_insert BEFORE INSERT ON media_asset_owner_items
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_documents_delete BEFORE DELETE ON documents
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_assets_delete BEFORE DELETE ON assets
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_refs_update BEFORE UPDATE ON media_asset_refs
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_refs_delete BEFORE DELETE ON media_asset_refs
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_owners_update BEFORE UPDATE ON media_asset_owners
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_owners_delete BEFORE DELETE ON media_asset_owners
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_owner_items_update BEFORE UPDATE ON media_asset_owner_items
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
+                CREATE TRIGGER IF NOT EXISTS require_current_writer_owner_items_delete BEFORE DELETE ON media_asset_owner_items
+                WHEN cainflow_writer_schema_version() < 10 BEGIN SELECT RAISE(ABORT, 'CainFlow writer upgrade required'); END;
             ''')
             transition_columns = {
                 row[1] for row in db.execute('PRAGMA table_info(media_asset_transitions)')
@@ -1134,6 +1182,7 @@ class StorageService:
 
     def put_document(self, name, value):
         self.initialize()
+        self.assert_storage_writable()
         self._ensure_document_name(name)
         serialized = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
         updated_at = int(time.time() * 1000)
@@ -1152,6 +1201,7 @@ class StorageService:
 
     def set_meta(self, key, value):
         self.initialize()
+        self.assert_storage_writable()
         with self._lock, self._connect() as db:
             db.execute(
                 'INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
@@ -1179,12 +1229,324 @@ class StorageService:
             target.close()
         return destination
 
+    @staticmethod
+    def _sha256_file(path):
+        digest = hashlib.sha256()
+        with open(path, 'rb') as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def create_media_migration_backup(self):
+        """Create one verified recovery identity for the database and its external media."""
+        self.initialize()
+        database_path = self.backup_database('pre-media-migration')
+        with self._connect() as db:
+            documents = [(row['name'], json.loads(row['value_json'])) for row in db.execute(
+                'SELECT name, value_json FROM documents ORDER BY name')]
+            inventory = [dict(row) for row in db.execute('''SELECT asset_key, sha256, size_bytes, relative_path
+                FROM assets ORDER BY asset_key''')]
+        for item in inventory:
+            path = os.path.join(self.assets_dir, *item['relative_path'].split('/'))
+            if not os.path.isfile(path) or self._sha256_file(path) != item['sha256']:
+                self._open_gc_circuit_breaker('migration_backup_media_mismatch')
+                raise StorageError('Media migration backup inventory verification failed')
+        canonical = lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        manifest = {
+            'backupId': str(uuid.uuid4()), 'createdAt': int(time.time() * 1000),
+            'databasePath': database_path, 'databaseSha256': self._sha256_file(database_path),
+            'documentsSha256': hashlib.sha256(canonical(documents)).hexdigest(),
+            'mediaInventorySha256': hashlib.sha256(canonical(inventory)).hexdigest(),
+            'storageEpoch': self._safety_status['storageEpoch'], 'minimumCompatibleSchemaVersion': SCHEMA_VERSION,
+        }
+        manifest_path = f'{database_path}.manifest.json'
+        self._write_json_atomic(manifest_path, manifest)
+        self.set_meta('media_migration_backup_manifest', manifest_path)
+        return manifest
+
+    @property
+    def _media_migration_lock_path(self):
+        return f'{self.database_path}.media-migration.lock'
+
+    @contextmanager
+    def _media_migration_lock(self):
+        try:
+            descriptor = os.open(self._media_migration_lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as error:
+            raise StorageError('Media asset migration is active in another process') from error
+        try:
+            os.write(descriptor, json.dumps({'pid': os.getpid(), 'createdAt': int(time.time() * 1000)}).encode())
+            os.fsync(descriptor)
+            yield
+        finally:
+            os.close(descriptor)
+            try:
+                os.remove(self._media_migration_lock_path)
+            except FileNotFoundError:
+                pass
+
+    def migrate_legacy_media_workflows_page(self, workflows, storage_epoch, batch_size=25):
+        with self._media_migration_lock():
+            return self._migrate_legacy_media_workflows_page(workflows, storage_epoch, batch_size)
+
+    def _migrate_legacy_media_workflows_page(self, workflows, storage_epoch, batch_size=25):
+        """Idempotently backfill only owners proven by durable Workflow identities."""
+        self.initialize()
+        if str(storage_epoch) != str(self._safety_status['storageEpoch']):
+            raise StorageError('Media asset storage epoch changed')
+        if not self.get_meta('media_migration_backup_manifest'):
+            raise StorageError('Verified Media asset migration backup is required')
+        cursor = int(self.get_meta('media_migration_global_cursor', '0') or 0)
+        migrated = json.loads(self.get_meta('media_migration_workflow_ids', '[]') or '[]')
+        workflow_list = list(workflows or [])
+        if cursor >= len(workflow_list):
+            cursor = 0
+        page = workflow_list[cursor:cursor + max(1, int(batch_size))]
+        with self._lock:
+            for workflow in page:
+                workflow_id = str(workflow.get('workflowId') or '').strip() if isinstance(workflow, dict) else ''
+                revision = int(workflow.get('mediaOwnershipRevision') or 0) if isinstance(workflow, dict) else 0
+                if not workflow_id or revision < 1:
+                    continue
+                references = [self._workflow_node_media_reference(workflow, node)
+                              for node in workflow.get('nodes', []) if isinstance(node, dict)]
+                references = [item for item in references if item]
+                with self._connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    for item in references:
+                        identity = (workflow_id, item['ownerType'], item['ownerId'])
+                        existing = db.execute('''SELECT document_revision FROM media_asset_owners
+                            WHERE workflow_id=? AND owner_type=? AND owner_id=?''', identity).fetchone()
+                        if existing and existing['document_revision'] >= revision:
+                            continue
+                        valid_keys = [key for key in item['assetKeys'] if db.execute(
+                            'SELECT 1 FROM assets WHERE asset_key=?', (key,)).fetchone()]
+                        if len(valid_keys) != len(item['assetKeys']):
+                            continue
+                        now = int(time.time() * 1000)
+                        if existing:
+                            formal_id = self._formal_reference_owner_id(*identity)
+                            db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=?',
+                                       (item['ownerType'], formal_id))
+                            db.execute('''DELETE FROM media_asset_owner_items
+                                WHERE workflow_id=? AND owner_type=? AND owner_id=?''', identity)
+                            db.execute('''UPDATE media_asset_owners SET generation=generation+1,
+                                document_revision=?, updated_at=? WHERE workflow_id=? AND owner_type=? AND owner_id=?''',
+                                       (revision, now, *identity))
+                        else:
+                            db.execute('''INSERT INTO media_asset_owners VALUES(?, ?, ?, 1, ?, 0, ?)''',
+                                       (*identity, revision, now))
+                        db.executemany('''INSERT INTO media_asset_owner_items VALUES(?, ?, ?, ?, ?)''',
+                                       [(*identity, position, key) for position, key in enumerate(valid_keys)])
+                        formal_id = self._formal_reference_owner_id(*identity)
+                        db.executemany('''INSERT OR IGNORE INTO media_asset_refs VALUES(?, ?, ?, ?)''',
+                                       [(item['ownerType'], formal_id, key, now) for key in valid_keys])
+                if workflow_id not in migrated:
+                    migrated.append(workflow_id)
+            cursor += len(page)
+            self.set_meta('media_migration_global_cursor', 0 if cursor >= len(workflow_list) else cursor)
+            self.set_meta('media_migration_workflow_ids', json.dumps(migrated, separators=(',', ':')))
+        complete = cursor >= len(workflow_list)
+        if complete:
+            self.set_meta('minimum_compatible_schema_version', SCHEMA_VERSION)
+        return {'complete': complete, 'cursor': cursor, 'migratedWorkflowIds': migrated,
+                'storageEpoch': self._safety_status['storageEpoch']}
+
+    def activate_formal_media_authority(self, backup_id):
+        self.initialize()
+        manifest_path = self.get_meta('media_migration_backup_manifest')
+        if not manifest_path or not os.path.isfile(manifest_path):
+            raise StorageError('Verified Media asset migration backup is required')
+        with open(manifest_path, encoding='utf-8') as source:
+            manifest = json.load(source)
+        report = self.get_media_integrity_report()
+        if (manifest.get('backupId') != backup_id
+                or self.get_meta('minimum_compatible_schema_version') != str(SCHEMA_VERSION)
+                or not report or report.get('damageItems')):
+            raise StorageError('Media asset authority switch gates are not satisfied')
+        self._safety_status['storageEpoch'] = str(uuid.uuid4())
+        self._safety_status.update({'state': 'scan_required', 'reason': 'formal_authority_activated',
+                                    'detectedAt': int(time.time() * 1000),
+                                    'recoveryConditions': ['complete_integrity_scan']})
+        self._write_safety_status(self._safety_status)
+        self.set_meta('media_gc_authority', 'formal')
+        return {'authority': 'formal', 'storageEpoch': self._safety_status['storageEpoch']}
+
+    @property
+    def _media_quarantine_dir(self):
+        return f'{self.assets_dir}.quarantine'
+
+    def _open_gc_circuit_breaker(self, reason):
+        self.initialize()
+        self._safety_status.update({'state': 'gc_suspended', 'reason': str(reason),
+                                    'detectedAt': int(time.time() * 1000),
+                                    'recoveryConditions': ['forward_repair', 'complete_integrity_scan']})
+        self._write_safety_status(self._safety_status)
+
+    def quarantine_media_candidates(self, asset_keys, reason='canary', now_ms=None):
+        self.initialize()
+        now = int(now_ms or time.time() * 1000)
+        os.makedirs(self._media_quarantine_dir, exist_ok=True)
+        moved = 0
+        records = []
+        try:
+            with self._lock, self._connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                for key in list(dict.fromkeys(str(value) for value in asset_keys if value)):
+                    row = db.execute('''SELECT * FROM assets WHERE asset_key=? AND NOT EXISTS(
+                        SELECT 1 FROM media_asset_refs WHERE asset_key=assets.asset_key) AND NOT EXISTS(
+                        SELECT 1 FROM media_asset_owner_items WHERE asset_key=assets.asset_key)''', (key,)).fetchone()
+                    if not row:
+                        continue
+                    source = os.path.join(self.assets_dir, *row['relative_path'].split('/'))
+                    destination = os.path.join(self._media_quarantine_dir, hashlib.sha256(key.encode()).hexdigest())
+                    if not os.path.isfile(source) or self._sha256_file(source) != row['sha256']:
+                        raise StorageError('Quarantine candidate changed during verification')
+                    record = {
+                        'relativePath': row['relative_path'], 'sha256': row['sha256'], 'reason': reason,
+                        'quarantinePath': destination, 'releaseAfter': now + 30 * 24 * 60 * 60 * 1000,
+                    }
+                    self._write_json_atomic(f'{destination}.recovery.json', record)
+                    db.execute('''INSERT OR REPLACE INTO media_asset_quarantine(asset_key, state, quarantined_at)
+                        VALUES(?, 'pending', ?)''', (key, now))
+                    os.replace(source, destination)
+                    db.execute("UPDATE media_asset_quarantine SET state='quarantined' WHERE asset_key=?", (key,))
+                    records.append((key, record))
+                    moved += 1
+            for key, record in records:
+                self.set_meta(f'media_quarantine:{key}', json.dumps(record, separators=(',', ':')))
+        except Exception:
+            self._open_gc_circuit_breaker('quarantine_failed')
+            raise
+        return {'quarantined': moved, 'recoverable': moved, 'reason': reason}
+
+    def quarantine_unregistered_media_files(self, now_ms=None):
+        """Protect unregistered files without inventing an owner or deleting content."""
+        self.initialize()
+        now = int(now_ms or time.time() * 1000)
+        with self._connect() as db:
+            registered = {row[0] for row in db.execute('SELECT relative_path FROM assets')}
+        os.makedirs(self._media_quarantine_dir, exist_ok=True)
+        items = []
+        for root, _, filenames in os.walk(self.assets_dir):
+            for filename in filenames:
+                source = os.path.join(root, filename)
+                relative = os.path.relpath(source, self.assets_dir).replace(os.sep, '/')
+                if relative in registered:
+                    continue
+                digest = self._sha256_file(source)
+                destination = os.path.join(self._media_quarantine_dir, f'unregistered-{digest}')
+                if os.path.exists(destination) and self._sha256_file(destination) != digest:
+                    self._open_gc_circuit_breaker('unregistered_quarantine_conflict')
+                    raise StorageError('Unregistered Media quarantine conflict')
+                if not os.path.exists(destination):
+                    os.replace(source, destination)
+                record = {'identity': digest[:16], 'sha256': digest, 'quarantinePath': destination,
+                          'quarantinedAt': now, 'releaseAfter': now + 30 * 24 * 60 * 60 * 1000,
+                          'storageEpoch': self._safety_status['storageEpoch']}
+                self.set_meta(f'media_unregistered_quarantine:{digest}', json.dumps(record, separators=(',', ':')))
+                items.append(record)
+        return {'quarantined': len(items), 'recoverable': len(items), 'items': items}
+
+    def restore_quarantined_media(self, asset_key):
+        self.initialize()
+        record = json.loads(self.get_meta(f'media_quarantine:{asset_key}', '{}') or '{}')
+        if not record:
+            recovery_path = os.path.join(
+                self._media_quarantine_dir, f'{hashlib.sha256(str(asset_key).encode()).hexdigest()}.recovery.json')
+            try:
+                with open(recovery_path, encoding='utf-8') as source:
+                    record = json.load(source)
+            except (FileNotFoundError, OSError, json.JSONDecodeError):
+                record = {}
+        if not record:
+            raise StorageError('Media asset is not quarantined')
+        source = record['quarantinePath']
+        destination = os.path.join(self.assets_dir, *record['relativePath'].split('/'))
+        if os.path.exists(destination) and self._sha256_file(destination) != record['sha256']:
+            self._open_gc_circuit_breaker('quarantine_restore_conflict')
+            raise StorageError('Quarantine restore conflicts with different content')
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        if not os.path.exists(destination):
+            os.replace(source, destination)
+        with self._connect() as db:
+            db.execute('DELETE FROM media_asset_quarantine WHERE asset_key=?', (asset_key,))
+        self.set_meta(f'media_quarantine:{asset_key}', '')
+        return {'restored': True, 'assetKey': asset_key}
+
+    def audit_media_gc_candidates(self, workflow_ids, now_ms=None):
+        self.initialize()
+        report = self.get_media_integrity_report()
+        if not workflow_ids or not report or report.get('damageItems'):
+            return {'eligible': False, 'candidateCount': 0, 'candidateBytes': 0,
+                    'reason': 'audit_gates_not_met'}
+        try:
+            with self._connect() as db:
+                if db.execute("SELECT 1 FROM media_asset_transitions WHERE status NOT IN ('completed','superseded')").fetchone():
+                    return {'eligible': False, 'candidateCount': 0, 'candidateBytes': 0,
+                            'reason': 'active_transition'}
+                rows = self._media_gc_candidate_rows(db, workflow_ids)
+            threshold = int(self.get_meta('media_gc_abnormal_candidate_threshold', '10000') or 0)
+            if len(rows) > threshold:
+                self._open_gc_circuit_breaker('abnormal_candidate_spike')
+                raise StorageError('Abnormal Media asset candidate spike')
+            if not self.get_meta('media_gc_observation_started_at'):
+                self.set_meta('media_gc_observation_started_at', int(now_ms or time.time() * 1000))
+            return {'eligible': True, 'auditOnly': True, 'candidateCount': len(rows),
+                    'candidateBytes': sum(row['size_bytes'] for row in rows)}
+        except StorageError:
+            raise
+        except Exception as error:
+            self._open_gc_circuit_breaker('media_gc_audit_failed')
+            raise StorageError('Media asset GC audit failed') from error
+
+    @staticmethod
+    def _media_gc_candidate_rows(db, workflow_ids):
+        placeholders = ','.join('?' for _ in workflow_ids) or "''"
+        return db.execute('''SELECT asset_key, size_bytes FROM assets WHERE kind='media'
+            AND NOT EXISTS(SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key)
+            AND NOT EXISTS(SELECT 1 FROM media_asset_owner_items WHERE media_asset_owner_items.asset_key=assets.asset_key)
+            AND NOT EXISTS(SELECT 1 FROM media_asset_quarantine WHERE media_asset_quarantine.asset_key=assets.asset_key)
+            AND EXISTS(SELECT 1 FROM media_gc_candidate_provenance provenance
+                WHERE provenance.asset_key=assets.asset_key AND provenance.workflow_id IN (''' + placeholders + ''') )
+            ORDER BY created_at, asset_key''', tuple(workflow_ids)).fetchall()
+
+    def record_media_gc_candidate_provenance(self, workflow_id, asset_keys):
+        self.initialize()
+        if not workflow_id:
+            raise StorageError('Workflow identity is required for a GC candidate')
+        with self._connect() as db:
+            db.executemany('''INSERT OR IGNORE INTO media_gc_candidate_provenance(asset_key, workflow_id, observed_at)
+                VALUES(?, ?, ?)''', [(key, workflow_id, int(time.time() * 1000)) for key in asset_keys])
+
+    def run_media_gc_canary(self, workflow_ids, max_count=25, max_bytes=256 * 1024 * 1024, now_ms=None):
+        self.initialize()
+        now = int(now_ms or time.time() * 1000)
+        report = self.get_media_integrity_report()
+        observation = int(self.get_meta('media_gc_observation_started_at', '0') or 0)
+        if (not workflow_ids or not report or report.get('damageItems') or
+                now - observation < 7 * 24 * 60 * 60 * 1000):
+            return {'eligible': False, 'quarantined': 0, 'reason': 'canary_gates_not_met'}
+        audit = self.audit_media_gc_candidates(workflow_ids, now_ms=now)
+        if not audit.get('eligible'):
+            return {**audit, 'quarantined': 0}
+        with self._connect() as db:
+            rows = self._media_gc_candidate_rows(db, workflow_ids)
+        count, byte_count = len(rows), sum(row['size_bytes'] for row in rows)
+        if count > max(0, int(max_count)) or byte_count > max(0, int(max_bytes)):
+            return {'eligible': True, 'limitExceeded': True, 'candidateCount': count,
+                    'candidateBytes': byte_count, 'quarantined': 0}
+        result = self.quarantine_media_candidates([row['asset_key'] for row in rows], reason='workflow_canary', now_ms=now)
+        return {'eligible': True, 'limitExceeded': False, 'candidateCount': count,
+                'candidateBytes': byte_count, **result}
+
     def _asset_relative_path(self, digest, mime_type):
         extension = mimetypes.guess_extension(mime_type or '') or '.bin'
         extension = '.jpg' if extension == '.jpe' else extension
         return os.path.join(digest[:2], f'{digest}{extension}').replace(os.sep, '/')
 
     def put_asset(self, asset_key, body, mime_type='application/octet-stream', kind='asset'):
+        self.assert_storage_writable()
         return self._put_asset(asset_key, body, mime_type, kind)
 
     def _put_asset(self, asset_key, body, mime_type, kind, media_owner=None):
@@ -1250,9 +1612,16 @@ class StorageService:
 
     def delete_asset(self, asset_key):
         self.initialize()
+        self.assert_storage_writable()
         if not self._physical_reclamation_allowed():
             return False
+        formal_authority = self.get_meta('media_gc_authority') == 'formal'
         with self._lock, self._connect() as db:
+            if formal_authority:
+                quarantine = db.execute('SELECT state FROM media_asset_quarantine WHERE asset_key=?',
+                                        (str(asset_key),)).fetchone()
+                if not quarantine or quarantine['state'] != 'releasing':
+                    return False
             row = db.execute('SELECT relative_path FROM assets WHERE asset_key=?', (str(asset_key),)).fetchone()
             if not row:
                 return False
@@ -1321,6 +1690,7 @@ class StorageService:
 
     def add_media_reference(self, owner_type, owner_id, asset_key):
         self.initialize()
+        self.assert_storage_writable()
         owner_type, owner_id, asset_key = (str(value or '').strip() for value in (owner_type, owner_id, asset_key))
         if not owner_type or not owner_id or not asset_key:
             raise StorageError('Media asset reference owner and asset key are required')
@@ -1337,6 +1707,7 @@ class StorageService:
 
     def remove_media_reference(self, owner_type, owner_id, asset_key=None):
         self.initialize()
+        self.assert_storage_writable()
         with self._lock, self._connect() as db:
             if asset_key:
                 db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=? AND asset_key=?',
@@ -1391,6 +1762,7 @@ class StorageService:
     def record_media_workflow_revision(self, workflow_id, document_revision, storage_epoch,
                                        owner_reference_lists):
         self.initialize()
+        self.assert_storage_writable()
         workflow_id = str(workflow_id or '').strip()
         if not workflow_id or str(storage_epoch) != str(self._safety_status['storageEpoch']):
             raise StorageError('Current workflow identity and storage epoch are required')
@@ -1600,6 +1972,7 @@ class StorageService:
                                        operation_id, idempotency_key, expected_generation,
                                        document_revision, storage_epoch, asset_keys, intent='save', cancelled=False):
         self.initialize()
+        self.assert_storage_writable()
         workflow_id, owner_type, owner_id, operation_id, idempotency_key = (
             str(value or '').strip() for value in
             (workflow_id, owner_type, owner_id, operation_id, idempotency_key)
@@ -1750,6 +2123,9 @@ class StorageService:
             if old_key in target_set:
                 continue
             with self._lock, self._connect() as db:
+                db.execute('''INSERT OR IGNORE INTO media_gc_candidate_provenance(
+                    asset_key, workflow_id, observed_at) VALUES(?, ?, ?)''',
+                           (old_key, workflow_id, now))
                 db.execute('''DELETE FROM media_asset_refs
                     WHERE owner_type=? AND owner_id=? AND asset_key=?
                     AND NOT EXISTS (
@@ -1778,6 +2154,7 @@ class StorageService:
         digest = hashlib.sha256(bytes(body)).hexdigest()
         asset_key = f'media:{digest}'
         self.initialize()
+        self.assert_storage_writable()
         # A cache write may reclaim only assets with no durable owner first;
         # referenced results are never evicted to make room for another result.
         self.cleanup_unreferenced_media_assets()
@@ -1804,6 +2181,7 @@ class StorageService:
             digest = hashlib.sha256(body).hexdigest()
             decoded.append((f'media:{digest}', body, mime_type, digest))
         self.initialize()
+        self.assert_storage_writable()
         self.cleanup_unreferenced_media_assets()
         now = int(time.time() * 1000)
         with self._lock, self._connect() as db:
@@ -1882,7 +2260,8 @@ class StorageService:
                     SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key
                 )
             ''')]
-        if not self._physical_reclamation_allowed():
+        if (not self._physical_reclamation_allowed()
+                or self.get_meta('media_gc_authority') == 'formal'):
             return {
                 'assetsDeleted': 0,
                 'orphanFilesDeleted': 0,
@@ -1899,6 +2278,7 @@ class StorageService:
 
     def save_history(self, entry):
         self.initialize()
+        self.assert_storage_writable()
         history_id = int(entry.get('id') or int(time.time() * 1000) * 1000)
         timestamp = int(entry.get('timestamp') or time.time() * 1000)
         media_type = 'video' if entry.get('mediaType') == 'video' else 'image'
@@ -2003,7 +2383,15 @@ class StorageService:
 
     def cleanup_assets(self, mode, keep_keys=None):
         self.initialize()
+        self.assert_storage_writable()
         keep_keys = {str(key) for key in (keep_keys or []) if str(key)}
+        legacy_keep_keys_count = len(keep_keys)
+        if legacy_keep_keys_count and self.get_meta('media_gc_authority') == 'formal':
+            raise StorageError('Legacy keepKeys cleanup is no longer supported')
+        if legacy_keep_keys_count:
+            self.set_meta('legacy_keep_keys_last_observed_at', int(time.time() * 1000))
+            self.set_meta('legacy_keep_keys_observation_count',
+                          int(self.get_meta('legacy_keep_keys_observation_count', '0') or 0) + 1)
         with self._connect() as db:
             if mode == 'node-orphans':
                 placeholders = ','.join('?' for _ in keep_keys) or "''"
@@ -2042,11 +2430,14 @@ class StorageService:
         media_cleanup = self.cleanup_unreferenced_media_assets()
         return {
             'assetsDeleted': deleted + media_cleanup['assetsDeleted'],
-            'orphanFilesDeleted': media_cleanup['orphanFilesDeleted']
+            'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'],
+            'legacyKeepKeysIgnored': legacy_keep_keys_count > 0,
+            'legacyKeepKeysCount': legacy_keep_keys_count,
         }
 
     def release_workflow_media_references(self, workflow_id):
         self.initialize()
+        self.assert_storage_writable()
         workflow_id = str(workflow_id or '').strip()
         if not workflow_id:
             return {'referencesDeleted': 0, **self.cleanup_unreferenced_media_assets()}
@@ -2057,6 +2448,11 @@ class StorageService:
                        (f'media_workflow_tombstone:{workflow_id}', str(now)))
             owners = db.execute('''SELECT owner_type, owner_id FROM media_asset_owners
                 WHERE workflow_id=?''', (workflow_id,)).fetchall()
+            candidate_keys = [row[0] for row in db.execute('''SELECT DISTINCT asset_key
+                FROM media_asset_owner_items WHERE workflow_id=?''', (workflow_id,))]
+            db.executemany('''INSERT OR IGNORE INTO media_gc_candidate_provenance(
+                asset_key, workflow_id, observed_at) VALUES(?, ?, ?)''',
+                           [(key, workflow_id, now) for key in candidate_keys])
             references_deleted = 0
             for owner in owners:
                 reference_owner_id = self._formal_reference_owner_id(

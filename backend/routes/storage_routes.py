@@ -115,6 +115,7 @@ def handle_put(handler):
     if not _authorize_storage_path(handler, path):
         return True
     try:
+        storage_service.assert_storage_writable()
         if path.startswith('/api/storage/documents/'):
             name = _document_name(path)
             data = read_json_body(handler)
@@ -150,6 +151,7 @@ def handle_post(handler):
     if not _authorize_storage_path(handler, path):
         return True
     try:
+        storage_service.assert_storage_writable()
         if path == '/api/storage/history':
             history_id = storage_service.save_history(read_json_body(handler))
             write_json(handler, {'success': True, 'id': history_id})
@@ -202,6 +204,21 @@ def handle_post(handler):
                 result = {'success': True}
             elif action == 'clear-assets':
                 result = storage_service.cleanup_assets(data.get('mode', ''), data.get('keepKeys') or [])
+            elif action == 'create-media-migration-backup':
+                result = storage_service.create_media_migration_backup()
+            elif action == 'migrate-legacy-media':
+                result = storage_service.migrate_legacy_media_workflows_page(
+                    data.get('workflows') or [], data.get('storageEpoch'), data.get('batchSize') or 25)
+            elif action == 'activate-formal-media-authority':
+                result = storage_service.activate_formal_media_authority(data.get('backupId'))
+            elif action == 'run-media-gc-canary':
+                result = storage_service.run_media_gc_canary(
+                    data.get('workflowIds') or [], data.get('maxCount') or 25,
+                    data.get('maxBytes') or 256 * 1024 * 1024)
+            elif action == 'audit-media-gc':
+                result = storage_service.audit_media_gc_candidates(data.get('workflowIds') or [])
+            elif action == 'restore-quarantined-media':
+                result = storage_service.restore_quarantined_media(data.get('assetKey'))
             elif action == 'release-workflow-media':
                 result = storage_service.release_workflow_media_references(data.get('workflowId'))
             elif action == 'trim-history':
@@ -251,6 +268,11 @@ def handle_post(handler):
 def handle_delete(handler):
     path = urlparse(handler.path).path
     if not _authorize_storage_path(handler, path):
+        return True
+    try:
+        storage_service.assert_storage_writable()
+    except StorageError as error:
+        write_error(handler, 400, str(error))
         return True
     if path.startswith('/api/storage/assets/'):
         write_json(handler, {'success': storage_service.delete_asset(_asset_key(path))})
