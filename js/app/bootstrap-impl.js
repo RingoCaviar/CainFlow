@@ -39,12 +39,13 @@ import { createCanvasInteractionsApi } from '../canvas/canvas-interactions.js';
 import { createRenderProjectionManager } from '../canvas/render-projection-manager.js';
 import { createInteractionPerformanceGuard } from '../canvas/interaction-performance-guard.js';
 import { createNodeAutoLayoutApi } from '../canvas/node-auto-layout.js';
-import { hasNodeCapability, NODE_CAPABILITIES, NODE_CONFIGS } from '../nodes/registry.js';
+import { NODE_CONFIGS } from '../nodes/registry.js';
 import { createNodeSerializer } from '../nodes/node-serializer.js';
 import { createNodeMarkup } from '../nodes/node-view-factory.js';
 import { createNodeDomBindingsApi } from '../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../nodes/node-lifecycle.js';
 import { createMediaControllerApi } from '../features/media/media-controller.js';
+import { collectRetainedNodeAssetIds as collectRetainedNodeAssetIdsForWorkflows } from '../features/media/node-asset-retention.js';
 import { createImagePainterApi } from '../features/media/image-painter.js';
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
@@ -360,67 +361,12 @@ function handleNodeGraphChanged(options = {}) {
     refreshAllCameraControlPreviews();
 }
 
-function hasIncomingImageConnection(nodeId) {
-    return state.connections.some((conn) => (
-        conn.to.nodeId === nodeId
-        && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
-    ));
-}
-
-function hasIncomingImageConnectionInWorkflow(nodeId, connections = []) {
-    return Array.isArray(connections) && connections.some((conn) => (
-        conn?.to?.nodeId === nodeId
-        && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
-    ));
-}
-
 function collectRetainedNodeAssetIds() {
-    const shouldRetainNodeAsset = (node, connections = state.connections) => {
-        if (!node?.id) return false;
-        return !(hasNodeCapability(node.type, NODE_CAPABILITIES.RECOVERABLE_IMAGE_ASSET)
-            && hasIncomingImageConnectionInWorkflow(node.id, connections));
-    };
-    const ids = new Set(Array.from(state.nodes.values())
-        .filter((node) => {
-            return shouldRetainNodeAsset(node, state.connections);
-        })
-        .map((node) => node.id));
-
-    Array.from(state.nodes.values()).forEach((node) => {
-        if (shouldRetainNodeAsset(node, state.connections) && typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
-            ids.add(node.data.imageAssetKey);
-        }
-        const importAssetKey = typeof node?.imageImportAssetKey === 'string' && node.imageImportAssetKey
-            ? node.imageImportAssetKey
-            : (typeof node?.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-        if (importAssetKey) {
-            ids.add(importAssetKey);
-        }
+    return collectRetainedNodeAssetIdsForWorkflows({
+        nodes: state.nodes,
+        workflowTabs: state.workflowTabs,
+        activeWorkflowName: workflowManagerApi?.getActiveWorkflowName?.()
     });
-
-    (state.workflowTabs || []).forEach((tab) => {
-        if (tab?.name === workflowManagerApi?.getActiveWorkflowName?.()) return;
-        const workflowNodes = Array.isArray(tab?.data?.nodes) ? tab.data.nodes : [];
-        const workflowConnections = Array.isArray(tab?.data?.connections) ? tab.data.connections : [];
-        workflowNodes.forEach((node) => {
-            if (!node?.id) return;
-            const retainNodeAsset = shouldRetainNodeAsset(node, workflowConnections);
-            if (retainNodeAsset) {
-                ids.add(node.id);
-            }
-            if (retainNodeAsset && typeof node.imageAssetKey === 'string' && node.imageAssetKey) {
-                ids.add(node.imageAssetKey);
-            }
-            const importAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
-                ? node.imageImportAssetKey
-                : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-            if (importAssetKey) {
-                ids.add(importAssetKey);
-            }
-        });
-    });
-
-    return ids;
 }
 
 async function cleanupRecoverableNodeAssetCache({ refresh = true } = {}) {
