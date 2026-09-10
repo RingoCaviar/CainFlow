@@ -12,6 +12,9 @@
     <link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
     <style>
         body { margin: 0; }
+        /* Surface assertions sample the settled theme contract, not an in-flight
+           decorative transition triggered by switching data-app-theme. */
+        *, *::before, *::after { transition: none !important; }
         #canvas-container { position: relative; width: 800px; height: 500px; }
         .node { position: relative; display: inline-flex; width: 160px; min-height: 120px; margin: 20px; vertical-align: top; }
         .node-header { min-height: 38px; box-sizing: border-box; }
