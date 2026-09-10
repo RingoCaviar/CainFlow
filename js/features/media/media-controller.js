@@ -556,6 +556,7 @@ export function createMediaControllerApi({
             cursor: 'pointer',
             placeholderWithIcon: true
         });
+        void showResolutionBadge(nodeId, rendered.image);
         if (node?.type === 'ImageGenerate') {
             if (rendered.image) void cacheNodePreviewThumbnail(node, rendered.image);
             else clearNodePreviewThumbnail(node);
@@ -567,13 +568,14 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (!previewContainer) return;
 
-        renderDisplayImagePreview(previewContainer, node, images, {
+        const rendered = renderDisplayImagePreview(previewContainer, node, images, {
             totalCount: getStoredImageCount(node),
             altPrefix: '待保存',
             placeholderClass: 'save-preview-placeholder',
             emptyMessage,
             placeholderWithIcon: false
         });
+        void showResolutionBadge(nodeId, rendered.image);
     }
 
     function renderVideoSavePreview(nodeId, video, emptyMessage = '无输入视频') {
