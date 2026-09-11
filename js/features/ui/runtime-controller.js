@@ -237,8 +237,7 @@ export function createRuntimeControllerApi({
                 ? await saveCurrentWorkflow()
                 : true;
             if (!saved) {
-                showToast('保存失败，已取消强制刷新', 'error');
-                return false;
+                showToast('工作流文件保存失败；已保存会话并继续强制刷新', 'warning');
             }
         } catch (error) {
             showToast(`保存失败，已取消强制刷新：${error?.message || error}`, 'error');

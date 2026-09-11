@@ -99,6 +99,7 @@ async function postMediaAssetAction(action, extra = {}) {
     });
     if (!response.ok) return null;
     const payload = await response.json();
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
     delete payload.success;
     return payload;
 }

@@ -229,3 +229,16 @@ test('versioned Media asset ownership methods map the workflow commit contract',
         globalThis.fetch = originalFetch;
     }
 });
+
+test('a null media ownership response fails the workflow save without throwing', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('null', { status: 200 });
+
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        const saved = await storage.recordMediaWorkflowRevision('workflow-a', 5, 'epoch-1', []);
+        assert.equal(saved, false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
