@@ -21,6 +21,7 @@ import { getProtocol } from '../features/execution/protocols/index.js';
 import { TtapiProtocol } from '../features/execution/protocols/ttapi.js';
 import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-openai.js';
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
+import { resolveProtocolVariant } from '../features/execution/protocols/protocol-variant-resolver.js';
 import { bindProtocolNumberStepControls } from './protocol-event-binder.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
@@ -1525,7 +1526,7 @@ export function createNodeDomBindingsApi({
         const model = state.models.find((candidate) => candidate.id === modelSelect.value) || null;
         const protocolId = getGenerationInputProtocolId(model);
         const protocol = getProtocol(protocolId) || null;
-        const variant = protocol?.variants?.[model?.modelId];
+        const { variant } = resolveProtocolVariant(protocol, model?.modelId);
         if (!variant) return protocol;
         return {
             ...protocol,
@@ -1582,7 +1583,8 @@ export function createNodeDomBindingsApi({
         const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
         const model = state.models.find((candidate) => candidate.id === modelId);
         const hasVariants = Object.keys(selectedProtocol?.variants || {}).length > 0;
-        const hasVariant = Boolean(selectedProtocol?.variants?.[model?.modelId]);
+        const resolvedVariant = resolveProtocolVariant(selectedProtocol, model?.modelId);
+        const hasVariant = Boolean(resolvedVariant.variant);
         if (hasVariants && !hasVariant) {
             container.innerHTML = '<div class="node-error-msg">当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。</div>';
             return;
@@ -1591,11 +1593,12 @@ export function createNodeDomBindingsApi({
             container.innerHTML = '<div class="node-error-msg">当前协议未声明可编辑视频参数；请在协议编辑器中补齐后重试。</div>';
             return;
         }
-        const draftKey = getProtocolVariantDraftKey(selectedProtocol?.id, model?.modelId);
+        const activeVariantId = resolvedVariant.variant ? resolvedVariant.variantId : model?.modelId;
+        const draftKey = getProtocolVariantDraftKey(selectedProtocol?.id, activeVariantId);
         if (draftKey && node.data.protocolVariantKey !== draftKey) {
             node.data = activateProtocolVariantDraft(node.data, {
                 protocolId: selectedProtocol.id,
-                modelId: model.modelId,
+                modelId: activeVariantId,
                 parameters: selectedProtocol.parameters
             });
         }

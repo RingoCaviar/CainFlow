@@ -7,8 +7,8 @@
  * 转义HTML特殊字符
  */
 function escapeHtml(str) {
-    if (typeof str !== 'string') return '';
-    return str
+    if (str === undefined || str === null) return '';
+    return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -51,7 +51,7 @@ function renderSelectControl(nodeId, param, value, customValues = {}) {
     const selectedValue = value !== undefined ? value : param.defaultValue;
 
     const optionsHtml = options.map(option => {
-        const selected = selectedValue === option.value ? 'selected' : '';
+        const selected = String(selectedValue ?? '') === String(option.value ?? '') ? 'selected' : '';
         return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(option.label)}</option>`;
     }).join('');
 

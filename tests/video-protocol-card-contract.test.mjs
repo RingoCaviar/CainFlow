@@ -23,6 +23,8 @@ import {
     saveProtocolVariantDraft,
     snapshotProtocolVariantDrafts
 } from '../js/nodes/protocol-variant-drafts.js';
+import { renderProtocolParameters } from '../js/nodes/protocol-ui-renderer.js';
+import { Api6789SeedanceProtocol } from '../js/features/execution/protocols/api6789-seedance.js';
 
 test('Kling card contract exposes the exact variant identity and constraints', () => {
     assert.deepEqual(describeVideoProtocolCard(RelayVideoProtocol, 'kling-o3'), {
@@ -358,6 +360,22 @@ test('built-in video parameters remain declaration-owned after the legacy contro
     assert.equal(parameters.duration.exposed, true);
     assert.equal(DoubaoVideoProtocol.parameters.resolution.exposed, true);
     assert.equal(DoubaoVideoProtocol.parameters.camera_fixed.exposed, true);
+});
+
+test('6789 Seedance renders every documented node control for the selected model variant', () => {
+    const variant = Api6789SeedanceProtocol.variants['seedance2.0'];
+    const protocol = {
+        ...Api6789SeedanceProtocol,
+        parameters: { ...Api6789SeedanceProtocol.parameters, ...variant.parameters }
+    };
+    const markup = renderProtocolParameters('seedance-video', protocol, 'video', {
+        protocolParams: { duration: '10', ratio: '9:16', resolution: '720p' }
+    });
+    for (const id of ['prompt', 'duration', 'ratio', 'resolution']) {
+        assert.match(markup, new RegExp(`id="seedance-video-param-${id}"`), id);
+    }
+    assert.doesNotMatch(markup, /seedance-video-param-referenceImages/);
+    assert.match(markup, /<option value="10" selected>10秒<\/option>/);
 });
 
 test('a user-owned video protocol without editable parameters has a safe card error', () => {

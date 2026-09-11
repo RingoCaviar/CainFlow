@@ -195,11 +195,11 @@ The complete, validated snapshot of one generation request derived from the curr
 _Avoid_: Separate preview request body, preview-only request builder
 
 **Protocol variant selector**:
-The exact model ID used to select a Protocol variant. CainFlow does not infer variants from wildcard or regular-expression matching.
-_Avoid_: Variant pattern, guessed model variant
+The model ID used to select a Protocol variant. A Declarative protocol configuration may explicitly make this comparison case-insensitive and use the declared variant ID as the canonical request value; CainFlow does not infer variants through punctuation changes, wildcards, or regular-expression matching.
+_Avoid_: Variant pattern, guessed model variant, global model-ID normalization
 
 **Unmatched protocol variant**:
-A model assigned a Declarative protocol configuration but lacking a Protocol variant selected by its exact model ID. CainFlow rejects its execution before a provider request is sent.
+A model assigned a Declarative protocol configuration but lacking a Protocol variant after applying that protocol's declared selector comparison. CainFlow rejects its execution before a provider request is sent.
 _Avoid_: Default guessed variant, nearest-match variant
 
 **Async task mapping**:

@@ -14,6 +14,7 @@ import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-v
 import { VeoUnifiedProtocol } from '../js/features/execution/protocols/veo-unified.js';
 import { VeoOpenAIProtocol } from '../js/features/execution/protocols/veo-openai.js';
 import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-video.js';
+import { Api6789SeedanceProtocol } from '../js/features/execution/protocols/api6789-seedance.js';
 import { getGenerationInputProtocolId } from '../js/features/execution/provider-request-utils.js';
 import { createConnectionsApi } from '../js/canvas/connections.js';
 
@@ -121,7 +122,9 @@ test('every built-in video protocol keeps its declared generation input contract
         [VeoOpenAIProtocol, 'sora', ['image_1', 'image_2', 'referenceImages'], 5],
         [DoubaoVideoProtocol, 'seedance', ['image_1', 'image_2', 'referenceImages'], 5],
         [RelayVideoProtocol, 'kling-o3', ['referenceImages'], 5],
-        [RelayVideoProtocol, 'minimax-h3', ['referenceImages'], 1]
+        [RelayVideoProtocol, 'minimax-h3', ['referenceImages'], 1],
+        [Api6789SeedanceProtocol, 'seedance2.0', ['referenceImages'], 9],
+        [Api6789SeedanceProtocol, 'seedance2.5', ['referenceImages'], 30]
     ];
 
     cases.forEach(([protocol, modelId, imagePortIds, maximumReferenceImages]) => {
@@ -135,6 +138,16 @@ test('every built-in video protocol keeps its declared generation input contract
             `${protocol.id}:${modelId}`
         );
     });
+});
+
+test('6789 Seedance matches model variant IDs case-insensitively', () => {
+    const projection = resolveGenerationInputProjection({
+        protocol: Api6789SeedanceProtocol, modelId: 'Seedance2.5', taskType: 'video'
+    });
+    assert.equal(projection.blockedReason, '');
+    assert.equal(projection.isUnmatched, false);
+    assert.deepEqual(getProjectionImagePortIds(projection), ['referenceImages']);
+    assert.equal(getProjectedInputConnectionPolicy(projection, 'referenceImages').maxCount, 30);
 });
 
 test('creating a connection cannot exceed the active video projection limit', () => {

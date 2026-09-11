@@ -11,6 +11,7 @@ import {
 import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { requireModelCompatibilityFormat } from '../js/features/execution/model-compatibility-format.js';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
+import { Api6789SeedanceProtocol } from '../js/features/execution/protocols/api6789-seedance.js';
 import { buildMultipartFormData } from '../js/features/execution/protocols/multipart-transport-adapter.js';
 import { createProxyHeadersGetter } from '../js/services/api-client.js';
 
@@ -239,6 +240,73 @@ test('compiles Kling O3 as JSON without images and multipart with ordered repeat
         ...base,
         inputs: { referenceImages: Array.from({ length: 6 }, (_, index) => `https://example.test/${index}.png`) }
     }), /最多支持 5 张/);
+});
+
+test('compiles 6789 Seedance variants with JSON image arrays and documented task results', () => {
+    const plan = compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol,
+        endpoint: 'https://6789.example/',
+        modelId: 'seedance2.0fast',
+        parameters: { prompt: '雨后的城市', duration: '15', ratio: '9:16', resolution: '720p' },
+        inputs: { referenceImages: ['https://cdn.example/one.png', 'https://cdn.example/two.webp'] },
+        apiKey: 'secret'
+    });
+    assert.equal(plan.create.url, 'https://6789.example/v1/videos');
+    assert.deepEqual(plan.create.headers, { Authorization: 'Bearer secret', 'Content-Type': 'application/json' });
+    assert.deepEqual(plan.create.body, {
+        model: 'seedance2.0fast', prompt: '雨后的城市', ratio: '9:16', resolution: '720p', duration: 15,
+        image_urls: ['https://cdn.example/one.png', 'https://cdn.example/two.webp']
+    });
+    assert.equal(plan.queryUrl('task-42'), 'https://6789.example/v1/videos/task-42');
+    assert.equal(plan.parseStatus({ status: 'succeeded' }), 'succeeded');
+    assert.equal(plan.parseResultUrl({ file: 'https://cdn.example/file.mp4', download_url: 'https://cdn.example/download.mp4' }), 'https://cdn.example/file.mp4');
+    assert.equal(plan.parseResultUrl({ file: '', download_url: 'https://cdn.example/download.mp4' }), 'https://cdn.example/download.mp4');
+    assert.throws(() => compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol, endpoint: 'https://6789.example', modelId: 'seedance2.0mini',
+        parameters: { prompt: 'x', duration: 15, ratio: '16:9', resolution: '720p' }
+    }), /duration.*不支持/);
+    assert.throws(() => compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol, endpoint: 'https://6789.example', modelId: 'seedance2.5',
+        parameters: { prompt: 'x', duration: 30, ratio: '21:9', resolution: '720p' },
+        inputs: { referenceImages: Array.from({ length: 31 }, (_, index) => `https://cdn.example/${index}.png`) }
+    }), /最多支持 30 张/);
+    assert.throws(() => compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol, endpoint: 'https://6789.example', modelId: 'seedance2.0',
+        parameters: { prompt: 'x', duration: 5, ratio: '16:9', resolution: '720p' },
+        inputs: { referenceImages: ['data:image/png;base64,AAAA'] }
+    }), /参考图 URL/);
+    assert.throws(() => compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol, endpoint: 'https://6789.example', modelId: 'seedance2.6',
+        parameters: { prompt: 'x' }
+    }), /未配置模型/);
+});
+
+test('canonicalizes case-insensitive 6789 Seedance model IDs in the request plan', () => {
+    const plan = compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol,
+        endpoint: 'https://6789.example',
+        modelId: 'Seedance2.5',
+        parameters: { prompt: '海边行走', duration: 30, ratio: '21:9', resolution: '720p' }
+    });
+    assert.equal(plan.variantId, 'seedance2.5');
+    assert.equal(plan.create.body.model, 'seedance2.5');
+});
+
+test('resolves a relative 6789 Seedance result file against the provider origin for downstream save nodes', () => {
+    const plan = compileVideoProtocol({
+        protocol: Api6789SeedanceProtocol,
+        endpoint: 'https://6789.example/api',
+        modelId: 'Seedance2.5',
+        parameters: { prompt: '海边行走', duration: 30, ratio: '21:9', resolution: '720p' }
+    });
+    assert.equal(
+        plan.parseResultUrl({
+            status: 'succeeded',
+            file: '/v1/videos/upstream-task-id/file?exp=123&sig=signature',
+            download_url: ''
+        }),
+        'https://6789.example/v1/videos/upstream-task-id/file?exp=123&sig=signature'
+    );
 });
 
 test('rejects inactive image connections before creating a request', () => {

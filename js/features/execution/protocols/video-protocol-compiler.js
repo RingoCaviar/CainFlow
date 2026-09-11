@@ -3,6 +3,8 @@
  * Callers only consume this plan; provider-specific encoding remains in adapters.
  */
 
+import { resolveProtocolVariant } from './protocol-variant-resolver.js';
+
 export const VIDEO_PROTOCOL_SCHEMA_VERSION = 1;
 
 const SECRET_HEADER_NAMES = new Set([
@@ -23,6 +25,16 @@ function getPath(value, path = '') {
 
 function normalizeEndpoint(endpoint = '') {
     return String(endpoint || '').replace(/\/+$/, '');
+}
+
+function resolveResultUrl(value, endpoint = '') {
+    const candidate = String(value || '').trim();
+    if (!candidate || /^[a-z][a-z0-9+.-]*:/i.test(candidate)) return candidate;
+    try {
+        return new URL(candidate, `${normalizeEndpoint(endpoint)}/`).toString();
+    } catch {
+        return candidate;
+    }
 }
 
 function buildUrl(endpoint, pathTemplate, variables = {}) {
@@ -82,6 +94,12 @@ function validateParameter(paramId, definition = {}, value) {
         throw new Error(`缺少必填参数 “${paramId}”`);
     }
     if (value === undefined || value === null || value === '') return;
+    if (definition.minLength !== undefined && String(value).length < Number(definition.minLength)) {
+        throw new Error(`参数 “${paramId}” 长度不能少于 ${definition.minLength}`);
+    }
+    if (definition.maxLength !== undefined && String(value).length > Number(definition.maxLength)) {
+        throw new Error(`参数 “${paramId}” 长度不能超过 ${definition.maxLength}`);
+    }
     const numeric = Number(value);
     if (definition.min !== undefined && (!Number.isFinite(numeric) || numeric < Number(definition.min))) {
         throw new Error(`参数 “${paramId}” 必须不小于 ${definition.min}`);
@@ -91,7 +109,9 @@ function validateParameter(paramId, definition = {}, value) {
     }
     if (Array.isArray(definition.options) && definition.options.length > 0) {
         const allowed = definition.options.map((option) => typeof option === 'object' ? option.value : option);
-        if (!allowed.includes(value)) throw new Error(`参数 “${paramId}” 不支持值 “${value}”`);
+        if (!allowed.some((allowedValue) => String(allowedValue) === String(value))) {
+            throw new Error(`参数 “${paramId}” 不支持值 “${value}”`);
+        }
     }
 }
 
@@ -122,8 +142,15 @@ function compileMediaFields(variant = {}, inputs = {}) {
     }
     if (rule.required === true && images.length === 0) throw new Error('此模型必须连接参考图');
     if (images.length === 0) return { images, fields: [] };
+    if (rule.urlPattern) {
+        const pattern = new RegExp(rule.urlPattern);
+        if (images.some((image) => !pattern.test(image))) {
+            throw new Error('参考图 URL 不符合当前模型要求');
+        }
+    }
     const field = String(rule.field || 'referenceImages');
     if (rule.mode === 'single-string') return { images, fields: [[field, images[0]]] };
+    if (rule.mode === 'json-array') return { images, fields: [[field, images]] };
     return { images, fields: images.map((image) => [field, image]) };
 }
 
@@ -153,6 +180,12 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
     }
     const variants = Object.entries(protocol.variants || {});
     if (variants.length === 0) throw new Error('声明式视频协议必须配置至少一个精确模型变体');
+    if (protocol.variantIdCaseInsensitive === true) {
+        const normalizedIds = variants.map(([modelId]) => modelId.toLowerCase());
+        if (new Set(normalizedIds).size !== normalizedIds.length) {
+            throw new Error('大小写不敏感的视频协议不能声明仅大小写不同的模型变体');
+        }
+    }
     for (const [modelId, variant] of variants) {
         const prefix = `变体 “${modelId}”`;
         const encoding = variant.requestEncoding || protocol.requestEncoding || 'json';
@@ -175,6 +208,9 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
                 throw new Error(`${prefix} 的 asyncTask.${statusField} 必须是数组`);
             }
         }
+        if (asyncTask.fallbackResultPaths !== undefined && !Array.isArray(asyncTask.fallbackResultPaths)) {
+            throw new Error(`${prefix} 的 asyncTask.fallbackResultPaths 必须是数组`);
+        }
         const authentication = getAuthenticationRule(protocol, variant);
         if (!['header', 'query'].includes(authentication.location)) {
             throw new Error(`${prefix} 的 authentication.location 仅支持 header 或 query`);
@@ -183,10 +219,17 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
         const template = String(authentication.template || '{apikey}');
         if (!template.includes('{apikey}')) throw new Error(`${prefix} 的 authentication.template 必须使用 {apikey} 占位符`);
         if (variant.referenceImage) {
-            if (!['repeat-field', 'single-string'].includes(variant.referenceImage.mode)) {
+            if (!['repeat-field', 'single-string', 'json-array'].includes(variant.referenceImage.mode)) {
                 throw new Error(`${prefix} 的 referenceImage mode 不受支持`);
             }
             if (!String(variant.referenceImage.field || '').trim()) throw new Error(`${prefix} 的 referenceImage 缺少 field`);
+            if (variant.referenceImage.urlPattern !== undefined) {
+                try {
+                    new RegExp(variant.referenceImage.urlPattern);
+                } catch {
+                    throw new Error(`${prefix} 的 referenceImage.urlPattern 无效`);
+                }
+            }
         }
         const definitions = { ...(protocol.parameters || {}), ...(variant.parameters || {}) };
         for (const [paramId, definition] of Object.entries(definitions)) {
@@ -217,11 +260,11 @@ export function importVideoProtocolConfiguration(json) {
 export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId, parameters = {}, inputs = {}, apiKey = '' } = {}) {
     const protocol = migrateProtocolConfiguration(rawProtocol);
     if (protocol.readOnly) throw new Error(protocol.executionBlockedReason);
-    const variant = protocol.variants?.[modelId];
+    const { variantId, variant } = resolveProtocolVariant(protocol, modelId);
     if (!variant) throw new Error(`协议 “${protocol.label || protocol.id || '当前协议'}” 未配置模型 “${modelId}” 的变体`);
 
     const definitions = { ...(protocol.parameters || {}), ...(variant.parameters || {}) };
-    const requestBody = { model: modelId };
+    const requestBody = { model: variantId };
     Object.entries(definitions).forEach(([paramId, definition]) => {
         if (definition.portOnly === true || paramId === 'referenceImages') return;
         const value = parameters[paramId] === undefined ? definition.defaultValue : parameters[paramId];
@@ -246,7 +289,7 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
         throw new Error('异步视频协议暂不支持将 API Key 放在请求体中；请使用请求头或查询参数。');
     }
     const authenticatedCreate = applyAuthentication({
-        url: buildUrl(endpoint, variant.createPath || protocol.createPath, { modelId }),
+        url: buildUrl(endpoint, variant.createPath || protocol.createPath, { modelId: variantId }),
         body: requestBody,
         authentication,
         apiKey
@@ -257,7 +300,7 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
     return {
         protocolId: protocol.id,
         schemaVersion: protocol.schemaVersion,
-        variantId: modelId,
+        variantId,
         authentication: clone(authentication),
         create: {
             method: 'POST',
@@ -269,7 +312,7 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
         },
         asyncTask: clone(asyncTask),
         queryUrl(taskId) {
-            const queryUrl = buildUrl(endpoint, variant.queryPath || protocol.queryPath, { taskId, modelId });
+            const queryUrl = buildUrl(endpoint, variant.queryPath || protocol.queryPath, { taskId, modelId: variantId });
             return applyAuthentication({ url: queryUrl, body: {}, authentication, apiKey }).url;
         },
         parseTaskId(response) {
@@ -279,7 +322,12 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
             return String(getPath(response, asyncTask.statusPath || 'status') || '').trim().toLowerCase();
         },
         parseResultUrl(response) {
-            return String(getPath(response, asyncTask.resultPath || 'video_url') || '').trim();
+            const resultPaths = [asyncTask.resultPath || 'video_url', ...(asyncTask.fallbackResultPaths || [])];
+            for (const path of resultPaths) {
+                const value = String(getPath(response, path) || '').trim();
+                if (value) return resolveResultUrl(value, endpoint);
+            }
+            return '';
         }
     };
 }

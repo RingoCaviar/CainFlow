@@ -9,6 +9,7 @@ export function inferModelCompatibilityFormat(model = {}) {
 
     if (/(?:^|[^a-z0-9])(?:ttapi|veo|newapi|new-api)(?:$|[^a-z0-9])/.test(fingerprint)) return '';
     if (/(?:^|[^a-z0-9])(?:gemini|banana)(?:$|[^a-z0-9])/.test(fingerprint)) return 'google';
+    if (/\bseedance2\.(?:0|0fast|0mini|5)\b/.test(fingerprint)) return 'api6789-seedance';
     if (/(?:^|[^a-z0-9])(?:doubao|seedance)(?:$|[^a-z0-9])/.test(fingerprint)) return 'doubao-video';
     if (/(?:^|[^a-z0-9])(?:kling-o3|minimax-h3)(?:$|[^a-z0-9])/.test(fingerprint)) return 'async-video-api';
     if (
@@ -26,6 +27,7 @@ export function getModelCompatibilityFormatLabel(protocol = '') {
     if (protocol === 'google') return 'Google / Gemini';
     if (protocol === 'openai') return 'OpenAI';
     if (protocol === 'doubao-video') return '豆包视频';
+    if (protocol === 'api6789-seedance') return '6789 Seedance';
     if (protocol === 'async-video-api') return '6789中转视频';
     return '未识别 · 需手动选择';
 }

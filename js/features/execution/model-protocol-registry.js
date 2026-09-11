@@ -28,6 +28,18 @@ const MODEL_PROTOCOLS = Object.freeze({
         defaultTaskTypes: ['video'],
         helpText: '6789中转视频接口会创建异步视频任务，并通过 /v1/videos/{taskId} 查询结果。'
     }),
+    'api6789-seedance': Object.freeze({
+        id: 'api6789-seedance',
+        label: '6789 Seedance',
+        defaultTaskTypes: ['video'],
+        helpText: '6789 Seedance 会创建到 /v1/videos，并通过 /v1/videos/{taskId} 轮询任务；成功时返回 file 或 download_url。',
+        videoMeta: Object.freeze({
+            statusText: '6789 Seedance',
+            supportsEnhancePrompt: false,
+            supportsUpsample: false,
+            note: '支持 seedance2.0、seedance2.0fast、seedance2.0mini 与 seedance2.5 的文生视频和参考图视频。'
+        })
+    }),
     ttapi: Object.freeze({
         id: 'ttapi',
         label: 'TTAPI Gemini',

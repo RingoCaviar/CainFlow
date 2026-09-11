@@ -1,3 +1,5 @@
+import { resolveProtocolVariant } from '../features/execution/protocols/protocol-variant-resolver.js';
+
 /**
  * Resolves the input contract for a protocol-driven generation card.
  * The returned data is deliberately DOM-free so card rendering, connection
@@ -6,9 +8,10 @@
 function getVariant(protocol, modelId) {
     const variants = protocol?.variants || {};
     const hasVariants = Object.keys(variants).length > 0;
+    const resolved = hasVariants ? resolveProtocolVariant(protocol, modelId) : { variant: null };
     return {
         hasVariants,
-        variant: hasVariants ? variants[modelId] || null : null
+        variant: resolved.variant
     };
 }
 

@@ -82,6 +82,10 @@ test('model compatibility format uses only reliable model-name keywords', () => 
     for (const id of ['doubao-video', 'seedance-1.0']) {
         assert.equal(inferModelCompatibilityFormat({ id }), 'doubao-video', id);
     }
+    for (const id of ['seedance2.0', 'seedance2.0fast', 'seedance2.0mini', 'seedance2.5']) {
+        assert.equal(inferModelCompatibilityFormat({ id }), 'api6789-seedance', id);
+    }
+    assert.equal(getModelCompatibilityFormatLabel('api6789-seedance'), '6789 Seedance');
     assert.equal(inferModelCompatibilityFormat({ id: 'kling-2.6' }), '');
 });
 
