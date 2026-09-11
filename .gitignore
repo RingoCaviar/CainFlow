@@ -6,6 +6,9 @@ __pycache__/
 # Runtime logs
 log/
 
+# Generated release validation report
+/artifacts/media-asset-safety-report.json
+
 # Local workflow data
 /workflows/
 /data/
