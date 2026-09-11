@@ -79,7 +79,7 @@ A locally stored record used to investigate CainFlow requests, failures, and run
 _Avoid_: Unbounded log, complete request archive
 
 **Media asset**:
-One locally persisted image or video result, identified independently of any node or history record. A node's declared media capabilities are the authority for whether its image result is transient or persistently recoverable. Generation nodes do not own persistent Media asset references: they produce media during a run and pass it to downstream consumers. Nodes that retain displayed, saved, or derived results and history records may hold persistent references to the same Media asset, which remains until its last persistent reference is removed.
+One locally persisted image or video result, identified independently of any node or history record. A node's declared media capabilities are the authority for whether its image result is transient or persistently recoverable. Video generation nodes are Persistent media sources and retain their complete generated batch through persistent Media asset references. Image generation nodes do not own persistent Media asset references: they produce media during a run and pass it to downstream consumers. Nodes that retain displayed, saved, or derived results and history records may hold persistent references to the same Media asset, which remains until its last persistent reference is removed.
 _Avoid_: Node-owned media copy, history-owned media copy
 
 **Persistent media source**:

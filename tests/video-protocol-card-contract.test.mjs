@@ -362,6 +362,23 @@ test('built-in video parameters remain declaration-owned after the legacy contro
     assert.equal(DoubaoVideoProtocol.parameters.camera_fixed.exposed, true);
 });
 
+test('video generation serialization preserves its ordered local Media asset identities', () => {
+    const serialized = serializeRuntimeNode({
+        id: 'video-result', type: 'VideoGenerate', x: 0, y: 0, enabled: true,
+        data: {
+            mediaAssetKeys: ['media:first', 'media:second'],
+            videoAssetKey: 'media:second',
+            videos: [
+                { id: 'first', url: '/api/storage/assets/media%3Afirst', assetKey: 'media:first' },
+                { id: 'second', url: '/api/storage/assets/media%3Asecond', assetKey: 'media:second' }
+            ]
+        }
+    }, { getElementById: () => null, querySelectorAll: () => [] });
+
+    assert.deepEqual(serialized.mediaAssetKeys, ['media:first', 'media:second']);
+    assert.deepEqual(serialized.videos.map((video) => video.assetKey), ['media:first', 'media:second']);
+});
+
 test('6789 Seedance renders every documented node control for the selected model variant', () => {
     const variant = Api6789SeedanceProtocol.variants['seedance2.0'];
     const protocol = {

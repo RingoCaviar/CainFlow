@@ -25,6 +25,7 @@ import { compileVideoProtocol } from './protocols/video-protocol-compiler.js';
 import { buildMultipartFormData } from './protocols/multipart-transport-adapter.js';
 import { getPrimaryTextInput } from './execution-data-utils.js';
 import { escapeHtml } from '../../core/common-utils.js';
+import { getVideoResultSource } from '../media/video/video-result-persistence.js';
 
 export function getVideoRequestTimeoutSeconds(state = {}) {
     if (state.videoRequestTimeoutEnabled !== true) return 0;
@@ -103,6 +104,7 @@ export function createAsyncMediaExecutionApi({
     completeNodeApiGenerationProgress,
     saveImageGenerationHistoryEntry,
     saveVideoGenerationHistoryEntry = async () => {},
+    persistVideoGenerationResults = async () => [],
     getNodeGenerationDurationSeconds,
     getImageHistorySidebarActive = () => false,
     renderHistoryList,
@@ -235,11 +237,12 @@ export function createAsyncMediaExecutionApi({
 
     async function saveVideoGenerationToHistory(node, result, modelCfg, signal) {
         if (!result?.videoUrl) return null;
+        let videoBlob = null;
         try {
-            const videoBlob = result.videoBlob instanceof Blob
+            videoBlob = result.videoBlob instanceof Blob
                 ? result.videoBlob
                 : await downloadGeneratedVideo(result.videoUrl, { signal });
-            const saved = await saveVideoGenerationHistoryEntry({
+            await saveVideoGenerationHistoryEntry({
                 nodeId: node.id,
                 video: videoBlob,
                 videoBlob,
@@ -251,7 +254,6 @@ export function createAsyncMediaExecutionApi({
                 model: modelCfg?.name || '',
                 generationDurationSeconds: getNodeGenerationDurationSeconds(node)
             });
-            if (saved?.assetKey) result.videoAssetKey = saved.assetKey;
             addLog('info', '视频历史缓存完成', '视频结果已下载并写入历史记录缓存。', {
                 nodeId: node.id,
                 model: modelCfg?.name || '',
@@ -269,7 +271,7 @@ export function createAsyncMediaExecutionApi({
                 videoUrl: result?.videoUrl || '',
                 error: error?.message || String(error)
             });
-            return null;
+            return videoBlob;
         }
     }
 
@@ -1088,6 +1090,8 @@ export function createAsyncMediaExecutionApi({
                 }
             }
             const cachedVideoBlob = await saveVideoGenerationToHistory(node, finalResult, modelCfg, signal);
+            const persistentKeys = await persistVideoGenerationResults(node, [cachedVideoBlob]);
+            if (persistentKeys.length === 1) finalResult.videoAssetKey = persistentKeys[0];
             if (cachedVideoBlob instanceof Blob && !(finalResult.videoBlob instanceof Blob)) {
                 finalResult.videoBlob = cachedVideoBlob;
             }
@@ -1095,12 +1099,11 @@ export function createAsyncMediaExecutionApi({
             commitVideoGenerateOutputs(node, safeFinalResult);
             if (safeFinalResult.videoUrl) {
                 node.data.videos = [{
-                    videoId: safeFinalResult.videoId || videoId,
-                    videoUrl: safeFinalResult.videoUrl,
+                    id: safeFinalResult.videoId || videoId,
+                    url: getVideoResultSource(safeFinalResult),
+                    assetKey: safeFinalResult.videoAssetKey || '',
                     status: safeFinalResult.status || 'completed',
-                    statusText: safeFinalResult.statusText || '',
                     prompt,
-                    statusUpdateTime: safeFinalResult.statusUpdateTime || ''
                 }];
             } else {
                 delete node.data.videos;
@@ -1218,6 +1221,7 @@ export function createAsyncMediaExecutionApi({
         }
 
         const results = [];
+        const cachedVideoBlobs = [];
         renderNodeApiGenerationProgress(node, { current: 0, total: generationCount });
         if (responseArea) {
             responseArea.innerHTML = '<div class="chat-response-placeholder">正在提交视频任务...</div>';
@@ -1345,14 +1349,27 @@ export function createAsyncMediaExecutionApi({
                 prompt,
                 protocolPlan
             });
-            await saveVideoGenerationToHistory(node, finalResult, modelCfg, signal);
+            const cachedVideoBlob = await saveVideoGenerationToHistory(node, finalResult, modelCfg, signal);
+            cachedVideoBlobs.push(cachedVideoBlob);
             results.push(stripVideoHistoryPayload(finalResult));
             incrementNodeApiGenerationProgress(node, 1, { current: index + 1, total: generationCount });
         }
 
+        const persistentKeys = cachedVideoBlobs.every((value) => value instanceof Blob)
+            ? await persistVideoGenerationResults(node, cachedVideoBlobs)
+            : [];
+        if (persistentKeys.length === results.length) {
+            results.forEach((result, index) => { result.videoAssetKey = persistentKeys[index]; });
+        }
         const lastResult = results[results.length - 1] || {};
         commitVideoGenerateOutputs(node, lastResult);
-        node.data.videos = results.slice();
+        node.data.videos = results.map((result) => ({
+            id: result.videoId || '',
+            url: getVideoResultSource(result),
+            assetKey: result.videoAssetKey || '',
+            status: result.status || '',
+            prompt: result.prompt || prompt
+        }));
         node.isSucceeded = true;
 
         if (responseArea) {
@@ -1371,7 +1388,7 @@ export function createAsyncMediaExecutionApi({
             video: lastResult.videoUrl
                 ? {
                     id: lastResult.videoId,
-                    url: lastResult.videoUrl,
+                    url: getVideoResultSource(lastResult),
                     assetKey: lastResult.videoAssetKey || '',
                     status: lastResult.status,
                     prompt

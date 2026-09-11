@@ -7,11 +7,10 @@ const [context, sharedMediaAdr] = await Promise.all([
     readFile(new URL('../docs/adr/0008-shared-media-assets.md', import.meta.url), 'utf8')
 ]);
 
-test('media asset documentation excludes generation nodes from durable ownership', () => {
-    assert.match(context, /Generation nodes do not own persistent Media asset references/i);
-    assert.match(sharedMediaAdr, /Generation nodes do not retain durable Media asset references/i);
-    assert.doesNotMatch(context, /Generation nodes and history records may reference the same Media asset/i);
-    assert.doesNotMatch(sharedMediaAdr, /durable references from generation nodes and history records/i);
+test('media asset documentation makes video generation a persistent media source', () => {
+    assert.match(context, /Video generation nodes are Persistent media sources/i);
+    assert.match(sharedMediaAdr, /Video generation nodes retain durable Media asset references/i);
+    assert.match(context, /Image generation nodes do not own persistent Media asset references/i);
 });
 
 test('media asset documentation preserves shared-reference lifetime protection', () => {

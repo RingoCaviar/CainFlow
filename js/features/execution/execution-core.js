@@ -37,6 +37,7 @@ import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocol } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
+import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 
@@ -1620,6 +1621,13 @@ export function createExecutionCoreApi({
         completeNodeApiGenerationProgress,
         saveImageGenerationHistoryEntry,
         saveVideoGenerationHistoryEntry,
+        persistVideoGenerationResults: (node, videoBlobs) => persistVideoResultForNode({
+            node,
+            videoBlobs,
+            workflowId: getActiveWorkflowId(),
+            saveWorkflowNodeMediaAssets,
+            rememberWorkflowMediaOperation
+        }),
         getNodeGenerationDurationSeconds,
         getImageHistorySidebarActive,
         renderHistoryList,

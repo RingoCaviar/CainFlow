@@ -106,6 +106,32 @@ export function buildBackendVideoDownloadUrl(videoUrl, filenameBase) {
     return `/api/media/download?${params.toString()}`;
 }
 
+function isLocalMediaAssetUrl(videoUrl = '') {
+    return String(videoUrl || '').trim().startsWith('/api/storage/assets/');
+}
+
+async function readVideoResponseBlob(response, videoUrl, onProgress, downloadStartedAt, windowRef) {
+    const responseContentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+    const allowNonStandardVideoContentType = isLikelyDownloadableVideoUrl(videoUrl, windowRef);
+    if (!responseContentType.startsWith('video/') && !allowNonStandardVideoContentType) {
+        throw new Error(`下载结果不是视频文件 (${responseContentType || 'unknown'})`);
+    }
+    const total = Number(response.headers.get('Content-Length') || 0);
+    const blob = await response.blob();
+    if (blob.size < 1024) throw new Error(`下载结果大小异常 (${blob.size} B)，已阻止保存`);
+    if (!(await blobLooksLikeVideo(blob))) throw new Error('下载结果文件头不是有效视频，已阻止保存');
+    if (typeof onProgress === 'function') {
+        const elapsedSeconds = Math.max(0.001, (Date.now() - downloadStartedAt) / 1000);
+        onProgress({
+            loaded: blob.size,
+            total: total || blob.size,
+            speedBytesPerSecond: Math.round(blob.size / elapsedSeconds),
+            done: true
+        });
+    }
+    return blob;
+}
+
 /**
  * 下载生成的视频（通过后端代理）
  * @param {string} videoUrl - 视频 URL
@@ -126,7 +152,17 @@ export async function downloadGeneratedVideo(videoUrl, options = {}, { fetchRef,
         signal = null
     } = options;
 
-    const backendUrl = buildBackendVideoDownloadUrl(videoUrl, filenameBase);
+    const normalizedVideoUrl = String(videoUrl || '').trim();
+    const downloadStartedAt = Date.now();
+    if (isLocalMediaAssetUrl(normalizedVideoUrl)) {
+        const localResponse = await fetchRef(normalizedVideoUrl, {
+            method: 'GET', headers: { Accept: 'video/*,application/octet-stream' }, signal
+        });
+        if (!localResponse.ok) throw new Error(`本地视频读取失败 (${localResponse.status})`);
+        return readVideoResponseBlob(localResponse, normalizedVideoUrl, onProgress, downloadStartedAt, windowRef);
+    }
+
+    const backendUrl = buildBackendVideoDownloadUrl(normalizedVideoUrl, filenameBase);
     const videoUrlMeta = classifyVideoUrlForLog(videoUrl, windowRef);
     let response = null;
     let postErrorMessage = '';
@@ -217,7 +253,6 @@ export async function downloadGeneratedVideo(videoUrl, options = {}, { fetchRef,
     }
 
     const total = Number(response.headers.get('Content-Length') || 0);
-    const downloadStartedAt = Date.now();
     const getAverageSpeed = (loadedBytes) => {
         const elapsedSeconds = Math.max(0.001, (Date.now() - downloadStartedAt) / 1000);
         return Math.round((Number(loadedBytes) || 0) / elapsedSeconds);
