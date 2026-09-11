@@ -549,12 +549,34 @@ export function createWorkflowManagerApi({
                 throw new Error('媒体存储版本已变化，请重新确认操作');
             }
             migration ||= await legacyMediaMigration.stageWorkflow(data);
-            const preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
+            let preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
             data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
-            const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
+            let result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
                 expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
                 expectedStorageEpoch: mediaOwnershipCommitter.getExpectedStorageEpoch(data?.workflowId || '')
             });
+            const isMediaOwnershipRevisionConflict = result?.status === 409
+                && result?.detail === 'Workflow media ownership revision conflict';
+            if (isMediaOwnershipRevisionConflict) {
+                const persistedWorkflow = await loadWorkflowFromFileService(name);
+                const persistedRevision = Number(persistedWorkflow?.mediaOwnershipRevision);
+                if (persistedWorkflow?.workflowId === data?.workflowId
+                    && Number.isInteger(persistedRevision) && persistedRevision >= 0) {
+                    data.mediaOwnershipRevision = persistedRevision;
+                    preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
+                    data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
+                    result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
+                        expectedMediaOwnershipRevision: persistedRevision,
+                        expectedStorageEpoch: mediaOwnershipCommitter.getExpectedStorageEpoch(data?.workflowId || '')
+                    });
+                } else if (persistedWorkflow?.workflowId
+                    && persistedWorkflow.workflowId !== data?.workflowId) {
+                    result = {
+                        ...result,
+                        message: '同名工作流已属于另一工作流，请使用“另存为”保存当前工作流'
+                    };
+                }
+            }
             if (result !== true) {
                 if (previousMediaOwnershipRevision === undefined) delete data.mediaOwnershipRevision;
                 else data.mediaOwnershipRevision = previousMediaOwnershipRevision;
@@ -941,8 +963,16 @@ export function createWorkflowManagerApi({
         const tab = getActiveWorkflowTab();
         if (!tab) return null;
         const workflowId = getActiveWorkflowId();
-        replaceWorkflowTabData(tab, getWorkflowPayload());
-        tab.data.workflowId = workflowId;
+        const previousData = tab.data || {};
+        const snapshot = getWorkflowPayload();
+        snapshot.workflowId = workflowId;
+        if (previousData.mediaOwnershipRevision !== undefined) {
+            snapshot.mediaOwnershipRevision = previousData.mediaOwnershipRevision;
+        }
+        if (Array.isArray(previousData.mediaOwnershipRestoreOwnerIds)) {
+            snapshot.mediaOwnershipRestoreOwnerIds = previousData.mediaOwnershipRestoreOwnerIds;
+        }
+        replaceWorkflowTabData(tab, snapshot);
         if (markDirty) tab.dirty = true;
         return tab;
     }

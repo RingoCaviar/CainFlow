@@ -5,7 +5,15 @@
 async function requestWorkflow(url, options, errorMessage) {
     try {
         const res = await fetch(url, options);
-        if (!res.ok) throw new Error(errorMessage);
+        if (!res.ok) {
+            const payload = await res.json().catch(() => ({}));
+            return {
+                ok: false,
+                status: res.status,
+                message: payload?.error || errorMessage,
+                detail: payload?.detail || ''
+            };
+        }
         return res;
     } catch (error) {
         return { ok: false, message: error.message };

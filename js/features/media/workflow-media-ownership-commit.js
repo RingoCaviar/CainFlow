@@ -159,7 +159,9 @@ export function createWorkflowMediaOwnershipCommitter({
                     )) : []
                 )));
                 if (!released.every(Boolean)) return false;
-                delete temporaryOwner.node.data.mediaOwnershipTemporaryOwners;
+                if (temporaryOwner.node.data) {
+                    delete temporaryOwner.node.data.mediaOwnershipTemporaryOwners;
+                }
             }
         }
         return true;
