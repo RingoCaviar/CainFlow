@@ -1,0 +1,203 @@
+{
+  "destructiveAuditCoverage": {
+    "cleanup_assets": [
+      "legacyCleanupAudit"
+    ],
+    "delete_asset": [
+      "deleteAsset"
+    ],
+    "gc_canary": [
+      "gcAudit",
+      "gcCanary"
+    ],
+    "quarantine": [
+      "quarantine"
+    ],
+    "release_workflow": [
+      "workflowReleaseAudit"
+    ]
+  },
+  "executionEvidence": {
+    "caseSensitivity": {
+      "commandDigest": "56b5dd053fd4f429",
+      "exitCode": 0
+    },
+    "concurrency": {
+      "commandDigest": "5a07695312a50540",
+      "exitCode": 0
+    },
+    "damage": {
+      "commandDigest": "8917725d67c14e5f",
+      "exitCode": 0
+    },
+    "deleteAsset": {
+      "commandDigest": "9e8b306bba1c0d94",
+      "exitCode": 0
+    },
+    "diagnosticExport": {
+      "commandDigest": "995ef5c7d314238d",
+      "exitCode": 0
+    },
+    "diagnosticSentinel": {
+      "commandDigest": "5983e57c5fcae18c",
+      "exitCode": 0
+    },
+    "diagnosticSurfaces": {
+      "commandDigest": "61e02719b609aa53",
+      "exitCode": 0
+    },
+    "documentCommitFault": {
+      "commandDigest": "7477c7e012144be3",
+      "exitCode": 0
+    },
+    "gcAudit": {
+      "commandDigest": "9bc3456c0924221c",
+      "exitCode": 0
+    },
+    "gcCanary": {
+      "commandDigest": "483405bbf11db73a",
+      "exitCode": 0
+    },
+    "historicalSchemaFixture": {
+      "commandDigest": "36739d5dcd3b6ece",
+      "exitCode": 0
+    },
+    "historicalSchemaUpgrade": {
+      "commandDigest": "f7749dfe43cc89a8",
+      "exitCode": 0
+    },
+    "legacyCleanupAudit": {
+      "commandDigest": "d26335d44298465a",
+      "exitCode": 0
+    },
+    "legacyJs": {
+      "commandDigest": "b0a70c692357c5a9",
+      "exitCode": 0
+    },
+    "manifestFailClosed": {
+      "commandDigest": "4d3b46a118e51810",
+      "exitCode": 0
+    },
+    "materializationFault": {
+      "commandDigest": "f20fb99bb77a0cfc",
+      "exitCode": 0
+    },
+    "owners": {
+      "commandDigest": "eb3c0fbcf11b00e0",
+      "exitCode": 0
+    },
+    "quarantine": {
+      "commandDigest": "198c24480befaff5",
+      "exitCode": 0
+    },
+    "quarantineAndAuditFaults": {
+      "commandDigest": "12ce1c08e01682ec",
+      "exitCode": 0
+    },
+    "schema": {
+      "commandDigest": "c24abb9e818ae6ff",
+      "exitCode": 0
+    },
+    "transitionFaults": {
+      "commandDigest": "90be3cd8eda12751",
+      "exitCode": 0
+    },
+    "workflowJs": {
+      "commandDigest": "da4ce595851b67fd",
+      "exitCode": 0
+    },
+    "workflowReleaseAudit": {
+      "commandDigest": "34d66f0fb3d9d86a",
+      "exitCode": 0
+    }
+  },
+  "faultPoints": {
+    "audit_recorded": [
+      "quarantineAndAuditFaults"
+    ],
+    "clean_shutdown_and_restart_recovery": [
+      "transitionFaults"
+    ],
+    "concurrent_owner_cas": [
+      "concurrency"
+    ],
+    "document_committed": [
+      "documentCommitFault"
+    ],
+    "media_materialized": [
+      "materializationFault"
+    ],
+    "new_owner_established": [
+      "transitionFaults"
+    ],
+    "owner_promoted": [
+      "transitionFaults"
+    ],
+    "partial_old_reference_released": [
+      "transitionFaults"
+    ],
+    "quarantine_pending_and_moved": [
+      "quarantineAndAuditFaults"
+    ]
+  },
+  "fixtureVersion": 2,
+  "generatedAtUtc": "2026-09-11T08:46:26.019009+00:00",
+  "invariantViolationCount": 0,
+  "matrixCoverage": {
+    "auditFailure": [
+      "gcAudit"
+    ],
+    "damageClasses": [
+      "damage"
+    ],
+    "diagnosticSentinelAndLimits": [
+      "diagnosticSentinel",
+      "diagnosticSurfaces",
+      "diagnosticExport",
+      "manifestFailClosed"
+    ],
+    "historicalSchemas": [
+      "schema",
+      "historicalSchemaUpgrade",
+      "historicalSchemaFixture"
+    ],
+    "ownerMatrix": [
+      "owners"
+    ],
+    "partialMultiImage": [
+      "legacyJs"
+    ],
+    "quarantineRecovery": [
+      "quarantine"
+    ],
+    "transitionAndConcurrency": [
+      "transitionFaults",
+      "concurrency"
+    ],
+    "windowsAndCaseSensitive": [
+      "caseSensitivity"
+    ],
+    "workflowIdentityOverlap": [
+      "workflowJs"
+    ]
+  },
+  "propertyInvariantViolationCount": 0,
+  "propertySequenceDigests": [
+    "aca8cc51e1103947",
+    "9be2828bcd195e33",
+    "e9a1da19b588a642"
+  ],
+  "randomSeeds": [
+    104729,
+    130363,
+    169087
+  ],
+  "reportVersion": 1,
+  "scanResult": {
+    "assetMetadata": 1,
+    "documentReferences": 1,
+    "ownerReferences": 1
+  },
+  "schemaVersion": 10,
+  "violations": []
+}
