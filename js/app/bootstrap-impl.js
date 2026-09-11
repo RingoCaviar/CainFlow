@@ -46,6 +46,7 @@ import { createNodeDomBindingsApi } from '../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../nodes/node-lifecycle.js';
 import { createMediaControllerApi } from '../features/media/media-controller.js';
 import { collectRetainedNodeAssetIds as collectRetainedNodeAssetIdsForWorkflows } from '../features/media/node-asset-retention.js';
+import { createMissingMediaBrowserActions } from '../features/media/missing-media-action-browser.js';
 import { createImagePainterApi } from '../features/media/image-painter.js';
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
@@ -136,10 +137,6 @@ function processImageResolution(dataUrl, maxTotalPixels = null) {
 
 function resizeImageData(dataUrl, options = {}) {
     return mediaUtils.resizeImageData(dataUrl, options);
-}
-
-function processColorResetImage(dataUrl, options = {}) {
-    return mediaUtils.processColorResetImage(dataUrl, options);
 }
 
 function detectOutputFormat(dataUrl) {
@@ -248,16 +245,27 @@ const {
     saveHandle,
     getHandle,
     deleteHandle,
-    saveImageAsset,
+    saveWorkflowNodeMediaAsset,
+    saveWorkflowNodeMediaAssets,
+    cancelWorkflowNodeMediaOperation,
+    releaseWorkflowNodeMediaAssets,
+    releaseWorkflowMediaAssets,
+    getStorageSafetyStatus,
+    getMediaOwnerReferenceList,
+    listMediaOwnerReferenceLists,
+    recordMediaWorkflowRevision,
+    replaceMediaOwnerReferenceList,
+    saveWorkflowImportMediaAsset,
     getImageAsset,
-    saveImageAssetList,
     getImageAssetList,
-    saveImageImportAsset,
     deleteImageAsset,
     deleteImageImportAsset,
     clearImageImportAssets,
     clearImageAssets,
     clearOrphanedNodeAssets,
+    referenceMediaAsset,
+    removeMediaReference,
+    putMediaAsset,
     clearOrphanedImageImportAssets,
     createThumbnail,
     createVideoThumbnail,
@@ -293,6 +301,53 @@ const renderProjectionManager = createRenderProjectionManager({
     documentRef: document,
     windowRef: window,
     performanceMonitor: canvasPerformanceMonitor
+});
+function focusCanvasNode(nodeId) {
+    const node = state.nodes.get(nodeId);
+    const rect = canvasContainer?.getBoundingClientRect?.();
+    if (!node || !rect) return false;
+    const zoom = Number(state.canvas.zoom) || 1;
+    const width = Number(node.width) || node.el?.offsetWidth || 220;
+    const height = Number(node.height) || node.el?.offsetHeight || 140;
+    state.canvas.x = rect.width / 2 - (Number(node.x) + width / 2) * zoom;
+    state.canvas.y = rect.height / 2 - (Number(node.y) + height / 2) * zoom;
+    viewportApi.updateCanvasTransform({ connectionRefreshReason: 'node-failure-focus' });
+    renderProjectionManager.focusNode(nodeId);
+    node.el?.classList.add('selected');
+    return true;
+}
+function showWorkflowFailureSummary(failures = []) {
+    if (failures.length < 2) return;
+    const modal = document.getElementById('modal-node-failures');
+    const title = document.getElementById('node-failures-title');
+    const list = document.getElementById('node-failures-list');
+    if (!modal || !list) return;
+    if (title) title.textContent = `${failures.length} 个节点执行失败`;
+    list.innerHTML = '';
+    failures.forEach((failure) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'node-failure-list-item';
+        const message = document.createElement('span');
+        message.className = 'node-failure-list-item__message';
+        message.textContent = `${failure.nodeTitle}：${failure.message}`;
+        const action = document.createElement('span');
+        action.textContent = '定位';
+        button.append(message, action);
+        button.addEventListener('click', () => {
+            closeModal('modal-node-failures');
+            focusCanvasNode(failure.nodeId);
+            const log = state.logs?.find((entry) => entry.type === 'error' && entry.nodeId === failure.nodeId);
+            if (log) getLogPanelApi().showLogDetail(log.id);
+        });
+        list.appendChild(button);
+    });
+    modal.classList.add('active');
+}
+document.addEventListener('cainflow:node-failure-clicked', (event) => {
+    const nodeId = event.detail?.nodeId;
+    const log = state.logs?.find((entry) => entry.type === 'error' && entry.nodeId === nodeId);
+    if (log) getLogPanelApi().showLogDetail(log.id);
 });
 const interactionPerformanceGuard = createInteractionPerformanceGuard({
     state,
@@ -359,6 +414,20 @@ function handleNodeGraphChanged(options = {}) {
     }
     refreshAllImageResizePreviews();
     refreshAllCameraControlPreviews();
+}
+
+function hasIncomingImageConnection(nodeId) {
+    return state.connections.some((conn) => (
+        conn.to.nodeId === nodeId
+        && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+    ));
+}
+
+function hasIncomingImageConnectionInWorkflow(nodeId, connections = []) {
+    return Array.isArray(connections) && connections.some((conn) => (
+        conn?.to?.nodeId === nodeId
+        && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+    ));
 }
 
 function collectRetainedNodeAssetIds() {
@@ -458,26 +527,26 @@ const helpPanelApi = createHelpPanelApi({
     panelManager
 });
 const settingsModal = document.getElementById('settings-modal');
+let handleMissingMediaAction = async () => {};
 const mediaControllerApi = createMediaControllerApi({
     state,
     getNodeById: (nodeId) => state.nodes.get(nodeId),
     getImageAsset,
     getImageAssetList,
-    saveImageAsset,
-    saveImageAssetList,
-    saveImageImportAsset,
+    saveWorkflowImportMediaAsset,
+    saveWorkflowNodeMediaAsset,
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
-    processColorResetImage,
     detectOutputFormat,
     estimateDataUrlSize,
     getImageResolution,
     dataURLtoBlob,
-    copyImageToClipboard: (source) => uiUtils.copyImageToClipboard(source),
     showToast,
     addLog,
     scheduleSave,
+    onMediaIntegrityChanged: () => workflowManagerApi?.refreshActiveWorkflowIntegrityState?.(),
+    onMissingMediaAction: (request) => handleMissingMediaAction(request),
     syncCameraControlNodePreview: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
     syncClonesFromSource: (nodeId) => nodeDomBindingsApi?.syncClonesFromSource(nodeId),
     openImagePainter,
@@ -485,6 +554,7 @@ const mediaControllerApi = createMediaControllerApi({
     getHistoryMetadata,
     getHistoryEntry,
     fitNodeToContent,
+    getActiveWorkflowId: () => workflowManagerApi?.getActiveWorkflowId?.() || '',
     fetchRef: fetch,
     getProxyHeaders,
     formatProxyErrorMessage: formatProxyErrorMessageService,
@@ -526,13 +596,11 @@ const {
     loadImageFile,
     loadImageData,
     setupImageResize,
-    setupColorReset,
     getResizeSourceImage,
     refreshImageResizePreview,
     refreshDependentImageResizePreviews,
     refreshAllImageResizePreviews,
     restoreImageResizePreview,
-    restoreColorResetPreview,
     setupImageSave,
     autoSaveToDir,
     setupImagePreview,
@@ -573,7 +641,6 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     resumeImageGeneration: (nodeId) => getWorkflowRunnerApi().resumeImageNodeBranch(nodeId),
     setupImageImport,
     setupImageResize,
-    setupColorReset,
     setupImageSave,
     setupImagePreview,
     setupImageCompare,
@@ -600,7 +667,6 @@ const {
     markConnectionDirty,
     markNodeConnectionsDirty,
     updateAllConnections,
-    updateDraggingConnections,
     beginConnectionRestoration,
     updateDirtyConnections,
     detectMisalignedConnections,
@@ -773,6 +839,10 @@ async function undo() {
     return getSessionManagerApi().undo();
 }
 
+async function redo() {
+    return getSessionManagerApi().redo();
+}
+
 function getSessionManagerApi() {
     if (!registry.sessionManagerApi) {
         registry.sessionManagerApi = createSessionManagerApi({
@@ -785,8 +855,11 @@ function getSessionManagerApi() {
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
+            persistHistoryTransition: () => workflowManagerApi?.persistActiveHistoryTransition?.(),
             getWorkflowSnapshot: () => workflowManagerApi?.workflowDesk?.snapshot?.()
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
+            referenceMediaAsset,
+            removeMediaReference,
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,
@@ -845,7 +918,6 @@ function getCanvasInteractionsApi() {
             getPortPosition,
             drawTempConnection,
             updateAllConnections,
-            updateDraggingConnections,
             updateDirtyConnections,
             scheduleConnectionRefresh,
             connectionProjection: connectionProjectionInteractions,
@@ -883,6 +955,7 @@ function getToolbarControllerApi() {
             saveState,
             saveCurrentWorkflow: () => workflowManagerApi.saveActiveWorkflow(),
             undo,
+            redo,
             exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
             importWorkflow: (...args) => projectIoFeature.importWorkflow(...args),
             showToast,
@@ -892,8 +965,7 @@ function getToolbarControllerApi() {
             zoomToFitTarget: () => zoomToFit(),
             cleanupNodeElement: (node) => node?.el && cleanupNodeElement(node),
             clearUndoStack: () => {
-                state.undoStack = [];
-                updateUndoButton();
+                getSessionManagerApi().clearUndoStack();
             },
             clearImageAssets,
             clearWorkflowAssets: (options) => workflowManagerApi.cleanupOpenWorkflowAssets(options),
@@ -942,7 +1014,6 @@ function getContextMenuControllerApi() {
             viewportApi,
             addNode,
             copySelectedNode,
-            copyNodeImageToClipboard: (nodeId) => mediaControllerApi.copyNodeImageToClipboard(nodeId),
             pasteNode,
             removeNode,
             cloneNode: (nodeId, count, options) => getNodeLifecycleApi().cloneNode(nodeId, count, options),
@@ -977,7 +1048,8 @@ function getContextMenuControllerApi() {
 function getErrorModalControllerApi() {
     if (!registry.errorModalControllerApi) {
         registry.errorModalControllerApi = createErrorModalControllerApi({
-            documentRef: document
+            documentRef: document,
+            onLocateNode: (nodeId) => getWorkflowRunnerApi().focusNode(nodeId)
         });
     }
     return registry.errorModalControllerApi;
@@ -1018,9 +1090,10 @@ function getNodeLifecycleApi() {
             generateId,
             getImageAsset,
             getImageAssetList,
-            saveImageAsset,
-            saveImageAssetList,
-            saveImageImportAsset,
+            saveWorkflowImportMediaAsset,
+            getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
+            referenceMediaAsset,
+            removeMediaReference,
             deleteImageImportAsset,
             showResolutionBadge,
             restoreImageResizePreview,
@@ -1062,6 +1135,7 @@ function getRuntimeControllerApi() {
             showToast,
             exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
             undo,
+            redo,
             copySelectedNode,
             pasteNode,
             clipboardControllerApi: getClipboardControllerApi(),
@@ -1114,16 +1188,16 @@ function getExecutionCoreApi() {
             renderHistoryList: (...args) => historyFeature.renderHistoryList(...args),
             showResolutionBadge,
             getImageAsset,
-            saveImageAsset,
-            saveImageAssetList,
+            saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            cancelWorkflowNodeMediaOperation,
+            releaseWorkflowNodeMediaAssets,
             deleteImageAsset,
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
-            processColorResetImage,
             autoSaveToDir,
             restoreImageResizePreview,
-            restoreColorResetPreview,
             renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
             releaseNodeImageData: (nodeId, options) => mediaControllerApi.releaseNodeImageData(nodeId, options),
             refreshDependentImageResizePreviews,
@@ -1133,6 +1207,7 @@ function getExecutionCoreApi() {
             syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent,
             scheduleSave,
+            getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
             getAbortMessage: getAbortMessageService,
             connectionProjection: connectionProjectionInteractions,
             getImageHistorySidebarActive: () => document.getElementById('history-sidebar')?.classList.contains('active')
@@ -1162,9 +1237,10 @@ function getWorkflowRunnerApi() {
             updatePortStyles,
             getImageAsset,
             getImageAssetList,
-            saveImageAsset,
             deleteImageAsset,
-            saveImageAssetList,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
+            getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
             syncImagePreviewNode: (nodeId, imageData) => mediaControllerApi.syncImagePreviewNode(nodeId, imageData),
             syncImageSaveNode: (nodeId, imageData) => mediaControllerApi.syncImageSaveNode(nodeId, imageData),
             refreshDependentImageResizePreviews,
@@ -1175,6 +1251,8 @@ function getWorkflowRunnerApi() {
                 handleNodeGraphChanged();
                 scheduleSave();
             },
+            focusCanvasNode,
+            onWorkflowFailures: showWorkflowFailureSummary,
             onNodeRunStateChange: (payload) => {
                 const activeWorkflow = workflowManagerApi.getActiveWorkflow();
                 if (activeWorkflow?.workflowId) {
@@ -1213,11 +1291,13 @@ function getWorkflowRuntimeManagerApi() {
             getSystemNotificationApi,
             getImageAsset,
             getImageAssetList,
-            saveImageAsset,
-            saveImageImportAsset,
             deleteImageImportAsset,
             deleteImageAsset,
-            saveImageAssetList,
+            saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
+            referenceMediaAsset,
+            removeMediaReference,
             saveHistoryEntry,
             renderHistoryList: (...args) => historyFeature.renderHistoryList(...args),
             logRequestToPanel,
@@ -1228,7 +1308,6 @@ function getWorkflowRuntimeManagerApi() {
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
-            processColorResetImage,
             copyToClipboard,
             debounce,
             fitNodeToContent,
@@ -1238,7 +1317,6 @@ function getWorkflowRuntimeManagerApi() {
             syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
             refreshDependentImageResizePreviews,
             restoreImageResizePreview,
-            restoreColorResetPreview,
             showResolutionBadge,
             visibleNodesLayer: nodesLayer,
             bindVisibleNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
@@ -1296,9 +1374,20 @@ const workflowManagerApi = createWorkflowManagerApi({
     panelManager,
     clearImageAssets,
     clearOrphanedNodeAssets,
+    referenceMediaAsset,
+    removeMediaReference,
+    releaseWorkflowMediaAssets,
+    getStorageSafetyStatus,
+    getMediaOwnerReferenceList,
+    listMediaOwnerReferenceLists,
+    recordMediaWorkflowRevision,
+    replaceMediaOwnerReferenceList,
+    putMediaAsset,
+    getImageAsset,
+    getImageAssetList,
+    deleteImageAsset,
     clearUndoStack: () => {
-        state.undoStack = [];
-        updateUndoButton();
+        getSessionManagerApi().clearUndoStack();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
     recordWorkflowDiagnostic: (record) => diagnosticClient.recordWorkflow({
@@ -1324,6 +1413,24 @@ const workflowManagerApi = createWorkflowManagerApi({
     },
     releaseDetachedEditorView: (workflow) => getWorkflowRuntimeManagerApi().releaseEditorView(workflow),
     localStorageRef: diskStorage
+});
+
+handleMissingMediaAction = createMissingMediaBrowserActions({
+    state,
+    workflowManager: workflowManagerApi,
+    getMediaOwnerReferenceList,
+    getStorageSafetyStatus,
+    saveWorkflowNodeMediaAsset,
+    downloadRemoteMedia: (url, mediaType, signal) => mediaType === 'video'
+        ? getExecutionCoreApi().downloadGeneratedVideo(url, { signal })
+        : getExecutionCoreApi().downloadGeneratedImage(url, signal),
+    recoverTaskMedia: async (nodeId, mediaType, signal) => {
+        return mediaType === 'video'
+            ? getExecutionCoreApi().recoverVideoTaskMedia(nodeId, signal)
+            : getExecutionCoreApi().recoverAsyncImageTaskMedia(nodeId, signal);
+    },
+    pushHistory,
+    showToast
 });
 
 function refreshImageGenerateNodes(protocolId) {
@@ -1427,8 +1534,7 @@ projectIoFeature = createProjectIoFeature({
     trimHistoryCache,
     cleanupRecoverableNodeAssetCache,
     clearUndoStack: () => {
-        state.undoStack = [];
-        updateUndoButton();
+        getSessionManagerApi().clearUndoStack();
     },
     updateCacheUsage: () => settingsControllerApi?.updateCacheUsage(),
     beginMediaRestoreBatch,
@@ -1451,6 +1557,13 @@ uiFeature = createUiFeature({
     clearOrphanedNodeAssets,
     collectRetainedNodeAssetIds,
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
+    getIntegrityWorkflows: () => {
+        const workflow = workflowManagerApi.getActiveWorkflowSnapshot?.();
+        return workflow ? [workflow] : [];
+    },
+    getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
+    getActiveWorkflowName: () => workflowManagerApi.getActiveWorkflowName?.() || '',
+    handleMissingMediaAction: (request) => handleMissingMediaAction(request),
     getHistory,
     getHistoryMetadata,
     getHistoryEntry,

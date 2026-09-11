@@ -30,6 +30,10 @@ _Avoid_: Workflow opening, tab switching
 A workflow run that continues while another workflow is active in the editor. Returning to it restores its current visible run state without restarting the run.
 _Avoid_: Hidden run, inactive run
 
+**Node execution failure**:
+The durable visible state of the specific node whose execution ended with a non-cancellation error. It remains visible until that node next executes successfully, exposes a concise cause on the node, and links to the complete error details.
+_Avoid_: Workflow error, global error
+
 **Workflow identity**:
 The stable identity of a workflow across saving, renaming, folder moves, workflow activation, and background workflow runs. A workflow name or path is a mutable label, not its identity. Copying or saving a workflow as a new workflow creates a new Workflow identity.
 _Avoid_: Workflow name as identity, workflow path as identity
@@ -81,6 +85,62 @@ _Avoid_: Node-owned media copy, history-owned media copy
 **Persistent media source**:
 A node whose current retained content remains available from its output ports without new upstream input. It retains the complete ordered media batch; a current single-item view does not replace that batch. Background projection does not change its media ownership or turn a transient producer into a persistent owner.
 _Avoid_: Latest-item-only source, projection-owned media
+
+**Media asset owner**:
+The durable consumer identity that keeps one or more Media assets alive. A workflow-node owner is the pair of Workflow identity and node ID; an image import, history record, and history thumbnail use their own owner kinds.
+_Avoid_: Asset owner, node asset key
+
+**Media asset ownership transition**:
+The durable replacement of one Media asset owner's reference list. New references become durable before superseded references are released; an interrupted transition may temporarily retain extra references but never makes an owned Media asset collectible.
+_Avoid_: Cache key swap, release-then-store
+
+**Media asset transition record**:
+The durable coordination record for one logical Media asset ownership transition. It binds the operation identity, expected owner revision, Workflow document revision, storage epoch, complete old and new reference lists, and recoverable commit stage so retries cannot reinterpret an older intent as a new change.
+_Avoid_: In-memory save state, retry flag
+
+**Media asset garbage collection**:
+The backend-owned reclamation of Media assets with no Media asset owner references. A client-provided snapshot of visible or open nodes never determines whether a Media asset is collectible.
+_Avoid_: Node cache cleanup, keep-key cleanup
+
+**Media asset integrity report**:
+A versioned, time-stamped diagnostic snapshot comparing durable consumer documents, Media asset owner references, asset metadata, and physical media files. It records repairable and user-actionable inconsistencies but never determines Media asset liveness.
+_Avoid_: Media asset index, cache authority, live reference list
+
+**Missing Media asset**:
+A Media asset identity retained by a durable consumer when either its asset metadata or physical media file is absent. The retained position in a Media asset reference list remains explicit until the user recovers or removes it.
+_Avoid_: Cache miss, silently omitted media
+
+**Unassociated Media asset owner**:
+A Media asset owner reference for which no durable consumer can be established. It is quarantined before collection so an interrupted ownership transition can be reconciled without data loss.
+_Avoid_: Orphaned cache key, stale node
+
+**Media asset quarantine**:
+The recoverable holding state for a Media asset whose ownership cannot yet be established or whose garbage collection has been approved but not finalized. Quarantine preserves the asset identity, content hash, provenance, and recovery record until its retention conditions are satisfied.
+_Avoid_: Trash cache, immediate deletion
+
+**Media asset storage epoch**:
+The durable generation of the Media asset store that every writer must match before committing an ownership transition. A migration advances the epoch so a process holding an older view cannot mutate upgraded storage.
+_Avoid_: Cache version, client version
+
+**Media asset migration backup**:
+A verified, immutable recovery point that binds the database, workflow documents, and a hashed physical-media inventory under one identity before a Media asset schema migration begins.
+_Avoid_: Best-effort cache copy, database-only backup
+
+**Media asset reference list**:
+The ordered list of Media asset identities displayed by one workflow node. It represents both a single image and a multi-image result without embedding image data in the workflow document.
+_Avoid_: Image asset key, image import asset key, persisted image list
+
+**Media asset lazy migration**:
+The on-read replacement of legacy embedded or node-owned image data with a Media asset reference list. It writes the new durable form before releasing the legacy copy, so a failed migration remains retryable without data loss.
+_Avoid_: Destructive cache conversion, eager cache rewrite
+
+**Media asset actual usage**:
+The disk space occupied by unique local Media asset files, counted once even when several consumers reference the same original.
+_Avoid_: Sum of cache categories, per-reference usage
+
+**Media asset reference distribution**:
+The overlapping breakdown of unique Media assets referenced by each consumer category. Its categories describe ownership and are not additive disk usage.
+_Avoid_: Cache size breakdown, additive category total
 
 **Media asset recovery**:
 A user-confirmed download of a missing locally referenced Media asset from its retained remote result URL. CainFlow never starts recovery automatically; it reports the transfer's progress, completion, cancellation, or failure on the requesting node.

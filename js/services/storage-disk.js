@@ -50,6 +50,16 @@ async function putAsset(key, value, kind = 'asset') {
     return response.ok;
 }
 
+function workflowOperationOwnerId(workflowId, nodeId, operationId) {
+    return JSON.stringify([String(workflowId).trim(), String(nodeId).trim(), String(operationId)]);
+}
+
+function normalizeOrCreateWorkflowMediaOperationId(value) {
+    const operationId = String(value || '').trim();
+    return operationId || globalThis.crypto?.randomUUID?.()
+        || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 async function putMediaAsset(value, ownerType, ownerId) {
     const blob = value instanceof Blob ? value : dataUrlToBlob(value);
     if (!blob || blob.size === 0 || !ownerType || !ownerId) return null;
@@ -72,6 +82,25 @@ async function referenceMediaAsset(ownerType, ownerId, assetKey) {
         body: JSON.stringify({ action: 'reference', ownerType, ownerId, assetKey })
     });
     return response.ok;
+}
+
+async function removeMediaReference(ownerType, ownerId, assetKey) {
+    const response = await fetch('/api/storage/media-assets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unreference', ownerType, ownerId, assetKey })
+    });
+    return response.ok;
+}
+
+async function postMediaAssetAction(action, extra = {}) {
+    const response = await fetch('/api/storage/media-assets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra })
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    delete payload.success;
+    return payload;
 }
 
 async function getAssetBlob(key) {
@@ -215,6 +244,29 @@ function createVideoThumbnail(videoSource, size = 256, seed = '') {
 }
 
 export function createDiskStorageApi(getState) {
+    const pendingMediaCancellationsKey = 'cainflow_pending_media_operation_cancellations';
+    function readPendingMediaCancellations() {
+        try {
+            const value = JSON.parse(globalThis.localStorage?.getItem?.(pendingMediaCancellationsKey) || '[]');
+            return Array.isArray(value) ? value.filter((ownerId) => typeof ownerId === 'string' && ownerId) : [];
+        } catch { return []; }
+    }
+    function writePendingMediaCancellations(ownerIds) {
+        try {
+            globalThis.localStorage?.setItem?.(pendingMediaCancellationsKey, JSON.stringify([...new Set(ownerIds)]));
+        } catch { /* The caller still receives failure and can retry while this session remains alive. */ }
+    }
+    async function flushPendingMediaCancellations(additionalOwnerIds = []) {
+        const failed = [];
+        for (const ownerId of [...new Set([...readPendingMediaCancellations(), ...additionalOwnerIds])]) {
+            try {
+                const result = await postMediaAssetAction('cancel-operation-owner', { ownerId });
+                if (result?.cancelled !== true) failed.push(ownerId);
+            } catch { failed.push(ownerId); }
+        }
+        writePendingMediaCancellations(failed);
+        return failed.length === 0;
+    }
     function createBackendDirectoryHandle(directory) {
         return {
             kind: 'directory',
@@ -264,12 +316,79 @@ export function createDiskStorageApi(getState) {
         return response.ok;
     }
     async function deleteHandle(key) { return key === 'GLOBAL_SAVE_DIR' ? saveHandle(key, '') : true; }
-    async function saveImageAsset(key, value) { return putAsset(key, value, 'node'); }
+    async function saveWorkflowNodeMediaAsset(value, workflowId, nodeId, requestedOperationId = '') {
+        const operationId = normalizeOrCreateWorkflowMediaOperationId(requestedOperationId);
+        const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', operationId);
+        if (!workflowId || !nodeId) return null;
+        const result = await postMediaAssetAction('materialize-owner-list', {
+            ownerType: 'workflow-operation', ownerId, values: [value]
+        });
+        const asset = Array.isArray(result?.assets) && result.assets.length === 1 ? result.assets[0] : null;
+        return asset ? { ...asset, mediaOperationId: operationId, mediaTemporaryOwnerId: ownerId } : null;
+    }
+    async function saveWorkflowNodeMediaAssets(values, workflowId, nodeId, operationId = '') {
+        const items = Array.isArray(values) ? values.filter(Boolean) : [];
+        const stableOperationId = normalizeOrCreateWorkflowMediaOperationId(operationId);
+        if (!workflowId || !nodeId || items.length === 0) return [];
+        const ownerId = workflowOperationOwnerId(workflowId, nodeId, stableOperationId);
+        const result = await postMediaAssetAction('materialize-owner-list', {
+            ownerType: 'workflow-operation', ownerId, values: items
+        });
+        return Array.isArray(result?.assets) && result.assets.length === items.length
+            ? result.assets.map((asset) => ({ ...asset, mediaOperationId: stableOperationId, mediaTemporaryOwnerId: ownerId }))
+            : [];
+    }
+    async function releaseWorkflowNodeMediaAssets(keys, workflowId, nodeId) {
+        const ownerId = `${String(workflowId || '').trim()}:${String(nodeId || '').trim()}`;
+        if (!workflowId || !nodeId) return false;
+        const results = await Promise.all((Array.isArray(keys) ? keys : []).filter(Boolean)
+            .map((item) => item?.mediaTemporaryOwnerId
+                ? removeMediaReference('workflow-operation', item.mediaTemporaryOwnerId, item.asset_key)
+                : removeMediaReference('workflow-node', ownerId, item)));
+        return results.every(Boolean);
+    }
+    async function cancelWorkflowNodeMediaOperation(workflowId, nodeId, operationId) {
+        if (!workflowId || !nodeId || !operationId) return false;
+        const ownerId = workflowOperationOwnerId(workflowId, nodeId, operationId);
+        writePendingMediaCancellations([...readPendingMediaCancellations(), ownerId]);
+        return flushPendingMediaCancellations([ownerId]);
+    }
+    async function releaseWorkflowMediaAssets(workflowId) {
+        if (!workflowId) return false;
+        return postMaintenance('release-workflow-media', { workflowId });
+    }
+    async function getStorageSafetyStatus() {
+        const response = await fetch('/api/storage/safety-status', { cache: 'no-store' });
+        return response.ok ? (await response.json()).safety || null : null;
+    }
+    async function getMediaOwnerReferenceList(workflowId, ownerType, ownerId) {
+        const query = new URLSearchParams({ workflowId, ownerType, ownerId });
+        const response = await fetch(`/api/storage/media-owner?${query}`, { cache: 'no-store' });
+        return response.ok ? (await response.json()).owner || null : null;
+    }
+    async function listMediaOwnerReferenceLists(workflowId) {
+        const query = new URLSearchParams({ workflowId });
+        const response = await fetch(`/api/storage/media-owners?${query}`, { cache: 'no-store' });
+        return response.ok ? (await response.json()).owners || [] : null;
+    }
+    async function recordMediaWorkflowRevision(workflowId, documentRevision, storageEpoch, ownerReferenceLists) {
+        const result = await postMediaAssetAction('record-workflow-revision', {
+            workflowId, documentRevision, storageEpoch, ownerReferenceLists
+        });
+        return result?.documentRevision === documentRevision;
+    }
+    async function replaceMediaOwnerReferenceList(request) {
+        return postMediaAssetAction('replace-owner-reference-list', request);
+    }
+    async function saveWorkflowImportMediaAsset(value, workflowId, nodeId, operationId = '') {
+        const stableOperationId = normalizeOrCreateWorkflowMediaOperationId(operationId);
+        const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', stableOperationId);
+        if (!workflowId || !nodeId) return null;
+        const asset = await putMediaAsset(value, 'workflow-operation', ownerId);
+        return asset ? { ...asset, mediaOperationId: stableOperationId, mediaTemporaryOwnerId: ownerId } : null;
+    }
     async function getImageAsset(key) { return blobToDataUrl(await getAssetBlob(key)); }
     async function getImageAssetBlob(key) { return getAssetBlob(key); }
-    async function saveImageAssetList(key, images) {
-        return putAsset(key, { type: 'image-list', images: Array.isArray(images) ? images : [] }, 'node-list');
-    }
     async function getImageAssetList(key) {
         const blob = await getAssetBlob(key);
         if (!blob) return [];
@@ -278,10 +397,6 @@ export function createDiskStorageApi(getState) {
         }
         const value = await blobToDataUrl(blob);
         return value ? [value] : [];
-    }
-    async function saveImageImportAsset(nodeId, value, preferredKey = '') {
-        const key = preferredKey?.startsWith(IMAGE_IMPORT_ASSET_KEY_PREFIX) ? preferredKey : `${IMAGE_IMPORT_ASSET_KEY_PREFIX}${nodeId}`;
-        return await putAsset(key, value, 'image-import') ? key : '';
     }
     async function deleteImageAsset(key) {
         return (await fetch(assetUrl(key), { method: 'DELETE' })).ok;
@@ -293,9 +408,10 @@ export function createDiskStorageApi(getState) {
             const media = mediaType === 'video' ? (data.videoBlob || data.video) : data.image;
             const mediaBlob = media instanceof Blob ? media : dataUrlToBlob(media);
             if (!mediaBlob) return false;
+            const createsHistoryReference = !data?.mediaAssetKey;
             const mediaAsset = data?.mediaAssetKey
                 ? { asset_key: data.mediaAssetKey }
-                : await putMediaAsset(mediaBlob, 'node', data?.nodeId || `history:${id}`);
+                : await putMediaAsset(mediaBlob, 'history', String(id));
             const mediaKey = mediaAsset?.asset_key || '';
             if (!mediaKey) return false;
             const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob, 256, mediaKey) : await createThumbnail(data.image));
@@ -312,7 +428,10 @@ export function createDiskStorageApi(getState) {
             const response = await fetch('/api/storage/history', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry)
             });
-            if (!response.ok) return false;
+            if (!response.ok) {
+                if (createsHistoryReference) await removeMediaReference('history', String(id), mediaKey);
+                return false;
+            }
             data.mediaAssetKey = mediaKey;
             return { success: true, assetKey: mediaKey };
         } catch (error) {
@@ -359,16 +478,28 @@ export function createDiskStorageApi(getState) {
         const entry = await getHistoryEntry(id);
         return entry?.mediaType === 'image' ? dataUrlToBlob(entry.image) : null;
     }
+    void flushPendingMediaCancellations();
     return {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
-        saveImageAsset, getImageAsset, getImageAssetBlob, saveImageAssetList, getImageAssetList,
-        putMediaAsset, referenceMediaAsset,
-        saveImageImportAsset, deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
+        getImageAsset, getImageAssetBlob, getImageAssetList,
+        saveWorkflowNodeMediaAsset,
+        saveWorkflowNodeMediaAssets,
+        cancelWorkflowNodeMediaOperation,
+        releaseWorkflowNodeMediaAssets,
+        releaseWorkflowMediaAssets,
+        getStorageSafetyStatus,
+        getMediaOwnerReferenceList,
+        listMediaOwnerReferenceLists,
+        recordMediaWorkflowRevision,
+        replaceMediaOwnerReferenceList,
+        saveWorkflowImportMediaAsset,
+        putMediaAsset, referenceMediaAsset, removeMediaReference,
+        deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
         clearImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import' }),
-        clearOrphanedImageImportAssets: (keys) => postMaintenance('clear-assets', { mode: 'image-import-orphans', keepKeys: Array.from(keys || []) }),
+        clearOrphanedImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import-orphans' }),
         clearImageAssets: ({ preserveHistory = true } = {}) => postMaintenance('clear-assets', { mode: preserveHistory ? 'nodes' : 'all' }),
         clearOrphanedHistoryAssets: () => postMaintenance('clear-assets', { mode: 'orphans' }),
-        clearOrphanedNodeAssets: (keys) => postMaintenance('clear-assets', { mode: 'node-orphans', keepKeys: Array.from(keys || []) }),
+        clearOrphanedNodeAssets: () => postMaintenance('clear-assets', { mode: 'node-orphans' }),
         trimHistoryCache: () => postMaintenance('trim-history'), createThumbnail, createVideoThumbnail,
         saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
         updateHistoryThumb, clearHistory: () => postMaintenance('clear-history'), deleteHistoryEntry

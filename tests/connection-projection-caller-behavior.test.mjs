@@ -180,3 +180,58 @@ test('text merge reports the output node id through the geometry seam', async ()
 
     assert.deepEqual(calls, ['text-merge']);
 });
+
+test('image resize retains replaced formal media until the document ownership transition', async () => {
+    const node = createNode('resize', 'ImageResize');
+    node.data.mediaAssetKeys = ['media:previous'];
+    const elements = new Map(Object.entries({
+        'resize-resize-mode': { value: 'scale' },
+        'resize-scale-percent': { value: '50' },
+        'resize-target-width': { value: '' },
+        'resize-target-height': { value: '' },
+        'resize-keep-aspect': { checked: true },
+        'resize-quality': { value: '92' }
+    }));
+    const writes = [];
+    const releases = [];
+    const api = createExecutionCoreApi({
+        state: { nodes: new Map([[node.id, node]]), models: [], providers: [], connections: [] },
+        nodeConfigs: {},
+        documentRef: { getElementById: (id) => elements.get(id) || null },
+        windowRef: { requestAnimationFrame: (callback) => callback() },
+        addLog: () => {},
+        fitNodeToContent: () => {},
+        getActiveWorkflowId: () => 'workflow-a',
+        resizeImageData: async () => ({
+            dataUrl: 'data:image/png;base64,cmVzaXplZA==', originalWidth: 100, originalHeight: 100,
+            outputWidth: 50, outputHeight: 50, outputFormat: 'png', outputQuality: 92, estimatedBytes: 20
+        }),
+        saveWorkflowNodeMediaAsset: async (value, workflowId, nodeId) => {
+            writes.push({ value, workflowId, nodeId });
+            return {
+                asset_key: 'media:resized',
+                mediaTemporaryOwnerId: 'workflow-a:resize:operation-a'
+            };
+        },
+        releaseWorkflowNodeMediaAssets: async (keys, workflowId, nodeId) => {
+            releases.push({ keys, workflowId, nodeId });
+            return true;
+        },
+        releaseNodeImageData: async () => true,
+        restoreImageResizePreview: () => {},
+        showResolutionBadge: () => {},
+        refreshDependentImageResizePreviews: async () => {}
+    });
+
+    await api.nodeHandlers.ImageResize(node, { image: 'data:image/png;base64,c291cmNl' });
+
+    assert.deepEqual(writes, [{
+        value: 'data:image/png;base64,cmVzaXplZA==', workflowId: 'workflow-a', nodeId: 'resize'
+    }]);
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:resized']);
+    assert.equal(node.data.imageAssetKey, 'media:resized');
+    assert.deepEqual(node.data.mediaOwnershipTemporaryOwners, [{
+        ownerId: 'workflow-a:resize:operation-a', assetKeys: ['media:resized']
+    }]);
+    assert.deepEqual(releases, []);
+});

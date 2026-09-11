@@ -1,8 +1,41 @@
 import os
 import shutil
+import json
+import tempfile
+import threading
+from contextlib import contextmanager
 
 from backend import config
 from backend.services.security_service import get_safe_folder_path, get_safe_path
+
+
+_workflow_write_lock = threading.RLock()
+
+
+@contextmanager
+def _workflow_cross_process_lock():
+    os.makedirs(config.WORKFLOWS_DIR, exist_ok=True)
+    lock_path = os.path.join(config.WORKFLOWS_DIR, '.cainflow-workflow-write.lock')
+    with open(lock_path, 'a+b') as lock_file:
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write(b'0')
+            lock_file.flush()
+        lock_file.seek(0)
+        if os.name == 'nt':
+            import msvcrt
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            lock_file.seek(0)
+            if os.name == 'nt':
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def list_workflows(workflows_dir):
@@ -73,15 +106,42 @@ def load_workflow(name):
         return file.read()
 
 
-def save_workflow(name, body):
+def _media_ownership_revision(body):
+    try:
+        return int(json.loads(body.decode('utf-8')).get('mediaOwnershipRevision') or 0)
+    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
+        raise ValueError('Invalid workflow payload')
+
+
+def save_workflow(name, body, expected_media_ownership_revision=None):
     filepath = get_safe_path(name)
     if not filepath:
         raise ValueError('Invalid workflow name')
     if _workflow_base_exists(_workflow_base_name(name), exclude_names={name}):
         raise FileExistsError('Workflow name already exists')
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, 'wb') as file:
-        file.write(body)
+    next_revision = _media_ownership_revision(body)
+    with _workflow_write_lock, _workflow_cross_process_lock():
+        current_revision = 0
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as file:
+                current_revision = _media_ownership_revision(file.read())
+        if expected_media_ownership_revision is not None:
+            expected = int(expected_media_ownership_revision)
+            if current_revision != expected or next_revision != expected + 1:
+                raise RuntimeError('Workflow media ownership revision conflict')
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        descriptor, temporary_path = tempfile.mkstemp(prefix='.cainflow-workflow-', suffix='.tmp', dir=os.path.dirname(filepath))
+        try:
+            with os.fdopen(descriptor, 'wb') as file:
+                file.write(body)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary_path, filepath)
+        except Exception:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+            raise
+    return next_revision
 
 
 def rename_workflow(old_name, new_name):

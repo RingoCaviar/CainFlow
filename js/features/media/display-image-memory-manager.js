@@ -13,6 +13,7 @@ import {
     isDerivedImagePreviewNode,
     setDerivedImagePreview
 } from '../../nodes/derived-image-preview.js';
+import { projectMissingMediaAssets, renderMissingMediaPlaceholders } from './missing-media-integrity.js';
 
 const DISPLAY_IMAGE_RELEASE_PADDING = 900;
 const DISPLAY_IMAGE_HYDRATE_PADDING = 420;
@@ -29,8 +30,6 @@ export function createDisplayImageMemoryManager({
     getNodeById,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
-    saveImageAsset = async () => false,
-    saveImageAssetList = async () => false,
     deleteImageAsset = null,
     normalizeImageList = () => [],
     isInlineImageData = () => false,
@@ -45,7 +44,6 @@ export function createDisplayImageMemoryManager({
     renderVideoSavePreview = () => {},
     renderImageImportUploadState = () => {},
     renderImageResizeResult = () => {},
-    renderColorResetResult = () => {},
     renderImageComparePreview = () => {},
     showResolutionBadge = async () => {},
     ensureElement = null,
@@ -55,7 +53,11 @@ export function createDisplayImageMemoryManager({
     createPreviewNavButton = null,
     documentRef = document,
     windowRef = window,
-    canvasContainer = null
+    canvasContainer = null,
+    getActiveWorkflowId = () => '',
+    showToast = () => {},
+    onMediaIntegrityChanged = () => {},
+    onMissingMediaAction = () => {}
 }) {
     const displayImageAssetState = new Map();
     const fullscreenPreviewNodeIds = new Set();
@@ -89,7 +91,6 @@ export function createDisplayImageMemoryManager({
             || node?.type === 'ImageGenerate'
             || node?.type === 'ImageResize'
             || node?.type === 'ImageCompare'
-            || node?.type === 'ColorReset'
             || isImageImportUploadNode(node);
     }
 
@@ -106,6 +107,10 @@ export function createDisplayImageMemoryManager({
 
     function getStoredImageAssetKey(node) {
         if (!node) return '';
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        if (mediaAssetKeys.length > 0) return mediaAssetKeys[0];
         if (isImageImportUploadNode(node)) {
             return [
                 node.imageImportAssetKey,
@@ -117,7 +122,7 @@ export function createDisplayImageMemoryManager({
         if (typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey) {
             return node.data.imageAssetKey;
         }
-        if (hasNodeCapability(node.type, NODE_CAPABILITIES.NODE_ID_IMAGE_ASSET)) {
+        if (node.type === 'ImageGenerate' || node.type === 'ImageResize' || node.type === 'ImageCompare') {
             return node.id || '';
         }
         return '';
@@ -131,7 +136,7 @@ export function createDisplayImageMemoryManager({
 
     function getManagedNodeImageList(node) {
         if (!node) return [];
-        if (isDerivedImagePreviewNode(node)) {
+        if (node.type === 'ImageResize') {
             return getFirstNonEmptyImageList(
                 node.data?.imageList,
                 node.data?.images,
@@ -139,7 +144,7 @@ export function createDisplayImageMemoryManager({
                 node.generatedImages,
                 node.data?.image,
                 node.imageData,
-                getDerivedImagePreview(node)
+                node.resizePreviewData
             );
         }
         if (isImageImportUploadNode(node)) {
@@ -178,7 +183,10 @@ export function createDisplayImageMemoryManager({
     }
 
     function isDisplayImageAssetReady(node) {
-        const assetKey = getStoredImageAssetKey(node);
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        const assetKey = mediaAssetKeys[0] || getStoredImageAssetKey(node);
         if (!assetKey) return false;
         const stateEntry = displayImageAssetState.get(assetKey) || displayImageAssetState.get(node?.id);
         return node?.data?.imageAssetReady === true
@@ -212,27 +220,14 @@ export function createDisplayImageMemoryManager({
             setAssetState(nodeId, 'failed');
         };
         setAssetState(nodeId, 'pending', { token: saveToken });
-        const saveTask = imageList.length > 1 && typeof saveImageAssetList === 'function'
-            ? () => saveImageAssetList(nodeId, imageList)
-            : (isInlineImageData(currentImage) && typeof saveImageAsset === 'function'
-                ? () => saveImageAsset(nodeId, currentImage)
-                : null);
-        if (saveTask) {
-            runBackgroundMediaTask(async () => {
-                const ok = await saveTask();
-                if (ok) markReady();
-                else markFailed();
-            }, 'Save display image asset failed:');
+        const mediaAssetKeys = Array.isArray(node?.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        if (imageList.length > 0 && mediaAssetKeys.length > 0) {
+            markReady();
             return;
         }
-        if (deleteImageAsset) {
-            runBackgroundMediaTask(async () => {
-                await deleteImageAsset(nodeId);
-                displayImageAssetState.delete(nodeId);
-            }, 'Delete display image asset failed:');
-        } else {
-            displayImageAssetState.delete(nodeId);
-        }
+        markFailed();
     }
 
     function getDisplayImageViewport() {
@@ -458,9 +453,29 @@ export function createDisplayImageMemoryManager({
         if (node.id && node.id !== assetKey) setAssetState(node.id, 'ready');
     }
 
-    async function readStoredImages(assetKey) {
+    async function readStoredImages(assetKey, node = null) {
         if (!assetKey) return [];
         try {
+            const mediaAssetKeys = Array.isArray(assetKey) ? assetKey : [assetKey];
+            if (node && mediaAssetKeys.length > 0 && mediaAssetKeys.every((key) => typeof key === 'string' && key.startsWith('media:'))) {
+                const projected = await projectMissingMediaAssets({
+                    workflowId: getActiveWorkflowId(), node, assetKeys: mediaAssetKeys,
+                    ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node',
+                    loadAsset: getImageAsset,
+                    notify: showToast,
+                    onIntegrityChange: onMediaIntegrityChanged
+                });
+                const config = getManagedPreviewContainerConfig(node);
+                const container = config ? documentRef.getElementById(config.containerId) : null;
+                windowRef.setTimeout(() => renderMissingMediaPlaceholders(
+                    node, container, documentRef, onMissingMediaAction
+                ), 0);
+                return normalizeImageList(projected.filter((item) => !item.missing).map((item) => item.value));
+            }
+            if (mediaAssetKeys.length > 1 && mediaAssetKeys.every((key) => typeof key === 'string' && key.startsWith('media:'))) {
+                const images = await Promise.all(mediaAssetKeys.map((key) => getImageAsset(key)));
+                return normalizeImageList(images);
+            }
             let restoredImages = typeof getImageAssetList === 'function'
                 ? await getImageAssetList(assetKey)
                 : [];
@@ -476,13 +491,16 @@ export function createDisplayImageMemoryManager({
     }
 
     async function ensureManagedImageAssetReady(node) {
-        const assetKey = getStoredImageAssetKey(node);
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        const assetKey = mediaAssetKeys[0] || getStoredImageAssetKey(node);
         if (!node?.data || !assetKey) return false;
         if (isDisplayImageAssetReady(node)) return true;
 
         const imageList = getManagedNodeImageList(node);
         if (imageList.length === 0) {
-            const existingImages = await readStoredImages(assetKey);
+            const existingImages = await readStoredImages(assetKey, node);
             if (existingImages.length > 0) {
                 node.data.imageCount = Math.max(getStoredImageCount(node), existingImages.length);
                 markManagedImageAssetReady(node, assetKey);
@@ -491,21 +509,12 @@ export function createDisplayImageMemoryManager({
             return false;
         }
 
-        let ok = false;
-        try {
-            if (imageList.length > 1 && typeof saveImageAssetList === 'function') {
-                ok = await saveImageAssetList(assetKey, imageList);
-            } else if (isInlineImageData(imageList[0]) && typeof saveImageAsset === 'function') {
-                ok = await saveImageAsset(assetKey, imageList[0]);
-            }
-        } catch (error) {
-            console.warn('Save managed image asset before release failed:', error);
-            ok = false;
-        }
-        if (!ok) return false;
+        // Display nodes only forward or read Media assets. Do not recreate the
+        // retired node-local cache from an in-memory preview.
+        if (mediaAssetKeys.length === 0) return false;
 
         node.data.imageCount = Math.max(getStoredImageCount(node), imageList.length);
-        markManagedImageAssetReady(node, assetKey);
+        markManagedImageAssetReady(node, mediaAssetKeys[0]);
         return true;
     }
 
@@ -581,7 +590,9 @@ export function createDisplayImageMemoryManager({
         node.imageData = null;
         node.imageDataList = [];
         node.generatedImages = [];
-        clearDerivedImagePreview(node);
+        if (node.type === 'ImageResize') {
+            node.resizePreviewData = null;
+        }
     }
 
     async function softReleaseDisplayNodeImages(node) {
@@ -648,7 +659,7 @@ export function createDisplayImageMemoryManager({
             renderImagePreviewImage(node.id, images);
         } else if (node.type === 'ImageSave') {
             renderImageSavePreview(node.id, images);
-        } else if (isDerivedImagePreviewNode(node)) {
+        } else if (node.type === 'ImageResize') {
             renderImageResizeResult(node.id, {
                 ...(node.resizePreviewMeta || {}),
                 dataUrl: images[0],
@@ -657,8 +668,6 @@ export function createDisplayImageMemoryManager({
                 outputQuality: node.outputQuality || node.resizePreviewMeta?.outputQuality || null,
                 estimatedBytes: node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null
             });
-        } else if (node.type === 'ColorReset') {
-            renderColorResetResult(node.id, { ...(node.colorResetPreviewMeta || {}), dataUrl: images[0] });
         } else if (isImageImportUploadNode(node)) {
             renderImageImportUploadState(node.id, images[0]);
         } else if (node.type === 'ImageCompare') {
@@ -779,7 +788,7 @@ export function createDisplayImageMemoryManager({
             node.data.image = currentImage;
             node.imageData = currentImage;
             node.imageDataList = imageList.slice();
-            setDerivedImagePreview(node, currentImage);
+            node.resizePreviewData = currentImage;
             if (assetKey) node.data.imageAssetKey = assetKey;
             node.data.imageCount = imageCount;
             node.data.imageAssetReady = true;
@@ -820,17 +829,20 @@ export function createDisplayImageMemoryManager({
             return inMemoryList;
         }
 
-        const currentImageList = normalizeImageList(node?.data?.image || node?.imageData || getDerivedImagePreview(node));
+        const currentImageList = normalizeImageList(node?.data?.image || node?.imageData || node?.resizePreviewData);
         if (!isManagedImageNode(node)) {
             return currentImageList;
         }
 
-        const assetKey = getStoredImageAssetKey(node);
+        const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        const assetKey = mediaAssetKeys[0] || getStoredImageAssetKey(node);
         if (!assetKey) {
             return currentImageList;
         }
 
-        const restoredImages = await readStoredImages(assetKey);
+        const restoredImages = await readStoredImages(mediaAssetKeys.length > 0 ? mediaAssetKeys : assetKey, node);
 
         if (restoredImages.length > 0) {
             return applyRestoredImagesToNode(node, restoredImages, assetKey);

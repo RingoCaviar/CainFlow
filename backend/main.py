@@ -1,20 +1,27 @@
 ﻿import os
+import atexit
 import csv
+import json
 import socket
 import socketserver
 import subprocess
 import sys
+import threading
 import webbrowser
 
 from backend import config
 from backend.handler import ProxyHTTPRequestHandler
 from backend.services.log_service import diagnostic_service
 from backend.services.storage_service import storage_service
+from backend.services import workflow_service
 from backend.services.update_service import cleanup_update_temp_files
 from backend.services.version_service import get_app_version_tag
 
 socket.setdefaulttimeout(300)
 socketserver.TCPServer.allow_reuse_address = True
+_storage_shutdown_registered = False
+_storage_recovery_thread = None
+_storage_recovery_stop = threading.Event()
 
 
 def run_command(command):
@@ -224,12 +231,64 @@ def print_banner():
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
 
+def _recover_media_transitions():
+    def load_current_workflows():
+        workflows = []
+        for name in workflow_service.list_workflows(config.WORKFLOWS_DIR).get('workflows', []):
+            try:
+                workflows.append(json.loads(workflow_service.load_workflow(name).decode('utf-8')))
+            except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+        return workflows
+
+    workflows = load_current_workflows()
+    storage_service.recover_workflow_operation_owners(workflows)
+    cursor = ''
+    while not _storage_recovery_stop.is_set():
+        try:
+            result = storage_service.recover_media_owner_transitions(after_cursor=cursor)
+        except Exception:
+            # Never log workflow content or storage paths from an exception.
+            print('Media ownership recovery paused; durable transition records are retained.')
+            return
+        cursor = result['nextCursor']
+        if not cursor:
+            break
+        _storage_recovery_stop.wait(0.05)
+    while not _storage_recovery_stop.is_set():
+        try:
+            scan = storage_service.scan_media_integrity_page(load_current_workflows(), batch_size=100)
+        except Exception:
+            print('Media integrity scan paused; its safety latch and checkpoint are retained.')
+            return
+        if scan.get('complete'):
+            return
+        _storage_recovery_stop.wait(0.05)
+
+
+def _shutdown_storage():
+    _storage_recovery_stop.set()
+    if _storage_recovery_thread is not None:
+        _storage_recovery_thread.join(timeout=2)
+        if _storage_recovery_thread.is_alive():
+            return
+    storage_service.mark_clean_shutdown()
+
+
 def initialize_runtime():
+    global _storage_shutdown_registered, _storage_recovery_thread
     os.chdir(config.STATIC_ROOT)
     config.ensure_runtime_dirs()
     storage_service.initialize()
+    if not _storage_shutdown_registered:
+        atexit.register(_shutdown_storage)
+        _storage_shutdown_registered = True
     cleanup_update_temp_files()
     diagnostic_service.initialize()
+    if _storage_recovery_thread is None:
+        _storage_recovery_thread = threading.Thread(
+            target=_recover_media_transitions, name='media-owner-recovery', daemon=True)
+        _storage_recovery_thread.start()
 
 
 def create_server(host=None, port=None):

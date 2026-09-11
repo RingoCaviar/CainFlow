@@ -1009,3 +1009,11 @@ body:has(#toolbar [aria-expanded="true"]) .help-panel {
 #selection-box.hidden {
     display: none;
 }
+.media-integrity-panel { display: grid; gap: 10px; margin-bottom: 14px; }
+.integrity-status-card, .integrity-summary, .integrity-missing-item { padding: 12px; border: 1px solid var(--cache-card-border, rgba(148,163,184,.24)); border-radius: 10px; background: var(--cache-card-bg, rgba(255,255,255,.06)); }
+.integrity-status-card--paused { border-color: rgba(245, 158, 11, .55); }
+.integrity-status-card p, .integrity-missing-item p { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.integrity-error { color: var(--danger-color, #ef4444) !important; }
+.integrity-controls, .integrity-item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.integrity-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.integrity-missing-list { display: grid; gap: 8px; }

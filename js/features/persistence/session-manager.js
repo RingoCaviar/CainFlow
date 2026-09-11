@@ -16,11 +16,14 @@ export function createSessionManagerApi({
     updateAllConnections,
     updatePortStyles,
     onConnectionsChanged = () => {},
+    persistHistoryTransition = async () => true,
     getWorkflowSnapshot = () => Object.freeze({ active: null, open: Object.freeze([]) }),
     clearOrphanedNodeAssets = async () => true,
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
-    finalizeMediaRestoreBatch = async () => {}
+    finalizeMediaRestoreBatch = async () => {},
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
@@ -28,7 +31,66 @@ export function createSessionManagerApi({
     const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
     const viewportStorageKey = 'nodeflow_ai_viewport_state';
     const storageFailureToastIntervalMs = 8000;
+    const pendingUndoReleaseStorageKey = 'cainflow_pending_undo_media_releases';
     let storageTextEncoder = null;
+
+    async function updateSnapshotMediaOwners(snapshot, operation) {
+        const undoOwnerId = snapshot?.mediaUndoOwnerId || '';
+        if (!undoOwnerId) return true;
+        let succeeded = true;
+        for (const node of snapshot?.nodes || []) {
+            for (const key of getSnapshotMediaKeys(node)) {
+                try {
+                    if (!await operation('workflow-undo', `${undoOwnerId}:${node.id}`, key)) succeeded = false;
+                } catch { succeeded = false; }
+            }
+        }
+        return succeeded;
+    }
+
+    async function protectSnapshotMediaOwners(snapshot) {
+        return updateSnapshotMediaOwners(snapshot, referenceMediaAsset);
+    }
+
+    function getSnapshotMediaKeys(node) {
+        const keys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
+        const importKey = node?.type === 'ImageImport'
+            ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
+            : '';
+        return [...new Set(((keys?.length > 0 ? keys : [importKey]) || [])
+            .filter((key) => typeof key === 'string' && key.startsWith('media:')))];
+    }
+
+    async function releaseSnapshotMediaOwners(snapshot) {
+        return updateSnapshotMediaOwners(snapshot, removeMediaReference);
+    }
+
+    function readPendingUndoReleases() {
+        try {
+            const value = JSON.parse(localStorageRef?.getItem?.(pendingUndoReleaseStorageKey) || '[]');
+            return Array.isArray(value) ? value : [];
+        } catch { return []; }
+    }
+
+    function writePendingUndoReleases(snapshots) {
+        try { localStorageRef?.setItem?.(pendingUndoReleaseStorageKey, JSON.stringify(snapshots)); } catch { /* Retry later. */ }
+    }
+
+    async function retryPendingUndoReleases(additional = []) {
+        const failed = [];
+        for (const snapshot of [...readPendingUndoReleases(), ...additional]) {
+            if (!await releaseSnapshotMediaOwners(snapshot)) failed.push(snapshot);
+        }
+        writePendingUndoReleases(failed);
+    }
+
+    function clearUndoStack() {
+        const snapshots = [...state.undoStack.splice(0), ...getRedoStack().splice(0)].flatMap((raw) => {
+            try { return [JSON.parse(raw)]; } catch { return []; }
+        });
+        void retryPendingUndoReleases(snapshots);
+        updateHistoryButtons();
+    }
 
     function getStringStorageBytes(value) {
         const text = String(value ?? '');
@@ -317,9 +379,16 @@ export function createSessionManagerApi({
         return saveState();
     }
 
-    function updateUndoButton() {
-        const btn = documentRef.getElementById('btn-undo');
-        if (btn) btn.disabled = state.undoStack.length === 0;
+    function getRedoStack() {
+        if (!Array.isArray(state.redoStack)) state.redoStack = [];
+        return state.redoStack;
+    }
+
+    function updateHistoryButtons() {
+        const undoButton = documentRef.getElementById('btn-undo');
+        const redoButton = documentRef.getElementById('btn-redo');
+        if (undoButton) undoButton.disabled = state.undoStack.length === 0;
+        if (redoButton) redoButton.disabled = getRedoStack().length === 0;
     }
 
     function collectActiveNodeAssetIds() {
@@ -349,7 +418,7 @@ export function createSessionManagerApi({
                 if (importAssetKey) ids.add(importAssetKey);
             });
         });
-        state.undoStack.forEach((raw) => {
+        [...state.undoStack, ...getRedoStack()].forEach((raw) => {
             try {
                 const snapshot = JSON.parse(raw);
                 if (!Array.isArray(snapshot?.nodes)) return;
@@ -379,29 +448,38 @@ export function createSessionManagerApi({
         }, 0);
     }
 
-    function pushHistory() {
+    function captureHistorySnapshot() {
+        const workflowId = getWorkflowSnapshot()?.active?.workflowId || 'workflow';
+        const mediaUndoOwnerId = `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
         const snapshot = sanitizeWorkflowDataForSessionCache({
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map((connection) => ({ ...connection }))
         });
-        state.undoStack.push(JSON.stringify(snapshot));
-        if (state.undoStack.length > 5) {
-            state.undoStack.shift();
-            cleanupOrphanedNodeAssetsSoon();
-        }
-        updateUndoButton();
+        snapshot.mediaUndoOwnerId = mediaUndoOwnerId;
+        return snapshot;
     }
 
-    async function undo() {
-        if (state.undoStack.length === 0) return;
-        if (state.runningNodeIds?.size > 0) {
-            showToast('有节点正在运行，暂不能撤销会修改运行中节点的操作', 'warning');
-            return;
+    function pushSnapshot(stack, snapshot) {
+        stack.push(JSON.stringify(snapshot));
+        if (stack.length > 5) {
+            const evicted = stack.shift();
+            try { void retryPendingUndoReleases([JSON.parse(evicted)]); } catch { /* Legacy snapshot. */ }
+            cleanupOrphanedNodeAssetsSoon();
         }
+    }
 
-        const raw = state.undoStack.pop();
-        const snapshot = migrateLegacyWorkflowData(JSON.parse(raw));
+    function pushHistory() {
+        const snapshot = captureHistorySnapshot();
+        const discardedRedoSnapshots = getRedoStack().splice(0).flatMap((raw) => {
+            try { return [JSON.parse(raw)]; } catch { return []; }
+        });
+        if (discardedRedoSnapshots.length > 0) void retryPendingUndoReleases(discardedRedoSnapshots);
+        pushSnapshot(state.undoStack, snapshot);
+        updateHistoryButtons();
+        return snapshot.mediaUndoOwnerId;
+    }
 
+    async function applySnapshotGraph(snapshot) {
         beginMediaRestoreBatch();
         try {
             state.selectedNodes.clear();
@@ -412,15 +490,10 @@ export function createSessionManagerApi({
             state.nodes.clear();
             state.connections = [];
 
-            if (snapshot.nodes && snapshot.nodes.length) {
-                for (const nodeData of snapshot.nodes) {
-                    addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
-                }
+            for (const nodeData of snapshot.nodes || []) {
+                addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
             }
-
-            if (snapshot.connections && snapshot.connections.length) {
-                state.connections = snapshot.connections;
-            }
+            if (snapshot.connections?.length) state.connections = snapshot.connections;
 
             updateAllConnections();
             updatePortStyles();
@@ -431,13 +504,61 @@ export function createSessionManagerApi({
         try {
             await finalizeMediaRestoreBatch();
         } catch (error) {
-            console.warn('Finalize media restore after undo failed:', error);
+            console.warn('Finalize media restore after history transition failed:', error);
         }
-        updateUndoButton();
-        onBeforeSave({ dirty: true });
+    }
+
+    async function applyHistorySnapshot(sourceStack, destinationStack, { intent, label }) {
+        if (sourceStack.length === 0) return;
+        if (state.runningNodeIds?.size > 0) {
+            showToast(`有节点正在运行，暂不能${label}会修改运行中节点的操作`, 'warning');
+            return;
+        }
+
+        const currentSnapshot = captureHistorySnapshot();
+        if (!await protectSnapshotMediaOwners(currentSnapshot)) {
+            await retryPendingUndoReleases([currentSnapshot]);
+            showToast(`媒体历史快照保护失败，未${label}操作`, 'error');
+            return;
+        }
+
+        const raw = sourceStack.at(-1);
+        const snapshot = migrateLegacyWorkflowData(JSON.parse(raw));
+        const currentNodeIds = new Set([...state.nodes.keys()].map(String));
+        await applySnapshotGraph(snapshot);
+        onBeforeSave({
+            dirty: true,
+            mediaOwnershipRestoreIntent: intent,
+            mediaOwnershipRestoreOwnerIds: (snapshot.nodes || [])
+                .filter((node) => !currentNodeIds.has(String(node.id)))
+                .map((node) => (
+                `${node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node'}:${node.id}`
+                ))
+        });
+        const persistence = await persistHistoryTransition();
+        if (!persistence?.committed && persistence !== true) {
+            await applySnapshotGraph(currentSnapshot);
+            onBeforeSave({ dirty: true, mediaOwnershipClearRestoreMarkers: true });
+            await retryPendingUndoReleases([currentSnapshot]);
+            showToast(`工作流已被并发修改或保存失败，未${label}操作`, 'error');
+            return;
+        }
+
+        sourceStack.pop();
+        pushSnapshot(destinationStack, currentSnapshot);
+        await retryPendingUndoReleases([snapshot]);
+        updateHistoryButtons();
         saveState();
         cleanupOrphanedNodeAssetsSoon();
-        showToast('已撤回上一步操作', 'info');
+        showToast(`已${label}上一步操作`, 'info');
+    }
+
+    async function undo() {
+        return applyHistorySnapshot(state.undoStack, getRedoStack(), { intent: 'undo', label: '撤回' });
+    }
+
+    async function redo() {
+        return applyHistorySnapshot(getRedoStack(), state.undoStack, { intent: 'redo', label: '重做' });
     }
 
     return {
@@ -448,9 +569,11 @@ export function createSessionManagerApi({
         loadViewportState,
         setBeforeSave,
         pushHistory,
-        updateUndoButton,
+        updateUndoButton: updateHistoryButtons,
         undo,
+        redo,
         collectActiveNodeAssetIds,
-        cleanupOrphanedNodeAssetsSoon
+        cleanupOrphanedNodeAssetsSoon,
+        clearUndoStack
     };
 }

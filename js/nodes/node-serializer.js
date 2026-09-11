@@ -83,7 +83,6 @@ export function createNodeSerializer({ state, documentRef }) {
                 userResized: node.userResized === true,
                 collapsed: node.collapsed === true,
                 enabled: node.enabled,
-                isFailed: node.isFailed === true || node.el?.classList?.contains('error') === true,
                 lastDuration: node.lastDuration || null
             };
             if (node.collapsed === true && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
@@ -109,13 +108,23 @@ export function createNodeSerializer({ state, documentRef }) {
             const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
                 ? node.data.imageAssetKey
                 : '';
-            const preservesLegacyGeneratedAsset = node.type === 'ImageGenerate'
-                && node.data?.imageResultPersistence === 'legacy-persistent';
-            const isTransientImageGeneration = node.type === 'ImageGenerate' && !preservesLegacyGeneratedAsset;
             const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
                 ? node.imageImportAssetKey
                 : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+            const preservesLegacyGeneratedAsset = node.type === 'ImageGenerate'
+                && node.data?.imageResultPersistence === 'legacy-persistent';
+            const isTransientImageGeneration = node.type === 'ImageGenerate' && !preservesLegacyGeneratedAsset;
+            if (isTransientImageGeneration) serialized.imageResultPersistence = 'transient';
             const hasRecoverableImageAsset = !isTransientImageGeneration && Boolean(imageAssetKey || imageImportAssetKey);
+            const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+                ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key)
+                : (imageAssetKey.startsWith('media:') ? [imageAssetKey] : []);
+            if (mediaAssetKeys.length > 0 && (!isTransientImageGeneration || node.data?.mediaIntegrity?.state === 'missing')) {
+                serialized.mediaAssetKeys = mediaAssetKeys;
+            }
+            if (node.data?.mediaIntegrity?.state === 'missing') {
+                serialized.mediaIntegrity = JSON.parse(JSON.stringify(node.data.mediaIntegrity));
+            }
             if (usesCanonicalImages) {
                 if (imageAssetKey && !isTransientImageGeneration) serialized.imageAssetKey = imageAssetKey;
                 if (imageCount > 0) serialized.imageCount = imageCount;
@@ -160,32 +169,12 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.estimatedBytes = node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null;
             }
 
-            if (node.type === 'ColorReset') {
-                const config = readColorResetConfig(node, documentRef);
-                serialized.whiteBalanceMode = config.whiteBalanceMode;
-                serialized.whiteBalanceGains = node.whiteBalanceGains || node.data?.whiteBalanceGains || { r: 1, g: 1, b: 1 };
-                serialized.customWhiteBalanceGains = node.customWhiteBalanceGains || node.data?.customWhiteBalanceGains || serialized.whiteBalanceGains;
-                serialized.autoWhiteBalanceGains = node.autoWhiteBalanceGains || node.data?.autoWhiteBalanceGains || { r: 1, g: 1, b: 1 };
-                serialized.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint || node.data?.whiteBalanceSamplePoint || null;
-                serialized.whiteBalanceStatus = node.whiteBalanceStatus || node.data?.whiteBalanceStatus || 'idle';
-                serialized.whiteBalanceMessage = node.whiteBalanceMessage || node.data?.whiteBalanceMessage || '';
-                serialized.temperature = config.temperature;
-                serialized.tint = config.tint;
-                serialized.vibrance = config.vibrance;
-                serialized.saturation = config.saturation;
-                serialized.outputWidth = node.colorResetPreviewMeta?.outputWidth || 0;
-                serialized.outputHeight = node.colorResetPreviewMeta?.outputHeight || 0;
-                serialized.outputFormat = node.colorResetPreviewMeta?.outputFormat || '';
-                serialized.estimatedBytes = node.colorResetPreviewMeta?.estimatedBytes || null;
-            }
-
             if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 serialized.referenceImageCount = Math.max(0, parseInt(node.referenceImageCount ?? node.data?.referenceImageCount ?? '5', 10) || 0);
                 serialized.apiConfigId = documentRef.getElementById(`${id}-apiconfig`)?.value || 'default';
                 serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
                 if (node.type === 'ImageGenerate') {
-                    serialized.imageResultPersistence = preservesLegacyGeneratedAsset ? 'legacy-persistent' : 'transient';
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
                     serialized.resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
                     serialized.customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';

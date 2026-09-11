@@ -184,6 +184,11 @@
             <path d="M3 7v6h6"></path>
             <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
         </symbol>
+        <symbol id="icon-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"></path>
+            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
+        </symbol>
         <symbol id="icon-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
@@ -323,6 +328,12 @@
                         <use href="#icon-undo" />
                     </svg>
                     撤回
+                </button>
+                <button id="btn-redo" class="btn btn-ghost" title="重做上一步 (Ctrl+Y / Ctrl+Shift+Z)" disabled>
+                    <svg class="icon-sm">
+                        <use href="#icon-redo" />
+                    </svg>
+                    重做
                 </button>
                 <div class="toolbar-divider"></div>
                 <button id="btn-clear" class="btn btn-ghost" title="清除画布">
@@ -788,27 +799,34 @@
             </div>
         </div>
         <div class="drawer-content cache-drawer-content">
+            <div id="media-integrity-panel" class="media-integrity-panel" aria-live="polite"></div>
             <div class="cache-info-card">
                 <div class="cache-metric-label">
-                    总计占用空间</div>
+                    本地媒体原件：实际占用</div>
                 <div id="cache-size-display" class="cache-metric-value">
                     0.00 MB</div>
             </div>
 
             <div class="cache-breakdown">
                 <div class="cache-item">
-                    <div class="cache-item-label">🕰 历史记录 (生成图库)</div>
+                    <div class="cache-item-label">引用分布（可重叠，不相加）</div>
+                </div>
+                <div class="cache-item">
+                    <div class="cache-item-label">🖼 当前工作流</div>
+                    <div id="usage-workflow-media" class="cache-item-value">0 项 · 0.00 MB</div>
+                </div>
+                <div class="cache-item">
+                    <div class="cache-item-label">图片导入</div>
+                    <div id="usage-import-media" class="cache-item-value">0 项 · 0.00 MB</div>
+                </div>
+                <div class="cache-item">
+                    <div class="cache-item-label">🕰 历史记录</div>
                     <div id="usage-history" class="cache-item-value">0.00 MB
                     </div>
                 </div>
                 <div class="cache-item">
-                    <div class="cache-item-label">🖼 节点资产 (当前工作)</div>
-                    <div id="usage-assets" class="cache-item-value">0.00 MB
-                    </div>
-                </div>
-                <div class="cache-item">
-                    <div class="cache-item-label">图片导入节点缓存</div>
-                    <div id="usage-image-import-assets" class="cache-item-value">0.00 MB
+                    <div class="cache-item-label">缩略图</div>
+                    <div id="usage-thumbnail-media" class="cache-item-value">0 项 · 0.00 MB
                     </div>
                 </div>
                 <div class="cache-item">
@@ -1363,6 +1381,7 @@
                     </svg>
                     显示完整日志
                 </button>
+                <button id="btn-locate-error-node" class="btn btn-ghost hidden">定位到出错节点</button>
                 <button id="btn-copy-error" class="btn btn-secondary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right:4px;">
@@ -1372,6 +1391,21 @@
                     复制错误
                 </button>
                 <button class="btn btn-primary" onclick="closeModal('modal-error')">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-node-failures" class="modal">
+        <div class="modal-content modal-error-content">
+            <div class="modal-header">
+                <h3 id="node-failures-title">节点执行失败</h3>
+                <button class="modal-close" onclick="closeModal('modal-node-failures')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="node-failures-list" class="node-failures-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('modal-node-failures')">确定</button>
             </div>
         </div>
     </div>

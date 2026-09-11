@@ -37,12 +37,20 @@ export async function fetchWorkflowEntries() {
         };
 }
 
-export async function saveWorkflowToFile(name, data) {
+export async function saveWorkflowToFile(name, data, { expectedMediaOwnershipRevision, expectedStorageEpoch } = {}) {
     const result = await requestWorkflow(
         `/api/workflows/${encodeURIComponent(name)}`,
         {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(expectedMediaOwnershipRevision === undefined ? {} : {
+                    'X-CainFlow-Expected-Media-Ownership-Revision': String(expectedMediaOwnershipRevision)
+                }),
+                ...(expectedStorageEpoch ? {
+                    'X-CainFlow-Expected-Storage-Epoch': String(expectedStorageEpoch)
+                } : {})
+            },
             body: JSON.stringify(data)
         },
         '保存工作流失败'

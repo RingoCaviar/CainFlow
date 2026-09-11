@@ -1,0 +1,46 @@
+{
+  "fixtureVersion": 2,
+  "executionTests": {
+    "schema": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_unknown_newer_schema_fails_closed_without_being_overwritten"],
+    "historicalSchemaUpgrade": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_known_older_schema_upgrade_requires_an_integrity_scan"],
+    "historicalSchemaFixture": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_independently_constructed_v1_schema_fixture_upgrades_forward_without_data_loss"],
+    "deleteAsset": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_assets_are_content_addressed_and_deduplicated_on_disk"],
+    "owners": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_shared_media_survives_each_owner_removal_until_the_last_workflow_or_history_owner"],
+    "damage": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_integrity_scan_is_resumable_and_classifies_each_durable_source"],
+    "transitionFaults": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_restart_recovers_interrupted_owner_transition_with_its_complete_ordered_target"],
+    "materializationFault": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_interrupted_media_materialization_never_publishes_an_unowned_asset"],
+    "concurrency": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_concurrent_owner_replacements_allow_only_one_generation_cas_winner"],
+    "quarantine": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_quarantine_restore_never_overwrites_conflicting_content_and_breaker_is_durable"],
+    "quarantineAndAuditFaults": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_quarantine_and_audit_fault_points_fail_closed_with_recovery_evidence"],
+    "gcAudit": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_audit_only_starts_observation_without_moving_and_spike_opens_durable_breaker"],
+    "legacyCleanupAudit": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_legacy_cleanup_keep_keys_is_audited_but_never_liveness_evidence"],
+    "workflowReleaseAudit": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_workflow_release_records_gc_canary_provenance_in_production_path"],
+    "gcCanary": ["{python}", "-m", "unittest", "tests.test_storage_service.StorageServiceTests.test_gc_canary_requires_clean_observation_and_respects_count_and_byte_limits"],
+    "caseSensitivity": ["{python}", "-m", "unittest", "tests.test_media_safety_gate.MediaSafetyGateTests.test_oracle_preserves_case_distinct_asset_identities_and_windows_style_sentinel_is_redacted"],
+    "diagnosticSentinel": ["{python}", "-m", "unittest", "tests.test_media_safety_gate.MediaSafetyGateTests.test_release_report_is_machine_readable_redacted_and_reproducible"],
+    "diagnosticSurfaces": ["{python}", "-m", "unittest", "tests.test_media_safety_gate.MediaSafetyGateTests.test_diagnostic_sentinels_do_not_reach_database_logs_or_exports"],
+    "diagnosticExport": ["node", "--test", "tests/media-integrity-drawer.test.mjs"],
+    "manifestFailClosed": ["{python}", "-m", "unittest", "tests.test_media_safety_gate.MediaSafetyGateTests.test_evidence_manifest_unknown_fields_and_size_limits_fail_closed"],
+    "legacyJs": ["node", "--test", "tests/legacy-media-migration.test.mjs"],
+    "workflowJs": ["node", "--test", "tests/workflow-media-ownership-commit.test.mjs"]
+    ,"documentCommitFault": ["node", "--test", "--test-name-pattern=document commit failure", "tests/workflow-media-ownership-commit.test.mjs"]
+  },
+  "matrixCoverage": {
+    "historicalSchemas": ["schema", "historicalSchemaUpgrade", "historicalSchemaFixture"], "ownerMatrix": ["owners"], "damageClasses": ["damage"],
+    "partialMultiImage": ["legacyJs"], "workflowIdentityOverlap": ["workflowJs"],
+    "transitionAndConcurrency": ["transitionFaults", "concurrency"], "quarantineRecovery": ["quarantine"],
+    "auditFailure": ["gcAudit"], "windowsAndCaseSensitive": ["caseSensitivity"],
+    "diagnosticSentinelAndLimits": ["diagnosticSentinel", "diagnosticSurfaces", "diagnosticExport", "manifestFailClosed"]
+  },
+  "destructiveAudits": {
+    "delete_asset": ["deleteAsset"], "cleanup_assets": ["legacyCleanupAudit"], "release_workflow": ["workflowReleaseAudit"],
+    "quarantine": ["quarantine"], "gc_canary": ["gcAudit", "gcCanary"]
+  },
+  "faultPoints": {
+    "media_materialized": ["materializationFault"], "new_owner_established": ["transitionFaults"],
+    "document_committed": ["documentCommitFault"], "owner_promoted": ["transitionFaults"],
+    "partial_old_reference_released": ["transitionFaults"], "quarantine_pending_and_moved": ["quarantineAndAuditFaults"],
+    "audit_recorded": ["quarantineAndAuditFaults"], "clean_shutdown_and_restart_recovery": ["transitionFaults"],
+    "concurrent_owner_cas": ["concurrency"]
+  }
+}

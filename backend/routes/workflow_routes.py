@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from backend import config
 from backend.services.http_helpers import read_request_body, write_bytes, write_error, write_json, write_text
 from backend.services.workflow_service import clear_workflows, create_workflow_folder, delete_workflow, delete_workflow_folder, list_workflows, load_workflow, rename_workflow, rename_workflow_folder, save_workflow
+from backend.services.storage_service import StorageError, storage_service
 
 
 def handle_get(handler):
@@ -67,12 +68,19 @@ def handle_post(handler):
 
     body = read_request_body(handler, default=b'{}')
     try:
-        save_workflow(name, body)
-        write_text(handler, 'OK')
+        expected_revision = handler.headers.get('x-cainflow-expected-media-ownership-revision')
+        expected_epoch = handler.headers.get('x-cainflow-expected-storage-epoch')
+        revision = storage_service.run_at_storage_epoch(
+            expected_epoch, lambda: save_workflow(name, body, expected_revision))
+        write_json(handler, {'success': True, 'mediaOwnershipRevision': revision})
     except FileExistsError as exc:
         write_error(handler, 409, 'Workflow already exists', exc)
     except ValueError as exc:
         write_error(handler, 400, 'Invalid workflow payload', exc)
+    except RuntimeError as exc:
+        write_error(handler, 409, 'Workflow changed in another application instance', exc)
+    except StorageError as exc:
+        write_error(handler, 409, 'Media storage changed; confirm the operation again', exc)
     except Exception as exc:
         write_error(handler, 500, 'Failed to save workflow', exc)
     return True

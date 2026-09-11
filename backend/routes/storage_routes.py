@@ -71,7 +71,28 @@ def handle_get(handler):
         write_json(handler, {'item': item}, status=200 if item else 404)
         return True
     if path == '/api/storage/maintenance':
-        write_json(handler, storage_service.get_stats())
+        query = parse_qs(parsed.query)
+        workflow_id = (query.get('workflowId') or [''])[0]
+        write_json(handler, storage_service.get_stats(workflow_id))
+        return True
+    if path == '/api/storage/safety-status':
+        write_json(handler, {'safety': storage_service.get_storage_safety_status()})
+        return True
+    if path == '/api/storage/integrity-report':
+        report = storage_service.get_media_integrity_report()
+        write_json(handler, {'report': report}, status=200 if report else 404)
+        return True
+    if path == '/api/storage/media-owner':
+        query = parse_qs(parsed.query)
+        workflow_id = (query.get('workflowId') or [''])[0]
+        owner_type = (query.get('ownerType') or [''])[0]
+        owner_id = (query.get('ownerId') or [''])[0]
+        owner = storage_service.get_media_owner_reference_list(workflow_id, owner_type, owner_id)
+        write_json(handler, {'owner': owner})
+        return True
+    if path == '/api/storage/media-owners':
+        workflow_id = (parse_qs(parsed.query).get('workflowId') or [''])[0]
+        write_json(handler, {'owners': storage_service.list_media_owner_reference_lists(workflow_id)})
         return True
     if path.startswith('/api/storage/media-assets/'):
         info = storage_service.get_asset_info(unquote(path[len('/api/storage/media-assets/'):]))
@@ -94,6 +115,7 @@ def handle_put(handler):
     if not _authorize_storage_path(handler, path):
         return True
     try:
+        storage_service.assert_storage_writable()
         if path.startswith('/api/storage/documents/'):
             name = _document_name(path)
             data = read_json_body(handler)
@@ -129,6 +151,7 @@ def handle_post(handler):
     if not _authorize_storage_path(handler, path):
         return True
     try:
+        storage_service.assert_storage_writable()
         if path == '/api/storage/history':
             history_id = storage_service.save_history(read_json_body(handler))
             write_json(handler, {'success': True, 'id': history_id})
@@ -143,6 +166,27 @@ def handle_post(handler):
                 result = storage_service.remove_media_reference(data.get('ownerType'), data.get('ownerId'), data.get('assetKey'))
             elif action == 'cache-limit':
                 result = {'mediaCacheLimitBytes': storage_service.set_media_cache_limit(data.get('limitBytes'))}
+            elif action == 'replace-owner-reference-list':
+                result = storage_service.replace_media_owner_references(
+                    workflow_id=data.get('workflowId'), owner_type=data.get('ownerType'),
+                    owner_id=data.get('ownerId'), operation_id=data.get('operationId'),
+                    intent=data.get('intent') or 'save',
+                    idempotency_key=data.get('idempotencyKey'),
+                    expected_generation=data.get('expectedGeneration'),
+                    document_revision=data.get('documentRevision'),
+                    storage_epoch=data.get('storageEpoch'), asset_keys=data.get('assetKeys') or [],
+                    cancelled=data.get('cancelled') is True,
+                )
+            elif action == 'materialize-owner-list':
+                result = {'assets': storage_service.put_media_asset_list(
+                    data.get('values'), data.get('ownerType'), data.get('ownerId'))}
+            elif action == 'cancel-operation-owner':
+                result = storage_service.cancel_media_operation_owner(data.get('ownerId'))
+            elif action == 'record-workflow-revision':
+                result = {'documentRevision': storage_service.record_media_workflow_revision(
+                    data.get('workflowId'), data.get('documentRevision'), data.get('storageEpoch'),
+                    data.get('ownerReferenceLists') or [],
+                )}
             else:
                 raise StorageError('Unknown media asset action')
             write_json(handler, {'success': True, **result})
@@ -160,9 +204,31 @@ def handle_post(handler):
                 result = {'success': True}
             elif action == 'clear-assets':
                 result = storage_service.cleanup_assets(data.get('mode', ''), data.get('keepKeys') or [])
+            elif action == 'create-media-migration-backup':
+                result = storage_service.create_media_migration_backup()
+            elif action == 'migrate-legacy-media':
+                result = storage_service.migrate_legacy_media_workflows_page(
+                    data.get('workflows') or [], data.get('storageEpoch'), data.get('batchSize') or 25)
+            elif action == 'activate-formal-media-authority':
+                result = storage_service.activate_formal_media_authority(data.get('backupId'))
+            elif action == 'run-media-gc-canary':
+                result = storage_service.run_media_gc_canary(
+                    data.get('workflowIds') or [], data.get('maxCount') or 25,
+                    data.get('maxBytes') or 256 * 1024 * 1024)
+            elif action == 'audit-media-gc':
+                result = storage_service.audit_media_gc_candidates(data.get('workflowIds') or [])
+            elif action == 'restore-quarantined-media':
+                result = storage_service.restore_quarantined_media(data.get('assetKey'))
+            elif action == 'release-workflow-media':
+                result = storage_service.release_workflow_media_references(data.get('workflowId'))
             elif action == 'trim-history':
                 storage_service.trim_history()
                 result = {'success': True}
+            elif action == 'scan-media-integrity':
+                result = storage_service.scan_media_integrity_page(
+                    data.get('workflows') or [], data.get('batchSize') or 100,
+                    cancelled=data.get('cancelled') is True,
+                )
             else:
                 raise StorageError('Unknown maintenance action')
             write_json(handler, {'success': True, **result})
@@ -202,6 +268,11 @@ def handle_post(handler):
 def handle_delete(handler):
     path = urlparse(handler.path).path
     if not _authorize_storage_path(handler, path):
+        return True
+    try:
+        storage_service.assert_storage_writable()
+    except StorageError as error:
+        write_error(handler, 400, str(error))
         return True
     if path.startswith('/api/storage/assets/'):
         write_json(handler, {'success': storage_service.delete_asset(_asset_key(path))})

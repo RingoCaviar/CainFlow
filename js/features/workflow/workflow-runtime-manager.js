@@ -55,6 +55,46 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
     'videoRequestTimeoutSeconds'
 ];
 
+const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
+const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
+
+export function createRuntimeForwardedMediaReferenceApi({ runtimeState, workflowId, referenceMediaAsset, removeMediaReference }) {
+    const getRuntimeNode = (nodeId) => runtimeState.nodes.get(nodeId);
+    const getMediaKeys = (node) => (Array.isArray(node?.data?.mediaAssetKeys)
+        ? node.data.mediaAssetKeys
+        : [node?.imageImportAssetKey, node?.data?.imageImportAssetKey, node?.data?.imageAssetKey])
+        .filter((key) => typeof key === 'string' && key.startsWith('media:'));
+    const getForwardedKeys = (nodeId, ports = ['image']) => runtimeState.connections
+        .filter((connection) => connection?.to?.nodeId === nodeId && ports.includes(connection.to.port))
+        .flatMap((connection) => getMediaKeys(getRuntimeNode(connection.from?.nodeId)));
+    const syncForwardedKeys = async (node, keys) => {
+        const previous = getMediaKeys(node);
+        const ownerId = `${workflowId}:${node.id}`;
+        const added = [];
+        for (const key of [...new Set(keys.filter((key) => !previous.includes(key)))]) {
+            if (await referenceMediaAsset('workflow-node', ownerId, key)) {
+                added.push(key);
+                continue;
+            }
+            await Promise.all([...new Set([...added, ...previous])]
+                .map((addedKey) => removeMediaReference('workflow-node', ownerId, addedKey)));
+            delete node.data.mediaAssetKeys;
+            return false;
+        }
+        await Promise.all([...new Set(previous.filter((key) => !keys.includes(key)))]
+            .map((key) => removeMediaReference('workflow-node', ownerId, key)));
+        if (keys.length === 0) {
+            delete node.data.mediaAssetKeys;
+            return false;
+        }
+        node.data.mediaAssetKeys = keys;
+        node.data.imageAssetKey = keys[0];
+        node.data.imageCount = keys.length;
+        node.data.imageAssetReady = true;
+        return true;
+    };
+    return { getForwardedKeys, syncForwardedKeys };
+}
 
 function clonePlainValue(value) {
     if (value === undefined) return undefined;
@@ -170,10 +210,17 @@ export function serializeRuntimeNode(node, doc) {
     const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
         ? node.imageImportAssetKey
         : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-    const hasRecoverableImageAsset = Boolean(imageAssetKey || imageImportAssetKey);
+    const preservesLegacyGeneratedAsset = node.type === 'ImageGenerate'
+        && node.data?.imageResultPersistence === 'legacy-persistent';
+    const isTransientImageGeneration = node.type === 'ImageGenerate' && !preservesLegacyGeneratedAsset;
+    const hasRecoverableImageAsset = !isTransientImageGeneration && Boolean(imageAssetKey || imageImportAssetKey);
+    const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
+        ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key)
+        : (imageAssetKey.startsWith('media:') ? [imageAssetKey] : []);
+    if (mediaAssetKeys.length > 0) serialized.mediaAssetKeys = mediaAssetKeys;
     if (hasNodeCapability(node.type, NODE_CAPABILITIES.IMAGE_RESULT)) {
         if (usesCanonicalImages) {
-            if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
+            if (imageAssetKey && !isTransientImageGeneration) serialized.imageAssetKey = imageAssetKey;
             if (imageCount > 0) serialized.imageCount = imageCount;
             if (imageCount > 1) {
                 serialized.imagePreviewIndex = Math.max(0, parseInt(node.imagePreviewIndex || '0', 10) || 0);
@@ -461,11 +508,13 @@ export function createWorkflowRuntimeManager({
     getSystemNotificationApi,
     getImageAsset,
     getImageAssetList,
-    saveImageAsset,
-    saveImageImportAsset,
     deleteImageImportAsset,
     deleteImageAsset,
-    saveImageAssetList,
+    saveWorkflowNodeMediaAsset,
+    saveWorkflowNodeMediaAssets,
+    releaseWorkflowNodeMediaAssets,
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
     saveHistoryEntry,
     renderHistoryList,
     logRequestToPanel,
@@ -476,7 +525,6 @@ export function createWorkflowRuntimeManager({
     dataURLtoBlob,
     blobToDataUrl,
     resizeImageData,
-    processColorResetImage,
     copyToClipboard,
     debounce,
     fitNodeToContent,
@@ -528,17 +576,6 @@ export function createWorkflowRuntimeManager({
             }
         } catch (error) {
             console.warn(label, error);
-        }
-    }
-
-    function saveRuntimeDisplayImageAssetSoon(nodeId, images) {
-        const imageList = normalizeRuntimeImageList(images);
-        if (imageList.length > 1) {
-            runBackgroundRuntimeMediaTask(() => saveImageAssetList(nodeId, imageList), 'Save runtime display image list failed:');
-            return;
-        }
-        if (imageList[0] && typeof saveImageAsset === 'function') {
-            runBackgroundRuntimeMediaTask(() => saveImageAsset(nodeId, imageList[0]), 'Save runtime display image asset failed:');
         }
     }
 
@@ -1141,14 +1178,16 @@ export function createWorkflowRuntimeManager({
         });
     }
 
-    function createRuntimeMediaApi(runtimeState, doc) {
+    function createRuntimeMediaApi(runtimeState, doc, workflowId) {
         const getRuntimeNode = (nodeId) => runtimeState.nodes.get(nodeId);
+        const { getForwardedKeys, syncForwardedKeys } = createRuntimeForwardedMediaReferenceApi({
+            runtimeState, workflowId, referenceMediaAsset, removeMediaReference
+        });
         const {
             createPreviewPlaceholder,
             ensureElement,
             removeElements,
             renderDisplayImagePreview,
-            renderColorResetPreview,
             renderReusableComparePreview,
             renderReusableMultiImagePreview,
             updatePlaceholderText
@@ -1206,20 +1245,6 @@ export function createWorkflowRuntimeManager({
                     });
                 }
             },
-            restoreColorResetPreview: (nodeId, dataUrl, meta = {}) => {
-                const node = getRuntimeNode(nodeId);
-                if (!node) return;
-                node.colorResetPreviewData = dataUrl || null;
-                node.colorResetPreviewMeta = meta || null;
-                node.imageData = dataUrl || null;
-                node.imageDataList = dataUrl ? [dataUrl] : [];
-                node.data = node.data || {};
-                if (dataUrl) node.data.image = dataUrl;
-                const preview = doc.getElementById(`${nodeId}-color-preview`);
-                if (preview) {
-                    renderColorResetPreview(preview, dataUrl, { overlayId: `${nodeId}-picker-overlay` });
-                }
-            },
             renderImagePreviewImage,
             renderImageSavePreview,
             renderImageComparePreview: (nodeId, imageA = null, imageB = null) => {
@@ -1266,22 +1291,19 @@ export function createWorkflowRuntimeManager({
                         hydratedAt: Date.now(),
                         assetReady: false
                     });
-                    // 等待图片持久化到 IndexedDB，确保切换 tab 后能恢复
-                    if (imageList.length > 1) {
-                        await saveImageAssetList(nodeId, imageList);
-                    } else if (typeof saveImageAsset === 'function') {
-                        await saveImageAsset(nodeId, imageList[0]);
-                    }
-                    node.data.imageAssetReady = true;
+                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId));
+                    node.data.imageAssetReady = forwarded;
                 } else {
+                    await syncForwardedKeys(node, []);
                     clearCanonicalImageOutput(node);
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                 }
             },
             syncImageSaveNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImageSave') return;
-                const { images: imageList, video } = applyImageSaveMediaState(node, imageData);
+                const imageList = normalizeRuntimeImageList(imageData?.images ?? imageData);
+                const video = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
+                node.data = node.data || {};
                 if (imageList.length > 0) {
                     setCanonicalImageOutput(node, imageList, {
                         currentIndex: 0,
@@ -1290,17 +1312,20 @@ export function createWorkflowRuntimeManager({
                         hydratedAt: Date.now(),
                         assetReady: false
                     });
-                    // 等待图片持久化到 IndexedDB，确保切换 tab 后能恢复
-                    if (imageList.length > 1) {
-                        await saveImageAssetList(nodeId, imageList);
-                    } else if (typeof saveImageAsset === 'function') {
-                        await saveImageAsset(nodeId, imageList[0]);
-                    }
-                    node.data.imageAssetReady = true;
+                    delete node.data.video;
+                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId));
+                    node.data.imageAssetReady = forwarded;
                     renderImageSavePreview(nodeId, imageList);
                 } else if (video?.url || video?.assetKey) {
+                    await syncForwardedKeys(node, []);
                     clearCanonicalImageOutput(node);
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
+                    node.data.video = {
+                        id: video.id || '',
+                        url: video.url,
+                        assetKey: video.assetKey || '',
+                        status: video.status || '',
+                        prompt: video.prompt || ''
+                    };
                     const preview = doc.getElementById(`${nodeId}-save-preview`);
                     const source = video.assetKey
                         ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}`
@@ -1309,10 +1334,9 @@ export function createWorkflowRuntimeManager({
                         ? `<video src="${source}" controls preload="metadata" playsinline></video>`
                         : '<div class="save-preview-placeholder">本地视频缓存缺失；请确认后从服务器拉取</div>';
                 } else {
+                    await syncForwardedKeys(node, []);
                     clearCanonicalImageOutput(node);
                     delete node.data.video;
-                    delete node.data.videos;
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                     renderImageSavePreview(nodeId, []);
                 }
             },
@@ -1328,21 +1352,15 @@ export function createWorkflowRuntimeManager({
                 if (imageB) {
                     node.data.compareImageB = imageB;
                     node.data.image = imageB;
-                    // 把对比图 B 持久化到 IndexedDB，确保切换 tab 后能恢复
-                    if (typeof imageB === 'string' && /^data:image\//i.test(imageB) && typeof saveImageAsset === 'function') {
-                        node.data.imageAssetKey = nodeId;
-                        node.data.imageCount = 1;
-                        node.data.imageAssetReady = false;
-                        await saveImageAsset(nodeId, imageB);
-                        node.data.imageAssetReady = true;
-                    }
+                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId, ['imageB']));
+                    node.data.imageAssetReady = forwarded;
                 } else {
+                    await syncForwardedKeys(node, []);
                     delete node.data.compareImageB;
                     delete node.data.image;
                     delete node.data.imageAssetKey;
                     delete node.data.imageCount;
                     delete node.data.imageAssetReady;
-                    if (deleteImageAsset) await deleteImageAsset(nodeId);
                 }
             }
         };
@@ -1447,7 +1465,7 @@ export function createWorkflowRuntimeManager({
             clearTimeoutRef: runtimeDocument.defaultView?.clearTimeout?.bind(runtimeDocument.defaultView)
         });
         disposalResources.connections = runtimeConnectionsApi;
-        const runtimeMediaApi = createRuntimeMediaApi(runtimeState, runtimeDocument);
+        const runtimeMediaApi = createRuntimeMediaApi(runtimeState, runtimeDocument, workflowId);
         const runtimeAutoSaveToDir = async (nodeId, payload) => {
             const node = runtimeState.nodes.get(nodeId);
             if (!node) return;
@@ -1530,7 +1548,6 @@ export function createWorkflowRuntimeManager({
             resumeImageGeneration: (nodeId) => runtimeRunnerApi?.resumeImageNodeBranch?.(nodeId),
             setupImageImport: () => {},
             setupImageResize: () => {},
-            setupColorReset: () => {},
             setupImageSave: () => {},
             setupImagePreview: () => {},
             setupImageCompare: () => {},
@@ -1555,9 +1572,9 @@ export function createWorkflowRuntimeManager({
             generateId,
             getImageAsset,
             getImageAssetList,
-            saveImageAsset,
-            saveImageAssetList,
-            saveImageImportAsset,
+            saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
             deleteImageImportAsset,
             showResolutionBadge: async () => {},
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
@@ -1599,16 +1616,15 @@ export function createWorkflowRuntimeManager({
             renderHistoryList,
             showResolutionBadge: async () => {},
             getImageAsset,
-            saveImageAsset,
-            saveImageAssetList,
+            saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
             deleteImageAsset,
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
-            processColorResetImage,
             autoSaveToDir: runtimeAutoSaveToDir,
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
-            restoreColorResetPreview: runtimeMediaApi.restoreColorResetPreview,
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,
@@ -1617,6 +1633,7 @@ export function createWorkflowRuntimeManager({
             syncCameraControlNode: (nodeId, imageValue) => runtimeCameraApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
+            getActiveWorkflowId: () => workflowId,
             onNodeResultUpdated: (nodeId) => {
                 syncRuntimeNodeSnapshot(context, nodeId, { applyToCanvas: false });
                 void syncVisibleNodeResult({ workflowId, workflowName }, nodeId);
@@ -1675,9 +1692,11 @@ export function createWorkflowRuntimeManager({
             updatePortStyles: skipHiddenConnectionRefresh,
             getImageAsset,
             getImageAssetList,
-            saveImageAsset,
             deleteImageAsset,
-            saveImageAssetList,
+            saveWorkflowNodeMediaAsset,
+            saveWorkflowNodeMediaAssets,
+            releaseWorkflowNodeMediaAssets,
+            getActiveWorkflowId: () => workflowId,
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,
             syncImageSaveNode: runtimeMediaApi.syncImageSaveNode,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),

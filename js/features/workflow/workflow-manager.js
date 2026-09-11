@@ -32,6 +32,12 @@ import {
     retainActiveWorkflowTabDuringRefresh
 } from './workflow-tab-revision.js';
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
+import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
+import {
+    createWorkflowMediaOwnershipCommitter,
+    getWorkflowMediaOwnerType,
+    prepareWorkflowMediaOwnershipCommit
+} from '../media/workflow-media-ownership-commit.js';
 import {
     getWorkflowMoveEligibility,
     hasRunningWorkflowInFolder,
@@ -40,6 +46,23 @@ import {
     persistEligibleWorkflowMoves,
     persistWorkflowRenameIfEligible
 } from './workflow-folder-policy.js';
+
+export function workflowHasMissingMedia(tab) {
+    return (tab?.data?.nodes || []).some((node) => (
+        node?.mediaIntegrity?.state === 'missing'
+        || node?.data?.mediaIntegrity?.state === 'missing'
+    ));
+}
+
+export function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult, missingMedia = false }) {
+    if (running) return '\u8fd0\u884c\u4e2d';
+    if (runResult === 'success') return '\u5df2\u5b8c\u6210';
+    if (runResult === 'error') return '\u5931\u8d25';
+    if (missingMedia) return '\u5a92\u4f53\u7f3a\u5931';
+    if (isActive) return '\u5f53\u524d';
+    if (isOpen) return '\u5df2\u6253\u5f00';
+    return '';
+}
 
 export function createWorkflowManagerApi({
     state,
@@ -55,6 +78,18 @@ export function createWorkflowManagerApi({
     panelManager,
     clearImageAssets = null,
     clearOrphanedNodeAssets = null,
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
+    releaseWorkflowMediaAssets = async () => false,
+    getStorageSafetyStatus = async () => null,
+    getMediaOwnerReferenceList = async () => null,
+    listMediaOwnerReferenceLists = async () => [],
+    recordMediaWorkflowRevision = async () => false,
+    replaceMediaOwnerReferenceList = async () => null,
+    putMediaAsset = async () => null,
+    getImageAsset = async () => null,
+    getImageAssetList = async () => [],
+    deleteImageAsset = async () => false,
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
@@ -70,6 +105,37 @@ export function createWorkflowManagerApi({
     windowRef = window,
     localStorageRef = localStorage
 }) {
+    const legacyMediaMigration = createLegacyMediaMigrationCoordinator({
+        getImageAsset, getImageAssetList, putMediaAsset, referenceMediaAsset, removeMediaReference, deleteImageAsset
+    });
+    const mediaOwnershipCommitter = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus,
+        getMediaOwnerReferenceList,
+        listMediaOwnerReferenceLists,
+        recordMediaWorkflowRevision,
+        replaceMediaOwnerReferenceList,
+        removeMediaReference
+    });
+    async function referenceCopiedWorkflowMedia(workflowData, workflowId) {
+        const appliedRefs = [];
+        for (const node of workflowData?.nodes || []) {
+            const ownerType = getWorkflowMediaOwnerType(node);
+            const mediaKeys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
+            const importKey = ownerType === 'workflow-import'
+                ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
+                : '';
+            const keys = mediaKeys?.length > 0 ? mediaKeys : [importKey];
+            for (const key of new Set(keys.filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
+                if (!await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key)) {
+                    await Promise.all(appliedRefs.map(({ ownerType: appliedOwnerType, ownerId, assetKey }) =>
+                        removeMediaReference(appliedOwnerType, ownerId, assetKey)));
+                    return false;
+                }
+                appliedRefs.push({ ownerType, ownerId: `${workflowId}:${node.id}`, assetKey: key });
+            }
+        }
+        return true;
+    }
     const WORKFLOW_VERSION = '1.3';
     const TAB_COLORS = 6;
     const RUN_RESULT_SUCCESS = 'success';
@@ -88,6 +154,8 @@ export function createWorkflowManagerApi({
     let cachedWorkflowEntries = { workflows: [], folders: [] };
     let hasCachedWorkflowEntries = false;
     let workflowListRenderSequence = 0;
+    const pendingLegacyMediaMigrations = new Map();
+    const pendingMediaReleaseStorageKey = 'cainflow_pending_workflow_media_releases';
     const selectedWorkflowNames = new Set();
     const workflowMutationProjectionTokens = new WeakMap();
     const workflowDesk = createWorkflowDesk({
@@ -103,6 +171,38 @@ export function createWorkflowManagerApi({
         ),
         finalizeWorkflowMutation: (operation) => finalizeWorkflowMutationProjection(operation)
     });
+
+    function readPendingMediaReleases() {
+        try {
+            const value = JSON.parse(localStorageRef?.getItem?.(pendingMediaReleaseStorageKey) || '[]');
+            return [...new Set((Array.isArray(value) ? value : []).filter((id) => typeof id === 'string' && id))];
+        } catch {
+            return [];
+        }
+    }
+
+    function writePendingMediaReleases(workflowIds) {
+        try {
+            localStorageRef?.setItem?.(pendingMediaReleaseStorageKey, JSON.stringify([...new Set(workflowIds)]));
+        } catch (error) {
+            console.warn('Persisting pending workflow media releases failed:', error);
+        }
+    }
+
+    async function releaseOrQueueWorkflowMedia(workflowIds) {
+        const pending = new Set(readPendingMediaReleases());
+        for (const workflowId of new Set(workflowIds.filter(Boolean))) {
+            try {
+                if (await releaseWorkflowMediaAssets(workflowId)) pending.delete(workflowId);
+                else pending.add(workflowId);
+            } catch (error) {
+                pending.add(workflowId);
+                console.warn('Releasing workflow Media owners failed:', error);
+            }
+        }
+        writePendingMediaReleases([...pending]);
+        return pending.size === 0;
+    }
     const getActiveWorkflow = () => workflowDesk.snapshot().active;
     const getActiveWorkflowId = () => getActiveWorkflow()?.workflowId || '';
     const getActiveWorkflowName = () => getActiveWorkflow()?.label || '';
@@ -209,6 +309,7 @@ export function createWorkflowManagerApi({
         if (operation.kind === 'copy' || operation.kind === 'save-as') {
             const data = cloneWorkflowData(tab.data);
             data.workflowId = operation.newWorkflowId;
+            data.mediaOwnershipRevision = 0;
             const ok = typeof operation.persist === 'function'
                 ? await operation.persist({
                     workflowId: operation.newWorkflowId,
@@ -216,6 +317,7 @@ export function createWorkflowManagerApi({
                     data
                 })
                 : await saveWorkflowToFile(operation.label, data);
+            if (ok && !await referenceCopiedWorkflowMedia(data, operation.newWorkflowId)) return false;
             const createdTab = operation.registerOpen !== false ? {
                     workflowId: operation.newWorkflowId,
                     name: operation.label,
@@ -437,13 +539,51 @@ export function createWorkflowManagerApi({
         };
     }
 
-    async function saveWorkflowToFile(name, data) {
-        const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(data));
-        if (result !== true) {
-            showToast(result.message, 'error');
-            return false;
+    async function saveWorkflowToFile(name, data, { returnOutcome = false } = {}) {
+        const migrationKey = data?.workflowId || '';
+        let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
+        let documentPersisted = false;
+        const previousMediaOwnershipRevision = data?.mediaOwnershipRevision;
+        try {
+            if (!await mediaOwnershipCommitter.validateExpectedStorageEpoch(data?.workflowId || '')) {
+                throw new Error('媒体存储版本已变化，请重新确认操作');
+            }
+            migration ||= await legacyMediaMigration.stageWorkflow(data);
+            const preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
+            data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
+            const result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
+                expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
+                expectedStorageEpoch: mediaOwnershipCommitter.getExpectedStorageEpoch(data?.workflowId || '')
+            });
+            if (result !== true) {
+                if (previousMediaOwnershipRevision === undefined) delete data.mediaOwnershipRevision;
+                else data.mediaOwnershipRevision = previousMediaOwnershipRevision;
+                await migration?.rollback();
+                pendingLegacyMediaMigrations.delete(migrationKey);
+                showToast(result.message, 'error');
+                return returnOutcome ? { ok: false, documentPersisted: false } : false;
+            }
+            documentPersisted = true;
+            await migration?.commit();
+            migration = null;
+            if (!await mediaOwnershipCommitter.commitPersistedWorkflow(preparedWorkflow)) {
+                throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
+            }
+            delete data.mediaOwnershipRestoreOwnerIds;
+            pendingLegacyMediaMigrations.delete(migrationKey);
+            return returnOutcome ? { ok: true, documentPersisted: true } : true;
+        } catch (error) {
+            if (documentPersisted) {
+                // The canonical keys are now durable. Keep their stable temporary
+                // owner alive so a subsequent save or restart can finish promotion.
+                if (migration) pendingLegacyMediaMigrations.set(migrationKey, migration);
+            } else {
+                await migration?.rollback();
+                pendingLegacyMediaMigrations.delete(migrationKey);
+            }
+            showToast(error?.message || '图片缓存迁移失败', 'error');
+            return returnOutcome ? { ok: false, documentPersisted } : false;
         }
-        return true;
     }
 
     async function loadWorkflowFromFile(name) {
@@ -452,15 +592,33 @@ export function createWorkflowManagerApi({
             showToast(result.message, 'error');
             return null;
         }
+        // A legacy document may not yet have an identity. Assign it before staging
+        // the temporary owner so the owner survives tab activation and later save.
+        ensureWorkflowDocumentIdentity({ data: result }, createWorkflowId, result);
+        try {
+            const migration = await legacyMediaMigration.stageWorkflow(result);
+            if (migration) pendingLegacyMediaMigrations.set(result.workflowId, migration);
+            else if (result.mediaOwnershipRevision) {
+                await mediaOwnershipCommitter.commitPersistedWorkflow(result);
+            }
+        } catch (error) {
+            // Reading a legacy workflow must stay non-destructive when its new
+            // Media asset cannot be staged; a later read/save can retry.
+            console.warn('Legacy media migration staging failed:', error);
+        }
         return result;
     }
 
     async function deleteWorkflowFile(name) {
+        const tab = getWorkflowTab(name);
+        const storedData = tab?.data || await loadWorkflowFromFileService(name);
+        const workflowId = tab?.workflowId || storedData?.workflowId || '';
         const result = await deleteWorkflowFileService(name);
         if (result !== true) {
             showToast(result.message, 'error');
             return false;
         }
+        if (workflowId) await releaseOrQueueWorkflowMedia([workflowId]);
         return true;
     }
 
@@ -492,11 +650,26 @@ export function createWorkflowManagerApi({
     }
 
     async function deleteWorkflowFolderOnDisk(name, { deleteContents = false } = {}) {
+        const workflowIds = [];
+        if (deleteContents) {
+            const names = listWorkflowNamesInFolder(name, state.workflowFolders);
+            for (const workflowName of names) {
+                const tab = getWorkflowTab(workflowName);
+                const data = tab?.data || await loadWorkflowFromFileService(workflowName);
+                if (data?.ok === false) {
+                    showToast(data.message, 'error');
+                    return null;
+                }
+                const workflowId = tab?.workflowId || data?.workflowId || '';
+                if (workflowId) workflowIds.push(workflowId);
+            }
+        }
         const result = await deleteWorkflowFolderService(name, { deleteContents });
         if (result?.ok === false) {
             showToast(result.message, 'error');
             return null;
         }
+        if (deleteContents && workflowIds.length > 0) await releaseOrQueueWorkflowMedia(workflowIds);
         return result;
     }
 
@@ -700,12 +873,18 @@ export function createWorkflowManagerApi({
             if (tab?.name === getActiveWorkflowName()) return;
             if (!Array.isArray(tab?.data?.nodes)) return;
             tab.data.nodes.forEach((node) => {
-                if (node?.id) ids.add(node.id);
+                if (node?.id) {
+                    ids.add(node.id);
+                    if (tab.workflowId) ids.add(`${tab.workflowId}:${node.id}`);
+                }
             });
         });
         if (includeCanvas) {
             state.nodes.forEach((node, id) => {
-                ids.add(node?.id || id);
+                const nodeId = node?.id || id;
+                ids.add(nodeId);
+                const workflowId = getActiveWorkflowId();
+                if (workflowId && nodeId) ids.add(`${workflowId}:${nodeId}`);
             });
         }
         return ids;
@@ -787,7 +966,13 @@ export function createWorkflowManagerApi({
         item.classList.toggle('is-run-error', runResult === RUN_RESULT_ERROR);
         item.classList.toggle('is-selected', selectedWorkflowNames.has(name));
         const stateLabel = item.querySelector('.workflow-item-state');
-        if (stateLabel) stateLabel.textContent = getWorkflowCardStateLabel({ isActive, isOpen, running: isWorkflowRunning(tab), runResult });
+        if (stateLabel) stateLabel.textContent = getWorkflowCardStateLabel({
+            isActive,
+            isOpen,
+            running: isWorkflowRunning(tab),
+            runResult,
+            missingMedia: workflowHasMissingMedia(tab)
+        });
     }
 
     function refreshWorkflowSelectionUi() {
@@ -1342,15 +1527,6 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult }) {
-        if (running) return '\u8fd0\u884c\u4e2d';
-        if (runResult === RUN_RESULT_SUCCESS) return '\u5df2\u5b8c\u6210';
-        if (runResult === RUN_RESULT_ERROR) return '\u5931\u8d25';
-        if (isActive) return '\u5f53\u524d';
-        if (isOpen) return '\u5df2\u6253\u5f00';
-        return '';
-    }
-
     function clearWorkflowRunResult(name) {
         const tab = getWorkflowTab(name);
         if (!tab || !tab.runResult) return false;
@@ -1359,14 +1535,35 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function syncActiveWorkflowBeforeSessionSave({ dirty = false } = {}) {
+    function syncActiveWorkflowBeforeSessionSave({
+        dirty = false,
+        mediaOwnershipRestoreOwnerIds = [],
+        mediaOwnershipRestoreIntent = 'undo',
+        mediaOwnershipClearRestoreMarkers = false
+    } = {}) {
         const tab = snapshotActiveWorkflow({ markDirty: dirty });
+        if (tab && mediaOwnershipClearRestoreMarkers) delete tab.data.mediaOwnershipRestoreOwnerIds;
+        if (tab && mediaOwnershipRestoreOwnerIds.length > 0) {
+            const documentRevision = Number(tab.data.mediaOwnershipRevision || 0) + 1;
+            tab.data.mediaOwnershipRestoreOwnerIds = [...new Set(mediaOwnershipRestoreOwnerIds)].map((ownerId) => ({
+                ownerId,
+                documentRevision,
+                intent: mediaOwnershipRestoreIntent === 'redo' ? 'redo' : 'undo'
+            }));
+        }
         if (tab && dirty) refreshWorkflowCardState(tab.name);
     }
 
     function markActiveWorkflowDirty() {
         const tab = snapshotActiveWorkflow({ markDirty: true });
         if (tab) refreshWorkflowCardState(tab.name);
+    }
+
+    function refreshActiveWorkflowIntegrityState() {
+        const tab = snapshotActiveWorkflow({ markDirty: false });
+        if (!tab) return false;
+        refreshWorkflowCardState(tab.name);
+        return true;
     }
 
     function normalizeWorkflowTabs() {
@@ -2003,7 +2200,13 @@ export function createWorkflowManagerApi({
              draggable="true">
             <span class="workflow-select-check" aria-hidden="true"></span>
             <span class="workflow-item-name" title="${escapeHtml(name)}" aria-label="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
-            <span class="workflow-item-state">${getWorkflowCardStateLabel({ isActive, isOpen, running, runResult })}</span>
+            <span class="workflow-item-state">${getWorkflowCardStateLabel({
+                isActive,
+                isOpen,
+                running,
+                runResult,
+                missingMedia: workflowHasMissingMedia(tab)
+            })}</span>
             <span class="workflow-dirty-dot" aria-hidden="true"></span>
         </div>
     `;
@@ -2258,7 +2461,7 @@ export function createWorkflowManagerApi({
         return workflowTargetActivator.activate(name, { reloadFromFile });
     }
 
-    async function saveActiveWorkflow() {
+    async function saveActiveWorkflow({ silent = false } = {}) {
         const tab = snapshotActiveWorkflow();
         if (!tab) {
             showToast('请先从工作流管理面板打开或新建一个工作流', 'warning');
@@ -2266,12 +2469,23 @@ export function createWorkflowManagerApi({
         }
         if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).save()).status === 'committed') {
             tab.dirty = false;
-            showToast(`工作流「${tab.name}」已保存`, 'success');
+            if (!silent) showToast(`工作流「${tab.name}」已保存`, 'success');
             renderWorkflowList();
             scheduleSave({ dirty: false });
             return true;
         }
         return false;
+    }
+
+    async function persistActiveHistoryTransition() {
+        const tab = snapshotActiveWorkflow();
+        if (!tab) return { committed: false };
+        const outcome = await saveWorkflowToFile(tab.name, tab.data, { returnOutcome: true });
+        if (outcome.ok || outcome.documentPersisted) {
+            tab.dirty = !outcome.ok;
+            return { committed: true, ownershipPending: !outcome.ok };
+        }
+        return { committed: false };
     }
 
     async function saveAllOpenWorkflows() {
@@ -2583,6 +2797,7 @@ export function createWorkflowManagerApi({
     }
 
     function initWorkflow() {
+        void releaseOrQueueWorkflowMedia(readPendingMediaReleases());
         const btnToggle = documentRef.getElementById('btn-toggle-workflow');
         const btnClose = documentRef.getElementById('btn-close-workflow');
         const btnSave = documentRef.getElementById('btn-save-workflow');
@@ -2781,8 +2996,11 @@ export function createWorkflowManagerApi({
         loadWorkflowFromFile,
         openWorkflow,
         saveActiveWorkflow,
+        expectNextMediaOwnerGeneration: (expectation) => mediaOwnershipCommitter.expectNextOwnerGeneration(expectation),
+        clearExpectedMediaOwnerGeneration: (expectation) => mediaOwnershipCommitter.clearExpectedOwnerGeneration(expectation),
         saveAllOpenWorkflows,
         markActiveWorkflowDirty,
+        refreshActiveWorkflowIntegrityState,
         snapshotActiveWorkflow,
         getActiveWorkflowName,
         getActiveWorkflowId,
@@ -2810,6 +3028,7 @@ export function createWorkflowManagerApi({
         projectWorkflowRunningStateById,
         setWorkflowRunResultById,
         syncActiveWorkflowBeforeSessionSave,
+        persistActiveHistoryTransition,
         cleanupOpenWorkflowAssets,
         ensureOpenWorkflow,
         copyWorkflowById,

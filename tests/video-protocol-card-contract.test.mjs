@@ -197,6 +197,15 @@ test('save-node video persistence keeps the local Media asset identity', () => {
     assert.equal(serialized.video.assetKey, 'media:abc');
 });
 
+test('image node persistence writes a single Media asset as an ordered reference list', () => {
+    const serialized = serializeRuntimeNode({
+        id: 'image-result', type: 'ImageGenerate', x: 0, y: 0, enabled: true,
+        data: { imageAssetKey: 'media:shared-image', imageCount: 1, imageAssetReady: true }
+    }, { getElementById: () => null, querySelectorAll: () => [] });
+
+    assert.deepEqual(serialized.mediaAssetKeys, ['media:shared-image']);
+});
+
 test('session serialization preserves a save-node local Media asset identity for canvas restore', () => {
     const state = {
         nodes: new Map([['save-video', {

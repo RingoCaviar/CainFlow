@@ -36,6 +36,7 @@ import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocol } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
+import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 
@@ -57,8 +58,9 @@ export function createExecutionCoreApi({
     renderHistoryList,
     showResolutionBadge,
     getImageAsset = async () => null,
-    saveImageAsset,
-    saveImageAssetList = async () => false,
+    saveWorkflowNodeMediaAsset = async () => null,
+    saveWorkflowNodeMediaAssets = async () => [],
+    releaseWorkflowNodeMediaAssets = async () => false,
     deleteImageAsset,
     dataURLtoBlob,
     blobToDataUrl,
@@ -76,6 +78,7 @@ export function createExecutionCoreApi({
     syncCameraControlNode = () => '',
     fitNodeToContent,
     scheduleSave = () => {},
+    getActiveWorkflowId = () => '',
     onNodeResultUpdated = () => {},
     getAbortMessage,
     connectionProjection = null,
@@ -219,6 +222,7 @@ export function createExecutionCoreApi({
         if (!node) return 0;
         node.data = node.data || {};
         if (assetKey) node.data.imageAssetKey = assetKey;
+        if (typeof assetKey === 'string' && assetKey.startsWith('media:')) node.data.mediaAssetKeys = [assetKey];
         node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
         delete node.data.imageAssetReady;
         delete node.data.imageMemoryReleased;
@@ -246,16 +250,34 @@ export function createExecutionCoreApi({
         delete node.data.imageAssetSaveToken;
     }
 
-    function saveNodeImageAssetInBackground(node, images, assetKey = node?.id) {
+    function saveNodeImageAssetInBackground(node, images, assetKey = node?.id, signal = null) {
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return;
+        const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         const saveTask = async () => {
-            const saved = imageList.length > 1
-                ? await saveImageAssetList(assetKey, imageList)
-                : await saveImageAsset(assetKey, imageList[0]);
+            const mediaAssets = imageList.length > 1 && workflowId
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, node.activeMediaOperationId)
+                : [];
+            const mediaAsset = imageList.length === 1 && workflowId
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, node.activeMediaOperationId)
+                : null;
+            if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
+                markNodeImageAssetFailed(node, token);
+                return;
+            }
+            const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
+            if (signal?.aborted || state.nodes.get(node.id) !== node) {
+                await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
+                return;
+            }
+            const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
+            const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
-                markNodeImageAssetReady(node, assetKey, imageList.length, token);
+                rememberWorkflowMediaOperation(node, mediaAsset ? [mediaAsset] : mediaAssets);
+                markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
+                if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
+                else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
                 await releaseNodeImageData(node.id);
             } else {
                 markNodeImageAssetFailed(node, token);
@@ -277,15 +299,33 @@ export function createExecutionCoreApi({
     async function saveNodeImageAssetNow(node, images, assetKey = node?.id) {
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return false;
+        const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
         try {
             const previous = imageAssetSaveChains.get(assetKey);
             if (previous) await previous.catch(() => {});
-            const saved = imageList.length > 1
-                ? await saveImageAssetList(assetKey, imageList)
-                : await saveImageAsset(assetKey, imageList[0]);
+            const mediaAssets = imageList.length > 1 && workflowId
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, node.activeMediaOperationId)
+                : [];
+            const mediaAsset = imageList.length === 1 && workflowId
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, node.activeMediaOperationId)
+                : null;
+            if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
+                markNodeImageAssetFailed(node, token);
+                return false;
+            }
+            const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
+            if (state.nodes.get(node.id) !== node) {
+                await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
+                return false;
+            }
+            const savedAssetKey = mediaAsset?.asset_key || mediaAssets[0]?.asset_key || assetKey;
+            const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
-                markNodeImageAssetReady(node, assetKey, imageList.length, token);
+                rememberWorkflowMediaOperation(node, mediaAsset ? [mediaAsset] : mediaAssets);
+                markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
+                if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
+                else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
                 await releaseNodeImageData(node.id);
                 return true;
             }
@@ -296,20 +336,24 @@ export function createExecutionCoreApi({
         return false;
     }
 
-    function commitImageGenerateOutputs(node, images = [], prompt = '') {
+    function commitImageGenerateOutputs(node, images = [], prompt = '', signal = null) {
         const normalizedImages = normalizeImageList(images);
         setCanonicalImageOutput(node, normalizedImages, {
             currentIndex: normalizedImages.length - 1,
-            assetKey: '',
+            assetKey: node.id,
             imagePromptList: normalizedImages.map(() => prompt || ''),
-            imageCount: normalizedImages.length
+            imageCount: normalizedImages.length,
+            assetReady: false
         });
         node.imagePromptList = normalizedImages.map(() => prompt || '');
         node.generationCompletedCount = normalizedImages.length;
         if (getNodeImageResultPersistence(node.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT && normalizedImages.length > 0) {
-            saveNodeImageAssetInBackground(node, normalizedImages, node.id);
+            saveNodeImageAssetInBackground(node, normalizedImages, node.id, signal);
         } else if (deleteImageAsset) {
             void deleteImageAsset(node.id);
+            delete node.data.imageAssetKey;
+            delete node.data.mediaAssetKeys;
+            delete node.data.imageAssetReady;
         }
         if (normalizedImages.length > 0) {
             propagateImagesToDownstreamPreview(node.id, normalizedImages);
@@ -1643,9 +1687,8 @@ export function createExecutionCoreApi({
             node.imageDataList = [result.dataUrl];
             node.colorResetPreviewData = result.dataUrl;
             node.colorResetPreviewMeta = result;
-            const selectedMode = config.whiteBalanceMode;
-            if (selectedMode === 'auto') node.autoWhiteBalanceGains = result.whiteBalanceGains;
-            if (selectedMode === 'custom' && result.whiteBalanceAnalysis?.status === 'applied') {
+            if (config.whiteBalanceMode === 'auto') node.autoWhiteBalanceGains = result.whiteBalanceGains;
+            if (config.whiteBalanceMode === 'custom' && result.whiteBalanceAnalysis?.status === 'applied') {
                 node.customWhiteBalanceGains = result.whiteBalanceGains;
                 node.whiteBalanceGains = result.whiteBalanceGains;
             }
@@ -1888,7 +1931,7 @@ export function createExecutionCoreApi({
                     const completedImages = normalizeImageList(generatedImages);
                     if (rejectedRequests.length > 0) {
                         if (!executionContext.concurrentExecution) {
-                            commitImageGenerateOutputs(node, completedImages, prompt);
+                            commitImageGenerateOutputs(node, completedImages, prompt, signal);
                             await refreshDependentImageResizePreviews(id);
                             connectionProjection?.nodeGeometryChanged(id);
                         }
@@ -1904,7 +1947,7 @@ export function createExecutionCoreApi({
                     }
 
                     if (!executionContext.concurrentExecution) {
-                        commitImageGenerateOutputs(node, completedImages, prompt);
+                        commitImageGenerateOutputs(node, completedImages, prompt, signal);
                         node.isSucceeded = true;
                         await refreshDependentImageResizePreviews(id);
                         connectionProjection?.nodeGeometryChanged(id);
@@ -2033,7 +2076,7 @@ export function createExecutionCoreApi({
                     if (requestResult.recovered) {
                         const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                         generatedImages[nextGenerationIndex - 1] = imageData;
-                        commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt);
+                        commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt, signal);
                         executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                         incrementNodeApiGenerationProgress(node, 1, {
                             current: nextGenerationIndex,
@@ -2054,7 +2097,7 @@ export function createExecutionCoreApi({
 
                     const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                     generatedImages[nextGenerationIndex - 1] = imageData;
-                    commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt);
+                    commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt, signal);
                     executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
@@ -2300,7 +2343,11 @@ export function createExecutionCoreApi({
             const { id } = node;
             const imageA = getPrimaryImageInput(inputs.imageA);
             const imageB = getPrimaryImageInput(inputs.imageB);
-            if (!imageB) throw new Error('B 输入未连接图片');
+            if (!imageB) {
+                const error = new Error('B 输入未连接图片');
+                error.inputPort = 'imageB';
+                throw error;
+            }
             await syncImageCompareNode(id, imageA || null, imageB);
             await refreshDependentImageResizePreviews(id);
         },
@@ -2314,7 +2361,7 @@ export function createExecutionCoreApi({
                 currentIndex: images.length - 1,
                 assetKey: node.id
             });
-            await saveImageAssetList(node.id, images);
+            await saveNodeImageAssetNow(node, images, node.id);
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
             await refreshDependentImageResizePreviews(node.id);
@@ -2468,10 +2515,6 @@ export function createExecutionCoreApi({
             throw new Error('URL 图片不支持连接到图片缩放节点');
         }
 
-        if (node.type === 'ColorReset' && isRemoteImageUrl(inputs.image)) {
-            throw new Error('URL 图片不支持连接到复位颜色节点');
-        }
-
         if (node.type === 'ImageSave' && hasRemoteImageValue(inputs.image)) {
             throw new Error('URL 图片不支持连接到保存节点');
         }
@@ -2501,8 +2544,12 @@ export function createExecutionCoreApi({
         topologicalSort,
         getCachedOutputValue,
         buildNodeRequestPreview,
+        downloadGeneratedImage,
+        downloadGeneratedVideo,
         resumeVideoGeneration: asyncMediaExecution.resumeVideoGeneration,
         resumeAsyncImageGeneration: asyncMediaExecution.resumeAsyncImageGeneration,
+        recoverAsyncImageTaskMedia: asyncMediaExecution.recoverAsyncImageTaskMedia,
+        recoverVideoTaskMedia: asyncMediaExecution.recoverVideoTaskMedia,
         executeNode,
         nodeHandlers
     };

@@ -97,7 +97,8 @@ html:root #canvas-container .node.selected .node-glass-bg { border-color: var(--
 html:root #canvas-container .node.running .node-glass-bg { border-color: var(--node-border-running) !important; border-width: 2px !important; }
 html:root #canvas-container .node.workflow-running-locked .node-glass-bg { border-color: var(--node-border-locked); border-width: 1px; }
 html:root #canvas-container .node.completed .node-glass-bg { border-color: var(--node-border-success); box-shadow: 0 0 12px var(--node-status-success-glow); }
-html:root #canvas-container .node.error .node-glass-bg { border-color: var(--node-border-error); }
+html:root #canvas-container .node.error .node-glass-bg { border-color: var(--node-border-error); border-width: 2px; box-shadow: 0 0 16px color-mix(in srgb, var(--node-border-error) 42%, transparent); }
+html:root #canvas-container .node-port.execution-error .port-dot { background: var(--accent-red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-red) 34%, transparent); }
 html:root #canvas-container .node-header { background: var(--node-header-surface); border-bottom-color: var(--node-border); }
 html:root #canvas-container .node-body { background: var(--node-body-surface); }
 html:root #canvas-container :is(.node-field label, .port-label) { color: var(--node-field-label); }

@@ -30,6 +30,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         applyGlobalAnimationSetting,
         applyCanvasUiSetting,
         fitNodeToContent,
+        getActiveWorkflowId = () => '',
         documentRef,
         windowRef,
         localStorageRef,
@@ -814,8 +815,9 @@ export function createGeneralSettings({ ctx, dialogs }) {
     async function updateCacheUsage(force = false) {
         const display = documentRef.getElementById('cache-size-display');
         const historyEl = documentRef.getElementById('usage-history');
-        const assetsEl = documentRef.getElementById('usage-assets');
-        const importAssetsEl = documentRef.getElementById('usage-image-import-assets');
+        const workflowMediaEl = documentRef.getElementById('usage-workflow-media');
+        const importMediaEl = documentRef.getElementById('usage-import-media');
+        const thumbnailMediaEl = documentRef.getElementById('usage-thumbnail-media');
         const localEl = documentRef.getElementById('usage-local');
         if (!display) return;
 
@@ -825,19 +827,24 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 state.cacheSizes[storeAssetsName] = null;
             }
 
-            const response = await fetch('/api/storage/maintenance', { cache: 'no-store' });
+            const workflowId = getActiveWorkflowId();
+            const query = workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : '';
+            const response = await fetch(`/api/storage/maintenance${query}`, { cache: 'no-store' });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const stats = await response.json();
-            const historyBytes = Number(stats.historyBytes || 0);
-            const imageImportAssetBytes = Number(stats.imageImportBytes || 0);
-            const nodeAssetBytes = Number(stats.nodeAssetBytes || 0);
             const localBytes = Number(stats.documentBytes || 0);
-            const totalBytes = Number(stats.totalBytes || 0);
+            const totalBytes = Number(stats.actualMediaBytes || 0);
+            const distribution = stats.mediaReferenceDistribution || {};
+            const formatReference = (ownerType) => {
+                const item = distribution[ownerType] || {};
+                return `${Number(item.assets || 0)} 项 · ${formatMB(Number(item.bytes || 0))}`;
+            };
 
             display.textContent = formatMB(totalBytes);
-            if (historyEl) historyEl.textContent = formatMB(historyBytes);
-            if (assetsEl) assetsEl.textContent = formatMB(nodeAssetBytes);
-            if (importAssetsEl) importAssetsEl.textContent = formatMB(imageImportAssetBytes);
+            if (workflowMediaEl) workflowMediaEl.textContent = formatReference('workflow-node');
+            if (importMediaEl) importMediaEl.textContent = formatReference('workflow-import');
+            if (historyEl) historyEl.textContent = formatReference('history');
+            if (thumbnailMediaEl) thumbnailMediaEl.textContent = formatReference('history-thumbnail');
             if (localEl) localEl.textContent = formatMB(localBytes);
         } catch (error) {
             display.textContent = '获取失败';

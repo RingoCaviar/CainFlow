@@ -2327,6 +2327,14 @@ export function createNodeDomBindingsApi({
             scheduleSave();
         });
 
+        el.querySelectorAll('.node-failure-indicator, .node-failure-summary').forEach((failureControl) => {
+            failureControl.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                documentRef.dispatchEvent(new CustomEvent('cainflow:node-failure-clicked', { detail: { nodeId: id } }));
+            });
+        });
+
         resizeHandle.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);

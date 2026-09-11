@@ -82,3 +82,24 @@ test('workflow removal restores the previous active workflow when persistence ke
         'restore-active-and-cleanup-fallback'
     ]);
 });
+
+test('closing a workflow view preserves its missing Media asset reference list', async () => {
+    const referenceList = ['media:present', 'media:missing', 'media:present'];
+    const closedTab = {
+        name: 'damaged',
+        data: { nodes: [{ id: 'node-a', mediaAssetKeys: referenceList.slice(), mediaIntegrity: { state: 'missing' } }] }
+    };
+    let releasedView = null;
+    const result = await removeWorkflowTabsTransaction({
+        tabs: [closedTab, { name: 'fallback', data: { nodes: [] } }],
+        names: ['damaged'],
+        activeWorkflowName: 'damaged',
+        activateFallback: async () => true,
+        persistRemoval: async (names) => names,
+        releaseTab: (tab) => { releasedView = tab; }
+    });
+
+    assert.equal(result.removed, true);
+    assert.deepEqual(closedTab.data.nodes[0].mediaAssetKeys, referenceList);
+    assert.equal(releasedView, closedTab);
+});

@@ -1074,3 +1074,21 @@
     word-break: break-all;
     line-height: 1.4;
 }
+.missing-media-asset-placeholder {
+    position: absolute;
+    inset: 6px;
+    z-index: 2;
+    margin: 6px;
+    padding: 10px;
+    border: 1px dashed var(--warning-color, #c88a18);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--warning-color, #c88a18) 10%, transparent);
+    font-size: 12px;
+}
+.missing-media-asset-action {
+    margin: 8px 6px 0 0;
+}
+.missing-media-asset-placeholder[hidden] {
+    display: none;
+}

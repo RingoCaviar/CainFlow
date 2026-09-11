@@ -175,7 +175,8 @@ export function createWorkflowSelectionAdapter({
                                 data: previousData,
                                 modelResolution: resolveWorkflowModelReferences(previousData, state)
                             },
-                            undoStack: Array.isArray(state.undoStack) ? state.undoStack.slice() : []
+                            undoStack: Array.isArray(state.undoStack) ? state.undoStack.slice() : [],
+                            redoStack: Array.isArray(state.redoStack) ? state.redoStack.slice() : []
                         };
                         if (reloadedData && !createdTab) {
                             prepared.previousTarget = {
@@ -207,6 +208,7 @@ export function createWorkflowSelectionAdapter({
                             restorePrevious: async () => {
                                 if (editorView.rollback?.() === false) return false;
                                 state.undoStack = previous.undoStack;
+                                state.redoStack = previous.redoStack;
                                 updatePortStyles();
                                 applyViewport();
                                 onViewApplied({ workflowName: previous.name, workflowId: previous.workflowId });

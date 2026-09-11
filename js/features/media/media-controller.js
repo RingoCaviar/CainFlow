@@ -85,9 +85,12 @@ export function createMediaControllerApi({
     getNodeById,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
-    saveImageAsset,
-    saveImageAssetList = async () => false,
-    saveImageImportAsset = async () => '',
+    saveImageAsset = async () => false,
+    saveWorkflowImportMediaAsset = async () => null,
+    saveWorkflowNodeMediaAsset = async () => null,
+    getActiveWorkflowId = () => '',
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
@@ -100,6 +103,8 @@ export function createMediaControllerApi({
     showToast,
     addLog,
     scheduleSave,
+    onMediaIntegrityChanged = () => {},
+    onMissingMediaAction = () => {},
     syncCameraControlNodePreview = () => {},
     syncClonesFromSource = () => {},
     openImagePainter,
@@ -208,8 +213,6 @@ export function createMediaControllerApi({
         getNodeById,
         getImageAsset,
         getImageAssetList,
-        saveImageAsset,
-        saveImageAssetList,
         deleteImageAsset,
         normalizeImageList,
         isInlineImageData,
@@ -230,7 +233,11 @@ export function createMediaControllerApi({
         createPreviewNavButton,
         documentRef,
         windowRef,
-        canvasContainer
+        canvasContainer,
+        getActiveWorkflowId,
+        showToast,
+        onMediaIntegrityChanged,
+        onMissingMediaAction
     });
 
     function hasIncomingImageConnection(nodeId) {
@@ -240,13 +247,7 @@ export function createMediaControllerApi({
         ));
     }
 
-    async function clearRecoverableDisplayAsset(nodeId) {
-        if (deleteImageAsset && hasIncomingImageConnection(nodeId)) {
-            await deleteImageAsset(nodeId);
-            return true;
-        }
-        return false;
-    }
+    async function clearRecoverableDisplayAsset() { return false; }
 
     function markNodeImageAssetPending(node, assetKey, imageCount = 1) {
         if (!node) return;
@@ -492,6 +493,61 @@ export function createMediaControllerApi({
         return video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim()
             ? video
             : null;
+    }
+
+    function getNodeMediaAssetKeys(node) {
+        const keys = Array.isArray(node?.data?.mediaAssetKeys)
+            ? node.data.mediaAssetKeys
+            : [node?.data?.imageAssetKey, node?.imageImportAssetKey, node?.data?.imageImportAssetKey];
+        return keys.filter((key) => typeof key === 'string' && key.startsWith('media:'));
+    }
+
+    function getForwardedMediaAssetKeys(nodeId, ports = ['image']) {
+        return state.connections
+            .filter((connection) => connection?.to?.nodeId === nodeId && ports.includes(connection.to.port))
+            .flatMap((connection) => getNodeMediaAssetKeys(getNodeById(connection.from?.nodeId)));
+    }
+
+    async function syncForwardedMediaAssetKeys(node, keys) {
+        const workflowId = getActiveWorkflowId();
+        if (!node?.id || !workflowId) return false;
+        const previousKeys = getNodeMediaAssetKeys(node);
+        if (keys.length === 0) {
+            await releaseForwardedMediaAssetKeys(node);
+            return false;
+        }
+        const addedKeys = [...new Set(keys.filter((key) => !previousKeys.includes(key)))];
+        for (const key of addedKeys) {
+            if (await referenceMediaAsset('workflow-node', `${workflowId}:${node.id}`, key)) continue;
+            await Promise.all(addedKeys
+                .slice(0, addedKeys.indexOf(key))
+                .map((addedKey) => removeMediaReference('workflow-node', `${workflowId}:${node.id}`, addedKey)));
+            await releaseForwardedMediaAssetKeys(node);
+            return false;
+        }
+        const removedKeys = [...new Set(previousKeys.filter((key) => !keys.includes(key)))];
+        if (removedKeys.length > 0) {
+            await Promise.all(removedKeys.map((key) => (
+                removeMediaReference('workflow-node', `${workflowId}:${node.id}`, key)
+            )));
+        }
+        node.data = node.data || {};
+        node.data.mediaAssetKeys = keys.slice();
+        node.data.imageAssetKey = keys[0];
+        node.data.imageCount = keys.length;
+        node.data.imageAssetReady = true;
+        node.data.imageHydratedAt = Date.now();
+        return true;
+    }
+
+    async function releaseForwardedMediaAssetKeys(node) {
+        const workflowId = getActiveWorkflowId();
+        const keys = getNodeMediaAssetKeys(node);
+        if (!node?.id || !workflowId || keys.length === 0) return;
+        await Promise.all(keys.map((key) => (
+            removeMediaReference('workflow-node', `${workflowId}:${node.id}`, key)
+        )));
+        delete node.data.mediaAssetKeys;
     }
 
     function getStoredSaveVideos(node) {
@@ -1101,7 +1157,12 @@ export function createMediaControllerApi({
                 .catch(() => false)
                 .then(async () => {
                     if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return false;
-                    const saved = await saveImageAsset(nodeId, result.dataUrl);
+                    const workflowId = getActiveWorkflowId();
+                    const mediaAsset = workflowId
+                        ? await saveWorkflowNodeMediaAsset(result.dataUrl, workflowId, nodeId, node.activeMediaOperationId)
+                        : null;
+                    const saved = Boolean(mediaAsset) || await saveImageAsset(nodeId, result.dataUrl);
+                    if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
                     if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return false;
                     if (saved) markNodeImageAssetReady(node, nodeId, 1);
                     return saved;
@@ -1338,9 +1399,11 @@ export function createMediaControllerApi({
             });
             renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
-            saveDisplayImageAssetSoon(nodeId, imageList);
+            const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId));
+            if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             clearDisplayImageAssetState(nodeId);
             if (previewContainer) {
@@ -1348,7 +1411,6 @@ export function createMediaControllerApi({
                 previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
             }
             if (controls) controls.style.display = 'none';
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
@@ -1397,13 +1459,13 @@ export function createMediaControllerApi({
         }
 
         if (imageList.some((image) => isRemoteImageUrl(image))) {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             delete node.data.video;
             clearDisplayImageAssetState(nodeId);
             renderImageSavePreview(nodeId, [], 'URL 图片不支持保存节点');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
@@ -1426,27 +1488,28 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            saveDisplayImageAssetSoon(nodeId, imageList);
+            const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId));
+            if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else if (videoData?.url || videoData?.assetKey) {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             renderVideoSavePreview(nodeId, videoData);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = true;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             clearDisplayImageAssetState(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
             }
         } else {
+            await releaseForwardedMediaAssetKeys(node);
             clearCanonicalImageOutput(node);
             delete node.data.video;
             clearDisplayImageAssetState(nodeId);
             renderImageSavePreview(nodeId, [], '无输入图片或视频');
             if (manualSaveBtn) manualSaveBtn.disabled = true;
             if (viewFullBtn) viewFullBtn.disabled = true;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             if (resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
@@ -1541,13 +1604,13 @@ export function createMediaControllerApi({
         else delete node.data.compareImageB;
 
         if (!nextImageB) {
+            await releaseForwardedMediaAssetKeys(node);
             node.imageData = null;
             delete node.data.image;
             delete node.data.imageAssetKey;
             delete node.data.imageCount;
             delete node.data.imageAssetReady;
             delete node.data.imageMemoryReleased;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             clearDisplayImageAssetState(nodeId);
             renderImageCompareEmptyState(nodeId, nextImageA ? '等待 B 输入' : '等待 A / B 输入');
             return;
@@ -1555,16 +1618,14 @@ export function createMediaControllerApi({
 
         node.data.image = nextImageB;
         node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
-        if (node.imageData) {
-            markNodeImageAssetPending(node, nodeId, 1);
-            const ok = await saveImageAsset(nodeId, node.imageData);
-            if (ok) markNodeImageAssetReady(node, nodeId, 1);
+        const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId, ['imageB']));
+        if (node.imageData && !forwarded) {
+            delete node.data.imageAssetReady;
         } else {
             delete node.data.imageAssetKey;
             delete node.data.imageCount;
             delete node.data.imageAssetReady;
             delete node.data.imageMemoryReleased;
-            if (deleteImageAsset) await deleteImageAsset(nodeId);
             clearDisplayImageAssetState(nodeId);
         }
 
@@ -1758,9 +1819,19 @@ export function createMediaControllerApi({
             node.data.image = result.dataUrl;
             node.imageData = result.dataUrl;
             node.imageDataList = [result.dataUrl];
-            markNodeImageAssetPending(node, nodeId, 1);
-            const saved = await saveImageAsset(nodeId, result.dataUrl);
-            if (saved) markNodeImageAssetReady(node, nodeId, 1);
+            const asset = await saveWorkflowNodeMediaAsset(
+                result.dataUrl, getActiveWorkflowId(), nodeId, node.activeMediaOperationId
+            );
+            if (asset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
+                await removeMediaReference('workflow-operation', asset.mediaTemporaryOwnerId, asset.asset_key);
+                return;
+            }
+            if (asset?.asset_key) {
+                rememberWorkflowMediaOperation(node, [asset]);
+                node.data.mediaAssetKeys = [asset.asset_key];
+                node.data.imageAssetKey = asset.asset_key;
+                markNodeImageAssetReady(node, asset.asset_key, 1);
+            } else delete node.data.imageAssetReady;
             renderImageResizeResult(nodeId, result);
             scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
 
@@ -1943,14 +2014,17 @@ export function createMediaControllerApi({
             node.imageData = data;
             node.data = node.data || {};
             node.data.image = data;
-            const assetKey = await saveImageImportAsset(nodeId, data, node.imageImportAssetKey);
+            const mediaAsset = await saveWorkflowImportMediaAsset(data, getActiveWorkflowId(), nodeId);
+            if (mediaAsset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
+                await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
+                return;
+            }
+            rememberWorkflowMediaOperation(node, [mediaAsset]);
+            const assetKey = mediaAsset?.asset_key || '';
             if (assetKey) {
                 node.imageImportAssetKey = assetKey;
                 node.data.imageImportAssetKey = assetKey;
                 markImageImportAssetReady(node, assetKey, 1);
-            } else {
-                const saved = await saveImageAsset(nodeId, data);
-                if (saved) markImageImportAssetReady(node, nodeId, 1);
             }
             await syncImageImportSourceState(nodeId, { refreshDependents: true });
             scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
@@ -1972,14 +2046,17 @@ export function createMediaControllerApi({
         node.imageData = imageData;
         node.data = node.data || {};
         node.data.image = imageData;
-        const assetKey = await saveImageImportAsset(nodeId, imageData, node.imageImportAssetKey);
+        const mediaAsset = await saveWorkflowImportMediaAsset(imageData, getActiveWorkflowId(), nodeId);
+        if (mediaAsset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
+            await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
+            return;
+        }
+        rememberWorkflowMediaOperation(node, [mediaAsset]);
+        const assetKey = mediaAsset?.asset_key || '';
         if (assetKey) {
             node.imageImportAssetKey = assetKey;
             node.data.imageImportAssetKey = assetKey;
             markImageImportAssetReady(node, assetKey, 1);
-        } else {
-            const saved = await saveImageAsset(nodeId, imageData);
-            if (saved) markImageImportAssetReady(node, nodeId, 1);
         }
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
         scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
@@ -2023,7 +2100,6 @@ export function createMediaControllerApi({
         node.imageUrl = imageUrl;
         node.imageData = null;
         node.data.image = imageUrl;
-        if (deleteImageAsset) await deleteImageAsset(nodeId);
         await syncImageImportSourceState(nodeId, { refreshDependents: true });
         scheduleSave();
     }
@@ -3301,6 +3377,7 @@ export function createMediaControllerApi({
         renderImagePreviewImage,
         renderImageSavePreview,
         renderImageComparePreview,
+        getNodeFullscreenImageContext,
         releaseNodeImageData,
         clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
         scheduleDisplayImageMemorySweep,
@@ -3318,3 +3395,4 @@ export function createMediaControllerApi({
         openFullscreenPreview
     };
 }
+import { rememberWorkflowMediaOperation } from './workflow-media-operation.js';

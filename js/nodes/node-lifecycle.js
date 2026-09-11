@@ -25,9 +25,9 @@ export function createNodeLifecycleApi({
     generateId,
     getImageAsset,
     getImageAssetList = async () => [],
-    saveImageAsset,
-    saveImageAssetList = async () => false,
-    saveImageImportAsset = async () => '',
+    getActiveWorkflowId = () => '',
+    referenceMediaAsset = async () => false,
+    removeMediaReference = async () => false,
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
@@ -1213,8 +1213,8 @@ export function createNodeLifecycleApi({
             maxWidth: config.maxWidth || null,
             dirHandle: null,
             enabled: effectiveRestoreData?.enabled !== false,
-            isSucceeded: effectiveRestoreData?.isFailed === true ? false : (effectiveRestoreData?.isSucceeded || false),
-            isFailed: effectiveRestoreData?.isFailed === true,
+            isSucceeded: effectiveRestoreData?.isSucceeded || false,
+            isFailed: false,
             lastDuration: effectiveRestoreData?.lastDuration || null,
             lastResponse: effectiveRestoreData?.lastResponse || '',
             originalWidth: effectiveRestoreData?.originalWidth || 0,
@@ -1229,6 +1229,24 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        // Persisted workflow documents keep the complete Media asset sequence at
+        // the node level.  Keep it on the live node as well: `imageAssetKey` is
+        // only a compatibility pointer to the first asset and cannot represent
+        // a batch (nor support releasing every owner on deletion).
+        const restoredMediaAssetKeys = Array.isArray(effectiveRestoreData?.mediaAssetKeys)
+            ? effectiveRestoreData.mediaAssetKeys.filter((key) => typeof key === 'string' && key.startsWith('media:'))
+            : [];
+        if (restoredMediaAssetKeys.length > 0) {
+            nodeData.data.mediaAssetKeys = restoredMediaAssetKeys.slice();
+            nodeData.data.imageAssetKey = restoredMediaAssetKeys[0];
+            if (normalizedType === 'ImageImport') {
+                nodeData.imageImportAssetKey = restoredMediaAssetKeys[0];
+                nodeData.data.imageImportAssetKey = restoredMediaAssetKeys[0];
+            }
+        }
+        if (effectiveRestoreData?.mediaIntegrity?.state === 'missing') {
+            nodeData.data.mediaIntegrity = JSON.parse(JSON.stringify(effectiveRestoreData.mediaIntegrity));
+        }
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
         }
@@ -1493,7 +1511,6 @@ export function createNodeLifecycleApi({
                 .filter((row) => row.key);
         }
         if (nodeData.isSucceeded) el.classList.add('completed');
-        if (nodeData.isFailed) el.classList.add('error');
         if (!nodeData.enabled) el.classList.add('disabled');
         if (nodeData.collapsed) el.classList.add('collapsed');
         state.nodes.set(id, nodeData);
@@ -1573,14 +1590,16 @@ export function createNodeLifecycleApi({
                 const storedImageAssetKey = shouldRestoreCanonicalBatch
                     ? canonicalImageAssetKey
                     : (shouldRestoreRecoverableAsset ? recoverableImageAssetKey : '');
-                const storedImages = isImportUrlMode || imageImportAssetKey || !storedImageAssetKey
-                    ? []
-                    : await getImageAssetList(storedImageAssetKey);
+                const storedImages = restoredMediaAssetKeys.length > 0
+                    ? (await Promise.all(restoredMediaAssetKeys.map((key) => getImageAsset(key)))).filter(Boolean)
+                    : (isImportUrlMode || imageImportAssetKey || !storedImageAssetKey
+                        ? []
+                        : await getImageAssetList(storedImageAssetKey));
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const sourceImages = hasInitialImageList ? restoredImages : storedImages;
                 if (sourceImages.length > 0) {
                     if (isCanonicalImageNodeType(normalizedType)) {
-                        const assetKey = canonicalImageAssetKey || id;
+                        const assetKey = restoredMediaAssetKeys[0] || canonicalImageAssetKey || id;
                         const currentIndex = isDisplayImageNodeType(normalizedType)
                             ? Math.max(0, Math.min(
                                 sourceImages.length - 1,
@@ -1594,7 +1613,6 @@ export function createNodeLifecycleApi({
                             assetReady: storedImages.length > 0 || effectiveRestoreData?.imageAssetReady === true ? true : undefined,
                             hydratedAt: storedImages.length > 0 ? Date.now() : (effectiveRestoreData?.imageHydratedAt || undefined)
                         });
-                        runBackgroundImageTask(() => saveImageAssetList(assetKey, sourceImages), 'Save restored image list failed:');
                     } else {
                         nodeData.data.images = sourceImages.slice();
                         nodeData.imageDataList = sourceImages.slice();
@@ -1638,28 +1656,6 @@ export function createNodeLifecycleApi({
                     if (!isCanonicalImageNodeType(normalizedType)) {
                         nodeData.imageData = data;
                         nodeData.data.image = data;
-                    }
-
-                    if (normalizedType === 'ImageImport' && !isRemoteImageUrl(data)) {
-                        const preferredImportKey = nodeData.imageImportAssetKey === getExpectedImageImportAssetKey(id)
-                            ? nodeData.imageImportAssetKey
-                            : '';
-                        const savedImportKey = await saveImageImportAsset(id, data, preferredImportKey);
-                        if (savedImportKey) {
-                            const keyChanged = savedImportKey !== nodeData.imageImportAssetKey
-                                || savedImportKey !== nodeData.data.imageImportAssetKey;
-                            nodeData.imageImportAssetKey = savedImportKey;
-                            nodeData.data.imageImportAssetKey = savedImportKey;
-                            if (keyChanged) scheduleSave();
-                        } else if (hasInitialData) {
-                            await saveImageAsset(id, data);
-                        }
-                    } else if (hasInitialData && !isRemoteImageUrl(data)) {
-                        if (isDisplayImageNodeType(normalizedType)) {
-                            runBackgroundImageTask(() => saveImageAsset(id, data), 'Save restored display image asset failed:');
-                        } else {
-                            await saveImageAsset(id, data);
-                        }
                     }
 
                     if (normalizedType === 'ImageImport') {
@@ -1868,7 +1864,7 @@ export function createNodeLifecycleApi({
         return { changed, removedConnectionCount, preservedConnectionCount };
     }
 
-    function removeNode(id, options = {}) {
+    async function removeNode(id, options = {}) {
         const selectedIds = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
         const lockedIds = selectedIds.filter((nid) => isNodeRunning(nid));
         const idsToRemove = selectedIds.filter((nid) => !isNodeRunning(nid));
@@ -1876,12 +1872,33 @@ export function createNodeLifecycleApi({
             showToast(lockedIds.length > 1 ? `有 ${lockedIds.length} 个节点正在运行，暂不能删除` : '节点正在运行，暂不能删除', 'warning');
         }
         if (idsToRemove.length === 0) return;
-        pushHistory();
+        const mediaUndoOwnerId = pushHistory();
         const preservedConnectionCandidates = options.preserveConnections
             ? buildPreservedConnections(idsToRemove)
             : [];
         let removedConnections = false;
         const removingIds = new Set(idsToRemove);
+        const workflowId = getActiveWorkflowId();
+        if (workflowId && mediaUndoOwnerId) {
+            for (const nid of idsToRemove) {
+                const node = state.nodes.get(nid);
+                if (!node) continue;
+                const mediaKeys = Array.isArray(node?.data?.mediaAssetKeys)
+                    ? node.data.mediaAssetKeys
+                    : (node.type === 'ImageImport' ? [getNodeImageImportAssetKey(node)] : []);
+                const ownerType = node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node';
+                for (const assetKey of new Set(mediaKeys.filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
+                    try {
+                        const protectedForUndo = await referenceMediaAsset('workflow-undo', `${mediaUndoOwnerId}:${nid}`, assetKey);
+                        if (protectedForUndo) await removeMediaReference(ownerType, `${workflowId}:${nid}`, assetKey);
+                    } catch (error) {
+                        // Retaining the workflow owner is safe; a failed handoff
+                        // must never make undo lose the last physical original.
+                        console.warn('Protecting node Media asset for undo failed:', error);
+                    }
+                }
+            }
+        }
         idsToRemove.forEach((nid) => {
             const node = state.nodes.get(nid);
             if (!node) return;
@@ -1896,7 +1913,10 @@ export function createNodeLifecycleApi({
             if (node.type === 'ImageImport') {
                 const importAssetKey = getNodeImageImportAssetKey(node);
                 const ownedAssetKey = importAssetKey || getExpectedImageImportAssetKey(nid);
-                if (!isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
+                // Media owners stay alive for the lifetime of the workflow so
+                // the undo snapshot can safely restore a deleted node. They are
+                // released together when the workflow itself is deleted.
+                if (!ownedAssetKey.startsWith('media:') && !isImageImportAssetKeyReferenced(ownedAssetKey, removingIds)) {
                     void deleteImageImportAsset(ownedAssetKey);
                 }
             }
