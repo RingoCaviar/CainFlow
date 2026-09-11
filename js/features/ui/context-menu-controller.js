@@ -3,6 +3,29 @@
  */
 import { hasRunningEndpoint } from '../media/utils/ui-state-helpers.js';
 
+const IMAGE_CONTEXT_TARGET_SELECTOR = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container, .color-reset-preview, .image-resize-preview, .camera-control-node-preview';
+
+export function isImageContextTarget(target, { clientX, clientY } = {}) {
+    const surface = target?.closest?.(IMAGE_CONTEXT_TARGET_SELECTOR);
+    const image = target?.matches?.('img') ? target : surface?.querySelector?.('img');
+    if (!image) return false;
+
+    const rect = image.getBoundingClientRect?.();
+    if (!rect || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return true;
+    const naturalWidth = Number(image.naturalWidth) || 0;
+    const naturalHeight = Number(image.naturalHeight) || 0;
+    if (!naturalWidth || !naturalHeight || !rect.width || !rect.height) {
+        return clientX >= rect.left && clientX <= rect.left + rect.width && clientY >= rect.top && clientY <= rect.top + rect.height;
+    }
+
+    const scale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight);
+    const width = naturalWidth * scale;
+    const height = naturalHeight * scale;
+    const left = rect.left + ((rect.width - width) / 2);
+    const top = rect.top + ((rect.height - height) / 2);
+    return clientX >= left && clientX <= left + width && clientY >= top && clientY <= top + height;
+}
+
 export function disconnectReferenceImageConnections({ state, nodeId, pushHistory = () => {} }) {
     const referenceConnections = state.connections.filter((connection) => (
         connection.to.nodeId === nodeId && connection.to.port === 'referenceImages'
@@ -28,6 +51,7 @@ export function createContextMenuControllerApi({
     viewportApi,
     addNode,
     copySelectedNode = null,
+    copyNodeImageToClipboard = null,
     pasteNode = null,
     removeNode = null,
     cloneNode = null,
@@ -48,6 +72,7 @@ export function createContextMenuControllerApi({
     documentRef = document
 }) {
     const referenceImageNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
+    const imageCopyNodeTypes = new Set(['ImageImport', 'ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ColorReset', 'CameraControl']);
     const requestPreviewNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const defaultReferenceImageCount = 5;
     const maxReferenceImageCount = 64;
@@ -88,6 +113,7 @@ export function createContextMenuControllerApi({
         const cloneNodeItem = documentRef.getElementById('context-menu-clone-node');
         const detachCloneNodeItem = documentRef.getElementById('context-menu-detach-clone-node');
         const copyItem = documentRef.getElementById('context-menu-copy-nodes');
+        const copyImageItem = documentRef.getElementById('context-menu-copy-image');
         const pasteItem = documentRef.getElementById('context-menu-paste-nodes');
         const deleteItem = documentRef.getElementById('context-menu-delete-nodes');
         const divider = documentRef.getElementById('context-menu-node-divider');
@@ -127,6 +153,7 @@ export function createContextMenuControllerApi({
         setElementVisible(cloneNodeItem, hasNodeTarget && !isCloneTarget);
         setElementVisible(detachCloneNodeItem, hasNodeTarget && isCloneTarget);
         setElementVisible(copyItem, hasSelection);
+        setElementVisible(copyImageItem, hasNodeTarget && state.contextMenuHasImageTarget === true && imageCopyNodeTypes.has(targetNode?.type) && typeof copyNodeImageToClipboard === 'function');
         setElementVisible(deleteItem, hasSelection);
         setElementVisible(pasteItem, typeof pasteNode === 'function');
 
@@ -559,6 +586,11 @@ export function createContextMenuControllerApi({
                 return;
             }
 
+            if (item.id === 'context-menu-copy-image') {
+                if (state.contextMenuNodeId) void copyNodeImageToClipboard(state.contextMenuNodeId);
+                return;
+            }
+
             if (item.id === 'context-menu-paste-nodes') {
                 const position = viewportApi.screenToCanvas(state.contextMenu.x, state.contextMenu.y);
                 pasteNode?.({ position, includeExternalConnections: true });
@@ -782,9 +814,11 @@ export function createContextMenuControllerApi({
 
         if (nodeEl) {
             state.contextMenuNodeId = nodeEl.id;
+            state.contextMenuHasImageTarget = isImageContextTarget(target, event);
             ensureNodeSelected(nodeEl);
         } else {
             state.contextMenuNodeId = null;
+            state.contextMenuHasImageTarget = false;
         }
 
         updateNodeActionVisibility({

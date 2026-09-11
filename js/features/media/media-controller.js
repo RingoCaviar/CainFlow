@@ -48,6 +48,10 @@ export function getVideoPreviewSource(video) {
     const assetKey = String(video?.assetKey || '').trim();
     return assetKey ? `/api/storage/assets/${encodeURIComponent(assetKey)}` : '';
 }
+
+export function getCurrentFullscreenImage(images, currentIndex, fallback = '') {
+    return images[currentIndex] || images[0] || fallback;
+}
 import {
     sanitizeFilenamePart,
     formatFilenameTimestamp,
@@ -92,6 +96,7 @@ export function createMediaControllerApi({
     estimateDataUrlSize,
     getImageResolution,
     dataURLtoBlob,
+    copyImageToClipboard = async () => false,
     showToast,
     addLog,
     scheduleSave,
@@ -3014,6 +3019,12 @@ export function createMediaControllerApi({
             <div class="fullscreen-close" title="关闭 (Esc)">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </div>
+            <button type="button" class="fullscreen-copy-btn" title="复制图片到剪贴板" aria-label="复制图片到剪贴板">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <div class="fullscreen-image-context-menu hidden">
+                <button type="button" class="fullscreen-image-copy-menu-item">复制图片</button>
+            </div>
             ${renderFullscreenCropControls(canCropImageImport)}
             ${nodeId ? `
             <div class="fullscreen-paint-btn" title="绘制/编辑">
@@ -3032,6 +3043,7 @@ export function createMediaControllerApi({
         documentRef.body.appendChild(overlay);
         const img = overlay.querySelector('img');
         const iw = overlay.querySelector('.fullscreen-img-wrapper');
+        const imageContextMenu = overlay.querySelector('.fullscreen-image-context-menu');
         const thumbTrack = overlay.querySelector('.fullscreen-thumb-track');
         const thumbButtons = [];
         let fsZoom = 1;
@@ -3208,6 +3220,23 @@ export function createMediaControllerApi({
             documentRef.removeEventListener('keydown', onEsc);
         };
         overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
+        overlay.querySelector('.fullscreen-copy-btn').addEventListener('click', (event) => {
+            event.stopPropagation();
+            void copyImageToClipboard(getCurrentFullscreenImage(images, currentIndex, src));
+        });
+        imageContextMenu.querySelector('.fullscreen-image-copy-menu-item').addEventListener('click', (event) => {
+            event.stopPropagation();
+            imageContextMenu.classList.add('hidden');
+            void copyImageToClipboard(getCurrentFullscreenImage(images, currentIndex, src));
+        });
+        overlay.addEventListener('contextmenu', (event) => {
+            if (event.target !== img) return;
+            event.preventDefault();
+            event.stopPropagation();
+            imageContextMenu.style.left = `${event.clientX}px`;
+            imageContextMenu.style.top = `${event.clientY}px`;
+            imageContextMenu.classList.remove('hidden');
+        });
         if (nodeId) {
             overlay.querySelector('.fullscreen-paint-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -3239,6 +3268,16 @@ export function createMediaControllerApi({
         documentRef.addEventListener('keydown', onEsc);
         requestAnimationFrame(() => overlay.classList.add('active'));
         overlay.focus({ preventScroll: true });
+    }
+
+    async function copyNodeImageToClipboard(nodeId) {
+        const context = await getNodeFullscreenImageContext(nodeId);
+        const image = context.images[context.index] || context.images[0] || '';
+        if (!image) {
+            showToast('该节点没有可复制的图片', 'warning');
+            return false;
+        }
+        return copyImageToClipboard(image);
     }
 
     bindSelectedNodeKeyboardNavigation();
@@ -3275,6 +3314,7 @@ export function createMediaControllerApi({
         setupImageCompare,
         syncImageCompareNode,
         adjustPreviewZoom,
+        copyNodeImageToClipboard,
         openFullscreenPreview
     };
 }
