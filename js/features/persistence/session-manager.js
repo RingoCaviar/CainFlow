@@ -233,34 +233,38 @@ export function createSessionManagerApi({
                     .filter(([workflowId]) => workflowId)
             );
             const authoritativeLabelByPresentationLabel = new Map();
+            const persistedOpenWorkflows = [];
             for (const record of workflowSnapshot?.open || []) {
                 const tab = presentationByWorkflowId.get(record.workflowId);
                 if (!tab?.data || typeof tab.data !== 'object') {
-                    throw new Error(`Open Workflow document is unavailable: ${record.workflowId}`);
+                    console.warn('Skip Open Workflow without a presentation document:', record.workflowId);
+                    continue;
                 }
                 if (typeof tab.name === 'string' && tab.name) {
                     authoritativeLabelByPresentationLabel.set(tab.name, record.label);
                 }
+                persistedOpenWorkflows.push({ record, tab });
             }
             const rewriteOpenWorkflowLabel = (label) => (
                 authoritativeLabelByPresentationLabel.get(label) ?? label
             );
-            data.workflowTabs = Array.isArray(workflowSnapshot?.open)
-                ? workflowSnapshot.open.map((record) => {
-                    const tab = presentationByWorkflowId.get(record.workflowId);
-                    return {
-                        workflowId: record.workflowId,
-                        name: record.label,
-                        data: sanitizeWorkflowDataForSessionCache(tab.data),
-                        dirty: tab.dirty === true,
-                        identityPendingSave: record.pendingExplicitSave === true,
-                        running: record.running === true,
-                        colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
-                        runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
-                    };
-                })
-                : [];
-            const activeWorkflow = workflowSnapshot?.active;
+            data.workflowTabs = persistedOpenWorkflows.map(({ record, tab }) => {
+                return {
+                    workflowId: record.workflowId,
+                    name: record.label,
+                    data: sanitizeWorkflowDataForSessionCache(tab.data),
+                    dirty: tab.dirty === true,
+                    identityPendingSave: record.pendingExplicitSave === true,
+                    running: record.running === true,
+                    colorIndex: Number.isInteger(tab.colorIndex) ? tab.colorIndex : 0,
+                    runResult: tab.runResult === 'success' || tab.runResult === 'error' ? tab.runResult : ''
+                };
+            });
+            const activeWorkflow = persistedOpenWorkflows.some(({ record }) => (
+                record.workflowId === workflowSnapshot?.active?.workflowId
+            ))
+                ? workflowSnapshot.active
+                : persistedOpenWorkflows[0]?.record || null;
             data.activeWorkflowName = activeWorkflow?.label || '';
             data.activeWorkflowId = activeWorkflow?.workflowId || '';
             data.workflowOrder = Array.isArray(state.workflowOrder)

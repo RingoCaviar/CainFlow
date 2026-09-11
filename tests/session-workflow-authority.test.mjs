@@ -151,7 +151,7 @@ test('Session serialization joins presentation data to authoritative Open Workfl
     assert.equal(restoredState.workflowTabs[1].data.marker, 'document-b');
 });
 
-test('Session serialization preserves the previous session when an Open Workflow document is missing', async () => {
+test('Session serialization omits an Open Workflow record when its presentation document is missing', async () => {
     const stored = new Map([['session', 'previous-session']]);
     const desk = createWorkflowDesk({
         resolveSelection: async (selection) => selection,
@@ -179,6 +179,9 @@ test('Session serialization preserves the previous session when an Open Workflow
         getWorkflowSnapshot: () => desk.snapshot()
     });
 
-    assert.equal(manager.saveState(), false);
-    assert.equal(stored.get('session'), 'previous-session');
+    assert.equal(manager.saveState(), true);
+    const session = JSON.parse(stored.get('session'));
+    assert.deepEqual(session.workflowTabs, []);
+    assert.equal(session.activeWorkflowId, '');
+    assert.equal(session.activeWorkflowName, '');
 });
