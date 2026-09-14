@@ -2158,7 +2158,7 @@ export function createExecutionCoreApi({
                 throw err;
             }
         },
-        VideoGenerate: async (node, inputs, signal) => asyncMediaExecution.runVideoGenerateNode(node, inputs, signal),
+        VideoGenerate: async (node, inputs, signal, executionContext = {}) => asyncMediaExecution.runVideoGenerateNode(node, inputs, signal, executionContext.videoExecutionInput),
         TextChat: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
             const fixedToggle = documentRef.getElementById(`${id}-fixed`);

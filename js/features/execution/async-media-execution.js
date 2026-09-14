@@ -1160,7 +1160,7 @@ export function createAsyncMediaExecutionApi({
         return downloadGeneratedVideo(result.videoUrl, { signal });
     }
 
-    async function runVideoGenerateNode(node, inputs, signal) {
+    async function runVideoGenerateNode(node, inputs, signal, executionInput) {
         const { id } = node;
         const errorEl = documentRef.getElementById(`${id}-error`);
         const responseArea = documentRef.getElementById(`${id}-response`);
@@ -1171,39 +1171,39 @@ export function createAsyncMediaExecutionApi({
             requestNodeFit(id);
         }
 
-        const configId = documentRef.getElementById(`${id}-apiconfig`)?.value || '';
+        if (!executionInput?.valid) throw new Error('视频执行输入未准备完成');
+        const executionInputs = executionInput.inputs;
+        const configId = executionInput.selection.modelConfigId;
         const modelCfg = state.models.find((model) => model.id === configId);
         if (!modelCfg) throw new Error('未找到选定的视频模型配置');
-        const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
+        const selectedProviderId = executionInput.selection.providerId;
         const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
         const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
         if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
         node.providerId = resolvedProviderId;
 
-        const userPrompt = (getPrimaryTextInput(inputs.prompt)
-            || documentRef.getElementById(`${id}-param-prompt`)?.value
-            || documentRef.getElementById(`${id}-prompt`)?.value
-            || '').trim();
-        const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
+        const controls = executionInput.controls;
+        const userPrompt = executionInput.prompt;
+        const systemPrompt = String(controls.protocolParams?.systemPrompt || '').trim();
         const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
-        const protocolParams = node.data?.protocolParams || {};
-        const aspect = protocolParams.size || protocolParams.aspect_ratio || protocolParams.aspect || documentRef.getElementById(`${id}-aspect`)?.value || '16:9';
-        const useVideoSizeParam = protocolParams.size !== undefined || documentRef.getElementById(`${id}-use-size-param`)?.checked === true;
+        const protocolParams = controls.protocolParams || {};
+        const aspect = protocolParams.size || protocolParams.aspect_ratio || protocolParams.aspect || '16:9';
+        const useVideoSizeParam = protocolParams.size !== undefined;
         const videoDuration = protocolParams.duration ?? '';
         const videoLoop = protocolParams.loop === true;
-        const enhancePrompt = protocolParams.enhance_prompt ?? (documentRef.getElementById(`${id}-enhance-prompt`)?.checked === true);
-        const enableUpsample = protocolParams.enable_upsample ?? (documentRef.getElementById(`${id}-enable-upsample`)?.checked === true);
-        const doubaoResolution = protocolParams.resolution ?? documentRef.getElementById(`${id}-doubao-resolution`)?.value ?? '';
-        const doubaoDuration = protocolParams.duration ?? documentRef.getElementById(`${id}-doubao-duration`)?.value ?? '';
-        const doubaoCameraFixed = protocolParams.camera_fixed ?? (documentRef.getElementById(`${id}-doubao-camera-fixed`)?.checked === true);
-        const doubaoGenerateAudio = protocolParams.generate_audio ?? (documentRef.getElementById(`${id}-doubao-generate-audio`)?.checked === true);
-        const doubaoWatermark = protocolParams.watermark ?? (documentRef.getElementById(`${id}-doubao-watermark`)?.checked === true);
-        const doubaoSeed = protocolParams.seed ?? documentRef.getElementById(`${id}-doubao-seed`)?.value ?? '';
-        const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+        const enhancePrompt = protocolParams.enhance_prompt;
+        const enableUpsample = protocolParams.enable_upsample;
+        const doubaoResolution = protocolParams.resolution;
+        const doubaoDuration = protocolParams.duration;
+        const doubaoCameraFixed = protocolParams.camera_fixed;
+        const doubaoGenerateAudio = protocolParams.generate_audio;
+        const doubaoWatermark = protocolParams.watermark;
+        const doubaoSeed = protocolParams.seed;
+        const generationCountValue = controls.generationCount ?? 1;
+        const generationCount = Math.max(1, parseInt(generationCountValue, 10) || 1);
         const protocol = getEffectiveProtocol(modelCfg, apiCfg);
         const normalizedModelId = String(modelCfg.modelId || '').toLowerCase();
 
-        if (node.data?.videoCardExecutionBlockedReason) throw new Error(node.data.videoCardExecutionBlockedReason);
         if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
         if (!prompt.trim()) throw new Error('请输入提示词');
         if (protocol === 'doubao-video') {
@@ -1230,11 +1230,11 @@ export function createAsyncMediaExecutionApi({
         if (downloadBtn) downloadBtn.disabled = true;
 
         for (let index = 0; index < generationCount; index += 1) {
-            const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, { ...(node.data?.protocolParams || {}), prompt }, inputs);
+            const protocolPlan = compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, { ...protocolParams, prompt }, executionInputs);
             const url = protocolPlan?.create.url || resolveProviderUrl(apiCfg, modelCfg, 'video', { action: 'create' });
             const useSizeParam = (protocol === 'veo-unified' || protocol === 'veo-openai') && useVideoSizeParam;
             const requestBody = protocolPlan?.create.body || (protocol === 'veo-openai'
-                ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, inputs })
+                ? buildOpenAiVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, inputs: executionInputs })
                 : (protocol === 'doubao-video'
                     ? buildDoubaoVideoRequest({
                         modelCfg,
@@ -1246,9 +1246,9 @@ export function createAsyncMediaExecutionApi({
                         generateAudio: doubaoGenerateAudio,
                         watermark: doubaoWatermark,
                         seed: doubaoSeed,
-                        inputs
+                        inputs: executionInputs
                     })
-                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, enhancePrompt, enableUpsample, inputs })));
+                    : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, enhancePrompt, enableUpsample, inputs: executionInputs })));
             const headers = getVideoProxyHeaders(url, 'POST', protocolPlan
                 ? {
                     ...protocolPlan.create.headers,

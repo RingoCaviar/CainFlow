@@ -17,6 +17,7 @@ import { DoubaoVideoProtocol } from '../js/features/execution/protocols/doubao-v
 import { Api6789SeedanceProtocol } from '../js/features/execution/protocols/api6789-seedance.js';
 import { getGenerationInputProtocolId } from '../js/features/execution/provider-request-utils.js';
 import { createConnectionsApi } from '../js/canvas/connections.js';
+import { resolveVideoExecutionInputRecord } from '../js/nodes/video-execution-input-record.js';
 
 test('generation input projection exposes the built-in VEO input contract', () => {
     const projection = resolveGenerationInputProjection({
@@ -205,4 +206,69 @@ test('generation input validation explains inactive and excess connections befor
         ]),
         '输入 referenceImages 最多允许 1 条连接，当前有 2 条。请断开多余连接。'
     );
+});
+
+test('video execution input record concentrates projection, prompt, and ordered media diagnostics', () => {
+    const projection = resolveGenerationInputProjection({
+        protocol: RelayVideoProtocol, modelId: 'minimax-h3', taskType: 'video'
+    });
+    const record = resolveVideoExecutionInputRecord({
+        protocol: RelayVideoProtocol, modelId: 'minimax-h3',
+        prompt: '  lake at dawn  ',
+        inputs: { referenceImages: ['first-image'] },
+        connections: [{ to: { port: 'referenceImages' }, order: 0 }]
+    });
+    assert.equal(record.valid, true);
+    assert.equal(record.prompt, 'lake at dawn');
+    assert.deepEqual(record.inputs.referenceImages, ['first-image']);
+    assert.equal(Object.isFrozen(record.inputs.referenceImages), true);
+
+    const blocked = resolveVideoExecutionInputRecord({
+        protocol: RelayVideoProtocol, modelId: 'minimax-h3',
+        connections: [{ to: { port: 'image_1' } }]
+    });
+    assert.deepEqual(blocked.diagnostics.map(({ code }) => code), ['inactive-connection', 'missing-prompt']);
+});
+
+test('video execution input record rebuilds its projection and exposes diagnostics as code plus data', () => {
+    const staleProjection = resolveGenerationInputProjection({
+        protocol: RelayVideoProtocol, modelId: 'minimax-h3', taskType: 'video'
+    });
+    const record = resolveVideoExecutionInputRecord({
+        projection: staleProjection,
+        protocol: RelayVideoProtocol,
+        modelId: 'kling-o3',
+        taskType: 'video',
+        prompt: 'shoreline',
+        inputs: { referenceImages: ['first', 'second'] },
+        connections: [
+            { to: { port: 'referenceImages' }, order: 0 },
+            { to: { port: 'referenceImages' }, order: 1 }
+        ]
+    });
+    assert.equal(record.valid, true);
+    assert.equal(record.projection.modelId, 'kling-o3');
+    assert.equal(record.inputs.prompt, 'shoreline');
+
+    const missingPrompt = resolveVideoExecutionInputRecord({ protocol: RelayVideoProtocol, modelId: 'minimax-h3' });
+    assert.deepEqual(missingPrompt.diagnostics[0], { code: 'missing-prompt', details: {} });
+});
+
+test('video execution input record snapshots a projected prompt port and preserves opaque media values', () => {
+    const media = new Blob(['first frame']);
+    const protocol = {
+        id: 'custom-video', label: 'Custom video',
+        parameters: {
+            scene: { inputPort: true, portType: 'text', required: true },
+            firstFrame: { inputPort: true, portType: 'image' }
+        }
+    };
+    const record = resolveVideoExecutionInputRecord({
+        protocol, modelId: 'custom-model', inputs: { scene: 'a sunrise', firstFrame: media }
+    });
+
+    assert.equal(record.valid, true);
+    assert.equal(record.prompt, 'a sunrise');
+    assert.equal(record.inputs.prompt, 'a sunrise');
+    assert.equal(record.inputs.firstFrame, media);
 });

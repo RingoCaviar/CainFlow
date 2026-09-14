@@ -15,7 +15,9 @@ import {
 } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
-import { getProjectedInputValidationReason } from '../../nodes/generation-input-projection.js';
+import { getProtocol } from './protocols/index.js';
+import { getGenerationInputProtocolId } from './provider-request-utils.js';
+import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-input-record.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 
 export function clearNodeExecutionFailure(node) {
@@ -115,6 +117,19 @@ export function getNodePromptPortIds(node, documentRef = document) {
         if (parameterId && !parameterId.endsWith('-custom')) portIds.add(parameterId);
     });
     return Array.from(portIds);
+}
+
+export function getVideoInputDiagnosticMessage(diagnostic = {}) {
+    const details = diagnostic.details || {};
+    if (diagnostic.code === 'projection-blocked') return '当前视频输入不可执行。';
+    if (diagnostic.code === 'inactive-connection') return `当前模型不支持已连接的输入：${(details.inactivePorts || []).join('、')}。请断开连接或切换回兼容模型。`;
+    if (diagnostic.code === 'excess-connection') {
+        const violation = details.violations?.[0] || {};
+        return `输入 ${violation.portId || ''} 最多允许 ${violation.maxCount || 0} 条连接，当前有 ${violation.actualCount || 0} 条。请断开多余连接。`;
+    }
+    if (diagnostic.code === 'missing-prompt') return '提示词内容缺失（连线或文本框均无内容）';
+    if (diagnostic.code === 'unloaded-reference-image') return '已连接参考图输入，但未读取到图片数据。请确认图片已加载完成。';
+    return '当前视频输入无效。';
 }
 
 /**
@@ -1096,6 +1111,41 @@ export function createWorkflowRunnerApi({
         return false;
     }
 
+    function getSelectedNodeModel(node) {
+        const configId = documentRef.getElementById(`${node?.id}-apiconfig`)?.value || node?.data?.modelId || '';
+        return state.models.find((model) => model.id === configId) || null;
+    }
+
+    function getCurrentVideoControls(node) {
+        const id = node.id;
+        const value = (suffix, fallback = '') => documentRef.getElementById(`${id}-${suffix}`)?.value ?? fallback;
+        const protocolParams = { ...(node.data?.protocolParams || {}) };
+        documentRef.querySelectorAll?.(`#${id} [data-param-id]`).forEach((element) => {
+            const paramId = element.dataset.paramId;
+            if (paramId && !paramId.endsWith('-custom')) protocolParams[paramId] = element.type === 'checkbox' ? element.checked : element.value;
+        });
+        return {
+            protocolParams,
+            generationCount: Math.max(1, parseInt(value('generation-count', node.data?.generationCount || '1'), 10) || 1)
+        };
+    }
+
+    function prepareVideoExecutionInput(node, inputs, connections = []) {
+        const model = getSelectedNodeModel(node);
+        return resolveVideoExecutionInputRecord({
+            protocol: getProtocol(getGenerationInputProtocolId(model)),
+            modelId: model?.modelId,
+            inputs,
+            connections,
+            prompt: getNodePromptValue(node, documentRef),
+            controls: getCurrentVideoControls(node),
+            selection: {
+                modelConfigId: model?.id || '',
+                providerId: documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || ''
+            }
+        });
+    }
+
     async function collectInputsForNode(plan, nodeId) {
         const inputs = {};
         const node = state.nodes.get(nodeId);
@@ -1116,17 +1166,22 @@ export function createWorkflowRunnerApi({
             }
         }
 
+        if (node?.type === 'VideoGenerate') {
+            const record = prepareVideoExecutionInput(node, inputs, connections);
+            if (record && !record.valid) {
+                const primary = record.diagnostics[0];
+                const error = new Error(getVideoInputDiagnosticMessage(primary));
+                error.videoInputDiagnostic = primary;
+                error.inputPort = primary.details?.ports?.[0] || primary.details?.inactivePorts?.[0] || primary.details?.violations?.[0]?.portId || '';
+                throw error;
+            }
+            // Keep the resolved workflow values intact here.  In particular, a
+            // text array still represents separate request batches; each batch
+            // receives its own immutable video execution input record below.
+            return inputs;
+        }
         assertConnectedReferenceImagesLoaded(plan, node, inputs);
         return inputs;
-    }
-
-    function getVideoInputProjectionError(plan, nodeId) {
-        const node = state.nodes.get(nodeId);
-        if (node?.type !== 'VideoGenerate') return '';
-        const projection = node.generationInputProjection;
-        if (!projection) return '';
-        if (projection.blockedReason) return projection.blockedReason;
-        return getProjectedInputValidationReason(projection, plan.inputConnectionsByNode[nodeId]);
     }
 
     function isFixedTextChatWithCachedResult(node) {
@@ -1253,7 +1308,7 @@ export function createWorkflowRunnerApi({
         return Number.isFinite(retries) && retries > 0 ? retries : 0;
     }
 
-    async function executeConcurrentBatchRequest(node, batch, index, batchCount, signal, requestStatusTracker = null) {
+    async function executeConcurrentBatchRequest(node, batch, index, batchCount, signal, requestStatusTracker = null, videoExecutionInput = null) {
         const requestsPerBatch = node?.type === 'ImageGenerate'
             ? getConfiguredImageGenerationCount(node)
             : 1;
@@ -1265,6 +1320,7 @@ export function createWorkflowRunnerApi({
             concurrentExecution: true,
             batchIndex: index,
             batchCount,
+            videoExecutionInput,
             concurrentRequestStatus: createConcurrentRequestStatusContext(
                 requestStatusTracker,
                 requestOffset,
@@ -1529,7 +1585,7 @@ export function createWorkflowRunnerApi({
         }
     }
 
-    async function executeNodeWithInputBatches(node, inputs, signal) {
+    async function executeNodeWithInputBatches(node, inputs, signal, connections = []) {
         const shouldRunBatches = !isFixedTextChatWithCachedResult(node) && shouldRunNodeForEachInput(node, inputs);
         const batches = shouldRunBatches ? buildInputBatches(node, inputs) : [inputs || {}];
         prepareApiNodeGenerationProgress(node, batches.length);
@@ -1538,7 +1594,9 @@ export function createWorkflowRunnerApi({
             if (shouldTrackStandaloneConcurrentImageRequests(node)) {
                 await executeStandaloneConcurrentImageRequests(node, inputs, signal);
             } else {
-                await executeNode(node, inputs, signal);
+                await executeNode(node, inputs, signal, {
+                    videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, inputs, connections) : null
+                });
             }
             return inputs;
         }
@@ -1566,7 +1624,10 @@ export function createWorkflowRunnerApi({
                 getApiNodeRunCount(node, batches.length)
             );
             const settled = await Promise.allSettled(batches.map((batch, index) => (
-                executeConcurrentBatchRequest(node, batch, index, batches.length, signal, requestStatusTracker)
+                executeConcurrentBatchRequest(
+                    node, batch, index, batches.length, signal, requestStatusTracker,
+                    node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, batch, connections) : null
+                )
             )));
             const rejected = settled.filter((result) => result.status === 'rejected');
             const abortRejection = rejected.find((result) => isAbortLikeError(result.reason));
@@ -1625,7 +1686,9 @@ export function createWorkflowRunnerApi({
                     index
                 );
             } else {
-                await executeNode(node, batches[index], signal);
+                await executeNode(node, batches[index], signal, {
+                    videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, batches[index], connections) : null
+                });
             }
 
             if (shouldAggregateImages) {
@@ -1881,7 +1944,7 @@ export function createWorkflowRunnerApi({
 
             try {
                 const inputs = await collectInputsForNode(plan, nid);
-                const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, linkedAbort.signal);
+                const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
                 if (linkedAbort.signal?.aborted) {
                     const abortError = new Error('Node run aborted');
                     abortError.name = 'AbortError';
@@ -2161,15 +2224,9 @@ export function createWorkflowRunnerApi({
         }
 
         const emptyPromptNodes = [];
-        const invalidVideoInputNodes = [];
         for (const nid of order) {
             const node = state.nodes.get(nid);
-            const videoInputError = getVideoInputProjectionError(plan, nid);
-            if (videoInputError) {
-                invalidVideoInputNodes.push({ id: nid, reason: videoInputError });
-                continue;
-            }
-            if (node && node.enabled !== false && (node.type === 'TextChat' || node.type === 'VideoGenerate')) {
+            if (node && node.enabled !== false && node.type === 'TextChat') {
                 const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
                 if (node.type === 'TextChat' && fixedToggle && fixedToggle.checked && node.isSucceeded) continue;
 
@@ -2179,20 +2236,6 @@ export function createWorkflowRunnerApi({
                     emptyPromptNodes.push(nid);
                 }
             }
-        }
-
-        if (invalidVideoInputNodes.length > 0) {
-            showToast(`执行中止：当前路径中有 ${invalidVideoInputNodes.length} 个视频节点输入无效`, 'error', 5000);
-            invalidVideoInputNodes.forEach(({ id, reason }) => {
-                const node = state.nodes.get(id);
-                if (!node) return;
-                const error = new Error(reason);
-                showNodeExecutionFailure(node, error);
-                addLog('error', '前置检查未通过', `节点「视频生成」(${id}) ${reason}`, null, { nodeId: id, nodeTitle: getNodeDisplayTitle(node) });
-            });
-            connectionProjection?.nodeAppearanceChanged(invalidVideoInputNodes.map(({ id }) => id));
-            finalizeWorkflow();
-            return { started: true, executed: false, reason: 'invalid-video-input-projection' };
         }
 
         if (emptyPromptNodes.length > 0) {
@@ -2423,7 +2466,7 @@ export function createWorkflowRunnerApi({
 
                                 try {
                                     const inputs = await collectInputsForNode(plan, nid);
-                                    const loggedInputs = await executeNodeWithInputBatches(node, inputs, linkedAbort.signal);
+                                    const loggedInputs = await executeNodeWithInputBatches(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
 
                                     if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
                                         const abortError = new Error('Node run aborted');

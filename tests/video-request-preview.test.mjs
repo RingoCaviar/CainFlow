@@ -59,7 +59,9 @@ test('video request preview shows the exact declared-protocol request body that 
 
     const preview = api.buildNodeRequestPreview(node.id);
     await assert.rejects(
-        api.nodeHandlers.VideoGenerate(node, {}, new AbortController().signal),
+        api.nodeHandlers.VideoGenerate(node, {}, new AbortController().signal, {
+            videoExecutionInput: { valid: true, prompt: '海浪', selection: { modelConfigId: 'model-1', providerId: 'provider-1' }, controls: { protocolParams: node.data.protocolParams, aspect: '16:9', generationCount: 1 } }
+        }),
         /request captured/
     );
 
@@ -96,7 +98,9 @@ test('VEO request preview includes the same declared duration and loop values as
 
     const preview = api.buildNodeRequestPreview(node.id);
     await assert.rejects(
-        api.nodeHandlers.VideoGenerate(node, {}, new AbortController().signal),
+        api.nodeHandlers.VideoGenerate(node, {}, new AbortController().signal, {
+            videoExecutionInput: { valid: true, prompt: '海浪', selection: { modelConfigId: 'model-1', providerId: 'provider-1' }, controls: { protocolParams: node.data.protocolParams, aspect: '16:9', generationCount: 1 } }
+        }),
         /request captured/
     );
 

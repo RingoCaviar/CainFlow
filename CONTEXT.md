@@ -222,6 +222,10 @@ _Avoid_: Hard-coded generation request fields, shared parameter values across in
 The authoritative resolved input information for one generation node, derived from its selected Declarative protocol configuration and exact Protocol variant. It identifies the supported text and media inputs, their labels, constraints, connection behavior, and any inactive input that blocks execution. Provider selection does not change this information.
 _Avoid_: Separate UI, connection, and execution input rules
 
+**Video execution input record**:
+The immutable, execution-ready video input derived at run time from the current generation input projection, node controls, and explicitly ordered connected media. It carries structured diagnostics when execution is blocked. Request encoding, task polling, and Media asset persistence are not part of this record.
+_Avoid_: Cached node projection, provider request body, execution-time DOM contract
+
 **Protocol-driven video card rollout**:
 The first Protocol-driven generation card delivery covers video only. Every supported built-in video format must declare its equivalent parameters before it uses the shared renderer; a user-owned protocol without declared editable parameters shows an explicit safe state rather than falling back to legacy request controls. Protocol declaration order and `layout` hints determine parameter presentation.
 _Avoid_: Parallel video and image-card migration, legacy UI fallback for incomplete protocols
