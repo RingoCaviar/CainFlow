@@ -37,6 +37,13 @@ import {
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
+import { saveGeneratedMediaToDirectory } from '../media/generated-media-directory-save.js';
+import { downloadGeneratedVideo } from '../media/video/video-download.js';
+import {
+    buildImageSaveFilenameBases,
+    buildVideoSaveFilenameBase,
+    detectVideoExtensionFromSource
+} from '../media/utils/filename-builder.js';
 
 const WORKFLOW_RUNTIME_STATE_KEYS = [
     'autoRetry',
@@ -416,10 +423,6 @@ function sanitizeRuntimeFilenamePart(value, fallback = 'image') {
     return safe || fallback;
 }
 
-function getRuntimeTimestampText() {
-    return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-}
-
 async function getAvailableRuntimeFileHandle(directoryHandle, baseName, extension = '.png') {
     const safeBaseName = sanitizeRuntimeFilenamePart(baseName, 'image');
     const safeExtension = String(extension || '.png').startsWith('.') ? extension : `.${extension}`;
@@ -487,6 +490,45 @@ function getPlanImageRestoreNodeIds(plan = {}) {
         });
     });
     return nodeIds;
+}
+
+export function createRuntimeAutoSaveToDir({
+    runtimeState, runtimeDocument, workflowName, dataURLtoBlob, fetchRef,
+    formatProxyErrorMessage, addLog, windowRef, showToast
+} = {}) {
+    return async (nodeId, payload) => {
+        const node = runtimeState.nodes.get(nodeId);
+        if (!node) return;
+        try {
+            const videos = Array.isArray(payload?.videos) ? payload.videos : [payload?.video];
+            const prefix = runtimeDocument.getElementById(`${nodeId}-filename`)?.value || (videos.some((video) => video?.url) ? 'video' : 'image');
+            const result = await saveGeneratedMediaToDirectory({
+                payload, directoryHandle: runtimeState.globalSaveDirHandle, filenamePrefix: prefix,
+                dataURLtoBlob,
+                downloadVideo: (url, options) => downloadGeneratedVideo(url, options, { fetchRef, formatProxyErrorMessage, addLog, windowRef }),
+                buildImageFilenameBases: (images, name) => buildImageSaveFilenameBases(nodeId, images, name, runtimeState, (id) => runtimeState.nodes.get(id), { includeTimestamp: true }),
+                buildVideoFilenameBase: (video, name) => buildVideoSaveFilenameBase(nodeId, video, name, runtimeState, { includeTimestamp: true }),
+                detectVideoExtension: detectVideoExtensionFromSource,
+                getAvailableFileHandle: getAvailableRuntimeFileHandle
+            });
+            if (result.status === 'empty') return;
+            if (result.status === 'missing-directory') {
+                showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
+                addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId, workflowName });
+                return;
+            }
+            if (result.status === 'permission-denied') {
+                showToast('【自动保存失败】目录访问权限被拒绝', 'error');
+                addLog('error', '自动保存失败', '权限被拒绝', { nodeId, workflowName });
+                return;
+            }
+            addLog('success', '自动保存成功', `已保存至: ${runtimeState.globalSaveDirHandle.name}/${result.filenames.join(', ')}`, { nodeId, workflowName });
+        } catch (error) {
+            console.error('Runtime auto-save error:', error);
+            showToast('自动保存出错: ' + error.message, 'error', 5000);
+            addLog('error', '自动保存异常', error.message, { nodeId, workflowName, error: error.stack || error });
+        }
+    };
 }
 
 export function createWorkflowRuntimeManager({
@@ -1466,63 +1508,10 @@ export function createWorkflowRuntimeManager({
         });
         disposalResources.connections = runtimeConnectionsApi;
         const runtimeMediaApi = createRuntimeMediaApi(runtimeState, runtimeDocument, workflowId);
-        const runtimeAutoSaveToDir = async (nodeId, payload) => {
-            const node = runtimeState.nodes.get(nodeId);
-            if (!node) return;
-            const images = normalizeRuntimeImageList(payload?.images ?? payload);
-            if (images.length === 0) return;
-            const handle = runtimeState.globalSaveDirHandle;
-            if (!handle) {
-                showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
-                addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId, workflowName });
-                return;
-            }
-            try {
-                const perm = await handle.queryPermission({ mode: 'readwrite' });
-                if (perm !== 'granted') {
-                    const req = await handle.requestPermission({ mode: 'readwrite' });
-                    if (req !== 'granted') {
-                        showToast('【自动保存失败】目录访问权限被拒绝', 'error');
-                        addLog('error', '自动保存失败', '权限被拒绝', { nodeId, workflowName });
-                        return;
-                    }
-                }
-
-                const prefix = runtimeDocument.getElementById(`${nodeId}-filename`)?.value || 'image';
-                const timestamp = getRuntimeTimestampText();
-                const savedFilenames = [];
-                for (let index = 0; index < images.length; index += 1) {
-                    const image = images[index];
-                    const blob = dataURLtoBlob(image);
-                    if (!blob) throw new Error('图片数据无效，无法写入文件');
-                    const baseName = `${prefix}_${timestamp}${images.length > 1 ? `_${index + 1}` : ''}`;
-                    const { fileHandle, filename } = await getAvailableRuntimeFileHandle(handle, baseName, '.png');
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(blob);
-                    await writable.close();
-                    savedFilenames.push(filename);
-                }
-
-                showToast(
-                    images.length > 1
-                        ? `已自动保存 ${images.length} 张图片`
-                        : `图片已自动保存: ${savedFilenames[0]}`,
-                    'success'
-                );
-                addLog('success', '自动保存成功', `已保存至: ${handle.name}/${savedFilenames.join(', ')}`, {
-                    nodeId,
-                    workflowName
-                });
-            } catch (error) {
-                console.error('Runtime auto-save error:', error);
-                showToast('自动保存出错: ' + error.message, 'error', 5000);
-                addLog('error', '自动保存异常', error.message, {
-                    nodeId,
-                    workflowName,
-                    error: error.stack || error
-                });
-            }
-        };
+        const runtimeAutoSaveToDir = createRuntimeAutoSaveToDir({
+            runtimeState, runtimeDocument, workflowName, dataURLtoBlob, fetchRef,
+            formatProxyErrorMessage, addLog, windowRef, showToast
+        });
         let runtimeRunnerApi = null;
         const runtimeCameraApi = createCameraControlNodeApi({
             state: runtimeState,

@@ -53,8 +53,6 @@ export function getCurrentFullscreenImage(images, currentIndex, fallback = '') {
     return images[currentIndex] || images[0] || fallback;
 }
 import {
-    sanitizeFilenamePart,
-    formatFilenameTimestamp,
     buildImageSaveFilenameBases,
     buildVideoSaveFilenameBase,
     detectVideoExtensionFromSource
@@ -79,6 +77,7 @@ import {
 import { createVideoAutoSaveToastManager } from './video/video-auto-save-toast.js';
 import { createPreviewIndexManager } from './state/preview-index-manager.js';
 import { createThumbnailCacheManager } from './state/thumbnail-cache-manager.js';
+import { saveGeneratedMediaToDirectory } from './generated-media-directory-save.js';
 
 export function createMediaControllerApi({
     state,
@@ -321,105 +320,6 @@ export function createMediaControllerApi({
         }
         return nextThumbnail;
     }
-
-
-    function getImagePromptsFromNode(node, images) {
-        const imageList = getCanonicalImageList(node);
-        const promptList = Array.isArray(node?.data?.imagePromptList)
-            ? node.data.imagePromptList
-            : (Array.isArray(node?.imagePromptList) ? node.imagePromptList : []);
-        const promptByImage = new Map();
-        imageList.forEach((image, index) => {
-            const prompt = promptList[index];
-            if (image && typeof prompt === 'string' && prompt.trim()) promptByImage.set(image, prompt.trim());
-        });
-        return images.map((image, index) => {
-            if (promptByImage.has(image)) return promptByImage.get(image);
-            const prompt = promptList[index] || promptList[0] || node?.data?.prompt || node?.prompt || '';
-            return typeof prompt === 'string' ? prompt.trim() : '';
-        });
-    }
-
-    function getImagePromptsForNode(nodeId, images, visited = new Set()) {
-        if (!nodeId || visited.has(nodeId) || !Array.isArray(state.connections)) return images.map(() => '');
-        visited.add(nodeId);
-        const node = getNodeById(nodeId);
-        const directPrompts = getImagePromptsFromNode(node, images);
-        if (directPrompts.some((prompt) => prompt)) return directPrompts;
-        const incomingImageConnections = state.connections.filter((connection) =>
-            connection?.to?.nodeId === nodeId && connection?.to?.port === 'image'
-        );
-        for (const connection of incomingImageConnections) {
-            const prompts = getImagePromptsForNode(connection?.from?.nodeId, images, visited);
-            if (prompts.some((prompt) => prompt)) return prompts;
-        }
-        return images.map(() => '');
-    }
-
-    function getImageSavePrompts(nodeId, images) {
-        const node = getNodeById(nodeId);
-        if (!node || !Array.isArray(state.connections)) return images.map(() => '');
-        const incomingImageConnections = state.connections.filter((connection) =>
-            connection?.to?.nodeId === nodeId && connection?.to?.port === 'image'
-        );
-        for (const connection of incomingImageConnections) {
-            const prompts = getImagePromptsForNode(connection?.from?.nodeId, images);
-            if (prompts.some((prompt) => prompt)) return prompts;
-        }
-        return images.map(() => '');
-    }
-
-    function buildImageSaveFilenameBases(nodeId, images, fallbackPrefix, options = {}) {
-        const usePromptFilename = state.imageSaveUsePromptFilename === true;
-        const timestamp = formatFilenameTimestamp();
-        if (!usePromptFilename) {
-            return images.map((_, index) => {
-                const suffix = images.length > 1 ? `_${String(index + 1).padStart(2, '0')}` : '';
-                const prefix = sanitizeFilenamePart(fallbackPrefix);
-                return options.includeTimestamp ? `${prefix}_${timestamp}${suffix}` : `${prefix}${suffix}`;
-            });
-        }
-
-        const prompts = getImageSavePrompts(nodeId, images);
-        const promptCounts = new Map();
-        return images.map((_, index) => {
-            const promptBase = sanitizeFilenamePart(prompts[index], sanitizeFilenamePart(fallbackPrefix));
-            const key = promptBase.toLowerCase();
-            const count = (promptCounts.get(key) || 0) + 1;
-            promptCounts.set(key, count);
-            const duplicateSuffix = count > 1 ? `_${String(count).padStart(2, '0')}` : '';
-            return `${promptBase}_${timestamp}${duplicateSuffix}`;
-        });
-    }
-
-    function detectVideoExtensionFromSource(video = {}, blob = null) {
-        const blobType = String(blob?.type || '').toLowerCase();
-        if (blobType.includes('webm')) return '.webm';
-        if (blobType.includes('mov') || blobType.includes('quicktime')) return '.mov';
-        if (blobType.includes('avi')) return '.avi';
-        if (blobType.includes('mkv')) return '.mkv';
-        if (blobType.includes('mp4')) return '.mp4';
-
-        const videoUrl = String(video?.url || '').trim().toLowerCase();
-        const cleanUrl = videoUrl.split('?')[0].split('#')[0];
-        if (cleanUrl.endsWith('.webm')) return '.webm';
-        if (cleanUrl.endsWith('.mov')) return '.mov';
-        if (cleanUrl.endsWith('.avi')) return '.avi';
-        if (cleanUrl.endsWith('.mkv')) return '.mkv';
-        return '.mp4';
-    }
-
-    function buildVideoSaveFilenameBase(nodeId, video, fallbackPrefix, options = {}) {
-        const usePromptFilename = state.imageSaveUsePromptFilename === true;
-        const timestamp = formatFilenameTimestamp();
-        const fallbackBase = sanitizeFilenamePart(fallbackPrefix || 'video', 'video');
-        const prompt = typeof video?.prompt === 'string' ? video.prompt.trim() : '';
-        const base = usePromptFilename
-            ? sanitizeFilenamePart(prompt, fallbackBase)
-            : fallbackBase;
-        return options.includeTimestamp ? `${base}_${timestamp}` : base;
-    }
-
 
 
 
@@ -2363,89 +2263,31 @@ export function createMediaControllerApi({
         const videos = (Array.isArray(dataUrl?.videos) ? dataUrl.videos : [dataUrl?.video])
             .filter((video) => video && typeof video === 'object' && video.url);
         const video = videos[videos.length - 1] || null;
-        if (images.length === 0 && videos.length === 0) return;
-        const handle = state.globalSaveDirHandle;
-        if (!handle) {
-            showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
-            addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId });
-            return;
-        }
         try {
-            const perm = await handle.queryPermission({ mode: 'readwrite' });
-            if (perm !== 'granted') {
-                try {
-                    const req = await handle.requestPermission({ mode: 'readwrite' });
-                    if (req !== 'granted') {
-                        showToast('【自动保存失败】目录访问权限被拒绝', 'error');
-                        addLog('error', '自动保存失败', '权限被拒绝', { nodeId });
-                        return;
-                    }
-                } catch (e) {
-                    showToast('自动保存失败：无法请求目录权限，请手动点击选择目录重新激活', 'error', 6000);
-                    addLog('error', '自动保存失败', '无法请求权限: ' + e.message, { nodeId });
-                    return;
-                }
-            }
             const prefix = documentRef.getElementById(`${nodeId}-filename`)?.value || (video?.url ? 'video' : 'image');
-            const savedFilenames = [];
-            if (images.length > 0) {
-                const filenameBases = buildImageSaveFilenameBases(nodeId, images, prefix, { includeTimestamp: true });
-                for (let index = 0; index < images.length; index += 1) {
-                    const blob = dataURLtoBlob(images[index]);
-                    const { fileHandle, filename } = await getAvailableFileHandle(handle, filenameBases[index]);
-                    if (!fileHandle) throw new Error('无法创建文件');
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(blob);
-                    await writable.close();
-                    savedFilenames.push(filename);
+            const result = await saveGeneratedMediaToDirectory({
+                payload: dataUrl, directoryHandle: state.globalSaveDirHandle, filenamePrefix: prefix,
+                dataURLtoBlob, downloadVideo: downloadGeneratedVideo,
+                buildImageFilenameBases: (items, name) => buildImageSaveFilenameBases_local(nodeId, items, name, { includeTimestamp: true }),
+                buildVideoFilenameBase: (currentVideo, name) => buildVideoSaveFilenameBase_local(nodeId, currentVideo, name, { includeTimestamp: true }),
+                detectVideoExtension: detectVideoExtensionFromSource, getAvailableFileHandle,
+                onVideoProgress: ({ index, videoCount, stage, loaded = 0, total: contentLength = 0, speedBytesPerSecond = 0, filename }) => {
+                    if (stage === 'complete') return completeVideoAutoSaveToast(nodeId, videoCount > 1 ? `已自动保存 ${index + 1}/${videoCount}：${filename}` : `视频已自动保存：${filename}`);
+                    updateVideoAutoSaveToast(nodeId, { subtitle: videoCount > 1 ? `正在保存视频 ${index + 1}/${videoCount}...` : '正在通过后端下载视频并保存到目录...', stage: stage === 'writing' ? '写入目录中' : '后端下载中', loaded, total: contentLength, status: stage === 'writing' ? '写入中' : '下载中', speedBytesPerSecond });
                 }
+            });
+            if (result.status === 'empty') return;
+            if (result.status === 'missing-directory') {
+                showToast('自动保存提醒：尚未在通用设置中选择全局保存目录，内容仅保存在节点内', 'warning', 5000);
+                addLog('warning', '自动保存跳过', '未在通用设置中配置保存路径', { nodeId });
+                return;
             }
-            for (const [videoIndex, currentVideo] of videos.entries()) {
-                const filenameBase = buildVideoSaveFilenameBase(nodeId, currentVideo, prefix, { includeTimestamp: true });
-                updateVideoAutoSaveToast(nodeId, {
-                    subtitle: videos.length > 1 ? `正在保存视频 ${videoIndex + 1}/${videos.length}...` : '正在通过后端下载视频并保存到目录...',
-                    stage: '后端下载中',
-                    loaded: 0,
-                    total: 0,
-                    status: '准备中',
-                    speedBytesPerSecond: 0
-                });
-                const blob = await downloadGeneratedVideo(currentVideo.url, {
-                    filenameBase,
-                    onProgress: ({ loaded, total, speedBytesPerSecond, done }) => {
-                        updateVideoAutoSaveToast(nodeId, {
-                            subtitle: '正在通过后端下载视频并保存到目录...',
-                            stage: done ? '正在写入目录' : '后端下载中',
-                            loaded,
-                            total,
-                            status: done ? '即将写入文件' : '下载中',
-                            speedBytesPerSecond
-                        });
-                    }
-                });
-                const extension = detectVideoExtensionFromSource(currentVideo, blob);
-                const { fileHandle, filename } = await getAvailableFileHandle(
-                    handle,
-                    filenameBase,
-                    extension
-                );
-                if (!fileHandle) throw new Error('无法创建文件');
-                updateVideoAutoSaveToast(nodeId, {
-                    subtitle: '正在把视频写入你设置的目录...',
-                    stage: '写入目录中',
-                    loaded: blob.size || 0,
-                    total: blob.size || 0,
-                    status: '写入中',
-                    speedBytesPerSecond: 0
-                });
-                const writable = await fileHandle.createWritable();
-                await writable.write(blob);
-                await writable.close();
-                savedFilenames.push(filename);
-                completeVideoAutoSaveToast(nodeId, videos.length > 1
-                    ? `已自动保存 ${videoIndex + 1}/${videos.length}：${filename}`
-                    : `视频已自动保存：${filename}`);
+            if (result.status === 'permission-denied') {
+                showToast('【自动保存失败】目录访问权限被拒绝', 'error');
+                addLog('error', '自动保存失败', '权限被拒绝', { nodeId });
+                return;
             }
+            const savedFilenames = result.filenames;
             showToast(
                 images.length > 0 && videos.length > 0
                     ? `已自动保存 ${images.length} 张图片和 ${videos.length} 个视频`
@@ -2456,7 +2298,7 @@ export function createMediaControllerApi({
                             : (videos.length > 1 ? `已自动保存 ${videos.length} 个视频` : `视频已自动保存: ${savedFilenames[0]}`))),
                 'success'
             );
-            addLog('success', '自动保存成功', `已保存至: ${handle.name}/${savedFilenames.join(', ')}`);
+            addLog('success', '自动保存成功', `已保存至: ${state.globalSaveDirHandle.name}/${savedFilenames.join(', ')}`);
         } catch (err) {
             if (video?.url) failVideoAutoSaveToast(nodeId, `视频自动保存失败：${err.message}`);
             console.error('Auto-save error:', err);
