@@ -30,6 +30,8 @@ SAFETY_STATES = {'healthy', 'scan_required', 'scanning', 'gc_suspended', 'repair
 HISTORY_MAX_ENTRIES = 1000
 HISTORY_RETENTION_DAYS = 365
 DEFAULT_MEDIA_CACHE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024
+CACHE_MAINTENANCE_INTERVAL_SECONDS = 5 * 60
+MEDIA_QUARANTINE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 DOCUMENT_NAMES = {
     'session', 'ui_bootstrap', 'prompt_library', 'logs_state',
     'request_statistics', 'update_state', 'network_detection',
@@ -773,13 +775,39 @@ class StorageService:
             return [row[0] for row in db.execute('''SELECT DISTINCT partition_name
                 FROM media_integrity_changes WHERE revision>?''', (int(revision),))]
 
-    @staticmethod
-    def _integrity_report_verification(db, damage_items):
+    def _verified_quarantine_item(self, db, row):
+        key = row['asset_key']
+        quarantine = db.execute('SELECT * FROM media_asset_quarantine WHERE asset_key=?', (key,)).fetchone()
+        if not quarantine or quarantine['state'] not in ('quarantined', 'releasing') or self._asset_has_consumers(db, key):
+            return False
+        try:
+            raw = db.execute('SELECT value FROM meta WHERE key=?', (f'media_quarantine:{key}',)).fetchone()
+            record = json.loads(raw[0]) if raw and raw[0] else {}
+            digest = hashlib.sha256(key.encode()).hexdigest()
+            path = os.path.join(self._media_quarantine_dir, digest)
+            if (record.get('version') != 1 or record.get('sha256') != row['sha256']
+                    or record.get('storageEpoch') != self._safety_status['storageEpoch']
+                    or os.path.realpath(path) != os.path.join(os.path.realpath(self._media_quarantine_dir), digest)
+                    or os.path.abspath(record.get('quarantinePath', '')) != os.path.abspath(path)):
+                return False
+            if os.path.isfile(path):
+                return self._sha256_file(path) == row['sha256']
+            raw_audit = db.execute('SELECT value FROM meta WHERE key=?', (f'media_gc_release:{digest}',)).fetchone()
+            audit = json.loads(raw_audit[0]) if raw_audit else {}
+            return (quarantine['state'] == 'releasing' and audit.get('version') == 1
+                    and audit.get('phase') == 'releasing' and audit.get('identity') == digest[:16]
+                    and audit.get('storageEpoch') == record['storageEpoch'])
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
+
+    def _integrity_report_verification(self, db, damage_items):
         pending = int(db.execute('''SELECT COUNT(*) FROM media_asset_transitions
             WHERE status NOT IN ('completed', 'superseded')''').fetchone()[0])
         invalid_quarantine = int(db.execute('''SELECT COUNT(*) FROM media_asset_quarantine AS quarantine
             LEFT JOIN assets ON assets.asset_key=quarantine.asset_key
-            WHERE assets.asset_key IS NULL OR quarantine.state NOT IN ('pending', 'quarantined', 'restoring')''').fetchone()[0])
+            WHERE assets.asset_key IS NULL OR quarantine.state NOT IN ('pending', 'quarantined', 'restoring', 'releasing')''').fetchone()[0])
+        invalid_quarantine += sum(not self._verified_quarantine_item(db, row) for row in db.execute(
+            'SELECT assets.* FROM assets JOIN media_asset_quarantine USING(asset_key)'))
         quarantined = int(db.execute('SELECT COUNT(*) FROM media_asset_quarantine').fetchone()[0])
         candidate_count = int(db.execute('''SELECT COUNT(*) FROM assets
             WHERE NOT EXISTS(SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key)
@@ -878,9 +906,10 @@ class StorageService:
                 add('missing_owner', identity)
             elif actual != expected['assetKeys']:
                 add('partial_reference_list', identity, expectedCount=len(expected['assetKeys']), actualCount=len(actual))
-        for row in partitions['assets']:
-            if row['relative_path'] not in files:
-                add('missing_file', row['asset_key'])
+        with self._connect() as db:
+            for row in partitions['assets']:
+                if row['relative_path'] not in files and not self._verified_quarantine_item(db, row):
+                    add('missing_file', row['asset_key'])
         referenced_keys = {row['asset_key'] for row in partitions['references']} | {
             row['asset_key'] for row in partitions['ownerItems']
         }
@@ -1385,6 +1414,8 @@ class StorageService:
 
     def quarantine_media_candidates(self, asset_keys, reason='canary', now_ms=None):
         self.initialize()
+        if not self._cache_reclamation_verified():
+            raise StorageError('Physical media reclamation is suspended until integrity verification completes')
         now = int(now_ms or time.time() * 1000)
         os.makedirs(self._media_quarantine_dir, exist_ok=True)
         moved = 0
@@ -1398,13 +1429,18 @@ class StorageService:
                         SELECT 1 FROM media_asset_owner_items WHERE asset_key=assets.asset_key)''', (key,)).fetchone()
                     if not row:
                         continue
+                    # A different identity may still own the same physical file.
+                    if db.execute('SELECT 1 FROM assets WHERE relative_path=? AND asset_key<>?',
+                                  (row['relative_path'], key)).fetchone():
+                        continue
                     source = os.path.join(self.assets_dir, *row['relative_path'].split('/'))
                     destination = os.path.join(self._media_quarantine_dir, hashlib.sha256(key.encode()).hexdigest())
                     if not os.path.isfile(source) or self._sha256_file(source) != row['sha256']:
                         raise StorageError('Quarantine candidate changed during verification')
                     record = {
+                        'version': 1, 'storageEpoch': self._safety_status['storageEpoch'],
                         'relativePath': row['relative_path'], 'sha256': row['sha256'], 'reason': reason,
-                        'quarantinePath': destination, 'releaseAfter': now + 30 * 24 * 60 * 60 * 1000,
+                        'quarantinePath': destination, 'releaseAfter': now + MEDIA_QUARANTINE_RETENTION_MS,
                     }
                     self._write_json_atomic(f'{destination}.recovery.json', record)
                     db.execute('''INSERT OR REPLACE INTO media_asset_quarantine(asset_key, state, quarantined_at)
@@ -1452,6 +1488,11 @@ class StorageService:
 
     def restore_quarantined_media(self, asset_key):
         self.initialize()
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return self._restore_quarantined_media(db, asset_key)
+
+    def _restore_quarantined_media(self, db, asset_key):
         record = json.loads(self.get_meta(f'media_quarantine:{asset_key}', '{}') or '{}')
         if not record:
             recovery_path = os.path.join(
@@ -1465,16 +1506,33 @@ class StorageService:
             raise StorageError('Media asset is not quarantined')
         source = record['quarantinePath']
         destination = os.path.join(self.assets_dir, *record['relativePath'].split('/'))
+        expected_source = os.path.join(self._media_quarantine_dir, hashlib.sha256(str(asset_key).encode()).hexdigest())
+        if (os.path.abspath(source) != os.path.abspath(expected_source)
+                or os.path.islink(source)
+                or not os.path.realpath(destination).startswith(os.path.realpath(self.assets_dir) + os.sep)):
+            raise StorageError('Unsafe Media asset quarantine path')
         if os.path.exists(destination) and self._sha256_file(destination) != record['sha256']:
             self._open_gc_circuit_breaker('quarantine_restore_conflict')
             raise StorageError('Quarantine restore conflicts with different content')
         os.makedirs(os.path.dirname(destination), exist_ok=True)
-        if not os.path.exists(destination):
+        if os.path.isfile(source):
+            if self._sha256_file(source) != record['sha256']:
+                raise StorageError('Media asset quarantine cannot be restored')
+            # A matching republished original is safe to replace with identical
+            # verified content; do not leave a second untracked quarantine copy.
             os.replace(source, destination)
-        with self._connect() as db:
-            db.execute('DELETE FROM media_asset_quarantine WHERE asset_key=?', (asset_key,))
-        self.set_meta(f'media_quarantine:{asset_key}', '')
+        elif not os.path.isfile(destination):
+            raise StorageError('Media asset quarantine cannot be restored')
+        db.execute('DELETE FROM media_asset_quarantine WHERE asset_key=?', (asset_key,))
+        db.execute('DELETE FROM meta WHERE key=?', (f'media_quarantine:{asset_key}',))
+        recovery = f'{expected_source}.recovery.json'
+        if os.path.isfile(recovery) and not os.path.islink(recovery):
+            os.remove(recovery)
         return {'restored': True, 'assetKey': asset_key}
+
+    def _restore_before_reference(self, db, asset_key):
+        if db.execute('SELECT 1 FROM media_asset_quarantine WHERE asset_key=?', (asset_key,)).fetchone():
+            self._restore_quarantined_media(db, asset_key)
 
     def audit_media_gc_candidates(self, workflow_ids, now_ms=None):
         self.initialize()
@@ -1543,6 +1601,155 @@ class StorageService:
         return {'eligible': True, 'limitExceeded': False, 'candidateCount': count,
                 'candidateBytes': byte_count, **result}
 
+    def _cache_reclamation_verified(self):
+        """A maintenance worker must not rely on another process's stale safety latch."""
+        if not self._physical_reclamation_allowed():
+            return False
+        try:
+            if os.path.getsize(self._safety_path) > MAX_SAFETY_STATE_BYTES:
+                return False
+            with open(self._safety_path, encoding='utf-8') as source:
+                status = json.load(source)
+            return (status.get('state') == 'healthy'
+                    and status.get('storageEpoch') == self._safety_status.get('storageEpoch'))
+        except (OSError, ValueError, AttributeError):
+            return False
+
+    @staticmethod
+    def _asset_has_consumers(db, key):
+        return any(db.execute(sql, (key,)).fetchone() for sql in (
+            'SELECT 1 FROM media_asset_refs WHERE asset_key=?',
+            'SELECT 1 FROM media_asset_owner_items WHERE asset_key=?',
+            'SELECT 1 FROM media_operation_owner_items WHERE asset_key=?',
+            'SELECT 1 FROM history WHERE asset_key=?',
+            'SELECT 1 FROM history WHERE thumb_asset_key=?',
+        ))
+
+    def release_expired_media_quarantine(self, now_ms=None, max_count=25, max_bytes=256 * 1024 * 1024):
+        """Finalize only previously approved canary items, never unknown/migration media.
+
+        A durable audited releasing intent precedes unlink. SQLite's writer lock
+        fences owner establishment and makes a retry after unlink idempotent.
+        """
+        self.initialize()
+        now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        released = released_bytes = 0
+        if not self._cache_reclamation_verified():
+            return {'quarantineReleased': 0, 'gcSuspended': True}
+        with self._connect() as db:
+            keys = [row[0] for row in db.execute('''SELECT asset_key FROM media_asset_quarantine
+                WHERE state IN ('quarantined', 'releasing') AND quarantined_at <= ?
+                ORDER BY quarantined_at, asset_key LIMIT ?''',
+                (now - MEDIA_QUARANTINE_RETENTION_MS, max(0, int(max_count))))]
+        for key in keys:
+            try:
+                with self._lock, self._connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    if not self._cache_reclamation_verified():
+                        break
+                    if db.execute("SELECT 1 FROM media_asset_transitions WHERE status NOT IN ('completed','superseded')").fetchone():
+                        break
+                    row = db.execute('''SELECT a.*, q.state, q.quarantined_at FROM assets a
+                        JOIN media_asset_quarantine q USING(asset_key) WHERE asset_key=?''', (key,)).fetchone()
+                    if not row or self._asset_has_consumers(db, key):
+                        continue
+                    raw = db.execute('SELECT value FROM meta WHERE key=?', (f'media_quarantine:{key}',)).fetchone()
+                    record = json.loads(raw[0]) if raw and raw[0] else {}
+                    if (record.get('version') != 1 or record.get('reason') != 'workflow_canary'
+                            or record.get('storageEpoch') != self._safety_status['storageEpoch']
+                            or record.get('releaseAfter', now + 1) > now
+                            or row['quarantined_at'] + MEDIA_QUARANTINE_RETENTION_MS > now):
+                        continue
+                    if released_bytes + row['size_bytes'] > max_bytes:
+                        continue
+                    digest = hashlib.sha256(key.encode()).hexdigest()
+                    path = os.path.join(self._media_quarantine_dir, digest)
+                    recovery_path = f'{path}.recovery.json'
+                    root = os.path.realpath(self._media_quarantine_dir)
+                    if (os.path.realpath(path) != os.path.join(root, digest)
+                            or os.path.realpath(recovery_path) != os.path.join(root, f'{digest}.recovery.json')
+                            or os.path.abspath(record.get('quarantinePath', '')) != os.path.abspath(path)
+                            or record.get('sha256') != row['sha256']):
+                        raise StorageError('Unsafe Media asset quarantine evidence')
+                    # An original republished after quarantine is not ours to delete.
+                    original = os.path.join(self.assets_dir, *row['relative_path'].split('/'))
+                    if os.path.lexists(original):
+                        continue
+                    if os.path.isfile(path):
+                        if self._sha256_file(path) != row['sha256']:
+                            raise StorageError('Media asset quarantine content changed')
+                    elif row['state'] != 'releasing':
+                        raise StorageError('Media asset quarantine content is missing')
+                    audit_key = f'media_gc_release:{digest}'
+                    if row['state'] == 'releasing':
+                        prior = db.execute('SELECT value FROM meta WHERE key=?', (audit_key,)).fetchone()
+                        audit = json.loads(prior[0]) if prior else {}
+                        if (audit.get('version') != 1 or audit.get('phase') != 'releasing'
+                                or audit.get('storageEpoch') != record['storageEpoch']):
+                            raise StorageError('Missing Media asset release audit')
+                    if row['state'] != 'releasing':
+                        audit = {'version': 1, 'identity': digest[:16], 'phase': 'releasing',
+                                 'storageEpoch': record['storageEpoch'], 'bytes': row['size_bytes'], 'at': now}
+                        db.execute('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)',
+                                   (audit_key, json.dumps(audit, separators=(',', ':'))))
+                        db.execute("UPDATE media_asset_quarantine SET state='releasing' WHERE asset_key=?", (key,))
+                        self._transition_fault_injector('gc_release_audited')
+                    # Commit the intent before physical deletion; reacquire and recheck
+                    # the row because another process may have restored it meanwhile.
+                with self._lock, self._connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    state = db.execute('SELECT state FROM media_asset_quarantine WHERE asset_key=?', (key,)).fetchone()
+                    if (not self._cache_reclamation_verified() or not state or state[0] != 'releasing'
+                            or self._asset_has_consumers(db, key) or os.path.lexists(original)
+                            or db.execute("SELECT 1 FROM media_asset_transitions WHERE status NOT IN ('completed','superseded')").fetchone()):
+                        continue
+                    if os.path.isfile(path):
+                        if os.path.realpath(path) != os.path.join(root, digest):
+                            raise StorageError('Unsafe Media asset quarantine path')
+                        if self._sha256_file(path) != row['sha256']:
+                            raise StorageError('Media asset quarantine content changed')
+                        os.remove(path)
+                    self._transition_fault_injector('gc_release_unlinked')
+                    if os.path.exists(recovery_path):
+                        if os.path.realpath(recovery_path) != os.path.join(root, f'{digest}.recovery.json'):
+                            raise StorageError('Unsafe Media asset recovery path')
+                        os.remove(recovery_path)
+                    db.execute('DELETE FROM media_asset_quarantine WHERE asset_key=?', (key,))
+                    db.execute('DELETE FROM assets WHERE asset_key=?', (key,))
+                    db.execute('DELETE FROM meta WHERE key=?', (f'media_quarantine:{key}',))
+                    audit = {'version': 1, 'identity': digest[:16], 'phase': 'released',
+                             'storageEpoch': record['storageEpoch'], 'bytes': row['size_bytes'], 'at': now}
+                    db.execute('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)',
+                               (audit_key, json.dumps(audit, separators=(',', ':'))))
+                    released += 1
+                    released_bytes += row['size_bytes']
+            except Exception:
+                self._open_gc_circuit_breaker('media_quarantine_release_failed')
+                raise
+        return {'quarantineReleased': released, 'quarantineBytesReleased': released_bytes,
+                'gcSuspended': not self._cache_reclamation_verified()}
+
+    def run_cache_maintenance(self, now_ms=None):
+        """Bounded background pass; never promotes the canary or relaxes retention."""
+        self.initialize()
+        now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        temporary = self.clear_temporary(now_ms=now, managed_only=True, max_count=100)
+        self.trim_history(now_ms=now, max_deletions=100, cleanup=False)
+        result = {**temporary, 'assetsDeleted': 0, 'quarantineReleased': 0}
+        if self._cache_reclamation_verified():
+            result.update(self.release_expired_media_quarantine(now_ms=now))
+            result.update(self.cleanup_unreferenced_media_assets(
+                max_count=100, older_than_ms=now - CACHE_MAINTENANCE_INTERVAL_SECONDS * 1000))
+        else:
+            result['gcSuspended'] = True
+        # Completed deletion audits have a 90-day retention, not an unbounded log.
+        with self._connect() as db:
+            db.execute('''DELETE FROM meta WHERE key IN (SELECT key FROM meta
+                WHERE key LIKE 'media_gc_release:%' AND json_valid(value)
+                AND json_extract(value, '$.phase')='released' AND json_extract(value, '$.at') < ?
+                LIMIT 100)''', (now - 90 * 86400000,))
+        return result
+
     def _asset_relative_path(self, digest, mime_type):
         extension = mimetypes.guess_extension(mime_type or '') or '.bin'
         extension = '.jpg' if extension == '.jpe' else extension
@@ -1568,9 +1775,22 @@ class StorageService:
             db.execute('BEGIN IMMEDIATE')
             if media_owner:
                 self._assert_legacy_workflow_owner_alive(db, *media_owner)
-                exists = db.execute('SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone()
-                if not exists and self._media_cache_bytes(db) + len(body) > self.get_media_cache_limit():
-                    raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
+            self._restore_before_reference(db, asset_key)
+            # Budget every asset class, including thumbnails and legacy uploads.
+            # Aliases of the same physical file consume the budget only once.
+            exists = db.execute('SELECT 1 FROM assets WHERE relative_path=?', (relative_path,)).fetchone()
+            additional_bytes = 0 if exists else len(body)
+            if additional_bytes and self._media_cache_bytes(db) + additional_bytes > self.get_media_cache_limit():
+                raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
+            old = db.execute('SELECT * FROM assets WHERE asset_key=?', (asset_key,)).fetchone()
+            if old and old['relative_path'] != relative_path:
+                # Keep superseded physical files accounted for until maintenance
+                # can reclaim them, instead of hiding their bytes from the quota.
+                retired_key = 'retired:' + hashlib.sha256(old['relative_path'].encode()).hexdigest()
+                db.execute('''INSERT OR IGNORE INTO assets
+                    (asset_key,sha256,kind,mime_type,size_bytes,relative_path,created_at)
+                    VALUES(?,?,'retired',?,?,?,?)''',
+                    (retired_key, old['sha256'], old['mime_type'], old['size_bytes'], old['relative_path'], now))
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             if not os.path.exists(destination):
                 fd, temporary_path = tempfile.mkstemp(prefix='asset-', dir=self.temp_dir)
@@ -1619,28 +1839,37 @@ class StorageService:
         if not self._physical_reclamation_allowed():
             return False
         formal_authority = self.get_meta('media_gc_authority') == 'formal'
-        with self._lock, self._connect() as db:
-            if formal_authority:
-                quarantine = db.execute('SELECT state FROM media_asset_quarantine WHERE asset_key=?',
-                                        (str(asset_key),)).fetchone()
-                if not quarantine or quarantine['state'] != 'releasing':
+        try:
+            with self._lock, self._connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                if formal_authority:
+                    # Formal collection is finalized only by the audited expiry path.
                     return False
-            row = db.execute('SELECT relative_path FROM assets WHERE asset_key=?', (str(asset_key),)).fetchone()
-            if not row:
-                return False
-            ref_count = db.execute('SELECT COUNT(*) FROM media_asset_refs WHERE asset_key=?', (str(asset_key),)).fetchone()[0]
-            if ref_count:
-                return False
-            try:
-                db.execute('DELETE FROM assets WHERE asset_key=?', (str(asset_key),))
-            except sqlite3.IntegrityError:
-                return False
-            remaining = db.execute('SELECT COUNT(*) FROM assets WHERE relative_path=?', (row['relative_path'],)).fetchone()[0]
-        if remaining == 0:
-            try:
-                os.remove(os.path.join(self.assets_dir, *row['relative_path'].split('/')))
-            except OSError:
-                pass
+                if not self._cache_reclamation_verified():
+                    return False
+                row = db.execute('SELECT relative_path FROM assets WHERE asset_key=?', (str(asset_key),)).fetchone()
+                if not row:
+                    return False
+                if (self._asset_has_consumers(db, str(asset_key)) or db.execute(
+                        'SELECT 1 FROM media_asset_quarantine WHERE asset_key=?', (str(asset_key),)).fetchone()):
+                    return False
+                path = os.path.realpath(os.path.join(self.assets_dir, *row['relative_path'].split('/')))
+                if not path.startswith(os.path.realpath(self.assets_dir) + os.sep):
+                    raise StorageError('Unsafe Media asset path')
+                try:
+                    db.execute('DELETE FROM assets WHERE asset_key=?', (str(asset_key),))
+                except sqlite3.IntegrityError:
+                    return False
+                remaining = db.execute('SELECT COUNT(*) FROM assets WHERE relative_path=?', (row['relative_path'],)).fetchone()[0]
+                if remaining == 0:
+                    try:
+                        os.remove(path)
+                    except FileNotFoundError:
+                        pass
+        except OSError:
+            # Let the transaction roll back before persistently suspending future collection.
+            self._open_gc_circuit_breaker('media_asset_delete_failed')
+            return False
         return True
 
     def get_media_cache_limit(self):
@@ -1662,8 +1891,9 @@ class StorageService:
 
     def _media_cache_bytes(self, db):
         return db.execute('''
-            SELECT COALESCE(SUM(size_bytes), 0) FROM assets
-            WHERE kind='media'
+            SELECT COALESCE(SUM(size_bytes), 0) FROM (
+                SELECT relative_path, MAX(size_bytes) AS size_bytes FROM assets GROUP BY relative_path
+            )
         ''').fetchone()[0]
 
     @staticmethod
@@ -1700,6 +1930,7 @@ class StorageService:
         with self._lock, self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             self._assert_legacy_workflow_owner_alive(db, owner_type, owner_id)
+            self._restore_before_reference(db, asset_key)
             if not db.execute('SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone():
                 raise StorageError('Media asset does not exist')
             db.execute('''
@@ -2056,6 +2287,8 @@ class StorageService:
                 db.execute("UPDATE media_asset_transitions SET status='needs-reconciliation' WHERE idempotency_key=?",
                            (idempotency_key,))
                 return {'status': 'needs-reconciliation', 'generation': generation}
+            for key in dict.fromkeys(keys):
+                self._restore_before_reference(db, key)
             transition_owner_id = f'transition:{hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()}'
             db.executemany('''INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
                 VALUES('media-transition', ?, ?, ?)''', [
@@ -2198,6 +2431,8 @@ class StorageService:
             existing_keys = [row[0] for row in db.execute('''SELECT asset_key
                 FROM media_operation_owner_items WHERE owner_id=? ORDER BY position''', (owner_id,))]
             target_keys = [item[0] for item in decoded]
+            for key in target_keys:
+                self._restore_before_reference(db, key)
             if existing_keys:
                 if existing_keys != target_keys:
                     raise StorageError('Media operation owner is already bound to a different ordered list')
@@ -2206,9 +2441,11 @@ class StorageService:
                 if referenced_keys != set(target_keys):
                     raise StorageError('Media operation owner requires reconciliation')
                 return [self.get_asset_info(key) for key in target_keys]
-            additional_bytes = sum(len(body) for key, body, _, _ in decoded
-                                   if not db.execute('SELECT 1 FROM assets WHERE asset_key=?', (key,)).fetchone())
-            if self._media_cache_bytes(db) + additional_bytes > self.get_media_cache_limit():
+            unique_paths = {self._asset_relative_path(digest, mime): len(body)
+                            for _, body, mime, digest in decoded}
+            additional_bytes = sum(size for path, size in unique_paths.items()
+                                   if not db.execute('SELECT 1 FROM assets WHERE relative_path=?', (path,)).fetchone())
+            if additional_bytes and self._media_cache_bytes(db) + additional_bytes > self.get_media_cache_limit():
                 raise StorageError('Media cache limit reached; no unreferenced media asset could be reclaimed')
             for asset_key, body, mime_type, digest in decoded:
                 relative_path = self._asset_relative_path(digest, mime_type)
@@ -2257,14 +2494,18 @@ class StorageService:
             db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (owner_id,))
         return {'cancelled': True, 'workflowId': workflow_id}
 
-    def cleanup_unreferenced_media_assets(self):
+    def cleanup_unreferenced_media_assets(self, max_count=None, older_than_ms=None):
         self.initialize()
         with self._connect() as db:
             keys = [row[0] for row in db.execute('''
-                SELECT asset_key FROM assets WHERE kind IN ('media', 'history', 'thumbnail') AND NOT EXISTS (
+                SELECT asset_key FROM assets WHERE kind IN ('media', 'history', 'thumbnail', 'retired') AND NOT EXISTS (
                     SELECT 1 FROM media_asset_refs WHERE media_asset_refs.asset_key=assets.asset_key
                 )
-            ''')]
+                AND NOT EXISTS (SELECT 1 FROM media_asset_owner_items WHERE asset_key=assets.asset_key)
+                AND NOT EXISTS (SELECT 1 FROM media_asset_quarantine WHERE asset_key=assets.asset_key)
+                AND (? IS NULL OR created_at <= ?)
+                ORDER BY created_at, asset_key LIMIT ?
+            ''', (older_than_ms, older_than_ms, -1 if max_count is None else max_count))]
         if (not self._physical_reclamation_allowed()
                 or self.get_meta('media_gc_authority') == 'formal'):
             return {
@@ -2276,7 +2517,7 @@ class StorageService:
         deleted = sum(1 for key in keys if self.delete_asset(key))
         return {
             'assetsDeleted': deleted,
-            'orphanFilesDeleted': self.cleanup_orphan_files(),
+            'orphanFilesDeleted': self.cleanup_orphan_files() if max_count is None else 0,
             'gcSuspended': False,
             'candidatesRetained': 0,
         }
@@ -2298,6 +2539,7 @@ class StorageService:
         metadata.pop('videoBlob', None)
         metadata.pop('thumb', None)
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             db.execute('''
                 INSERT INTO history(id, timestamp, media_type, asset_key, thumb_asset_key, metadata_json)
                 VALUES(?, ?, ?, ?, ?, ?)
@@ -2311,6 +2553,10 @@ class StorageService:
             if thumb_asset_key:
                 db.execute('INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at) VALUES(?, ?, ?, ?)',
                            ('history-thumbnail', str(history_id), thumb_asset_key, int(time.time() * 1000)))
+            db.execute("DELETE FROM media_asset_refs WHERE owner_type='history' AND owner_id=? AND asset_key<>?",
+                       (str(history_id), asset_key))
+            db.execute("DELETE FROM media_asset_refs WHERE owner_type='history-thumbnail' AND owner_id=? AND asset_key<>?",
+                       (str(history_id), thumb_asset_key or ''))
         self.trim_history()
         return history_id
 
@@ -2345,14 +2591,15 @@ class StorageService:
             row = db.execute('SELECT * FROM history WHERE id=?', (int(history_id),)).fetchone()
         return self._history_row_to_dict(row) if row else None
 
-    def delete_history(self, history_id):
+    def delete_history(self, history_id, cleanup=True):
         entry = self.get_history(history_id)
         if not entry:
             return False
         with self._lock, self._connect() as db:
             db.execute('DELETE FROM history WHERE id=?', (int(history_id),))
             db.execute("DELETE FROM media_asset_refs WHERE owner_id=? AND owner_type IN ('history', 'history-thumbnail')", (str(history_id),))
-        self.cleanup_unreferenced_media_assets()
+        if cleanup:
+            self.cleanup_unreferenced_media_assets()
         return True
 
     def clear_history(self):
@@ -2360,30 +2607,46 @@ class StorageService:
             self.delete_history(entry['id'])
         return True
 
-    def trim_history(self, max_entries=HISTORY_MAX_ENTRIES, retention_days=HISTORY_RETENTION_DAYS):
-        cutoff = int((datetime.now() - timedelta(days=max(1, retention_days))).timestamp() * 1000)
+    def trim_history(self, max_entries=HISTORY_MAX_ENTRIES, retention_days=HISTORY_RETENTION_DAYS,
+                     now_ms=None, max_deletions=None, cleanup=True):
+        now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        cutoff = now - max(1, retention_days) * 86400000
         entries = self.list_history()
-        for index, entry in enumerate(entries):
-            if index >= max_entries or int(entry.get('timestamp') or 0) < cutoff:
-                self.delete_history(entry['id'])
-
-    def cleanup_orphan_files(self):
-        self.initialize()
-        if not self._physical_reclamation_allowed():
-            return 0
-        with self._connect() as db:
-            referenced = {row[0] for row in db.execute('SELECT DISTINCT relative_path FROM assets')}
         deleted = 0
-        for root, _, filenames in os.walk(self.assets_dir):
-            for filename in filenames:
-                path = os.path.join(root, filename)
-                relative = os.path.relpath(path, self.assets_dir).replace(os.sep, '/')
-                if relative not in referenced:
-                    try:
-                        os.remove(path)
-                        deleted += 1
-                    except OSError:
-                        pass
+        for index, entry in enumerate(entries):
+            if max_deletions is not None and deleted >= max_deletions:
+                break
+            if index >= max_entries or int(entry.get('timestamp') or 0) < cutoff:
+                self.delete_history(entry['id'], cleanup=False)
+                deleted += 1
+        if deleted and cleanup:
+            self.cleanup_unreferenced_media_assets()
+
+    def cleanup_orphan_files(self, max_count=None, older_than_ms=None):
+        self.initialize()
+        if not self._cache_reclamation_verified() or self.get_meta('media_gc_authority') == 'formal':
+            return 0
+        deleted = 0
+        with self._lock, self._connect() as db:
+            # Serialize with file publication, so an in-flight upload is not an orphan.
+            db.execute('BEGIN IMMEDIATE')
+            referenced = {row[0] for row in db.execute('SELECT DISTINCT relative_path FROM assets')}
+            for root, _, filenames in os.walk(self.assets_dir):
+                for filename in filenames:
+                    if max_count is not None and deleted >= max_count:
+                        return deleted
+                    path = os.path.join(root, filename)
+                    relative = os.path.relpath(path, self.assets_dir).replace(os.sep, '/')
+                    if relative not in referenced and not os.path.islink(path):
+                        try:
+                            if older_than_ms is not None and os.path.getmtime(path) * 1000 > older_than_ms:
+                                continue
+                            if not os.path.realpath(path).startswith(os.path.realpath(self.assets_dir) + os.sep):
+                                continue
+                            os.remove(path)
+                            deleted += 1
+                        except OSError:
+                            pass
         return deleted
 
     def cleanup_assets(self, mode, keep_keys=None):
@@ -2483,22 +2746,32 @@ class StorageService:
         cleanup = self.cleanup_unreferenced_media_assets()
         return {'referencesDeleted': references_deleted, **cleanup}
 
-    def clear_temporary(self):
+    def clear_temporary(self, now_ms=None, managed_only=False, max_count=None):
+        self.initialize()
         deleted = 0
-        stale_before = time.time() - 5 * 60
-        for name in os.listdir(self.temp_dir):
-            path = os.path.join(self.temp_dir, name)
-            try:
-                if os.path.getmtime(path) > stale_before:
-                    continue
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
-                else:
-                    os.remove(path)
-                deleted += 1
-            except OSError:
-                pass
-        return {'temporaryDeleted': deleted, 'orphanAssetsDeleted': self.cleanup_orphan_files()}
+        stale_before = (time.time() if now_ms is None else now_ms / 1000) - 5 * 60
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            root = os.path.realpath(self.temp_dir)
+            for name in os.listdir(self.temp_dir):
+                if max_count is not None and deleted >= max_count:
+                    break
+                path = os.path.join(self.temp_dir, name)
+                try:
+                    if (os.path.islink(path) or not os.path.realpath(path).startswith(root + os.sep)
+                            or os.path.getmtime(path) > stale_before):
+                        continue
+                    if managed_only and (not name.startswith('asset-') or not os.path.isfile(path)):
+                        continue
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
+                    deleted += 1
+                except OSError:
+                    pass
+        return {'temporaryDeleted': deleted,
+                'orphanAssetsDeleted': 0 if managed_only else self.cleanup_orphan_files(max_count=max_count)}
 
     def factory_reset(self):
         self.initialize()

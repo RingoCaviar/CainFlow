@@ -417,9 +417,11 @@ export function createDiskStorageApi(getState) {
             if (!mediaKey) return false;
             const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob, 256, mediaKey) : await createThumbnail(data.image));
             const thumbKey = `thumb:${mediaKey}`;
-            if (thumb) await putAsset(thumbKey, thumb, 'thumbnail');
+            // A full cache may reject the optional thumbnail. Preserve the original
+            // history entry without introducing a reference to a failed upload.
+            const thumbnailSaved = thumb ? await putAsset(thumbKey, thumb, 'thumbnail') : false;
             const entry = {
-                ...data, id, timestamp: Date.now(), mediaType, thumbAssetKey: thumb ? thumbKey : '',
+                ...data, id, timestamp: Date.now(), mediaType, thumbAssetKey: thumbnailSaved ? thumbKey : '',
                 imageAssetKey: mediaType === 'image' ? mediaKey : '',
                 videoAssetKey: mediaType === 'video' ? mediaKey : '',
                 videoMimeType: mediaType === 'video' ? mediaBlob.type : '',

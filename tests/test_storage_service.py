@@ -1601,6 +1601,7 @@ else:
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, verified=False)
             asset = service.put_asset('media:q', b'original', 'image/png', 'media')
+            self.finish_integrity_scan(service, [])
             quarantined = service.quarantine_media_candidates([asset['asset_key']], reason='canary')
             path = os.path.join(service.assets_dir, asset['relative_path'])
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1618,6 +1619,7 @@ else:
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as root:
                 service = self.make_service(root, verified=False)
                 asset = service.put_asset(f'media:{stage}', stage.encode(), 'image/png', 'media')
+                self.finish_integrity_scan(service, [])
                 service._transition_fault_injector = lambda current, target=stage: (
                     (_ for _ in ()).throw(RuntimeError('injected')) if current == target else None)
                 with self.assertRaisesRegex(RuntimeError, 'injected'):

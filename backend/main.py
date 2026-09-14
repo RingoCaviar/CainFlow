@@ -12,7 +12,7 @@ import webbrowser
 from backend import config
 from backend.handler import ProxyHTTPRequestHandler
 from backend.services.log_service import diagnostic_service
-from backend.services.storage_service import storage_service
+from backend.services.storage_service import CACHE_MAINTENANCE_INTERVAL_SECONDS, storage_service
 from backend.services import workflow_service
 from backend.services.update_service import cleanup_update_temp_files
 from backend.services.version_service import get_app_version_tag
@@ -260,10 +260,22 @@ def _recover_media_transitions():
             scan = storage_service.scan_media_integrity_page(load_current_workflows(), batch_size=100)
         except Exception:
             print('Media integrity scan paused; its safety latch and checkpoint are retained.')
-            return
+            break
         if scan.get('complete'):
-            return
+            break
         _storage_recovery_stop.wait(0.05)
+    _maintain_runtime_cache()
+
+
+def _maintain_runtime_cache():
+    while not _storage_recovery_stop.is_set():
+        try:
+            storage_service.run_cache_maintenance()
+        except Exception:
+            # Never include local paths, workflow content or raw exceptions.
+            print('Cache maintenance paused; protected media and recovery evidence are retained.')
+        if _storage_recovery_stop.wait(CACHE_MAINTENANCE_INTERVAL_SECONDS):
+            break
 
 
 def _shutdown_storage():
