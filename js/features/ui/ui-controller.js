@@ -66,6 +66,7 @@ export function createUiControllerApi({
     windowRef = globalThis.window,
     localStorageRef = localStorage,
     indexedDbRef = indexedDB,
+    desktopRef = typeof globalThis !== 'undefined' ? globalThis.__cainflowDesktop : null,
     locationRef = location,
     notificationRef = typeof Notification !== 'undefined' ? Notification : null,
     systemNotificationApi = null,
@@ -803,15 +804,26 @@ export function createUiControllerApi({
                 throw new Error('请至少选择一个要导出的数据块');
             }
             const blob = createConfigArchiveBlob(await buildConfigArchiveEntries(selection));
+            const time = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const filename = `CainFlow_Config_${time}.zip`;
+
+            if (desktopRef?.saveFile) {
+                const destination = await desktopRef.saveFile(filename, blob.type, blob);
+                if (!destination) return;
+                showToast('配置 ZIP 已保存，请妥善保管文件（包含 API 密钥）', 'success', 5000);
+                return;
+            }
+
             const url = URL.createObjectURL(blob);
             const link = documentRef.createElement('a');
-            const time = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
             link.href = url;
-            link.download = `CainFlow_Config_${time}.zip`;
+            link.download = filename;
+            link.style.display = 'none';
+            documentRef.body?.appendChild(link);
             link.click();
-
-            URL.revokeObjectURL(url);
+            link.remove?.();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
             showToast('配置 ZIP 已导出，请妥善保管文件（包含 API 密钥）', 'success', 5000);
         } catch (error) {
             showToast('导出配置失败: ' + error.message, 'error');
@@ -1237,7 +1249,9 @@ export function createUiControllerApi({
                 onExport: () => {
                     const blob = new Blob([JSON.stringify(integrityController.exportDiagnostics(), null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob); const anchor = documentRef.createElement('a');
-                    anchor.href = url; anchor.download = 'cainflow-media-integrity-redacted.json'; anchor.click(); URL.revokeObjectURL(url);
+                    anchor.href = url; anchor.download = 'cainflow-media-integrity-redacted.json'; anchor.style.display = 'none';
+                    documentRef.body?.appendChild(anchor); anchor.click(); anchor.remove?.();
+                    setTimeout(() => URL.revokeObjectURL(url), 0);
                 },
                 onAction: async (action, item) => {
                     const node = state.nodes.get(item.nodeId);

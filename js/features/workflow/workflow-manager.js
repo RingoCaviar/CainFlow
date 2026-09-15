@@ -876,8 +876,11 @@ export function createWorkflowManagerApi({
         const link = documentRef.createElement('a');
         link.href = url;
         link.download = `${getSafeWorkflowFileName(name)}.json`;
+        link.style.display = 'none';
+        documentRef.body?.appendChild(link);
         link.click();
-        URL.revokeObjectURL(url);
+        link.remove?.();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
     }
 
     async function getWorkflowDataForAction(name) {

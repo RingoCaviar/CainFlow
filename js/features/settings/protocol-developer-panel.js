@@ -968,8 +968,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         const a = documentRef.createElement('a');
         a.href = url;
         a.download = `protocol-${protocolId}.json`;
+        a.style.display = 'none';
+        documentRef.body?.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        a.remove?.();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
 
         showToast(`协议 ${protocolId} 已导出`, 'success');
     }
@@ -1273,8 +1276,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         const a = documentRef.createElement('a');
         a.href = url;
         a.download = `protocol-${data.id}-config.json`;
+        a.style.display = 'none';
+        documentRef.body?.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        a.remove?.();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
 
         showToast(`协议配置已导出`, 'success');
     }

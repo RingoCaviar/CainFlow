@@ -147,8 +147,11 @@ export function createProjectIoApi({
             a.href = url;
             const time = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
             a.download = `CainFlow_Project_${time}.json`;
+            a.style.display = 'none';
+            documentRef.body?.appendChild(a);
             a.click();
-            URL.revokeObjectURL(url);
+            a.remove?.();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
             showToast('工作流已导出，API 供应商、模型配置与图片原始数据不会写入文件', 'success');
         } catch (e) {
             showToast('导出失败: ' + e.message, 'error');
