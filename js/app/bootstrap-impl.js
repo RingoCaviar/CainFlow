@@ -63,6 +63,7 @@ import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } fro
 import { applyCanvasUiSetting as applyCanvasUiSettingService } from '../features/ui/canvas-ui-controller.js';
 import { createToolbarControllerApi } from '../features/ui/toolbar-controller.js';
 import { createWorkspaceModeController } from '../features/ui/workspace-mode-controller.js';
+import { createConversationWorkbenchController } from '../features/conversation/conversation-workbench-controller.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
 import { createFloatingNoticesController } from '../features/ui/floating-notices-controller.js';
 import { createLogPanelApi } from '../features/logs/log-panel.js';
@@ -987,6 +988,21 @@ function getWorkspaceModeControllerApi() {
     return registry.workspaceModeControllerApi;
 }
 
+function getConversationWorkbenchControllerApi() {
+    if (!registry.conversationWorkbenchControllerApi) {
+        registry.conversationWorkbenchControllerApi = createConversationWorkbenchController({
+            state,
+            documentRef: document,
+            showToast,
+            getActiveWorkflow: () => ({
+                id: workflowManagerApi.getActiveWorkflowId?.() || '',
+                label: workflowManagerApi.getActiveWorkflowName?.() || ''
+            })
+        });
+    }
+    return registry.conversationWorkbenchControllerApi;
+}
+
 function getPromptLibraryApi() {
     if (!registry.promptLibraryApi) {
         registry.promptLibraryApi = createPromptLibraryApi({
@@ -1660,6 +1676,9 @@ registerGlobalBridges({
 });
 
 await startupPromise;
+await getConversationWorkbenchControllerApi().init().catch((error) => {
+    showToast(`加载对话工作台失败：${error.message}`, 'error');
+});
 
 return {
     state,

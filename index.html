@@ -483,10 +483,80 @@
 
 
             <section id="conversation-workspace" class="conversation-workspace" aria-label="对话工作台" hidden inert>
-                <div class="conversation-workspace-placeholder">
-                    <strong>对话工作台</strong>
-                    <span>正在准备对话列表、消息与资源上下文。</span>
-                </div>
+                <aside id="conversation-list-pane" class="conversation-pane conversation-list-pane" aria-label="对话列表">
+                    <header class="conversation-pane-header">
+                        <strong>对话</strong>
+                        <div class="conversation-pane-actions">
+                            <button id="conversation-list-collapse" class="btn btn-ghost" type="button" aria-label="收起对话列表" aria-expanded="true">‹</button>
+                            <button id="conversation-new" class="btn btn-primary" type="button">新建</button>
+                        </div>
+                    </header>
+                    <label class="conversation-search-field">
+                        <span class="sr-only">搜索对话</span>
+                        <input id="conversation-search" type="search" placeholder="搜索对话">
+                    </label>
+                    <div class="conversation-filter-row">
+                        <select id="conversation-workflow-filter" aria-label="按工作流筛选">
+                            <option value="">全部工作流</option>
+                        </select>
+                        <button id="conversation-archive-entry" class="btn btn-ghost" type="button">归档</button>
+                    </div>
+                    <div id="conversation-list" class="conversation-list" role="listbox" aria-label="对话"></div>
+                </aside>
+
+                <main id="conversation-main-pane" class="conversation-pane conversation-main-pane" aria-label="消息与输入">
+                    <header class="conversation-main-header">
+                        <div>
+                            <h2 id="conversation-title">新对话</h2>
+                            <span id="conversation-status" class="conversation-status">就绪</span>
+                        </div>
+                        <div class="conversation-main-actions">
+                            <button id="conversation-list-toggle" class="btn btn-ghost" type="button" aria-controls="conversation-list-pane" aria-expanded="true">对话列表</button>
+                            <select id="conversation-model" aria-label="对话模型"><option value="">选择模型</option></select>
+                            <button id="conversation-execution-record" class="btn btn-ghost" type="button">执行记录</button>
+                            <button id="conversation-context-toggle" class="btn btn-ghost" type="button" aria-controls="conversation-context-pane" aria-expanded="true">上下文</button>
+                        </div>
+                    </header>
+                    <div id="conversation-messages" class="conversation-messages" aria-live="polite">
+                        <div class="conversation-empty-state">
+                            <strong>从一个明确的问题开始</strong>
+                            <span>可以附加工作流节点、历史资源或本地媒体。</span>
+                        </div>
+                    </div>
+                    <section class="conversation-composer-shell" aria-label="消息输入">
+                        <div id="conversation-staged-context" class="conversation-staged-context" aria-label="暂存上下文"></div>
+                        <label for="conversation-composer" class="sr-only">输入消息</label>
+                        <textarea id="conversation-composer" rows="3" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+                        <footer class="conversation-composer-footer">
+                            <span id="conversation-send-summary">本次将发送：仅文字</span>
+                            <button id="conversation-send" class="btn btn-run" type="button">发送</button>
+                        </footer>
+                    </section>
+                </main>
+
+                <aside id="conversation-context-pane" class="conversation-pane conversation-context-pane" aria-label="资源上下文">
+                    <header class="conversation-pane-header">
+                        <strong>上下文</strong>
+                        <button id="conversation-context-collapse" class="btn btn-ghost" type="button" aria-label="收起资源上下文" aria-expanded="true">›</button>
+                    </header>
+                    <section class="conversation-context-section">
+                        <h3>工作流摘要</h3>
+                        <div id="conversation-workflow-summary" class="conversation-context-content">未关联工作流</div>
+                    </section>
+                    <section class="conversation-context-section">
+                        <h3>节点资源</h3>
+                        <div id="conversation-node-resources" class="conversation-context-content">暂无已选择节点</div>
+                    </section>
+                    <section class="conversation-context-section">
+                        <h3>历史资源</h3>
+                        <div id="conversation-history-resources" class="conversation-context-content">暂无已选择资源</div>
+                    </section>
+                    <section class="conversation-context-section">
+                        <h3>系统提示词</h3>
+                        <div id="conversation-system-prompt-summary" class="conversation-context-content">使用默认提示词</div>
+                    </section>
+                </aside>
+                <button id="conversation-drawer-backdrop" class="conversation-drawer-backdrop" type="button" aria-label="关闭对话侧栏" hidden></button>
             </section>
 
             <!-- Canvas Container -->

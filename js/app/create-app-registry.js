@@ -30,6 +30,7 @@ export function createAppRegistry() {
         systemNotificationApi: null,
         themeControllerApi: null,
         workspaceModeControllerApi: null,
+        conversationWorkbenchControllerApi: null,
         promptLibraryApi: null,
         workflowRuntimeManagerApi: null
     };
