@@ -34,9 +34,13 @@ function messageText(message) {
 
 function renderMessageParts(message) {
     const text = renderConversationMarkdown(messageText(message));
-    const attachments = (message?.parts || []).filter((part) => part?.type !== 'text').map((part) => {
+    const attachments = (message?.parts || []).map((part, partIndex) => ({ part, partIndex }))
+        .filter(({ part }) => part?.type !== 'text').map(({ part, partIndex }) => {
         const label = part.type === 'node-source' ? `${part.nodeType || '节点'} · ${part.nodeId || ''}` : `${part.mediaType || '媒体'} · ${part.assetKey || ''}`;
-        if (part.missing) return `<div class="conversation-missing-media">${escapeHtml(label)}<span>资源缺失</span><button class="btn btn-ghost" type="button" data-recover-asset="${escapeHtml(part.assetKey || '')}">恢复</button><button class="btn btn-ghost" type="button" data-remove-missing="${escapeHtml(part.assetKey || '')}">移除</button></div>`;
+        if (part.missing) {
+            const keys = part.missingAssetKeys?.length ? part.missingAssetKeys : [part.assetKey].filter(Boolean);
+            return keys.map((key) => `<div class="conversation-missing-media">${escapeHtml(label)}<span>资源缺失</span><button class="btn btn-ghost" type="button" data-message-id="${escapeHtml(message.id)}" data-part-index="${partIndex}" data-recover-asset="${escapeHtml(key)}">恢复</button><button class="btn btn-ghost" type="button" data-message-id="${escapeHtml(message.id)}" data-part-index="${partIndex}" data-remove-missing="${escapeHtml(key)}">移除</button></div>`).join('');
+        }
         return `<div class="conversation-message-attachment">${escapeHtml(label)}</div>`;
     }).join('');
     return text + attachments;
@@ -44,6 +48,20 @@ function renderMessageParts(message) {
 
 function statusLabel(status) {
     return ({ pending: '等待中', streaming: '生成中', completed: '已完成', partial: '部分回复', failed: '失败', cancelled: '已停止' })[status] || '就绪';
+}
+
+export function selectConversationBranch(messages = [], visibleVersions = new Map()) {
+    const assistantGroups = new Map();
+    for (const message of messages) {
+        if (message.role !== 'assistant' || !message.parentMessageId) continue;
+        if (!assistantGroups.has(message.parentMessageId)) assistantGroups.set(message.parentMessageId, []);
+        assistantGroups.get(message.parentMessageId).push(message);
+    }
+    const selected = new Set([...assistantGroups].map(([parentId, group]) =>
+        group[Math.max(0, Math.min(group.length - 1,
+            visibleVersions.get(parentId) ?? group.length - 1))]?.id).filter(Boolean));
+    return messages.filter((message) =>
+        message.role !== 'assistant' || !message.parentMessageId || selected.has(message.id));
 }
 
 export function createConversationWorkbenchController({
@@ -55,6 +73,8 @@ export function createConversationWorkbenchController({
     getHistoryEntry = async () => null,
     putMediaAsset = async () => null,
     removeMediaReference = async () => false,
+    recoverMissingMedia = null,
+    removeMissingMedia = null,
     materializeMessage = async () => null,
     promptRef = globalThis.prompt,
     confirmRef = globalThis.confirm,
@@ -121,11 +141,30 @@ export function createConversationWorkbenchController({
     function renderStagedContext() {
         const container = element('conversation-staged-context');
         const summary = element('conversation-send-summary');
+        const preview = element('conversation-send-preview');
         const items = stagedContext.list();
         if (container) container.innerHTML = items.map((item) => (
-            `<span class="conversation-context-chip" data-staged-id="${escapeHtml(item.id)}">${escapeHtml(item.label || item.snapshot?.nodeType || item.mediaType || '资源')}<button type="button" aria-label="移除 ${escapeHtml(item.label || '资源')}" data-remove-staged="${escapeHtml(item.id)}">×</button></span>`
+            `<span class="conversation-context-chip" data-staged-id="${escapeHtml(item.id)}">${escapeHtml(item.label || item.snapshot?.nodeType || item.mediaType || '资源')}<button type="button" aria-label="前移" data-move-staged="${escapeHtml(item.id)}" data-move-direction="-1">←</button><button type="button" aria-label="后移" data-move-staged="${escapeHtml(item.id)}" data-move-direction="1">→</button><button type="button" aria-label="移除 ${escapeHtml(item.label || '资源')}" data-remove-staged="${escapeHtml(item.id)}">×</button></span>`
         )).join('');
-        if (summary) summary.textContent = items.length ? `本次将发送：文字 + ${items.length} 项上下文` : '本次将发送：仅文字';
+        if (summary) summary.textContent = items.length
+            ? `本次将发送：历史范围 + 工作流摘要 + ${items.filter((item) => item.type === 'node-source').length} 个节点快照 + ${items.filter((item) => item.type === 'media').length} 项媒体`
+            : '本次将发送：历史范围 + 文字';
+        const workflow = getActiveWorkflow();
+        const linkedWorkflow = workflow?.id && activeConversation?.workflowId === workflow.id ? workflow : null;
+        const collection = state.connections || state.edges || [];
+        const edgeCount = collection instanceof Map || collection instanceof Set ? collection.size : collection.length || 0;
+        const nodeTypes = [...(state.nodes?.values?.() || [])].map((node) => node.type);
+        const durableCount = (activeConversation?.messages || []).filter((message) =>
+            ['user', 'assistant'].includes(message.role) && ['completed', 'partial'].includes(message.status)).length;
+        if (preview) preview.innerHTML = [
+            `<div><strong>历史范围</strong>：${durableCount} 条可用消息，超出上下文上限时从最早消息开始省略</div>`,
+            linkedWorkflow
+                ? `<div><strong>工作流</strong>：${escapeHtml(linkedWorkflow.id)} · revision ${escapeHtml(linkedWorkflow.revision ?? 0)} · 节点类型 ${escapeHtml([...new Set(nodeTypes)].join(', ') || '无')} · ${edgeCount} 条连接</div>`
+                : '<div><strong>工作流</strong>：本次不发送</div>',
+            ...items.map((item) => item.type === 'node-source'
+                ? `<div><strong>${escapeHtml(item.label || item.snapshot?.nodeType || '节点')}</strong>：${escapeHtml(item.snapshot?.textSnapshot || '空快照')}</div>`
+                : `<div><strong>媒体</strong>：${escapeHtml(item.label || item.assetKey || '资源')}</div>`)
+        ].join('');
     }
 
     function stageSelectedNodes() {
@@ -185,7 +224,7 @@ export function createConversationWorkbenchController({
         const status = element('conversation-status');
         if (status) status.textContent = activeConversation?.runStatus === 'running' ? '生成中' : '就绪';
         const lifecycleButton = element('conversation-lifecycle-action');
-        if (lifecycleButton) lifecycleButton.textContent = activeConversation?.status === 'archived' ? '恢复' : '归档';
+        if (lifecycleButton) lifecycleButton.textContent = ['archived', 'trashed'].includes(activeConversation?.status) ? '恢复' : '归档';
         const trashButton = element('conversation-trash');
         if (trashButton) trashButton.textContent = activeConversation?.status === 'trashed' ? '永久删除' : '移到回收站';
         renderModels();
@@ -195,7 +234,7 @@ export function createConversationWorkbenchController({
         const linkedToVisibleWorkflow = Boolean(activeConversation?.workflowId && activeConversation.workflowId === workflow?.id);
         const workflowSummary = element('conversation-workflow-summary');
         if (workflowSummary) workflowSummary.textContent = activeConversation?.workflowId
-            ? `${linkedToVisibleWorkflow ? workflow.label || '当前工作流' : '关联的工作流当前不可用，请重新关联'} · ${linkedToVisibleWorkflow ? state.nodes?.size || 0 : 0} 个节点`
+            ? `${linkedToVisibleWorkflow ? workflow.label || '当前工作流' : '关联的工作流当前不可用，请重新关联'} · revision ${workflow?.revision ?? 'unknown'} · ${linkedToVisibleWorkflow ? state.nodes?.size || 0 : 0} 个节点 · ${state.connections?.length || state.edges?.length || 0} 条连接`
             : '未关联工作流';
         const linkWorkflow = element('conversation-link-workflow');
         if (linkWorkflow) linkWorkflow.textContent = linkedToVisibleWorkflow ? '解除关联' : '关联当前';
@@ -281,18 +320,35 @@ export function createConversationWorkbenchController({
 
     async function sendCurrentMessage() {
         if (!activeConversation || !executionService) return null;
-        const sendingConversation = activeConversation;
+        const sendingConversation = {
+            ...activeConversation,
+            messages: selectConversationBranch(activeConversation.messages, visibleVersionByParent)
+        };
         const composer = element('conversation-composer');
         const text = composer?.value?.trim() || '';
         if (!text) return null;
         const modelId = element('conversation-model')?.value || sendingConversation.defaultModelId;
         const model = (state.models || []).find((item) => item.id === modelId);
-        const providerId = sendingConversation.defaultProviderId || model?.providerId || model?.providerIds?.[0];
+        const providerId = model?.providerId || model?.providerIds?.[0] || sendingConversation.defaultProviderId;
         const provider = (state.providers || []).find((item) => item.id === providerId);
         if (!model || !provider) throw new Error('请先选择可用的模型与 Provider');
         if (composer) composer.value = '';
         try {
-            await executionService.send({ conversation: sendingConversation, text, model, provider, contextParts: stagedContext.toMessageParts() });
+            const workflow = getActiveWorkflow();
+            const linkedWorkflow = workflow?.id && sendingConversation.workflowId === workflow.id ? workflow : null;
+            const collection = state.connections || state.edges || [];
+            const edges = collection instanceof Map ? [...collection.values()] : [...collection];
+            const endpoint = (value) => typeof value === 'object' ? value?.nodeId || value?.id || '?' : value || '?';
+            const connections = edges.map((edge) =>
+                `${endpoint(edge.source || edge.from)}→${endpoint(edge.target || edge.to)}`);
+            await executionService.send({
+                conversation: sendingConversation, text, model, provider,
+                contextParts: stagedContext.toMessageParts(),
+                workflowSummary: linkedWorkflow ? {
+                    workflowId: linkedWorkflow.id, revision: linkedWorkflow.revision,
+                    nodeTypes: [...(state.nodes?.values?.() || [])].map((node) => node.type), connections
+                } : null
+            });
             await Promise.all(stagedContext.list().filter((item) => item.stagingOwnerId).map((item) => (
                 removeMediaReference('conversation-staging', item.stagingOwnerId, item.assetKey)
             )));
@@ -321,8 +377,8 @@ export function createConversationWorkbenchController({
         element('conversation-search')?.addEventListener('input', () => void refresh().catch((error) => showToast(error.message, 'error')));
         element('conversation-workflow-filter')?.addEventListener('change', () => void refresh().catch((error) => showToast(error.message, 'error')));
         element('conversation-archive-entry')?.addEventListener('click', (event) => {
-            listStatus = listStatus === 'archived' ? 'active' : 'archived';
-            if (event.currentTarget) event.currentTarget.textContent = listStatus === 'archived' ? '返回' : '归档';
+            listStatus = listStatus === 'active' ? 'archived' : listStatus === 'archived' ? 'trashed' : 'active';
+            if (event.currentTarget) event.currentTarget.textContent = ({ active: '归档', archived: '回收站', trashed: '返回' })[listStatus];
             void refresh().catch((error) => showToast(error.message, 'error'));
         });
         element('conversation-list')?.addEventListener('click', (event) => {
@@ -330,6 +386,30 @@ export function createConversationWorkbenchController({
             if (target?.dataset.conversationId) void selectConversation(target.dataset.conversationId).catch((error) => showToast(error.message, 'error'));
         });
         element('conversation-messages')?.addEventListener('click', (event) => {
+            const recoveryKey = event.target?.dataset?.recoverAsset;
+            if (recoveryKey) {
+                const operation = recoverMissingMedia
+                    ? recoverMissingMedia(recoveryKey)
+                    : api.resolveConversationMessageMedia(activeConversation.id, event.target.dataset.messageId, {
+                        revision: activeConversation.revision, partIndex: Number(event.target.dataset.partIndex),
+                        assetKey: recoveryKey, action: 'recover'
+                    });
+                void operation.then(() => selectConversation(activeConversation.id))
+                    .catch((error) => showToast(error.message, 'error'));
+                return;
+            }
+            const removalKey = event.target?.dataset?.removeMissing;
+            if (removalKey) {
+                const operation = removeMissingMedia
+                    ? removeMissingMedia({ conversation: activeConversation, assetKey: removalKey })
+                    : api.resolveConversationMessageMedia(activeConversation.id, event.target.dataset.messageId, {
+                        revision: activeConversation.revision, partIndex: Number(event.target.dataset.partIndex),
+                        assetKey: removalKey, action: 'remove'
+                    });
+                void operation
+                    .then(() => selectConversation(activeConversation.id)).catch((error) => showToast(error.message, 'error'));
+                return;
+            }
             if (event.target?.dataset?.versionParent) {
                 visibleVersionByParent.set(event.target.dataset.versionParent, Number(event.target.dataset.versionIndex));
                 renderMessages();
@@ -338,10 +418,14 @@ export function createConversationWorkbenchController({
             const regenerateMessageId = event.target?.dataset?.regenerateMessage;
             if (regenerateMessageId) {
                 const model = (state.models || []).find((item) => item.id === activeConversation.defaultModelId);
-                const providerId = activeConversation.defaultProviderId || model?.providerId || model?.providerIds?.[0];
+                const providerId = model?.providerId || model?.providerIds?.[0] || activeConversation.defaultProviderId;
                 const provider = (state.providers || []).find((item) => item.id === providerId);
                 if (!model || !provider) { showToast('请先选择可用的模型与 Provider', 'error'); return; }
-                void executionService.regenerate({ conversation: activeConversation, assistantMessageId: regenerateMessageId, model, provider })
+                const selectedConversation = {
+                    ...activeConversation,
+                    messages: selectConversationBranch(activeConversation.messages, visibleVersionByParent)
+                };
+                void executionService.regenerate({ conversation: selectedConversation, assistantMessageId: regenerateMessageId, model, provider })
                     .then(() => selectConversation(activeConversation.id)).catch((error) => showToast(error.message, 'error'));
                 return;
             }
@@ -361,7 +445,9 @@ export function createConversationWorkbenchController({
             try {
                 activeConversation = await api.updateConversation(activeConversation.id, {
                     revision: activeConversation.revision,
-                    defaultModelId: event.target.value
+                    defaultModelId: event.target.value,
+                    defaultProviderId: (state.models || []).find((item) => item.id === event.target.value)?.providerId
+                        || (state.models || []).find((item) => item.id === event.target.value)?.providerIds?.[0] || ''
                 });
                 renderActiveConversation();
             } catch (error) {
@@ -373,8 +459,14 @@ export function createConversationWorkbenchController({
             if (title?.trim()) void updateLifecycle({ title: title.trim() }).catch((error) => showToast(error.message, 'error'));
         });
         element('conversation-lifecycle-action')?.addEventListener('click', () => {
-            const status = activeConversation?.status === 'archived' ? 'active' : 'archived';
+            const status = ['archived', 'trashed'].includes(activeConversation?.status) ? 'active' : 'archived';
             void updateLifecycle({ status }).catch((error) => showToast(error.message, 'error'));
+        });
+        element('conversation-execution-record')?.addEventListener('click', () => {
+            const execution = [...(activeConversation?.messages || [])].reverse().find((message) => message.execution)?.execution;
+            showToast(execution
+                ? `${execution.providerName || execution.providerId || 'Provider'} · ${execution.modelName || execution.modelId || 'Model'} · ${execution.status || 'completed'}`
+                : '当前对话还没有执行记录', 'info');
         });
         element('conversation-trash')?.addEventListener('click', () => {
             if (activeConversation?.status === 'trashed') {
@@ -400,6 +492,14 @@ export function createConversationWorkbenchController({
             void stageLocalImages(images).catch((error) => showToast(error.message, 'error'));
         });
         element('conversation-staged-context')?.addEventListener('click', (event) => {
+            const moveId = event.target?.dataset?.moveStaged;
+            if (moveId) {
+                const items = stagedContext.list();
+                const index = items.findIndex((item) => item.id === moveId);
+                stagedContext.move(moveId, index + Number(event.target.dataset.moveDirection || 0));
+                renderStagedContext();
+                return;
+            }
             const itemId = event.target?.dataset?.removeStaged;
             if (!itemId) return;
             const item = stagedContext.list().find((candidate) => candidate.id === itemId);

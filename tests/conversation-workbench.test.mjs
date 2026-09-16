@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { renderComputedFixture } from './helpers/browser-theme-fixture.mjs';
+import { renderComputedFixture, renderComputedFixtureAtViewport } from './helpers/browser-theme-fixture.mjs';
 
-import { createConversationWorkbenchController, renderConversationMarkdown } from '../js/features/conversation/conversation-workbench-controller.js';
+import { createConversationWorkbenchController, renderConversationMarkdown, selectConversationBranch } from '../js/features/conversation/conversation-workbench-controller.js';
+
+test('Conversation branch projection sends only the selected assistant sibling', () => {
+    const messages = [
+        { id: 'u1', role: 'user' },
+        { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
+        { id: 'a2', role: 'assistant', parentMessageId: 'u1' }
+    ];
+    assert.deepEqual(selectConversationBranch(messages, new Map([['u1', 0]])).map((item) => item.id), ['u1', 'a1']);
+    assert.deepEqual(selectConversationBranch(messages).map((item) => item.id), ['u1', 'a2']);
+});
+
+test('Conversation regeneration reuses the selected branch projection', async () => {
+    const source = await readFile(new URL('../js/features/conversation/conversation-workbench-controller.js', import.meta.url), 'utf8');
+    assert.match(source, /selectedConversation\s*=\s*\{[\s\S]*selectConversationBranch\(activeConversation\.messages, visibleVersionByParent\)[\s\S]*executionService\.regenerate\(\{ conversation: selectedConversation/);
+});
 
 test('Conversation markdown renders formatting without executing HTML or loading external media', () => {
     const html = renderConversationMarkdown('**重点** <script>alert(1)</script> ![偷取](https://evil.test/pixel) [文档](javascript:alert(1))');
@@ -100,7 +115,7 @@ test('Conversation workspace exposes the three production panes and composer con
         'conversation-main-pane', 'conversation-title', 'conversation-model', 'conversation-messages',
         'conversation-staged-context', 'conversation-send-summary', 'conversation-composer', 'conversation-send',
         'conversation-context-pane', 'conversation-workflow-summary', 'conversation-node-resources',
-        'conversation-history-resources', 'conversation-system-prompt-summary'
+        'conversation-history-resources', 'conversation-system-prompt-summary', 'conversation-send-preview'
     ]) assert.match(html, new RegExp(`id="${id}"`), id);
 
     assert.match(html, /aria-label="对话列表"/);
@@ -118,5 +133,18 @@ test('Conversation workspace resolves readable three-pane surfaces in all seven 
         assert.ok(result.context.width > 200, `${result.themeId} context pane remains usable`);
         assert.notEqual(result.main.background, 'rgba(0, 0, 0, 0)', `${result.themeId} resolves a canvas surface`);
         assert.notEqual(result.message.color, result.message.background, `${result.themeId} message text remains distinguishable`);
+    }
+});
+
+test('Conversation workspace uses focus-manageable side drawers at a narrow viewport', async () => {
+    const results = await renderComputedFixtureAtViewport(
+        new URL('./fixtures/conversation-workspace-theme.html', import.meta.url),
+        'cainflow-conversation-narrow-',
+        500, 900
+    );
+    for (const result of results) {
+        assert.equal(result.list.position, 'absolute', `${result.themeId} list becomes a drawer`);
+        assert.equal(result.context.position, 'absolute', `${result.themeId} context becomes a drawer`);
+        assert.ok(result.main.width >= 480, `${result.themeId} main pane retains the narrow viewport`);
     }
 });

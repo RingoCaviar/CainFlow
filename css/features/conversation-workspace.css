@@ -148,6 +148,9 @@
 .conversation-missing-media { margin-top: 8px; }
 .conversation-missing-media > span { margin-inline-start: auto; color: var(--accent-orange); }
 .conversation-composer-footer { padding-top: 8px; color: var(--text-secondary); font-size: 12px; }
+.conversation-send-details { margin-inline-start: auto; }
+.conversation-send-details summary { cursor: pointer; color: var(--text-primary); }
+.conversation-send-preview { display: grid; gap: 4px; max-width: min(520px, 70vw); padding: 8px 0; }
 
 .conversation-context-pane { overflow-y: auto; }
 .conversation-context-section { padding: 12px; border-bottom: 1px solid var(--border-subtle); }
@@ -160,7 +163,6 @@
 .conversation-workspace:has(.conversation-context-pane.is-collapsed) { grid-template-columns: minmax(220px, 280px) minmax(360px, 1fr); }
 .conversation-workspace:has(.conversation-list-pane.is-collapsed):has(.conversation-context-pane.is-collapsed) { grid-template-columns: minmax(0, 1fr); }
 .conversation-drawer-backdrop { display: none; }
-}
 
 @media (max-width: 760px) {
     .workspace-mode-switch .btn {

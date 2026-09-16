@@ -171,6 +171,16 @@ test('context projection keeps durable history intact and reports omissions at t
     assert.equal(projection.summary.omittedMessageCount, 1);
 });
 
+test('durable historical node snapshots remain in later context projections', () => {
+    const durable = conversation();
+    durable.messages = [{ role: 'user', status: 'completed', parts: [
+        { type: 'text', text: 'previous' },
+        { type: 'node-source', nodeId: 'n1', nodeType: 'Text', textSnapshot: 'frozen node', mediaAssetKeys: [] }
+    ] }];
+    const projection = projectConversationContext({ conversation: durable, nextUserText: 'next' });
+    assert.match(projection.messages[0].content, /frozen node/);
+});
+
 test('restart recovery marks an interrupted pending assistant response as failed', async () => {
     const updates = [];
     const service = createConversationExecutionService({
@@ -233,4 +243,42 @@ test('regeneration appends a sibling assistant version without overwriting the p
     assert.equal(appended[0].role, 'assistant');
     assert.equal(appended[0].parentMessageId, 'u1');
     assert.equal(source.messages[1].parts[0].text, 'old version');
+});
+
+test('explicit workflow and node snapshots enter the request plan', async () => {
+    let planInput;
+    const service = createConversationExecutionService({
+        api: memoryApi(),
+        createPlan: (input) => { planInput = input; return { requestBody: {} }; },
+        executePlan: async () => ({ text: 'ok' })
+    });
+    await service.send({
+        conversation: conversation(), text: '分析',
+        model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' },
+        workflowSummary: { workflowId: 'wf-1', revision: 7, nodeTypes: ['Text'], connections: ['a→b'] },
+        contextParts: [{ type: 'node-source', workflowId: 'wf-1', nodeId: 'a', nodeType: 'Text', textSnapshot: '节点正文', mediaAssetKeys: [] }]
+    });
+    assert.match(planInput.messages.at(-1).content, /Workflow wf-1 · revision 7/);
+    assert.match(planInput.messages.at(-1).content, /Connections: a→b/);
+    assert.match(planInput.messages.at(-1).content, /节点正文/);
+});
+
+test('regeneration preserves source media and node context', async () => {
+    let planInput;
+    const service = createConversationExecutionService({
+        api: memoryApi(), resolveMediaAsset: async (key) => `asset://${key}`,
+        createPlan: (input) => { planInput = input; return { requestBody: {} }; },
+        executePlan: async () => ({ text: 'new' })
+    });
+    const source = conversation();
+    source.messages = [
+        { id: 'u1', role: 'user', status: 'completed', parts: [
+            { type: 'text', text: 'question' },
+            { type: 'node-source', nodeId: 'n1', nodeType: 'Text', textSnapshot: 'snapshot', mediaAssetKeys: ['asset-1'] }
+        ] },
+        { id: 'a1', parentMessageId: 'u1', role: 'assistant', status: 'completed', parts: [{ type: 'text', text: 'old' }] }
+    ];
+    await service.regenerate({ conversation: source, assistantMessageId: 'a1', model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' } });
+    assert.match(planInput.messages.at(-1).content, /snapshot/);
+    assert.deepEqual(planInput.media, [{ type: 'image', url: 'asset://asset-1' }]);
 });

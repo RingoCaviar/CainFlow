@@ -28,6 +28,26 @@ def handle_get(handler):
 
 def handle_post(handler):
     path = urlparse(handler.path).path
+    media_marker = '/messages/'
+    media_suffix = '/media-actions'
+    if path.startswith('/api/conversations/') and media_marker in path and path.endswith(media_suffix):
+        remainder = path[len('/api/conversations/'):]
+        conversation_id, message_path = remainder.split(media_marker, 1)
+        message_id = message_path[:-len(media_suffix)].rstrip('/')
+        try:
+            result = conversation_service.resolve_message_media(
+                unquote(conversation_id.rstrip('/')), unquote(message_id), read_json_body(handler))
+        except ConversationConflict:
+            write_error(handler, 409, 'Conversation revision conflict')
+            return True
+        except ConversationStateConflict as error:
+            write_error(handler, 409, str(error))
+            return True
+        except ConversationError as error:
+            write_error(handler, 400, str(error))
+            return True
+        write_json(handler, result or {'message': None}, status=200 if result else 404)
+        return True
     if path == '/api/conversations':
         try:
             conversation = conversation_service.create_conversation(read_json_body(handler))
@@ -70,6 +90,9 @@ def handle_put(handler):
                 unquote(conversation_id.rstrip('/')), unquote(message_id), read_json_body(handler))
         except ConversationConflict:
             write_error(handler, 409, 'Conversation revision conflict')
+            return True
+        except ConversationStateConflict as error:
+            write_error(handler, 409, str(error))
             return True
         except ConversationError as error:
             write_error(handler, 400, str(error))

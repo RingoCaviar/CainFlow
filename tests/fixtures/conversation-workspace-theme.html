@@ -6,7 +6,7 @@
     <style>
         *, *::before, *::after { animation: none !important; transition: none !important; }
         body { margin: 0; }
-        .conversation-workspace { width: 1100px; height: 620px; }
+        .conversation-workspace { width: 100vw; height: 620px; }
     </style>
 </head>
 <body>
@@ -29,12 +29,13 @@
             const inspect = (element) => {
                 const style = getComputedStyle(element);
                 const rect = element.getBoundingClientRect();
-                return { width: rect.width, background: style.backgroundColor, color: style.color };
+                return { width: rect.width, background: style.backgroundColor, color: style.color, position: style.position };
             };
             const results = themes.map((themeId) => {
                 document.documentElement.dataset.appTheme = themeId;
                 return {
                     themeId,
+                    viewportWidth: innerWidth,
                     list: inspect(document.querySelector('#list')),
                     main: inspect(document.querySelector('#main')),
                     context: inspect(document.querySelector('#context')),

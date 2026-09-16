@@ -50,6 +50,12 @@ export async function updateConversationMessage(conversationId, messageId, input
     });
 }
 
+export async function resolveConversationMessageMedia(conversationId, messageId, input) {
+    return requestConversation(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/media-actions`, {
+        method: 'POST', body: JSON.stringify(input)
+    });
+}
+
 export async function permanentlyDeleteConversation(conversationId, revision) {
     return requestConversation(`/api/conversations/${encodeURIComponent(conversationId)}?revision=${encodeURIComponent(revision)}`, {
         method: 'DELETE'

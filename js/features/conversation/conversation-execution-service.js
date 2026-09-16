@@ -11,6 +11,24 @@ function textFromParts(parts = []) {
     return parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n');
 }
 
+function contextText(parts = [], workflowSummary = null) {
+    const lines = [];
+    if (workflowSummary?.workflowId) {
+        lines.push(`[Workflow ${workflowSummary.workflowId} · revision ${workflowSummary.revision ?? 'unknown'}]`);
+        if (workflowSummary.nodeTypes?.length) lines.push(`Node types: ${workflowSummary.nodeTypes.join(', ')}`);
+        if (workflowSummary.connections?.length) lines.push(`Connections: ${workflowSummary.connections.join(', ')}`);
+    }
+    for (const part of parts) {
+        if (part?.type !== 'node-source') continue;
+        lines.push(`[Node ${part.nodeId} · ${part.nodeType}]\n${String(part.textSnapshot || '')}`);
+    }
+    return lines.join('\n\n');
+}
+
+function projectedUserText(text, contextParts, workflowSummary) {
+    return [String(text || '').trim(), contextText(contextParts, workflowSummary)].filter(Boolean).join('\n\n');
+}
+
 export function deriveConversationTitle(text, limit = 32) {
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
     if (!normalized) return '新对话';
@@ -20,7 +38,11 @@ export function deriveConversationTitle(text, limit = 32) {
 export function projectConversationContext({ conversation, nextUserText, maxCharacters = 48000 }) {
     const durableMessages = (conversation?.messages || [])
         .filter((message) => ['user', 'assistant'].includes(message?.role) && ['completed', 'partial'].includes(message?.status))
-        .map((message) => ({ role: message.role, content: textFromParts(message.parts) }))
+        .map((message) => ({
+            role: message.role,
+            content: [textFromParts(message.parts), contextText(
+                message.parts, message.context?.workflowSummary)].filter(Boolean).join('\n\n')
+        }))
         .filter((message) => message.content);
     durableMessages.push({ role: 'user', content: String(nextUserText || '') });
     let usedCharacters = 0;
@@ -77,7 +99,7 @@ export function createConversationExecutionService({
         return { text, status, execution, message: result.message, conversationRevision: run.revision };
     }
 
-    async function send({ conversation, text, model, provider, contextParts = [] }) {
+    async function send({ conversation, text, model, provider, contextParts = [], workflowSummary = null }) {
         if (!conversation?.id) throw new ConversationExecutionError('invalid_conversation', 'Conversation identity is required');
         if (activeRuns.has(conversation.id)) throw new ConversationExecutionError('conversation_busy', '该对话已有请求正在运行');
         if (!String(text || '').trim()) throw new ConversationExecutionError('empty_message', '请输入提问内容');
@@ -89,11 +111,13 @@ export function createConversationExecutionService({
         activeRuns.set(conversation.id, run);
         onStateChange(conversation.id, { status: 'starting', partialText: '' });
         try {
+            const durableContextParts = contextParts;
             const userResult = await api.appendConversationMessage(conversation.id, {
                 revision: run.revision,
                 role: 'user',
                 status: 'completed',
-                parts: [{ type: 'text', text: String(text).trim() }, ...contextParts]
+                parts: [{ type: 'text', text: String(text).trim() }, ...durableContextParts],
+                ...(workflowSummary?.workflowId ? { context: { workflowSummary } } : {})
             });
             run.revision = userResult.conversationRevision;
             if ((!conversation.messages || conversation.messages.length === 0) && conversation.title === '新对话' && api.updateConversation) {
@@ -113,15 +137,20 @@ export function createConversationExecutionService({
             });
             run.revision = assistantResult.conversationRevision;
             run.assistantMessageId = assistantResult.message.id;
-            run.projection = projectConversationContext({ conversation, nextUserText: text, maxCharacters: maxContextCharacters });
+            run.projection = projectConversationContext({
+                conversation,
+                nextUserText: projectedUserText(text, contextParts, workflowSummary),
+                maxCharacters: maxContextCharacters
+            });
             const media = [];
-            for (const part of contextParts) {
+            for (const part of durableContextParts) {
                 const candidates = part.type === 'media'
                     ? [{ assetKey: part.assetKey, mediaType: part.mediaType }]
                     : (part.mediaAssetKeys || []).map((assetKey) => ({ assetKey, mediaType: 'image' }));
                 for (const candidate of candidates) {
                     const url = await resolveMediaAsset(candidate.assetKey);
-                    if (url) media.push({ type: candidate.mediaType || 'image', url });
+                    if (!url) throw new ConversationExecutionError('missing_media', `媒体资源 ${candidate.assetKey} 不可用，请先恢复或移除`);
+                    media.push({ type: candidate.mediaType || 'image', url });
                 }
             }
             const plan = createPlan({
@@ -165,7 +194,7 @@ export function createConversationExecutionService({
                     }
                     attempt.status = controller.signal.aborted && !timedOut ? 'cancelled' : 'failed';
                     attempt.finishedAt = now();
-                    attempt.error = { code: error.code || error.name || 'request_failed', message: String(error.message || '请求失败').slice(0, 500) };
+                    attempt.error = { code: error.code || error.name || 'request_failed', summary: '请求失败，详细信息见本地诊断记录' };
                     if (controller.signal.aborted || attemptIndex === maxRetries) throw error;
                 } finally {
                     if (timeoutId) clearTimeout(timeoutId);
@@ -224,9 +253,12 @@ export function createConversationExecutionService({
         const parent = (conversation.messages || []).find((message) => message.id === previous.parentMessageId && message.role === 'user');
         if (!parent) throw new ConversationExecutionError('parent_not_found', '未找到回复对应的用户消息');
         const controller = new AbortController();
+        const contextParts = (parent.parts || []).filter((part) => part?.type !== 'text');
         const projection = projectConversationContext({
             conversation: { ...conversation, messages: (conversation.messages || []).slice(0, (conversation.messages || []).indexOf(parent)) },
-            nextUserText: textFromParts(parent.parts), maxCharacters: maxContextCharacters
+            nextUserText: projectedUserText(
+                textFromParts(parent.parts), contextParts, parent.context?.workflowSummary),
+            maxCharacters: maxContextCharacters
         });
         const run = { conversation, model, provider, controller, revision: conversation.revision, partialText: '', projection, assistantMessageId: '', attempts: [], timedOut: false };
         activeRuns.set(conversation.id, run);
@@ -237,7 +269,18 @@ export function createConversationExecutionService({
             });
             run.revision = pending.conversationRevision;
             run.assistantMessageId = pending.message.id;
-            const plan = createPlan({ provider, model, protocol: model.protocol || provider.protocol, systemPrompt: conversation.systemPrompt || '', messages: projection.messages, media: [] });
+            const media = [];
+            for (const part of contextParts) {
+                const candidates = part.type === 'media'
+                    ? [{ assetKey: part.assetKey, mediaType: part.mediaType }]
+                    : (part.mediaAssetKeys || []).map((assetKey) => ({ assetKey, mediaType: 'image' }));
+                for (const candidate of candidates) {
+                    const url = await resolveMediaAsset(candidate.assetKey);
+                    if (!url) throw new ConversationExecutionError('missing_media', `媒体资源 ${candidate.assetKey} 不可用，请先恢复或移除`);
+                    media.push({ type: candidate.mediaType || 'image', url });
+                }
+            }
+            const plan = createPlan({ provider, model, protocol: model.protocol || provider.protocol, systemPrompt: conversation.systemPrompt || '', messages: projection.messages, media });
             const attempt = { ordinal: 1, startedAt: now(), status: 'running' };
             run.attempts.push(attempt);
             const response = await executePlan(plan, { signal: controller.signal });

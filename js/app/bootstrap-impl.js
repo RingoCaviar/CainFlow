@@ -1036,7 +1036,9 @@ function getConversationWorkbenchControllerApi() {
             },
             getActiveWorkflow: () => ({
                 id: workflowManagerApi.getActiveWorkflowId?.() || '',
-                label: workflowManagerApi.getActiveWorkflowName?.() || ''
+                label: workflowManagerApi.getActiveWorkflowName?.() || '',
+                revision: workflowManagerApi.getActiveWorkflowSnapshot?.()?.mediaOwnershipRevision
+                    ?? workflowManagerApi.getActiveWorkflowSnapshot?.()?.revision ?? 0
             })
         });
     }
