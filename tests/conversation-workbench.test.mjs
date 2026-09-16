@@ -73,6 +73,25 @@ test('Conversation workbench collapses side panes without leaving hidden content
     assert.equal(documentRef.elements.get('conversation-list-toggle').attributes.get('aria-expanded'), 'true');
 });
 
+test('Conversation lifecycle changes current defaults and status without rewriting messages', async () => {
+    const documentRef = workbenchDocument();
+    const messages = [{ id: 'a1', role: 'assistant', status: 'completed', execution: { modelId: 'old' }, parts: [{ type: 'text', text: 'kept' }] }];
+    let current = { id: 'c1', title: 'Original', revision: 1, status: 'active', defaultModelId: 'old', messages };
+    const api = {
+        listConversations: async () => [current], getConversation: async () => current,
+        updateConversation: async (_id, input) => { current = { ...current, ...input, revision: current.revision + 1 }; return current; }
+    };
+    const controller = createConversationWorkbenchController({ documentRef, api, state: { models: [] } });
+    await controller.init();
+
+    await controller.updateLifecycle({ title: 'Renamed', defaultModelId: 'new', status: 'archived' });
+    assert.equal(current.title, 'Renamed');
+    assert.equal(current.status, 'archived');
+    assert.equal(current.defaultModelId, 'new');
+    assert.equal(current.messages[0].execution.modelId, 'old');
+    assert.equal(current.messages[0].parts[0].text, 'kept');
+});
+
 test('Conversation workspace exposes the three production panes and composer contract', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 

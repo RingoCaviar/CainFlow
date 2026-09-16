@@ -11,6 +11,12 @@ function textFromParts(parts = []) {
     return parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n');
 }
 
+export function deriveConversationTitle(text, limit = 32) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '新对话';
+    return normalized.length > limit ? `${normalized.slice(0, limit).trim()}…` : normalized;
+}
+
 export function projectConversationContext({ conversation, nextUserText, maxCharacters = 48000 }) {
     const durableMessages = (conversation?.messages || [])
         .filter((message) => ['user', 'assistant'].includes(message?.role) && ['completed', 'partial'].includes(message?.status))
@@ -90,6 +96,14 @@ export function createConversationExecutionService({
                 parts: [{ type: 'text', text: String(text).trim() }, ...contextParts]
             });
             run.revision = userResult.conversationRevision;
+            if ((!conversation.messages || conversation.messages.length === 0) && conversation.title === '新对话' && api.updateConversation) {
+                const titled = await api.updateConversation(conversation.id, {
+                    revision: run.revision,
+                    title: deriveConversationTitle(text)
+                });
+                run.revision = titled.revision;
+                conversation.title = titled.title;
+            }
             const assistantResult = await api.appendConversationMessage(conversation.id, {
                 revision: run.revision,
                 parentMessageId: userResult.message.id,
@@ -203,5 +217,38 @@ export function createConversationExecutionService({
         return { conversationRevision: revision, messages: recovered };
     }
 
-    return { send, stop, getRunState, recoverInterrupted };
+    async function regenerate({ conversation, assistantMessageId, model, provider }) {
+        if (activeRuns.has(conversation.id)) throw new ConversationExecutionError('conversation_busy', '该对话已有请求正在运行');
+        const previous = (conversation.messages || []).find((message) => message.id === assistantMessageId && message.role === 'assistant');
+        if (!previous) throw new ConversationExecutionError('message_not_found', '未找到要重新生成的回复');
+        const parent = (conversation.messages || []).find((message) => message.id === previous.parentMessageId && message.role === 'user');
+        if (!parent) throw new ConversationExecutionError('parent_not_found', '未找到回复对应的用户消息');
+        const controller = new AbortController();
+        const projection = projectConversationContext({
+            conversation: { ...conversation, messages: (conversation.messages || []).slice(0, (conversation.messages || []).indexOf(parent)) },
+            nextUserText: textFromParts(parent.parts), maxCharacters: maxContextCharacters
+        });
+        const run = { conversation, model, provider, controller, revision: conversation.revision, partialText: '', projection, assistantMessageId: '', attempts: [], timedOut: false };
+        activeRuns.set(conversation.id, run);
+        try {
+            const pending = await api.appendConversationMessage(conversation.id, {
+                revision: run.revision, parentMessageId: parent.id, role: 'assistant', status: 'pending',
+                parts: [{ type: 'text', text: '' }]
+            });
+            run.revision = pending.conversationRevision;
+            run.assistantMessageId = pending.message.id;
+            const plan = createPlan({ provider, model, protocol: model.protocol || provider.protocol, systemPrompt: conversation.systemPrompt || '', messages: projection.messages, media: [] });
+            const attempt = { ordinal: 1, startedAt: now(), status: 'running' };
+            run.attempts.push(attempt);
+            const response = await executePlan(plan, { signal: controller.signal });
+            const text = String(response?.text || '');
+            attempt.status = 'completed';
+            attempt.finishedAt = now();
+            return persistFinal(run, { status: 'completed', text, attempts: run.attempts });
+        } finally {
+            activeRuns.delete(conversation.id);
+        }
+    }
+
+    return { send, regenerate, stop, getRunState, recoverInterrupted };
 }

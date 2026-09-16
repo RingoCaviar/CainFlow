@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createConversationExecutionService, projectConversationContext } from '../js/features/conversation/conversation-execution-service.js';
+import { createConversationExecutionService, deriveConversationTitle, projectConversationContext } from '../js/features/conversation/conversation-execution-service.js';
 
 function conversation(id = 'c1') {
     return {
@@ -206,4 +206,31 @@ test('request timeout aborts transport and persists a classified failed attempt'
         model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' }
     }), (error) => error.code === 'conversation_timeout');
     assert.equal(updates.at(-1).execution.attempts[0].error.code, 'conversation_timeout');
+});
+
+test('first user message derives a bounded local title', () => {
+    assert.equal(deriveConversationTitle('  一个   简洁的标题  '), '一个 简洁的标题');
+    assert.equal(deriveConversationTitle('x'.repeat(40)), `${'x'.repeat(32)}…`);
+});
+
+test('regeneration appends a sibling assistant version without overwriting the previous reply', async () => {
+    const appended = [];
+    const api = memoryApi();
+    const originalAppend = api.appendConversationMessage;
+    api.appendConversationMessage = async (id, input) => { appended.push(input); return originalAppend(id, input); };
+    const service = createConversationExecutionService({
+        api, createPlan: () => ({ requestBody: {} }), executePlan: async () => ({ text: 'new version' })
+    });
+    const source = conversation();
+    source.revision = 4;
+    source.messages = [
+        { id: 'u1', role: 'user', status: 'completed', parts: [{ type: 'text', text: 'question' }] },
+        { id: 'a1', parentMessageId: 'u1', role: 'assistant', status: 'completed', parts: [{ type: 'text', text: 'old version' }] }
+    ];
+
+    await service.regenerate({ conversation: source, assistantMessageId: 'a1', model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' } });
+    assert.equal(appended.length, 1);
+    assert.equal(appended[0].role, 'assistant');
+    assert.equal(appended[0].parentMessageId, 'u1');
+    assert.equal(source.messages[1].parts[0].text, 'old version');
 });
