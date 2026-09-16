@@ -125,6 +125,7 @@
 .conversation-message.is-user .conversation-message-content { background: var(--surface-control); }
 .conversation-message-content a { color: var(--accent-primary); }
 .conversation-message-content code { padding: 1px 4px; border-radius: 4px; background: var(--bg-input); }
+.conversation-message-actions { display: flex; justify-content: flex-end; gap: 6px; padding-top: 6px; }
 
 .conversation-composer-shell {
     margin: 0 clamp(12px, 4vw, 56px) 18px;

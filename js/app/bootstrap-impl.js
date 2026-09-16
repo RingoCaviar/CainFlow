@@ -65,6 +65,7 @@ import { createToolbarControllerApi } from '../features/ui/toolbar-controller.js
 import { createWorkspaceModeController } from '../features/ui/workspace-mode-controller.js';
 import { createConversationWorkbenchController } from '../features/conversation/conversation-workbench-controller.js';
 import { createConversationExecutionService } from '../features/conversation/conversation-execution-service.js';
+import { buildCanvasMaterializationPlan, createCanvasMaterializationCommand } from '../features/conversation/conversation-canvas-materialization.js';
 import { createChatRequestPlan, requestChatCompletion } from '../features/execution/chat-request-plan.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
 import { createFloatingNoticesController } from '../features/ui/floating-notices-controller.js';
@@ -1000,6 +1001,39 @@ function getConversationWorkbenchControllerApi() {
             getHistoryEntry,
             putMediaAsset,
             removeMediaReference,
+            materializeMessage: async ({ message, textNodeType }) => {
+                const workflowId = workflowManagerApi.getActiveWorkflowId?.() || '';
+                if (!workflowId) throw new Error('请先打开目标工作流');
+                const canvasRect = canvasContainer.getBoundingClientRect();
+                const zoom = Number(state.canvas.zoom) || 1;
+                const origin = {
+                    x: (canvasRect.width / 2 - state.canvas.x) / zoom,
+                    y: (canvasRect.height / 2 - state.canvas.y) / zoom
+                };
+                const plan = buildCanvasMaterializationPlan({
+                    workflowId,
+                    messageId: message.id,
+                    textNodeType,
+                    text: (message.parts || []).filter((part) => part.type === 'text').map((part) => part.text || '').join('\n'),
+                    media: (message.parts || []).filter((part) => part.type === 'media').map((part) => ({
+                        assetKey: part.assetKey, mediaType: part.mediaType || 'image', missing: part.missing === true
+                    })),
+                    origin
+                });
+                const preview = plan.nodes.map((node) => `${node.type} @ (${Math.round(node.x)}, ${Math.round(node.y)})`).join('\n');
+                if (!confirm(`将向当前工作流添加：\n${preview}\n\n资源引用将复用现有 Media asset。是否继续？`)) return { status: 'cancelled', nodeIds: [] };
+                const command = createCanvasMaterializationCommand({
+                    addNode,
+                    removeNode,
+                    pushHistory,
+                    discardHistory: (token) => getSessionManagerApi().discardLatestHistory(token),
+                    selectNode,
+                    save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
+                    switchToCanvas: () => getWorkspaceModeControllerApi().activate('canvas'),
+                    focusNode: (nodeId) => renderProjectionManager.focusNode(nodeId)
+                });
+                return command.apply(plan, { confirmed: true });
+            },
             getActiveWorkflow: () => ({
                 id: workflowManagerApi.getActiveWorkflowId?.() || '',
                 label: workflowManagerApi.getActiveWorkflowName?.() || ''

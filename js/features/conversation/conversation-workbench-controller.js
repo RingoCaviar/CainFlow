@@ -55,6 +55,7 @@ export function createConversationWorkbenchController({
     getHistoryEntry = async () => null,
     putMediaAsset = async () => null,
     removeMediaReference = async () => false,
+    materializeMessage = async () => null,
     getActiveWorkflow = () => null
 } = {}) {
     let conversations = [];
@@ -91,9 +92,10 @@ export function createConversationWorkbenchController({
         if (!container) return;
         const messages = activeConversation?.messages || [];
         container.innerHTML = messages.length ? messages.map((message) => (
-            `<article class="conversation-message is-${escapeHtml(message.role)}" data-message-status="${escapeHtml(message.status)}">
+            `<article class="conversation-message is-${escapeHtml(message.role)}" data-message-id="${escapeHtml(message.id)}" data-message-status="${escapeHtml(message.status)}">
                 <header><strong>${message.role === 'assistant' ? '助手' : '你'}</strong><span>${statusLabel(message.status)}</span></header>
                 <div class="conversation-message-content">${renderMessageParts(message)}</div>
+                ${message.role === 'assistant' && ['completed', 'partial'].includes(message.status) ? `<footer class="conversation-message-actions"><button class="btn btn-ghost" type="button" data-materialize-message="${escapeHtml(message.id)}" data-text-node-type="Text">添加为 Text</button><button class="btn btn-ghost" type="button" data-materialize-message="${escapeHtml(message.id)}" data-text-node-type="TextChat">添加为 TextChat</button></footer>` : ''}
             </article>`
         )).join('') : '<div class="conversation-empty-state"><strong>从一个明确的问题开始</strong><span>可以附加工作流节点、历史资源或本地媒体。</span></div>';
     }
@@ -280,6 +282,14 @@ export function createConversationWorkbenchController({
         element('conversation-list')?.addEventListener('click', (event) => {
             const target = event.target?.closest?.('[data-conversation-id]');
             if (target?.dataset.conversationId) void selectConversation(target.dataset.conversationId).catch((error) => showToast(error.message, 'error'));
+        });
+        element('conversation-messages')?.addEventListener('click', (event) => {
+            const messageId = event.target?.dataset?.materializeMessage;
+            if (!messageId) return;
+            const message = activeConversation?.messages?.find((item) => item.id === messageId);
+            if (!message) return;
+            void materializeMessage({ conversation: activeConversation, message, textNodeType: event.target.dataset.textNodeType })
+                .catch((error) => showToast(error.message, 'error'));
         });
         element('conversation-list-collapse')?.addEventListener('click', () => setPaneExpanded('conversation-list-pane', 'conversation-list-collapse', false));
         element('conversation-list-toggle')?.addEventListener('click', () => setPaneExpanded('conversation-list-pane', 'conversation-list-toggle', true));

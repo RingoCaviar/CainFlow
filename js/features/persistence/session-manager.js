@@ -480,6 +480,21 @@ export function createSessionManagerApi({
         return snapshot.mediaUndoOwnerId;
     }
 
+    function discardLatestHistory(mediaUndoOwnerId) {
+        const raw = state.undoStack.at(-1);
+        if (!raw) return false;
+        try {
+            const snapshot = JSON.parse(raw);
+            if (snapshot.mediaUndoOwnerId !== mediaUndoOwnerId) return false;
+            state.undoStack.pop();
+            void retryPendingUndoReleases([snapshot]);
+            updateHistoryButtons();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async function applySnapshotGraph(snapshot) {
         beginMediaRestoreBatch();
         try {
@@ -570,6 +585,7 @@ export function createSessionManagerApi({
         loadViewportState,
         setBeforeSave,
         pushHistory,
+        discardLatestHistory,
         updateUndoButton: updateHistoryButtons,
         undo,
         redo,
