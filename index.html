@@ -56,6 +56,7 @@
     <link rel="stylesheet" href="css/features/panels.css">
     <link rel="stylesheet" href="css/features/settings.css">
     <link rel="stylesheet" href="css/features/image-cropper.css">
+    <link rel="stylesheet" href="css/features/conversation-workspace.css">
     <link rel="stylesheet" href="css/protocol-developer-panel.css">
     <link rel="stylesheet" href="css/themes.css">
     <link rel="stylesheet" href="css/features/settings-theme-skin.css">
@@ -214,6 +215,12 @@
                             d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
                     </svg>
                     <span>CainFlow <small class="logo-version" data-app-version-text></small></span>
+                </div>
+                <div class="workspace-mode-switch" role="group" aria-label="工作台模式">
+                    <button id="btn-workspace-canvas" class="btn btn-ghost is-selected" type="button"
+                        aria-pressed="true" title="画布模式 (Ctrl+Shift+1)">画布</button>
+                    <button id="btn-workspace-conversation" class="btn btn-ghost" type="button"
+                        aria-pressed="false" title="对话模式 (Ctrl+Shift+2)">对话</button>
                 </div>
             </div>
             <div class="toolbar-center">
@@ -474,6 +481,13 @@
                 </section>
             </div>
 
+
+            <section id="conversation-workspace" class="conversation-workspace" aria-label="对话工作台" hidden inert>
+                <div class="conversation-workspace-placeholder">
+                    <strong>对话工作台</strong>
+                    <span>正在准备对话列表、消息与资源上下文。</span>
+                </div>
+            </section>
 
             <!-- Canvas Container -->
             <div id="canvas-container" tabindex="0">

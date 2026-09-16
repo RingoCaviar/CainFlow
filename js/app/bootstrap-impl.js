@@ -62,6 +62,7 @@ import { createThemeControllerApi } from '../features/ui/theme-controller.js';
 import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } from '../features/ui/animation-controller.js';
 import { applyCanvasUiSetting as applyCanvasUiSettingService } from '../features/ui/canvas-ui-controller.js';
 import { createToolbarControllerApi } from '../features/ui/toolbar-controller.js';
+import { createWorkspaceModeController } from '../features/ui/workspace-mode-controller.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
 import { createFloatingNoticesController } from '../features/ui/floating-notices-controller.js';
 import { createLogPanelApi } from '../features/logs/log-panel.js';
@@ -975,6 +976,17 @@ function getToolbarControllerApi() {
     return registry.toolbarControllerApi;
 }
 
+function getWorkspaceModeControllerApi() {
+    if (!registry.workspaceModeControllerApi) {
+        registry.workspaceModeControllerApi = createWorkspaceModeController({
+            state,
+            documentRef: document,
+            saveState
+        });
+    }
+    return registry.workspaceModeControllerApi;
+}
+
 function getPromptLibraryApi() {
     if (!registry.promptLibraryApi) {
         registry.promptLibraryApi = createPromptLibraryApi({
@@ -1162,6 +1174,7 @@ function getStartupControllerApi() {
             checkNetworkConnectivity: (options) => settingsFeature.checkNetworkConnectivity(options),
             checkNetworkProxyMismatch: (force = false) => settingsFeature.checkNetworkProxyMismatch(force),
             ensureOpenWorkflow: canvasBenchmarkMode ? async () => true : () => workflowManagerApi.ensureOpenWorkflow(),
+            applyWorkspaceMode: (mode) => getWorkspaceModeControllerApi().activate(mode, { persist: false }),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
             scheduleAutoUpdateCheck: () => updateManager.scheduleAutoUpdateCheck({ delayMs: 5000, force: true, showModal: false, showCanvasNotification: true }),
             checkRefreshNotice: () => updateManager.checkRefreshNotice(),
@@ -1335,6 +1348,7 @@ getThemeControllerApi().initTheme();
 
 // ===== 工具栏 =====
 getToolbarControllerApi().initToolbarControls();
+getWorkspaceModeControllerApi().init();
 
 function zoomToFit(targetNodes = null) {
     return getToolbarControllerApi().zoomToFit(targetNodes);
@@ -1527,6 +1541,7 @@ projectIoFeature = createProjectIoFeature({
     applyGlobalAnimationSetting,
     applyCanvasUiSetting,
     applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
+    applyWorkspaceMode: (mode) => getWorkspaceModeControllerApi().activate(mode, { persist: false }),
     activateRestoredWorkflowState: (restoredState) => workflowManagerApi.activateRestoredWorkflowState(restoredState),
     clearImageAssets,
     clearOrphanedNodeAssets,

@@ -29,6 +29,7 @@ export function createAppRegistry() {
         floatingNoticesApi: null,
         systemNotificationApi: null,
         themeControllerApi: null,
+        workspaceModeControllerApi: null,
         promptLibraryApi: null,
         workflowRuntimeManagerApi: null
     };

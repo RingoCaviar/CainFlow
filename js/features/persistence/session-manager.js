@@ -351,6 +351,7 @@ export function createSessionManagerApi({
             data.workflowSidebarWidth = Number.isFinite(Number(state.workflowSidebarWidth)) && Number(state.workflowSidebarWidth) > 0
                 ? Math.round(Number(state.workflowSidebarWidth))
                 : 320;
+            data.workspaceMode = state.workspaceMode === 'conversation' ? 'conversation' : 'canvas';
             serializedData = JSON.stringify(data);
             localStorageRef.setItem(storageKey, serializedData);
             if (!saveUiBootstrapState()) return false;

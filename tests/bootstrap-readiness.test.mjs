@@ -103,6 +103,30 @@ test('application assembly waits for the real startup controller contract', () =
     assert.match(source, /await startupPromise;[\s\S]*return \{/);
 });
 
+test('startup reapplies restored Workspace mode after workflow activation', async () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = { setTimeout: () => 1, clearTimeout: () => {} };
+    const state = { nodes: new Map(), workspaceMode: 'canvas' };
+    const applied = [];
+    const controller = createStartupControllerApi({
+        state,
+        initUI: () => {},
+        loadState: async () => { state.workspaceMode = 'conversation'; return true; },
+        ensureOpenWorkflow: async () => {},
+        applyWorkspaceMode: (mode) => applied.push(mode),
+        initLogs: () => {}, showToast: () => {}, syncProxyToServer: () => {},
+        updateCanvasTransform: () => {}, scheduleAutoUpdateCheck: () => {}, checkRefreshNotice: () => {},
+        documentRef: { readyState: 'complete', getElementById: () => null },
+        consoleRef: { log: () => {}, error: () => {} }
+    });
+    try {
+        await controller.bootstrapApp();
+        assert.deepEqual(applied, ['conversation']);
+    } finally {
+        globalThis.window = previousWindow;
+    }
+});
+
 test('application bootstrap publishes its initialization failure', async () => {
     const globalRef = {};
     const { bootstrapCainFlowApp } = await import(`../js/app/bootstrap.js?failure=${Date.now()}`);

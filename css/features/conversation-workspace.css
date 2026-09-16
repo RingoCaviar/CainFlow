@@ -1,0 +1,59 @@
+/* Conversation Workspace uses the shared CainFlow surface, border, control and motion contracts. */
+.workspace-mode-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--surface-control);
+}
+
+.workspace-mode-switch .btn {
+    min-height: 28px;
+    padding: 4px 10px;
+    border-color: transparent;
+    background: transparent;
+}
+
+.workspace-mode-switch .btn.is-selected {
+    border-color: var(--panel-active-border);
+    background: var(--surface-control-hover);
+    color: var(--text-primary);
+}
+
+.conversation-workspace {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--workbench-canvas-border);
+}
+
+.conversation-workspace[hidden] {
+    display: none;
+}
+
+.conversation-workspace-placeholder {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 6px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.conversation-workspace-placeholder strong {
+    color: var(--text-primary);
+    font-size: 16px;
+}
+
+@media (max-width: 760px) {
+    .workspace-mode-switch .btn {
+        padding-inline: 8px;
+    }
+}
