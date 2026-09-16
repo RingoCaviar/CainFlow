@@ -45,6 +45,7 @@ export function createConversationExecutionService({
     maxContextCharacters = 48000,
     maxRetries = 0,
     requestTimeoutMs = 120000,
+    resolveMediaAsset = async () => null,
     onStateChange = () => {}
 }) {
     const activeRuns = new Map();
@@ -70,7 +71,7 @@ export function createConversationExecutionService({
         return { text, status, execution, message: result.message, conversationRevision: run.revision };
     }
 
-    async function send({ conversation, text, model, provider, media = [] }) {
+    async function send({ conversation, text, model, provider, contextParts = [] }) {
         if (!conversation?.id) throw new ConversationExecutionError('invalid_conversation', 'Conversation identity is required');
         if (activeRuns.has(conversation.id)) throw new ConversationExecutionError('conversation_busy', '该对话已有请求正在运行');
         if (!String(text || '').trim()) throw new ConversationExecutionError('empty_message', '请输入提问内容');
@@ -86,7 +87,7 @@ export function createConversationExecutionService({
                 revision: run.revision,
                 role: 'user',
                 status: 'completed',
-                parts: [{ type: 'text', text: String(text).trim() }, ...media]
+                parts: [{ type: 'text', text: String(text).trim() }, ...contextParts]
             });
             run.revision = userResult.conversationRevision;
             const assistantResult = await api.appendConversationMessage(conversation.id, {
@@ -99,12 +100,22 @@ export function createConversationExecutionService({
             run.revision = assistantResult.conversationRevision;
             run.assistantMessageId = assistantResult.message.id;
             run.projection = projectConversationContext({ conversation, nextUserText: text, maxCharacters: maxContextCharacters });
+            const media = [];
+            for (const part of contextParts) {
+                const candidates = part.type === 'media'
+                    ? [{ assetKey: part.assetKey, mediaType: part.mediaType }]
+                    : (part.mediaAssetKeys || []).map((assetKey) => ({ assetKey, mediaType: 'image' }));
+                for (const candidate of candidates) {
+                    const url = await resolveMediaAsset(candidate.assetKey);
+                    if (url) media.push({ type: candidate.mediaType || 'image', url });
+                }
+            }
             const plan = createPlan({
                 provider, model,
                 protocol: model.protocol || provider.protocol,
                 systemPrompt: conversation.systemPrompt || '',
                 messages: run.projection.messages,
-                media: media.filter((part) => part.type === 'media').map((part) => ({ type: part.mediaType || 'image', url: part.url || part.dataUrl || '' }))
+                media
             });
             const attempts = run.attempts;
             for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex += 1) {

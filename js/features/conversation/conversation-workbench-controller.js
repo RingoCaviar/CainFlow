@@ -8,6 +8,7 @@ function escapeHtml(value) {
 }
 
 import * as defaultConversationApi from '../../services/conversation-api.js';
+import { createStagedConversationContext, snapshotWorkflowNode } from './conversation-context.js';
 
 export function renderConversationMarkdown(source) {
     const protectedImages = [];
@@ -31,6 +32,16 @@ function messageText(message) {
     return (message?.parts || []).filter((part) => part?.type === 'text').map((part) => part.text || '').join('\n');
 }
 
+function renderMessageParts(message) {
+    const text = renderConversationMarkdown(messageText(message));
+    const attachments = (message?.parts || []).filter((part) => part?.type !== 'text').map((part) => {
+        const label = part.type === 'node-source' ? `${part.nodeType || '节点'} · ${part.nodeId || ''}` : `${part.mediaType || '媒体'} · ${part.assetKey || ''}`;
+        if (part.missing) return `<div class="conversation-missing-media">${escapeHtml(label)}<span>资源缺失</span><button class="btn btn-ghost" type="button" data-recover-asset="${escapeHtml(part.assetKey || '')}">恢复</button><button class="btn btn-ghost" type="button" data-remove-missing="${escapeHtml(part.assetKey || '')}">移除</button></div>`;
+        return `<div class="conversation-message-attachment">${escapeHtml(label)}</div>`;
+    }).join('');
+    return text + attachments;
+}
+
 function statusLabel(status) {
     return ({ pending: '等待中', streaming: '生成中', completed: '已完成', partial: '部分回复', failed: '失败', cancelled: '已停止' })[status] || '就绪';
 }
@@ -41,11 +52,15 @@ export function createConversationWorkbenchController({
     state = {},
     showToast = () => {},
     executionService = null,
+    getHistoryEntry = async () => null,
+    putMediaAsset = async () => null,
+    removeMediaReference = async () => false,
     getActiveWorkflow = () => null
 } = {}) {
     let conversations = [];
     let activeConversation = null;
     let listStatus = 'active';
+    const stagedContext = createStagedConversationContext();
 
     const element = (id) => documentRef.getElementById(id);
 
@@ -78,9 +93,70 @@ export function createConversationWorkbenchController({
         container.innerHTML = messages.length ? messages.map((message) => (
             `<article class="conversation-message is-${escapeHtml(message.role)}" data-message-status="${escapeHtml(message.status)}">
                 <header><strong>${message.role === 'assistant' ? '助手' : '你'}</strong><span>${statusLabel(message.status)}</span></header>
-                <div class="conversation-message-content">${renderConversationMarkdown(messageText(message))}</div>
+                <div class="conversation-message-content">${renderMessageParts(message)}</div>
             </article>`
         )).join('') : '<div class="conversation-empty-state"><strong>从一个明确的问题开始</strong><span>可以附加工作流节点、历史资源或本地媒体。</span></div>';
+    }
+
+    function renderStagedContext() {
+        const container = element('conversation-staged-context');
+        const summary = element('conversation-send-summary');
+        const items = stagedContext.list();
+        if (container) container.innerHTML = items.map((item) => (
+            `<span class="conversation-context-chip" data-staged-id="${escapeHtml(item.id)}">${escapeHtml(item.label || item.snapshot?.nodeType || item.mediaType || '资源')}<button type="button" aria-label="移除 ${escapeHtml(item.label || '资源')}" data-remove-staged="${escapeHtml(item.id)}">×</button></span>`
+        )).join('');
+        if (summary) summary.textContent = items.length ? `本次将发送：文字 + ${items.length} 项上下文` : '本次将发送：仅文字';
+    }
+
+    function stageSelectedNodes() {
+        const workflow = getActiveWorkflow();
+        if (!workflow?.id) return stagedContext.list();
+        for (const nodeId of state.selectedNodes || []) {
+            const node = state.nodes?.get?.(nodeId);
+            if (!node) continue;
+            const snapshot = snapshotWorkflowNode({ workflowId: workflow?.id, node });
+            stagedContext.add({ id: `node:${workflow.id}:${nodeId}`, type: 'node-source', label: node.type, snapshot });
+        }
+        renderStagedContext();
+        return stagedContext.list();
+    }
+
+    async function stageSelectedHistory() {
+        for (const historyId of state.selectedHistoryIds || []) {
+            const entry = await getHistoryEntry(historyId);
+            const assetKey = entry?.videoAssetKey || entry?.imageAssetKey;
+            if (!assetKey) continue;
+            stagedContext.add({
+                id: `history:${historyId}`,
+                type: 'media',
+                label: entry.prompt || `历史资源 ${historyId}`,
+                assetKey,
+                mediaType: entry.mediaType || (entry.videoAssetKey ? 'video' : 'image'),
+                url: entry.image || entry.video || ''
+            });
+        }
+        renderStagedContext();
+        return stagedContext.list();
+    }
+
+    function stageMedia(item) {
+        stagedContext.add(item);
+        renderStagedContext();
+        return stagedContext.list();
+    }
+
+    async function stageLocalImages(files) {
+        for (const file of files || []) {
+            if (!String(file.type || '').startsWith('image/')) continue;
+            const ownerId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+            const asset = await putMediaAsset(file, 'conversation-staging', ownerId);
+            if (!asset?.asset_key) throw new Error(`无法暂存图片：${file.name || '未命名图片'}`);
+            stageMedia({
+                id: `upload:${ownerId}`, type: 'media', label: file.name || '本地图片',
+                assetKey: asset.asset_key, mediaType: 'image', stagingOwnerId: ownerId
+            });
+        }
+        return stagedContext.list();
     }
 
     function renderActiveConversation() {
@@ -168,7 +244,12 @@ export function createConversationWorkbenchController({
         if (!model || !provider) throw new Error('请先选择可用的模型与 Provider');
         if (composer) composer.value = '';
         try {
-            await executionService.send({ conversation: sendingConversation, text, model, provider });
+            await executionService.send({ conversation: sendingConversation, text, model, provider, contextParts: stagedContext.toMessageParts() });
+            await Promise.all(stagedContext.list().filter((item) => item.stagingOwnerId).map((item) => (
+                removeMediaReference('conversation-staging', item.stagingOwnerId, item.assetKey)
+            )));
+            stagedContext.clear();
+            renderStagedContext();
         } finally {
             if (activeConversation?.id === sendingConversation.id) await selectConversation(sendingConversation.id);
             else await refresh();
@@ -216,6 +297,24 @@ export function createConversationWorkbenchController({
                 showToast(error.message, 'error');
             }
         });
+        element('conversation-stage-selected-nodes')?.addEventListener('click', stageSelectedNodes);
+        element('conversation-stage-selected-history')?.addEventListener('click', () => void stageSelectedHistory().catch((error) => showToast(error.message, 'error')));
+        element('conversation-attach-file')?.addEventListener('click', () => element('conversation-file-input')?.click());
+        element('conversation-file-input')?.addEventListener('change', (event) => void stageLocalImages(event.target.files).catch((error) => showToast(error.message, 'error')));
+        element('conversation-composer')?.addEventListener('paste', (event) => {
+            const images = [...(event.clipboardData?.files || [])].filter((file) => String(file.type || '').startsWith('image/'));
+            if (!images.length) return;
+            event.preventDefault();
+            void stageLocalImages(images).catch((error) => showToast(error.message, 'error'));
+        });
+        element('conversation-staged-context')?.addEventListener('click', (event) => {
+            const itemId = event.target?.dataset?.removeStaged;
+            if (!itemId) return;
+            const item = stagedContext.list().find((candidate) => candidate.id === itemId);
+            stagedContext.remove(itemId);
+            renderStagedContext();
+            if (item?.stagingOwnerId) void removeMediaReference('conversation-staging', item.stagingOwnerId, item.assetKey);
+        });
         element('conversation-send')?.addEventListener('click', () => {
             if (activeConversation && executionService?.getRunState(activeConversation.id)) {
                 executionService.stop(activeConversation.id);
@@ -237,6 +336,7 @@ export function createConversationWorkbenchController({
     async function init() {
         bind();
         renderModels();
+        renderStagedContext();
         await refresh();
         if (conversations[0]) {
             await selectConversation(conversations[0].id);
@@ -250,5 +350,5 @@ export function createConversationWorkbenchController({
         return { conversations: [...conversations], activeConversationId: activeConversation?.id || null };
     }
 
-    return { init, refresh, selectConversation, createConversation, sendCurrentMessage, projectRunState, setPaneExpanded, getSnapshot };
+    return { init, refresh, selectConversation, createConversation, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, setPaneExpanded, getSnapshot };
 }

@@ -997,6 +997,9 @@ function getConversationWorkbenchControllerApi() {
             documentRef: document,
             showToast,
             executionService: getConversationExecutionServiceApi(),
+            getHistoryEntry,
+            putMediaAsset,
+            removeMediaReference,
             getActiveWorkflow: () => ({
                 id: workflowManagerApi.getActiveWorkflowId?.() || '',
                 label: workflowManagerApi.getActiveWorkflowName?.() || ''
@@ -1019,6 +1022,11 @@ function getConversationExecutionServiceApi() {
             }),
             onStateChange: (conversationId, runState) => {
                 getConversationWorkbenchControllerApi().projectRunState(conversationId, runState);
+            },
+            resolveMediaAsset: async (assetKey) => {
+                const value = await getImageAsset(assetKey);
+                if (!value) return null;
+                return value instanceof Blob ? blobToDataUrl(value) : value;
             }
         });
     }

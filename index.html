@@ -529,6 +529,8 @@
                         <textarea id="conversation-composer" rows="3" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
                         <footer class="conversation-composer-footer">
                             <span id="conversation-send-summary">本次将发送：仅文字</span>
+                            <input id="conversation-file-input" type="file" accept="image/*" multiple hidden>
+                            <button id="conversation-attach-file" class="btn btn-ghost" type="button">添加图片</button>
                             <button id="conversation-send" class="btn btn-run" type="button">发送</button>
                         </footer>
                     </section>
@@ -544,11 +546,11 @@
                         <div id="conversation-workflow-summary" class="conversation-context-content">未关联工作流</div>
                     </section>
                     <section class="conversation-context-section">
-                        <h3>节点资源</h3>
+                        <h3>节点资源 <button id="conversation-stage-selected-nodes" class="btn btn-ghost" type="button">加入所选</button></h3>
                         <div id="conversation-node-resources" class="conversation-context-content">暂无已选择节点</div>
                     </section>
                     <section class="conversation-context-section">
-                        <h3>历史资源</h3>
+                        <h3>历史资源 <button id="conversation-stage-selected-history" class="btn btn-ghost" type="button">加入所选</button></h3>
                         <div id="conversation-history-resources" class="conversation-context-content">暂无已选择资源</div>
                     </section>
                     <section class="conversation-context-section">

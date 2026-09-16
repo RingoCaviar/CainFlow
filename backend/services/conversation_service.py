@@ -113,6 +113,36 @@ class ConversationService:
             result['messages'] = messages
         return result
 
+    @staticmethod
+    def _bind_message_media(database, message_id, parts, now):
+        tables = {row[0] for row in database.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('assets', 'media_asset_refs')")}
+        if tables != {'assets', 'media_asset_refs'}:
+            return parts
+        normalized = []
+        for part_index, original_part in enumerate(parts):
+            part = dict(original_part)
+            asset_keys = []
+            if part.get('type') == 'media' and part.get('assetKey'):
+                asset_keys = [str(part['assetKey'])]
+            elif part.get('type') == 'node-source' and isinstance(part.get('mediaAssetKeys'), list):
+                asset_keys = [str(key) for key in part['mediaAssetKeys'] if key]
+            missing_keys = []
+            for asset_key in asset_keys:
+                exists = database.execute(
+                    'SELECT 1 FROM assets WHERE asset_key=?', (asset_key,)).fetchone()
+                if not exists:
+                    missing_keys.append(asset_key)
+                    continue
+                database.execute('''INSERT OR IGNORE INTO media_asset_refs(
+                    owner_type, owner_id, asset_key, created_at) VALUES('conversation-message', ?, ?, ?)''',
+                    (f'{message_id}:{part_index}', asset_key, now))
+            if missing_keys:
+                part['missing'] = True
+                part['missingAssetKeys'] = missing_keys
+            normalized.append(part)
+        return normalized
+
     def create_conversation(self, data):
         if not isinstance(data, dict):
             raise ConversationError('Conversation payload must be an object')
@@ -267,6 +297,7 @@ class ConversationService:
             branch_ordinal = database.execute('''SELECT COUNT(*) FROM conversation_messages
                 WHERE conversation_id=? AND parent_message_id IS ?''',
                 (conversation_id, parent_message_id)).fetchone()[0]
+            parts = self._bind_message_media(database, message_id, parts, now)
             database.execute('''INSERT INTO conversation_messages(
                 id, conversation_id, parent_message_id, branch_ordinal, role, status,
                 parts_json, execution_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
@@ -352,7 +383,16 @@ class ConversationService:
             if row['status'] != 'trashed':
                 raise ConversationStateConflict(
                     'Conversation must be trashed before permanent deletion')
+            message_ids = [item[0] for item in database.execute(
+                'SELECT id FROM conversation_messages WHERE conversation_id=?', (conversation_id,)).fetchall()]
             database.execute('DELETE FROM conversations WHERE id=?', (conversation_id,))
+            has_refs = database.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_asset_refs'").fetchone()
+            if has_refs:
+                for message_id in message_ids:
+                    database.execute('''DELETE FROM media_asset_refs
+                        WHERE owner_type='conversation-message' AND owner_id LIKE ?''',
+                        (f'{message_id}:%',))
         return True
 
 
