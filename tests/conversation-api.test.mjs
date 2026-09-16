@@ -4,7 +4,8 @@ import test from 'node:test';
 import {
     appendConversationMessage,
     listConversations,
-    updateConversation
+    updateConversation,
+    updateConversationMessage
 } from '../js/services/conversation-api.js';
 
 test('conversation client maps filters and versioned mutations to the public HTTP API', async () => {
@@ -24,10 +25,14 @@ test('conversation client maps filters and versioned mutations to the public HTT
         assert.equal((await appendConversationMessage('conversation-a', {
             revision: 2, role: 'user', status: 'completed', parts: [{ type: 'text', text: 'Hello' }]
         })).conversationRevision, 3);
+        assert.equal((await updateConversationMessage('conversation-a', 'message-a', {
+            revision: 3, status: 'completed', parts: [{ type: 'text', text: 'Hi' }], execution: { modelId: 'm1' }
+        })).conversationRevision, 3);
     } finally {
         globalThis.fetch = previousFetch;
     }
     assert.equal(calls[0].url, '/api/conversations?status=archived&workflowId=workflow-a&search=quiet');
     assert.equal(calls[1].options.method, 'PUT');
     assert.equal(calls[2].url, '/api/conversations/conversation-a/messages');
+    assert.equal(calls[3].url, '/api/conversations/conversation-a/messages/message-a');
 });

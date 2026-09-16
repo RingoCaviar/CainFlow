@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ChatRequestPlanError, createChatRequestPlan, executeChatRequestPlan } from '../js/features/execution/chat-request-plan.js';
+import { ChatRequestPlanError, createChatRequestPlan, executeChatRequestPlan, requestChatCompletion } from '../js/features/execution/chat-request-plan.js';
 
 const provider = { id: 'provider-a', name: 'Provider A', apikey: 'secret-token', baseUrl: 'https://api.example.test/v1' };
 const openAiModel = { id: 'model-a', modelId: 'chat-a', name: 'Chat A', protocol: 'openai' };
@@ -29,6 +29,20 @@ test('builds one OpenAI request plan for text and ordered images', () => {
     ]);
     assert.deepEqual(plan.preview.requestBody, plan.requestBody);
     assert.equal(JSON.stringify(plan.preview).includes('secret-token'), false);
+});
+
+test('shared completion transport parses OpenAI and Google text without exposing credentials', async () => {
+    const openAiPlan = createChatRequestPlan({ provider, model: openAiModel, protocol: 'openai', messages: [{ role: 'user', content: 'hello' }] });
+    const openAi = await requestChatCompletion(openAiPlan, {
+        fetchRef: async () => new Response(JSON.stringify({ choices: [{ message: { content: 'OpenAI reply' } }] }))
+    });
+    const googlePlan = createChatRequestPlan({ provider, model: openAiModel, protocol: 'google', messages: [{ role: 'user', content: 'hello' }] });
+    const google = await requestChatCompletion(googlePlan, {
+        fetchRef: async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Google reply' }] } }] }))
+    });
+
+    assert.equal(openAi.text, 'OpenAI reply');
+    assert.equal(google.text, 'Google reply');
 });
 
 test('builds Google history and inline image parts without changing media order', () => {

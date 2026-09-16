@@ -44,6 +44,12 @@ export async function appendConversationMessage(conversationId, input) {
     });
 }
 
+export async function updateConversationMessage(conversationId, messageId, input) {
+    return requestConversation(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
+        method: 'PUT', body: JSON.stringify(input)
+    });
+}
+
 export async function permanentlyDeleteConversation(conversationId, revision) {
     return requestConversation(`/api/conversations/${encodeURIComponent(conversationId)}?revision=${encodeURIComponent(revision)}`, {
         method: 'DELETE'

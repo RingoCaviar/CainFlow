@@ -61,6 +61,24 @@ def handle_put(handler):
     prefix = '/api/conversations/'
     if not path.startswith(prefix):
         return False
+    message_marker = '/messages/'
+    remainder = path[len(prefix):]
+    if message_marker in remainder:
+        conversation_id, message_id = remainder.split(message_marker, 1)
+        try:
+            result = conversation_service.update_message(
+                unquote(conversation_id.rstrip('/')), unquote(message_id), read_json_body(handler))
+        except ConversationConflict:
+            write_error(handler, 409, 'Conversation revision conflict')
+            return True
+        except ConversationError as error:
+            write_error(handler, 400, str(error))
+            return True
+        if result is None:
+            write_json(handler, {'message': None}, status=404)
+            return True
+        write_json(handler, result)
+        return True
     try:
         conversation = conversation_service.update_conversation(
             unquote(path[len(prefix):]), read_json_body(handler))

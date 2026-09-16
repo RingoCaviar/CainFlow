@@ -64,6 +64,8 @@ import { applyCanvasUiSetting as applyCanvasUiSettingService } from '../features
 import { createToolbarControllerApi } from '../features/ui/toolbar-controller.js';
 import { createWorkspaceModeController } from '../features/ui/workspace-mode-controller.js';
 import { createConversationWorkbenchController } from '../features/conversation/conversation-workbench-controller.js';
+import { createConversationExecutionService } from '../features/conversation/conversation-execution-service.js';
+import { createChatRequestPlan, requestChatCompletion } from '../features/execution/chat-request-plan.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
 import { createFloatingNoticesController } from '../features/ui/floating-notices-controller.js';
 import { createLogPanelApi } from '../features/logs/log-panel.js';
@@ -994,6 +996,7 @@ function getConversationWorkbenchControllerApi() {
             state,
             documentRef: document,
             showToast,
+            executionService: getConversationExecutionServiceApi(),
             getActiveWorkflow: () => ({
                 id: workflowManagerApi.getActiveWorkflowId?.() || '',
                 label: workflowManagerApi.getActiveWorkflowName?.() || ''
@@ -1001,6 +1004,25 @@ function getConversationWorkbenchControllerApi() {
         });
     }
     return registry.conversationWorkbenchControllerApi;
+}
+
+function getConversationExecutionServiceApi() {
+    if (!registry.conversationExecutionServiceApi) {
+        registry.conversationExecutionServiceApi = createConversationExecutionService({
+            createPlan: createChatRequestPlan,
+            executePlan: (plan, options) => requestChatCompletion(plan, {
+                ...options,
+                fetchRef: fetch,
+                headers: getProxyHeaders(plan.url, 'POST', plan.protocol === 'openai'
+                    ? { Authorization: `Bearer ${plan.provider.apikey}` }
+                    : {})
+            }),
+            onStateChange: (conversationId, runState) => {
+                getConversationWorkbenchControllerApi().projectRunState(conversationId, runState);
+            }
+        });
+    }
+    return registry.conversationExecutionServiceApi;
 }
 
 function getPromptLibraryApi() {

@@ -31,6 +31,7 @@ export function createAppRegistry() {
         themeControllerApi: null,
         workspaceModeControllerApi: null,
         conversationWorkbenchControllerApi: null,
+        conversationExecutionServiceApi: null,
         promptLibraryApi: null,
         workflowRuntimeManagerApi: null
     };

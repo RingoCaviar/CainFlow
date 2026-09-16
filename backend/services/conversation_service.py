@@ -284,6 +284,57 @@ class ConversationService:
         }
         return {'message': message, 'conversationRevision': expected_revision + 1}
 
+    def update_message(self, conversation_id, message_id, data):
+        self._initialize()
+        if not isinstance(data, dict):
+            raise ConversationError('Message payload must be an object')
+        conversation_id = self._clean_text(conversation_id, 128, 'conversationId', allow_empty=False)
+        message_id = self._clean_text(message_id, 128, 'messageId', allow_empty=False)
+        try:
+            expected_revision = int(data.get('revision'))
+        except (TypeError, ValueError):
+            raise ConversationError('revision is required') from None
+        status = self._clean_text(data.get('status'), 24, 'status', allow_empty=False)
+        if status not in {'pending', 'streaming', 'completed', 'partial', 'failed', 'cancelled'}:
+            raise ConversationError('Unknown message status')
+        parts = data.get('parts')
+        if not isinstance(parts, list) or not parts:
+            raise ConversationError('Message parts are required')
+        for part in parts:
+            if not isinstance(part, dict) or part.get('type') not in {'text', 'media', 'node-source'}:
+                raise ConversationError('Unknown message part')
+            if part.get('type') == 'text':
+                self._clean_text(part.get('text'), 200000, 'message text')
+        execution = data.get('execution')
+        if execution is not None and not isinstance(execution, dict):
+            raise ConversationError('execution must be an object')
+        now = int(time.time() * 1000)
+        with self._lock, self._connect() as database:
+            conversation = database.execute(
+                'SELECT revision FROM conversations WHERE id=?', (conversation_id,)).fetchone()
+            if not conversation:
+                return None
+            if conversation['revision'] != expected_revision:
+                raise ConversationConflict('Conversation revision conflict')
+            message = database.execute('''SELECT * FROM conversation_messages
+                WHERE id=? AND conversation_id=?''', (message_id, conversation_id)).fetchone()
+            if not message:
+                return None
+            database.execute('''UPDATE conversation_messages SET status=?, parts_json=?, execution_json=?
+                WHERE id=? AND conversation_id=?''', (
+                status, json.dumps(parts, ensure_ascii=False, separators=(',', ':')),
+                json.dumps(execution, ensure_ascii=False, separators=(',', ':')) if execution else None,
+                message_id, conversation_id))
+            database.execute('''UPDATE conversations SET revision=revision+1, updated_at=? WHERE id=?''',
+                (now, conversation_id))
+        result = {
+            'id': message_id, 'conversationId': conversation_id,
+            'parentMessageId': message['parent_message_id'], 'branchOrdinal': message['branch_ordinal'],
+            'role': message['role'], 'status': status, 'parts': parts,
+            'execution': execution, 'createdAt': message['created_at'],
+        }
+        return {'message': result, 'conversationRevision': expected_revision + 1}
+
     def delete_conversation(self, conversation_id, expected_revision):
         self._initialize()
         conversation_id = self._clean_text(conversation_id, 128, 'conversationId', allow_empty=False)

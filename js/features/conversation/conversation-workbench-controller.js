@@ -40,6 +40,7 @@ export function createConversationWorkbenchController({
     api = defaultConversationApi,
     state = {},
     showToast = () => {},
+    executionService = null,
     getActiveWorkflow = () => null
 } = {}) {
     let conversations = [];
@@ -141,6 +142,40 @@ export function createConversationWorkbenchController({
         return created;
     }
 
+    function projectRunState(conversationId, runState) {
+        const summary = conversations.find((item) => item.id === conversationId);
+        if (summary) summary.runStatus = runState.status;
+        if (activeConversation?.id === conversationId) {
+            activeConversation.runStatus = runState.status;
+            const status = element('conversation-status');
+            if (status) status.textContent = statusLabel(runState.status);
+            const sendButton = element('conversation-send');
+            if (sendButton) sendButton.textContent = ['starting', 'running', 'streaming'].includes(runState.status) ? '停止' : '发送';
+        }
+        renderList();
+    }
+
+    async function sendCurrentMessage() {
+        if (!activeConversation || !executionService) return null;
+        const sendingConversation = activeConversation;
+        const composer = element('conversation-composer');
+        const text = composer?.value?.trim() || '';
+        if (!text) return null;
+        const modelId = element('conversation-model')?.value || sendingConversation.defaultModelId;
+        const model = (state.models || []).find((item) => item.id === modelId);
+        const providerId = sendingConversation.defaultProviderId || model?.providerId || model?.providerIds?.[0];
+        const provider = (state.providers || []).find((item) => item.id === providerId);
+        if (!model || !provider) throw new Error('请先选择可用的模型与 Provider');
+        if (composer) composer.value = '';
+        try {
+            await executionService.send({ conversation: sendingConversation, text, model, provider });
+        } finally {
+            if (activeConversation?.id === sendingConversation.id) await selectConversation(sendingConversation.id);
+            else await refresh();
+        }
+        return activeConversation;
+    }
+
     function setPaneExpanded(paneId, triggerId, expanded) {
         const pane = element(paneId);
         const trigger = element(triggerId);
@@ -181,6 +216,18 @@ export function createConversationWorkbenchController({
                 showToast(error.message, 'error');
             }
         });
+        element('conversation-send')?.addEventListener('click', () => {
+            if (activeConversation && executionService?.getRunState(activeConversation.id)) {
+                executionService.stop(activeConversation.id);
+                return;
+            }
+            void sendCurrentMessage().catch((error) => showToast(error.message, 'error'));
+        });
+        element('conversation-composer')?.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+            event.preventDefault();
+            void sendCurrentMessage().catch((error) => showToast(error.message, 'error'));
+        });
         element('conversation-drawer-backdrop')?.addEventListener('click', () => {
             setPaneExpanded('conversation-list-pane', 'conversation-list-collapse', false);
             setPaneExpanded('conversation-context-pane', 'conversation-context-toggle', false);
@@ -191,7 +238,11 @@ export function createConversationWorkbenchController({
         bind();
         renderModels();
         await refresh();
-        if (conversations[0]) await selectConversation(conversations[0].id);
+        if (conversations[0]) {
+            await selectConversation(conversations[0].id);
+            const recovered = await executionService?.recoverInterrupted?.(activeConversation);
+            if (recovered?.messages?.length) await selectConversation(activeConversation.id);
+        }
         return getSnapshot();
     }
 
@@ -199,5 +250,5 @@ export function createConversationWorkbenchController({
         return { conversations: [...conversations], activeConversationId: activeConversation?.id || null };
     }
 
-    return { init, refresh, selectConversation, createConversation, setPaneExpanded, getSnapshot };
+    return { init, refresh, selectConversation, createConversation, sendCurrentMessage, projectRunState, setPaneExpanded, getSnapshot };
 }

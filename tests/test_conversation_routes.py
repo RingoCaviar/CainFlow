@@ -98,6 +98,32 @@ class ConversationRouteTests(unittest.TestCase):
                 'createdAt': response['message']['createdAt'],
             }], restored['messages'])
 
+    def test_execution_can_complete_a_pending_assistant_message_in_place(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = ConversationService(os.path.join(root, 'conversations.db'))
+            created = service.create_conversation({'title': 'Run'})
+            pending = service.append_message(created['id'], {
+                'revision': 1, 'role': 'assistant', 'status': 'pending',
+                'parts': [{'type': 'text', 'text': ''}],
+            })
+            handler = make_handler(f"/api/conversations/{created['id']}/messages/{pending['message']['id']}")
+            request = {
+                'revision': 2, 'status': 'completed',
+                'parts': [{'type': 'text', 'text': 'Finished'}],
+                'execution': {'modelId': 'model-a', 'attempts': [{'ordinal': 1, 'status': 'completed'}]},
+            }
+            response = {}
+            with mock.patch.object(conversation_routes, 'conversation_service', service), \
+                    mock.patch.object(conversation_routes, 'read_json_body', return_value=request), \
+                    mock.patch.object(conversation_routes, 'write_json', side_effect=lambda _h, value, **_k: response.update(value)):
+                self.assertTrue(conversation_routes.handle_put(handler))
+
+            self.assertEqual('completed', response['message']['status'])
+            self.assertEqual('Finished', response['message']['parts'][0]['text'])
+            self.assertEqual(3, response['conversationRevision'])
+            restored = service.get_conversation(created['id'])['messages'][0]
+            self.assertEqual('model-a', restored['execution']['modelId'])
+
     def test_conversation_list_filters_status_workflow_and_search(self):
         with tempfile.TemporaryDirectory() as root:
             service = ConversationService(os.path.join(root, 'conversations.db'))
