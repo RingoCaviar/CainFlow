@@ -34,6 +34,9 @@ function messageText(message) {
 
 function renderMessageParts(message) {
     const text = renderConversationMarkdown(messageText(message));
+    const failure = message?.role === 'assistant' && message?.status === 'failed'
+        ? `<div class="conversation-message-error">${escapeHtml(message.execution?.attempts?.at(-1)?.error?.summary || '请求失败，请重试或换模型后重试')}</div>`
+        : '';
     const attachments = (message?.parts || []).map((part, partIndex) => ({ part, partIndex }))
         .filter(({ part }) => part?.type !== 'text').map(({ part, partIndex }) => {
         const label = part.type === 'node-source' ? `${part.nodeType || '节点'} · ${part.nodeId || ''}` : `${part.mediaType || '媒体'} · ${part.assetKey || ''}`;
@@ -43,7 +46,7 @@ function renderMessageParts(message) {
         }
         return `<div class="conversation-message-attachment">${escapeHtml(label)}</div>`;
     }).join('');
-    return text + attachments;
+    return text + failure + attachments;
 }
 
 function statusLabel(status) {
@@ -201,7 +204,7 @@ export function createConversationWorkbenchController({
             `<article class="conversation-message is-${escapeHtml(message.role)}" data-message-id="${escapeHtml(message.id)}" data-message-status="${escapeHtml(message.status)}">
                 <header><strong>${message.role === 'assistant' ? '助手' : '你'}</strong><span>${group.length > 1 ? `版本 ${versionIndex + 1}/${group.length} · ` : ''}${statusLabel(message.status)}</span></header>
                 <div class="conversation-message-content">${renderMessageParts(message)}</div>
-                ${message.role === 'assistant' && ['completed', 'partial'].includes(message.status) ? `<footer class="conversation-message-actions">${group.length > 1 ? `<button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.max(0, versionIndex - 1)}">上一版</button><button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.min(group.length - 1, versionIndex + 1)}">下一版</button>` : ''}<button class="btn btn-ghost" type="button" data-regenerate-message="${escapeHtml(message.id)}">重新生成</button></footer>` : ''}
+                ${message.role === 'assistant' && ['completed', 'partial', 'failed'].includes(message.status) ? `<footer class="conversation-message-actions">${group.length > 1 ? `<button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.max(0, versionIndex - 1)}">上一版</button><button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.min(group.length - 1, versionIndex + 1)}">下一版</button>` : ''}<button class="btn btn-ghost" type="button" data-regenerate-message="${escapeHtml(message.id)}">重新生成</button></footer>` : ''}
             </article>`);
         }).join('') : '<div class="conversation-empty-state"><strong>从一个明确的问题开始</strong><span>普通对话默认不会读取或修改画布；需要时可手动附加节点、历史资源或本地媒体。</span></div>';
     }
@@ -350,6 +353,7 @@ export function createConversationWorkbenchController({
             messages: updated.messages || activeConversation.messages || []
         };
         renderActiveConversation();
+        showToast(`已切换到 ${model?.name || model?.modelId || modelId}，仅影响下一条消息`, 'info');
         return activeConversation;
     }
 

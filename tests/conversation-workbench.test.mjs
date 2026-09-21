@@ -116,6 +116,7 @@ test('Switching the chat model preserves loaded messages when the update API ret
     ];
     const current = { id: 'c1', title: '对话', revision: 1, status: 'active', defaultModelId: 'old', defaultProviderId: 'p1', messages };
     let updateInput;
+    const notices = [];
     const controller = createConversationWorkbenchController({
         documentRef,
         api: {
@@ -126,7 +127,8 @@ test('Switching the chat model preserves loaded messages when the update API ret
                 return { id: 'c1', title: '对话', revision: 2, status: 'active', defaultModelId: input.defaultModelId, defaultProviderId: input.defaultProviderId };
             }
         },
-        state: { models: [{ id: 'old', taskType: 'chat', providerId: 'p1' }, { id: 'new', taskType: 'chat', providerId: 'p2' }], providers: [{ id: 'p1' }, { id: 'p2' }] }
+        state: { models: [{ id: 'old', taskType: 'chat', providerId: 'p1' }, { id: 'new', name: '新模型', taskType: 'chat', providerId: 'p2' }], providers: [{ id: 'p1' }, { id: 'p2' }] },
+        showToast: (message) => notices.push(message)
     });
 
     await controller.init();
@@ -134,6 +136,7 @@ test('Switching the chat model preserves loaded messages when the update API ret
 
     assert.equal(updateInput.defaultModelId, 'new');
     assert.match(documentRef.elements.get('conversation-messages').innerHTML, /你好，我在。/);
+    assert.ok(notices.some((message) => /仅影响下一条消息/.test(message)));
 });
 
 test('Conversation workbench gives a direct setup next step when no usable model exists', async () => {
@@ -215,6 +218,22 @@ test('Ordinary assistant replies do not offer canvas materialization actions', a
     await controller.init();
 
     assert.doesNotMatch(documentRef.elements.get('conversation-messages').innerHTML, /添加为 Text|data-materialize-message/);
+});
+
+test('Failed assistant messages keep an actionable error and retry in the message stream', async () => {
+    const documentRef = workbenchDocument();
+    const current = { id: 'c1', title: '新对话', revision: 1, status: 'active', messages: [
+        { id: 'u1', role: 'user', status: 'completed', parts: [{ type: 'text', text: '你好' }] },
+        { id: 'a1', role: 'assistant', parentMessageId: 'u1', status: 'failed', parts: [{ type: 'text', text: '' }], execution: { attempts: [{ error: { summary: '连接超时，请重试或换模型' } }] } }
+    ] };
+    const controller = createConversationWorkbenchController({
+        documentRef, api: { listConversations: async () => [current], getConversation: async () => current }, state: { models: [] }
+    });
+
+    await controller.init();
+
+    assert.match(documentRef.elements.get('conversation-messages').innerHTML, /连接超时，请重试或换模型/);
+    assert.match(documentRef.elements.get('conversation-messages').innerHTML, /重新生成/);
 });
 
 test('Standalone chat never sends workflow data even when a canvas is active', async () => {
