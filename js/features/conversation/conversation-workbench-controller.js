@@ -78,7 +78,8 @@ export function createConversationWorkbenchController({
     materializeMessage = async () => null,
     promptRef = globalThis.prompt,
     confirmRef = globalThis.confirm,
-    getActiveWorkflow = () => null
+    getActiveWorkflow = () => null,
+    onToolbarStateChange = () => {}
 } = {}) {
     let conversations = [];
     let activeConversation = null;
@@ -87,6 +88,23 @@ export function createConversationWorkbenchController({
     const visibleVersionByParent = new Map();
 
     const element = (id) => documentRef.getElementById(id);
+
+    function getToolbarSnapshot() {
+        const workflow = getActiveWorkflow();
+        const activeId = activeConversation?.id || '';
+        return {
+            activeConversationId: activeId,
+            title: activeConversation?.title || '新对话',
+            workflowLabel: activeConversation?.workflowId && activeConversation.workflowId === workflow?.id
+                ? workflow?.label || '当前工作流' : '画布',
+            stagedContextCount: stagedContext.list().length,
+            isRunning: Boolean(activeId && executionService?.getRunState(activeId))
+        };
+    }
+
+    function publishToolbarState() {
+        onToolbarStateChange(getToolbarSnapshot());
+    }
 
     function renderModels() {
         const select = element('conversation-model');
@@ -165,6 +183,7 @@ export function createConversationWorkbenchController({
                 ? `<div><strong>${escapeHtml(item.label || item.snapshot?.nodeType || '节点')}</strong>：${escapeHtml(item.snapshot?.textSnapshot || '空快照')}</div>`
                 : `<div><strong>媒体</strong>：${escapeHtml(item.label || item.assetKey || '资源')}</div>`)
         ].join('');
+        publishToolbarState();
     }
 
     function stageSelectedNodes() {
@@ -250,6 +269,7 @@ export function createConversationWorkbenchController({
         if (systemPrompt) systemPrompt.textContent = activeConversation?.systemPrompt
             ? activeConversation.systemPrompt.slice(0, 160)
             : '使用默认提示词';
+        publishToolbarState();
     }
 
     async function refresh() {
@@ -316,6 +336,7 @@ export function createConversationWorkbenchController({
             if (sendButton) sendButton.textContent = ['starting', 'running', 'streaming'].includes(runState.status) ? '停止' : '发送';
         }
         renderList();
+        publishToolbarState();
     }
 
     async function sendCurrentMessage() {
@@ -370,6 +391,26 @@ export function createConversationWorkbenchController({
         const backdrop = element('conversation-drawer-backdrop');
         if (backdrop) backdrop.hidden = !expanded;
         if (!expanded) trigger?.focus?.();
+    }
+
+    function togglePane(kind) {
+        const paneId = kind === 'list' ? 'conversation-list-pane' : 'conversation-context-pane';
+        const triggerId = kind === 'list' ? 'conversation-list-toggle' : 'conversation-context-toggle';
+        const pane = element(paneId);
+        setPaneExpanded(paneId, triggerId, pane?.classList?.contains?.('is-collapsed'));
+    }
+
+    function stopCurrentRun() {
+        if (!activeConversation || !executionService?.stop(activeConversation.id)) return false;
+        publishToolbarState();
+        return true;
+    }
+
+    function showExecutionRecord() {
+        const execution = [...(activeConversation?.messages || [])].reverse().find((message) => message.execution)?.execution;
+        showToast(execution
+            ? `${execution.providerName || execution.providerId || 'Provider'} · ${execution.modelName || execution.modelId || 'Model'} · ${execution.status || 'completed'}`
+            : '当前对话还没有执行记录', 'info');
     }
 
     function bind() {
@@ -462,12 +503,7 @@ export function createConversationWorkbenchController({
             const status = ['archived', 'trashed'].includes(activeConversation?.status) ? 'active' : 'archived';
             void updateLifecycle({ status }).catch((error) => showToast(error.message, 'error'));
         });
-        element('conversation-execution-record')?.addEventListener('click', () => {
-            const execution = [...(activeConversation?.messages || [])].reverse().find((message) => message.execution)?.execution;
-            showToast(execution
-                ? `${execution.providerName || execution.providerId || 'Provider'} · ${execution.modelName || execution.modelId || 'Model'} · ${execution.status || 'completed'}`
-                : '当前对话还没有执行记录', 'info');
-        });
+        element('conversation-execution-record')?.addEventListener('click', showExecutionRecord);
         element('conversation-trash')?.addEventListener('click', () => {
             if (activeConversation?.status === 'trashed') {
                 if (confirmRef?.('永久删除此对话及其消息？此操作不可恢复。')) void permanentlyDeleteCurrent().catch((error) => showToast(error.message, 'error'));
@@ -542,5 +578,5 @@ export function createConversationWorkbenchController({
         return { conversations: [...conversations], activeConversationId: activeConversation?.id || null };
     }
 
-    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, setPaneExpanded, getSnapshot };
+    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, setPaneExpanded, togglePane, stopCurrentRun, showExecutionRecord, getSnapshot, getToolbarSnapshot };
 }

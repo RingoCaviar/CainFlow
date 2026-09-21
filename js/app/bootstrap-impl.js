@@ -64,6 +64,7 @@ import { applyCanvasUiSetting as applyCanvasUiSettingService } from '../features
 import { createToolbarControllerApi } from '../features/ui/toolbar-controller.js';
 import { createWorkspaceModeController } from '../features/ui/workspace-mode-controller.js';
 import { createConversationWorkbenchController } from '../features/conversation/conversation-workbench-controller.js';
+import { createConversationToolbarController } from '../features/conversation/conversation-toolbar-controller.js';
 import { createConversationExecutionService } from '../features/conversation/conversation-execution-service.js';
 import { buildCanvasMaterializationPlan, createCanvasMaterializationCommand } from '../features/conversation/conversation-canvas-materialization.js';
 import { createChatRequestPlan, requestChatCompletion } from '../features/execution/chat-request-plan.js';
@@ -1039,10 +1040,23 @@ function getConversationWorkbenchControllerApi() {
                 label: workflowManagerApi.getActiveWorkflowName?.() || '',
                 revision: workflowManagerApi.getActiveWorkflowSnapshot?.()?.mediaOwnershipRevision
                     ?? workflowManagerApi.getActiveWorkflowSnapshot?.()?.revision ?? 0
-            })
+            }),
+            onToolbarStateChange: (snapshot) => registry.conversationToolbarControllerApi?.sync(snapshot)
         });
     }
     return registry.conversationWorkbenchControllerApi;
+}
+
+function getConversationToolbarControllerApi() {
+    if (!registry.conversationToolbarControllerApi) {
+        registry.conversationToolbarControllerApi = createConversationToolbarController({
+            documentRef: document,
+            workspaceModeController: getWorkspaceModeControllerApi(),
+            conversationWorkbenchController: getConversationWorkbenchControllerApi(),
+            showToast
+        });
+    }
+    return registry.conversationToolbarControllerApi;
 }
 
 function getConversationExecutionServiceApi() {
@@ -1745,6 +1759,7 @@ await startupPromise;
 await getConversationWorkbenchControllerApi().init().catch((error) => {
     showToast(`加载对话工作台失败：${error.message}`, 'error');
 });
+getConversationToolbarControllerApi().init();
 
 return {
     state,

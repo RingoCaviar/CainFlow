@@ -116,11 +116,16 @@ test('Conversation workspace exposes the three production panes and composer con
         'conversation-staged-context', 'conversation-send-summary', 'conversation-composer', 'conversation-send',
         'conversation-context-pane', 'conversation-workflow-summary', 'conversation-node-resources',
         'conversation-history-resources', 'conversation-system-prompt-summary', 'conversation-send-preview'
+        , 'conversation-toolbar-new', 'conversation-toolbar-list', 'conversation-toolbar-context',
+        'conversation-toolbar-stage-nodes', 'conversation-toolbar-stage-history', 'conversation-toolbar-record',
+        'conversation-toolbar-stop', 'conversation-toolbar-return-canvas'
     ]) assert.match(html, new RegExp(`id="${id}"`), id);
 
     assert.match(html, /aria-label="对话列表"/);
     assert.match(html, /aria-label="消息与输入"/);
     assert.match(html, /aria-label="资源上下文"/);
+    assert.match(html, /toolbar-canvas-only/);
+    assert.match(html, /toolbar-conversation-only/);
 });
 
 test('Conversation workspace resolves readable three-pane surfaces in all seven themes', () => {

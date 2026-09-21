@@ -223,7 +223,7 @@
                         aria-pressed="false" title="对话模式 (Ctrl+Shift+2)">对话</button>
                 </div>
             </div>
-            <div class="toolbar-center">
+            <div class="toolbar-center toolbar-canvas-only">
                 <button id="btn-run" class="btn btn-run" title="运行工作流 (Ctrl+Enter)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M8 5v14l11-7z" />
@@ -275,7 +275,20 @@
                 </button>
                 <input type="file" id="import-file" accept=".json" style="display:none" />
             </div>
-            <div class="toolbar-right">
+            <div class="toolbar-conversation-only conversation-toolbar-actions" role="group" aria-label="对话操作">
+                <span id="conversation-toolbar-title" class="conversation-toolbar-title" aria-live="polite">新对话</span>
+                <button id="conversation-toolbar-new" class="btn btn-primary" type="button" title="新建对话">新对话</button>
+                <button id="conversation-toolbar-list" class="btn btn-ghost" type="button" title="显示或隐藏对话列表">会话</button>
+                <button id="conversation-toolbar-context" class="btn btn-ghost" type="button" title="显示或隐藏上下文面板">上下文</button>
+                <button id="conversation-toolbar-stage-nodes" class="btn btn-ghost" type="button" title="将画布已选节点添加到本次上下文">添加节点</button>
+                <button id="conversation-toolbar-stage-history" class="btn btn-ghost" type="button" title="将选中的历史资源添加到本次上下文">添加历史</button>
+                <button id="conversation-toolbar-record" class="btn btn-ghost" type="button" title="查看最近一次对话执行记录">执行记录</button>
+                <span id="conversation-toolbar-status" class="conversation-toolbar-status" aria-live="polite">就绪</span>
+                <button id="conversation-toolbar-stop" class="btn btn-stop" type="button" title="停止当前对话请求" hidden>停止</button>
+                <span class="toolbar-divider" aria-hidden="true"></span>
+                <button id="conversation-toolbar-return-canvas" class="btn btn-ghost conversation-return-canvas" type="button">返回画布</button>
+            </div>
+            <div class="toolbar-right toolbar-canvas-only">
                 <div class="toolbar-toggle-group" title="开启后，工作流运行结束后将发送系统通知">
                     <svg class="icon-xs" fill="none" stroke="currentColor" stroke-width="2"
                         style="color:var(--text-secondary); margin-right:4px;" viewBox="0 0 24 24">
@@ -349,6 +362,12 @@
                     </svg>
                     清除
                 </button>
+            </div>
+            <div class="toolbar-right toolbar-conversation-only conversation-toolbar-global" role="group" aria-label="全局操作">
+                <div class="theme-menu-shell">
+                    <button id="conversation-toolbar-theme" class="btn btn-ghost" type="button" title="选择主题">主题</button>
+                </div>
+                <button id="conversation-toolbar-settings" class="btn btn-ghost" type="button" title="通用设置">设置</button>
             </div>
         </div>
 

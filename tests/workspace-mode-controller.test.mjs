@@ -123,4 +123,6 @@ test('Workspace mode switch inherits every application theme and has a narrow-wi
     assert.match(workspaceCss, /var\(--panel-active-border\)/);
     assert.doesNotMatch(workspaceCss, /#[0-9a-f]{3,8}\b/i);
     assert.match(workspaceCss, /@media \(max-width: 760px\)/);
+    assert.match(workspaceCss, /workspace-mode-conversation \.toolbar-canvas-only/);
+    assert.match(workspaceCss, /workspace-mode-conversation \.toolbar-conversation-only/);
 });
