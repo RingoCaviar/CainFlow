@@ -25,6 +25,15 @@
 .toolbar-conversation-only { display: none; }
 body.workspace-mode-conversation .toolbar-canvas-only { display: none; }
 body.workspace-mode-conversation .toolbar-conversation-only { display: flex; }
+/* Conversation navigation is primary chrome, not a transient canvas overlay. Keep it in
+   the flex flow so it cannot cover the workspace header while the pointer approaches it. */
+body.workspace-mode-conversation #toolbar {
+    position: relative;
+    transform: translateY(0);
+    opacity: 1;
+}
+body.workspace-mode-conversation #toolbar::before,
+body.workspace-mode-conversation #toolbar::after { display: none; }
 .conversation-toolbar-actions { align-items: center; gap: 6px; min-width: 0; flex: 1; }
 .conversation-toolbar-title { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .conversation-toolbar-status { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }

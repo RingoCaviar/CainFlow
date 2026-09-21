@@ -126,3 +126,9 @@ test('Workspace mode switch inherits every application theme and has a narrow-wi
     assert.match(workspaceCss, /workspace-mode-conversation \.toolbar-canvas-only/);
     assert.match(workspaceCss, /workspace-mode-conversation \.toolbar-conversation-only/);
 });
+
+test('Conversation mode keeps its toolbar in layout flow so it cannot cover the first workspace controls', async () => {
+    const workspaceCss = await readFile(new URL('../css/features/conversation-workspace.css', import.meta.url), 'utf8');
+
+    assert.match(workspaceCss, /body\.workspace-mode-conversation #toolbar\s*\{[^}]*position:\s*relative[^}]*transform:\s*translateY\(0\)/s);
+});
