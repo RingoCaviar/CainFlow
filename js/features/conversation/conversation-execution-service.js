@@ -74,7 +74,8 @@ export function createConversationExecutionService({
     maxRetries = 0,
     requestTimeoutMs = 120000,
     resolveMediaAsset = async () => null,
-    onStateChange = () => {}
+    onStateChange = () => {},
+    onMessagePersisted = () => {}
 }) {
     const activeRuns = new Map();
 
@@ -120,6 +121,7 @@ export function createConversationExecutionService({
                 ...(workflowSummary?.workflowId ? { context: { workflowSummary } } : {})
             });
             run.revision = userResult.conversationRevision;
+            onMessagePersisted(conversation.id, userResult.message, { conversationRevision: run.revision });
             if ((!conversation.messages || conversation.messages.length === 0) && conversation.title === '新对话' && api.updateConversation) {
                 const titled = await api.updateConversation(conversation.id, {
                     revision: run.revision,
@@ -137,6 +139,7 @@ export function createConversationExecutionService({
             });
             run.revision = assistantResult.conversationRevision;
             run.assistantMessageId = assistantResult.message.id;
+            onMessagePersisted(conversation.id, assistantResult.message, { conversationRevision: run.revision });
             run.projection = projectConversationContext({
                 conversation,
                 nextUserText: projectedUserText(text, contextParts, workflowSummary),

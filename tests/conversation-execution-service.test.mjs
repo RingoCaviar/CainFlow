@@ -54,6 +54,28 @@ test('Conversation execution persists the user turn and actual completed assista
     assert.equal(JSON.stringify(updated).includes('secret'), false);
 });
 
+test('Conversation execution projects durable user and pending assistant messages before the model answers', async () => {
+    const gate = deferred();
+    const persisted = [];
+    const service = createConversationExecutionService({
+        api: memoryApi(),
+        createPlan: () => ({ requestBody: {} }),
+        executePlan: () => gate.promise,
+        onMessagePersisted: (conversationId, message, metadata) => persisted.push({ conversationId, message, metadata })
+    });
+    const request = service.send({
+        conversation: conversation(), text: '立即显示我',
+        model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' }
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(persisted.map((entry) => [entry.message.role, entry.message.status]), [
+        ['user', 'completed'], ['assistant', 'pending']
+    ]);
+    gate.resolve({ text: '完成' });
+    await request;
+});
+
 function deferred() {
     let resolve;
     let reject;

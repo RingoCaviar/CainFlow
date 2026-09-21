@@ -1078,6 +1078,9 @@ function getConversationExecutionServiceApi() {
             onStateChange: (conversationId, runState) => {
                 getConversationWorkbenchControllerApi().projectRunState(conversationId, runState);
             },
+            onMessagePersisted: (conversationId, message, metadata) => {
+                getConversationWorkbenchControllerApi().projectPersistedMessage(conversationId, message, metadata);
+            },
             resolveMediaAsset: async (assetKey) => {
                 const value = await getImageAsset(assetKey);
                 if (!value) return null;

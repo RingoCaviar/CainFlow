@@ -168,8 +168,25 @@ test('New Conversation and chat model choices exclude video-only models', async 
     await controller.createConversation();
 
     assert.equal(createdInput.defaultModelId, 'chat');
+    assert.equal(createdInput.workflowId, '');
     assert.doesNotMatch(documentRef.elements.get('conversation-model').innerHTML, /视频模型/);
     assert.match(documentRef.elements.get('conversation-model').innerHTML, /对话模型/);
+});
+
+test('Ordinary assistant replies do not offer canvas materialization actions', async () => {
+    const documentRef = workbenchDocument();
+    const current = { id: 'c1', title: '新对话', revision: 1, status: 'active', messages: [
+        { id: 'a1', role: 'assistant', status: 'completed', parts: [{ type: 'text', text: '普通回复' }] }
+    ] };
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: { listConversations: async () => [current], getConversation: async () => current },
+        state: { models: [] }
+    });
+
+    await controller.init();
+
+    assert.doesNotMatch(documentRef.elements.get('conversation-messages').innerHTML, /添加为 Text|data-materialize-message/);
 });
 
 test('Conversation workspace exposes the three production panes and composer contract', async () => {

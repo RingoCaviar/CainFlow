@@ -201,9 +201,9 @@ export function createConversationWorkbenchController({
             `<article class="conversation-message is-${escapeHtml(message.role)}" data-message-id="${escapeHtml(message.id)}" data-message-status="${escapeHtml(message.status)}">
                 <header><strong>${message.role === 'assistant' ? '助手' : '你'}</strong><span>${group.length > 1 ? `版本 ${versionIndex + 1}/${group.length} · ` : ''}${statusLabel(message.status)}</span></header>
                 <div class="conversation-message-content">${renderMessageParts(message)}</div>
-                ${message.role === 'assistant' && ['completed', 'partial'].includes(message.status) ? `<footer class="conversation-message-actions">${group.length > 1 ? `<button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.max(0, versionIndex - 1)}">上一版</button><button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.min(group.length - 1, versionIndex + 1)}">下一版</button>` : ''}<button class="btn btn-ghost" type="button" data-regenerate-message="${escapeHtml(message.id)}">重新生成</button><button class="btn btn-ghost" type="button" data-materialize-message="${escapeHtml(message.id)}" data-text-node-type="Text">添加为 Text</button><button class="btn btn-ghost" type="button" data-materialize-message="${escapeHtml(message.id)}" data-text-node-type="TextChat">添加为 TextChat</button></footer>` : ''}
+                ${message.role === 'assistant' && ['completed', 'partial'].includes(message.status) ? `<footer class="conversation-message-actions">${group.length > 1 ? `<button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.max(0, versionIndex - 1)}">上一版</button><button class="btn btn-ghost" type="button" data-version-parent="${escapeHtml(message.parentMessageId)}" data-version-index="${Math.min(group.length - 1, versionIndex + 1)}">下一版</button>` : ''}<button class="btn btn-ghost" type="button" data-regenerate-message="${escapeHtml(message.id)}">重新生成</button></footer>` : ''}
             </article>`);
-        }).join('') : '<div class="conversation-empty-state"><strong>从一个明确的问题开始</strong><span>可以附加工作流节点、历史资源或本地媒体。</span></div>';
+        }).join('') : '<div class="conversation-empty-state"><strong>从一个明确的问题开始</strong><span>普通对话默认不会读取或修改画布；需要时可手动附加节点、历史资源或本地媒体。</span></div>';
     }
 
     function renderStagedContext() {
@@ -214,11 +214,11 @@ export function createConversationWorkbenchController({
         if (container) container.innerHTML = items.map((item) => (
             `<span class="conversation-context-chip" data-staged-id="${escapeHtml(item.id)}">${escapeHtml(item.label || item.snapshot?.nodeType || item.mediaType || '资源')}<button type="button" aria-label="前移" data-move-staged="${escapeHtml(item.id)}" data-move-direction="-1">←</button><button type="button" aria-label="后移" data-move-staged="${escapeHtml(item.id)}" data-move-direction="1">→</button><button type="button" aria-label="移除 ${escapeHtml(item.label || '资源')}" data-remove-staged="${escapeHtml(item.id)}">×</button></span>`
         )).join('');
-        if (summary) summary.textContent = items.length
-            ? `本次将发送：历史范围 + 工作流摘要 + ${items.filter((item) => item.type === 'node-source').length} 个节点快照 + ${items.filter((item) => item.type === 'media').length} 项媒体`
-            : '本次将发送：历史范围 + 文字';
         const workflow = getActiveWorkflow();
         const linkedWorkflow = workflow?.id && activeConversation?.workflowId === workflow.id ? workflow : null;
+        if (summary) summary.textContent = items.length || linkedWorkflow
+            ? `本次将发送：历史范围 + ${linkedWorkflow ? '工作流摘要 + ' : ''}${items.filter((item) => item.type === 'node-source').length} 个节点快照 + ${items.filter((item) => item.type === 'media').length} 项媒体`
+            : '本次将发送：历史范围 + 文字（不含工作流）';
         const collection = state.connections || state.edges || [];
         const edgeCount = collection instanceof Map || collection instanceof Set ? collection.size : collection.length || 0;
         const nodeTypes = [...(state.nodes?.values?.() || [])].map((node) => node.type);
@@ -305,9 +305,9 @@ export function createConversationWorkbenchController({
         const workflowSummary = element('conversation-workflow-summary');
         if (workflowSummary) workflowSummary.textContent = activeConversation?.workflowId
             ? `${linkedToVisibleWorkflow ? workflow.label || '当前工作流' : '关联的工作流当前不可用，请重新关联'} · revision ${workflow?.revision ?? 'unknown'} · ${linkedToVisibleWorkflow ? state.nodes?.size || 0 : 0} 个节点 · ${state.connections?.length || state.edges?.length || 0} 条连接`
-            : '未关联工作流';
+            : '未附加工作流内容';
         const linkWorkflow = element('conversation-link-workflow');
-        if (linkWorkflow) linkWorkflow.textContent = linkedToVisibleWorkflow ? '解除关联' : '关联当前';
+        if (linkWorkflow) linkWorkflow.textContent = linkedToVisibleWorkflow ? '移除工作流上下文' : '添加工作流上下文';
         const nodeResources = element('conversation-node-resources');
         if (nodeResources) nodeResources.textContent = state.selectedNodes?.size
             ? `已选择 ${state.selectedNodes.size} 个节点，发送时生成快照`
@@ -340,11 +340,10 @@ export function createConversationWorkbenchController({
     }
 
     async function createConversation() {
-        const workflow = getActiveWorkflow();
         const model = (state.models || []).find((candidate) => modelTaskType(candidate) === 'chat');
         const created = await api.createConversation({
             title: '新对话',
-            workflowId: workflow?.id || '',
+            workflowId: '',
             defaultModelId: model?.id || '',
             defaultProviderId: model?.providerId || ''
         });
@@ -389,6 +388,18 @@ export function createConversationWorkbenchController({
         }
         renderList();
         publishToolbarState();
+    }
+
+    function projectPersistedMessage(conversationId, message, { conversationRevision } = {}) {
+        if (activeConversation?.id !== conversationId || !message?.id) return;
+        const messages = activeConversation.messages || [];
+        const index = messages.findIndex((item) => item.id === message.id);
+        activeConversation.messages = index === -1
+            ? [...messages, message]
+            : messages.map((item, itemIndex) => itemIndex === index ? { ...item, ...message } : item);
+        if (conversationRevision !== undefined) activeConversation.revision = conversationRevision;
+        renderMessages();
+        renderStagedContext();
     }
 
     async function sendCurrentMessage() {
@@ -662,5 +673,5 @@ export function createConversationWorkbenchController({
         return { conversations: [...conversations], activeConversationId: activeConversation?.id || null };
     }
 
-    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, setPaneExpanded, togglePane, stopCurrentRun, showExecutionRecord, getSnapshot, getToolbarSnapshot };
+    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, projectPersistedMessage, setPaneExpanded, togglePane, stopCurrentRun, showExecutionRecord, getSnapshot, getToolbarSnapshot };
 }
