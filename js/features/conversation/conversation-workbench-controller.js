@@ -111,7 +111,7 @@ export function createConversationWorkbenchController({
     }
 
     function modelTaskType(model) {
-        return model?.taskType === 'image' ? 'image' : 'chat';
+        return model?.taskType === 'image' ? 'image' : (model?.taskType === 'chat' ? 'chat' : 'unsupported');
     }
 
     function getAvailableModels() {
@@ -341,7 +341,7 @@ export function createConversationWorkbenchController({
 
     async function createConversation() {
         const workflow = getActiveWorkflow();
-        const model = (state.models || [])[0];
+        const model = (state.models || []).find((candidate) => modelTaskType(candidate) === 'chat');
         const created = await api.createConversation({
             title: '新对话',
             workflowId: workflow?.id || '',

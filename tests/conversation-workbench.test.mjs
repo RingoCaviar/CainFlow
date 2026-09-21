@@ -149,6 +149,29 @@ test('First send creates a Conversation and exposes setup guidance instead of do
     assert.ok(notices.some((message) => /还没有可用的对话模型/.test(message)));
 });
 
+test('New Conversation and chat model choices exclude video-only models', async () => {
+    const documentRef = workbenchDocument();
+    let createdInput;
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: {
+            listConversations: async () => [],
+            createConversation: async (input) => { createdInput = input; return { id: 'c1', ...input, revision: 1, status: 'active', messages: [] }; },
+            getConversation: async () => ({ id: 'c1', revision: 1, status: 'active', messages: [] })
+        },
+        state: { models: [
+            { id: 'video', name: '视频模型', taskType: 'video', providerId: 'p1' },
+            { id: 'chat', name: '对话模型', taskType: 'chat', providerId: 'p1' }
+        ], providers: [{ id: 'p1' }] }
+    });
+    await controller.init();
+    await controller.createConversation();
+
+    assert.equal(createdInput.defaultModelId, 'chat');
+    assert.doesNotMatch(documentRef.elements.get('conversation-model').innerHTML, /视频模型/);
+    assert.match(documentRef.elements.get('conversation-model').innerHTML, /对话模型/);
+});
+
 test('Conversation workspace exposes the three production panes and composer contract', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 

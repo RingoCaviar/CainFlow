@@ -67,6 +67,7 @@ import { createConversationWorkbenchController } from '../features/conversation/
 import { createConversationToolbarController } from '../features/conversation/conversation-toolbar-controller.js';
 import { createConversationExecutionService } from '../features/conversation/conversation-execution-service.js';
 import { createConversationImageGenerationService } from '../features/conversation/conversation-image-generation-service.js';
+import * as conversationApi from '../services/conversation-api.js';
 import { buildCanvasMaterializationPlan, createCanvasMaterializationCommand } from '../features/conversation/conversation-canvas-materialization.js';
 import { createChatRequestPlan, requestChatCompletion } from '../features/execution/chat-request-plan.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
@@ -1065,6 +1066,7 @@ function getConversationToolbarControllerApi() {
 function getConversationExecutionServiceApi() {
     if (!registry.conversationExecutionServiceApi) {
         registry.conversationExecutionServiceApi = createConversationExecutionService({
+            api: conversationApi,
             createPlan: createChatRequestPlan,
             executePlan: (plan, options) => requestChatCompletion(plan, {
                 ...options,
