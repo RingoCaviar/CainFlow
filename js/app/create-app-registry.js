@@ -33,6 +33,7 @@ export function createAppRegistry() {
         conversationWorkbenchControllerApi: null,
         conversationToolbarControllerApi: null,
         conversationExecutionServiceApi: null,
+        conversationImageGenerationServiceApi: null,
         promptLibraryApi: null,
         workflowRuntimeManagerApi: null
     };

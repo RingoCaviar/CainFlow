@@ -47,7 +47,7 @@ function renderMessageParts(message) {
 }
 
 function statusLabel(status) {
-    return ({ pending: '等待中', streaming: '生成中', completed: '已完成', partial: '部分回复', failed: '失败', cancelled: '已停止' })[status] || '就绪';
+    return ({ pending: '等待中', starting: '准备中', running: '生成中', streaming: '生成中', completed: '已完成', partial: '部分回复', failed: '失败', cancelled: '已停止' })[status] || '就绪';
 }
 
 export function selectConversationBranch(messages = [], visibleVersions = new Map()) {
@@ -70,6 +70,8 @@ export function createConversationWorkbenchController({
     state = {},
     showToast = () => {},
     executionService = null,
+    imageGenerationService = null,
+    openSettings = () => {},
     getHistoryEntry = async () => null,
     putMediaAsset = async () => null,
     removeMediaReference = async () => false,
@@ -84,6 +86,8 @@ export function createConversationWorkbenchController({
     let conversations = [];
     let activeConversation = null;
     let listStatus = 'active';
+    let interactionMode = 'chat';
+    const selectedModelIdByMode = { chat: '', image: '' };
     const stagedContext = createStagedConversationContext();
     const visibleVersionByParent = new Map();
 
@@ -106,13 +110,59 @@ export function createConversationWorkbenchController({
         onToolbarStateChange(getToolbarSnapshot());
     }
 
+    function modelTaskType(model) {
+        return model?.taskType === 'image' ? 'image' : 'chat';
+    }
+
+    function getAvailableModels() {
+        return (state.models || []).filter((model) => modelTaskType(model) === interactionMode);
+    }
+
+    function getSelectedModel() {
+        const selectedId = selectedModelIdByMode[interactionMode]
+            || (interactionMode === 'chat' ? activeConversation?.defaultModelId : '');
+        return getAvailableModels().find((model) => model.id === selectedId) || null;
+    }
+
+    function getReadiness() {
+        const model = getSelectedModel();
+        const providerId = model?.providerId || model?.providerIds?.[0] || (interactionMode === 'chat' ? activeConversation?.defaultProviderId : '');
+        const provider = (state.providers || []).find((item) => item.id === providerId) || null;
+        if (getAvailableModels().length === 0) return { ready: false, reason: `还没有可用的${interactionMode === 'image' ? '生图' : '对话'}模型`, model: null, provider: null };
+        if (!model) return { ready: false, reason: `请选择一个${interactionMode === 'image' ? '生图' : '对话'}模型`, model: null, provider: null };
+        if (!provider) return { ready: false, reason: '所选模型没有可用的 Provider 配置', model, provider: null };
+        return { ready: true, reason: '', model, provider };
+    }
+
     function renderModels() {
         const select = element('conversation-model');
         if (!select) return;
-        const selected = activeConversation?.defaultModelId || '';
-        select.innerHTML = '<option value="">选择模型</option>' + (state.models || []).map((model) => (
+        const selected = getSelectedModel()?.id || '';
+        select.innerHTML = `<option value="">选择${interactionMode === 'image' ? '生图' : '对话'}模型</option>` + getAvailableModels().map((model) => (
             `<option value="${escapeHtml(model.id)}"${model.id === selected ? ' selected' : ''}>${escapeHtml(model.name || model.modelId || model.id)}</option>`
         )).join('');
+    }
+
+    function renderGuidance() {
+        const guidance = element('conversation-guidance');
+        const modeChat = element('conversation-mode-chat');
+        const modeImage = element('conversation-mode-image');
+        const sendButton = element('conversation-send');
+        const composer = element('conversation-composer');
+        const readiness = getReadiness();
+        modeChat?.classList.toggle('is-selected', interactionMode === 'chat');
+        modeImage?.classList.toggle('is-selected', interactionMode === 'image');
+        modeChat?.setAttribute('aria-pressed', String(interactionMode === 'chat'));
+        modeImage?.setAttribute('aria-pressed', String(interactionMode === 'image'));
+        if (sendButton) sendButton.textContent = interactionMode === 'image' ? '生成图片' : '发送';
+        if (composer) composer.placeholder = interactionMode === 'image'
+            ? '描述你想生成的图片，例如：雨夜霓虹街道，电影感，16:9'
+            : '输入消息，Enter 发送，Shift+Enter 换行';
+        if (guidance) {
+            guidance.hidden = readiness.ready;
+            guidance.innerHTML = readiness.ready ? '' : `<strong>还差一步：${escapeHtml(readiness.reason)}</strong><span>前往设置添加${interactionMode === 'image' ? '生图' : '对话'}模型与 Provider 后，回到这里选择它即可开始。</span><button id="conversation-open-settings" class="btn btn-primary" type="button">去设置</button>`;
+            element('conversation-open-settings')?.addEventListener('click', openSettings);
+        }
     }
 
     function renderList() {
@@ -247,6 +297,7 @@ export function createConversationWorkbenchController({
         const trashButton = element('conversation-trash');
         if (trashButton) trashButton.textContent = activeConversation?.status === 'trashed' ? '永久删除' : '移到回收站';
         renderModels();
+        renderGuidance();
         renderMessages();
         renderList();
         const workflow = getActiveWorkflow();
@@ -333,7 +384,8 @@ export function createConversationWorkbenchController({
             const status = element('conversation-status');
             if (status) status.textContent = statusLabel(runState.status);
             const sendButton = element('conversation-send');
-            if (sendButton) sendButton.textContent = ['starting', 'running', 'streaming'].includes(runState.status) ? '停止' : '发送';
+            if (sendButton) sendButton.textContent = ['starting', 'running', 'streaming'].includes(runState.status)
+                ? '停止' : (interactionMode === 'image' ? '生成图片' : '发送');
         }
         renderList();
         publishToolbarState();
@@ -348,11 +400,22 @@ export function createConversationWorkbenchController({
         const composer = element('conversation-composer');
         const text = composer?.value?.trim() || '';
         if (!text) return null;
-        const modelId = element('conversation-model')?.value || sendingConversation.defaultModelId;
-        const model = (state.models || []).find((item) => item.id === modelId);
-        const providerId = model?.providerId || model?.providerIds?.[0] || sendingConversation.defaultProviderId;
-        const provider = (state.providers || []).find((item) => item.id === providerId);
-        if (!model || !provider) throw new Error('请先选择可用的模型与 Provider');
+        const readiness = getReadiness();
+        if (!readiness.ready) {
+            renderGuidance();
+            showToast(readiness.reason, 'warning');
+            return null;
+        }
+        const { model, provider } = readiness;
+        if (interactionMode === 'image') {
+            if (composer) composer.value = '';
+            const imageResult = await imageGenerationService?.generate({
+                conversationId: sendingConversation.id, prompt: text, model, provider
+            });
+            if (!imageResult) throw new Error('生图服务当前不可用');
+            showToast('图片已生成到当前画布；可切回画布查看或继续描述下一张。', 'success');
+            return imageResult;
+        }
         if (composer) composer.value = '';
         try {
             const workflow = getActiveWorkflow();
@@ -401,7 +464,8 @@ export function createConversationWorkbenchController({
     }
 
     function stopCurrentRun() {
-        if (!activeConversation || !executionService?.stop(activeConversation.id)) return false;
+        if (!activeConversation) return false;
+        if (!executionService?.stop(activeConversation.id) && !imageGenerationService?.stop(activeConversation.id)) return false;
         publishToolbarState();
         return true;
     }
@@ -414,6 +478,16 @@ export function createConversationWorkbenchController({
     }
 
     function bind() {
+        element('conversation-mode-chat')?.addEventListener('click', () => {
+            interactionMode = 'chat';
+            renderModels();
+            renderGuidance();
+        });
+        element('conversation-mode-image')?.addEventListener('click', () => {
+            interactionMode = 'image';
+            renderModels();
+            renderGuidance();
+        });
         element('conversation-new')?.addEventListener('click', () => void createConversation().catch((error) => showToast(error.message, 'error')));
         element('conversation-search')?.addEventListener('input', () => void refresh().catch((error) => showToast(error.message, 'error')));
         element('conversation-workflow-filter')?.addEventListener('change', () => void refresh().catch((error) => showToast(error.message, 'error')));
@@ -483,6 +557,11 @@ export function createConversationWorkbenchController({
         element('conversation-context-toggle')?.addEventListener('click', () => setPaneExpanded('conversation-context-pane', 'conversation-context-toggle', true));
         element('conversation-model')?.addEventListener('change', async (event) => {
             if (!activeConversation) return;
+            selectedModelIdByMode[interactionMode] = event.target.value;
+            if (interactionMode === 'image') {
+                renderGuidance();
+                return;
+            }
             try {
                 activeConversation = await api.updateConversation(activeConversation.id, {
                     revision: activeConversation.revision,
@@ -544,8 +623,8 @@ export function createConversationWorkbenchController({
             if (item?.stagingOwnerId) void removeMediaReference('conversation-staging', item.stagingOwnerId, item.assetKey);
         });
         element('conversation-send')?.addEventListener('click', () => {
-            if (activeConversation && executionService?.getRunState(activeConversation.id)) {
-                executionService.stop(activeConversation.id);
+            if (activeConversation && (executionService?.getRunState(activeConversation.id) || imageGenerationService?.getRunState(activeConversation.id))) {
+                stopCurrentRun();
                 return;
             }
             void sendCurrentMessage().catch((error) => showToast(error.message, 'error'));

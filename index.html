@@ -531,7 +531,11 @@
                         </div>
                         <div class="conversation-main-actions">
                             <button id="conversation-list-toggle" class="btn btn-ghost" type="button" aria-controls="conversation-list-pane" aria-expanded="true">对话列表</button>
-                            <select id="conversation-model" aria-label="对话模型"><option value="">选择模型</option></select>
+                            <div class="conversation-mode-switch" role="group" aria-label="创作方式">
+                                <button id="conversation-mode-chat" class="btn btn-ghost is-selected" type="button" aria-pressed="true">对话</button>
+                                <button id="conversation-mode-image" class="btn btn-ghost" type="button" aria-pressed="false">生图</button>
+                            </div>
+                            <select id="conversation-model" aria-label="当前模式模型"><option value="">选择模型</option></select>
                             <button id="conversation-execution-record" class="btn btn-ghost" type="button">执行记录</button>
                             <button id="conversation-rename" class="btn btn-ghost" type="button">重命名</button>
                             <button id="conversation-lifecycle-action" class="btn btn-ghost" type="button">归档</button>
@@ -546,6 +550,7 @@
                         </div>
                     </div>
                     <section class="conversation-composer-shell" aria-label="消息输入">
+                        <section id="conversation-guidance" class="conversation-guidance" aria-live="polite" hidden></section>
                         <div id="conversation-staged-context" class="conversation-staged-context" aria-label="暂存上下文"></div>
                         <label for="conversation-composer" class="sr-only">输入消息</label>
                         <textarea id="conversation-composer" rows="3" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>

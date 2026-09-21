@@ -66,6 +66,7 @@ import { createWorkspaceModeController } from '../features/ui/workspace-mode-con
 import { createConversationWorkbenchController } from '../features/conversation/conversation-workbench-controller.js';
 import { createConversationToolbarController } from '../features/conversation/conversation-toolbar-controller.js';
 import { createConversationExecutionService } from '../features/conversation/conversation-execution-service.js';
+import { createConversationImageGenerationService } from '../features/conversation/conversation-image-generation-service.js';
 import { buildCanvasMaterializationPlan, createCanvasMaterializationCommand } from '../features/conversation/conversation-canvas-materialization.js';
 import { createChatRequestPlan, requestChatCompletion } from '../features/execution/chat-request-plan.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
@@ -999,6 +1000,8 @@ function getConversationWorkbenchControllerApi() {
             documentRef: document,
             showToast,
             executionService: getConversationExecutionServiceApi(),
+            imageGenerationService: getConversationImageGenerationServiceApi(),
+            openSettings: () => document.getElementById('btn-settings')?.click(),
             getHistoryEntry,
             putMediaAsset,
             removeMediaReference,
@@ -1081,6 +1084,25 @@ function getConversationExecutionServiceApi() {
         });
     }
     return registry.conversationExecutionServiceApi;
+}
+
+function getConversationImageGenerationServiceApi() {
+    if (!registry.conversationImageGenerationServiceApi) {
+        registry.conversationImageGenerationServiceApi = createConversationImageGenerationService({
+            ensureWorkflow: () => workflowManagerApi.ensureOpenWorkflow(),
+            createImageNode: ({ prompt, model, provider }) => addNode('ImageGenerate', 160, 120, {
+                prompt,
+                apiConfigId: model.id,
+                providerId: provider.id,
+                imageResultPersistence: 'transient'
+            }),
+            executeImageNode: (node, signal) => getExecutionCoreApi().executeNode(node, {}, signal),
+            onStateChange: (conversationId, runState) => {
+                getConversationWorkbenchControllerApi().projectRunState(conversationId, runState);
+            }
+        });
+    }
+    return registry.conversationImageGenerationServiceApi;
 }
 
 function getPromptLibraryApi() {

@@ -33,6 +33,7 @@ function workbenchDocument() {
     const ids = [
         'conversation-search', 'conversation-new', 'conversation-list', 'conversation-title',
         'conversation-status', 'conversation-model', 'conversation-messages', 'conversation-composer',
+        'conversation-guidance', 'conversation-mode-chat', 'conversation-mode-image', 'conversation-send',
         'conversation-send-summary', 'conversation-list-pane', 'conversation-context-pane',
         'conversation-list-collapse', 'conversation-list-toggle', 'conversation-context-collapse', 'conversation-context-toggle',
         'conversation-drawer-backdrop', 'conversation-workflow-filter', 'conversation-archive-entry'
@@ -107,12 +108,29 @@ test('Conversation lifecycle changes current defaults and status without rewriti
     assert.equal(current.messages[0].parts[0].text, 'kept');
 });
 
+test('Conversation workbench gives a direct setup next step when no usable model exists', async () => {
+    const documentRef = workbenchDocument();
+    const current = { id: 'c1', title: '新对话', revision: 1, status: 'active', messages: [] };
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: { listConversations: async () => [current], getConversation: async () => current },
+        state: { models: [], providers: [] }
+    });
+
+    await controller.init();
+
+    assert.equal(documentRef.elements.get('conversation-guidance').hidden, false);
+    assert.match(documentRef.elements.get('conversation-guidance').innerHTML, /还没有可用的对话模型/);
+    assert.match(documentRef.elements.get('conversation-guidance').innerHTML, /去设置/);
+});
+
 test('Conversation workspace exposes the three production panes and composer contract', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 
     for (const id of [
         'conversation-list-pane', 'conversation-list-toggle', 'conversation-search', 'conversation-new', 'conversation-list',
         'conversation-main-pane', 'conversation-title', 'conversation-model', 'conversation-messages',
+        'conversation-mode-chat', 'conversation-mode-image', 'conversation-guidance',
         'conversation-staged-context', 'conversation-send-summary', 'conversation-composer', 'conversation-send',
         'conversation-context-pane', 'conversation-workflow-summary', 'conversation-node-resources',
         'conversation-history-resources', 'conversation-system-prompt-summary', 'conversation-send-preview'

@@ -92,6 +92,9 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
 
 .conversation-pane-actions,
 .conversation-main-actions { display: flex; align-items: center; gap: 6px; }
+.conversation-mode-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-control); }
+.conversation-mode-switch .btn { min-height: 28px; padding-inline: 9px; border-color: transparent; }
+.conversation-mode-switch .btn.is-selected { background: var(--surface-control-hover); border-color: var(--panel-active-border); color: var(--text-primary); }
 
 .conversation-search-field { padding: 10px 10px 6px; }
 .conversation-search-field input,
@@ -153,6 +156,10 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
     background: var(--panel-bg);
     box-shadow: var(--shadow-node);
 }
+.conversation-guidance { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--panel-active-border); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-secondary); font-size: 13px; }
+.conversation-guidance strong { color: var(--text-primary); }
+.conversation-guidance span { grid-column: 1; }
+.conversation-guidance .btn { grid-column: 2; grid-row: 1 / span 2; }
 
 #conversation-composer { min-height: 74px; padding: 9px; resize: vertical; font: inherit; }
 .conversation-staged-context:empty { display: none; }
