@@ -392,14 +392,19 @@ export function createConversationWorkbenchController({
     }
 
     async function sendCurrentMessage() {
-        if (!activeConversation || !executionService) return null;
+        const composer = element('conversation-composer');
+        const text = composer?.value?.trim() || '';
+        if (!text) {
+            showToast(interactionMode === 'image' ? '请先描述想生成的图片' : '请输入消息后再发送', 'warning');
+            composer?.focus?.();
+            return null;
+        }
+        if (!activeConversation) await createConversation();
+        if (!activeConversation || !executionService) throw new Error('对话工作台尚未准备完成，请稍后重试');
         const sendingConversation = {
             ...activeConversation,
             messages: selectConversationBranch(activeConversation.messages, visibleVersionByParent)
         };
-        const composer = element('conversation-composer');
-        const text = composer?.value?.trim() || '';
-        if (!text) return null;
         const readiness = getReadiness();
         if (!readiness.ready) {
             renderGuidance();

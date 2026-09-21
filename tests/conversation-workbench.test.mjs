@@ -124,6 +124,31 @@ test('Conversation workbench gives a direct setup next step when no usable model
     assert.match(documentRef.elements.get('conversation-guidance').innerHTML, /去设置/);
 });
 
+test('First send creates a Conversation and exposes setup guidance instead of doing nothing', async () => {
+    const documentRef = workbenchDocument();
+    const created = { id: 'c1', title: '新对话', revision: 1, status: 'active', messages: [] };
+    const notices = [];
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: {
+            listConversations: async () => [],
+            createConversation: async () => created,
+            getConversation: async () => created
+        },
+        state: { models: [], providers: [] },
+        executionService: { getRunState: () => null },
+        showToast: (message) => notices.push(message)
+    });
+    documentRef.elements.get('conversation-composer').value = '帮我规划海报';
+
+    await controller.init();
+    await controller.sendCurrentMessage();
+
+    assert.equal(controller.getSnapshot().activeConversationId, 'c1');
+    assert.equal(documentRef.elements.get('conversation-guidance').hidden, false);
+    assert.ok(notices.some((message) => /还没有可用的对话模型/.test(message)));
+});
+
 test('Conversation workspace exposes the three production panes and composer contract', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 
