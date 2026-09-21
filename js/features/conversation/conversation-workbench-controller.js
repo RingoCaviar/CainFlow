@@ -8,7 +8,7 @@ function escapeHtml(value) {
 }
 
 import * as defaultConversationApi from '../../services/conversation-api.js';
-import { createStagedConversationContext, snapshotWorkflowNode } from './conversation-context.js';
+import { createStagedConversationContext } from './conversation-context.js';
 
 export function renderConversationMarkdown(source) {
     const protectedImages = [];
@@ -209,63 +209,16 @@ export function createConversationWorkbenchController({
     function renderStagedContext() {
         const container = element('conversation-staged-context');
         const summary = element('conversation-send-summary');
-        const preview = element('conversation-send-preview');
         const items = stagedContext.list();
         if (container) container.innerHTML = items.map((item) => (
             `<span class="conversation-context-chip" data-staged-id="${escapeHtml(item.id)}">${escapeHtml(item.label || item.snapshot?.nodeType || item.mediaType || '资源')}<button type="button" aria-label="前移" data-move-staged="${escapeHtml(item.id)}" data-move-direction="-1">←</button><button type="button" aria-label="后移" data-move-staged="${escapeHtml(item.id)}" data-move-direction="1">→</button><button type="button" aria-label="移除 ${escapeHtml(item.label || '资源')}" data-remove-staged="${escapeHtml(item.id)}">×</button></span>`
         )).join('');
-        const workflow = getActiveWorkflow();
-        const linkedWorkflow = workflow?.id && activeConversation?.workflowId === workflow.id ? workflow : null;
-        if (summary) summary.textContent = items.length || linkedWorkflow
-            ? `本次将发送：历史范围 + ${linkedWorkflow ? '工作流摘要 + ' : ''}${items.filter((item) => item.type === 'node-source').length} 个节点快照 + ${items.filter((item) => item.type === 'media').length} 项媒体`
-            : '本次将发送：历史范围 + 文字（不含工作流）';
-        const collection = state.connections || state.edges || [];
-        const edgeCount = collection instanceof Map || collection instanceof Set ? collection.size : collection.length || 0;
-        const nodeTypes = [...(state.nodes?.values?.() || [])].map((node) => node.type);
-        const durableCount = (activeConversation?.messages || []).filter((message) =>
-            ['user', 'assistant'].includes(message.role) && ['completed', 'partial'].includes(message.status)).length;
-        if (preview) preview.innerHTML = [
-            `<div><strong>历史范围</strong>：${durableCount} 条可用消息，超出上下文上限时从最早消息开始省略</div>`,
-            linkedWorkflow
-                ? `<div><strong>工作流</strong>：${escapeHtml(linkedWorkflow.id)} · revision ${escapeHtml(linkedWorkflow.revision ?? 0)} · 节点类型 ${escapeHtml([...new Set(nodeTypes)].join(', ') || '无')} · ${edgeCount} 条连接</div>`
-                : '<div><strong>工作流</strong>：本次不发送</div>',
-            ...items.map((item) => item.type === 'node-source'
-                ? `<div><strong>${escapeHtml(item.label || item.snapshot?.nodeType || '节点')}</strong>：${escapeHtml(item.snapshot?.textSnapshot || '空快照')}</div>`
-                : `<div><strong>媒体</strong>：${escapeHtml(item.label || item.assetKey || '资源')}</div>`)
-        ].join('');
+        if (summary) summary.textContent = items.length
+            ? `将发送当前对话与 ${items.filter((item) => item.type === 'media').length} 张附件图片`
+            : '仅发送当前对话';
         publishToolbarState();
     }
 
-    function stageSelectedNodes() {
-        const workflow = getActiveWorkflow();
-        if (!workflow?.id) return stagedContext.list();
-        for (const nodeId of state.selectedNodes || []) {
-            const node = state.nodes?.get?.(nodeId);
-            if (!node) continue;
-            const snapshot = snapshotWorkflowNode({ workflowId: workflow?.id, node });
-            stagedContext.add({ id: `node:${workflow.id}:${nodeId}`, type: 'node-source', label: node.type, snapshot });
-        }
-        renderStagedContext();
-        return stagedContext.list();
-    }
-
-    async function stageSelectedHistory() {
-        for (const historyId of state.selectedHistoryIds || []) {
-            const entry = await getHistoryEntry(historyId);
-            const assetKey = entry?.videoAssetKey || entry?.imageAssetKey;
-            if (!assetKey) continue;
-            stagedContext.add({
-                id: `history:${historyId}`,
-                type: 'media',
-                label: entry.prompt || `历史资源 ${historyId}`,
-                assetKey,
-                mediaType: entry.mediaType || (entry.videoAssetKey ? 'video' : 'image'),
-                url: entry.image || entry.video || ''
-            });
-        }
-        renderStagedContext();
-        return stagedContext.list();
-    }
 
     function stageMedia(item) {
         stagedContext.add(item);
@@ -300,33 +253,13 @@ export function createConversationWorkbenchController({
         renderGuidance();
         renderMessages();
         renderList();
-        const workflow = getActiveWorkflow();
-        const linkedToVisibleWorkflow = Boolean(activeConversation?.workflowId && activeConversation.workflowId === workflow?.id);
-        const workflowSummary = element('conversation-workflow-summary');
-        if (workflowSummary) workflowSummary.textContent = activeConversation?.workflowId
-            ? `${linkedToVisibleWorkflow ? workflow.label || '当前工作流' : '关联的工作流当前不可用，请重新关联'} · revision ${workflow?.revision ?? 'unknown'} · ${linkedToVisibleWorkflow ? state.nodes?.size || 0 : 0} 个节点 · ${state.connections?.length || state.edges?.length || 0} 条连接`
-            : '未附加工作流内容';
-        const linkWorkflow = element('conversation-link-workflow');
-        if (linkWorkflow) linkWorkflow.textContent = linkedToVisibleWorkflow ? '移除工作流上下文' : '添加工作流上下文';
-        const nodeResources = element('conversation-node-resources');
-        if (nodeResources) nodeResources.textContent = state.selectedNodes?.size
-            ? `已选择 ${state.selectedNodes.size} 个节点，发送时生成快照`
-            : '暂无已选择节点';
-        const historyResources = element('conversation-history-resources');
-        if (historyResources) historyResources.textContent = state.selectedHistoryIds?.size
-            ? `已选择 ${state.selectedHistoryIds.size} 项历史资源`
-            : '暂无已选择资源';
-        const systemPrompt = element('conversation-system-prompt-summary');
-        if (systemPrompt) systemPrompt.textContent = activeConversation?.systemPrompt
-            ? activeConversation.systemPrompt.slice(0, 160)
-            : '使用默认提示词';
-        publishToolbarState();
+        renderStagedContext();
     }
 
     async function refresh() {
         conversations = await api.listConversations({
             status: listStatus,
-            workflowId: element('conversation-workflow-filter')?.value || '',
+            workflowId: '',
             search: element('conversation-search')?.value || ''
         });
         renderList();
@@ -452,20 +385,10 @@ export function createConversationWorkbenchController({
         }
         if (composer) composer.value = '';
         try {
-            const workflow = getActiveWorkflow();
-            const linkedWorkflow = workflow?.id && sendingConversation.workflowId === workflow.id ? workflow : null;
-            const collection = state.connections || state.edges || [];
-            const edges = collection instanceof Map ? [...collection.values()] : [...collection];
-            const endpoint = (value) => typeof value === 'object' ? value?.nodeId || value?.id || '?' : value || '?';
-            const connections = edges.map((edge) =>
-                `${endpoint(edge.source || edge.from)}→${endpoint(edge.target || edge.to)}`);
             await executionService.send({
                 conversation: sendingConversation, text, model, provider,
                 contextParts: stagedContext.toMessageParts(),
-                workflowSummary: linkedWorkflow ? {
-                    workflowId: linkedWorkflow.id, revision: linkedWorkflow.revision,
-                    nodeTypes: [...(state.nodes?.values?.() || [])].map((node) => node.type), connections
-                } : null
+                workflowSummary: null
             });
             await Promise.all(stagedContext.list().filter((item) => item.stagingOwnerId).map((item) => (
                 removeMediaReference('conversation-staging', item.stagingOwnerId, item.assetKey)
@@ -491,8 +414,9 @@ export function createConversationWorkbenchController({
     }
 
     function togglePane(kind) {
-        const paneId = kind === 'list' ? 'conversation-list-pane' : 'conversation-context-pane';
-        const triggerId = kind === 'list' ? 'conversation-list-toggle' : 'conversation-context-toggle';
+        if (kind !== 'list') return;
+        const paneId = 'conversation-list-pane';
+        const triggerId = 'conversation-list-toggle';
         const pane = element(paneId);
         setPaneExpanded(paneId, triggerId, pane?.classList?.contains?.('is-collapsed'));
     }
@@ -524,7 +448,6 @@ export function createConversationWorkbenchController({
         });
         element('conversation-new')?.addEventListener('click', () => void createConversation().catch((error) => showToast(error.message, 'error')));
         element('conversation-search')?.addEventListener('input', () => void refresh().catch((error) => showToast(error.message, 'error')));
-        element('conversation-workflow-filter')?.addEventListener('change', () => void refresh().catch((error) => showToast(error.message, 'error')));
         element('conversation-archive-entry')?.addEventListener('click', (event) => {
             listStatus = listStatus === 'active' ? 'archived' : listStatus === 'archived' ? 'trashed' : 'active';
             if (event.currentTarget) event.currentTarget.textContent = ({ active: '归档', archived: '回收站', trashed: '返回' })[listStatus];
@@ -587,8 +510,6 @@ export function createConversationWorkbenchController({
         });
         element('conversation-list-collapse')?.addEventListener('click', () => setPaneExpanded('conversation-list-pane', 'conversation-list-collapse', false));
         element('conversation-list-toggle')?.addEventListener('click', () => setPaneExpanded('conversation-list-pane', 'conversation-list-toggle', true));
-        element('conversation-context-collapse')?.addEventListener('click', () => setPaneExpanded('conversation-context-pane', 'conversation-context-toggle', false));
-        element('conversation-context-toggle')?.addEventListener('click', () => setPaneExpanded('conversation-context-pane', 'conversation-context-toggle', true));
         element('conversation-model')?.addEventListener('change', async (event) => {
             if (!activeConversation) return;
             selectedModelIdByMode[interactionMode] = event.target.value;
@@ -610,7 +531,6 @@ export function createConversationWorkbenchController({
             const status = ['archived', 'trashed'].includes(activeConversation?.status) ? 'active' : 'archived';
             void updateLifecycle({ status }).catch((error) => showToast(error.message, 'error'));
         });
-        element('conversation-execution-record')?.addEventListener('click', showExecutionRecord);
         element('conversation-trash')?.addEventListener('click', () => {
             if (activeConversation?.status === 'trashed') {
                 if (confirmRef?.('永久删除此对话及其消息？此操作不可恢复。')) void permanentlyDeleteCurrent().catch((error) => showToast(error.message, 'error'));
@@ -618,14 +538,6 @@ export function createConversationWorkbenchController({
             }
             void updateLifecycle({ status: 'trashed' }).catch((error) => showToast(error.message, 'error'));
         });
-        element('conversation-stage-selected-nodes')?.addEventListener('click', stageSelectedNodes);
-        element('conversation-link-workflow')?.addEventListener('click', () => {
-            const workflow = getActiveWorkflow();
-            if (!workflow?.id && !activeConversation?.workflowId) { showToast('当前没有可关联的工作流', 'warning'); return; }
-            const workflowId = activeConversation?.workflowId === workflow?.id ? '' : workflow?.id;
-            void updateLifecycle({ workflowId }).catch((error) => showToast(error.message, 'error'));
-        });
-        element('conversation-stage-selected-history')?.addEventListener('click', () => void stageSelectedHistory().catch((error) => showToast(error.message, 'error')));
         element('conversation-attach-file')?.addEventListener('click', () => element('conversation-file-input')?.click());
         element('conversation-file-input')?.addEventListener('change', (event) => void stageLocalImages(event.target.files).catch((error) => showToast(error.message, 'error')));
         element('conversation-composer')?.addEventListener('paste', (event) => {
@@ -664,7 +576,6 @@ export function createConversationWorkbenchController({
         });
         element('conversation-drawer-backdrop')?.addEventListener('click', () => {
             setPaneExpanded('conversation-list-pane', 'conversation-list-collapse', false);
-            setPaneExpanded('conversation-context-pane', 'conversation-context-toggle', false);
         });
     }
 
@@ -685,5 +596,5 @@ export function createConversationWorkbenchController({
         return { conversations: [...conversations], activeConversationId: activeConversation?.id || null };
     }
 
-    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, changeChatModel, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, projectPersistedMessage, setPaneExpanded, togglePane, stopCurrentRun, showExecutionRecord, getSnapshot, getToolbarSnapshot };
+    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, changeChatModel, sendCurrentMessage, stageMedia, stageLocalImages, projectRunState, projectPersistedMessage, setPaneExpanded, togglePane, stopCurrentRun, getSnapshot, getToolbarSnapshot };
 }

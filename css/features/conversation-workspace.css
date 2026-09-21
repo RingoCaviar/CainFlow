@@ -46,7 +46,7 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
     min-height: 0;
     position: relative;
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(360px, 1fr) minmax(240px, 320px);
+    grid-template-columns: minmax(220px, 280px) minmax(360px, 1fr);
     overflow: hidden;
     background: var(--bg-canvas);
     color: var(--text-primary);
@@ -63,15 +63,13 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
     background: var(--panel-bg);
 }
 
-.conversation-list-pane,
-.conversation-context-pane {
+.conversation-list-pane {
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
 .conversation-list-pane { border-right: 1px solid var(--border-subtle); }
-.conversation-context-pane { border-left: 1px solid var(--border-subtle); }
 
 .conversation-pane-header,
 .conversation-main-header,
@@ -184,16 +182,11 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
 
 .conversation-list-pane.is-collapsed { display: none; }
 .conversation-context-pane.is-collapsed { display: none; }
-.conversation-workspace:has(.conversation-list-pane.is-collapsed) { grid-template-columns: minmax(360px, 1fr) minmax(240px, 320px); }
-.conversation-workspace:has(.conversation-context-pane.is-collapsed) { grid-template-columns: minmax(220px, 280px) minmax(360px, 1fr); }
-.conversation-workspace:has(.conversation-list-pane.is-collapsed):has(.conversation-context-pane.is-collapsed) { grid-template-columns: minmax(0, 1fr); }
+.conversation-workspace:has(.conversation-list-pane.is-collapsed) { grid-template-columns: minmax(0, 1fr); }
 .conversation-drawer-backdrop { display: none; }
 
 @media (max-width: 760px) {
     .conversation-toolbar-title,
-    #conversation-toolbar-stage-nodes,
-    #conversation-toolbar-stage-history,
-    #conversation-toolbar-record { display: none; }
     .conversation-toolbar-actions { flex-wrap: wrap; }
     .conversation-return-canvas { margin-inline-start: 0; }
     .workspace-mode-switch .btn {
@@ -201,8 +194,7 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
     }
 
     .conversation-workspace { grid-template-columns: minmax(0, 1fr); }
-    .conversation-list-pane,
-    .conversation-context-pane {
+    .conversation-list-pane {
         position: absolute;
         z-index: var(--layer-drawer);
         inset-block: 0;
@@ -210,9 +202,7 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
         box-shadow: var(--shadow-drawer);
     }
     .conversation-list-pane { inset-inline-start: 0; }
-    .conversation-context-pane { inset-inline-end: 0; }
-    .conversation-list-pane.is-collapsed,
-    .conversation-context-pane.is-collapsed { display: none; }
+    .conversation-list-pane.is-collapsed { display: none; }
     .conversation-drawer-backdrop:not([hidden]) {
         display: block;
         position: absolute;

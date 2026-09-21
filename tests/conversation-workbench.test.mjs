@@ -217,36 +217,52 @@ test('Ordinary assistant replies do not offer canvas materialization actions', a
     assert.doesNotMatch(documentRef.elements.get('conversation-messages').innerHTML, /添加为 Text|data-materialize-message/);
 });
 
-test('Conversation workspace exposes the three production panes and composer contract', async () => {
+test('Standalone chat never sends workflow data even when a canvas is active', async () => {
+    const documentRef = workbenchDocument();
+    const current = { id: 'c1', title: '新对话', revision: 1, status: 'active', defaultModelId: 'm1', defaultProviderId: 'p1', messages: [] };
+    let sent;
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: { listConversations: async () => [current], getConversation: async () => current },
+        state: { models: [{ id: 'm1', taskType: 'chat', providerId: 'p1' }], providers: [{ id: 'p1' }], nodes: new Map([['node-1', { type: 'Text' }]]) },
+        executionService: { getRunState: () => null, send: async (input) => { sent = input; } },
+        getActiveWorkflow: () => ({ id: 'workflow-1', revision: 9 })
+    });
+    documentRef.elements.get('conversation-composer').value = '只聊聊天';
+
+    await controller.init();
+    await controller.sendCurrentMessage();
+
+    assert.equal(sent.workflowSummary, null);
+    assert.deepEqual(sent.contextParts, []);
+});
+
+test('Conversation workspace exposes standalone chat panes and composer contract', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 
     for (const id of [
         'conversation-list-pane', 'conversation-list-toggle', 'conversation-search', 'conversation-new', 'conversation-list',
-        'conversation-main-pane', 'conversation-title', 'conversation-model', 'conversation-messages',
-        'conversation-mode-chat', 'conversation-mode-image', 'conversation-guidance',
+        'conversation-main-pane', 'conversation-title', 'conversation-model', 'conversation-messages', 'conversation-guidance',
         'conversation-staged-context', 'conversation-send-summary', 'conversation-composer', 'conversation-send',
-        'conversation-context-pane', 'conversation-workflow-summary', 'conversation-node-resources',
-        'conversation-history-resources', 'conversation-system-prompt-summary', 'conversation-send-preview'
-        , 'conversation-toolbar-new', 'conversation-toolbar-list', 'conversation-toolbar-context',
-        'conversation-toolbar-stage-nodes', 'conversation-toolbar-stage-history', 'conversation-toolbar-record',
+        'conversation-toolbar-new', 'conversation-toolbar-list',
         'conversation-toolbar-stop', 'conversation-toolbar-return-canvas'
     ]) assert.match(html, new RegExp(`id="${id}"`), id);
 
     assert.match(html, /aria-label="对话列表"/);
     assert.match(html, /aria-label="消息与输入"/);
-    assert.match(html, /aria-label="资源上下文"/);
+    assert.doesNotMatch(html, /conversation-context-pane|conversation-link-workflow|conversation-stage-selected-nodes/);
+    assert.doesNotMatch(html, /id="conversation-mode-image"/);
     assert.match(html, /toolbar-canvas-only/);
     assert.match(html, /toolbar-conversation-only/);
 });
 
-test('Conversation workspace resolves readable three-pane surfaces in all seven themes', () => {
+test('Conversation workspace resolves readable chat surfaces in all seven themes', () => {
     const results = renderComputedFixture(new URL('./fixtures/conversation-workspace-theme.html', import.meta.url), 'cainflow-conversation-');
 
     assert.equal(results.length, 7);
     for (const result of results) {
         assert.ok(result.list.width > 180, `${result.themeId} list pane remains usable`);
         assert.ok(result.main.width > result.list.width, `${result.themeId} message pane remains primary`);
-        assert.ok(result.context.width > 200, `${result.themeId} context pane remains usable`);
         assert.notEqual(result.main.background, 'rgba(0, 0, 0, 0)', `${result.themeId} resolves a canvas surface`);
         assert.notEqual(result.message.color, result.message.background, `${result.themeId} message text remains distinguishable`);
     }
@@ -260,7 +276,6 @@ test('Conversation workspace uses focus-manageable side drawers at a narrow view
     );
     for (const result of results) {
         assert.equal(result.list.position, 'absolute', `${result.themeId} list becomes a drawer`);
-        assert.equal(result.context.position, 'absolute', `${result.themeId} context becomes a drawer`);
         assert.ok(result.main.width >= 480, `${result.themeId} main pane retains the narrow viewport`);
     }
 });
