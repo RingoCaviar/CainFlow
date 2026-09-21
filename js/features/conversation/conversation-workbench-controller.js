@@ -402,6 +402,24 @@ export function createConversationWorkbenchController({
         renderStagedContext();
     }
 
+    async function changeChatModel(modelId) {
+        if (!activeConversation) return null;
+        selectedModelIdByMode.chat = modelId;
+        const model = (state.models || []).find((item) => item.id === modelId);
+        const updated = await api.updateConversation(activeConversation.id, {
+            revision: activeConversation.revision,
+            defaultModelId: modelId,
+            defaultProviderId: model?.providerId || model?.providerIds?.[0] || ''
+        });
+        activeConversation = {
+            ...activeConversation,
+            ...updated,
+            messages: updated.messages || activeConversation.messages || []
+        };
+        renderActiveConversation();
+        return activeConversation;
+    }
+
     async function sendCurrentMessage() {
         const composer = element('conversation-composer');
         const text = composer?.value?.trim() || '';
@@ -579,13 +597,7 @@ export function createConversationWorkbenchController({
                 return;
             }
             try {
-                activeConversation = await api.updateConversation(activeConversation.id, {
-                    revision: activeConversation.revision,
-                    defaultModelId: event.target.value,
-                    defaultProviderId: (state.models || []).find((item) => item.id === event.target.value)?.providerId
-                        || (state.models || []).find((item) => item.id === event.target.value)?.providerIds?.[0] || ''
-                });
-                renderActiveConversation();
+                await changeChatModel(event.target.value);
             } catch (error) {
                 showToast(error.message, 'error');
             }
@@ -673,5 +685,5 @@ export function createConversationWorkbenchController({
         return { conversations: [...conversations], activeConversationId: activeConversation?.id || null };
     }
 
-    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, projectPersistedMessage, setPaneExpanded, togglePane, stopCurrentRun, showExecutionRecord, getSnapshot, getToolbarSnapshot };
+    return { init, refresh, selectConversation, createConversation, updateLifecycle, permanentlyDeleteCurrent, changeChatModel, sendCurrentMessage, stageSelectedNodes, stageSelectedHistory, stageMedia, stageLocalImages, projectRunState, projectPersistedMessage, setPaneExpanded, togglePane, stopCurrentRun, showExecutionRecord, getSnapshot, getToolbarSnapshot };
 }

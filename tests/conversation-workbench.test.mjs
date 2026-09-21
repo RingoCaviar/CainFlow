@@ -108,6 +108,34 @@ test('Conversation lifecycle changes current defaults and status without rewriti
     assert.equal(current.messages[0].parts[0].text, 'kept');
 });
 
+test('Switching the chat model preserves loaded messages when the update API returns only a Conversation summary', async () => {
+    const documentRef = workbenchDocument();
+    const messages = [
+        { id: 'u1', role: 'user', status: 'completed', parts: [{ type: 'text', text: '你好' }] },
+        { id: 'a1', role: 'assistant', status: 'completed', parts: [{ type: 'text', text: '你好，我在。' }] }
+    ];
+    const current = { id: 'c1', title: '对话', revision: 1, status: 'active', defaultModelId: 'old', defaultProviderId: 'p1', messages };
+    let updateInput;
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: {
+            listConversations: async () => [current],
+            getConversation: async () => current,
+            updateConversation: async (_id, input) => {
+                updateInput = input;
+                return { id: 'c1', title: '对话', revision: 2, status: 'active', defaultModelId: input.defaultModelId, defaultProviderId: input.defaultProviderId };
+            }
+        },
+        state: { models: [{ id: 'old', taskType: 'chat', providerId: 'p1' }, { id: 'new', taskType: 'chat', providerId: 'p2' }], providers: [{ id: 'p1' }, { id: 'p2' }] }
+    });
+
+    await controller.init();
+    await controller.changeChatModel('new');
+
+    assert.equal(updateInput.defaultModelId, 'new');
+    assert.match(documentRef.elements.get('conversation-messages').innerHTML, /你好，我在。/);
+});
+
 test('Conversation workbench gives a direct setup next step when no usable model exists', async () => {
     const documentRef = workbenchDocument();
     const current = { id: 'c1', title: '新对话', revision: 1, status: 'active', messages: [] };
