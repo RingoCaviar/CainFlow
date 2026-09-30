@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from backend import config
 from backend.services.storage_service import storage_service
+from backend.services.image_clipboard import copy_png_to_clipboard
 from backend.services.windows_taskbar_service import WindowsTaskbarService
 
 
@@ -62,6 +63,9 @@ class DesktopBridge:
                 pass
             raise
         return destination
+
+    def copy_image(self, payload):
+        return copy_png_to_clipboard(self._decode_payload(payload))
 
     def open_external(self, url):
         parsed = urlparse(str(url or ''))

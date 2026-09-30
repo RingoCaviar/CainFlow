@@ -62,6 +62,12 @@ export async function initializeDesktopBridge() {
                 return false;
             }
         },
+        ...(runtimeInfo.platform === 'win32' ? {
+            copyImage: async (blob) => {
+                const bytes = new Uint8Array(await blob.arrayBuffer());
+                return api.copy_image({ encoding: 'base64', data: bytesToBase64(bytes) });
+            }
+        } : {}),
         saveFile: async (name, mime, source) => {
             let blob = source;
             if (!(blob instanceof Blob)) {

@@ -7,6 +7,7 @@ export function createUiUtils({
     documentRef = document,
     navigatorRef = navigator,
     fetchRef = fetch,
+    desktopRef = globalThis.__cainflowDesktop,
     clipboardItemCtor = globalThis.ClipboardItem,
     urlApi = globalThis.URL
 }) {
@@ -35,11 +36,24 @@ export function createUiUtils({
     }
 
     async function copyImageToClipboard(source) {
-        if (!source || typeof navigatorRef.clipboard?.write !== 'function' || typeof clipboardItemCtor !== 'function') {
+        const nativeCopy = desktopRef?.copyImage;
+        if (!source || (typeof nativeCopy !== 'function' &&
+            (typeof navigatorRef.clipboard?.write !== 'function' || typeof clipboardItemCtor !== 'function'))) {
             showToast('当前环境不支持复制图片', 'error');
             return false;
         }
         try {
+            if (typeof nativeCopy === 'function') {
+                const response = await fetchRef(source);
+                if (!response?.ok) throw new Error('无法读取图片');
+                const blob = await response.blob();
+                if (!blob?.type?.startsWith('image/')) throw new Error('不是可复制的图片');
+                const png = blob.type === 'image/png' ? blob : await convertImageToPng(blob);
+                if (!await nativeCopy(png)) throw new Error('系统剪贴板写入失败');
+                onNativeClipboardWrite?.();
+                showToast('图片已复制到剪贴板', 'success');
+                return true;
+            }
             const clipboardBlob = (async () => {
                 const response = await fetchRef(source);
                 if (!response?.ok) throw new Error('无法读取图片');

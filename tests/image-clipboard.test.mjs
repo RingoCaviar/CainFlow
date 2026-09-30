@@ -25,6 +25,42 @@ test('copies image pixels through the native clipboard image API', async () => {
     assert.deepEqual(notices.at(-1), ['图片已复制到剪贴板', 'success']);
 });
 
+test('desktop copy writes pixels through the system clipboard bridge when WebView clipboard is unavailable', async () => {
+    const copied = [];
+    const notices = [];
+    const api = createUiUtils({
+        showToast: (...args) => notices.push(args),
+        documentRef: {},
+        navigatorRef: { clipboard: {} },
+        fetchRef: async () => ({ ok: true, blob: async () => new Blob(['pixels'], { type: 'image/png' }) }),
+        clipboardItemCtor: undefined,
+        desktopRef: { copyImage: async (blob) => { copied.push(blob); return true; } }
+    });
+
+    assert.equal(await api.copyImageToClipboard('data:image/png;base64,cGl4ZWxz'), true);
+    assert.equal(copied.length, 1);
+    assert.equal(copied[0].type, 'image/png');
+    assert.deepEqual(notices.at(-1), ['图片已复制到剪贴板', 'success']);
+});
+
+test('desktop copy reports a native clipboard failure', async () => {
+    const notices = [];
+    const api = createUiUtils({
+        showToast: (...args) => notices.push(args),
+        documentRef: {}, navigatorRef: { clipboard: {} }, clipboardItemCtor: undefined,
+        fetchRef: async () => ({ ok: true, blob: async () => new Blob(['pixels'], { type: 'image/png' }) }),
+        desktopRef: { copyImage: async () => { throw new Error('clipboard busy'); } }
+    });
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+        assert.equal(await api.copyImageToClipboard('image.png'), false);
+        assert.deepEqual(notices.at(-1), ['复制图片失败', 'error']);
+    } finally {
+        console.error = originalConsoleError;
+    }
+});
+
 test('starts the image clipboard write in the click gesture before image loading finishes', async () => {
     let finishRead;
     const read = new Promise((resolve) => { finishRead = resolve; });

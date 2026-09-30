@@ -79,6 +79,12 @@ class DesktopSecurityTests(unittest.TestCase):
 
 
 class DesktopBridgeTests(unittest.TestCase):
+    def test_copy_image_decodes_png_for_native_clipboard(self):
+        bridge = DesktopBridge('v-test', mock.Mock())
+        with mock.patch('backend.services.desktop_bridge.copy_png_to_clipboard', return_value=True) as copy:
+            self.assertTrue(bridge.copy_image({'encoding': 'base64', 'data': 'iVBORw0KGgo='}))
+        copy.assert_called_once_with(b'\x89PNG\r\n\x1a\n')
+
     def test_save_file_writes_base64_atomically(self):
         webview = mock.Mock(SAVE_DIALOG=1, FOLDER_DIALOG=2)
         bridge = DesktopBridge('v-test', webview)
