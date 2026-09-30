@@ -1658,6 +1658,9 @@ export function createWorkflowRuntimeManager({
             waitForImageRestores(nodeIds = null) {
                 return runtimeNodeLifecycleApi.waitForImageRestores?.(nodeIds) || Promise.resolve();
             },
+            waitForPendingImageAssetSaves() {
+                return runtimeExecutionCoreApi.waitForPendingImageAssetSaves();
+            },
             captureConnectionProjectionHandoff() {
                 return runtimeConnectionProjection.maintenance.captureViewHandoff();
             },
@@ -1819,6 +1822,20 @@ export function createWorkflowRuntimeManager({
                     error: error?.stack || error
                 });
             } finally {
+                await context.waitForPendingImageAssetSaves?.();
+                if (isActiveWorkflow(workflowReference)) {
+                    const imageNodes = [...context.activePlanNodeIds]
+                        .filter((nodeId) => context.state.nodes.get(nodeId)?.type === 'ImageGenerate');
+                    const downstreamNodes = [...context.activePlanNodeIds]
+                        .filter((nodeId) => ['ImagePreview', 'ImageSave'].includes(context.state.nodes.get(nodeId)?.type));
+                    for (const nodeId of [...imageNodes, ...downstreamNodes]) {
+                        try {
+                            await syncVisibleNodeResult(workflowReference, nodeId);
+                        } catch (error) {
+                            addLog('warning', '图片结果同步失败', error?.message || String(error), { nodeId });
+                        }
+                    }
+                }
                 const runResult = deriveWorkflowRunResult(context, runError);
                 context.activePlanNodeIds.clear();
                 const stillRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);

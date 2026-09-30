@@ -151,8 +151,27 @@ function createSequentialGenerationHarness(saveMediaAsset, { withSaveNode = fals
         refreshDependentImageResizePreviews: async () => {},
         fitNodeToContent() {}, scheduleSave() {}, onNodeResultUpdated() {}, getAbortMessage: () => ''
     });
-    return { node, save, generate: () => api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal) };
+    return { api, node, save, generate: () => api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal) };
 }
+
+test('workflow completion waits for generated and save node media references', async () => {
+    let finishWrite;
+    const write = new Promise((resolve) => { finishWrite = resolve; });
+    const { api, node, save, generate } = createSequentialGenerationHarness(
+        () => write, { withSaveNode: true }
+    );
+    await generate();
+    assert.equal(node.data.imageResultPersistence, 'transient');
+    let completed = false;
+    const completion = api.waitForPendingImageAssetSaves().then(() => { completed = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(completed, false);
+    finishWrite({ asset_key: 'media:persisted' });
+    await completion;
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:persisted']);
+    assert.deepEqual(save.data.mediaAssetKeys, ['media:persisted']);
+    assert.equal(node.data.imageResultPersistence, undefined);
+});
 
 test('a failed new generation cannot restore the previous generated batch after restart', async () => {
     let saves = 0;

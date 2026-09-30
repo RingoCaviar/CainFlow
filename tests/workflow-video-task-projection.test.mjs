@@ -74,10 +74,13 @@ test('runWorkflowInContext projects the latest running video task over stale vis
 test('background image-generation projection preserves the generated Media asset reference', async () => {
     let finishRun;
     const pendingRun = new Promise((resolve) => { finishRun = resolve; });
+    let finishMediaWrite;
+    const pendingMediaWrite = new Promise((resolve) => { finishMediaWrite = resolve; });
+    let disposed = false;
     const visibleNode = { id: 'image', type: 'ImageGenerate', enabled: true, data: {}, el: element() };
     const runtimeNode = {
         id: 'image', type: 'ImageGenerate', enabled: true,
-        data: { imageList: ['generated-image'], imageCount: 1, imageAssetKey: 'media:image', mediaAssetKeys: ['media:image'], imageAssetReady: true },
+        data: { imageList: ['generated-image'], imageCount: 1, imageAssetKey: 'image', imageResultPersistence: 'transient' },
         imageData: 'generated-image', imageDataList: ['generated-image']
     };
     const state = { nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {} };
@@ -108,6 +111,7 @@ test('background image-generation projection preserves the generated Media asset
             activePlanNodeIds: new Set(), baseNodeIds: new Set([runtimeNode.id]), baseConnectionIds: new Set(),
             resolveExecutionPlan: () => ({ executionOrder: [runtimeNode.id], nodeIds: [runtimeNode.id] }),
             waitForImageRestores: async () => {},
+            waitForPendingImageAssetSaves: () => pendingMediaWrite,
             runner: {
                 async runWorkflow() {
                     runtimeManager.applyVisibleNodeRunState({ workflowId, workflowName }, { nodeId: runtimeNode.id, status: 'result-updated', running: true });
@@ -116,7 +120,7 @@ test('background image-generation projection preserves the generated Media asset
                 cancelRunningNode: () => true
             },
             serialize: () => ({ nodes: [], connections: [] }),
-            dispose() {}
+            dispose() { disposed = true; }
         })
     });
     await workflowDesk.show({ workflowId: 'workflow-image', label: 'Image' });
@@ -125,9 +129,19 @@ test('background image-generation projection preserves the generated Media asset
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.deepEqual(visibleNode.data.imageList, ['generated-image']);
+    assert.equal(visibleNode.data.mediaAssetKeys, undefined);
+    finishRun();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(disposed, false);
+    runtimeNode.data.imageAssetKey = 'media:image';
+    runtimeNode.data.mediaAssetKeys = ['media:image'];
+    runtimeNode.data.imageAssetReady = true;
+    delete runtimeNode.data.imageResultPersistence;
+    finishMediaWrite();
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(visibleNode.data.imageAssetKey, 'media:image');
     assert.deepEqual(visibleNode.data.mediaAssetKeys, ['media:image']);
-    finishRun();
+    assert.equal(disposed, true);
 });
 
 test('background save-node projection publishes its complete ordered video batch', async () => {

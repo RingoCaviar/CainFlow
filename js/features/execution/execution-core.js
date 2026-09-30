@@ -87,22 +87,24 @@ export function createExecutionCoreApi({
 }) {
     const imageAssetSaveChains = new Map();
 
-    function propagateImagesToDownstreamPreview(sourceNodeId, images = []) {
+    async function propagateImagesToDownstreamPreview(sourceNodeId, images = []) {
         const imageList = normalizeImageList(images);
         if (!sourceNodeId || imageList.length === 0) return;
         const downstreamIds = (state.connections || [])
             .filter((conn) => conn.from?.nodeId === sourceNodeId && conn.from?.port === 'image')
             .map((conn) => conn.to?.nodeId)
             .filter((nodeId, index, list) => nodeId && list.indexOf(nodeId) === index);
-        downstreamIds.forEach((targetId) => {
+        const results = await Promise.allSettled(downstreamIds.map(async (targetId) => {
             const targetNode = state.nodes.get(targetId);
             if (!targetNode) return;
             if (targetNode.type === 'ImagePreview') {
-                void syncImagePreviewNode(targetId, imageList).catch(() => {});
+                await syncImagePreviewNode(targetId, imageList);
             } else if (targetNode.type === 'ImageSave') {
-                void syncImageSaveNode(targetId, imageList).catch(() => {});
+                await syncImageSaveNode(targetId, imageList);
             }
-        });
+        }));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure) throw failure.reason;
     }
 
     function requestNodeFit(nodeId) {
@@ -317,6 +319,12 @@ export function createExecutionCoreApi({
         imageAssetSaveChains.set(assetKey, tracked);
     }
 
+    async function waitForPendingImageAssetSaves() {
+        while (imageAssetSaveChains.size > 0) {
+            await Promise.allSettled([...imageAssetSaveChains.values()]);
+        }
+    }
+
     async function saveNodeImageAssetNow(node, images, assetKey = node?.id) {
         const imageList = normalizeImageList(images);
         if (!node || !assetKey || imageList.length === 0) return false;
@@ -379,7 +387,7 @@ export function createExecutionCoreApi({
             delete node.data.imageAssetReady;
         }
         if (normalizedImages.length > 0) {
-            propagateImagesToDownstreamPreview(node.id, normalizedImages);
+            void propagateImagesToDownstreamPreview(node.id, normalizedImages).catch(() => {});
         }
     }
 
@@ -2569,6 +2577,7 @@ export function createExecutionCoreApi({
     }
 
     return {
+        waitForPendingImageAssetSaves,
         normalizeRunOptions,
         resolveExecutionPlan,
         topologicalSort,
