@@ -2387,9 +2387,13 @@ export function createWorkflowRunnerApi({
 
             const branchNodeIds = collectDownstreamNodeIds(plan, nodeId);
             const activeNode = state.nodes.get(nodeId);
-            if (activeNode?.activeMediaOperationId) {
+            const operationIds = new Set([
+                activeNode?.activeMediaOperationId,
+                ...(activeNode?.activeMediaOperationIds || [])
+            ].filter(Boolean));
+            for (const operationId of operationIds) {
                 void cancelWorkflowNodeMediaOperation(
-                    getActiveWorkflowId(), nodeId, activeNode.activeMediaOperationId
+                    getActiveWorkflowId(), nodeId, operationId
                 ).catch((error) => console.warn('Persisting Media operation cancellation failed:', error));
             }
             let newlyCanceledCount = 0;
@@ -2447,6 +2451,7 @@ export function createWorkflowRunnerApi({
                             if (mediaOperationNodeTypes.has(node.type)) {
                                 node.activeMediaOperationId = globalThis.crypto?.randomUUID?.()
                                     || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+                                node.activeMediaOperationIds = new Set();
                             }
                             const linkedAbort = createLinkedAbortSignal([
                                 session.controller.signal,
@@ -2537,6 +2542,7 @@ export function createWorkflowRunnerApi({
                                     clearNodeRunning(nid, node);
                                     unregisterNodeCancelHandler(session, nid);
                                     delete node.activeMediaOperationId;
+                                    delete node.activeMediaOperationIds;
                                     runningNodes.delete(nid);
                                 }
                             })();

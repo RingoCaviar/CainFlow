@@ -96,7 +96,10 @@ test('image generation persists its result for restart and still publishes downs
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.deepEqual(generated.data.imageList, ['data:image/png;base64,AAAA']);
-    assert.deepEqual(propagated, [['preview-1', ['data:image/png;base64,AAAA']]]);
+    assert.deepEqual(propagated, [
+        ['preview-1', ['data:image/png;base64,AAAA']],
+        ['preview-1', ['data:image/png;base64,AAAA']]
+    ]);
     assert.deepEqual(savedKeys, [['workflow-1', 'generate-1', 'data:image/png;base64,AAAA']]);
     assert.deepEqual(deletedKeys, []);
     assert.equal(generated.data.imageAssetKey, 'media:generated');
@@ -106,8 +109,9 @@ test('image generation persists its result for restart and still publishes downs
     assert.ok(updatedNodes.includes('generate-1'));
 });
 
-function createSequentialGenerationHarness(saveMediaAsset) {
+function createSequentialGenerationHarness(saveMediaAsset, { withSaveNode = false } = {}) {
     const node = { id: 'generate-sequential', type: 'ImageGenerate', data: {} };
+    const save = { id: 'save-sequential', type: 'ImageSave', data: {} };
     const elements = new Map(Object.entries({
         'generate-sequential-apiconfig': { value: 'model' },
         'generate-sequential-provider': { value: 'provider' },
@@ -122,7 +126,8 @@ function createSequentialGenerationHarness(saveMediaAsset) {
     }));
     let requestCount = 0;
     const state = {
-        nodes: new Map([[node.id, node]]), connections: [],
+        nodes: new Map([[node.id, node], ...(withSaveNode ? [[save.id, save]] : [])]),
+        connections: withSaveNode ? [{ from: { nodeId: node.id, port: 'image' }, to: { nodeId: save.id, port: 'image' } }] : [],
         models: [{ id: 'model', name: 'Image model', modelId: 'image-model', protocol: 'openai', providerIds: ['provider'] }],
         providers: [{ id: 'provider', name: 'Provider', endpoint: 'https://example.test/v1', apikey: '<REDACTED>', type: 'openai' }]
     };
@@ -139,10 +144,14 @@ function createSequentialGenerationHarness(saveMediaAsset) {
         getActiveWorkflowId: () => 'workflow-1',
         saveWorkflowNodeMediaAsset: saveMediaAsset,
         releaseWorkflowNodeMediaAssets: async () => true,
-        syncImagePreviewNode: async () => {}, refreshDependentImageResizePreviews: async () => {},
+        syncImagePreviewNode: async () => {},
+        syncImageSaveNode: async () => {
+            if (node.data.mediaAssetKeys?.length) save.data.mediaAssetKeys = node.data.mediaAssetKeys.slice();
+        },
+        refreshDependentImageResizePreviews: async () => {},
         fitNodeToContent() {}, scheduleSave() {}, onNodeResultUpdated() {}, getAbortMessage: () => ''
     });
-    return { node, generate: () => api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal) };
+    return { node, save, generate: () => api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal) };
 }
 
 test('a failed new generation cannot restore the previous generated batch after restart', async () => {
@@ -158,6 +167,35 @@ test('a failed new generation cannot restore the previous generated batch after 
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(node.data.imageResultPersistence, 'transient');
     assert.equal(node.data.mediaAssetKeys, undefined);
+});
+
+test('two generated images in one workflow run retain the latest image with an immutable media operation', async () => {
+    const writes = new Map();
+    const { node, generate } = createSequentialGenerationHarness(async (image, _workflowId, _nodeId, operationId) => {
+        const previous = writes.get(operationId);
+        if (previous && previous !== image) return null;
+        writes.set(operationId, image);
+        return { asset_key: `media:${image.slice(-1)}` };
+    });
+    node.activeMediaOperationId = 'same-workflow-run';
+
+    await generate();
+    await new Promise((resolve) => setImmediate(resolve));
+    await generate();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:2']);
+    assert.equal(node.data.imageResultPersistence, undefined);
+});
+
+test('a connected save node receives the generated Media asset after background persistence', async () => {
+    const { node, save, generate } = createSequentialGenerationHarness(
+        async () => ({ asset_key: 'media:generated' }), { withSaveNode: true }
+    );
+    await generate();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:generated']);
+    assert.deepEqual(save.data.mediaAssetKeys, ['media:generated']);
 });
 
 test('an older image save cannot overwrite the newer generation', async () => {

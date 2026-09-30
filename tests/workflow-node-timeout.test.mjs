@@ -99,11 +99,15 @@ test('cancelling a running node durably fences its active Media operation before
     const run = api.runWorkflow({ mode: 'selected-only', selectedNodeIds: [node.id] });
     while (!node.activeMediaOperationId || typeof finishExecution !== 'function') await new Promise((resolve) => setTimeout(resolve, 0));
     const operationId = node.activeMediaOperationId;
+    node.activeMediaOperationIds.add('partial-image-operation');
     assert.equal(api.cancelRunningNode(node.id), true);
     finishExecution();
     await run;
 
-    assert.deepEqual(cancellations, [['workflow-a', node.id, operationId]]);
+    assert.deepEqual(cancellations, [
+        ['workflow-a', node.id, operationId],
+        ['workflow-a', node.id, 'partial-image-operation']
+    ]);
 });
 
 test('node execution failure marks the node and its named input port until cleared', () => {

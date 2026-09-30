@@ -257,6 +257,12 @@ export function createExecutionCoreApi({
         if (!node || !assetKey || imageList.length === 0) return;
         const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
+        const operationId = globalThis.crypto?.randomUUID?.()
+            || `image_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+        if (node.activeMediaOperationId) {
+            node.activeMediaOperationIds = node.activeMediaOperationIds || new Set();
+            node.activeMediaOperationIds.add(operationId);
+        }
         const reportSaveFailure = () => {
             if (node.data?.imageAssetSaveToken !== token || state.nodes.get(node.id) !== node) return;
             markNodeImageAssetFailed(node, token);
@@ -265,10 +271,10 @@ export function createExecutionCoreApi({
         };
         const saveTask = async () => {
             const mediaAssets = imageList.length > 1 && workflowId
-                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, node.activeMediaOperationId)
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, operationId)
                 : [];
             const mediaAsset = imageList.length === 1 && workflowId
-                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, node.activeMediaOperationId)
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, operationId)
                 : null;
             if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
                 reportSaveFailure();
@@ -288,6 +294,11 @@ export function createExecutionCoreApi({
                 else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
                 delete node.data.imageResultPersistence;
                 onNodeResultUpdated(node.id);
+                try {
+                    await propagateImagesToDownstreamPreview(node.id, imageList);
+                } catch (error) {
+                    console.warn('Updating downstream image nodes after persistence failed:', error);
+                }
                 scheduleSave();
             } else {
                 reportSaveFailure();
