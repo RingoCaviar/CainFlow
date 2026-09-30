@@ -3,6 +3,7 @@
  */
 import { escapeHistoryHtml, formatHistoryGenerationDuration, formatHistoryVideoSize } from './history-utils.js';
 import { startHistoryDownload } from './history-download.js';
+import { createHistoryImageContextMenu } from './history-image-context-menu.js';
 
 export function createHistoryPreviewApi({
     getHistory,
@@ -13,6 +14,7 @@ export function createHistoryPreviewApi({
     getImageResolution,
     downloadImage,
     copyToClipboard,
+    copyImageToClipboard,
     renderHistoryList,
     showToast,
     documentRef = document,
@@ -34,8 +36,10 @@ export function createHistoryPreviewApi({
         currentItem: null,
         loadToken: 0,
         imageObjectUrl: '',
+        currentImageSource: '',
         videoObjectUrl: ''
     };
+    const imageContextMenu = createHistoryImageContextMenu({ documentRef, windowRef });
 
     function isVideoHistoryItem(item) {
         return item?.mediaType === 'video' || item?.hasVideo || item?.videoBlob instanceof Blob;
@@ -250,6 +254,8 @@ export function createHistoryPreviewApi({
         const btnDelete = documentRef.getElementById('btn-delete-preview');
 
         previewState.currentItem = item;
+        previewState.currentImageSource = '';
+        imageContextMenu.close();
         resetPreviewTransform();
         revokePreviewImageUrl();
         revokePreviewVideoUrl();
@@ -328,11 +334,13 @@ export function createHistoryPreviewApi({
             previewState.imageObjectUrl = objectUrl;
             const resolution = await setPreviewImageSource(src, token);
             if (token !== previewState.loadToken) return;
+            previewState.currentImageSource = src;
             updatePreviewMeta(fullItem, resolution);
         }
     }
 
     function closeHistoryPreview() {
+        imageContextMenu.close();
         const modal = documentRef.getElementById('history-preview-modal');
         const img = documentRef.getElementById('history-preview-img');
         const video = documentRef.getElementById('history-preview-video');
@@ -358,6 +366,7 @@ export function createHistoryPreviewApi({
         previewState.items = [];
         previewState.currentIndex = -1;
         previewState.currentItem = null;
+        previewState.currentImageSource = '';
         documentRef.removeEventListener('keydown', onPreviewKeyDown);
     }
 
@@ -482,6 +491,14 @@ export function createHistoryPreviewApi({
     function initHistoryPreview() {
         const previewViewport = documentRef.getElementById('preview-viewport');
         if (previewViewport) {
+            previewViewport.addEventListener('contextmenu', (event) => {
+                if (event.target !== documentRef.getElementById('history-preview-img')
+                    || !previewState.currentImageSource) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const source = previewState.currentImageSource;
+                imageContextMenu.open(event, () => copyImageToClipboard(source));
+            });
             previewViewport.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? 0.9 : 1.1;

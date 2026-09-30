@@ -84,6 +84,23 @@ test('starts the image clipboard write in the click gesture before image loading
     assert.equal(await copying, true);
 });
 
+test('image copy shows immediate progress while the image is loading', async () => {
+    let finishRead;
+    const read = new Promise((resolve) => { finishRead = resolve; });
+    const notices = [];
+    const api = createUiUtils({
+        showToast: (...args) => { notices.push(args); return { dismiss() {} }; },
+        documentRef: {}, navigatorRef: { clipboard: {} },
+        fetchRef: () => read,
+        desktopRef: { copyImage: async () => true }
+    });
+    const copying = api.copyImageToClipboard('image.png');
+    assert.deepEqual(notices[0], ['正在复制图片…', 'info', 15000]);
+    finishRead({ ok: true, blob: async () => new Blob(['pixels'], { type: 'image/png' }) });
+    assert.equal(await copying, true);
+    assert.deepEqual(notices.at(-1), ['图片已复制到剪贴板', 'success']);
+});
+
 test('thumbnail previews retain the full image source for context-menu copying', () => {
     const attributes = new Map();
     const image = {

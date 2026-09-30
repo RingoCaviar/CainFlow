@@ -242,6 +242,19 @@
     z-index: calc(var(--layer-modal) + 1);
 }
 
+.history-image-context-menu {
+    z-index: calc(var(--layer-modal) + 1);
+}
+
+.history-image-context-menu .context-menu-item {
+    width: 100%;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    font: inherit;
+}
+
 /* ===== Log Drawer ===== */
 /* Drawer (Sidebar) System */
 .drawer {

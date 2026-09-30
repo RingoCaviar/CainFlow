@@ -1515,6 +1515,7 @@ historyFeature = createHistoryFeature({
     getImageResolution,
     downloadImage,
     copyToClipboard,
+    copyImageToClipboard: uiUtils.copyImageToClipboard,
     showToast
 });
 historyPreviewApi = historyFeature.historyPreviewApi;

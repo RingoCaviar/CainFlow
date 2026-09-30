@@ -42,6 +42,7 @@ export function createUiUtils({
             showToast('当前环境不支持复制图片', 'error');
             return false;
         }
+        const progress = showToast('正在复制图片…', 'info', 15000);
         try {
             if (typeof nativeCopy === 'function') {
                 const response = await fetchRef(source);
@@ -51,6 +52,7 @@ export function createUiUtils({
                 const png = blob.type === 'image/png' ? blob : await convertImageToPng(blob);
                 if (!await nativeCopy(png)) throw new Error('系统剪贴板写入失败');
                 onNativeClipboardWrite?.();
+                progress?.dismiss?.();
                 showToast('图片已复制到剪贴板', 'success');
                 return true;
             }
@@ -66,10 +68,12 @@ export function createUiUtils({
             const item = new clipboardItemCtor({ 'image/png': clipboardBlob });
             await Promise.all([navigatorRef.clipboard.write([item]), clipboardBlob]);
             onNativeClipboardWrite?.();
+            progress?.dismiss?.();
             showToast('图片已复制到剪贴板', 'success');
             return true;
         } catch (error) {
             console.error('Copy image failed:', error);
+            progress?.dismiss?.();
             showToast('复制图片失败', 'error');
             return false;
         }

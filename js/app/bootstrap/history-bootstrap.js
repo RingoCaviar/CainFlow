@@ -22,6 +22,7 @@ export function createHistoryFeature({
     getImageResolution,
     downloadImage,
     copyToClipboard,
+    copyImageToClipboard,
     showToast
 }) {
     let historyPreviewApi = null;
@@ -104,6 +105,7 @@ export function createHistoryFeature({
         getImageResolution,
         downloadImage,
         copyToClipboard,
+        copyImageToClipboard,
         renderHistoryList: () => renderHistoryList(),
         showToast
     });

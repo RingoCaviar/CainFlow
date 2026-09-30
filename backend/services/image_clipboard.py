@@ -30,7 +30,7 @@ def copy_png_to_clipboard(png_bytes):
             bitmap = Bitmap(decoded)
             data = DataObject()
             data.SetImage(bitmap)
-            Clipboard.SetDataObject(data, True, 5, 100)
+            Clipboard.SetDataObject(data, True, 20, 100)
         except Exception as error:
             errors.append(error)
         finally:
