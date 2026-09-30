@@ -71,13 +71,13 @@ test('runWorkflowInContext projects the latest running video task over stale vis
     finishRun();
 });
 
-test('background image-generation projection does not create a persistent generation-node asset reference', async () => {
+test('background image-generation projection preserves the generated Media asset reference', async () => {
     let finishRun;
     const pendingRun = new Promise((resolve) => { finishRun = resolve; });
     const visibleNode = { id: 'image', type: 'ImageGenerate', enabled: true, data: {}, el: element() };
     const runtimeNode = {
         id: 'image', type: 'ImageGenerate', enabled: true,
-        data: { imageList: ['generated-image'], imageCount: 1 },
+        data: { imageList: ['generated-image'], imageCount: 1, imageAssetKey: 'media:image', mediaAssetKeys: ['media:image'], imageAssetReady: true },
         imageData: 'generated-image', imageDataList: ['generated-image']
     };
     const state = { nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {} };
@@ -125,7 +125,8 @@ test('background image-generation projection does not create a persistent genera
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.deepEqual(visibleNode.data.imageList, ['generated-image']);
-    assert.equal(visibleNode.data.imageAssetKey, undefined);
+    assert.equal(visibleNode.data.imageAssetKey, 'media:image');
+    assert.deepEqual(visibleNode.data.mediaAssetKeys, ['media:image']);
     finishRun();
 });
 

@@ -838,10 +838,11 @@ export function createWorkflowRunnerApi({
                 getRecoverableImageList(node).length,
                 Math.max(0, parseInt(node.data?.imageCount || '0', 10) || 0)
             );
+            const retainedAssetKey = node.data?.imageAssetKey || nodeId;
             const bytes = clearIntermediateImageResult(node);
             if (bytes <= 0) continue;
             node.data = node.data || {};
-            node.data.imageAssetKey = nodeId;
+            node.data.imageAssetKey = retainedAssetKey;
             node.data.imageCount = Math.max(1, imageCount || 1);
             node.data.imageAssetReady = true;
             node.data.imageMemoryReleased = true;
@@ -1229,6 +1230,8 @@ export function createWorkflowRunnerApi({
         node.data.mediaAssetKeys = keys;
         node.data.imageAssetKey = keys[0];
         markRecoverableImageAssetReady(node, keys[0], keys.length);
+        delete node.data.imageResultPersistence;
+        scheduleSave();
         return true;
     }
 
@@ -1244,7 +1247,13 @@ export function createWorkflowRunnerApi({
             });
             node.generationCompletedCount = images.length;
             node.isSucceeded = true;
-            if (images.length > 0) await persistConcurrentImageResults(node, images);
+            if (images.length > 0) {
+                node.data.imageResultPersistence = 'transient';
+                delete node.data.mediaAssetKeys;
+                if (!(await persistConcurrentImageResults(node, images))) {
+                    showToast('图片已生成，但本地保存失败；关闭应用后可能无法恢复', 'warning');
+                }
+            }
             else clearCanonicalImageOutput(node);
             await propagateImagesToDownstreamPreview(node.id, images);
             await refreshDependentImageResizePreviews(node.id);

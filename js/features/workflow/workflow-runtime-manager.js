@@ -217,14 +217,13 @@ export function serializeRuntimeNode(node, doc) {
     const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
         ? node.imageImportAssetKey
         : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-    const preservesLegacyGeneratedAsset = node.type === 'ImageGenerate'
-        && node.data?.imageResultPersistence === 'legacy-persistent';
-    const isTransientImageGeneration = node.type === 'ImageGenerate' && !preservesLegacyGeneratedAsset;
+    const isTransientImageGeneration = node.type === 'ImageGenerate'
+        && node.data?.imageResultPersistence === 'transient';
     const hasRecoverableImageAsset = !isTransientImageGeneration && Boolean(imageAssetKey || imageImportAssetKey);
     const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)
         ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key)
         : (imageAssetKey.startsWith('media:') ? [imageAssetKey] : []);
-    if (mediaAssetKeys.length > 0) serialized.mediaAssetKeys = mediaAssetKeys;
+    if (mediaAssetKeys.length > 0 && !isTransientImageGeneration) serialized.mediaAssetKeys = mediaAssetKeys;
     if (hasNodeCapability(node.type, NODE_CAPABILITIES.IMAGE_RESULT)) {
         if (usesCanonicalImages) {
             if (imageAssetKey && !isTransientImageGeneration) serialized.imageAssetKey = imageAssetKey;
@@ -920,13 +919,18 @@ export function createWorkflowRuntimeManager({
                 setCanonicalImageOutput(node, images, {
                     currentIndex: runtimeNode.imagePreviewIndex ?? Math.max(0, images.length - 1),
                     assetKey: getNodeImageResultPersistence(runtimeNode.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT
-                        ? (runtimeNode?.data?.imageAssetKey || runtimeNode.id)
+                        ? (runtimeNode?.data?.imageAssetKey || '')
                         : '',
                     imageCount: Math.max(images.length, parseInt(runtimeNode?.data?.imageCount || images.length, 10) || images.length),
                     imagePromptList: Array.isArray(runtimeNode?.data?.imagePromptList) ? runtimeNode.data.imagePromptList.slice() : undefined,
                     assetReady: runtimeNode?.data?.imageAssetReady === true,
                     hydratedAt: runtimeNode?.data?.imageHydratedAt || undefined
                 });
+                if (Array.isArray(runtimeNode?.data?.mediaAssetKeys)) {
+                    node.data.mediaAssetKeys = runtimeNode.data.mediaAssetKeys.slice();
+                } else {
+                    delete node.data.mediaAssetKeys;
+                }
                 node.imagePromptList = Array.isArray(runtimeNode.imagePromptList) ? runtimeNode.imagePromptList.slice() : [];
                 node.previewZoom = 1;
                 await showResolutionBadge(runtimeNodeId, images[node.imagePreviewIndex || 0] || images[0]);

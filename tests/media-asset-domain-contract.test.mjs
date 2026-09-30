@@ -10,7 +10,8 @@ const [context, sharedMediaAdr] = await Promise.all([
 test('media asset documentation makes video generation a persistent media source', () => {
     assert.match(context, /Video generation nodes are Persistent media sources/i);
     assert.match(sharedMediaAdr, /Video generation nodes retain durable Media asset references/i);
-    assert.match(context, /Image generation nodes do not own persistent Media asset references/i);
+    assert.match(context, /Image and video generation nodes are Persistent media sources/i);
+    assert.match(sharedMediaAdr, /superseded by \[ADR-0009\]/i);
 });
 
 test('media asset documentation preserves shared-reference lifetime protection', () => {

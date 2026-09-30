@@ -18,7 +18,7 @@ export const imageGenerateNode = {
         { name: 'params', type: 'params', label: '自定义参数' }
     ],
     outputs: [{ name: 'image', type: 'image', label: '图片输出' }],
-    capabilities: ['imageResult', 'canonicalImages'],
+    capabilities: ['imageResult', 'canonicalImages', 'recoverableImageAsset', 'imageRestore'],
     defaultWidth: 410,
     minWidth: 360,
     maxWidth: 720,

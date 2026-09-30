@@ -6,7 +6,7 @@ function createClassList() {
     return { add() {}, remove() {}, contains() { return false; } };
 }
 
-function createHarness({ getNodeMinimumSize = null } = {}) {
+function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {} } = {}) {
     const canvasListeners = [];
     const windowListeners = [];
     const canvasContainer = {
@@ -45,6 +45,7 @@ function createHarness({ getNodeMinimumSize = null } = {}) {
             refreshNodeTextRendering() {}
         },
         getPortPosition() {}, drawTempConnection() {}, updateAllConnections() {},
+        ...connectionTargetApi,
         updateDraggingConnections(draggingState) { draggingConnectionCalls.push(draggingState); },
         updatePortStyles() {},
         scheduleSave() { saveCalls.push(true); },
@@ -435,6 +436,21 @@ test('port mouseup closes the connection-draw lease before the next gesture', as
         ['begin', 'connection-draw', ['node-1']],
         ['changed', 'connection-draw', { nodeIds: ['node-1'] }]
     ]);
+});
+
+test('drag release connects to the nearest usable port even when released over the node body', () => {
+    const finished = [];
+    const { windowListeners, state } = createHarness({
+        connectionTargetApi: {
+            getNearestConnectionTarget: () => ({ target: { nodeId: 'node-2', port: 'input', dir: 'input' } }),
+            finishConnection: (source, target) => { finished.push([source.nodeId, target.nodeId]); return true; }
+        }
+    });
+    state.connecting = { nodeId: 'node-1', dragged: true };
+    const captureMouseups = windowListeners.filter(({ type, options }) => type === 'mouseup' && options === true);
+    captureMouseups[1].listener({ clientX: 20, clientY: 20, target: { closest: () => null } });
+    assert.deepEqual(finished, [['node-1', 'node-2']]);
+    assert.equal(state.connecting, null);
 });
 
 test('window blur aborts the active connection-draw lease', () => {

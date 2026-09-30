@@ -19,8 +19,6 @@ export function createGlobalInteractionsApi({
     documentRef = document,
     windowRef = window
 }) {
-    let lastExternalPasteTime = 0;
-
     function getImageDropTargetNodeId(event) {
         const targetNodeEl = event.target.closest('.node');
         if (!targetNodeEl) return null;
@@ -135,9 +133,6 @@ export function createGlobalInteractionsApi({
                 e.stopImmediatePropagation();
                 return;
             }
-            if (now - lastExternalPasteTime < 500) return;
-            lastExternalPasteTime = now;
-
             const active = documentRef.activeElement;
             if (isTextEditingTarget(active) || isModalOrFullscreenOpen({ documentRef, windowRef })) return;
             if (!canUseCanvasShortcuts({ event: e, state, canvasContainer, documentRef, windowRef })) return;
@@ -145,15 +140,21 @@ export function createGlobalInteractionsApi({
             const data = e.clipboardData;
             if (!data) return;
 
-            const items = Array.from(data.items);
+            const items = Array.from(data.items || []);
             let imageFile = null;
-            const textContent = data.getData('text/plain');
+            const textContent = data.getData?.('text/plain') || '';
 
             for (const item of items) {
-                if (item.kind === 'file' && item.type.includes('image')) {
-                    imageFile = item.getAsFile();
-                    if (imageFile) break;
+                if (item.kind === 'file') {
+                    const file = item.getAsFile?.();
+                    if (file && (file.type?.startsWith('image/') || item.type?.startsWith('image/'))) {
+                        imageFile = file;
+                        break;
+                    }
                 }
+            }
+            if (!imageFile) {
+                imageFile = Array.from(data.files || []).find((file) => file?.type?.startsWith('image/')) || null;
             }
 
             const pos = state.mouseCanvas || {
@@ -161,11 +162,7 @@ export function createGlobalInteractionsApi({
                 y: (windowRef.innerHeight / 2 - state.canvas.y) / state.canvas.zoom
             };
 
-            if (clipboardControllerApi.shouldPreferInternalClipboard()) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                pasteNode();
-            } else if (imageFile) {
+            if (imageFile) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
 
@@ -192,6 +189,10 @@ export function createGlobalInteractionsApi({
                         showToast('已从剪贴板导入图片', 'success');
                     }
                 }
+            } else if (clipboardControllerApi.shouldPreferInternalClipboard()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                pasteNode();
             } else if (textContent && textContent.trim().length > 0) {
                 e.preventDefault();
                 e.stopImmediatePropagation();

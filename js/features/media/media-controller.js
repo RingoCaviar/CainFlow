@@ -3216,7 +3216,8 @@ export function createMediaControllerApi({
         overlay.focus({ preventScroll: true });
     }
 
-    async function copyNodeImageToClipboard(nodeId) {
+    async function copyNodeImageToClipboard(nodeId, visibleSource = '') {
+        if (visibleSource) return copyImageToClipboard(visibleSource);
         const context = await getNodeFullscreenImageContext(nodeId);
         const image = context.images[context.index] || context.images[0] || '';
         if (!image) {

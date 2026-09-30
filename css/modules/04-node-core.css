@@ -864,6 +864,20 @@
     gap: 8px;
 }
 
+#canvas-container .node-port.connection-target-unavailable:not(.is-hidden-by-collapse) {
+    opacity: 0.28;
+}
+
+#canvas-container .node-port.connection-target-available:not(.execution-error) .port-dot {
+    transform: scale(1.2);
+    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent);
+}
+
+#canvas-container .node-port.connection-target-nearest:not(.execution-error) .port-dot {
+    transform: scale(1.45);
+    box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 30%, transparent), 0 0 14px currentColor;
+}
+
 .node-port.input {
     justify-content: flex-start;
 }

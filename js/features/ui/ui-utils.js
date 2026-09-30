@@ -40,14 +40,17 @@ export function createUiUtils({
             return false;
         }
         try {
-            const response = await fetchRef(source);
-            if (!response?.ok) throw new Error('无法读取图片');
-            const blob = await response.blob();
-            if (!blob?.type?.startsWith('image/')) throw new Error('不是可复制的图片');
-            const clipboardBlob = blob.type === 'image/png'
-                ? blob
-                : await convertImageToPng(blob);
-            await navigatorRef.clipboard.write([new clipboardItemCtor({ 'image/png': clipboardBlob })]);
+            const clipboardBlob = (async () => {
+                const response = await fetchRef(source);
+                if (!response?.ok) throw new Error('无法读取图片');
+                const blob = await response.blob();
+                if (!blob?.type?.startsWith('image/')) throw new Error('不是可复制的图片');
+                return blob.type === 'image/png' ? blob : convertImageToPng(blob);
+            })();
+            // ClipboardItem construction can fail synchronously; keep the image read observed.
+            void clipboardBlob.catch(() => {});
+            const item = new clipboardItemCtor({ 'image/png': clipboardBlob });
+            await Promise.all([navigatorRef.clipboard.write([item]), clipboardBlob]);
             onNativeClipboardWrite?.();
             showToast('图片已复制到剪贴板', 'success');
             return true;

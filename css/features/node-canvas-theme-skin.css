@@ -106,6 +106,8 @@ html:root #canvas-container :is(.node-field input, .node-field select, .node-fie
 html:root #canvas-container :is(.node-field input, .node-field select, .node-field textarea):focus { border-color: var(--node-control-focus); }
 html:root #canvas-container .port-dot { background: var(--node-port-surface); }
 html:root #canvas-container .port-dot.connected { box-shadow: 0 0 0 3px var(--node-port-ring); }
+html:root #canvas-container .node-port.connection-target-available:not(.execution-error) .port-dot { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent); }
+html:root #canvas-container .node-port.connection-target-nearest:not(.execution-error) .port-dot { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 30%, transparent), 0 0 14px currentColor; }
 html:root #canvas-container .node-run-cancel-btn { --node-run-cancel-bg: var(--node-cancel-bg); --node-run-cancel-bg-hover: var(--node-cancel-bg-hover); --node-run-cancel-border: var(--node-cancel-border); --node-run-cancel-border-hover: var(--node-cancel-border); --node-run-cancel-text: var(--node-cancel-text); --node-run-cancel-progress-fill: var(--accent-red); }
 html:root #canvas-container .node-clone-badge { background: var(--node-clone-bg); border-color: var(--node-clone-border); color: var(--node-clone-text); }
 html:root #canvas-container .node.batch-connection-source,

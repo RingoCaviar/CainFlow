@@ -10,23 +10,23 @@ import {
 } from '../js/nodes/registry.js';
 import { createNodeElement } from './helpers/node-element-fixture.mjs';
 
-test('image generation is an image producer without display-image cache capabilities', () => {
+test('image generation owns a recoverable image result', () => {
     assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.IMAGE_RESULT), true);
     assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.CANONICAL_IMAGES), true);
-    assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.RECOVERABLE_IMAGE_ASSET), false);
-    assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.IMAGE_RESTORE), false);
+    assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.RECOVERABLE_IMAGE_ASSET), true);
+    assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.IMAGE_RESTORE), true);
     assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.NODE_ID_IMAGE_ASSET), false);
     assert.equal(hasNodeCapability('ImageGenerate', NODE_CAPABILITIES.PREVIEW_THUMBNAIL_RESTORE), false);
 });
 
 test('node capabilities are the authority for image-result persistence', () => {
-    assert.equal(getNodeImageResultPersistence('ImageGenerate'), IMAGE_RESULT_PERSISTENCE.TRANSIENT);
+    assert.equal(getNodeImageResultPersistence('ImageGenerate'), IMAGE_RESULT_PERSISTENCE.PERSISTENT);
     assert.equal(getNodeImageResultPersistence('ImagePreview'), IMAGE_RESULT_PERSISTENCE.PERSISTENT);
     assert.equal(getNodeImageResultPersistence('ImageSave'), IMAGE_RESULT_PERSISTENCE.PERSISTENT);
     assert.equal(getNodeImageResultPersistence('ImageResize'), IMAGE_RESULT_PERSISTENCE.PERSISTENT);
 });
 
-test('image generation publishes its result without retaining a generation-node image cache', async () => {
+test('image generation persists its result for restart and still publishes downstream', async () => {
     const generated = {
         id: 'generate-1',
         type: 'ImageGenerate',
@@ -36,6 +36,8 @@ test('image generation publishes its result without retaining a generation-node 
     const savedKeys = [];
     const deletedKeys = [];
     const propagated = [];
+    let saveCount = 0;
+    const updatedNodes = [];
     const elements = new Map(Object.entries({
         'generate-1-apiconfig': { value: 'model' },
         'generate-1-provider': { value: 'provider' },
@@ -73,6 +75,11 @@ test('image generation publishes its result without retaining a generation-node 
         logRequestToPanel: () => {},
         recordNodeRequest: () => {},
         saveHistoryEntry: async () => true,
+        getActiveWorkflowId: () => 'workflow-1',
+        saveWorkflowNodeMediaAsset: async (image, workflowId, nodeId) => {
+            savedKeys.push([workflowId, nodeId, image]);
+            return { asset_key: 'media:generated' };
+        },
         saveImageAsset: async (key) => { savedKeys.push(key); return true; },
         saveImageAssetList: async (key) => { savedKeys.push(key); return true; },
         deleteImageAsset: async (key) => { deletedKeys.push(key); return true; },
@@ -80,6 +87,8 @@ test('image generation publishes its result without retaining a generation-node 
         syncImagePreviewNode: async (nodeId, images) => { propagated.push([nodeId, images]); },
         refreshDependentImageResizePreviews: async () => {},
         fitNodeToContent: () => {},
+        scheduleSave: () => { saveCount += 1; },
+        onNodeResultUpdated: (nodeId) => updatedNodes.push(nodeId),
         getAbortMessage: () => ''
     });
 
@@ -88,15 +97,92 @@ test('image generation publishes its result without retaining a generation-node 
 
     assert.deepEqual(generated.data.imageList, ['data:image/png;base64,AAAA']);
     assert.deepEqual(propagated, [['preview-1', ['data:image/png;base64,AAAA']]]);
-    assert.deepEqual(savedKeys, []);
-    assert.deepEqual(deletedKeys, ['generate-1']);
-    assert.equal(generated.data.imageAssetKey, undefined);
-    assert.equal(generated.data.imageAssetReady, undefined);
+    assert.deepEqual(savedKeys, [['workflow-1', 'generate-1', 'data:image/png;base64,AAAA']]);
+    assert.deepEqual(deletedKeys, []);
+    assert.equal(generated.data.imageAssetKey, 'media:generated');
+    assert.deepEqual(generated.data.mediaAssetKeys, ['media:generated']);
+    assert.equal(generated.data.imageAssetReady, true);
+    assert.ok(saveCount > 0);
+    assert.ok(updatedNodes.includes('generate-1'));
 });
 
-test('batched workflow generation leaves persistence to its downstream display node', async () => {
+function createSequentialGenerationHarness(saveMediaAsset) {
+    const node = { id: 'generate-sequential', type: 'ImageGenerate', data: {} };
+    const elements = new Map(Object.entries({
+        'generate-sequential-apiconfig': { value: 'model' },
+        'generate-sequential-provider': { value: 'provider' },
+        'generate-sequential-aspect': { value: '1:1' },
+        'generate-sequential-resolution': { value: '1024x1024' },
+        'generate-sequential-quality': { value: 'auto' },
+        'generate-sequential-moderation': { value: 'auto' },
+        'generate-sequential-background': { value: 'auto' },
+        'generate-sequential-search': { checked: false },
+        'generate-sequential-generation-count': { value: '1' },
+        'generate-sequential-prompt': { value: 'prompt' }
+    }));
+    let requestCount = 0;
+    const state = {
+        nodes: new Map([[node.id, node]]), connections: [],
+        models: [{ id: 'model', name: 'Image model', modelId: 'image-model', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', name: 'Provider', endpoint: 'https://example.test/v1', apikey: '<REDACTED>', type: 'openai' }]
+    };
+    const api = createExecutionCoreApi({
+        state, nodeConfigs: {},
+        documentRef: { getElementById: (id) => elements.get(id) || null, querySelectorAll: () => [] },
+        windowRef: { requestAnimationFrame: (callback) => callback() },
+        fetchRef: async () => {
+            const body = { data: [{ b64_json: `AAAA${++requestCount}` }] };
+            return { ok: true, headers: { get: () => 'application/json' }, text: async () => JSON.stringify(body), json: async () => body };
+        },
+        getProxyHeaders: () => ({}), showToast() {}, addLog() {}, logRequestToPanel() {},
+        recordNodeRequest() {}, saveHistoryEntry: async () => true,
+        getActiveWorkflowId: () => 'workflow-1',
+        saveWorkflowNodeMediaAsset: saveMediaAsset,
+        releaseWorkflowNodeMediaAssets: async () => true,
+        syncImagePreviewNode: async () => {}, refreshDependentImageResizePreviews: async () => {},
+        fitNodeToContent() {}, scheduleSave() {}, onNodeResultUpdated() {}, getAbortMessage: () => ''
+    });
+    return { node, generate: () => api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal) };
+}
+
+test('a failed new generation cannot restore the previous generated batch after restart', async () => {
+    let saves = 0;
+    const { node, generate } = createSequentialGenerationHarness(async () => (
+        ++saves === 1 ? { asset_key: 'media:first' } : null
+    ));
+    await generate();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:first']);
+
+    await generate();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(node.data.imageResultPersistence, 'transient');
+    assert.equal(node.data.mediaAssetKeys, undefined);
+});
+
+test('an older image save cannot overwrite the newer generation', async () => {
+    let resolveFirstSave;
+    let saves = 0;
+    const { node, generate } = createSequentialGenerationHarness(async () => {
+        saves += 1;
+        return saves === 1
+            ? new Promise((resolve) => { resolveFirstSave = resolve; })
+            : { asset_key: 'media:second' };
+    });
+    await generate();
+    await new Promise((resolve) => setImmediate(resolve));
+    await generate();
+    resolveFirstSave({ asset_key: 'media:first' });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:second']);
+    assert.equal(node.data.imageAssetKey, 'media:second');
+    assert.equal(node.data.imageResultPersistence, undefined);
+});
+
+test('batched workflow generation retains its own result and propagates downstream', async () => {
     const prompt = { id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: createNodeElement() };
-    const generated = { id: 'generate', type: 'ImageGenerate', enabled: true, data: {}, el: createNodeElement() };
+    const generated = { id: 'generate', type: 'ImageGenerate', enabled: true, data: { imageResultPersistence: 'transient' }, el: createNodeElement() };
     const preview = { id: 'preview', type: 'ImagePreview', enabled: true, data: {}, el: createNodeElement() };
     const connections = [
         { id: 'prompt-input', type: 'text', from: { nodeId: 'prompts', port: 'text' }, to: { nodeId: 'generate', port: 'prompt' } },
@@ -166,6 +252,11 @@ test('batched workflow generation leaves persistence to its downstream display n
         updatePortStyles: () => {},
         saveImageAsset: async (key) => { generatedCacheWrites.push(key); return true; },
         saveImageAssetList: async (key) => { generatedCacheWrites.push(key); return true; },
+        getActiveWorkflowId: () => 'workflow-1',
+        saveWorkflowNodeMediaAssets: async (images, workflowId, nodeId) => {
+            generatedCacheWrites.push([workflowId, nodeId, images.length]);
+            return images.map((_, index) => ({ asset_key: `media:generated-${index}` }));
+        },
         deleteImageAsset: async () => true,
         syncImagePreviewNode: async (nodeId, images) => { downstreamImages.push([nodeId, images]); },
         refreshDependentImageResizePreviews: async () => {},
@@ -177,10 +268,12 @@ test('batched workflow generation leaves persistence to its downstream display n
 
     assert.equal(result.reason, 'finished');
     assert.deepEqual(executed.map(([type]) => type), ['Text', 'ImageGenerate', 'ImageGenerate', 'ImagePreview']);
-    assert.deepEqual(generatedCacheWrites, []);
+    assert.deepEqual(generatedCacheWrites, [['workflow-1', 'generate', 2]]);
     assert.deepEqual(downstreamImages.at(-1), ['preview', [
         'data:image/png;base64,first',
         'data:image/png;base64,second'
     ]]);
-    assert.equal(generated.data.imageAssetKey, undefined);
+    assert.equal(generated.data.imageAssetKey, 'media:generated-0');
+    assert.deepEqual(generated.data.mediaAssetKeys, ['media:generated-0', 'media:generated-1']);
+    assert.equal(generated.data.imageResultPersistence, undefined);
 });

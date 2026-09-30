@@ -111,9 +111,8 @@ export function createNodeSerializer({ state, documentRef }) {
             const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
                 ? node.imageImportAssetKey
                 : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-            const preservesLegacyGeneratedAsset = node.type === 'ImageGenerate'
-                && node.data?.imageResultPersistence === 'legacy-persistent';
-            const isTransientImageGeneration = node.type === 'ImageGenerate' && !preservesLegacyGeneratedAsset;
+            const isTransientImageGeneration = node.type === 'ImageGenerate'
+                && node.data?.imageResultPersistence === 'transient';
             if (isTransientImageGeneration) serialized.imageResultPersistence = 'transient';
             const hasRecoverableImageAsset = !isTransientImageGeneration && Boolean(imageAssetKey || imageImportAssetKey);
             const mediaAssetKeys = Array.isArray(node.data?.mediaAssetKeys)

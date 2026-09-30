@@ -1,5 +1,7 @@
 # Share generated media through locally managed Media assets
 
+The ImageGenerate ownership policy in the first two paragraphs below is superseded by [ADR-0009](0009-retain-image-generation-results.md). The remaining shared-reference and storage rules still apply.
+
 CainFlow persists generated images and videos as content-addressed Media assets when a persistent source, downstream display, save or derived-result node, or history record retains them. A node's declared media capabilities are the authority for whether its image result is transient or persistently recoverable. Those consumers store durable references instead of independent media copies. Video generation nodes retain durable Media asset references and therefore remain reusable Persistent media sources after a run. Image generation nodes remain transient producers and do not retain durable Media asset references. A Media asset survives while at least one durable reference remains; deleting a node, workflow, history entry, or an automatically expired history entry only removes that owner's reference.
 
 Persistent media source nodes retain their complete ordered media batch; a single current item is only a compatibility view of that batch. Background projection does not change media ownership: it preserves the runtime node's declared persistence policy and cannot create a durable reference for a transient generation node.

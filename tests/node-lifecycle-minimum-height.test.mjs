@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createNodeLifecycleApi } from '../js/nodes/node-lifecycle.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
+import { imageGenerateNode } from '../js/nodes/types/image-generate.js';
 
 function createClassList(...names) {
     const values = new Set(names);
@@ -157,10 +158,10 @@ test('creating an image generation node completes its initial serialization', ()
     assert.equal(state.nodes.has('image-created'), true);
 });
 
-test('serializing a current image generation node marks it transient and excludes stale asset keys', () => {
+test('serializing a previous transient image generation node excludes stale asset keys', () => {
     const node = {
         id: 'current-generate', type: 'ImageGenerate', x: 0, y: 0, enabled: true,
-        data: { imageAssetKey: 'stale-generate', imageAssetReady: true, imageCount: 1 },
+        data: { imageResultPersistence: 'transient', imageAssetKey: 'stale-generate', imageAssetReady: true, imageCount: 1 },
         el: { classList: { contains: () => false } }
     };
     const serializer = createNodeSerializer({
@@ -173,6 +174,71 @@ test('serializing a current image generation node marks it transient and exclude
     assert.equal(serialized.imageResultPersistence, 'transient');
     assert.equal(serialized.imageAssetKey, undefined);
     assert.equal(serialized.imageAssetReady, undefined);
+});
+
+test('a generated image keeps its asset reference in the saved workflow for restart', () => {
+    const node = {
+        id: 'generated', type: 'ImageGenerate', x: 0, y: 0, enabled: true,
+        data: {
+            imageAssetKey: 'media:generated', mediaAssetKeys: ['media:generated'],
+            imageAssetReady: true, imageCount: 1
+        },
+        el: { classList: { contains: () => false } }
+    };
+    const serializer = createNodeSerializer({
+        state: { nodes: new Map([[node.id, node]]), connections: [], canvas: { x: 0, y: 0 } },
+        documentRef: { getElementById: () => null, querySelectorAll: () => [] }
+    });
+
+    const [saved] = serializer.serializeNodes();
+    assert.deepEqual(saved.mediaAssetKeys, ['media:generated']);
+    assert.equal(saved.imageAssetKey, 'media:generated');
+    assert.equal(saved.imageAssetReady, true);
+});
+
+test('reopening a saved image generation node restores its Media asset batch', async () => {
+    const children = [];
+    const nodesLayer = { children, appendChild(element) { children.push(element); } };
+    const documentRef = {
+        defaultView: {
+            setTimeout: (callback) => { callback(); return 0; },
+            clearTimeout() {}, requestAnimationFrame: (callback) => callback()
+        },
+        createElement: () => ({
+            style: {}, dataset: {},
+            classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+            querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, remove() {}
+        }),
+        getElementById: (id) => id === 'nodes-layer' ? nodesLayer : null,
+        querySelectorAll: () => []
+    };
+    const state = {
+        nodes: new Map(), connections: [], selectedNodes: new Set(),
+        nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 }
+    };
+    const fetched = [];
+    const lifecycle = createNodeLifecycleApi({
+        state, nodeConfigs: { ImageGenerate: imageGenerateNode },
+        createNodeMarkup: () => '<div></div>', nodesLayer, generateId: () => 'generated',
+        getImageAsset: async (key) => {
+            fetched.push(key);
+            return key === 'media:first' ? 'data:image/png;base64,AAAA' : 'data:image/png;base64,BBBB';
+        },
+        getImageAssetList: async () => [], saveImageAsset: async () => true,
+        bindNodeInteractions: () => {}, pushHistory: () => {}, scheduleSave: () => {},
+        showToast: () => {}, updateAllConnections: () => {}, updatePortStyles: () => {},
+        getCacheSidebarActive: () => false, updateCacheUsage: () => {}, documentRef
+    });
+    lifecycle.addNode('ImageGenerate', 0, 0, {
+        id: 'generated', imageAssetKey: 'media:first',
+        mediaAssetKeys: ['media:first', 'media:second'], imageAssetReady: true, imageCount: 2
+    }, true);
+    await lifecycle.waitForImageRestores();
+
+    assert.deepEqual(fetched, ['media:first', 'media:second']);
+    assert.deepEqual(state.nodes.get('generated').data.imageList, [
+        'data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'
+    ]);
 });
 
 test('a legacy image generation asset remains restorable after its persistence policy became transient', async () => {

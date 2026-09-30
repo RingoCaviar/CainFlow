@@ -233,15 +233,16 @@ export function createExecutionCoreApi({
     }
 
     function markNodeImageAssetReady(node, assetKey, imageCount = 1, token = null) {
-        if (!node) return;
+        if (!node) return false;
         node.data = node.data || {};
-        if (token !== null && node.data.imageAssetSaveToken !== token) return;
+        if (token !== null && node.data.imageAssetSaveToken !== token) return false;
         if (assetKey) node.data.imageAssetKey = assetKey;
         node.data.imageCount = Math.max(1, parseInt(imageCount, 10) || 1);
         node.data.imageAssetReady = true;
         node.data.imageHydratedAt = Date.now();
         delete node.data.imageMemoryReleased;
         delete node.data.imageAssetSaveToken;
+        return true;
     }
 
     function markNodeImageAssetFailed(node, token = null) {
@@ -256,6 +257,12 @@ export function createExecutionCoreApi({
         if (!node || !assetKey || imageList.length === 0) return;
         const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
+        const reportSaveFailure = () => {
+            if (node.data?.imageAssetSaveToken !== token || state.nodes.get(node.id) !== node) return;
+            markNodeImageAssetFailed(node, token);
+            showToast('图片已生成，但本地保存失败；关闭应用后可能无法恢复', 'warning');
+            addLog('warning', '生成图片保存失败', '图片结果未能写入本地媒体存储，请检查存储空间并重新保存。', { nodeId: node.id });
+        };
         const saveTask = async () => {
             const mediaAssets = imageList.length > 1 && workflowId
                 ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id, node.activeMediaOperationId)
@@ -264,11 +271,11 @@ export function createExecutionCoreApi({
                 ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, node.activeMediaOperationId)
                 : null;
             if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
-                markNodeImageAssetFailed(node, token);
+                reportSaveFailure();
                 return;
             }
             const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
-            if (signal?.aborted || state.nodes.get(node.id) !== node) {
+            if (signal?.aborted || state.nodes.get(node.id) !== node || node.data?.imageAssetSaveToken !== token) {
                 await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
                 return;
             }
@@ -276,19 +283,21 @@ export function createExecutionCoreApi({
             const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
                 rememberWorkflowMediaOperation(node, mediaAsset ? [mediaAsset] : mediaAssets);
-                markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
+                if (!markNodeImageAssetReady(node, savedAssetKey, imageList.length, token)) return;
                 if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
                 else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
-                await releaseNodeImageData(node.id);
+                delete node.data.imageResultPersistence;
+                onNodeResultUpdated(node.id);
+                scheduleSave();
             } else {
-                markNodeImageAssetFailed(node, token);
+                reportSaveFailure();
             }
         };
         const previous = imageAssetSaveChains.get(assetKey) || Promise.resolve();
         const queued = previous
             .catch(() => {})
             .then(saveTask)
-            .catch(() => markNodeImageAssetFailed(node, token));
+            .catch(reportSaveFailure);
         const tracked = queued.finally(() => {
             if (imageAssetSaveChains.get(assetKey) === tracked) {
                 imageAssetSaveChains.delete(assetKey);
@@ -316,7 +325,7 @@ export function createExecutionCoreApi({
                 return false;
             }
             const materializedAssets = mediaAsset ? [mediaAsset] : mediaAssets;
-            if (state.nodes.get(node.id) !== node) {
+            if (state.nodes.get(node.id) !== node || node.data?.imageAssetSaveToken !== token) {
                 await releaseWorkflowNodeMediaAssets(materializedAssets, workflowId, node.id);
                 return false;
             }
@@ -324,7 +333,7 @@ export function createExecutionCoreApi({
             const saved = Boolean(mediaAsset || mediaAssets.length === imageList.length);
             if (saved) {
                 rememberWorkflowMediaOperation(node, mediaAsset ? [mediaAsset] : mediaAssets);
-                markNodeImageAssetReady(node, savedAssetKey, imageList.length, token);
+                if (!markNodeImageAssetReady(node, savedAssetKey, imageList.length, token)) return false;
                 if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
                 else if (mediaAssets.length === imageList.length) node.data.mediaAssetKeys = mediaAssets.map((asset) => asset.asset_key);
                 await releaseNodeImageData(node.id);
@@ -349,6 +358,8 @@ export function createExecutionCoreApi({
         node.imagePromptList = normalizedImages.map(() => prompt || '');
         node.generationCompletedCount = normalizedImages.length;
         if (getNodeImageResultPersistence(node.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT && normalizedImages.length > 0) {
+            node.data.imageResultPersistence = 'transient';
+            delete node.data.mediaAssetKeys;
             saveNodeImageAssetInBackground(node, normalizedImages, node.id, signal);
         } else if (deleteImageAsset) {
             void deleteImageAsset(node.id);

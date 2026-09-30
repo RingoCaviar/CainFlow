@@ -53,7 +53,8 @@ export function createDisplayImageRenderer({
         img.loading = preferImmediateSrc ? 'eager' : 'lazy';
         img.decoding = 'async';
         img.alt = alt;
-        delete img.dataset.originalSrc;
+        if (shouldUseThumbnail) img.dataset.originalSrc = src;
+        else delete img.dataset.originalSrc;
         if (cursor) img.style.cursor = cursor;
         else img.style.removeProperty('cursor');
         if (shouldUseThumbnail) {

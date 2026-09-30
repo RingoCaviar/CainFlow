@@ -18,10 +18,10 @@ test('startup cleanup retains connected recoverable node assets in active and in
         activeWorkflowName: 'active'
     });
 
-    assert.deepEqual(retained, new Set(['preview', 'preview:current', 'resize', 'resize:current']));
+    assert.deepEqual(retained, new Set(['preview', 'preview:current', 'generate', 'generate:legacy', 'resize', 'resize:current']));
 });
 
-test('startup cleanup retains imported assets but not transient generator assets', () => {
+test('startup cleanup retains imported and generated assets', () => {
     const retained = collectRetainedNodeAssetIds({
         nodes: new Map([
             ['import', { id: 'import', type: 'ImageInput', imageImportAssetKey: 'image-import:source' }],
@@ -31,5 +31,5 @@ test('startup cleanup retains imported assets but not transient generator assets
         activeWorkflowName: 'active'
     });
 
-    assert.deepEqual(retained, new Set(['image-import:source']));
+    assert.deepEqual(retained, new Set(['image-import:source', 'generate', 'generate:legacy']));
 });

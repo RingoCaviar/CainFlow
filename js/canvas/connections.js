@@ -1357,19 +1357,17 @@ export function createConnectionsApi({
         return true;
     }
 
-    function finishConnection(src, tgt) {
-        if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) {
-            return showToast('节点正在运行，暂不能修改连线', 'warning');
-        }
-        if (src.nodeId === tgt.nodeId) return showToast('不能连接同一节点', 'warning');
-        if (src.isOutput && tgt.dir === 'output') return showToast('不能连接两个输出', 'warning');
-        if (!src.isOutput && tgt.dir === 'input') return showToast('不能连接两个输入', 'warning');
+    function getConnectionTargetError(src, tgt) {
+        if (!src || !tgt || !getNodeById(src.nodeId) || !getNodeById(tgt.nodeId)) return '端口不存在';
+        if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) return '节点正在运行，暂不能修改连线';
+        if (src.nodeId === tgt.nodeId) return '不能连接同一节点';
+        if (src.isOutput && tgt.dir === 'output') return '不能连接两个输出';
+        if (!src.isOutput && tgt.dir === 'input') return '不能连接两个输入';
 
-        // 类型检查：如果目标类型是 'any'，则接受任何输入；否则必须类型匹配
         const targetType = tgt.type || tgt.dataType;
         const sourceType = src.dataType;
         if (targetType !== 'any' && sourceType !== targetType) {
-            return showToast('类型不匹配', 'warning');
+            return '类型不匹配';
         }
 
         const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
@@ -1379,24 +1377,92 @@ export function createConnectionsApi({
         const toNode = getNodeById(toId);
         const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
         if (projectedPolicy && !projectedPolicy.supported) {
-            return showToast('当前模型不支持此输入端口', 'warning');
+            return '当前模型不支持此输入端口';
         }
         const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
 
         if (state.connections.find((conn) => conn.from.nodeId === fromId && conn.from.port === fromPort && conn.to.nodeId === toId && conn.to.port === toPort)) {
-            return showToast('连接已存在', 'warning');
+            return '连接已存在';
         }
 
         const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
         const maximumConnections = projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT;
         if (isMultiConnection && inputConnections.length >= maximumConnections) {
-            return showToast(`此输入端口最多连接 ${maximumConnections} 张图片`, 'warning');
+            return `此输入端口最多连接 ${maximumConnections} 张图片`;
         }
 
         const replacedConnection = isMultiConnection ? null : inputConnections[0];
         if (replacedConnection && hasRunningEndpoint(replacedConnection)) {
-            return showToast('节点正在运行，暂不能修改连线', 'warning');
+            return '节点正在运行，暂不能修改连线';
         }
+        return null;
+    }
+
+    function getNearestConnectionTarget(src, clientX, clientY, radius = 32) {
+        let nearest = null;
+        let bestDistanceSquared = radius * radius;
+        documentRef.querySelectorAll('.node-port').forEach((portEl) => {
+            if (portEl.classList.contains('hidden') || portEl.classList.contains('is-hidden-by-collapse')) return;
+            const dot = portEl.querySelector('.port-dot');
+            if (!dot) return;
+            const rect = dot.getBoundingClientRect();
+            const dx = clientX - (rect.left + rect.width / 2);
+            const dy = clientY - (rect.top + rect.height / 2);
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > bestDistanceSquared || !isPortElementVisible(portEl, rect)) return;
+            const target = {
+                nodeId: portEl.dataset.nodeId,
+                port: portEl.dataset.port,
+                type: portEl.dataset.type,
+                dir: portEl.dataset.direction
+            };
+            if (getConnectionTargetError(src, target)) return;
+            bestDistanceSquared = distanceSquared;
+            nearest = { target, position: getPortPosition(target.nodeId, target.port, target.dir) };
+        });
+        return nearest;
+    }
+
+    function updateConnectionTargetFeedback(src, clientX = NaN, clientY = NaN) {
+        const nearest = Number.isFinite(clientX) && Number.isFinite(clientY)
+            ? getNearestConnectionTarget(src, clientX, clientY)
+            : null;
+        documentRef.querySelectorAll('.node-port').forEach((portEl) => {
+            const target = {
+                nodeId: portEl.dataset.nodeId,
+                port: portEl.dataset.port,
+                type: portEl.dataset.type,
+                dir: portEl.dataset.direction
+            };
+            const available = isPortElementVisible(portEl) && !getConnectionTargetError(src, target);
+            portEl.classList.toggle('connection-target-available', available);
+            portEl.classList.toggle('connection-target-unavailable', !available);
+            portEl.classList.toggle('connection-target-nearest', available &&
+                nearest?.target.nodeId === target.nodeId &&
+                nearest?.target.port === target.port &&
+                nearest?.target.dir === target.dir);
+        });
+        return nearest;
+    }
+
+    function clearConnectionTargetFeedback() {
+        documentRef.querySelectorAll('.node-port').forEach((portEl) => {
+            portEl.classList.remove('connection-target-available', 'connection-target-unavailable', 'connection-target-nearest');
+        });
+    }
+
+    function finishConnection(src, tgt) {
+        const error = getConnectionTargetError(src, tgt);
+        if (error) return showToast(error, 'warning');
+
+        const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
+        const fromPort = src.isOutput ? src.portName : tgt.port;
+        const toId = src.isOutput ? tgt.nodeId : src.nodeId;
+        const toPort = src.isOutput ? tgt.port : src.portName;
+        const toNode = getNodeById(toId);
+        const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
+        const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
+        const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
 
         if (!src.historyPushed) {
             pushHistory();
@@ -1483,6 +1549,10 @@ export function createConnectionsApi({
             hasUnmaterializedConnections
         },
         getPortPosition,
+        getConnectionTargetError,
+        getNearestConnectionTarget,
+        updateConnectionTargetFeedback,
+        clearConnectionTargetFeedback,
         invalidateNodePortCache,
         measureNodePorts,
         markConnectionDirty,

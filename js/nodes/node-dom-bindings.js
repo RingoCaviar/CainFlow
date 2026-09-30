@@ -47,6 +47,8 @@ export function createNodeDomBindingsApi({
     cancelRunningNode = null,
     handleBatchConnectionNodeMouseDown = null,
     finishConnection,
+    updateConnectionTargetFeedback = () => {},
+    clearConnectionTargetFeedback = () => {},
     resumeVideoGeneration = async () => {},
     resumeImageGeneration = async () => {},
     setupImageImport,
@@ -502,6 +504,7 @@ export function createNodeDomBindingsApi({
                 if (finishConnection(state.connecting, tgt)) {
                     state.connecting = null;
                     tempConnection.setAttribute('d', '');
+                    clearConnectionTargetFeedback();
                 }
                 return;
             }
@@ -557,6 +560,7 @@ export function createNodeDomBindingsApi({
                 };
                 documentRef.body.classList.add('is-interacting');
                 documentRef.getElementById('connections-group').classList.add('is-interacting');
+                updateConnectionTargetFeedback(state.connecting);
                 return;
             }
 
@@ -577,6 +581,7 @@ export function createNodeDomBindingsApi({
                 dragged: false
             };
             documentRef.body.classList.add('is-interacting');
+            updateConnectionTargetFeedback(state.connecting);
         });
 
         dot.addEventListener('mouseup', (e) => {
@@ -586,6 +591,7 @@ export function createNodeDomBindingsApi({
             if (blockRunningNodeMutation(nodeId, e, '节点正在运行，暂不能修改连线')) {
                 tempConnection.setAttribute('d', '');
                 state.connecting = null;
+                clearConnectionTargetFeedback();
                 return;
             }
 
@@ -607,10 +613,12 @@ export function createNodeDomBindingsApi({
                 if (finishConnection(src, tgt)) {
                     state.connecting = null;
                     tempConnection.setAttribute('d', '');
+                    clearConnectionTargetFeedback();
                 }
             } else if (src.dragged) {
                 state.connecting = null;
                 tempConnection.setAttribute('d', '');
+                clearConnectionTargetFeedback();
             }
         });
     }

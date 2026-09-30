@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { createUiUtils } from '../js/features/ui/ui-utils.js';
 import { getCurrentFullscreenImage } from '../js/features/media/media-controller.js';
+import { createDisplayImageRenderer } from '../js/features/media/display-image-renderer.js';
 
 test('copies image pixels through the native clipboard image API', async () => {
     const writes = [];
@@ -20,8 +21,52 @@ test('copies image pixels through the native clipboard image API', async () => {
 
     assert.equal(await api.copyImageToClipboard('data:image/png;base64,cGl4ZWxz'), true);
     assert.equal(writes.length, 1);
-    assert.equal(writes[0][0].data['image/png'].type, 'image/png');
+    assert.equal((await writes[0][0].data['image/png']).type, 'image/png');
     assert.deepEqual(notices.at(-1), ['图片已复制到剪贴板', 'success']);
+});
+
+test('starts the image clipboard write in the click gesture before image loading finishes', async () => {
+    let finishRead;
+    const read = new Promise((resolve) => { finishRead = resolve; });
+    let writes = 0;
+    class ClipboardItemMock {
+        constructor(data) { this.data = data; }
+    }
+    const api = createUiUtils({
+        showToast() {}, documentRef: {},
+        navigatorRef: { clipboard: { write: async (items) => {
+            writes += 1;
+            await items[0].data['image/png'];
+        } } },
+        fetchRef: () => read,
+        clipboardItemCtor: ClipboardItemMock
+    });
+
+    const copying = api.copyImageToClipboard('data:image/png;base64,cGl4ZWxz');
+    assert.equal(writes, 1);
+    finishRead({ ok: true, blob: async () => new Blob(['pixels'], { type: 'image/png' }) });
+    assert.equal(await copying, true);
+});
+
+test('thumbnail previews retain the full image source for context-menu copying', () => {
+    const attributes = new Map();
+    const image = {
+        dataset: {}, style: { removeProperty() {} },
+        getAttribute: (name) => attributes.get(name),
+        set src(value) { attributes.set('src', value); },
+        get src() { return attributes.get('src'); }
+    };
+    const renderer = createDisplayImageRenderer({
+        documentRef: {},
+        previewCache: { getCachedPreviewThumbnail: () => 'data:image/png;base64,dGh1bWI=' }
+    });
+    const original = 'data:image/png;base64,b3JpZ2luYWw=';
+    renderer.setImageElementSource(image, original, '预览');
+    assert.equal(image.src, 'data:image/png;base64,dGh1bWI=');
+    assert.equal(image.dataset.originalSrc, original);
+
+    renderer.setImageElementSource(image, 'https://example.com/image.png', '预览');
+    assert.equal(image.dataset.originalSrc, undefined);
 });
 
 test('converts non-PNG images to PNG for clipboard compatibility', async () => {
@@ -48,7 +93,7 @@ test('converts non-PNG images to PNG for clipboard compatibility', async () => {
     });
 
     assert.equal(await api.copyImageToClipboard('image.jpg'), true);
-    assert.equal(writes[0][0].data['image/png'].type, 'image/png');
+    assert.equal((await writes[0][0].data['image/png']).type, 'image/png');
 });
 
 test('reports a clipboard write failure', async () => {
@@ -74,6 +119,25 @@ test('reports a clipboard write failure', async () => {
     }
 });
 
+test('reports image loading failure even when clipboard write resolves early', async () => {
+    const notices = [];
+    class ClipboardItemMock { constructor(data) { this.data = data; } }
+    const api = createUiUtils({
+        showToast: (...args) => notices.push(args), documentRef: {},
+        navigatorRef: { clipboard: { write: async () => {} } },
+        fetchRef: async () => { throw new Error('image unavailable'); },
+        clipboardItemCtor: ClipboardItemMock
+    });
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+        assert.equal(await api.copyImageToClipboard('image.png'), false);
+        assert.deepEqual(notices.at(-1), ['复制图片失败', 'error']);
+    } finally {
+        console.error = originalConsoleError;
+    }
+});
+
 test('copies the currently selected fullscreen image', () => {
     assert.equal(getCurrentFullscreenImage(['first.png', 'second.png'], 1, 'fallback.png'), 'second.png');
     assert.equal(getCurrentFullscreenImage(['first.png'], 3, 'fallback.png'), 'first.png');
@@ -81,10 +145,11 @@ test('copies the currently selected fullscreen image', () => {
 });
 
 test('fullscreen preview and node context menu expose image copy actions', async () => {
-    const [html, media, contextMenu] = await Promise.all([
+    const [html, media, contextMenu, bootstrap] = await Promise.all([
         readFile(new URL('../index.html', import.meta.url), 'utf8'),
         readFile(new URL('../js/features/media/media-controller.js', import.meta.url), 'utf8'),
-        readFile(new URL('../js/features/ui/context-menu-controller.js', import.meta.url), 'utf8')
+        readFile(new URL('../js/features/ui/context-menu-controller.js', import.meta.url), 'utf8'),
+        readFile(new URL('../js/app/bootstrap-impl.js', import.meta.url), 'utf8')
     ]);
 
     assert.match(html, /id="context-menu-copy-image"/);
@@ -93,4 +158,5 @@ test('fullscreen preview and node context menu expose image copy actions', async
     assert.match(contextMenu, /copyNodeImageToClipboard/);
     assert.match(contextMenu, /state\.contextMenuHasImageTarget === true/);
     assert.match(contextMenu, /state\.contextMenuHasImageTarget = isImageContextTarget\(target, event\)/);
+    assert.match(bootstrap, /copyNodeImageToClipboard:\s*\(nodeId, source\)\s*=>\s*mediaControllerApi\.copyNodeImageToClipboard\(nodeId, source\)/);
 });

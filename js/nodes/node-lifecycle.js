@@ -1319,12 +1319,16 @@ export function createNodeLifecycleApi({
         const restoredAssetKey = typeof effectiveRestoreData?.imageAssetKey === 'string' && effectiveRestoreData.imageAssetKey
             ? effectiveRestoreData.imageAssetKey
             : '';
-        // Before ImageGenerate became a transient producer, its completed output
-        // was persisted under the node ID.  A transient marker is written by
-        // current versions, while unmarked records remain the legacy format.
+        // Older versions marked generated results as transient and could leave
+        // a stale asset key behind. Keep that marker until a new result is saved.
+        const isPreviousTransientImageGenerate = normalizedType === 'ImageGenerate'
+            && effectiveRestoreData?.imageResultPersistence === 'transient';
+        if (isPreviousTransientImageGenerate) {
+            nodeData.data.imageResultPersistence = 'transient';
+        }
         const hasLegacyImageGenerateAsset = normalizedType === 'ImageGenerate'
             && !!restoredAssetKey
-            && effectiveRestoreData?.imageResultPersistence !== 'transient';
+            && !isPreviousTransientImageGenerate;
         if (hasLegacyImageGenerateAsset) {
             nodeData.data.imageResultPersistence = 'legacy-persistent';
         }
@@ -1340,7 +1344,7 @@ export function createNodeLifecycleApi({
                 nodeData.data.imageAssetKey = releasedImageAssetKey;
             }
         }
-        if (isRecoverableImageAssetNodeType(normalizedType) || hasLegacyImageGenerateAsset) {
+        if ((isRecoverableImageAssetNodeType(normalizedType) && !isPreviousTransientImageGenerate) || hasLegacyImageGenerateAsset) {
             const restoredImageCount = Math.max(
                 restoredImages.length,
                 Math.max(0, parseInt(effectiveRestoreData?.imageCount || '0', 10) || 0)
@@ -1534,7 +1538,7 @@ export function createNodeLifecycleApi({
         }, true);
         bindNodeSizeObserver(nodeData);
 
-        if (definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.IMAGE_RESTORE) || hasLegacyImageGenerateAsset) {
+        if ((definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.IMAGE_RESTORE) && !isPreviousTransientImageGenerate) || hasLegacyImageGenerateAsset) {
             enqueueImageRestoreTask(async () => {
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';

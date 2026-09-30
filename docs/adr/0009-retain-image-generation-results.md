@@ -1,0 +1,3 @@
+# Retain image generation results as persistent Media sources
+
+Image generation nodes retain their complete generated image batch through workflow-node Media asset references, so reopening a workflow after restarting CainFlow restores the images without another generation request. This supersedes ADR-0008's transient ImageGenerate policy: storing only downstream display results made the images shown inside the generation node disappear on restart, even when the user had not cleared the cache. Generation nodes now follow the same ownership and ordered-batch lifetime rules as other Persistent media sources. Old workflow records explicitly marked `transient` still ignore stale asset keys; a new successful generation establishes durable references under the current policy.

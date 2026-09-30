@@ -587,7 +587,7 @@ export function createContextMenuControllerApi({
             }
 
             if (item.id === 'context-menu-copy-image') {
-                if (state.contextMenuNodeId) void copyNodeImageToClipboard(state.contextMenuNodeId);
+                if (state.contextMenuNodeId) void copyNodeImageToClipboard(state.contextMenuNodeId, state.contextMenuImageSource);
                 return;
             }
 
@@ -815,10 +815,15 @@ export function createContextMenuControllerApi({
         if (nodeEl) {
             state.contextMenuNodeId = nodeEl.id;
             state.contextMenuHasImageTarget = isImageContextTarget(target, event);
+            const image = target?.matches?.('img') ? target : target?.closest?.(IMAGE_CONTEXT_TARGET_SELECTOR)?.querySelector?.('img');
+            state.contextMenuImageSource = state.contextMenuHasImageTarget
+                ? (image?.dataset?.originalSrc || image?.currentSrc || image?.src || '')
+                : '';
             ensureNodeSelected(nodeEl);
         } else {
             state.contextMenuNodeId = null;
             state.contextMenuHasImageTarget = false;
+            state.contextMenuImageSource = '';
         }
 
         updateNodeActionVisibility({

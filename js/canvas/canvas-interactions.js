@@ -12,6 +12,10 @@ export function createCanvasInteractionsApi({
     viewportApi,
     getPortPosition,
     drawTempConnection,
+    finishConnection = null,
+    getNearestConnectionTarget = null,
+    updateConnectionTargetFeedback = null,
+    clearConnectionTargetFeedback = null,
     updateAllConnections,
     updateDraggingConnections = null,
     updateDirtyConnections = null,
@@ -796,6 +800,8 @@ export function createCanvasInteractionsApi({
                 closeProjectionInteraction(kind, 'abort');
             }
             tempConnection.setAttribute('d', '');
+            state.connecting = null;
+            clearConnectionTargetFeedback?.();
         });
 
         canvasContainer.addEventListener('mousedown', (e) => {
@@ -1102,11 +1108,12 @@ export function createCanvasInteractionsApi({
                 }
                 getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)?.changed({ nodeIds: connectionNodeIds });
 
+                const snapped = updateConnectionTargetFeedback?.(state.connecting, e.clientX, e.clientY);
                 drawTempConnection(
                     state.connecting.startX,
                     state.connecting.startY,
-                    (e.clientX - rect.left - x) / zoom,
-                    (e.clientY - rect.top - y) / zoom,
+                    snapped?.position.x ?? (e.clientX - rect.left - x) / zoom,
+                    snapped?.position.y ?? (e.clientY - rect.top - y) / zoom,
                     state.connecting.isOutput
                 );
             }
@@ -1122,6 +1129,32 @@ export function createCanvasInteractionsApi({
                 getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)?.changed({ nodeIds: connectionNodeIds });
                 finishConnectionDrawInteraction();
             });
+        }, true);
+
+        windowRef.addEventListener('mouseup', (e) => {
+            if (state.connecting?.dragged && typeof getNearestConnectionTarget === 'function') {
+                const nearest = getNearestConnectionTarget(state.connecting, e.clientX, e.clientY);
+                if (nearest) {
+                    finishConnection?.(state.connecting, nearest.target);
+                    state.connecting = null;
+                    tempConnection.setAttribute('d', '');
+                    documentRef.body.classList.remove('is-interacting');
+                    documentRef.getElementById('connections-group').classList.remove('is-interacting');
+                } else if (e.target?.closest?.('.port-dot')) {
+                    const portEl = e.target.closest('.node-port');
+                    if (portEl) finishConnection?.(state.connecting, {
+                        nodeId: portEl.dataset.nodeId,
+                        port: portEl.dataset.port,
+                        type: portEl.dataset.type,
+                        dir: portEl.dataset.direction
+                    });
+                    state.connecting = null;
+                    tempConnection.setAttribute('d', '');
+                    documentRef.body.classList.remove('is-interacting');
+                    documentRef.getElementById('connections-group').classList.remove('is-interacting');
+                }
+            }
+            if (!state.connecting || state.connecting.dragged) clearConnectionTargetFeedback?.();
         }, true);
 
         windowRef.addEventListener('mouseup', (e) => {
@@ -1214,6 +1247,7 @@ export function createCanvasInteractionsApi({
                             tempConnection.setAttribute('d', '');
                             const source = state.connecting;
                             state.connecting = null;
+                            clearConnectionTargetFeedback?.();
                             openConnectionCreatePopup?.({
                                 source,
                                 candidates,
@@ -1233,6 +1267,7 @@ export function createCanvasInteractionsApi({
                     state.connecting = null;
                 }
             }
+            if (!state.connecting) clearConnectionTargetFeedback?.();
             finishConnectionDrawInteraction();
         });
 
