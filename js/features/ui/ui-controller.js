@@ -1026,14 +1026,15 @@ export function createUiControllerApi({
             let startedCount = 0;
             for (const item of selected) {
                 const entry = await getHistoryEntry(item.id);
-                if (startHistoryDownload(entry, { downloadImage, documentRef, windowRef })) startedCount += 1;
+                if (await startHistoryDownload(entry, { downloadImage, documentRef, windowRef })) startedCount += 1;
                 await new Promise((resolve) => setTimeout(resolve, 200));
             }
 
             const failedCount = selected.length - startedCount;
+            const desktopSave = Boolean(windowRef.__cainflowDesktop?.saveFile);
             showToast(failedCount > 0
-                ? `已开始保存到本地 ${startedCount} 项；${failedCount} 项未能发起保存`
-                : `已开始保存到本地 ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
+                ? `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项；${failedCount} 项${desktopSave ? '取消或失败' : '未能发起保存'}`
+                : `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
             state.historySelectionMode = false;
             state.selectedHistoryIds.clear();
             documentRef.getElementById('history-batch-toolbar').classList.add('hidden');

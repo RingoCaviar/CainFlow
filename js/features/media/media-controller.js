@@ -2189,17 +2189,31 @@ export function createMediaControllerApi({
 
         manualSaveBtn.addEventListener('click', async () => {
             const node = getNodeById(id);
-            const images = await getStoredImageSaveListAsync(node);
+            let images;
+            try {
+                images = await getStoredImageSaveListAsync(node);
+            } catch (error) {
+                showToast('读取待保存图片失败: ' + (error?.message || String(error)), 'error');
+                return;
+            }
             const videos = getStoredSaveVideos(node);
             if (!node || (images.length === 0 && videos.length === 0)) return showToast('没有可保存的内容', 'warning');
             const filename = el.querySelector(`#${id}-filename`).value || 'image';
+            const desktop = windowRef.__cainflowDesktop?.saveFile ? windowRef.__cainflowDesktop : null;
             if (images.length === 0 && videos.length > 0) {
                 try {
-                    videos.forEach((video, index) => {
-                        const filenameBase = buildVideoSaveFilenameBase(id, video, filename || 'video');
+                    let savedCount = 0;
+                    for (const [index, video] of videos.entries()) {
+                        const filenameBase = buildVideoSaveFilenameBase_local(id, video, filename || 'video');
+                        const saveFilename = `${filenameBase}${videos.length > 1 ? `_${index + 1}` : ''}${detectVideoExtensionFromSource(video)}`;
+                        if (desktop) {
+                            const destination = await desktop.saveFile(saveFilename, 'video/mp4', video.url);
+                            if (destination) savedCount += 1;
+                            continue;
+                        }
                         const link = documentRef.createElement('a');
                         link.href = video.url;
-                        link.download = `${filenameBase}${videos.length > 1 ? `_${index + 1}` : ''}${detectVideoExtensionFromSource(video)}`;
+                        link.download = saveFilename;
                         link.rel = 'noopener noreferrer';
                         link.target = '_blank';
                         documentRef.body.appendChild(link);
@@ -2211,17 +2225,27 @@ export function createMediaControllerApi({
                             sourceVideoUrl: video.url,
                             filenameBase
                         });
-                    });
-                    showToast(videos.length > 1 ? `已发起 ${videos.length} 个视频下载` : '已发起视频下载', 'success');
+                    }
+                    if (desktop) {
+                        if (savedCount > 0) showToast(`已保存 ${savedCount} 个视频`, 'success');
+                    } else {
+                        showToast(videos.length > 1 ? `已发起 ${videos.length} 个视频下载` : '已发起视频下载', 'success');
+                    }
                 } catch (err) {
                     console.error('Manual save video error:', err);
                     showToast('保存失败: ' + (err?.message || String(err)), 'error');
                 }
                 return;
             }
-            const filenameBases = buildImageSaveFilenameBases(id, images, filename);
             try {
-                images.forEach((image, index) => {
+                const filenameBases = buildImageSaveFilenameBases_local(id, images, filename);
+                let savedCount = 0;
+                for (const [index, image] of images.entries()) {
+                    if (desktop) {
+                        const destination = await desktop.saveFile(`${filenameBases[index]}.png`, 'image/png', image);
+                        if (destination) savedCount += 1;
+                        continue;
+                    }
                     const blob = dataURLtoBlob(image);
                     const pngBlob = new Blob([blob], { type: 'image/png' });
                     const url = URL.createObjectURL(pngBlob);
@@ -2234,8 +2258,12 @@ export function createMediaControllerApi({
                         documentRef.body.removeChild(link);
                         URL.revokeObjectURL(url);
                     }, 100);
-                });
-                showToast(images.length > 1 ? `已手动保存 ${images.length} 张图片为 PNG` : '图片已手动保存为 PNG', 'success');
+                }
+                if (desktop) {
+                    if (savedCount > 0) showToast(`已保存 ${savedCount} 张图片为 PNG`, 'success');
+                } else {
+                    showToast(images.length > 1 ? `已手动保存 ${images.length} 张图片为 PNG` : '图片已手动保存为 PNG', 'success');
+                }
             } catch (err) {
                 console.error('Manual save error:', err);
                 showToast('保存失败: ' + err.message, 'error');

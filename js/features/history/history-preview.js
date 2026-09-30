@@ -287,8 +287,12 @@ export function createHistoryPreviewApi({
         btnDownload.onclick = async (e) => {
             e.stopPropagation();
             const fullItem = await getFullHistoryItem(previewState.currentItem || item);
-            const started = startHistoryDownload(fullItem, { downloadImage, documentRef, windowRef });
-            showToast(started ? '已开始保存到本地' : '没有可保存的媒体，或保存未能发起', started ? 'success' : 'error');
+            const started = await startHistoryDownload(fullItem, { downloadImage, documentRef, windowRef });
+            const desktopSave = Boolean(windowRef.__cainflowDesktop?.saveFile);
+            showToast(started
+                ? (desktopSave ? '已保存到本地' : '已开始保存到本地')
+                : (desktopSave ? '没有可保存的媒体，或保存已取消或失败' : '没有可保存的媒体，或保存未能发起'),
+            started ? 'success' : 'error');
         };
         btnCopy.onclick = (e) => {
             e.stopPropagation();

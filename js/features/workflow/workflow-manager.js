@@ -2625,23 +2625,26 @@ export function createWorkflowManagerApi({
                 return false;
             }
             const persistExport = async ({ data }) => {
-            if (typeof windowRef.showSaveFilePicker === 'function') {
-                const handle = await windowRef.showSaveFilePicker({
-                    suggestedName: fileName,
-                    types: [
-                        {
-                            description: 'CainFlow 工作流 JSON',
-                            accept: { 'application/json': ['.json'] }
-                        }
-                    ]
-                });
-                const blob = new Blob([JSON.stringify(stripInlineImagesFromWorkflowData(data), null, 2)], { type: 'application/json' });
-                const writable = await handle.createWritable();
-                await writable.write(blob);
-                await writable.close();
-            } else {
-                downloadWorkflowJson(name, data);
-            }
+                const exportBlob = new Blob([JSON.stringify(stripInlineImagesFromWorkflowData(data), null, 2)], { type: 'application/json' });
+                if (windowRef.__cainflowDesktop?.saveFile) {
+                    const destination = await windowRef.__cainflowDesktop.saveFile(fileName, exportBlob.type, exportBlob);
+                    if (!destination) return false;
+                } else if (typeof windowRef.showSaveFilePicker === 'function') {
+                    const handle = await windowRef.showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [
+                            {
+                                description: 'CainFlow 工作流 JSON',
+                                accept: { 'application/json': ['.json'] }
+                            }
+                        ]
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(exportBlob);
+                    await writable.close();
+                } else {
+                    downloadWorkflowJson(name, data);
+                }
                 return true;
             };
             const result = await workflowDesk.workflow(getWorkflowIdentity(tab)).saveAs(name, {

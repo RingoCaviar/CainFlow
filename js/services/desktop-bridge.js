@@ -117,9 +117,16 @@ function installDesktopNavigationHandlers() {
 
     const nativeOpen = globalThis.open?.bind(globalThis);
     globalThis.open = (url, target, features) => {
-        if (target === '_blank' && /^https?:/i.test(String(url || ''))) {
-            void globalThis.__cainflowDesktop.openExternal(String(url));
-            return null;
+        if (target === '_blank') {
+            try {
+                const resolved = new URL(String(url || ''), globalThis.location?.href);
+                if (resolved.protocol === 'http:' || resolved.protocol === 'https:') {
+                    void globalThis.__cainflowDesktop.openExternal(resolved.href);
+                    return null;
+                }
+            } catch (_) {
+                // Leave unsupported URLs to the native WebView handler.
+            }
         }
         return nativeOpen?.(url, target, features) || null;
     };

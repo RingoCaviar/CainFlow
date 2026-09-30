@@ -25,15 +25,23 @@ function downloadBlob(blob, filename, documentRef, windowRef) {
 }
 
 /**
- * 发起一条历史媒体的浏览器下载。
- * 浏览器无法报告文件是否最终落盘，返回值只表示下载请求是否已成功发起。
+ * 保存一条历史媒体。桌面端等待原生保存结果；浏览器端只能确认下载请求已发起。
  */
-export function startHistoryDownload(entry, { downloadImage, documentRef, windowRef } = {}) {
+export async function startHistoryDownload(entry, { downloadImage, documentRef, windowRef } = {}) {
     try {
+        const desktop = windowRef?.__cainflowDesktop;
         if (entry?.mediaType === 'video' || entry?.hasVideo || entry?.videoBlob instanceof Blob) {
             const blob = entry.videoBlob || entry.video;
+            if (desktop?.saveFile) {
+                const source = blob instanceof Blob ? blob : entry.videoUrl;
+                if (!source) return false;
+                return Boolean(await desktop.saveFile(`cainflow_${entry.id}${getVideoExtension(entry, blob)}`, blob?.type || 'video/mp4', source));
+            }
             if (downloadBlob(blob, `cainflow_${entry.id}${getVideoExtension(entry, blob)}`, documentRef || globalThis.document, windowRef || globalThis.window)) return true;
             return !!entry.videoUrl && !!windowRef.open(entry.videoUrl, '_blank', 'noopener,noreferrer');
+        }
+        if (desktop?.saveFile) {
+            return Boolean(entry?.image && await desktop.saveFile(`cainflow_${entry.id}.png`, 'image/png', entry.image));
         }
         return !!entry?.image && downloadImage(entry.image, `cainflow_${entry.id}.png`) !== false;
     } catch (error) {

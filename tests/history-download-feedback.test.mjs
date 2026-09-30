@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { startHistoryDownload } from '../js/features/history/history-download.js';
 
-test('history image download reports a started request', () => {
+test('history image download reports a started request', async () => {
     const downloaded = [];
-    const started = startHistoryDownload(
+    const started = await startHistoryDownload(
         { id: 7, image: 'data:image/png;base64,image' },
         { downloadImage: (...args) => { downloaded.push(args); return true; } }
     );
@@ -14,12 +14,27 @@ test('history image download reports a started request', () => {
     assert.deepEqual(downloaded, [['data:image/png;base64,image', 'cainflow_7.png']]);
 });
 
-test('history download reports failure for missing media and rejected download requests', () => {
-    assert.equal(startHistoryDownload({ id: 8 }, { downloadImage: () => true }), false);
-    assert.equal(startHistoryDownload(
+test('history download reports failure for missing media and rejected download requests', async () => {
+    assert.equal(await startHistoryDownload({ id: 8 }, { downloadImage: () => true }), false);
+    assert.equal(await startHistoryDownload(
         { id: 9, image: 'data:image/png;base64,image' },
         { downloadImage: () => false }
     ), false);
+});
+
+test('desktop history downloads wait for the native save result', async () => {
+    const saves = [];
+    const windowRef = { __cainflowDesktop: {
+        saveFile: async (...args) => { saves.push(args); return 'C:/exports/media'; }
+    } };
+    assert.equal(await startHistoryDownload({ id: 10, image: 'data:image/png;base64,AAAA' }, { windowRef }), true);
+    assert.equal(await startHistoryDownload({ id: 11, mediaType: 'video', videoUrl: '/api/video/11' }, { windowRef }), true);
+    assert.deepEqual(saves.map(([name, , source]) => [name, source]), [
+        ['cainflow_10.png', 'data:image/png;base64,AAAA'],
+        ['cainflow_11.mp4', '/api/video/11']
+    ]);
+    windowRef.__cainflowDesktop.saveFile = async () => null;
+    assert.equal(await startHistoryDownload({ id: 12, image: 'data:image/png;base64,AAAA' }, { windowRef }), false);
 });
 
 test('all history save entry points use the shared request-result helper', async () => {
