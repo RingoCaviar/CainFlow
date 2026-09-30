@@ -7,9 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional release tag for manual builds. Empty = manual-<run_number>-<short_sha>.'
-        required: false
-        default: ''
+        description: 'Release tag with a committed docs/releases/<tag>.md file.'
+        required: true
         type: string
       prerelease:
         description: 'Mark the GitHub Release as prerelease'
@@ -57,8 +56,7 @@ jobs:
           } elseif (![string]::IsNullOrWhiteSpace($manualTag)) {
             $tagName = $manualTag.Trim()
           } else {
-            $shortSha = "${{ github.sha }}".Substring(0, 7)
-            $tagName = "manual-${{ github.run_number }}-$shortSha"
+            throw "Manual releases require a tag with committed release notes."
           }
           if ($tagName -notmatch "^[A-Za-z0-9._-]+$") {
             throw "Release tag may only contain letters, numbers, dots, underscores, and hyphens: $tagName"
@@ -103,6 +101,10 @@ jobs:
           git fetch --no-tags --prune --depth=1 origin "${{ github.sha }}"
           git checkout --force FETCH_HEAD
           git log -1 --oneline
+
+      - name: Validate release notes
+        shell: pwsh
+        run: ./scripts/validate-release-notes.ps1 -TagName "${{ needs.prepare.outputs.release_tag }}"
 
       - name: Install dependencies
         shell: pwsh
@@ -162,8 +164,12 @@ jobs:
           $ErrorActionPreference = "Stop"
           $releaseTag = $env:RELEASE_TAG
           $zipPath = $env:ZIP_PATH
+          $notesPath = "docs/releases/$releaseTag.md"
           if ([string]::IsNullOrWhiteSpace($releaseTag) -or !(Test-Path -LiteralPath $zipPath)) {
             throw "Missing release tag or zip path."
+          }
+          if (!(Test-Path -LiteralPath $notesPath -PathType Leaf)) {
+            throw "Release notes are required: $notesPath"
           }
 
           $prerelease = if ($env:PRERELEASE -eq "true") { "true" } else { "false" }
@@ -176,18 +182,22 @@ jobs:
 
           if ($releaseExists) {
             gh release upload $releaseTag $zipPath --repo $env:REPO --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed." }
+            gh release edit $releaseTag --repo $env:REPO --title "🚀 CainFlow $releaseTag" --notes-file $notesPath
+            if ($LASTEXITCODE -ne 0) { throw "Release notes update failed." }
           } else {
             $args = @(
               "release", "create", $releaseTag, $zipPath,
               "--repo", $env:REPO,
-              "--title", "Release $releaseTag",
+              "--title", "🚀 CainFlow $releaseTag",
               "--target", "${{ github.sha }}",
-              "--notes", "Automated CainFlow build for $releaseTag."
+              "--notes-file", $notesPath
             )
             if ($prerelease -eq "true") {
               $args += "--prerelease"
             }
             gh @args
+            if ($LASTEXITCODE -ne 0) { throw "Release creation failed." }
           }
 
   build_macos:

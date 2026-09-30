@@ -218,6 +218,10 @@ try {
 
   Assert-ReleaseTagMatchesVersion -ResolvedTagName $TagName -VersionNumber $appVersion
 
+  $notesTag = if ([string]::IsNullOrWhiteSpace($TagName)) { "v$appVersion" } else { $TagName }
+  Write-Step "Validating release notes"
+  & (Join-Path $repoRoot "scripts\validate-release-notes.ps1") -TagName $notesTag
+
   Write-Step "Checking required toolchain"
   Assert-CommandAvailable -CommandName $Node
   Assert-CommandAvailable -CommandName $Python
