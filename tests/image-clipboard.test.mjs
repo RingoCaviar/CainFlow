@@ -213,3 +213,10 @@ test('fullscreen preview and node context menu expose image copy actions', async
     assert.match(contextMenu, /state\.contextMenuHasImageTarget = isImageContextTarget\(target, event\)/);
     assert.match(bootstrap, /copyNodeImageToClipboard:\s*\(nodeId, source\)\s*=>\s*mediaControllerApi\.copyNodeImageToClipboard\(nodeId, source\)/);
 });
+
+test('application assembly injects the working clipboard writer into the media controller', async () => {
+    const bootstrap = await readFile(new URL('../js/app/bootstrap-impl.js', import.meta.url), 'utf8');
+    const mediaAssembly = bootstrap.match(/const mediaControllerApi = createMediaControllerApi\(\{([\s\S]*?)\n\}\);/);
+    assert.ok(mediaAssembly, 'media controller assembly should be present');
+    assert.match(mediaAssembly[1], /copyImageToClipboard:\s*uiUtils\.copyImageToClipboard\s*,/);
+});

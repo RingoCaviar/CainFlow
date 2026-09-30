@@ -542,6 +542,7 @@ const mediaControllerApi = createMediaControllerApi({
     estimateDataUrlSize,
     getImageResolution,
     dataURLtoBlob,
+    copyImageToClipboard: uiUtils.copyImageToClipboard,
     showToast,
     addLog,
     scheduleSave,
