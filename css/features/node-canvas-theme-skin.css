@@ -1,4 +1,31 @@
 /* Nodes and canvas own their selectors; themes provide only the semantic palette. */
+.node-parameter-grid > .node-advanced-parameters {
+    grid-column: 1 / -1;
+    min-width: 0;
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+}
+
+.node-advanced-parameters > summary {
+    padding: 8px 10px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.node-advanced-parameters > summary:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.node-advanced-summary {
+    color: var(--text-secondary);
+    margin-left: 6px;
+}
+
+.node-advanced-parameters > .node-parameter-grid {
+    padding: 0 10px 10px;
+}
 html:root #canvas-container {
     --node-surface: var(--bg-node);
     --node-header-surface: var(--bg-node-header);

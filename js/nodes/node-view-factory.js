@@ -419,6 +419,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
 
     return `
+        <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: 'API 配置',
             content: `<select id="${id}-apiconfig">${opts}</select>`
@@ -428,6 +429,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             fieldId: `${id}-provider-field`,
             content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
         })}
+        </div>
         <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '生成次数',
@@ -479,6 +481,9 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <option value="high" ${imageQuality === 'high' ? 'selected' : ''}>高</option>
             </select>`
         })}
+        <details class="node-advanced-parameters node-field--full ${usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-advanced-parameters">
+            <summary>更多参数 <span class="node-advanced-summary" id="${id}-advanced-summary">内容审核、背景</span></summary>
+            <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '内容审核',
             fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
@@ -500,6 +505,8 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <option value="opaque" ${imageBackground === 'opaque' ? 'selected' : ''}>不透明（opaque）</option>
             </select>`
         })}
+            </div>
+        </details>
         ${renderNodeFormField({
             label: '自定义分辨率',
             fieldClass: `node-field--full ${showCustomResolution ? '' : 'hidden'}`.trim(),

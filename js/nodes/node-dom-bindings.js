@@ -1758,7 +1758,26 @@ export function createNodeDomBindingsApi({
         updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && !isNewApiAsyncImage);
         updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
         updateImageGenerateCustomResolutionVisibility(id);
+        syncImageAdvancedSummary(id);
         refreshImageGenerateProtocolParams(id);
+    }
+
+    function syncImageAdvancedSummary(id) {
+        const details = documentRef.getElementById(`${id}-advanced-parameters`);
+        const summary = documentRef.getElementById(`${id}-advanced-summary`);
+        if (!details || !summary) return;
+        const fields = ['moderation', 'background'].map((name) => ({
+            field: documentRef.getElementById(`${id}-${name}-field`),
+            control: documentRef.getElementById(`${id}-${name}`)
+        }));
+        const visibleFields = fields.filter(({ field }) => field && !field.classList.contains('hidden'));
+        details.classList.toggle('hidden', visibleFields.length === 0);
+        const configured = visibleFields.filter(({ control }) => control?.value).map(({ field, control }) => {
+            const label = field.querySelector('label')?.textContent || '';
+            const value = control.selectedOptions?.[0]?.textContent || control.value;
+            return `${label}：${value}`;
+        });
+        summary.textContent = configured.length > 0 ? configured.join(' · ') : '内容审核、背景 · 默认';
     }
 
     function updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
@@ -2419,6 +2438,13 @@ export function createNodeDomBindingsApi({
         }
         else if (type === 'ImageGenerate') {
             syncImageGenerateResolutionOptions(id);
+            const advanced = el.querySelector(`#${id}-advanced-parameters`);
+            advanced?.addEventListener('change', () => syncImageAdvancedSummary(id));
+            advanced?.addEventListener('mousedown', (event) => event.stopPropagation());
+            advanced?.addEventListener('toggle', () => {
+                fitNodeToContent(id, { allowShrink: true, reason: 'element-resize', forceConnectionRefresh: true });
+                connectionProjection?.nodeGeometryChanged(id);
+            });
             const modelSelect = el.querySelector(`#${id}-apiconfig`);
             modelSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);

@@ -1,0 +1,74 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/04-node-core.css">
+<link rel="stylesheet" href="../../css/modules/07-node-controls.css">
+<link rel="stylesheet" href="../../css/themes.css">
+<link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+<style>.node{position:relative;width:410px;left:auto;top:auto;margin:24px}.node-body{height:auto}</style>
+</head><body><div id="canvas-container"><div id="card" class="node node-generate"></div></div><pre id="surface-result"></pre>
+<script type="module">
+import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
+import { createNodeLifecycleApi } from '../../js/nodes/node-lifecycle.js';
+const result = [];
+try {
+    for (const theme of ['light','dark','paper','pink','pro','glass-light','glass-dark']) {
+        document.documentElement.dataset.appTheme = theme;
+        const node = document.getElementById('card');
+        node.innerHTML = createNodeMarkup({type:'ImageGenerate', id:'sample', config:NODE_CONFIGS.ImageGenerate,
+            restoreData:{apiConfigId:'model', moderation:'low', background:'transparent', quality:'high', prompt:'保留提示词'},
+            state:{models:[{id:'model',modelId:'gpt-image-2',taskType:'image',protocol:'openai',providerIds:['provider']}], providers:[{id:'provider',type:'openai',name:'示例'}]}});
+        const details = node.querySelector('details');
+        const height = node.getBoundingClientRect().height;
+        const visible = (suffix) => node.querySelector(`#sample-${suffix}`).checkVisibility();
+        const collapsed = !visible('moderation');
+        details.open = true;
+        const expanded = visible('moderation') && visible('background');
+        const expandedHeight = node.getBoundingClientRect().height;
+        node.querySelector('#sample-background').value = 'opaque';
+        details.open = false;
+        result.push({theme, collapsed, expanded, saved:node.querySelector('#sample-background').value,
+            quality:visible('quality'), prompt:visible('prompt'), progress:visible('generation-progress'),
+            ports:node.querySelectorAll('.node-port').length, height, expandedHeight});
+    }
+    const node = document.getElementById('card');
+    node.id = 'sample';
+    const state = {nodes:new Map(),connections:[],selectedNodes:new Set(),runningNodeIds:new Set(),canvas:{zoom:1,x:0,y:0},
+        models:[{id:'model',modelId:'gpt-image-2',taskType:'image',protocol:'openai',providerIds:['provider']},
+            {id:'other',modelId:'gemini-image',taskType:'image',protocol:'google',providerIds:['provider']}],
+        providers:[{id:'provider',type:'openai',name:'示例'}]};
+    state.nodes.set('sample',{id:'sample',type:'ImageGenerate',el:node,data:{},x:0,y:0,width:410,height:600});
+    const noop=()=>{};
+    let geometry=0;
+    const projection={nodeGeometryChanged:()=>{geometry++;},nodeAppearanceChanged:noop};
+    const lifecycle=createNodeLifecycleApi({state,nodeConfigs:NODE_CONFIGS,nodesLayer:node.parentElement,
+        scheduleSave:noop,updateAllConnections:noop,updatePortStyles:noop,connectionProjection:projection});
+    const bindings=createNodeDomBindingsApi({state,canvasContainer:node.parentElement,connectionsGroup:document.createElement('div'),
+        viewportApi:{},pushHistory:noop,scheduleSave:noop,showToast:noop,debounce:(fn)=>fn,
+        fitNodeToContent:lifecycle.fitNodeToContent,connectionProjection:projection});
+    bindings.bindNodeInteractions({id:'sample',type:'ImageGenerate',el:node});
+    const details=node.querySelector('details');
+    details.open=false;
+    details.dispatchEvent(new Event('toggle'));
+    const compactHeight=node.getBoundingClientRect().height;
+    details.open=true;
+    details.dispatchEvent(new Event('toggle'));
+    const openHeight=node.getBoundingClientRect().height;
+    const background=node.querySelector('#sample-background');
+    background.value='transparent';
+    background.dispatchEvent(new Event('change',{bubbles:true}));
+    const summary=node.querySelector('#sample-advanced-summary').textContent;
+    details.open=false;
+    details.dispatchEvent(new Event('toggle'));
+    const closedHeight=node.getBoundingClientRect().height;
+    const model=node.querySelector('#sample-apiconfig');
+    model.add(new Option('Gemini', 'other'));
+    model.value='other';model.dispatchEvent(new Event('change',{bubbles:true}));
+    const hiddenOther=details.classList.contains('hidden');
+    model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
+    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,
+        restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
+    document.getElementById('surface-result').textContent = JSON.stringify(result);
+} catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }
+</script></body></html>
