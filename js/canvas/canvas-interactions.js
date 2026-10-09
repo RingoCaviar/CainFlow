@@ -805,6 +805,7 @@ export function createCanvasInteractionsApi({
         });
 
         canvasContainer.addEventListener('mousedown', (e) => {
+            if (e.target?.closest?.('#canvas-navigation')) return;
             if (e.button !== 0 || !state.isSpacePressed) return;
 
             canvasContainer.focus();
@@ -813,6 +814,7 @@ export function createCanvasInteractionsApi({
         }, true);
 
         canvasContainer.addEventListener('click', (e) => {
+            if (e.target?.closest?.('#canvas-navigation')) return;
             if (!state.isSpacePressed) return;
 
             e.preventDefault();

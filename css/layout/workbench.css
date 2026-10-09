@@ -1,4 +1,29 @@
 /* Workbench foundation: shared UI tokens and low-cost polish for the main app shell. */
+#canvas-navigation {
+    position: absolute; right: 16px; bottom: 16px; z-index: var(--layer-toolbar);
+    display: flex; align-items: center; gap: 4px; padding: 6px; max-width: calc(100% - 32px);
+    border: 1px solid var(--panel-border); border-radius: 10px;
+    background: var(--panel-bg-strong); color: var(--text-primary); box-shadow: var(--panel-shadow-soft);
+}
+#canvas-navigation button {
+    background: var(--panel-control-bg); color: var(--text-primary); border: 1px solid var(--panel-control-border);
+    border-radius: 6px; padding: 6px 8px; cursor: pointer; white-space: nowrap;
+}
+#canvas-navigation button:is(:hover,.is-active) { background: var(--panel-hover-bg); border-color: var(--panel-hover-border); }
+#canvas-navigation :is(button,input):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+#zoom-level { min-width: 42px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.canvas-node-search {
+    display: none; position: absolute; bottom: calc(100% + 8px); right: 0;
+    width: min(340px, calc(100vw - 32px)); padding: 12px; border-radius: 10px;
+    background: var(--panel-bg-strong); border: 1px solid var(--panel-border); box-shadow: var(--panel-shadow-soft);
+}
+.search-open .canvas-node-search { display: block; }
+.canvas-node-search input { width: 100%; padding: 8px; color: var(--text-primary); background: var(--panel-input-bg); border: 1px solid var(--panel-input-border); border-radius: 6px; }
+.canvas-node-results { max-height: min(300px, 45vh); overflow: auto; margin-top: 8px; }
+#canvas-navigation .canvas-node-results button { width: 100%; text-align: left; margin-bottom: 4px; white-space: normal; }
+.canvas-node-results p { color: var(--text-secondary); font-size: 12px; }
+body:has(.fullscreen-overlay.active) #canvas-navigation,
+body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 :root {
     --surface-panel: var(--panel-bg, var(--bg-drawer));
     --surface-panel-strong: var(--panel-bg-strong, var(--bg-drawer));

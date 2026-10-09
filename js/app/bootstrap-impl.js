@@ -973,6 +973,13 @@ function getToolbarControllerApi() {
             updateAllConnections,
             autoArrangeNodes,
             zoomToFitTarget: () => zoomToFit(),
+            focusNode: (nodeId) => {
+                selectNode(nodeId, false);
+                return focusCanvasNode(nodeId);
+            },
+            saveViewportState: () => getSessionManagerApi().saveViewportState({
+                workflowId: workflowManagerApi.getActiveWorkflowId(), canvas: state.canvas
+            }),
             cleanupNodeElement: (node) => node?.el && cleanupNodeElement(node),
             clearUndoStack: () => {
                 getSessionManagerApi().clearUndoStack();

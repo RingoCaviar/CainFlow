@@ -508,6 +508,15 @@
                 </svg>
                 <!-- Nodes layer -->
                 <div id="nodes-layer"></div>
+                <div id="canvas-navigation" role="group" aria-label="画布导航">
+                    <div class="canvas-node-search"><input type="search" aria-label="搜索当前工作流节点" placeholder="搜索节点名称或类型…"><div class="canvas-node-results"></div></div>
+                    <button type="button" data-nav="search" aria-expanded="false" title="查找当前工作流节点">查找节点</button>
+                    <button type="button" data-nav="minus" aria-label="缩小">−</button>
+                    <output id="zoom-level" aria-label="当前缩放比例">100%</output>
+                    <button type="button" data-nav="plus" aria-label="放大">＋</button>
+                    <button type="button" data-nav="reset" title="恢复到 100%">100%</button>
+                    <button type="button" data-nav="fit" title="显示当前工作流全部节点">全图</button>
+                </div>
             </div>
 
             <!-- History Sidebar -->

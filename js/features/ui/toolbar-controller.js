@@ -1,3 +1,5 @@
+import { initCanvasNavigation } from './canvas-navigation.js';
+
 /**
  * 管理顶部工具栏交互，包括运行、保存、导入导出、缩放与清空画布等操作。
  */
@@ -19,6 +21,8 @@ export function createToolbarControllerApi({
     updateAllConnections,
     autoArrangeNodes = null,
     zoomToFitTarget = null,
+    focusNode = null,
+    saveViewportState = null,
     cleanupNodeElement = (node) => node?.el?.remove(),
     clearUndoStack = () => {},
     clearImageAssets = null,
@@ -109,6 +113,8 @@ export function createToolbarControllerApi({
     }
 
     function initToolbarControls() {
+        initCanvasNavigation({ state, canvasContainer, viewportApi, zoomToFit, focusNode,
+            scheduleSave: () => saveViewportState ? saveViewportState() : scheduleSave({ dirty: false }), documentRef });
         documentRef.getElementById('btn-run')?.addEventListener('click', () => runWorkflow());
         documentRef.getElementById('btn-stop')?.addEventListener('click', () => {
             if (state.isRunning) {
