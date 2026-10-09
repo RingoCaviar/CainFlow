@@ -1,4 +1,33 @@
 /* Menus and dialogs own component selectors; themes provide the shared semantic panel palette. */
+.node-picker-overlay { z-index: var(--layer-modal); background: var(--dialog-backdrop); }
+.node-picker-panel {
+    width: min(460px, calc(100vw - 32px));
+    max-height: calc(100dvh - 48px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--dialog-border);
+    background: var(--dialog-surface);
+    color: var(--dialog-text);
+    box-shadow: var(--dialog-shadow);
+}
+.node-picker-panel header { display: flex; align-items: center; justify-content: space-between; }
+.node-picker-panel h2 { margin: 0; font-size: 18px; }
+.node-picker-panel input {
+    padding: 10px; min-width: 0; border-radius: 6px;
+    color: var(--text-primary); background: var(--panel-input-bg); border: 1px solid var(--panel-input-border);
+}
+.node-picker-results { overflow-y: auto; min-height: 0; }
+.node-picker-heading, .node-picker-panel footer { color: var(--dialog-muted-text); font-size: 12px; padding: 6px 0; }
+.node-picker-result, .node-picker-close {
+    background: var(--menu-item-surface); color: var(--menu-text); border: 1px solid var(--menu-item-border);
+    border-radius: 6px; cursor: pointer; padding: 8px 12px;
+}
+.node-picker-result { display: block; width: 100%; text-align: left; margin-bottom: 4px; }
+.node-picker-result:is(:hover, .is-active) { background: var(--menu-hover-bg); border-color: var(--menu-hover-border); }
+.node-picker-panel :is(button,input):focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 2px; }
 :root {
     --menu-surface: var(--panel-bg-strong);
     --menu-border: var(--panel-border-strong);

@@ -2,6 +2,7 @@
  * 管理画布与节点右键菜单的展示、选择同步和菜单项触发行为。
  */
 import { hasRunningEndpoint } from '../media/utils/ui-state-helpers.js';
+import { createNodePicker } from './node-picker.js';
 
 const IMAGE_CONTEXT_TARGET_SELECTOR = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container, .color-reset-preview, .image-resize-preview, .camera-control-node-preview';
 
@@ -71,6 +72,7 @@ export function createContextMenuControllerApi({
     showToast = null,
     documentRef = document
 }) {
+    const nodePicker = createNodePicker({ canvasContainer, viewportApi, addNode, showToast, documentRef });
     const referenceImageNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const imageCopyNodeTypes = new Set(['ImageImport', 'ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ColorReset', 'CameraControl']);
     const requestPreviewNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
@@ -581,6 +583,10 @@ export function createContextMenuControllerApi({
         }
 
         try {
+            if (item.id === 'context-menu-search-nodes') {
+                nodePicker.open(state.contextMenu);
+                return;
+            }
             if (item.id === 'context-menu-copy-nodes') {
                 copySelectedNode?.();
                 return;
@@ -692,6 +698,7 @@ export function createContextMenuControllerApi({
             if (item.dataset.type) {
                 const pos = viewportApi.screenToCanvas(state.contextMenu.x, state.contextMenu.y);
                 const nodeId = addNode(item.dataset.type, pos.x, pos.y);
+                if (nodeId) nodePicker.record(item.dataset.type);
                 if (!nodeId && showToast) {
                     showToast(`创建节点失败：${item.dataset.type}`, 'error');
                 }
@@ -852,6 +859,10 @@ export function createContextMenuControllerApi({
     }
 
     function initContextMenu() {
+        documentRef.getElementById('btn-add-node')?.addEventListener('click', () => {
+            closeContextMenu();
+            nodePicker.open();
+        });
         documentRef.querySelectorAll('#toolbar, #side-bar').forEach((chromeElement) => {
             chromeElement.addEventListener('contextmenu', (e) => {
                 e.preventDefault();

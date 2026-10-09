@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/12-settings-config.css">
+<link rel="stylesheet" href="../../css/themes.css"><link rel="stylesheet" href="../../css/features/menu-dialog-theme-skin.css">
+<link rel="stylesheet" href="../../css/features/panels.css">
+<style>#canvas{width:900px;height:600px;margin:40px}</style></head><body><button id="open">＋ 节点</button><div id="canvas" tabindex="0"></div><pre id="surface-result"></pre>
+<script type="module">
+import {createNodePicker} from '../../js/features/ui/node-picker.js';
+try {
+    const canvas=document.getElementById('canvas');
+    const added=[];
+    let allow=true;
+    const picker=createNodePicker({canvasContainer:canvas,viewportApi:{screenToCanvas:(x,y)=>({x:x-40,y:y-40})},
+        addNode:(type,x,y)=>{if(!allow)return null;added.push({type,x,y});return 'node';}});
+    const focus=document.getElementById('open');focus.focus();
+    picker.open({x:150,y:240});
+    const input=document.querySelector('.node-picker-panel input');
+    const search=(value)=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));};
+    search('图片生成');
+    const filtered=[...document.querySelectorAll('.node-picker-result')].map(x=>x.textContent);
+    let escapedKeys=0;
+    document.addEventListener('keydown',()=>escapedKeys++);
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true}));
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}));
+    const compositionSafe=added.length===0 && escapedKeys===0;
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    const closed=document.querySelector('.node-picker-overlay').classList.contains('hidden');
+    picker.open();
+    const recent=document.querySelector('.node-picker-heading').textContent;
+    search('不存在');
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    const noResults=document.querySelector('.node-picker-results').textContent;
+    search('Text');
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    picker.open();search('Text');
+    const first=document.querySelector('.node-picker-result');first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+    const keyboardType=document.activeElement.dataset.type;
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    picker.open();search('视频');allow=false;
+    document.querySelector('.node-picker-result').click();
+    const failStaysOpen=!document.querySelector('.node-picker-overlay').classList.contains('hidden');
+    search('');
+    const noFailedRecent=document.querySelector('.node-picker-results').firstElementChild.nextElementSibling.dataset.type!=='VideoGenerate';
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    document.getElementById('surface-result').textContent=JSON.stringify({filtered,added,compositionSafe,keyboardType,closed,recent,noResults,failStaysOpen,noFailedRecent,
+        escaped:document.querySelector('.node-picker-overlay').classList.contains('hidden')});
+} catch(error){document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack});}
+</script></body></html>
