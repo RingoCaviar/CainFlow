@@ -1,0 +1,12 @@
+<!doctype html><html><body><iframe id="app" src="../../index.html"></iframe><pre id="surface-result"></pre>
+<script>
+document.getElementById('app').addEventListener('load',()=>setTimeout(()=>{
+ const child=document.getElementById('app').contentDocument;
+ const recovery=child.getElementById('startup-recovery');
+ document.getElementById('surface-result').textContent=JSON.stringify({
+ visible:!!recovery&&!recovery.hidden&&getComputedStyle(recovery).display!=='none', message:recovery?.querySelector('p')?.textContent,
+ nodes:child.querySelectorAll('#nodes-layer > .node').length,
+ ready:document.getElementById('app').contentWindow.__cainflowAppReady===true
+ });
+},100));
+</script></body></html>

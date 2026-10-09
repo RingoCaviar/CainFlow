@@ -7,6 +7,8 @@ test('Ctrl+F5 reloads after the session save omits a stale Open Workflow record'
     let keydownHandler = null;
     let replacementUrl = '';
     let workflowSaveCalls = 0;
+    let finishSave;
+    const pendingSave = new Promise((resolve) => { finishSave = resolve; });
     const toasts = [];
     const classList = { add() {}, remove() {}, contains() { return false; }, toggle() {} };
     const documentRef = {
@@ -69,7 +71,7 @@ test('Ctrl+F5 reloads after the session save omits a stale Open Workflow record'
         selectionApi: { selectAllNodes() {} },
         runWorkflow: noOp,
         saveState: sessionManager.saveState,
-        saveCurrentWorkflow: async () => { workflowSaveCalls += 1; return true; },
+        saveCurrentWorkflow: async () => { workflowSaveCalls += 1; return pendingSave; },
         showToast: (message) => toasts.push(message),
         exportWorkflow: noOp,
         undo: noOp,
@@ -85,6 +87,10 @@ test('Ctrl+F5 reloads after the session save omits a stale Open Workflow record'
     }).initRuntimeBindings();
 
     keydownHandler({ ctrlKey: true, metaKey: false, key: 'F5', code: 'F5', preventDefault() {}, target: documentRef.body });
+    keydownHandler({ ctrlKey: true, metaKey: false, key: 'F5', code: 'F5', preventDefault() {}, target: documentRef.body });
+    assert.equal(workflowSaveCalls, 1);
+    assert.equal(replacementUrl, '');
+    finishSave(true);
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(workflowSaveCalls, 1);
@@ -92,9 +98,10 @@ test('Ctrl+F5 reloads after the session save omits a stale Open Workflow record'
     assert.deepEqual(toasts, []);
 });
 
-test('Ctrl+F5 reloads from the durable session when explicit workflow saving fails', async () => {
+test('Ctrl+F5 unlocks after a save error and can reload from the durable session', async () => {
     let keydownHandler = null;
     let replacementUrl = '';
+    let saveAttempts = 0;
     const toasts = [];
     const classList = { add() {}, remove() {}, contains() { return false; }, toggle() {} };
     const documentRef = {
@@ -113,7 +120,11 @@ test('Ctrl+F5 reloads from the durable session when explicit workflow saving fai
         state: { isRunning: false, selectedNodes: new Set() },
         canvasContainer: { classList, contains: () => false }, contextMenu: { classList },
         selectionApi: { selectAllNodes() {} }, runWorkflow: noOp, saveState: () => true,
-        saveCurrentWorkflow: async () => false, showToast: (message, type) => toasts.push({ message, type }),
+        saveCurrentWorkflow: async () => {
+            saveAttempts += 1;
+            if (saveAttempts === 1) throw new Error('disk unavailable');
+            return false;
+        }, showToast: (message, type) => toasts.push({ message, type }),
         exportWorkflow: noOp, undo: noOp, copySelectedNode: noOp, pasteNode: noOp,
         clipboardControllerApi: { markNativeClipboardEvent() {} }, removeNode: noOp, zoomToFit: noOp,
         scheduleSave: noOp, closeModal: noOp, documentRef, windowRef
@@ -122,8 +133,13 @@ test('Ctrl+F5 reloads from the durable session when explicit workflow saving fai
     keydownHandler({ ctrlKey: true, metaKey: false, key: 'F5', code: 'F5', preventDefault() {}, target: documentRef.body });
     await new Promise((resolve) => setImmediate(resolve));
 
+    assert.equal(replacementUrl, '');
+    keydownHandler({ ctrlKey: true, metaKey: false, key: 'F5', code: 'F5', preventDefault() {}, target: documentRef.body });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(saveAttempts, 2);
+
     assert.match(replacementUrl, /__hard_reload=/);
-    assert.deepEqual(toasts, [{
+    assert.deepEqual(toasts, [{ message: '保存失败，已取消强制刷新：disk unavailable', type: 'error' }, {
         message: '工作流文件保存失败；已保存会话并继续强制刷新', type: 'warning'
     }]);
 });

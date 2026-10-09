@@ -225,8 +225,23 @@ export function createRuntimeControllerApi({
         });
     }
 
+    let hardReloadInProgress = false;
+
     async function hardReload() {
+        if (hardReloadInProgress) return false;
         if (state.isRunning && !windowRef.confirm('工作流正在运行。强制刷新会中断当前界面的运行状态，确定继续吗？')) return false;
+        hardReloadInProgress = true;
+        let navigating = false;
+        try {
+            navigating = await saveAndNavigate();
+            return navigating;
+        } finally {
+            if (!navigating) hardReloadInProgress = false;
+        }
+
+    }
+
+    async function saveAndNavigate() {
         try {
             const settingsSaved = saveState();
             if (settingsSaved === false) {

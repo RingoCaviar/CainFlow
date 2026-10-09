@@ -1545,7 +1545,14 @@
     </div>
 
     <div id="selection-box" class="hidden"></div>
-    <script type="module" src="index.js"></script>
+    <section id="startup-recovery" hidden role="alert" aria-labelledby="startup-recovery-title"
+        style="position:fixed;inset:0;z-index:2147483647;padding:24px;background:var(--bg-canvas,#f6f7fb);color:var(--text-primary,#202434);align-content:center;text-align:center;font:16px/1.6 system-ui,sans-serif">
+        <h1 id="startup-recovery-title">画布暂时未能启动</h1>
+        <p>启动失败，工作流数据未被此恢复功能清除。请重新加载或关闭后重开。</p>
+        <button type="button" onclick="if(confirm('重新加载可能丢失未保存的修改，确定继续吗？')) location.reload()"
+            style="padding:10px 20px;font:inherit;cursor:pointer">重新加载</button>
+    </section>
+    <script type="module" src="index.js" onerror="document.getElementById('startup-recovery').hidden=false"></script>
 </body>
 
 </html>

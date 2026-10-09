@@ -7,10 +7,13 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { chromePath } from './browser-theme-fixture.mjs';
 
-export async function runUiFixture(fixturePath, { screenshotPath = null } = {}) {
+export async function runUiFixture(fixturePath, { screenshotPath = null, blockedPaths = [] } = {}) {
     assert.ok(chromePath, 'Chrome is required for UI interaction verification');
     const root = fileURLToPath(new URL('../../', import.meta.url));
     const server = createServer(async (request, response) => {
+        if (blockedPaths.includes(new URL(request.url, 'http://localhost').pathname)) {
+            response.writeHead(503).end(); return;
+        }
         const path = resolve(root, `.${new URL(request.url, 'http://localhost').pathname}`);
         if (!path.startsWith(root)) { response.writeHead(403).end(); return; }
         try {
