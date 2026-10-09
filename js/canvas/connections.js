@@ -40,7 +40,8 @@ export function createConnectionsApi({
     const insertionPreviewPaths = [];
     let flowAnimationFrame = null;
     let connectionIndexSignature = '';
-    let laneMapCacheSignature = '';
+    let laneMapCacheRevision = 0;
+    let laneMapBuiltRevision = -1;
     let laneMapCache = new Map();
     const view = documentRef.defaultView || window;
     const INSERTION_PREVIEW_PADDING = 24;
@@ -80,8 +81,9 @@ export function createConnectionsApi({
     }
 
     function invalidateConnectionLaneCache() {
-        laneMapCacheSignature = '';
+        laneMapCacheRevision += 1;
         laneMapCache = new Map();
+        laneMapBuiltRevision = -1;
     }
 
     function rebuildConnectionIndex() {
@@ -289,10 +291,9 @@ export function createConnectionsApi({
     }
 
     function getConnectionLaneMap() {
-        const signature = getConnectionSignature();
-        if (signature !== laneMapCacheSignature) {
+        if (laneMapBuiltRevision !== laneMapCacheRevision) {
             laneMapCache = buildConnectionLaneMap(state.connections);
-            laneMapCacheSignature = signature;
+            laneMapBuiltRevision = laneMapCacheRevision;
         }
         return laneMapCache;
     }
