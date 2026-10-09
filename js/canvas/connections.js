@@ -34,6 +34,7 @@ export function createConnectionsApi({
     const connectionsByNodeId = new Map();
     const connectionsByPortKey = new Map();
     const dirtyConnectionIds = new Set();
+    const dirtyNodeIds = new Set();
     const flowDecorationById = new Map();
     const curveGeometryById = new Map();
     const insertionPreviewPaths = [];
@@ -185,17 +186,12 @@ export function createConnectionsApi({
         return connectionById.get(connId) || null;
     }
 
-    function getConnectionIdsForNode(nodeId) {
-        ensureConnectionIndex();
-        return Array.from(connectionsByNodeId.get(nodeId) || []);
-    }
-
     function markConnectionDirty(connId) {
         if (connId) dirtyConnectionIds.add(connId);
     }
 
     function markNodeConnectionsDirty(nodeId) {
-        getConnectionIdsForNode(nodeId).forEach((connId) => dirtyConnectionIds.add(connId));
+        if (nodeId) dirtyNodeIds.add(nodeId);
         invalidateConnectionLaneCache();
     }
 
@@ -1173,6 +1169,10 @@ export function createConnectionsApi({
 
     function updateDirtyConnections(options = {}) {
         ensureConnectionIndex();
+        dirtyNodeIds.forEach((nodeId) => {
+            connectionsByNodeId.get(nodeId)?.forEach((connId) => dirtyConnectionIds.add(connId));
+        });
+        dirtyNodeIds.clear();
         if (canvasConnectionRenderer.enabled) return updateAllConnections();
         if (options.force === true) {
             return updateAllConnections();
@@ -1195,7 +1195,7 @@ export function createConnectionsApi({
         };
 
         Array.from(dirtyConnectionIds).forEach((connId) => {
-            const conn = getConnectionById(connId);
+            const conn = connectionById.get(connId);
             if (!conn) {
                 pathById.get(connId)?.remove();
                 pathById.delete(connId);

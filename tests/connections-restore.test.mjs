@@ -187,6 +187,29 @@ function createRestorationProjection(connections, overrides = {}) {
     });
 }
 
+test('node dirty intents defer index validation and dirty rendering scans linearly', () => {
+    const { api, state } = createHarness(40);
+    api.updateAllConnections();
+    let reads = 0;
+    state.connections.forEach((connection) => {
+        const id = connection.id;
+        Object.defineProperty(connection, 'id', { get() { reads += 1; return id; } });
+    });
+    for (let index = 0; index < 10; index += 1) api.markNodeConnectionsDirty('from');
+    assert.equal(reads, 0);
+    assert.equal(api.updateDirtyConnections(), true);
+    assert.ok(reads < 40 * 15, `expected linear reads, got ${reads}`);
+});
+
+test('deferred node dirty intents resolve against the current topology', () => {
+    const { api, state, paths } = createHarness(1);
+    api.updateAllConnections();
+    api.markNodeConnectionsDirty('from');
+    state.connections.push({ ...state.connections[0], id: 'new-connection' });
+    assert.equal(api.updateDirtyConnections(), true);
+    assert.ok(paths.some((path) => path.getAttribute('data-conn-id') === 'new-connection'));
+});
+
 test('connection restoration materializes only the requested batch', () => {
     const { api, paths } = createHarness(201);
 
