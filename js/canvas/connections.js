@@ -53,6 +53,9 @@ export function createConnectionsApi({
     const FLOW_ANIMATION_TARGET_FPS = 60;
     const FLOW_ANIMATION_FRAME_MS = 1000 / FLOW_ANIMATION_TARGET_FPS;
     let lastFlowAnimationTime = 0;
+    let targetMeasurements = null;
+    let targetMeasurementViewport = '';
+    let targetMeasurementFrame = null;
     const canvasConnectionRenderer = connectionRenderer || createCanvasConnectionRenderer({
         canvasContainer,
         documentRef,
@@ -557,6 +560,7 @@ export function createConnectionsApi({
     }
 
     function destroy() {
+        clearConnectionTargetFeedback();
         stopFlowAnimation();
         flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
         flowDecorationById.clear();
@@ -1402,14 +1406,35 @@ export function createConnectionsApi({
         return null;
     }
 
-    function getNearestConnectionTarget(src, clientX, clientY, radius = 32) {
+    function getTargetMeasurements() {
+        const viewport = `${state.canvas.x}:${state.canvas.y}:${state.canvas.zoom}`;
+        // Geometry is reusable only within this frame; model validity stays live.
+        if (!targetMeasurements || viewport !== targetMeasurementViewport) {
+            targetMeasurementViewport = viewport;
+            targetMeasurements = Array.from(documentRef.querySelectorAll('.node-port'), (portEl) => {
+                const dot = portEl.querySelector('.port-dot');
+                return { portEl, rect: dot?.getBoundingClientRect() || null };
+            });
+            if (targetMeasurementFrame === null && view.requestAnimationFrame) {
+                targetMeasurementFrame = view.requestAnimationFrame(() => {
+                    targetMeasurements = null;
+                    targetMeasurementFrame = null;
+                });
+            }
+        }
+        return targetMeasurements;
+    }
+
+    function getNearestConnectionTarget(src, clientX, clientY, radius = 32, measurements = null) {
+        if (!measurements) {
+            targetMeasurements = null;
+            measurements = getTargetMeasurements();
+        }
         let nearest = null;
         let bestDistanceSquared = radius * radius;
-        documentRef.querySelectorAll('.node-port').forEach((portEl) => {
+        measurements.forEach(({ portEl, rect }) => {
             if (portEl.classList.contains('hidden') || portEl.classList.contains('is-hidden-by-collapse')) return;
-            const dot = portEl.querySelector('.port-dot');
-            if (!dot) return;
-            const rect = dot.getBoundingClientRect();
+            if (!rect) return;
             const dx = clientX - (rect.left + rect.width / 2);
             const dy = clientY - (rect.top + rect.height / 2);
             const distanceSquared = dx * dx + dy * dy;
@@ -1424,32 +1449,42 @@ export function createConnectionsApi({
             bestDistanceSquared = distanceSquared;
             nearest = { target, position: getPortPosition(target.nodeId, target.port, target.dir) };
         });
+        if (!view.requestAnimationFrame) targetMeasurements = null;
         return nearest;
     }
 
     function updateConnectionTargetFeedback(src, clientX = NaN, clientY = NaN) {
+        const measurements = getTargetMeasurements();
         const nearest = Number.isFinite(clientX) && Number.isFinite(clientY)
-            ? getNearestConnectionTarget(src, clientX, clientY)
+            ? getNearestConnectionTarget(src, clientX, clientY, 32, measurements)
             : null;
-        documentRef.querySelectorAll('.node-port').forEach((portEl) => {
+        measurements.forEach(({ portEl, rect }) => {
             const target = {
                 nodeId: portEl.dataset.nodeId,
                 port: portEl.dataset.port,
                 type: portEl.dataset.type,
                 dir: portEl.dataset.direction
             };
-            const available = isPortElementVisible(portEl) && !getConnectionTargetError(src, target);
-            portEl.classList.toggle('connection-target-available', available);
-            portEl.classList.toggle('connection-target-unavailable', !available);
-            portEl.classList.toggle('connection-target-nearest', available &&
+            const available = !!rect && isPortElementVisible(portEl, rect) && !getConnectionTargetError(src, target);
+            setTargetClass(portEl, 'connection-target-available', available);
+            setTargetClass(portEl, 'connection-target-unavailable', !available);
+            setTargetClass(portEl, 'connection-target-nearest', available &&
                 nearest?.target.nodeId === target.nodeId &&
                 nearest?.target.port === target.port &&
                 nearest?.target.dir === target.dir);
         });
+        if (!view.requestAnimationFrame) targetMeasurements = null;
         return nearest;
     }
 
+    function setTargetClass(portEl, name, enabled) {
+        if (portEl.classList.contains(name) !== enabled) portEl.classList.toggle(name, enabled);
+    }
+
     function clearConnectionTargetFeedback() {
+        targetMeasurements = null;
+        if (targetMeasurementFrame !== null) view.cancelAnimationFrame?.(targetMeasurementFrame);
+        targetMeasurementFrame = null;
         documentRef.querySelectorAll('.node-port').forEach((portEl) => {
             portEl.classList.remove('connection-target-available', 'connection-target-unavailable', 'connection-target-nearest');
         });

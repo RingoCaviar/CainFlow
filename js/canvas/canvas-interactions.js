@@ -46,6 +46,8 @@ export function createCanvasInteractionsApi({
     queueMicrotaskRef = queueMicrotask
 }) {
     let panTransformRaf = null;
+    let connectionDrawScheduled = false;
+    let connectionDrawPointer = null;
     const projectionInteractionLeases = new Map();
     let samplePanOrigin = null;
     let sampleZoomOrigin = null;
@@ -146,6 +148,7 @@ export function createCanvasInteractionsApi({
     }
 
     function finishConnectionDrawInteraction() {
+        connectionDrawPointer = null;
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW);
     }
 
@@ -1100,8 +1103,6 @@ export function createCanvasInteractionsApi({
                 }
             }
             if (state.connecting) {
-                const rect = canvasContainer.getBoundingClientRect();
-                const { x, y, zoom } = state.canvas;
                 const dx = e.clientX - state.connecting.screenX;
                 const dy = e.clientY - state.connecting.screenY;
                 if (Math.sqrt(dx * dx + dy * dy) > 5) state.connecting.dragged = true;
@@ -1111,14 +1112,23 @@ export function createCanvasInteractionsApi({
                 }
                 getProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW)?.changed({ nodeIds: connectionNodeIds });
 
-                const snapped = updateConnectionTargetFeedback?.(state.connecting, e.clientX, e.clientY);
-                drawTempConnection(
-                    state.connecting.startX,
-                    state.connecting.startY,
-                    snapped?.position.x ?? (e.clientX - rect.left - x) / zoom,
-                    snapped?.position.y ?? (e.clientY - rect.top - y) / zoom,
-                    state.connecting.isOutput
-                );
+                connectionDrawPointer = { source: state.connecting, clientX: e.clientX, clientY: e.clientY };
+                if (!connectionDrawScheduled) {
+                    connectionDrawScheduled = true;
+                    requestAnimationFrameRef(() => {
+                        connectionDrawScheduled = false;
+                        const pointer = connectionDrawPointer;
+                        if (!pointer || state.connecting !== pointer.source) return;
+                        const source = pointer.source;
+                        const currentRect = canvasContainer.getBoundingClientRect();
+                        const canvas = state.canvas;
+                        const snapped = updateConnectionTargetFeedback?.(source, pointer.clientX, pointer.clientY);
+                        drawTempConnection(source.startX, source.startY,
+                            snapped?.position.x ?? (pointer.clientX - currentRect.left - canvas.x) / canvas.zoom,
+                            snapped?.position.y ?? (pointer.clientY - currentRect.top - canvas.y) / canvas.zoom,
+                            source.isOutput);
+                    });
+                }
             }
         });
 

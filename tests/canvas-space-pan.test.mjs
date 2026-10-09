@@ -6,7 +6,7 @@ function createClassList() {
     return { add() {}, remove() {}, contains() { return false; } };
 }
 
-function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {} } = {}) {
+function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, requestFrame = null } = {}) {
     const canvasListeners = [];
     const windowListeners = [];
     const canvasContainer = {
@@ -71,7 +71,7 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {} } =
             getSelection() { return { removeAllRanges() {} }; },
             performance: { now() { return 100; } }
         },
-        requestAnimationFrameRef(callback) { callback(); }
+        requestAnimationFrameRef(callback) { if (requestFrame) return requestFrame(callback); callback(); }
     });
     api.initCanvasInteractions();
     return {
@@ -79,6 +79,27 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {} } =
         draggingConnectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls
     };
 }
+
+test('connection drawing coalesces pointer feedback and discards ended sessions', () => {
+    const frames = [];
+    const feedback = [];
+    const { state, windowListeners } = createHarness({
+        requestFrame: (callback) => { frames.push(callback); return frames.length; },
+        connectionTargetApi: { updateConnectionTargetFeedback(source, x, y) { feedback.push([x, y]); } }
+    });
+    state.connecting = { nodeId: 'node-1', screenX: 0, screenY: 0 };
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    move({ clientX: 20, clientY: 20 });
+    move({ clientX: 30, clientY: 40 });
+    assert.equal(frames.length, 1);
+    assert.deepEqual(feedback, []);
+    frames.shift()();
+    assert.deepEqual(feedback, [[30, 40]]);
+    move({ clientX: 50, clientY: 60 });
+    state.connecting = null;
+    frames.shift()();
+    assert.equal(feedback.length, 1);
+});
 
 test('space plus left press on a node starts panning before node handlers can run', () => {
     const { canvasListeners, windowListeners, state } = createHarness();

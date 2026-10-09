@@ -87,3 +87,21 @@ test('reverse connection starts at an input and accepts only an output of the ma
     ports[0].classList.add('is-hidden-by-collapse');
     assert.equal(api.getNearestConnectionTarget(source, 0, 0), null);
 });
+
+test('feedback shares one port measurement pass and skips unchanged class writes', () => {
+    const { api, source, ports } = harness();
+    let rectReads = 0;
+    let writes = 0;
+    ports.forEach((portEl) => {
+        const dot = portEl.querySelector();
+        const measure = dot.getBoundingClientRect;
+        dot.getBoundingClientRect = () => { rectReads += 1; return measure(); };
+        const toggle = portEl.classList.toggle;
+        portEl.classList.toggle = (...args) => { writes += 1; toggle(...args); };
+    });
+    api.updateConnectionTargetFeedback(source, NaN, NaN);
+    assert.equal(rectReads, ports.length);
+    writes = 0;
+    api.updateConnectionTargetFeedback(source, NaN, NaN);
+    assert.equal(writes, 0);
+});
