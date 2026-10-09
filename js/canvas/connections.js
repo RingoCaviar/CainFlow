@@ -43,6 +43,7 @@ export function createConnectionsApi({
     let laneMapCacheRevision = 0;
     let laneMapBuiltRevision = -1;
     let laneMapCache = new Map();
+    const portOrderCache = new Map();
     const view = documentRef.defaultView || window;
     const INSERTION_PREVIEW_PADDING = 24;
     const OUTPUT_PORT_TRANSITION = 28;
@@ -84,6 +85,7 @@ export function createConnectionsApi({
         laneMapCacheRevision += 1;
         laneMapCache = new Map();
         laneMapBuiltRevision = -1;
+        portOrderCache.clear();
     }
 
     function rebuildConnectionIndex() {
@@ -235,10 +237,14 @@ export function createConnectionsApi({
     }
 
     function getPortOrder(nodeId, portName, direction) {
+        const cacheKey = `${nodeId || ''}:${direction || ''}:${portName || ''}`;
+        if (portOrderCache.has(cacheKey)) return portOrderCache.get(cacheKey);
         const node = getNodeById(nodeId);
         const ports = Array.from(node?.el?.querySelectorAll?.(`.node-port[data-direction="${direction}"]`) || []);
         const index = ports.findIndex((portEl) => portEl.dataset.port === portName);
-        return index >= 0 ? index : ports.length;
+        const order = index >= 0 ? index : ports.length;
+        portOrderCache.set(cacheKey, order);
+        return order;
     }
 
     function compareConnectionsForLane(a, b) {
