@@ -1,8 +1,9 @@
 let runtimeInfo = null;
 let taskbarFocusHandlersInstalled = false;
 
-function getApi() {
-    return globalThis.pywebview?.api || null;
+function getReadyApi() {
+    const api = globalThis.pywebview?.api;
+    return typeof api?.get_runtime_info === 'function' ? api : null;
 }
 
 function bytesToBase64(bytes) {
@@ -15,18 +16,27 @@ function bytesToBase64(bytes) {
 }
 
 async function waitForDesktopApi(timeoutMs = 2500) {
-    if (getApi()) return getApi();
+    if (getReadyApi()) return getReadyApi();
     const desktopExpected = new URLSearchParams(globalThis.location?.search || '').get('desktop') === '1';
     if (!globalThis.pywebview && !desktopExpected) return null;
     return new Promise((resolve) => {
         let settled = false;
-        const finish = () => {
+        let timeoutId = null;
+        const finish = ({ allowMissing = false } = {}) => {
             if (settled) return;
+            const api = getReadyApi();
+            if (!api && !allowMissing) return;
             settled = true;
-            resolve(getApi());
+            if (timeoutId !== null) globalThis.clearTimeout?.(timeoutId);
+            globalThis.removeEventListener?.('pywebviewready', onReady);
+            resolve(api);
         };
-        globalThis.addEventListener?.('pywebviewready', finish, { once: true });
-        globalThis.setTimeout(finish, timeoutMs);
+        const onReady = () => finish();
+        globalThis.addEventListener?.('pywebviewready', onReady);
+        timeoutId = globalThis.setTimeout(
+            () => finish({ allowMissing: true }),
+            timeoutMs
+        );
     });
 }
 
