@@ -1173,6 +1173,10 @@ export function createConnectionsApi({
             connectionsByNodeId.get(nodeId)?.forEach((connId) => dirtyConnectionIds.add(connId));
         });
         dirtyNodeIds.clear();
+        if (state.dragging) {
+            connectionsGroup.classList.add('is-dragging');
+            updateConnectionInsertPreview(state.dragging);
+        }
         if (canvasConnectionRenderer.enabled) return updateAllConnections();
         if (options.force === true) {
             return updateAllConnections();

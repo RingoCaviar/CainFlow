@@ -192,8 +192,8 @@ test('node dirty intents defer index validation and dirty rendering scans linear
     api.updateAllConnections();
     let reads = 0;
     state.connections.forEach((connection) => {
-        const id = connection.id;
-        Object.defineProperty(connection, 'id', { get() { reads += 1; return id; } });
+        const type = connection.type;
+        Object.defineProperty(connection, 'type', { get() { reads += 1; return type; } });
     });
     for (let index = 0; index < 10; index += 1) api.markNodeConnectionsDirty('from');
     assert.equal(reads, 0);

@@ -1049,8 +1049,9 @@ export function createCanvasInteractionsApi({
                     }
                 }
                 updateShakeDetach(state.dragging, pos);
-                updateDraggingConnections?.(state.dragging);
-                getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)?.changed();
+                const dragProjection = getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG);
+                if (dragProjection) dragProjection.changed();
+                else updateDraggingConnections?.(state.dragging);
             }
             if (state.resizing) {
                 const r = state.resizing;

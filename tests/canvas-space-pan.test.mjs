@@ -305,8 +305,7 @@ test('node dragging reports targeted changes and settlement through a projection
         ['changed', 'node-drag'],
         ['finish', 'node-drag']
     ]);
-    assert.equal(draggingConnectionCalls.length, 1);
-    assert.equal(draggingConnectionCalls[0], draggingState);
+    assert.equal(draggingConnectionCalls.length, 0);
     assert.deepEqual(legacyRefreshCalls, []);
 });
 
