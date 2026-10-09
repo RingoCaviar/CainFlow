@@ -1035,7 +1035,8 @@ export function createConnectionsApi({
 
         const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
         const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-        const pathStr = createBezierPath(from.x, from.y, to.x, to.y, getConnectionPathOptions(conn, laneById));
+        const pathOptions = getConnectionPathOptions(conn, laneById);
+        const pathStr = createBezierPath(from.x, from.y, to.x, to.y, pathOptions);
         const isSelected = state.selectedNodes.has(conn.from.nodeId) ||
             state.selectedNodes.has(conn.to.nodeId) ||
             conn.from.nodeId === selectionInfo.activeNodeId ||
@@ -1043,7 +1044,6 @@ export function createConnectionsApi({
             selectionInfo.incomingConnectionIds.has(conn.id) ||
             selectionInfo.outgoingConnectionIds.has(conn.id);
 
-        const pathOptions = getConnectionPathOptions(conn, laneById);
         const usesBezier = pathOptions.type !== 'orthogonal';
         if (canvasConnectionRenderer.enabled && !isSelected && usesBezier) {
             const curveGeometry = getBezierCurveGeometry(from.x, from.y, to.x, to.y, pathOptions);
