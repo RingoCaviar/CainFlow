@@ -8,8 +8,14 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     const toggle = root.querySelector('[data-nav="search"]');
     let activeIndex = 0;
     let observer = null;
+    let searchRevision = 0;
+    let pendingResults = false;
+    let resultsSignature = '';
 
     function closeSearch() {
+        searchRevision += 1;
+        pendingResults = false;
+        resultsSignature = '';
         results.replaceChildren();
         search.value = '';
         root.classList.remove('search-open');
@@ -19,19 +25,25 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     }
 
     function renderResults() {
+        const query = search.value.trim().toLocaleLowerCase();
+        const entries = [...state.nodes.values()].map((node) => {
+            const title = node.customTitle || node.el?.querySelector('.node-title')?.textContent || getNodeDefinition(node.type)?.title || node.type;
+            const typeTitle = getNodeDefinition(node.type)?.title || node.type;
+            const running = state.runningNodeIds?.has(node.id) || node.el?.classList.contains('running');
+            return { node, title, typeTitle, running: !!running };
+        });
+        const signature = JSON.stringify([query, entries.map(({ node, title, typeTitle, running }) => [node.id, node.type, title, typeTitle, running])]);
+        if (signature === resultsSignature) return;
+        resultsSignature = signature;
         const oldButtons = [...results.querySelectorAll('button')];
         const activeId = oldButtons[activeIndex]?.dataset.nodeId;
         const focusedId = results.contains(documentRef.activeElement) ? documentRef.activeElement.dataset.nodeId : null;
-        const query = search.value.trim().toLocaleLowerCase();
         results.replaceChildren();
-        for (const node of state.nodes.values()) {
-            const title = node.customTitle || node.el?.querySelector('.node-title')?.textContent || getNodeDefinition(node.type)?.title || node.type;
-            const typeTitle = getNodeDefinition(node.type)?.title || node.type;
+        for (const { node, title, typeTitle, running } of entries) {
             if (!`${title} ${typeTitle} ${node.type}`.toLocaleLowerCase().includes(query)) continue;
             const button = documentRef.createElement('button');
             button.type = 'button';
             button.dataset.nodeId = node.id;
-            const running = state.runningNodeIds?.has(node.id) || node.el?.classList.contains('running');
             button.textContent = `${title} · ${typeTitle}${running ? ' · 运行中' : ''}`;
             button.addEventListener('click', () => {
                 if (!state.nodes.has(node.id)) { renderResults(); return; }
@@ -52,6 +64,17 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
         activeIndex = Math.max(0, buttons.findIndex((button) => button.dataset.nodeId === activeId));
         highlight();
         if (focusedId) buttons.find((button) => button.dataset.nodeId === focusedId)?.focus();
+    }
+
+    function scheduleResults() {
+        if (pendingResults) return;
+        pendingResults = true;
+        const revision = searchRevision;
+        queueMicrotask(() => {
+            if (revision !== searchRevision) return;
+            pendingResults = false;
+            if (root.classList.contains('search-open')) renderResults();
+        });
     }
 
     function highlight() {
@@ -105,9 +128,18 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
         const layer = documentRef.getElementById('nodes-layer');
         if (layer) {
             observer = new MutationObserver((mutations) => {
-                if (mutations.some((mutation) => mutation.type !== 'attributes' || mutation.target.classList.contains('node'))) renderResults();
+                const relevant = mutations.some((mutation) => {
+                    if (mutation.type === 'attributes') {
+                        if (!mutation.target.classList.contains('node')) return false;
+                        if (mutation.attributeName === 'data-node-title') return true;
+                        const wasRunning = (mutation.oldValue || '').split(/\s+/).includes('running');
+                        return wasRunning !== mutation.target.classList.contains('running');
+                    }
+                    return mutation.target === layer || !!mutation.target.parentElement?.closest('.node-title') || !!mutation.target.closest?.('.node-title');
+                });
+                if (relevant) scheduleResults();
             });
-            observer.observe(layer, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'data-node-title'] });
+            observer.observe(layer, { childList: true, subtree: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['class', 'data-node-title'] });
         }
     });
     search.addEventListener('input', renderResults);

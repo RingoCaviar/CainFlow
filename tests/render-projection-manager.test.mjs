@@ -25,6 +25,25 @@ function createHarness({ zoom = 1, nodes = [] } = {}) {
     return { api, state, canvasContainer };
 }
 
+test('unchanged projections perform no attribute or class writes', () => {
+    let attributes = 0;
+    let classes = 0;
+    const list = classList();
+    const toggle = list.toggle;
+    list.toggle = (...args) => { classes += 1; toggle(...args); };
+    const el = { classList: list, setAttribute() { attributes += 1; } };
+    const { api, state } = createHarness({ nodes: [['n1', { x: 0, y: 0, el }]] });
+    api.refreshNow();
+    attributes = 0; classes = 0;
+    api.refreshNow();
+    assert.equal(attributes, 0);
+    assert.equal(classes, 0);
+    state.canvas.zoom = 0.2;
+    api.refreshNow();
+    assert.equal(attributes, 1);
+    assert.equal(classes, 1);
+});
+
 test('offscreen projection preserves the node shell and workflow model', () => {
     const el = { classList: classList(), setAttribute() {} };
     const node = { id: 'n1', x: 5000, y: 0, width: 240, height: 180, el, data: { prompt: 'keep me' } };

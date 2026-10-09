@@ -22,6 +22,11 @@ export function createRenderProjectionManager({
     let dense = false;
     let observer = null;
     const focusedNodeIds = new Set();
+    const projectionByElement = new WeakMap();
+
+    function setClass(el, name, enabled) {
+        if (el?.classList.contains(name) !== enabled) el?.classList.toggle(name, enabled);
+    }
 
     function getViewport() {
         const rect = canvasContainer?.getBoundingClientRect?.();
@@ -54,7 +59,7 @@ export function createRenderProjectionManager({
         const override = state?.canvasRender?.denseModeOverride || 'auto';
         const nodeCount = state?.nodes?.size || 0;
         dense = override === 'on' || (override !== 'off' && (dense ? nodeCount > DENSE_EXIT_NODE_COUNT : nodeCount >= DENSE_ENTER_NODE_COUNT));
-        canvasContainer?.classList.toggle('canvas-dense-mode', dense);
+        setClass(canvasContainer, 'canvas-dense-mode', dense);
     }
 
     function refreshNow() {
@@ -72,9 +77,13 @@ export function createRenderProjectionManager({
             const hasFocusedControl = el.contains?.(documentRef.activeElement) === true;
             const forceFull = focusedNodeIds.has(nodeId) || hasFocusedControl || state.runningNodeIds?.has(nodeId);
             const virtualized = !forceFull && isOutsideViewport(node, viewport);
-            el.classList.toggle('is-virtualized', virtualized);
-            el.classList.toggle('is-compact-lod', !virtualized && compact && !forceFull);
-            el.setAttribute('data-render-projection', virtualized ? 'shell' : (compact && !forceFull ? 'compact' : 'full'));
+            setClass(el, 'is-virtualized', virtualized);
+            setClass(el, 'is-compact-lod', !virtualized && compact && !forceFull);
+            const projection = virtualized ? 'shell' : (compact && !forceFull ? 'compact' : 'full');
+            if (projectionByElement.get(el) !== projection) {
+                el.setAttribute('data-render-projection', projection);
+                projectionByElement.set(el, projection);
+            }
         });
     }
 

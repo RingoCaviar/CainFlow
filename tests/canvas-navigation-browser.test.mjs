@@ -7,5 +7,6 @@ test('canvas navigation preserves zoom anchor and locates only current workflow 
  assert.equal(r.reset,1);assert.equal(r.fitCount,2);assert.equal(r.focused,'b');
  assert.equal(r.found.length,2);assert.match(r.found[0],/运行中/);
  assert.deepEqual(r.current,['c']);assert.ok(r.shortcutSafe && r.closed);
+ assert.ok(r.projectionKeptResults);assert.ok(r.renamedRunning);
  assert.equal(r.wheels,0);assert.equal(r.maximum,5);assert.equal(r.minimum,.1);assert.ok(r.saves>0);
 });

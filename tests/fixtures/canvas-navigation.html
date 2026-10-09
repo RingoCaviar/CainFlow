@@ -11,7 +11,7 @@ try {
  const state={canvas:{x:100,y:80,zoom:1},nodes:new Map(),runningNodeIds:new Set(['a'])};
  const canvas=document.getElementById('canvas-container'),layer=document.getElementById('nodes-layer');
  const root=document.getElementById('canvas-navigation');
- const add=(id,title,type)=>{const el=document.createElement('div');el.innerHTML=`<span class="node-title">${title}</span>`;layer.append(el);state.nodes.set(id,{id,type,el,x:0,y:0});};
+ const add=(id,title,type)=>{const el=document.createElement('div');el.className='node';el.innerHTML=`<span class="node-title">${title}</span>`;layer.append(el);state.nodes.set(id,{id,type,el,x:0,y:0});};
  add('a','海报生成','ImageGenerate');add('b','海报保存','ImageSave');
  const viewport=createViewportApi({state,elements:{canvasContainer:canvas,nodesLayer:layer,zoomLevel:document.getElementById('zoom-level')},updateAllConnections:()=>{}});
  let focused='',fitCount=-1,saves=0,keys=0,wheels=0;
@@ -29,13 +29,22 @@ try {
  const shortcutSafe=keys===0 && !focused;
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
- click('search');state.nodes.clear();layer.replaceChildren();add('c','视频结果','VideoGenerate');
+ click('search');
+ const firstResult=root.querySelector('.canvas-node-results button');
+ state.nodes.get('b').el.classList.add('is-compact-lod');
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const projectionKeptResults=firstResult===root.querySelector('.canvas-node-results button');
+ state.nodes.get('b').el.querySelector('.node-title').textContent='新名称';
+ state.nodes.get('b').el.classList.add('running');
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const renamedRunning=[...root.querySelectorAll('.canvas-node-results button')].some(button=>button.textContent.includes('新名称')&&button.textContent.includes('运行中'));
+ state.nodes.clear();layer.replaceChildren();add('c','视频结果','VideoGenerate');
  await new Promise(resolve=>setTimeout(resolve,0));
  const current=[...root.querySelectorAll('.canvas-node-results button')].map(x=>x.dataset.nodeId);
  root.querySelector('.canvas-node-results').dispatchEvent(new WheelEvent('wheel',{bubbles:true}));
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
  state.canvas.zoom=5;click('plus');const maximum=state.canvas.zoom;
  state.canvas.zoom=.1;click('minus');const minimum=state.canvas.zoom;
- document.getElementById('surface-result').textContent=JSON.stringify({plus,percent,anchorPreserved,reset,fitCount,focused,found,current,shortcutSafe,wheels,maximum,minimum,saves,closed:!root.classList.contains('search-open')});
+ document.getElementById('surface-result').textContent=JSON.stringify({plus,percent,anchorPreserved,reset,fitCount,focused,found,current,shortcutSafe,wheels,maximum,minimum,saves,projectionKeptResults,renamedRunning,closed:!root.classList.contains('search-open')});
 }catch(error){document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack});}
 </script></body></html>
