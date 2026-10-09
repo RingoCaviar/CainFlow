@@ -68,11 +68,7 @@ test('canvas benchmark tools remain unavailable without explicit development fla
     const globalRef = {};
 
     registerGlobalBridges({
-        windowRef: globalRef,
-        createCanvasStressTestNodes: bridge.createCanvasStressTestNodes,
-        enableCanvasStressTest: bridge.enabled,
-        sampleCanvasPerformance: monitor.sample,
-        enableCanvasPerformanceMonitor: monitor.enabled
+        windowRef: globalRef
     });
 
     assert.equal(bridge.enabled, false);
@@ -203,10 +199,19 @@ test('application bootstrap wires benchmark telemetry only through gated dev mod
     assert.match(source, /createCanvasStressTestBridge/);
     assert.match(source, /createCanvasPerformanceMonitor/);
     assert.match(source, /performanceMonitor:\s*canvasPerformanceMonitor/g);
-    assert.match(source, /enableCanvasStressTest:\s*canvasStressTestBridge\.enabled/);
-    assert.match(source, /enableCanvasPerformanceMonitor:\s*canvasPerformanceMonitor\.enabled/);
+    assert.match(source, /canvasPerformanceMonitor\.mount\(/);
     assert.match(source, /canvasBenchmarkMode \? async \(\) => false/);
     assert.match(source, /canvasBenchmarkMode \? async \(\) => true/);
+});
+
+test('global bridges expose only application compatibility actions', () => {
+    const globalRef = {};
+    const closeModal = () => {};
+    const showLogDetail = () => {};
+    registerGlobalBridges({ windowRef: globalRef, closeModal, showLogDetail });
+    assert.deepEqual(Object.keys(globalRef).sort(), ['closeModal', 'showLogDetail']);
+    assert.equal(globalRef.closeModal, closeModal);
+    assert.equal(globalRef.showLogDetail, showLogDetail);
 });
 
 test('Mixed-node benchmark fixture keeps media payloads outside the render measurement', () => {

@@ -1656,11 +1656,7 @@ canvasPerformanceMonitor.mount({
 registerGlobalBridges({
     windowRef: window,
     closeModal,
-    showLogDetail,
-    createCanvasStressTestNodes: canvasStressTestBridge.createCanvasStressTestNodes,
-    enableCanvasStressTest: canvasStressTestBridge.enabled,
-    sampleCanvasPerformance: canvasPerformanceMonitor.sample,
-    enableCanvasPerformanceMonitor: canvasPerformanceMonitor.enabled
+    showLogDetail
 });
 
 await startupPromise;
