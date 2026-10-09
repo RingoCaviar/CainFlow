@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { chromePath } from './browser-theme-fixture.mjs';
 
-export async function runUiFixture(fixturePath) {
+export async function runUiFixture(fixturePath, { screenshotPath = null } = {}) {
     assert.ok(chromePath, 'Chrome is required for UI interaction verification');
     const root = fileURLToPath(new URL('../../', import.meta.url));
     const server = createServer(async (request, response) => {
@@ -24,7 +24,8 @@ export async function runUiFixture(fixturePath) {
     try {
         const url = `http://127.0.0.1:${server.address().port}/${fixturePath}`;
         const output = await new Promise((resolve, reject) => {
-            const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--window-size=1280,960', '--virtual-time-budget=3000', '--dump-dom', url]);
+            const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--window-size=1280,960', '--virtual-time-budget=3000', '--dump-dom',
+                ...(screenshotPath ? [`--screenshot=${screenshotPath}`] : []), url]);
             let stdout = '', stderr = '';
             const timeout = setTimeout(() => { browser.kill(); reject(new Error('UI fixture timed out')); }, 20000);
             browser.stdout.on('data', (data) => { stdout += data; });

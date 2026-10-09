@@ -22,6 +22,7 @@ export function createPromptLibraryApi({
     let prompts = [];
     let editingId = null;
     let selectionMode = false;
+    let searchQuery = '';
     const selectedPromptIds = new Set();
     let importCandidates = [];
     const selectedImportIds = new Set();
@@ -39,6 +40,9 @@ export function createPromptLibraryApi({
             cancelSelectButton: documentRef.getElementById('btn-cancel-prompt-select'),
             grid: documentRef.getElementById('prompt-library-grid'),
             count: documentRef.getElementById('prompt-library-count'),
+            search: documentRef.getElementById('prompt-library-search'),
+            clearSearch: documentRef.getElementById('btn-clear-prompt-search'),
+            searchSummary: documentRef.getElementById('prompt-library-search-summary'),
             editor: documentRef.getElementById('prompt-editor'),
             editorTitle: documentRef.getElementById('prompt-editor-title'),
             nameInput: documentRef.getElementById('prompt-name-input'),
@@ -145,11 +149,26 @@ export function createPromptLibraryApi({
         return rawPrompts.map((item, index) => normalizeImportedPrompt(item, index));
     }
 
+    function getVisiblePrompts() {
+        const query = searchQuery.trim().toLocaleLowerCase();
+        return query ? prompts.filter((prompt) => `${prompt.name}\n${prompt.content}`.toLocaleLowerCase().includes(query)) : prompts;
+    }
+
+    function applySearch() {
+        searchQuery = getEls().search?.value || '';
+        selectedPromptIds.clear();
+        renderPromptGrid();
+    }
+
     function renderPromptGrid() {
-        const { grid, count } = getEls();
+        const { grid, count, searchSummary, clearSearch } = getEls();
         if (!grid) return;
+        const visible = getVisiblePrompts();
 
         if (count) count.textContent = String(prompts.length);
+        if (searchSummary) searchSummary.textContent = searchQuery.trim()
+            ? `找到 ${visible.length} / 共 ${prompts.length} 条` : `共 ${prompts.length} 条`;
+        if (clearSearch) clearSearch.disabled = !searchQuery;
 
         if (!prompts.length) {
             grid.innerHTML = '<div class="prompt-library-empty">暂无提示词预设</div>';
@@ -157,7 +176,13 @@ export function createPromptLibraryApi({
             return;
         }
 
-        grid.innerHTML = prompts.map((prompt) => `
+        if (!visible.length) {
+            grid.innerHTML = '<div class="prompt-library-empty">没有匹配的提示词，请更换关键词或清空搜索</div>';
+            updateSelectionControls();
+            return;
+        }
+
+        grid.innerHTML = visible.map((prompt) => `
             <article class="prompt-card ${selectionMode ? 'selectable' : ''} ${selectedPromptIds.has(prompt.id) ? 'selected' : ''}" data-id="${escapeHtml(prompt.id)}">
                 ${selectionMode ? `
                     <button class="prompt-card-select" type="button" title="选择提示词" data-action="select" aria-pressed="${selectedPromptIds.has(prompt.id) ? 'true' : 'false'}">
@@ -184,7 +209,9 @@ export function createPromptLibraryApi({
     }
 
     function openLibrary() {
-        const { modal, button } = getEls();
+        const { modal, button, search } = getEls();
+        searchQuery = '';
+        if (search) search.value = '';
         loadPrompts();
         renderPromptGrid();
         modal?.classList.remove('hidden');
@@ -204,9 +231,11 @@ export function createPromptLibraryApi({
                 : '删除选中';
         }
         if (selectAllButton) {
-            const hasPrompts = prompts.length > 0;
+            const visible = getVisiblePrompts();
+            const hasPrompts = visible.length > 0;
             selectAllButton.disabled = !hasPrompts;
-            selectAllButton.textContent = selectedPromptIds.size === prompts.length && hasPrompts ? '取消全选' : '全选';
+            const allSelected = hasPrompts && visible.every((prompt) => selectedPromptIds.has(prompt.id));
+            selectAllButton.textContent = allSelected ? '取消全选' : (searchQuery.trim() ? '全选搜索结果' : '全选');
         }
     }
 
@@ -236,10 +265,11 @@ export function createPromptLibraryApi({
 
     function toggleSelectAllPrompts() {
         if (!selectionMode) return;
-        if (selectedPromptIds.size === prompts.length) {
+        const visible = getVisiblePrompts();
+        if (visible.every((prompt) => selectedPromptIds.has(prompt.id))) {
             selectedPromptIds.clear();
         } else {
-            prompts.forEach((prompt) => selectedPromptIds.add(prompt.id));
+            visible.forEach((prompt) => selectedPromptIds.add(prompt.id));
         }
         renderPromptGrid();
     }
@@ -472,11 +502,28 @@ export function createPromptLibraryApi({
             grid,
             saveButton,
             cancelButton,
-            closeEditorButton
+            closeEditorButton,
+            search,
+            clearSearch
         } = getEls();
         if (!button || !modal) return;
 
         button.addEventListener('click', openLibrary);
+        search?.addEventListener('input', applySearch);
+        clearSearch?.addEventListener('click', () => {
+            if (search) search.value = '';
+            applySearch();
+            search?.focus();
+        });
+        search?.addEventListener('keydown', (event) => {
+            event.stopPropagation();
+            if (event.isComposing || event.keyCode === 229) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                if (search.value) { search.value = ''; applySearch(); }
+                else closeLibrary();
+            }
+        });
         closeButton?.addEventListener('click', closeLibrary);
         newButton?.addEventListener('click', () => openEditor());
         selectToggleButton?.addEventListener('click', enterSelectionMode);

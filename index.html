@@ -431,6 +431,11 @@
                         </div>
                     </header>
                     <div class="prompt-library-body">
+                        <div class="prompt-library-searchbar">
+                            <input id="prompt-library-search" type="search" aria-label="搜索提示词名称或内容" placeholder="搜索提示词名称或内容…" autocomplete="off">
+                            <button id="btn-clear-prompt-search" class="btn btn-ghost" type="button">清空搜索</button>
+                            <span id="prompt-library-search-summary" role="status"></span>
+                        </div>
                         <section id="prompt-library-grid" class="prompt-library-grid"></section>
                         <section id="prompt-editor" class="prompt-editor hidden" aria-labelledby="prompt-editor-title">
                             <div class="prompt-editor-header">

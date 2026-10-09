@@ -1383,7 +1383,21 @@ body.workflow-sidebar-resizing * {
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
 }
+
+.prompt-library-searchbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+    padding: 12px 20px; border-bottom: 1px solid var(--panel-border);
+}
+.prompt-library-searchbar input {
+    flex: 1; min-width: 180px; padding: 9px 12px;
+    border: 1px solid var(--panel-input-border); border-radius: 6px;
+    background: var(--panel-input-bg); color: var(--text-primary);
+}
+.prompt-library-searchbar input:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+#prompt-library-search-summary { color: var(--text-secondary); font-size: 12px; }
 
 .prompt-library-body.editor-open {
     grid-template-columns: minmax(0, 1fr) 360px;

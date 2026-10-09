@@ -1,0 +1,35 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/features/panels.css"><link rel="stylesheet" href="../../css/themes.css">
+</head><body><button id="btn-prompt-library">提示词库</button><div id="canvas"></div><div id="prompt-library-modal" class="modal-overlay prompt-library-overlay hidden"><section class="prompt-library-panel">
+<header class="prompt-library-header"><span id="prompt-library-count"></span><button id="btn-new-prompt">新建</button><button id="btn-toggle-prompt-select">多选</button><button id="btn-select-all-prompts">全选</button><button id="btn-delete-selected-prompts">删除选中</button><button id="btn-cancel-prompt-select">取消</button><button id="btn-close-prompt-library">关闭</button></header>
+<div class="prompt-library-body"><div class="prompt-library-searchbar"><input id="prompt-library-search" type="search"><button id="btn-clear-prompt-search">清空搜索</button><span id="prompt-library-search-summary"></span></div>
+<section id="prompt-library-grid" class="prompt-library-grid"></section><section id="prompt-editor" class="prompt-editor hidden"><h3 id="prompt-editor-title"></h3><input id="prompt-name-input"><textarea id="prompt-content-input"></textarea><button id="btn-save-prompt">保存</button><button id="btn-cancel-prompt">取消</button></section></div></section></div><pre id="surface-result"></pre>
+<script type="module">
+import {createPromptLibraryApi} from '../../js/features/prompts/prompt-library.js';
+try{
+ let stored=JSON.stringify([{id:'a',name:'产品白底',content:'摄影白底'},{id:'b',name:'海报',content:'产品灯光'},{id:'c',name:'人像',content:'portrait studio'}]);
+ const api=createPromptLibraryApi({state:{nodes:new Map()},canvasContainer:document.getElementById('canvas'),viewportApi:{},addNode:()=>{},saveState:()=>{},showToast:()=>{},copyToClipboard:()=>{},localStorageRef:{getItem:()=>stored,setItem:(_,value)=>stored=value},confirmRef:()=>true});
+ api.initPromptLibrary();api.openLibrary();
+ const input=document.getElementById('prompt-library-search');
+ const search=(value)=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));};
+ const ids=()=>[...document.querySelectorAll('.prompt-card')].map(x=>x.dataset.id);
+ search('产品');const matches=ids(),summary=document.getElementById('prompt-library-search-summary').textContent;
+ const unmodified=JSON.parse(stored).map(x=>x.id);
+ search('PORTRAIT');const contentMatch=ids();
+ search('不存在');const empty=document.getElementById('prompt-library-grid').textContent;
+ document.getElementById('btn-clear-prompt-search').click();const clear=ids();
+ search('产品');document.getElementById('btn-toggle-prompt-select').click();document.getElementById('btn-select-all-prompts').click();
+ const selected=ids().filter(id=>document.querySelector(`[data-id="${id}"]`).classList.contains('selected'));
+ const selectLabel=document.getElementById('btn-select-all-prompts').textContent;
+ search('人像');const resetSelection=document.getElementById('btn-delete-selected-prompts').disabled;
+ document.getElementById('btn-select-all-prompts').click();document.getElementById('btn-delete-selected-prompts').click();const remaining=JSON.parse(stored).map(x=>x.id);
+ document.getElementById('btn-clear-prompt-search').click();
+ document.querySelector('[data-id="a"] [data-action="edit"]').click();
+ const body=document.querySelector('.prompt-library-body').getBoundingClientRect(),editor=document.getElementById('prompt-editor').getBoundingClientRect();
+ const editorInside=editor.bottom<=body.bottom+1 && editor.height>50;
+ document.getElementById('prompt-name-input').value='已修改';document.getElementById('btn-save-prompt').click();
+ const edited=JSON.parse(stored).find(x=>x.id==='a').name;
+ search('产品');input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));const escapedSearch=input.value==='';
+ document.getElementById('surface-result').textContent=JSON.stringify({matches,summary,unmodified,contentMatch,empty,clear,selected,selectLabel,resetSelection,remaining,editorInside,edited,escapedSearch});
+}catch(error){document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack});}
+</script></body></html>
