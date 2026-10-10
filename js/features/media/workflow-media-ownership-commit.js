@@ -169,9 +169,11 @@ export function createWorkflowMediaOwnershipCommitter({
                     if (!Array.isArray(candidate?.assetKeys)) return { status: 'committed' };
                     return transition.releaseTemporaryOwner({
                         operationId: candidate.ownerId,
+                        workflowId,
                         owner: { ownerType: 'workflow-operation', ownerId: candidate.ownerId },
                         storageEpoch,
-                        nextAssetKeys: candidate.assetKeys
+                        nextAssetKeys: candidate.assetKeys,
+                        reason: 'temporary-owner-release'
                     });
                 }));
                 if (!released.every((result) => ['committed', 'already-committed'].includes(result.status))) {

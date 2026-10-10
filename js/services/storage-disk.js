@@ -381,6 +381,9 @@ export function createDiskStorageApi(getState) {
     async function replaceMediaOwnerReferenceList(request) {
         return postMediaAssetAction('replace-owner-reference-list', request);
     }
+    async function transitionMediaOwner(intent) {
+        return postMediaAssetAction('transition-owner', intent);
+    }
     async function saveWorkflowImportMediaAsset(value, workflowId, nodeId, operationId = '') {
         const stableOperationId = normalizeOrCreateWorkflowMediaOperationId(operationId);
         const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', stableOperationId);
@@ -495,6 +498,7 @@ export function createDiskStorageApi(getState) {
         listMediaOwnerReferenceLists,
         recordMediaWorkflowRevision,
         replaceMediaOwnerReferenceList,
+        transitionMediaOwner,
         saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         deleteImageAsset, deleteImageImportAsset: deleteImageAsset,

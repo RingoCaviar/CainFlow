@@ -19,7 +19,7 @@ test('the ownership transition contract validates immutable intent and finite re
         releaseTemporaryOwner: async () => ({ status: 'already-committed' })
     });
     const intent = {
-        operationId: 'op-1', owner: { ownerType: 'workflow-node', ownerId: 'node-1' },
+        operationId: 'op-1', workflowId: 'workflow-1', owner: { ownerType: 'workflow-node', ownerId: 'node-1' },
         expectedOwnerRevision: 0, documentRevision: 1, storageEpoch: 'epoch-1',
         nextAssetKeys: ['media:a'], reason: 'save'
     };
@@ -29,7 +29,7 @@ test('the ownership transition contract validates immutable intent and finite re
     assert.equal(Object.isFrozen(calls[0].nextAssetKeys), true);
     assert.deepEqual(calls[0].nextAssetKeys, ['media:a']);
     assert.equal(await transition.replaceOwnerReferenceList({ ...intent, nextAssetKeys: ['bad'] }).then((r) => r.status), 'rejected');
-    assert.equal((await transition.releaseTemporaryOwner({ operationId: 'op-1', owner: { ownerType: 'workflow-operation', ownerId: 'temp' }, storageEpoch: 'epoch-1' })).status, 'already-committed');
+    assert.equal((await transition.releaseTemporaryOwner({ operationId: 'op-1', workflowId: 'workflow-1', owner: { ownerType: 'workflow-operation', ownerId: 'temp' }, storageEpoch: 'epoch-1', reason: 'release' })).status, 'already-committed');
 });
 
 test('persistent transition rejects runtime owners and caller supplied previous lists', async () => {
@@ -38,8 +38,8 @@ test('persistent transition rejects runtime owners and caller supplied previous 
         replaceOwnerReferenceList: async () => (calls++, { status: 'committed' }),
         releaseTemporaryOwner: async () => ({ status: 'committed' })
     });
-    const base = { operationId: 'op', owner: { ownerType: 'workflow-node', ownerId: 'n' },
-        expectedOwnerRevision: 0, documentRevision: 1, storageEpoch: 'epoch', nextAssetKeys: [] };
+    const base = { operationId: 'op', workflowId: 'workflow', owner: { ownerType: 'workflow-node', ownerId: 'n' },
+        expectedOwnerRevision: 0, documentRevision: 1, storageEpoch: 'epoch', nextAssetKeys: [], reason: 'save' };
     for (const intent of [
         { ...base, previousAssetKeys: ['media:old'] },
         { ...base, owner: { ownerType: 'workflow-operation', ownerId: 'runtime' } },

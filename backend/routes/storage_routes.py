@@ -177,6 +177,8 @@ def handle_post(handler):
                     storage_epoch=data.get('storageEpoch'), asset_keys=data.get('assetKeys') or [],
                     cancelled=data.get('cancelled') is True,
                 )
+            elif action == 'transition-owner':
+                result = storage_service.transition_media_owner(data)
             elif action == 'materialize-owner-list':
                 result = {'assets': storage_service.put_media_asset_list(
                     data.get('values'), data.get('ownerType'), data.get('ownerId'))}
