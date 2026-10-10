@@ -45,7 +45,8 @@ export function createWorkflowMediaOwnershipCommitter({
     listMediaOwnerReferenceLists = async () => [],
     recordMediaWorkflowRevision,
     replaceMediaOwnerReferenceList,
-    removeMediaReference = async () => false
+    removeMediaReference = async () => false,
+    recordMediaOwnershipReconciliation = async () => false
 }) {
     const expectedOwnerGenerations = new Map();
 
@@ -158,7 +159,17 @@ export function createWorkflowMediaOwnershipCommitter({
                         removeMediaReference('workflow-operation', candidate.ownerId, assetKey)
                     )) : []
                 )));
-                if (!released.every(Boolean)) return false;
+                if (!released.every(Boolean)) {
+                    await recordMediaOwnershipReconciliation({
+                        workflowId,
+                        ownerType: owner.ownerType,
+                        ownerId: owner.ownerId,
+                        documentRevision,
+                        reason: 'temporary-owner-release-failed',
+                        status: 'needs_reconciliation'
+                    });
+                    return false;
+                }
                 if (temporaryOwner.node.data) {
                     delete temporaryOwner.node.data.mediaOwnershipTemporaryOwners;
                 }

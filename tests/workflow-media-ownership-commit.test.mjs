@@ -20,6 +20,31 @@ test('the Media ownership coordinator exposes intent operations without storage 
     assert.equal(await coordinator.commitPersistentWorkflow({ workflowId: 'workflow-a', mediaOwnershipRevision: 1, nodes: [] }), true);
 });
 
+test('a temporary-owner release failure records a recoverable reconciliation state', async () => {
+    const reconciliations = [];
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => ({ generation: 0 }),
+        listMediaOwnerReferenceLists: async () => [],
+        replaceMediaOwnerReferenceList: async () => ({ status: 'committed' }),
+        removeMediaReference: async () => false,
+        recordMediaOwnershipReconciliation: async (record) => (reconciliations.push(record), true)
+    });
+    const workflow = {
+        workflowId: 'workflow-a', mediaOwnershipRevision: 1,
+        nodes: [{ id: 'node', type: 'ImageGenerate', data: {
+            mediaAssetKeys: ['media:current'],
+            mediaOwnershipTemporaryOwners: [{ ownerId: 'op-1', assetKeys: ['media:temporary'] }]
+        } }]
+    };
+    assert.equal(await committer.commitPersistedWorkflow(workflow), false);
+    assert.deepEqual(reconciliations, [{
+        workflowId: 'workflow-a', ownerType: 'workflow-node', ownerId: 'node',
+        documentRevision: 1, reason: 'temporary-owner-release-failed', status: 'needs_reconciliation'
+    }]);
+});
+
 test('a document commit failure never starts owner promotion', async () => {
     let promotions = 0;
     const committer = createWorkflowMediaOwnershipCommitter({
