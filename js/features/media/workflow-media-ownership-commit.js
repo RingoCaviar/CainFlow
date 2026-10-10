@@ -1,3 +1,5 @@
+import { createMediaOwnershipTransition } from './media-ownership-transition.js';
+
 const MEDIA_OWNER_TYPES = Object.freeze({
     ImageImport: 'workflow-import'
 });
@@ -48,6 +50,15 @@ export function createWorkflowMediaOwnershipCommitter({
     removeMediaReference = async () => false,
     recordMediaOwnershipReconciliation = async () => false
 }) {
+    const transition = createMediaOwnershipTransition({
+        replaceOwnerReferenceList: replaceMediaOwnerReferenceList,
+        releaseTemporaryOwner: async ({ owner, nextAssetKeys }) => {
+            const results = await Promise.all((nextAssetKeys || []).map((assetKey) => (
+                removeMediaReference(owner.ownerType, owner.ownerId, assetKey)
+            )));
+            return { status: results.every(Boolean) ? 'committed' : 'needs-reconciliation' };
+        }
+    });
     const expectedOwnerGenerations = new Map();
 
     function expectNextOwnerGeneration({ workflowId, ownerType, ownerId, generation, documentRevision, storageEpoch }) {
@@ -138,28 +149,32 @@ export function createWorkflowMediaOwnershipCommitter({
                 : (Number(current?.documentRevision) === documentRevision
                     ? Math.max(0, Number(current?.generation || 0) - 1)
                     : Number(current?.generation || 0));
-            const result = await replaceMediaOwnerReferenceList({
-                workflowId,
-                ownerType: owner.ownerType,
-                ownerId: owner.ownerId,
+            const result = await transition.replaceOwnerReferenceList({
                 operationId,
+                owner: { ownerType: owner.ownerType, ownerId: owner.ownerId },
+                workflowId,
                 intent: owner.deleted ? 'delete' : (owner.restored || 'save'),
                 idempotencyKey: `${workflowId}:${operationId}:${owner.ownerType}:${owner.ownerId}`,
-                expectedGeneration,
+                expectedOwnerRevision: expectedGeneration,
                 documentRevision,
                 storageEpoch,
-                assetKeys: owner.assetKeys
+                nextAssetKeys: owner.assetKeys,
+                reason: owner.deleted ? 'workflow-delete' : 'workflow-save'
             });
             expectedOwnerGenerations.delete(expectationKey);
             if (!['committed', 'already-committed'].includes(result?.status)) return false;
             const temporaryOwner = temporaryOwners.get(`${owner.ownerType}\0${owner.ownerId}`);
             if (temporaryOwner) {
-                const released = await Promise.all(temporaryOwner.owners.flatMap((candidate) => (
-                    Array.isArray(candidate?.assetKeys) ? candidate.assetKeys.map((assetKey) => (
-                        removeMediaReference('workflow-operation', candidate.ownerId, assetKey)
-                    )) : []
-                )));
-                if (!released.every(Boolean)) {
+                const released = await Promise.all(temporaryOwner.owners.map(async (candidate) => {
+                    if (!Array.isArray(candidate?.assetKeys)) return { status: 'committed' };
+                    return transition.releaseTemporaryOwner({
+                        operationId: candidate.ownerId,
+                        owner: { ownerType: 'workflow-operation', ownerId: candidate.ownerId },
+                        storageEpoch,
+                        nextAssetKeys: candidate.assetKeys
+                    });
+                }));
+                if (!released.every((result) => ['committed', 'already-committed'].includes(result.status))) {
                     await recordMediaOwnershipReconciliation({
                         workflowId,
                         ownerType: owner.ownerType,
@@ -197,3 +212,4 @@ export function createMediaOwnershipCoordinator(options) {
         getExpectedStorageEpoch: (workflowId) => committer.getExpectedStorageEpoch(workflowId)
     });
 }
+

@@ -2202,6 +2202,42 @@ class StorageService:
                 result['unresolved'] += 1
         return result
 
+    def transition_media_owner(self, request):
+        """Translate the ownership intent contract onto the durable transition journal."""
+        if not isinstance(request, dict) or 'previousAssetKeys' in request:
+            return {'status': 'rejected', 'reason': 'invalid-intent'}
+        owner = request.get('owner')
+        if not isinstance(owner, dict) or owner.get('ownerType') not in ('workflow-node', 'workflow-import'):
+            return {'status': 'rejected', 'reason': 'persistent-owner-required'}
+        required = (request.get('workflowId'), request.get('operationId'), owner.get('ownerId'), request.get('storageEpoch'))
+        revision, document_revision = request.get('expectedOwnerRevision'), request.get('documentRevision')
+        keys = request.get('nextAssetKeys')
+        if (any(not isinstance(value, str) or not value.strip() for value in required)
+                or type(revision) is not int or revision < 0
+                or type(document_revision) is not int or document_revision < 1
+                or not isinstance(keys, list)
+                or any(not isinstance(key, str) or not key.startswith('media:') for key in keys)):
+            return {'status': 'rejected', 'reason': 'invalid-intent'}
+        self.initialize()
+        if str(request['storageEpoch']) != str(self._safety_status['storageEpoch']):
+            return {'status': 'stale-epoch'}
+        identity = json.dumps([request['workflowId'], owner['ownerType'], owner['ownerId'], request['operationId']], separators=(',', ':'))
+        try:
+            result = self.replace_media_owner_references(
+                workflow_id=request['workflowId'], owner_type=owner['ownerType'], owner_id=owner['ownerId'],
+                operation_id=request['operationId'], idempotency_key=identity,
+                expected_generation=revision, document_revision=document_revision,
+                storage_epoch=request['storageEpoch'], asset_keys=keys, intent=request.get('intent', 'save'),
+            )
+        except StorageError:
+            return {'status': 'rejected', 'reason': 'transition-rejected'}
+        except (OSError, sqlite3.Error):
+            return {'status': 'retryable', 'reason': 'storage-unavailable'}
+        status = {'stale': 'conflict', 'cancelled': 'rejected'}.get(result.get('status'), result.get('status'))
+        if status not in ('committed', 'already-committed', 'conflict', 'stale-epoch', 'retryable', 'needs-reconciliation', 'rejected'):
+            status = 'retryable'
+        return {**result, 'status': status}
+
     def replace_media_owner_references(self, *, workflow_id, owner_type, owner_id,
                                        operation_id, idempotency_key, expected_generation,
                                        document_revision, storage_epoch, asset_keys, intent='save', cancelled=False):

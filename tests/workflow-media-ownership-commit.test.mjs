@@ -6,6 +6,47 @@ import {
     createWorkflowMediaOwnershipCommitter,
     prepareWorkflowMediaOwnershipCommit
 } from '../js/features/media/workflow-media-ownership-commit.js';
+import {
+    createMediaOwnershipTransition,
+    validateMediaOwnershipTransitionIntent
+} from '../js/features/media/media-ownership-transition.js';
+
+test('the ownership transition contract validates immutable intent and finite results', async () => {
+    assert.equal(validateMediaOwnershipTransitionIntent({}).status, 'rejected');
+    const calls = [];
+    const transition = createMediaOwnershipTransition({
+        replaceOwnerReferenceList: async (intent) => (calls.push(intent), { status: 'committed' }),
+        releaseTemporaryOwner: async () => ({ status: 'already-committed' })
+    });
+    const intent = {
+        operationId: 'op-1', owner: { ownerType: 'workflow-node', ownerId: 'node-1' },
+        expectedOwnerRevision: 0, documentRevision: 1, storageEpoch: 'epoch-1',
+        nextAssetKeys: ['media:a'], reason: 'save'
+    };
+    assert.deepEqual(await transition.replaceOwnerReferenceList(intent), { status: 'committed' });
+    assert.notEqual(calls[0], intent);
+    assert.equal(Object.isFrozen(calls[0].owner), true);
+    assert.equal(Object.isFrozen(calls[0].nextAssetKeys), true);
+    assert.deepEqual(calls[0].nextAssetKeys, ['media:a']);
+    assert.equal(await transition.replaceOwnerReferenceList({ ...intent, nextAssetKeys: ['bad'] }).then((r) => r.status), 'rejected');
+    assert.equal((await transition.releaseTemporaryOwner({ operationId: 'op-1', owner: { ownerType: 'workflow-operation', ownerId: 'temp' }, storageEpoch: 'epoch-1' })).status, 'already-committed');
+});
+
+test('persistent transition rejects runtime owners and caller supplied previous lists', async () => {
+    let calls = 0;
+    const transition = createMediaOwnershipTransition({
+        replaceOwnerReferenceList: async () => (calls++, { status: 'committed' }),
+        releaseTemporaryOwner: async () => ({ status: 'committed' })
+    });
+    const base = { operationId: 'op', owner: { ownerType: 'workflow-node', ownerId: 'n' },
+        expectedOwnerRevision: 0, documentRevision: 1, storageEpoch: 'epoch', nextAssetKeys: [] };
+    for (const intent of [
+        { ...base, previousAssetKeys: ['media:old'] },
+        { ...base, owner: { ownerType: 'workflow-operation', ownerId: 'runtime' } },
+        { ...base, expectedOwnerRevision: null }
+    ]) assert.equal((await transition.replaceOwnerReferenceList(intent)).status, 'rejected');
+    assert.equal(calls, 0);
+});
 
 test('the Media ownership coordinator exposes intent operations without storage coordination fields', async () => {
     const coordinator = createMediaOwnershipCoordinator({

@@ -12,6 +12,23 @@ from backend.services.storage_service import StorageError, StorageService
 
 
 class StorageServiceTests(unittest.TestCase):
+    def test_transition_contract_replays_after_restart_and_rejects_changed_intent(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            self.record_manifest(service, 'workflow', 1, epoch, 'node', [])
+            intent = {
+                'workflowId': 'workflow', 'operationId': 'save-1',
+                'owner': {'ownerType': 'workflow-node', 'ownerId': 'node'},
+                'expectedOwnerRevision': 0, 'documentRevision': 1,
+                'storageEpoch': epoch, 'nextAssetKeys': [], 'reason': 'save',
+            }
+            self.assertEqual('committed', service.transition_media_owner(intent)['status'])
+            service = self.make_service(root)
+            self.assertEqual('already-committed', service.transition_media_owner(intent)['status'])
+            self.assertEqual('rejected', service.transition_media_owner({**intent, 'nextAssetKeys': ['media:different']})['status'])
+            self.assertEqual('rejected', service.transition_media_owner({**intent, 'previousAssetKeys': []})['status'])
+
     def test_workflow_document_action_is_fenced_by_the_captured_storage_epoch(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
