@@ -21,10 +21,21 @@ export function createLegacyMediaMigrationCoordinator({
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
     putMediaAsset = async () => null,
+    transitionMediaOwner = null,
     referenceMediaAsset = async () => false,
     removeMediaReference = async () => false,
     deleteImageAsset = async () => false
 } = {}) {
+    const transition = transitionMediaOwner || createMediaOwnershipTransition({
+        replaceOwnerReferenceList: async ({ ownerType, ownerId, assetKeys }) => {
+            const promoted = await Promise.all((assetKeys || []).map((key) => referenceMediaAsset(ownerType, ownerId, key)));
+            return { status: promoted.every(Boolean) ? 'committed' : 'retryable' };
+        },
+        releaseTemporaryOwner: async ({ owner, nextAssetKeys }) => {
+            const released = await Promise.all((nextAssetKeys || []).map((key) => removeMediaReference(owner.ownerType, owner.ownerId, key)));
+            return { status: released.every(Boolean) ? 'committed' : 'needs-reconciliation' };
+        }
+    });
     const releaseTemporaryAssets = async (assets, temporaryOwner) => Promise.all(
         assets.map((key) => removeMediaReference('workflow-migration', temporaryOwner, key))
     );
@@ -93,17 +104,33 @@ export function createLegacyMediaMigrationCoordinator({
                 try {
                     for (const item of staged) {
                         const ownerId = `${workflowId}:${item.node.id}`;
-                        for (const key of [...new Set(item.assets)]) {
-                            if (!await referenceMediaAsset(item.ownerType, ownerId, key)) throw new Error('Unable to promote migrated media reference');
-                            promoted.push({ ownerType: item.ownerType, ownerId, key });
-                        }
+                        const result = await transition.replaceOwnerReferenceList({
+                            operationId: `migration:${workflowId}:${item.node.id}`,
+                            workflowId,
+                            owner: { ownerType: item.ownerType, ownerId },
+                            expectedOwnerRevision: 0,
+                            documentRevision: Number(workflow.mediaOwnershipRevision || 1),
+                            storageEpoch: 'legacy-migration',
+                            nextAssetKeys: [...new Set(item.assets)],
+                            reason: 'legacy-migration'
+                        });
+                        if (!['committed', 'already-committed'].includes(result.status)) throw new Error('Unable to promote migrated media reference');
+                        promoted.push(...[...new Set(item.assets)].map((key) => ({ ownerType: item.ownerType, ownerId, key })));
                     }
                 } catch (error) {
                     await Promise.all(promoted.map((item) => removeMediaReference(item.ownerType, item.ownerId, item.key)));
                     throw error;
                 }
                 for (const item of staged) {
-                    await releaseTemporaryAssets(item.assets, item.temporaryOwner);
+                    const released = await transition.releaseTemporaryOwner({
+                        operationId: item.temporaryOwner,
+                        workflowId,
+                        owner: { ownerType: 'workflow-migration', ownerId: item.temporaryOwner },
+                        storageEpoch: 'legacy-migration',
+                        nextAssetKeys: item.assets,
+                        reason: 'legacy-migration-release'
+                    });
+                    if (!['committed', 'already-committed'].includes(released.status)) throw new Error('Unable to release migrated media owner');
                     await Promise.all(item.legacyKeys.map((key) => deleteImageAsset(key)));
                 }
                 done = true;
@@ -118,3 +145,5 @@ export function createLegacyMediaMigrationCoordinator({
     }
     return { stageWorkflow };
 }
+import { createMediaOwnershipTransition } from './media-ownership-transition.js';
+
