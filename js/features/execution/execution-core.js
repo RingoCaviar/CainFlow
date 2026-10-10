@@ -893,7 +893,8 @@ export function createExecutionCoreApi({
 
     async function restoreImageImportOutputValue(node) {
         const cachedValue = getImageImportOutputValue(node);
-        if (cachedValue) return cachedValue;
+        const hasPersistedImportAsset = Boolean(node.imageImportAssetKey || node.data?.imageImportAssetKey);
+        if (cachedValue && !hasPersistedImportAsset) return cachedValue;
         if (!node || node.type !== 'ImageImport' || node.importMode === 'url') return undefined;
 
         const candidateKeys = [

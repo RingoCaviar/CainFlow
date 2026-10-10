@@ -935,7 +935,8 @@ export function createWorkflowRunnerApi({
         if (!node || node.type !== 'ImageImport') return undefined;
 
         const cachedValue = getCachedOutputValue(node, 'image');
-        if (cachedValue) return cachedValue;
+        const hasPersistedImportAsset = Boolean(node.imageImportAssetKey || node.data?.imageImportAssetKey);
+        if (cachedValue && !hasPersistedImportAsset) return cachedValue;
         if (node.importMode === 'url') return undefined;
 
         const candidateKeys = [
