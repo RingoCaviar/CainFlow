@@ -32,6 +32,7 @@ import {
     retainActiveWorkflowTabDuringRefresh
 } from './workflow-tab-revision.js';
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
+import { serializeConnection } from '../../canvas/connection-snapshot.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
     createMediaOwnershipCoordinator,
