@@ -175,3 +175,14 @@ export function createWorkflowMediaOwnershipCommitter({
         getExpectedStorageEpoch
     };
 }
+
+export function createMediaOwnershipCoordinator(options) {
+    const committer = createWorkflowMediaOwnershipCommitter(options);
+    return Object.freeze({
+        commitPersistentWorkflow: (workflow) => committer.commitPersistedWorkflow(workflow),
+        expectTemporaryOwnerGeneration: (request) => committer.expectNextOwnerGeneration(request),
+        clearTemporaryOwnerGeneration: (request) => committer.clearExpectedOwnerGeneration(request),
+        validateStorageEpoch: (workflowId) => committer.validateExpectedStorageEpoch(workflowId),
+        getExpectedStorageEpoch: (workflowId) => committer.getExpectedStorageEpoch(workflowId)
+    });
+}

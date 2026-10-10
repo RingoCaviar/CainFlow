@@ -34,7 +34,7 @@ import {
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
-    createWorkflowMediaOwnershipCommitter,
+    createMediaOwnershipCoordinator,
     getWorkflowMediaOwnerType,
     prepareWorkflowMediaOwnershipCommit
 } from '../media/workflow-media-ownership-commit.js';
@@ -108,7 +108,7 @@ export function createWorkflowManagerApi({
     const legacyMediaMigration = createLegacyMediaMigrationCoordinator({
         getImageAsset, getImageAssetList, putMediaAsset, referenceMediaAsset, removeMediaReference, deleteImageAsset
     });
-    const mediaOwnershipCommitter = createWorkflowMediaOwnershipCommitter({
+    const mediaOwnership = createMediaOwnershipCoordinator({
         getStorageSafetyStatus,
         getMediaOwnerReferenceList,
         listMediaOwnerReferenceLists,
@@ -545,7 +545,7 @@ export function createWorkflowManagerApi({
         let documentPersisted = false;
         const previousMediaOwnershipRevision = data?.mediaOwnershipRevision;
         try {
-            if (!await mediaOwnershipCommitter.validateExpectedStorageEpoch(data?.workflowId || '')) {
+            if (!await mediaOwnership.validateStorageEpoch(data?.workflowId || '')) {
                 throw new Error('媒体存储版本已变化，请重新确认操作');
             }
             migration ||= await legacyMediaMigration.stageWorkflow(data);
@@ -553,7 +553,7 @@ export function createWorkflowManagerApi({
             data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
             let result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
                 expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
-                expectedStorageEpoch: mediaOwnershipCommitter.getExpectedStorageEpoch(data?.workflowId || '')
+                expectedStorageEpoch: mediaOwnership.getExpectedStorageEpoch(data?.workflowId || '')
             });
             const isMediaOwnershipRevisionConflict = result?.status === 409
                 && result?.detail === 'Workflow media ownership revision conflict';
@@ -567,7 +567,7 @@ export function createWorkflowManagerApi({
                     data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
                     result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
                         expectedMediaOwnershipRevision: persistedRevision,
-                        expectedStorageEpoch: mediaOwnershipCommitter.getExpectedStorageEpoch(data?.workflowId || '')
+                        expectedStorageEpoch: mediaOwnership.getExpectedStorageEpoch(data?.workflowId || '')
                     });
                 } else if (persistedWorkflow?.workflowId
                     && persistedWorkflow.workflowId !== data?.workflowId) {
@@ -588,7 +588,7 @@ export function createWorkflowManagerApi({
             documentPersisted = true;
             await migration?.commit();
             migration = null;
-            if (!await mediaOwnershipCommitter.commitPersistedWorkflow(preparedWorkflow)) {
+            if (!await mediaOwnership.commitPersistentWorkflow(preparedWorkflow)) {
                 throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
             }
             delete data.mediaOwnershipRestoreOwnerIds;
@@ -621,7 +621,7 @@ export function createWorkflowManagerApi({
             const migration = await legacyMediaMigration.stageWorkflow(result);
             if (migration) pendingLegacyMediaMigrations.set(result.workflowId, migration);
             else if (result.mediaOwnershipRevision) {
-                await mediaOwnershipCommitter.commitPersistedWorkflow(result);
+                await mediaOwnership.commitPersistentWorkflow(result);
             }
         } catch (error) {
             // Reading a legacy workflow must stay non-destructive when its new
@@ -3032,8 +3032,8 @@ export function createWorkflowManagerApi({
         loadWorkflowFromFile,
         openWorkflow,
         saveActiveWorkflow,
-        expectNextMediaOwnerGeneration: (expectation) => mediaOwnershipCommitter.expectNextOwnerGeneration(expectation),
-        clearExpectedMediaOwnerGeneration: (expectation) => mediaOwnershipCommitter.clearExpectedOwnerGeneration(expectation),
+        expectNextMediaOwnerGeneration: (expectation) => mediaOwnership.expectTemporaryOwnerGeneration(expectation),
+        clearExpectedMediaOwnerGeneration: (expectation) => mediaOwnership.clearTemporaryOwnerGeneration(expectation),
         saveAllOpenWorkflows,
         markActiveWorkflowDirty,
         refreshActiveWorkflowIntegrityState,
@@ -3073,4 +3073,4 @@ export function createWorkflowManagerApi({
         reloadAfterWorkflowImport
     };
 }
-import { serializeConnection } from '../../canvas/connection-snapshot.js';
+

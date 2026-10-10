@@ -2,9 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    createMediaOwnershipCoordinator,
     createWorkflowMediaOwnershipCommitter,
     prepareWorkflowMediaOwnershipCommit
 } from '../js/features/media/workflow-media-ownership-commit.js';
+
+test('the Media ownership coordinator exposes intent operations without storage coordination fields', async () => {
+    const coordinator = createMediaOwnershipCoordinator({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch-1' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => null,
+        listMediaOwnerReferenceLists: async () => [],
+        replaceMediaOwnerReferenceList: async () => ({ status: 'committed' })
+    });
+    assert.equal(typeof coordinator.commitPersistentWorkflow, 'function');
+    assert.equal(typeof coordinator.expectTemporaryOwnerGeneration, 'function');
+    assert.equal(await coordinator.commitPersistentWorkflow({ workflowId: 'workflow-a', mediaOwnershipRevision: 1, nodes: [] }), true);
+});
 
 test('a document commit failure never starts owner promotion', async () => {
     let promotions = 0;
