@@ -3,7 +3,8 @@
  */
 import { normalizeConcurrentRequestStatusPayload } from '../features/execution/concurrent-request-status-ui.js';
 import {
-    getCanonicalImageList
+    getCanonicalImageList,
+    getPrimaryImageImportMediaAssetReference
 } from '../features/execution/execution-data-utils.js';
 import { applyProtocolVariantSnapshot } from './protocol-variant-drafts.js';
 import { readColorResetConfig } from '../features/media/color-reset-config.js';
@@ -108,9 +109,7 @@ export function createNodeSerializer({ state, documentRef }) {
             const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
                 ? node.data.imageAssetKey
                 : '';
-            const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
-                ? node.imageImportAssetKey
-                : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+            const imageImportAssetKey = getPrimaryImageImportMediaAssetReference(node);
             const isTransientImageGeneration = node.type === 'ImageGenerate'
                 && node.data?.imageResultPersistence === 'transient';
             if (isTransientImageGeneration) serialized.imageResultPersistence = 'transient';

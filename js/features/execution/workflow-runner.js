@@ -5,6 +5,8 @@ import {
     clearCanonicalImageOutput,
     getFirstNonEmptyImageList,
     getCanonicalImageList,
+    getPrimaryImageImportMediaAssetReference,
+    getImageImportMediaAssetReferences,
     setCanonicalImageOutput,
     normalizeImageList,
     normalizeTextList
@@ -531,8 +533,12 @@ export function createWorkflowRunnerApi({
             const data = node.data && typeof node.data === 'object' ? node.data : {};
             const preserved = {};
             if (data.image || node.imageData) preserved.image = data.image || node.imageData;
-            if (data.imageImportAssetKey || node.imageImportAssetKey) {
-                preserved.imageImportAssetKey = data.imageImportAssetKey || node.imageImportAssetKey;
+            const importAssetKey = getPrimaryImageImportMediaAssetReference(node);
+            if (importAssetKey) {
+                preserved.imageImportAssetKey = importAssetKey;
+            }
+            if (Array.isArray(data.mediaAssetKeys) && data.mediaAssetKeys.length > 0) {
+                preserved.mediaAssetKeys = data.mediaAssetKeys.slice();
             }
             return preserved;
         }
@@ -935,14 +941,12 @@ export function createWorkflowRunnerApi({
         if (!node || node.type !== 'ImageImport') return undefined;
 
         const cachedValue = getCachedOutputValue(node, 'image');
-        const hasPersistedImportAsset = Boolean(node.imageImportAssetKey || node.data?.imageImportAssetKey);
+        const hasPersistedImportAsset = getImageImportMediaAssetReferences(node).length > 0;
         if (cachedValue && !hasPersistedImportAsset) return cachedValue;
         if (node.importMode === 'url') return undefined;
 
         const candidateKeys = [
-            node.imageImportAssetKey,
-            node.data?.imageImportAssetKey,
-            node.data?.imageAssetKey,
+            ...getImageImportMediaAssetReferences(node),
             node.id ? `image-import:${node.id}` : '',
             node.id
         ].filter((key, index, arr) => typeof key === 'string' && key && arr.indexOf(key) === index);
@@ -959,13 +963,10 @@ export function createWorkflowRunnerApi({
             node.data.imageCount = 1;
             node.data.imageAssetReady = true;
             delete node.data.imageMemoryReleased;
-            if (key.startsWith('image-import:')) {
-                node.imageImportAssetKey = key;
-                node.data.imageImportAssetKey = key;
-                delete node.data.imageAssetKey;
-            } else {
-                node.data.imageAssetKey = key;
-            }
+            node.imageImportAssetKey = key;
+            node.data.imageImportAssetKey = key;
+            if (key.startsWith('media:')) node.data.mediaAssetKeys = [key];
+            delete node.data.imageAssetKey;
             return image;
         }
 

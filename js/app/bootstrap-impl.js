@@ -596,6 +596,7 @@ const {
     setupImageImport,
     loadImageFile,
     loadImageData,
+    waitForPendingImageImports,
     setupImageResize,
     getResizeSourceImage,
     refreshImageResizePreview,
@@ -800,6 +801,7 @@ async function runWorkflow(runInput = null) {
     try {
         await waitForRunStartFrame();
         if (!(await workflowManagerApi.ensureOpenWorkflow())) return false;
+        await waitForPendingImageImports();
         const workflowName = workflowManagerApi.getActiveWorkflowName();
         if (!workflowName) {
             showToast('请先打开或新建一个工作流', 'warning');

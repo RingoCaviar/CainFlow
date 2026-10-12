@@ -14,6 +14,7 @@ import {
 import {
     clearCanonicalImageOutput,
     getCanonicalImageList,
+    getPrimaryImageImportMediaAssetReference,
     getTextInputList,
     normalizeImageList,
     setCanonicalImageOutput
@@ -214,9 +215,7 @@ export function serializeRuntimeNode(node, doc) {
     const imageAssetKey = typeof node.data?.imageAssetKey === 'string' && node.data.imageAssetKey
         ? node.data.imageAssetKey
         : '';
-    const imageImportAssetKey = typeof node.imageImportAssetKey === 'string' && node.imageImportAssetKey
-        ? node.imageImportAssetKey
-        : (typeof node.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
+    const imageImportAssetKey = getPrimaryImageImportMediaAssetReference(node);
     const isTransientImageGeneration = node.type === 'ImageGenerate'
         && node.data?.imageResultPersistence === 'transient';
     const hasRecoverableImageAsset = !isTransientImageGeneration && Boolean(imageAssetKey || imageImportAssetKey);

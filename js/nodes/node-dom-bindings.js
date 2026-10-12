@@ -32,6 +32,7 @@ import {
     resolveGenerationInputProjection
 } from './generation-input-projection.js';
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
+import { getPrimaryImageImportMediaAssetReference } from '../features/execution/execution-data-utils.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -940,6 +941,22 @@ export function createNodeDomBindingsApi({
             cloneNode.imageUrl = sourceNode.imageUrl || '';
             cloneNode.imageData = sourceNode.imageData || null;
             cloneNode.data = clonePlainValue(cloneNode.data || {});
+            const sourceAssetKey = getPrimaryImageImportMediaAssetReference(sourceNode);
+            if (sourceAssetKey) {
+                cloneNode.imageImportAssetKey = sourceAssetKey;
+                cloneNode.data.imageImportAssetKey = sourceAssetKey;
+                if (sourceAssetKey.startsWith('media:')) {
+                    cloneNode.data.mediaAssetKeys = [sourceAssetKey];
+                } else {
+                    delete cloneNode.data.mediaAssetKeys;
+                }
+                delete cloneNode.data.imageAssetKey;
+            } else {
+                delete cloneNode.imageImportAssetKey;
+                delete cloneNode.data.imageImportAssetKey;
+                delete cloneNode.data.mediaAssetKeys;
+                delete cloneNode.data.imageAssetKey;
+            }
             if (cloneNode.importMode === 'url') {
                 cloneNode.data.image = cloneNode.imageUrl || '';
             } else if (cloneNode.imageData) {

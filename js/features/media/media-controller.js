@@ -120,6 +120,7 @@ export function createMediaControllerApi({
 }) {
     const PERSISTED_PREVIEW_THUMBNAIL_MAX_LENGTH = 220000;
     const pendingFitNodeIds = new Set();
+    const pendingImageImportWrites = new Set();
     let fitRequestFrame = null;
 
     // 初始化预览缓存
@@ -272,13 +273,59 @@ export function createMediaControllerApi({
         node.data.imageHydratedAt = Date.now();
         delete node.data.imageMemoryReleased;
         if (typeof assetKey === 'string' && assetKey) {
-            if (assetKey.startsWith('image-import:')) {
-                node.imageImportAssetKey = assetKey;
-                node.data.imageImportAssetKey = assetKey;
-                delete node.data.imageAssetKey;
-            } else {
-                node.data.imageAssetKey = assetKey;
+            node.imageImportAssetKey = assetKey;
+            node.data.imageImportAssetKey = assetKey;
+            if (assetKey.startsWith('media:')) node.data.mediaAssetKeys = [assetKey];
+            else delete node.data.mediaAssetKeys;
+            delete node.data.imageAssetKey;
+        }
+    }
+
+    function clearStaleImageImportAssetState(node) {
+        if (!node) return;
+        node.data = node.data || {};
+        delete node.imageImportAssetKey;
+        delete node.data.imageImportAssetKey;
+        delete node.data.mediaAssetKeys;
+        delete node.data.imageAssetKey;
+        delete node.data.imageAssetReady;
+        delete node.data.imageMemoryReleased;
+    }
+
+    function persistImageImportData(nodeId, node, imageData) {
+        const writeToken = (parseInt(node.imageImportWriteToken || '0', 10) || 0) + 1;
+        node.imageImportWriteToken = writeToken;
+        clearStaleImageImportAssetState(node);
+
+        const write = (async () => {
+            const mediaAsset = await saveWorkflowImportMediaAsset(imageData, getActiveWorkflowId(), nodeId);
+            if (state.nodes.get(nodeId) !== node || node.imageImportWriteToken !== writeToken) {
+                if (mediaAsset?.mediaTemporaryOwnerId && mediaAsset?.asset_key) {
+                    await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
+                }
+                return false;
             }
+            rememberWorkflowMediaOperation(node, [mediaAsset]);
+            const assetKey = mediaAsset?.asset_key || '';
+            if (!assetKey) return false;
+            markImageImportAssetReady(node, assetKey, 1);
+            await syncImageImportSourceState(nodeId, { refreshDependents: true });
+            scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
+            scheduleSave();
+            return true;
+        })();
+
+        pendingImageImportWrites.add(write);
+        const clearPendingWrite = () => {
+            pendingImageImportWrites.delete(write);
+        };
+        void write.then(clearPendingWrite, clearPendingWrite);
+        return write;
+    }
+
+    async function waitForPendingImageImports() {
+        while (pendingImageImportWrites.size > 0) {
+            await Promise.allSettled(Array.from(pendingImageImportWrites));
         }
     }
 
@@ -1914,21 +1961,7 @@ export function createMediaControllerApi({
             node.imageData = data;
             node.data = node.data || {};
             node.data.image = data;
-            const mediaAsset = await saveWorkflowImportMediaAsset(data, getActiveWorkflowId(), nodeId);
-            if (mediaAsset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
-                await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
-                return;
-            }
-            rememberWorkflowMediaOperation(node, [mediaAsset]);
-            const assetKey = mediaAsset?.asset_key || '';
-            if (assetKey) {
-                node.imageImportAssetKey = assetKey;
-                node.data.imageImportAssetKey = assetKey;
-                markImageImportAssetReady(node, assetKey, 1);
-            }
-            await syncImageImportSourceState(nodeId, { refreshDependents: true });
-            scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
-            scheduleSave();
+            await persistImageImportData(nodeId, node, data);
         };
         reader.readAsDataURL(file);
     }
@@ -1946,22 +1979,7 @@ export function createMediaControllerApi({
         node.imageData = imageData;
         node.data = node.data || {};
         node.data.image = imageData;
-        const mediaAsset = await saveWorkflowImportMediaAsset(imageData, getActiveWorkflowId(), nodeId);
-        if (mediaAsset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
-            await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
-            return;
-        }
-        rememberWorkflowMediaOperation(node, [mediaAsset]);
-        const assetKey = mediaAsset?.asset_key || '';
-        if (assetKey) {
-            node.imageImportAssetKey = assetKey;
-            node.data.imageImportAssetKey = assetKey;
-            markImageImportAssetReady(node, assetKey, 1);
-        }
-        await syncImageImportSourceState(nodeId, { refreshDependents: true });
-        scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
-        scheduleSave();
-        return true;
+        return persistImageImportData(nodeId, node, imageData);
     }
 
     async function loadImageUrl(nodeId, rawUrl, options = {}) {
@@ -3235,6 +3253,7 @@ export function createMediaControllerApi({
         renderImageImportUploadState,
         loadImageFile,
         loadImageData,
+        waitForPendingImageImports,
         setupImageResize,
         setupColorReset,
         getResizeSourceImage,

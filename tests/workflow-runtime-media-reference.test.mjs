@@ -39,3 +39,33 @@ test('running ImageImport resolves the current imported Media asset instead of s
     await api.executeNode(node, {}, null);
     assert.equal(node.data.image, 'data:image/png;base64,NEW');
 });
+
+test('running ImageImport prefers its durable Media reference over a stale compatibility pointer', async () => {
+    const node = {
+        id: 'import', type: 'ImageImport', importMode: 'upload',
+        imageImportAssetKey: 'media:old',
+        data: {
+            mediaAssetKeys: ['media:new'],
+            imageImportAssetKey: 'media:new',
+            image: 'data:image/png;base64,OLD'
+        }
+    };
+    const requestedKeys = [];
+    const api = createExecutionCoreApi({
+        state: { nodes: new Map([['import', node]]), connections: [], models: [], providers: [] },
+        nodeConfigs: {},
+        documentRef: { getElementById: () => null }, windowRef: {}, fetchRef: async () => ({ ok: false }),
+        getImageAsset: async (key) => {
+            requestedKeys.push(key);
+            return key === 'media:new' ? 'data:image/png;base64,NEW' : null;
+        },
+        refreshDependentImageResizePreviews: async () => {}
+    });
+
+    await api.executeNode(node, {}, null);
+
+    assert.deepEqual(requestedKeys, ['media:new']);
+    assert.equal(node.data.image, 'data:image/png;base64,NEW');
+    assert.equal(node.imageImportAssetKey, 'media:new');
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:new']);
+});

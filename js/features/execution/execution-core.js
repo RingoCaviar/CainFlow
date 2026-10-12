@@ -24,6 +24,7 @@ import {
     clearCanonicalImageOutput,
     getCanonicalImage,
     getCanonicalImageList,
+    getImageImportMediaAssetReferences,
     getPrimaryImageInput,
     getPrimaryTextInput,
     getTextInputList,
@@ -893,14 +894,12 @@ export function createExecutionCoreApi({
 
     async function restoreImageImportOutputValue(node) {
         const cachedValue = getImageImportOutputValue(node);
-        const hasPersistedImportAsset = Boolean(node.imageImportAssetKey || node.data?.imageImportAssetKey);
+        const hasPersistedImportAsset = getImageImportMediaAssetReferences(node).length > 0;
         if (cachedValue && !hasPersistedImportAsset) return cachedValue;
         if (!node || node.type !== 'ImageImport' || node.importMode === 'url') return undefined;
 
         const candidateKeys = [
-            node.imageImportAssetKey,
-            node.data?.imageImportAssetKey,
-            node.data?.imageAssetKey,
+            ...getImageImportMediaAssetReferences(node),
             node.id ? `image-import:${node.id}` : '',
             node.id
         ].filter((key, index, list) => typeof key === 'string' && key && list.indexOf(key) === index);
@@ -917,13 +916,10 @@ export function createExecutionCoreApi({
             node.data.imageCount = 1;
             node.data.imageAssetReady = true;
             delete node.data.imageMemoryReleased;
-            if (key.startsWith('image-import:')) {
-                node.imageImportAssetKey = key;
-                node.data.imageImportAssetKey = key;
-                delete node.data.imageAssetKey;
-            } else {
-                node.data.imageAssetKey = key;
-            }
+            node.imageImportAssetKey = key;
+            node.data.imageImportAssetKey = key;
+            if (key.startsWith('media:')) node.data.mediaAssetKeys = [key];
+            delete node.data.imageAssetKey;
             return imageValue;
         }
 

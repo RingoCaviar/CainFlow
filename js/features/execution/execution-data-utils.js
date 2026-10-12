@@ -21,6 +21,36 @@ export function normalizeImageList(value) {
     return [];
 }
 
+/**
+ * Return the durable Media references associated with an ImageImport node.
+ *
+ * `imageImportAssetKey` is kept as a compatibility pointer, while
+ * `mediaAssetKeys` is the durable reference list.  Keeping the resolution in
+ * one place prevents runtime execution from choosing an older inline image or
+ * a stale compatibility pointer when a node has just been re-imported.
+ */
+export function getImageImportMediaAssetReferences(node) {
+    if (!node || node.type !== 'ImageImport') return [];
+    const mediaKeys = Array.isArray(node.data?.mediaAssetKeys)
+        ? node.data.mediaAssetKeys
+        : [];
+    const candidates = [
+        ...mediaKeys,
+        node.data?.imageImportAssetKey,
+        node.imageImportAssetKey,
+        node.data?.imageAssetKey
+    ];
+    return candidates.filter((key, index, list) => (
+        typeof key === 'string'
+        && key.trim().length > 0
+        && list.indexOf(key) === index
+    ));
+}
+
+export function getPrimaryImageImportMediaAssetReference(node) {
+    return getImageImportMediaAssetReferences(node)[0] || '';
+}
+
 export function appendReferenceImages(currentValue, incomingValue, maximumCount) {
     const referenceImages = [
         ...normalizeImageList(currentValue),
