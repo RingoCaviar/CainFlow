@@ -535,6 +535,7 @@ const mediaControllerApi = createMediaControllerApi({
     getImageAssetList,
     saveWorkflowImportMediaAsset,
     saveWorkflowNodeMediaAsset,
+    saveWorkflowNodeMediaAssets,
     deleteImageAsset,
     processImageResolution,
     resizeImageData,

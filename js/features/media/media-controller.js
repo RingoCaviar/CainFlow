@@ -87,6 +87,7 @@ export function createMediaControllerApi({
     saveImageAsset = async () => false,
     saveWorkflowImportMediaAsset = async () => null,
     saveWorkflowNodeMediaAsset = async () => null,
+    saveWorkflowNodeMediaAssets = async () => [],
     getActiveWorkflowId = () => '',
     referenceMediaAsset = async () => false,
     removeMediaReference = async () => false,
@@ -1324,9 +1325,51 @@ export function createMediaControllerApi({
         return images[0] || getNodePreviewSourceData(sourceNode);
     }
 
+    function beginDisplayImageAssetWrite(node) {
+        const writeToken = (parseInt(node?.displayImageAssetWriteToken || '0', 10) || 0) + 1;
+        node.displayImageAssetWriteToken = writeToken;
+        return writeToken;
+    }
+
+    async function persistUnownedDisplayImages(node, imageList, writeToken, failureMessage) {
+        const workflowId = getActiveWorkflowId();
+        try {
+            const assets = imageList.length > 1 && workflowId
+                ? await saveWorkflowNodeMediaAssets(imageList, workflowId, node.id)
+                : [];
+            const asset = imageList.length === 1 && workflowId
+                ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id)
+                : null;
+            const persistedAssets = asset ? [asset] : assets;
+            const assetKeys = persistedAssets.map((item) => item?.asset_key).filter(Boolean);
+            if (state.nodes.get(node.id) !== node || node.displayImageAssetWriteToken !== writeToken) {
+                await Promise.all(persistedAssets
+                    .filter((item) => item?.mediaTemporaryOwnerId && item?.asset_key)
+                    .map((item) => removeMediaReference('workflow-operation', item.mediaTemporaryOwnerId, item.asset_key)));
+                return false;
+            }
+            if (assetKeys.length === imageList.length) {
+                rememberWorkflowMediaOperation(node, persistedAssets);
+                node.data.mediaAssetKeys = assetKeys;
+                node.data.imageAssetKey = assetKeys[0];
+                node.data.imageCount = imageList.length;
+                node.data.imageAssetReady = true;
+                scheduleSave();
+                return true;
+            }
+        } catch (error) {
+            if (state.nodes.get(node.id) !== node || node.displayImageAssetWriteToken !== writeToken) return false;
+        }
+        delete node.data.imageAssetReady;
+        delete node.data.imageAssetKey;
+        showToast(failureMessage, 'warning', 6000);
+        return false;
+    }
+
     async function syncImagePreviewNode(nodeId, imageData) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImagePreview') return;
+        const writeToken = beginDisplayImageAssetWrite(node);
 
         const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
         const controls = documentRef.getElementById(`${nodeId}-controls`);
@@ -1346,8 +1389,17 @@ export function createMediaControllerApi({
             });
             renderImagePreviewImage(nodeId, imageList);
             if (controls) controls.style.display = 'flex';
-            const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId));
-            if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
+            const forwardedKeys = getForwardedMediaAssetKeys(nodeId);
+            const forwarded = forwardedKeys.length > 0
+                ? await syncForwardedMediaAssetKeys(node, forwardedKeys)
+                : false;
+            if (!forwarded) {
+                await persistUnownedDisplayImages(
+                    node, imageList, writeToken,
+                    '图片预览保存失败；请检查本地存储空间后重试'
+                );
+            }
+            saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
             await releaseForwardedMediaAssetKeys(node);
@@ -1373,6 +1425,7 @@ export function createMediaControllerApi({
     async function syncImageSaveNode(nodeId, imageData) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImageSave') return;
+        const writeToken = beginDisplayImageAssetWrite(node);
 
         const manualSaveBtn = documentRef.getElementById(`${nodeId}-manual-save`);
         const viewFullBtn = documentRef.getElementById(`${nodeId}-view-full`);
@@ -1435,8 +1488,17 @@ export function createMediaControllerApi({
             renderImageSavePreview(nodeId, imageList);
             if (manualSaveBtn) manualSaveBtn.disabled = false;
             if (viewFullBtn) viewFullBtn.disabled = false;
-            const forwarded = await syncForwardedMediaAssetKeys(node, getForwardedMediaAssetKeys(nodeId));
-            if (!forwarded) saveDisplayImageAssetSoon(nodeId, imageList);
+            const forwardedKeys = getForwardedMediaAssetKeys(nodeId);
+            const forwarded = forwardedKeys.length > 0
+                ? await syncForwardedMediaAssetKeys(node, forwardedKeys)
+                : false;
+            if (!forwarded) {
+                await persistUnownedDisplayImages(
+                    node, imageList, writeToken,
+                    '保存节点图片持久化失败；请检查本地存储空间后重试'
+                );
+            }
+            saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else if (videoData?.url || videoData?.assetKey) {
             await releaseForwardedMediaAssetKeys(node);
@@ -2561,6 +2623,10 @@ export function createMediaControllerApi({
                     <div class="image-compare-advanced-thumbs"></div>
                 </div>
             </div>
+            <div class="image-compare-thumb-context-menu" role="menu" aria-hidden="true">
+                <button type="button" role="menuitem" data-role="A">设置为 A</button>
+                <button type="button" role="menuitem" data-role="B">设置为 B</button>
+            </div>
         `;
         documentRef.body.appendChild(overlay);
         documentRef.body?.classList.add('image-compare-advanced-active');
@@ -2571,6 +2637,7 @@ export function createMediaControllerApi({
         const thumbs = overlay.querySelector('.image-compare-advanced-thumbs');
         const expandButton = overlay.querySelector('.image-compare-expand-btn');
         const setButtons = Array.from(overlay.querySelectorAll('.image-compare-set-btn'));
+        const thumbContextMenu = overlay.querySelector('.image-compare-thumb-context-menu');
         let compareA = node.compareImageA || node.data?.compareImageA || getConnectedImageInput(nodeId, 'imageA') || null;
         let compareB = node.compareImageB
             || node.data?.compareImageB
@@ -2594,14 +2661,43 @@ export function createMediaControllerApi({
             stage.style.setProperty('--compare-pan-y', `${compareOffsetY.toFixed(2)}px`);
         };
 
+        const closeThumbContextMenu = () => {
+            if (!thumbContextMenu) return;
+            thumbContextMenu.classList.remove('active');
+            thumbContextMenu.setAttribute('aria-hidden', 'true');
+        };
+
+        const openThumbContextMenu = (event) => {
+            if (!thumbContextMenu) return;
+            const menuWidth = 148;
+            const menuHeight = 84;
+            const edgeGap = 8;
+            const viewportWidth = windowRef.innerWidth || documentRef.documentElement?.clientWidth || menuWidth;
+            const viewportHeight = windowRef.innerHeight || documentRef.documentElement?.clientHeight || menuHeight;
+            const left = Math.max(edgeGap, Math.min(event.clientX, viewportWidth - menuWidth - edgeGap));
+            const top = Math.max(edgeGap, Math.min(event.clientY, viewportHeight - menuHeight - edgeGap));
+            thumbContextMenu.style.left = `${left}px`;
+            thumbContextMenu.style.top = `${top}px`;
+            thumbContextMenu.classList.add('active');
+            thumbContextMenu.setAttribute('aria-hidden', 'false');
+        };
+
         const createThumbButton = (item, index) => {
             const button = documentRef.createElement('button');
             button.type = 'button';
             button.className = `image-compare-thumb${index === selectedIndex ? ' selected' : ''}`;
             button.title = `${item.label}${item.source ? ` - ${item.source}` : ''}`;
             button.addEventListener('click', () => {
+                closeThumbContextMenu();
                 selectedIndex = index;
                 renderThumbs();
+            });
+            button.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectedIndex = index;
+                renderThumbs();
+                openThumbContextMenu(event);
             });
 
             const img = documentRef.createElement('img');
@@ -2763,6 +2859,18 @@ export function createMediaControllerApi({
                 void setSelectedImage(button.dataset.role);
             });
         });
+        thumbContextMenu?.addEventListener('click', (event) => {
+            const menuItem = event.target.closest('button[data-role]');
+            if (!menuItem) return;
+            event.stopPropagation();
+            closeThumbContextMenu();
+            void setSelectedImage(menuItem.dataset.role);
+        });
+        overlay.addEventListener('pointerdown', (event) => {
+            if (!thumbContextMenu?.classList.contains('active')) return;
+            if (thumbContextMenu.contains(event.target)) return;
+            closeThumbContextMenu();
+        });
         expandButton?.addEventListener('click', (event) => {
             event.stopPropagation();
             isPickerExpanded = !isPickerExpanded;
@@ -2844,7 +2952,12 @@ export function createMediaControllerApi({
             windowRef.removeEventListener('mouseup', stopPanning);
         };
         const onKeyDown = (event) => {
-            if (event.key === 'Escape') cleanup();
+            if (event.key !== 'Escape') return;
+            if (thumbContextMenu?.classList.contains('active')) {
+                closeThumbContextMenu();
+                return;
+            }
+            cleanup();
         };
         overlay.querySelector('.image-compare-advanced-close').addEventListener('click', cleanup);
         documentRef.addEventListener('keydown', onKeyDown);
