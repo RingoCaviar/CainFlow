@@ -41,3 +41,18 @@ test('reports rejected application and failed workflow results without switching
     });
     await assert.rejects(() => failed.applyAndGenerate({ targetNodeId: 'image-1' }), /生成失败/);
 });
+
+test('maps existing workflow timeout and external cancellation outcomes without showing stale success', async () => {
+    const state = { nodes: new Map([['image-1', { id: 'image-1', type: 'ImageGenerate', data: { images: ['old-image'] } }]]) };
+    const create = (outcome) => createPromptAgentExecutionAdapter({
+        state,
+        nodeAdapter: { applyPromptPlan: () => true },
+        runWorkflow: async () => ({ started: true, executed: true, reason: 'finished', outcome })
+    });
+
+    await assert.rejects(() => create('timeout').applyAndGenerate({ targetNodeId: 'image-1' }), /生成超时/);
+    assert.deepEqual(
+        await create('cancelled').applyAndGenerate({ targetNodeId: 'image-1' }),
+        { status: 'stopped', images: [] }
+    );
+});

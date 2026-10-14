@@ -2676,7 +2676,14 @@ export function createWorkflowRunnerApi({
                 executed,
                 reason: terminatedByError
                     ? 'error'
-                    : (completedRun || hasNodeBranchCancellation || wasTimedOut || wasManuallyStopped ? 'finished' : 'no-execution')
+                    : (completedRun || hasNodeBranchCancellation || wasTimedOut || wasManuallyStopped ? 'finished' : 'no-execution'),
+                outcome: terminatedByError
+                    ? 'failed'
+                    : (wasTimedOut
+                        ? 'timeout'
+                        : (wasManuallyStopped
+                            ? 'stopped'
+                            : (hasNodeBranchCancellation ? 'cancelled' : (completedRun ? 'completed' : 'no-execution'))))
             };
         }
         } finally {

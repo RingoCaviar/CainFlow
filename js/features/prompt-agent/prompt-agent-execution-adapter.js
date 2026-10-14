@@ -24,7 +24,13 @@ export function createPromptAgentExecutionAdapter({
         stopRequests.delete(nodeId);
         const result = await runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId] });
         if (stopRequests.delete(nodeId)) return { status: 'stopped', images: [] };
-        if (!result?.started || result?.executed === false || result?.reason === 'error') {
+        if (result?.outcome === 'stopped' || result?.outcome === 'cancelled') {
+            return { status: 'stopped', images: [] };
+        }
+        if (result?.outcome === 'timeout') {
+            throw new Error('生成超时，请检查节点配置或稍后重试。');
+        }
+        if (!result?.started || result?.executed === false || result?.reason === 'error' || result?.outcome === 'failed') {
             throw new Error('生成失败，请检查节点配置后重试。');
         }
         const node = state?.nodes?.get(nodeId);
