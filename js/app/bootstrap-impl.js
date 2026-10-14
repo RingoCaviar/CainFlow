@@ -74,6 +74,7 @@ import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runt
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentNodeAdapter } from '../features/prompt-agent/prompt-agent-node-adapter.js';
+import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -838,9 +839,17 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
     documentRef: document,
     scheduleSave
 });
+const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
+    state,
+    nodeAdapter: promptAgentNodeAdapter,
+    runWorkflow,
+    cancelRunningNode,
+    focusNode: focusCanvasNode
+});
 const promptAgentController = createPromptAgentController({
     documentRef: document,
-    nodeAdapter: promptAgentNodeAdapter
+    nodeAdapter: promptAgentNodeAdapter,
+    executionAdapter: promptAgentExecutionAdapter
 });
 
 function saveState() {

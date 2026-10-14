@@ -19,7 +19,8 @@ function buildDefaultReply({ message, context }) {
 export function createPromptAgentController({
     documentRef = document,
     createReply = async (request) => buildDefaultReply(request),
-    nodeAdapter = null
+    nodeAdapter = null,
+    executionAdapter = null
 } = {}) {
     let initialized = false;
 
@@ -117,7 +118,83 @@ export function createPromptAgentController({
             applyButton.disabled = true;
         });
         actions.appendChild(applyButton);
+
+        const generateButton = documentRef.createElement('button');
+        generateButton.type = 'button';
+        generateButton.className = 'btn btn-secondary';
+        generateButton.textContent = '应用并生成';
+        generateButton.disabled = !plan.targetNodeId || !executionAdapter;
+        generateButton.addEventListener('click', async () => {
+            await runPromptPlan(message, plan, actions);
+        });
+        actions.appendChild(generateButton);
         message.appendChild(actions);
+    }
+
+    function clearElement(element) {
+        if (typeof element.replaceChildren === 'function') element.replaceChildren();
+        else if (Array.isArray(element.children)) element.children.length = 0;
+    }
+
+    function renderCompletedRun(runState, result) {
+        clearElement(runState);
+        runState.textContent = '生成完成';
+        (result?.images || []).forEach((source) => {
+            const image = documentRef.createElement('img');
+            image.className = 'prompt-agent-result-image';
+            image.src = source;
+            image.alt = '生成结果';
+            runState.appendChild(image);
+        });
+    }
+
+    function renderFailedRun(runState, plan, message) {
+        clearElement(runState);
+        runState.textContent = `生成失败：${message}`;
+        const retryButton = documentRef.createElement('button');
+        retryButton.type = 'button';
+        retryButton.className = 'btn btn-secondary';
+        retryButton.textContent = '重试';
+        retryButton.addEventListener('click', async () => runPromptPlan(runState.parentElement || null, plan, null, runState));
+        const focusButton = documentRef.createElement('button');
+        focusButton.type = 'button';
+        focusButton.className = 'btn btn-ghost';
+        focusButton.textContent = '返回节点';
+        focusButton.addEventListener('click', () => executionAdapter?.focus?.(plan.targetNodeId));
+        runState.appendChild(retryButton);
+        runState.appendChild(focusButton);
+    }
+
+    async function runPromptPlan(message, plan, actions = null, existingRunState = null) {
+        if (!executionAdapter || !plan?.targetNodeId) return;
+        let runState = existingRunState;
+        if (!runState) {
+            runState = documentRef.createElement('section');
+            runState.className = 'prompt-agent-run-state';
+            message?.appendChild(runState);
+        }
+        clearElement(runState);
+        runState.textContent = '正在生成…';
+        const stopButton = documentRef.createElement('button');
+        stopButton.type = 'button';
+        stopButton.className = 'btn btn-ghost';
+        stopButton.textContent = '停止';
+        stopButton.addEventListener('click', () => executionAdapter.stop?.(plan.targetNodeId));
+        runState.appendChild(stopButton);
+        Array.from(actions?.children || []).forEach((button) => { button.disabled = true; });
+        try {
+            const result = await executionAdapter.applyAndGenerate(plan);
+            if (result?.status === 'stopped') {
+                clearElement(runState);
+                runState.textContent = '已停止';
+            } else {
+                renderCompletedRun(runState, result);
+            }
+        } catch (error) {
+            renderFailedRun(runState, plan, error?.message || '未知错误');
+        } finally {
+            Array.from(actions?.children || []).forEach((button) => { button.disabled = false; });
+        }
     }
 
     async function submit() {

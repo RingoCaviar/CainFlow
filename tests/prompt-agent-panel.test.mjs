@@ -31,6 +31,7 @@ class FakeElement {
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     removeAttribute(name) { this.attributes.delete(name); }
     appendChild(child) { this.children.push(child); return child; }
+    replaceChildren() { this.children.length = 0; }
     querySelector(selector) {
         return this.children.find((child) => child.className === selector.slice(1)) || null;
     }
@@ -49,7 +50,7 @@ function createHarness(createReply = async () => ({
 }), nodeAdapter = {
     getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
     applyPromptPlan: () => true
-}) {
+}, executionAdapter = null) {
     const elements = {
         'btn-prompt-agent': new FakeElement(),
         'prompt-agent-panel': new FakeElement(),
@@ -64,7 +65,7 @@ function createHarness(createReply = async () => ({
         getElementById: (id) => elements[id] || null,
         createElement: () => new FakeElement()
     };
-    const controller = createPromptAgentController({ documentRef, createReply, nodeAdapter });
+    const controller = createPromptAgentController({ documentRef, createReply, nodeAdapter, executionAdapter });
     controller.init();
     return { controller, elements };
 }
@@ -166,4 +167,54 @@ test('default Prompt Plan keeps the selected node prompt when applying a follow-
     const agentMessage = elements['prompt-agent-messages'].children[1];
     agentMessage.children[3].children[0].dispatch('click');
     assert.equal(applied.prompt, '城市夜景\n\n调整要求：更有电影感');
+});
+
+test('apply and generate reports progress, result previews, and keeps the plan for retry', async () => {
+    let runs = 0;
+    const executionAdapter = {
+        applyAndGenerate: async () => {
+            runs += 1;
+            if (runs === 1) throw new Error('供应商暂时不可用');
+            return { status: 'completed', images: ['data:image/png;base64,b2s='] };
+        },
+        stop: () => true,
+        focus: () => true
+    };
+    const { elements } = createHarness(undefined, undefined, executionAdapter);
+    elements['prompt-agent-input'].value = '生成电影海报';
+    await elements['prompt-agent-form'].dispatch('submit');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    const actions = agentMessage.children[3];
+
+    await actions.children[1].dispatch('click');
+    const runState = agentMessage.children[4];
+    assert.match(runState.textContent, /供应商暂时不可用/);
+    assert.equal(runState.children[0].textContent, '重试');
+    assert.equal(runState.children[1].textContent, '返回节点');
+
+    await runState.children[0].dispatch('click');
+    assert.equal(runState.textContent, '生成完成');
+    assert.equal(runState.children[0].src, 'data:image/png;base64,b2s=');
+});
+
+test('generation progress exposes a stop action for the running node', async () => {
+    let resolveRun;
+    let stopped = null;
+    const executionAdapter = {
+        applyAndGenerate: () => new Promise((resolve) => { resolveRun = resolve; }),
+        stop: (nodeId) => { stopped = nodeId; return true; },
+        focus: () => true
+    };
+    const { elements } = createHarness(undefined, undefined, executionAdapter);
+    elements['prompt-agent-input'].value = '生成';
+    await elements['prompt-agent-form'].dispatch('submit');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    const running = agentMessage.children[3].children[1].dispatch('click');
+    const runState = agentMessage.children[4];
+    assert.equal(runState.textContent, '正在生成…');
+    runState.children[0].dispatch('click');
+    assert.equal(stopped, 'image-1');
+    resolveRun({ status: 'stopped', images: [] });
+    await running;
+    assert.equal(runState.textContent, '已停止');
 });

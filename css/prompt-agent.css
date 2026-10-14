@@ -77,6 +77,24 @@
 
 .prompt-agent-actions { display: flex; gap: 8px; margin-top: 10px; }
 
+.prompt-agent-run-state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    color: var(--text-secondary);
+}
+
+.prompt-agent-result-image {
+    display: block;
+    width: min(100%, 280px);
+    max-height: 240px;
+    object-fit: contain;
+    border-radius: 9px;
+    border: 1px solid var(--border-color);
+}
+
 .prompt-agent-composer { border-top: 1px solid var(--border-color); border-bottom: 0; }
 .prompt-agent-composer textarea {
     flex: 1;
