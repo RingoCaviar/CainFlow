@@ -11,6 +11,8 @@ import {
 test('transport adapters expose stable capability metadata and legacy encodings resolve', () => {
     assert.equal(getTransportAdapter('multipart').adapterId, 'multipart');
     assert.deepEqual(resolveTransportAdapter({ requestEncoding: 'json' }, {}).capabilities.fieldSources, ['parameter', 'literal']);
+    assert.deepEqual(getTransportAdapter('multipart').capabilities.compatibleEncodings, ['multipart']);
+    assert.ok(getTransportAdapter('multipart').capabilities.fieldSchema.media.includes('path'));
     assert.equal(resolveTransportAdapter({ requestEncoding: 'multipart' }, {}).encoding, 'multipart');
 });
 
@@ -47,6 +49,23 @@ test('unsupported adapter versions and fields block save or execution with an ex
     assert.throws(
         () => validateTransportAdapterConfiguration({ transportAdapter: { adapterId: 'multipart', version: 2 } }, {}),
         /只能只读保留/
+    );
+});
+
+test('explicit adapter and request encoding conflicts block save instead of being ignored', () => {
+    assert.throws(
+        () => validateTransportAdapterConfiguration({
+            transportAdapter: { adapterId: 'json', version: 1 },
+            requestEncoding: 'multipart'
+        }, {}),
+        /requestEncoding.*冲突/
+    );
+    assert.throws(
+        () => validateTransportAdapterConfiguration({
+            transportAdapter: { adapterId: 'multipart', version: 1 },
+            requestEncodingWhenReferenceImages: 'json'
+        }, {}),
+        /requestEncodingWhenReferenceImages.*冲突/
     );
 });
 

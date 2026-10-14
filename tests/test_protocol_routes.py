@@ -9,6 +9,8 @@ from backend import config
 from backend.routes.protocol_routes import (
     atomic_write_protocol,
     build_serializable_protocol_config,
+    handle_post,
+    restore_protocol_override,
     save_protocol,
     save_protocol_overrides,
     validate_transport_adapters,
@@ -24,12 +26,32 @@ class ProtocolRoutesTests(unittest.TestCase):
             self.headers = {'Content-Length': str(len(body))}
             self.rfile = io.BytesIO(body)
 
+    class _RestoreHandler:
+        path = '/api/protocol/override/restore'
+
+        def __init__(self, payload):
+            body = payload.encode('utf-8')
+            self.headers = {'Content-Length': str(len(body))}
+            self.rfile = io.BytesIO(body)
+
     def test_unknown_transport_fields_are_rejected_instead_of_dropped(self):
         self.assertIn('不支持字段', validate_transport_adapters({
             'transportAdapter': {'adapterId': 'multipart', 'version': 1, 'headers': {}}
         }))
         self.assertIn('不支持 Transport adapter', validate_transport_adapters({
             'transportAdapter': {'adapterId': 'vendor-custom', 'version': 1}
+        }))
+
+    def test_transport_encoding_conflicts_are_rejected(self):
+        self.assertIn('冲突', validate_transport_adapters({
+            'transportAdapter': {'adapterId': 'json', 'version': 1},
+            'requestEncoding': 'multipart'
+        }))
+        self.assertIn('冲突', validate_transport_adapters({
+            'transportAdapter': {'adapterId': 'multipart', 'version': 1},
+            'variants': {
+                'model-a': {'requestEncodingWhenReferenceImages': 'json'}
+            }
         }))
 
     def test_transport_adapter_is_preserved_in_serializable_protocol(self):
@@ -71,6 +93,49 @@ class ProtocolRoutesTests(unittest.TestCase):
                     self.assertIn('revision": 2', current.read())
                 with open(os.path.join(root, 'protocol-overrides.json.bak'), encoding='utf-8') as backup:
                     self.assertIn('revision": 1', backup.read())
+
+    def test_restore_override_replaces_only_requested_id_and_rotates_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(config, 'DATA_DIR', root):
+                save_protocol_overrides({
+                    'openai': {'revision': 1, 'config': {'label': 'old'}},
+                    'google': {'revision': 7},
+                })
+                save_protocol_overrides({
+                    'openai': {'revision': 2, 'config': {'label': 'new'}},
+                    'google': {'revision': 8},
+                })
+                handler = self._RestoreHandler(json.dumps({'protocolId': 'openai'}))
+                with patch('backend.routes.protocol_routes.write_json') as write:
+                    self.assertTrue(handle_post(handler))
+
+                payload = write.call_args.args[1]
+                self.assertTrue(payload['success'])
+                self.assertEqual(payload['override']['revision'], 1)
+                with open(os.path.join(root, 'protocol-overrides.json'), encoding='utf-8') as current:
+                    restored = json.load(current)
+                self.assertEqual(restored['openai']['revision'], 1)
+                self.assertEqual(restored['google']['revision'], 8)
+                with open(os.path.join(root, 'protocol-overrides.json.bak'), encoding='utf-8') as backup:
+                    rotated = json.load(backup)
+                self.assertEqual(rotated['openai']['revision'], 2)
+                self.assertEqual(rotated['google']['revision'], 8)
+
+    def test_restore_override_requires_backup_for_builtin_protocol(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(config, 'DATA_DIR', root), \
+                    patch('backend.routes.protocol_routes.write_error') as write_error:
+                handler = self._RestoreHandler(json.dumps({'protocolId': 'openai'}))
+                self.assertTrue(handle_post(handler))
+                self.assertEqual(write_error.call_args.args[1:3], (404, '内置协议 openai 没有可恢复的覆盖版本'))
+
+    def test_restore_override_rejects_non_builtin_protocol(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(config, 'DATA_DIR', root), \
+                    patch('backend.routes.protocol_routes.write_error') as write_error:
+                handler = self._RestoreHandler(json.dumps({'protocolId': 'custom'}))
+                restore_protocol_override(handler)
+                self.assertEqual(write_error.call_args.args[1:3], (400, '只有内置协议支持恢复覆盖版本'))
 
     def test_builtin_save_persists_baseline_metadata_from_request(self):
         handler = self._SaveHandler(json.dumps({

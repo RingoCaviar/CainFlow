@@ -16,7 +16,12 @@ const ADAPTERS = new Map([
         capabilities: Object.freeze({
             fieldSources: Object.freeze(['parameter', 'literal']),
             media: false,
-            authLocations: Object.freeze(['header', 'query', 'body'])
+            authLocations: Object.freeze(['header', 'query', 'body']),
+            fieldSchema: Object.freeze({
+                parameter: Object.freeze(['name', 'source', 'path', 'kind', 'required']),
+                literal: Object.freeze(['name', 'source', 'value', 'kind', 'required'])
+            }),
+            compatibleEncodings: Object.freeze(['json'])
         })
     })],
     ['multipart', Object.freeze({
@@ -26,7 +31,13 @@ const ADAPTERS = new Map([
         capabilities: Object.freeze({
             fieldSources: Object.freeze(['parameter', 'media', 'literal']),
             media: true,
-            authLocations: Object.freeze(['header', 'query'])
+            authLocations: Object.freeze(['header', 'query']),
+            fieldSchema: Object.freeze({
+                parameter: Object.freeze(['name', 'source', 'path', 'kind', 'repeat', 'mime', 'required']),
+                media: Object.freeze(['name', 'source', 'path', 'kind', 'repeat', 'mime', 'required']),
+                literal: Object.freeze(['name', 'source', 'value', 'kind', 'required'])
+            }),
+            compatibleEncodings: Object.freeze(['multipart'])
         })
     })]
 ]);
@@ -88,6 +99,26 @@ export function resolveTransportAdapter(protocol = {}, variant = {}) {
             ...clone(adapter), version, unsupported: true,
             reason: `Transport adapter “${adapter.adapterId}” 需要版本 ${version}，当前仅支持版本 ${adapter.version}；此协议只能只读保留。`
         };
+    }
+    if (declared !== undefined) {
+        const declaredRequestEncoding = firstDefined(variant.requestEncoding, protocol.requestEncoding);
+        const declaredImageEncoding = firstDefined(
+            variant.requestEncodingWhenReferenceImages,
+            protocol.requestEncodingWhenReferenceImages
+        );
+        for (const [field, encoding] of [
+            ['requestEncoding', declaredRequestEncoding],
+            ['requestEncodingWhenReferenceImages', declaredImageEncoding]
+        ]) {
+            if (encoding !== undefined && encoding !== '' && encoding !== adapter.encoding) {
+                return {
+                    ...clone(adapter),
+                    version,
+                    unsupported: true,
+                    reason: `Transport adapter “${adapter.adapterId}” 与 ${field} “${encoding}” 冲突；请只保留一致的编码声明。`
+                };
+            }
+        }
     }
     return { ...clone(adapter), version, config: typeof declared === 'object' ? clone(declared) : {} };
 }

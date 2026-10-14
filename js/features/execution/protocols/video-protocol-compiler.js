@@ -379,8 +379,12 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
     };
 }
 
-function redactPreviewValue(value, fieldName = '') {
-    if (SECRET_FIELD_PATTERN.test(String(fieldName || ''))) return '<REDACTED>';
+function redactPreviewValue(value, fieldName = '', authentication = {}) {
+    const authenticationField = String(authentication.field || '').trim().toLowerCase();
+    if (SECRET_FIELD_PATTERN.test(String(fieldName || ''))
+        || (authenticationField && String(fieldName || '').trim().toLowerCase() === authenticationField)) {
+        return '<REDACTED>';
+    }
     if (typeof value === 'string') {
         if (/^data:[^,]+,/i.test(value)) {
             return { redacted: true, size: value.length, summary: 'data URL' };
@@ -391,12 +395,12 @@ function redactPreviewValue(value, fieldName = '') {
         return value;
     }
     if (Array.isArray(value)) {
-        return value.map((item) => redactPreviewValue(item, fieldName));
+        return value.map((item) => redactPreviewValue(item, fieldName, authentication));
     }
     if (value && typeof value === 'object') {
         return Object.fromEntries(Object.entries(value).map(([key, item]) => [
             key,
-            redactPreviewValue(item, key)
+            redactPreviewValue(item, key, authentication)
         ]));
     }
     return value;
@@ -406,12 +410,19 @@ export function redactProtocolPreview(request = {}, authentication = {}) {
     const authenticationHeader = (authentication.location || 'header') === 'header'
         ? String(authentication.field || '').toLowerCase()
         : '';
-    const cloned = redactPreviewValue(request) || {};
+    const cloned = redactPreviewValue(request, '', authentication) || {};
     const headers = Object.fromEntries(Object.entries(request.headers || {}).map(([key, value]) => [
         key,
         (SECRET_HEADER_NAMES.has(key.toLowerCase()) || key.toLowerCase() === authenticationHeader)
             ? '<REDACTED>'
-            : redactPreviewValue(value, key)
+            : redactPreviewValue(value, key, authentication)
+    ]));
+    const query = Object.fromEntries(Object.entries(request.query || {}).map(([key, value]) => [
+        key,
+        (authentication.location === 'query' && authentication.field
+            && key.toLowerCase() === String(authentication.field).toLowerCase())
+            ? '<REDACTED>'
+            : redactPreviewValue(value, key, authentication)
     ]));
     const redactUrl = (value) => {
         if (!value) return value;
@@ -432,6 +443,7 @@ export function redactProtocolPreview(request = {}, authentication = {}) {
     return {
         ...cloned,
         headers,
+        query,
         url: redactUrl(request.url),
         query_url_template: redactUrl(request.query_url_template)
     };

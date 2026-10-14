@@ -111,6 +111,9 @@ def handle_post(handler):
     if handler.path == '/api/protocol/override/import':
         import_protocol_override(handler)
         return True
+    if handler.path.split('?', 1)[0] == '/api/protocol/override/restore':
+        restore_protocol_override(handler)
+        return True
     return False
 
 
@@ -314,6 +317,52 @@ def import_protocol_override(handler):
         write_error(handler, 500, f'覆盖导入失败: {error}')
 
 
+def restore_protocol_override(handler):
+    """恢复内置协议覆盖文件中的上一份完整版本。
+
+    ``save_protocol_overrides`` keeps a full-file ``.bak`` alongside the
+    current override file.  Restoring replaces only the requested stable ID
+    from that backup and writes the result through the same atomic writer.
+    The writer then backs up the pre-restore state, so a second restore can
+    safely toggle back if the user changes their mind.
+    """
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        body = handler.rfile.read(content_length)
+        data = json.loads(body.decode('utf-8'))
+        protocol_id = str(data.get('protocolId') or data.get('id') or '').strip()
+        if protocol_id not in BUILT_IN_PROTOCOL_IDS:
+            write_error(handler, 400, '只有内置协议支持恢复覆盖版本')
+            return
+
+        backup_path = f'{get_override_file_path()}.bak'
+        try:
+            with open(backup_path, 'r', encoding='utf-8') as source:
+                backup = json.load(source)
+        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+            write_error(handler, 404, f'内置协议 {protocol_id} 没有可恢复的覆盖版本')
+            return
+
+        previous = backup.get(protocol_id) if isinstance(backup, dict) else None
+        if not isinstance(previous, dict):
+            write_error(handler, 404, f'内置协议 {protocol_id} 没有可恢复的覆盖版本')
+            return
+
+        overrides = load_protocol_overrides()
+        overrides[protocol_id] = copy.deepcopy(previous)
+        save_protocol_overrides(overrides)
+        write_json(handler, {
+            'success': True,
+            'protocolId': protocol_id,
+            'override': overrides[protocol_id],
+            'message': f'内置协议 {protocol_id} 已恢复上一份覆盖版本',
+        })
+    except (ValueError, TypeError, json.JSONDecodeError) as error:
+        write_error(handler, 400, f'覆盖恢复失败: {error}')
+    except Exception as error:
+        write_error(handler, 500, f'覆盖恢复失败: {error}')
+
+
 def generate_protocol_file(protocol_id, config):
     """生成协议文件内容"""
     protocol_config = build_serializable_protocol_config(protocol_id, config)
@@ -372,23 +421,37 @@ def validate_transport_adapters(protocol_config):
     if not isinstance(protocol_config, dict):
         return '协议配置必须是对象'
     declarations = []
-    nodes = [protocol_config]
+    nodes = [(protocol_config, None, None, None)]
     while nodes:
-        node = nodes.pop()
+        node, inherited_adapter, inherited_encoding, inherited_image_encoding = nodes.pop()
         if not isinstance(node, dict):
             return '协议 variants 必须是对象映射。'
+        effective_adapter = node.get('transportAdapter', inherited_adapter)
+        effective_encoding = node.get('requestEncoding', inherited_encoding)
+        effective_image_encoding = node.get('requestEncodingWhenReferenceImages', inherited_image_encoding)
         if 'transportAdapter' in node:
             declarations.append(node.get('transportAdapter'))
         if 'requestEncoding' in node and node.get('requestEncoding') not in (None, '', 'json', 'multipart'):
             return f'requestEncoding “{node.get("requestEncoding")}” 不受支持；当前仅支持 json 或 multipart。'
         if 'requestEncodingWhenReferenceImages' in node and node.get('requestEncodingWhenReferenceImages') not in (None, '', 'json', 'multipart'):
             return f'requestEncodingWhenReferenceImages “{node.get("requestEncodingWhenReferenceImages")}” 不受支持；当前仅支持 json 或 multipart。'
+        if effective_adapter is not None:
+            if isinstance(effective_adapter, str):
+                effective_adapter_id = effective_adapter
+            elif isinstance(effective_adapter, dict):
+                effective_adapter_id = effective_adapter.get('adapterId', '')
+            else:
+                effective_adapter_id = ''
+            if effective_encoding and effective_adapter_id in {'json', 'multipart'} and effective_encoding != effective_adapter_id:
+                return f'Transport adapter “{effective_adapter_id}” 与 requestEncoding “{effective_encoding}” 冲突；请只保留一致的编码声明。'
+            if effective_image_encoding and effective_adapter_id in {'json', 'multipart'} and effective_image_encoding != effective_adapter_id:
+                return f'Transport adapter “{effective_adapter_id}” 与 requestEncodingWhenReferenceImages “{effective_image_encoding}” 冲突；请只保留一致的编码声明。'
         variants = node.get('variants')
         if variants is None:
             continue
         if not isinstance(variants, dict):
             return '协议 variants 必须是对象映射。'
-        nodes.extend(variants.values())
+        nodes.extend((variant, effective_adapter, effective_encoding, effective_image_encoding) for variant in variants.values())
     for declaration in declarations:
         if isinstance(declaration, str):
             adapter_id, version = declaration, 1

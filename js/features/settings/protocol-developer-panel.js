@@ -23,6 +23,7 @@ import {
 } from '../execution/protocols/video-protocol-compiler.js';
 import {
     cloneDeclarativeProtocolValue,
+    DECLARATIVE_PROTOCOL_SCHEMA,
     getDeclarativeProtocolEditorContract,
     normalizeDeclarativeProtocolConfiguration
 } from '../execution/protocols/declarative-protocol-schema.js';
@@ -101,6 +102,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'rows',
         'layout'
     ];
+    const ADVANCED_EDITOR_EXCLUDED_FIELDS = new Set([
+        'id', 'label', 'taskTypes', 'helpText', 'urlTemplate', 'urlTemplates',
+        'apikeyLocation', 'apikeyField', 'parameters', 'readOnly',
+        'executionBlockedReason'
+    ]);
 
     function cloneSerializable(value) {
         return cloneDeclarativeProtocolValue(value);
@@ -113,6 +119,75 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             }
             return result;
         }, {});
+    }
+
+    function knownDeclarativeFieldSet(section) {
+        return new Set((DECLARATIVE_PROTOCOL_SCHEMA.sections?.[section] || [])
+            .map(({ id }) => id));
+    }
+
+    function projectDeclarativeEditorValue(value, section = 'protocol', { exclude = new Set() } = {}) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return cloneSerializable(value);
+        const fields = knownDeclarativeFieldSet(section);
+        return Object.fromEntries(Object.entries(value)
+            .filter(([key, item]) => fields.has(key) && !exclude.has(key) && item !== undefined)
+            .map(([key, item]) => {
+                if (key === 'variants' && item && typeof item === 'object' && !Array.isArray(item)) {
+                    return [key, Object.fromEntries(Object.entries(item).map(([variantId, variant]) => [
+                        variantId,
+                        projectDeclarativeEditorValue(variant, 'variant')
+                    ]))];
+                }
+                if (key === 'parameters' && item && typeof item === 'object' && !Array.isArray(item)) {
+                    return [key, Object.fromEntries(Object.entries(item).map(([paramId, parameter]) => [
+                        paramId,
+                        projectDeclarativeEditorValue(parameter, 'parameter')
+                    ]))];
+                }
+                return [key, cloneSerializable(item)];
+            }));
+    }
+
+    function mergeKnownDeclarativeEditorValue(base, overlay, section = 'protocol') {
+        if (overlay === null) return null;
+        if (!overlay || typeof overlay !== 'object' || Array.isArray(overlay)) {
+            return cloneSerializable(overlay);
+        }
+        const fields = knownDeclarativeFieldSet(section);
+        const result = (base && typeof base === 'object' && !Array.isArray(base))
+            ? cloneSerializable(base)
+            : {};
+        Object.entries(overlay).forEach(([key, value]) => {
+            if (!fields.has(key)) return;
+            if (value === null) {
+                result[key] = null;
+                return;
+            }
+            if (key === 'variants' && value && typeof value === 'object' && !Array.isArray(value)) {
+                const current = result.variants && typeof result.variants === 'object' && !Array.isArray(result.variants)
+                    ? result.variants : {};
+                result.variants = Object.fromEntries(Object.entries(value).map(([variantId, variant]) => [
+                    variantId,
+                    mergeKnownDeclarativeEditorValue(current[variantId], variant, 'variant')
+                ]));
+                return;
+            }
+            if (key === 'parameters' && value && typeof value === 'object' && !Array.isArray(value)) {
+                const current = result.parameters && typeof result.parameters === 'object' && !Array.isArray(result.parameters)
+                    ? result.parameters : {};
+                result.parameters = Object.fromEntries(Object.entries(value).map(([paramId, parameter]) => [
+                    paramId,
+                    mergeKnownDeclarativeEditorValue(current[paramId], parameter, 'parameter')
+                ]));
+                return;
+            }
+            result[key] = cloneSerializable(value);
+        });
+        return result;
+    }
+
+    function buildAdvancedDeclarativeEditorValue(protocol = {}) {
+        return projectDeclarativeEditorValue(protocol, 'protocol', { exclude: ADVANCED_EDITOR_EXCLUDED_FIELDS });
     }
 
     function cleanParameterConfig(paramId, param = {}) {
@@ -343,6 +418,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             <div class="protocol-dev-footer" id="protocol-footer">
                 <div class="footer-actions">
                     <button id="btn-delete-protocol-footer" class="btn btn-danger btn-sm hidden">删除协议</button>
+                    <button id="btn-restore-protocol-footer" class="btn btn-secondary btn-sm hidden">恢复上一版本</button>
                     <span id="protocol-save-status" class="protocol-save-status" role="status" aria-live="polite"></span>
                 </div>
                 <div class="footer-actions">
@@ -482,13 +558,19 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             'hidden',
             BUILT_IN_PROTOCOL_IDS.has(draftProtocol.id) && !getProtocolOverride(draftProtocol.id)
         );
+        documentRef.getElementById('btn-restore-protocol-footer').classList.toggle(
+            'hidden',
+            !BUILT_IN_PROTOCOL_IDS.has(draftProtocol.id) || !getProtocolOverride(draftProtocol.id)
+        );
         const readOnly = draftProtocol.readOnly === true;
         documentRef.getElementById('btn-save-protocol').disabled = readOnly;
         documentRef.getElementById('btn-test-protocol').disabled = readOnly;
         documentRef.getElementById('btn-add-parameter').disabled = readOnly;
         if (readOnly) {
             documentRef.getElementById('protocol-editor-view').querySelectorAll('input, textarea, select, button')
-                .forEach((control) => { control.disabled = true; });
+                .forEach((control) => {
+                    if (control.id !== 'btn-restore-protocol-footer') control.disabled = true;
+                });
             setSaveStatus('此协议来自更新版本的 CainFlow，只能原样导出，不能编辑或执行。', 'warning');
         }
 
@@ -516,16 +598,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         // 填充API Key配置
         documentRef.getElementById('protocol-apikey-location').value = draftProtocol.apikeyLocation || 'header';
         documentRef.getElementById('protocol-apikey-field').value = draftProtocol.apikeyField || '';
-        documentRef.getElementById('protocol-video-advanced').value = JSON.stringify({
-            schemaVersion: draftProtocol.schemaVersion || 1,
-            variants: draftProtocol.variants || {},
-            authentication: draftProtocol.authentication,
-            requestEncoding: draftProtocol.requestEncoding,
-            createPath: draftProtocol.createPath,
-            queryPath: draftProtocol.queryPath,
-            asyncTask: draftProtocol.asyncTask,
-            transportAdapter: draftProtocol.transportAdapter
-        }, null, 2);
+        documentRef.getElementById('protocol-video-advanced').value = JSON.stringify(
+            buildAdvancedDeclarativeEditorValue(draftProtocol),
+            null,
+            2
+        );
         renderDeclarativeContractSummary(draftProtocol);
 
         // 渲染参数列表
@@ -1040,14 +1117,12 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             } catch (_) {
                 throw new Error('视频高级配置必须是有效 JSON');
             }
-            ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask', 'transportAdapter']
-                .forEach((key) => {
-                    if (advanced[key] !== undefined) nextProtocol[key] = advanced[key];
-                });
+            const mergedAdvanced = mergeKnownDeclarativeEditorValue(nextProtocol, advanced, 'protocol');
+            Object.assign(nextProtocol, mergedAdvanced);
             if (advanced.variants !== undefined && (typeof advanced.variants !== 'object' || Array.isArray(advanced.variants))) {
                 throw new Error('视频高级配置中的 variants 必须是对象');
             }
-            Object.entries(advanced.variants || {}).forEach(([modelId, variant]) => {
+            Object.entries(nextProtocol.variants || {}).forEach(([modelId, variant]) => {
                 if (!modelId || !variant || typeof variant !== 'object' || Array.isArray(variant)) {
                     throw new Error('每个模型变体必须是以模型 ID 为键的对象');
                 }
@@ -1468,6 +1543,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         documentRef.getElementById('btn-export-protocol').classList.add('hidden');
         documentRef.getElementById('btn-test-protocol').classList.add('hidden');
         documentRef.getElementById('btn-delete-protocol-footer').classList.add('hidden');
+        documentRef.getElementById('btn-restore-protocol-footer').classList.add('hidden');
 
         // 隐藏返回按钮
         documentRef.getElementById('btn-back-to-list').classList.add('hidden');
@@ -1628,6 +1704,30 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         }
     }
 
+    async function restorePreviousProtocolRevision(protocolId = draftProtocol?.id) {
+        if (!protocolId || !BUILT_IN_PROTOCOL_IDS.has(protocolId) || !getProtocolOverride(protocolId)) return;
+        if (!confirm(`确定恢复内置协议 “${protocolId}” 的上一份覆盖版本吗？当前覆盖会保存在备份中，可再次恢复。`)) return;
+        try {
+            const response = await fetch('/api/protocol/override/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ protocolId })
+            });
+            const result = await response.json();
+            if (!response.ok || result.success !== true || !result.override) {
+                throw new Error(result.error || result.message || '恢复上一版本失败');
+            }
+            setProtocolOverride(protocolId, result.override);
+            notifyProtocolRegistryChange(protocolId);
+            showToast(`协议 ${protocolId} 已恢复上一份覆盖版本`, 'success');
+            editProtocol(protocolId);
+            renderProtocolList();
+        } catch (error) {
+            setSaveStatus(`恢复失败：${error.message}`, 'error');
+            showToast(`恢复上一版本失败: ${error.message}`, 'error');
+        }
+    }
+
     /**
      * 初始化面板
      */
@@ -1673,6 +1773,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         documentRef.getElementById('btn-delete-protocol-footer').addEventListener('click', () => {
             if (currentEditingProtocol) {
                 deleteProtocol(currentEditingProtocol.id);
+            }
+        });
+        documentRef.getElementById('btn-restore-protocol-footer').addEventListener('click', () => {
+            if (currentEditingProtocol) {
+                restorePreviousProtocolRevision(currentEditingProtocol.id);
             }
         });
     }
@@ -1872,10 +1977,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             const advancedRaw = documentRef.getElementById('protocol-video-advanced')?.value.trim() || '';
             if (advancedRaw) {
                 const advanced = JSON.parse(advancedRaw);
-                ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask', 'transportAdapter']
-                    .forEach((key) => {
-                        if (advanced[key] !== undefined) tempProtocol[key] = advanced[key];
-                    });
+                Object.assign(tempProtocol, mergeKnownDeclarativeEditorValue(tempProtocol, advanced, 'protocol'));
             }
 
             // 如果配置了图片编辑路径，添加到 urlTemplates
@@ -2005,6 +2107,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
             // 根据API Key位置添加到预览
             const mockApiKey = 'sk-example-api-key-1234567890';
+            const authentication = {
+                location: apikeyLocation,
+                field: apikeyField.includes(':') ? apikeyField.split(':', 1)[0].trim() : apikeyField,
+                template: '{apikey}'
+            };
 
             // 处理 API Key 字段名模板
             function processApiKeyField(fieldTemplate, apiKey) {
@@ -2032,7 +2139,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     preview.headers['Content-Type'] = 'application/json';
                     break;
                 case 'query':
-                    preview.query[apikeyField] = processApiKeyField(apikeyField, mockApiKey);
+                    preview.query[apikeyField] = mockApiKey;
                     preview.headers['Content-Type'] = 'application/json';
                     break;
                 case 'body':
@@ -2042,7 +2149,8 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             }
 
             // 格式化并显示
-            const formatted = JSON.stringify(preview, null, 2);
+            const safePreview = redactProtocolPreview(preview, authentication);
+            const formatted = JSON.stringify(safePreview, null, 2);
             previewContainer.innerHTML = `<pre><code>${escapeHtmlForPreview(formatted)}</code></pre>`;
 
         } catch (error) {
