@@ -72,6 +72,7 @@ import { createHelpPanelApi } from '../features/help/help-panel.js';
 import { createWorkflowManagerApi } from '../features/workflow/workflow-manager.js';
 import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runtime-manager.js';
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
+import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -93,6 +94,7 @@ import { registerGlobalBridges } from './register-global-bridges.js';
 
 export async function initializeCainFlowApp() {
 const registry = createAppRegistry();
+const promptAgentController = createPromptAgentController({ documentRef: document });
 
 // ===== 工具函数 =====
 function generateId() {
@@ -1621,6 +1623,7 @@ function initFeatureModules() {
     helpPanelApi.initHelpPanel();
     workflowManagerApi.initWorkflow();
     getPromptLibraryApi().initPromptLibrary();
+    promptAgentController.init();
     uiFeature.initCache();
 }
 

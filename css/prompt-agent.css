@@ -1,0 +1,84 @@
+.prompt-agent-panel {
+    position: absolute;
+    z-index: var(--layer-panel, 30);
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    display: none;
+    width: clamp(320px, 34vw, 720px);
+    min-width: 300px;
+    max-width: min(80vw, 960px);
+    resize: horizontal;
+    overflow: hidden;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--bg-panel, var(--bg-secondary));
+    color: var(--text-primary);
+    box-shadow: var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.3));
+}
+
+.prompt-agent-panel.active { display: flex; }
+
+.prompt-agent-header,
+.prompt-agent-composer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.prompt-agent-header h2 { margin: 0; font-size: 15px; }
+.prompt-agent-header .btn { margin-left: auto; }
+
+.prompt-agent-messages {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+}
+
+.prompt-agent-empty {
+    margin: 20% auto 0;
+    max-width: 280px;
+    color: var(--text-secondary);
+    text-align: center;
+    line-height: 1.6;
+}
+
+.prompt-agent-message {
+    margin: 0 0 14px;
+    padding: 11px 13px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+.prompt-agent-message-user {
+    margin-left: 12%;
+    background: var(--accent-subtle, rgba(99, 102, 241, 0.12));
+}
+
+.prompt-agent-message-agent { margin-right: 8%; background: var(--bg-elevated, var(--bg-dark)); }
+.prompt-agent-work-summary { margin-bottom: 8px; color: var(--text-secondary); font-size: 12px; }
+.prompt-agent-work-summary summary { cursor: pointer; user-select: none; }
+.prompt-agent-work-summary ol { margin: 8px 0 0; padding-left: 20px; }
+
+.prompt-agent-composer { border-top: 1px solid var(--border-color); border-bottom: 0; }
+.prompt-agent-composer textarea {
+    flex: 1;
+    min-height: 42px;
+    max-height: 150px;
+    resize: vertical;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px;
+    background: var(--bg-input, var(--bg-dark));
+    color: var(--text-primary);
+    font: inherit;
+}
+
+@media (max-width: 720px) {
+    .prompt-agent-panel { left: 8px; right: 8px; width: auto; max-width: none; resize: none; }
+}

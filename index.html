@@ -37,6 +37,7 @@
     <!-- CSS files loaded in parallel for faster initial render -->
     <link rel="stylesheet" href="css/modules/00-foundation.css">
     <link rel="stylesheet" href="css/modules/01-toolbar.css">
+    <link rel="stylesheet" href="css/prompt-agent.css">
     <link rel="stylesheet" href="css/modules/02-buttons.css">
     <link rel="stylesheet" href="css/modules/03-canvas.css">
     <link rel="stylesheet" href="css/modules/04-node-core.css">
@@ -270,6 +271,9 @@
                 <input type="file" id="import-file" accept=".json" style="display:none" />
             </div>
             <div class="toolbar-right">
+                <button id="btn-prompt-agent" class="btn btn-ghost" type="button" aria-controls="prompt-agent-panel"
+                    aria-expanded="false" title="打开提示词 Agent">Agent</button>
+                <div class="toolbar-divider"></div>
                 <div class="toolbar-toggle-group" title="开启后，工作流运行结束后将发送系统通知">
                     <svg class="icon-xs" fill="none" stroke="currentColor" stroke-width="2"
                         style="color:var(--text-secondary); margin-right:4px;" viewBox="0 0 24 24">
@@ -347,6 +351,19 @@
         </div>
 
         <main id="main-layout">
+            <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-hidden="true" inert>
+                <header class="prompt-agent-header">
+                    <h2>Prompt Agent</h2>
+                    <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">&times;</button>
+                </header>
+                <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
+                    <p class="prompt-agent-empty">描述你想生成的画面。当前版本先建立对话，后续会接入所选生图节点。</p>
+                </section>
+                <form id="prompt-agent-form" class="prompt-agent-composer">
+                    <textarea id="prompt-agent-input" rows="2" placeholder="描述你想生成的图片……" aria-label="Prompt Agent 输入"></textarea>
+                    <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
+                </form>
+            </aside>
             <!-- Vertical Sidebar (Left) -->
             <div id="side-bar">
                 <button id="btn-toggle-workflow" class="side-bar-btn" title="工作流管理">
