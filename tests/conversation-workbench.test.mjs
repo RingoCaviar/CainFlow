@@ -285,7 +285,7 @@ test('Conversation workspace exposes standalone chat panes and composer contract
     for (const id of [
         'conversation-list-pane', 'conversation-list-toggle', 'conversation-search', 'conversation-new', 'conversation-list',
         'conversation-main-pane', 'conversation-title', 'conversation-model', 'conversation-messages', 'conversation-guidance',
-        'conversation-staged-context', 'conversation-send-summary', 'conversation-composer', 'conversation-send',
+        'conversation-staged-context', 'conversation-send-summary', 'conversation-composer', 'conversation-history-media', 'conversation-send',
         'conversation-toolbar-new', 'conversation-toolbar-list',
         'conversation-toolbar-stop', 'conversation-toolbar-return-canvas'
     ]) assert.match(html, new RegExp(`id="${id}"`), id);
