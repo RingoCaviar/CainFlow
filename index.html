@@ -376,6 +376,9 @@
             <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-hidden="true" inert>
                 <header class="prompt-agent-header">
                     <h2>Prompt Agent</h2>
+                    <label class="prompt-agent-model-label">模型
+                        <select id="prompt-agent-model" aria-label="Prompt Agent 对话模型"></select>
+                    </label>
                     <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">&times;</button>
                 </header>
                 <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
@@ -385,6 +388,7 @@
                     <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
                     <textarea id="prompt-agent-input" rows="2" placeholder="描述你想生成的图片……" aria-label="Prompt Agent 输入"></textarea>
                     <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
+                    <button id="prompt-agent-cancel" class="btn btn-secondary" type="button" hidden>停止请求</button>
                 </form>
             </aside>
             <!-- Vertical Sidebar (Left) -->

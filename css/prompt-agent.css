@@ -31,6 +31,8 @@
 
 .prompt-agent-header h2 { margin: 0; font-size: 15px; }
 .prompt-agent-header .btn { margin-left: auto; }
+.prompt-agent-model-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.prompt-agent-model-label select { max-width: 170px; min-width: 80px; }
 
 .prompt-agent-messages {
     flex: 1;

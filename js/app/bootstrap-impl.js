@@ -83,6 +83,8 @@ import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentNodeAdapter } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
+import { createPromptAgentModelReply } from '../features/prompt-agent/prompt-agent-model.js';
+import { getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -856,10 +858,34 @@ const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     cancelRunningNode,
     focusNode: focusCanvasNode
 });
+const PROMPT_AGENT_MODEL_STORAGE_KEY = 'cainflow_prompt_agent_model';
+const getPromptAgentModelId = () => {
+    try { return String(window.localStorage.getItem(PROMPT_AGENT_MODEL_STORAGE_KEY) || ''); } catch { return ''; }
+};
+const setPromptAgentModelId = (value) => {
+    try { window.localStorage.setItem(PROMPT_AGENT_MODEL_STORAGE_KEY, String(value || '')); } catch { /* optional preference */ }
+};
 const promptAgentController = createPromptAgentController({
     documentRef: document,
     nodeAdapter: promptAgentNodeAdapter,
     executionAdapter: promptAgentExecutionAdapter,
+    getChatModels: () => getModelsForTask(state.models || [], 'chat'),
+    getSelectedModelId: getPromptAgentModelId,
+    setSelectedModelId: setPromptAgentModelId,
+    createReply: (request) => {
+        const chatModels = getModelsForTask(state.models || [], 'chat');
+        const model = chatModels.find((item) => item.id === request.modelId) || chatModels[0];
+        const provider = (state.providers || []).find((item) =>
+            Array.isArray(model?.providerIds) ? model.providerIds.includes(item.id) : item.id === model?.providerId
+        );
+        return createPromptAgentModelReply({
+            ...request,
+            model,
+            providers: state.providers || [],
+            getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', model?.protocol === 'openai'
+                ? { Authorization: `Bearer ${provider?.apikey || ''}` } : {})
+        });
+    },
     onStateChange: () => workflowManagerApi.markActiveWorkflowDirty()
 });
 registry.promptAgentController = promptAgentController;

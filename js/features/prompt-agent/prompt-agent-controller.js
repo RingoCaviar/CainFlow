@@ -61,6 +61,9 @@ export function createPromptAgentController({
     createReply = async (request) => buildDefaultReply(request),
     nodeAdapter = null,
     executionAdapter = null,
+    getChatModels = () => [],
+    getSelectedModelId = () => '',
+    setSelectedModelId = () => {},
     conversationStore = createPromptAgentConversationStore(),
     onStateChange = () => {},
     readReferenceFile = readImageFile,
@@ -69,6 +72,7 @@ export function createPromptAgentController({
     let initialized = false;
     let resizeObserver = null;
     let workflowRevision = 0;
+    let activeReplyController = null;
     let pendingReferenceImages = [];
     const promptPlanActionStates = new Set();
 
@@ -80,9 +84,27 @@ export function createPromptAgentController({
             form: documentRef.getElementById('prompt-agent-form'),
             input: documentRef.getElementById('prompt-agent-input'),
             sendButton: documentRef.getElementById('prompt-agent-send'),
+            cancelButton: documentRef.getElementById('prompt-agent-cancel'),
+            modelSelect: documentRef.getElementById('prompt-agent-model'),
             messages: documentRef.getElementById('prompt-agent-messages'),
             references: documentRef.getElementById('prompt-agent-references')
         };
+    }
+
+    function renderModelOptions() {
+        const { modelSelect } = getElements();
+        if (!modelSelect) return;
+        const models = getChatModels().filter((model) => model?.id && model?.modelId);
+        const selected = getSelectedModelId() || models[0]?.id || '';
+        modelSelect.replaceChildren?.();
+        models.forEach((model) => {
+            const option = documentRef.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name || model.modelId;
+            modelSelect.appendChild(option);
+        });
+        modelSelect.value = models.some((model) => model.id === selected) ? selected : (models[0]?.id || '');
+        modelSelect.disabled = models.length === 0;
     }
 
     function appendReferencePreviews(container, referenceImages = [], { removable = false } = {}) {
@@ -354,7 +376,7 @@ export function createPromptAgentController({
     }
 
     async function submit() {
-        const { input, sendButton } = getElements();
+        const { input, sendButton, cancelButton } = getElements();
         const text = input?.value?.trim();
         const referenceImages = pendingReferenceImages.slice();
         if (!text && referenceImages.length === 0) return;
@@ -369,6 +391,9 @@ export function createPromptAgentController({
         pendingReferenceImages = [];
         renderPendingReferences();
         if (sendButton) sendButton.disabled = true;
+        if (cancelButton) cancelButton.hidden = false;
+        const replyController = typeof AbortController === 'function' ? new AbortController() : null;
+        activeReplyController = replyController;
         try {
             const context = nodeAdapter?.getSelectedContext?.() || null;
             const reply = await createReply({
@@ -376,28 +401,35 @@ export function createPromptAgentController({
                 context,
                 workflowMemory,
                 referenceImages,
-                workflowReferenceImages
+                workflowReferenceImages,
+                modelId: getElements().modelSelect?.value || getSelectedModelId(),
+                signal: replyController?.signal
             });
             if (requestWorkflowRevision !== workflowRevision) return;
             const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || [], { promptPlan: reply?.promptPlan || null });
             appendPromptPlan(agentMessage, reply?.promptPlan);
         } catch (error) {
             if (requestWorkflowRevision !== workflowRevision) return;
-            appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。');
+            appendMessage('agent', replyController?.signal.aborted ? '已取消本次 Agent 请求。' : (error?.message || 'Agent 暂时无法回复，请稍后重试。'));
         } finally {
+            if (activeReplyController === replyController) activeReplyController = null;
             if (sendButton) sendButton.disabled = false;
+            if (cancelButton) cancelButton.hidden = true;
         }
     }
 
     function init() {
         if (initialized) return;
-        const { button, closeButton, form } = getElements();
+        const { button, closeButton, form, modelSelect, cancelButton } = getElements();
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);
         form?.addEventListener('submit', async (event) => {
             event.preventDefault();
             await submit();
         });
+        modelSelect?.addEventListener('change', () => setSelectedModelId(modelSelect.value));
+        cancelButton?.addEventListener('click', () => activeReplyController?.abort());
+        renderModelOptions();
         form?.addEventListener('paste', async (event) => {
             const files = Array.from(event.clipboardData?.items || [])
                 .map((item) => item.kind === 'file' ? item.getAsFile?.() : null)
@@ -456,6 +488,7 @@ export function createPromptAgentController({
     }
 
     function restoreWorkflow(value) {
+        activeReplyController?.abort();
         workflowRevision += 1;
         pendingReferenceImages = [];
         conversationStore.restore(value);
@@ -474,5 +507,8 @@ export function createPromptAgentController({
         return conversationStore.snapshot();
     }
 
-    return { init, open, close, toggle, submit, restoreWorkflow, snapshotWorkflow, refreshActionStates };
+    return {
+        init, open, close, toggle, submit, cancelRequest: () => activeReplyController?.abort(),
+        restoreWorkflow, snapshotWorkflow, refreshActionStates
+    };
 }
