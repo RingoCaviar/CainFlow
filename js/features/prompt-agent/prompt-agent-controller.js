@@ -247,9 +247,18 @@ export function createPromptAgentController({
 
     function appendPromptPlan(message, plan) {
         if (!message || !plan) return;
-        const hasValidTarget = () => {
+        // A user may ask Agent for a draft first and select the target node
+        // afterwards. Bind an otherwise unassigned plan only when there is
+        // exactly one selected image-generation node; never retarget a plan
+        // that already names a different node.
+        const getActionPlan = () => {
             const selected = nodeAdapter?.getSelectedContext?.();
-            return Boolean(plan.targetNodeId && selected?.nodeId === plan.targetNodeId);
+            if (!selected?.nodeId) return null;
+            if (plan.targetNodeId && selected.nodeId !== plan.targetNodeId) return null;
+            return plan.targetNodeId ? plan : { ...plan, targetNodeId: selected.nodeId };
+        };
+        const hasValidTarget = () => {
+            return Boolean(getActionPlan());
         };
         const planElement = documentRef.createElement('section');
         planElement.className = 'prompt-agent-plan';
@@ -273,11 +282,12 @@ export function createPromptAgentController({
         applyButton.className = 'btn btn-primary';
         applyButton.textContent = '应用到节点';
         applyButton.addEventListener('click', () => {
-            if (!hasValidTarget()) {
+            const actionPlan = getActionPlan();
+            if (!actionPlan) {
                 actionState.sync();
                 return;
             }
-            if (!nodeAdapter?.applyPromptPlan?.(plan)) return;
+            if (!nodeAdapter?.applyPromptPlan?.(actionPlan)) return;
             applyButton.textContent = '已应用';
             actionState.applied = true;
             actionState.sync();
@@ -289,11 +299,12 @@ export function createPromptAgentController({
         generateButton.className = 'btn btn-secondary';
         generateButton.textContent = '应用并生成';
         generateButton.addEventListener('click', async () => {
-            if (!hasValidTarget()) {
+            const actionPlan = getActionPlan();
+            if (!actionPlan) {
                 actionState.sync();
                 return;
             }
-            await runPromptPlan(message, plan, actions, null, actionState);
+            await runPromptPlan(message, actionPlan, actions, null, actionState);
         });
         actions.appendChild(generateButton);
         message.appendChild(actions);

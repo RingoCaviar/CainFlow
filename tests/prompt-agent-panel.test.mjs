@@ -213,6 +213,29 @@ test('refreshes response actions after selecting the planned target node', async
     assert.equal(actions.children[1].disabled, true);
 });
 
+test('binds an unassigned draft to a single image node selected afterwards', async () => {
+    let selected = null;
+    let applied = null;
+    const { controller, elements } = createHarness(async () => ({
+        message: '草稿已就绪',
+        workSummary: [],
+        promptPlan: { targetNodeId: null, prompt: '草稿提示词', negativePrompt: '', parameters: {} }
+    }), {
+        getSelectedContext: () => selected,
+        applyPromptPlan: (plan) => { applied = plan; return true; }
+    });
+    elements['prompt-agent-input'].value = '先整理提示词';
+    await elements['prompt-agent-form'].dispatch('submit');
+    const actions = elements['prompt-agent-messages'].children[1].children[2];
+    assert.equal(actions.children[0].disabled, true);
+
+    selected = { nodeId: 'image-1', prompt: '', negativePrompt: '', parameters: {}, referenceImages: [] };
+    controller.refreshActionStates();
+    assert.equal(actions.children[0].disabled, false);
+    actions.children[0].dispatch('click');
+    assert.equal(applied.targetNodeId, 'image-1');
+});
+
 test('default Prompt Plan keeps the selected node prompt when applying a follow-up instruction', async () => {
     const elements = {
         'btn-prompt-agent': new FakeElement(), 'prompt-agent-panel': new FakeElement(),
