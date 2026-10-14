@@ -31,6 +31,9 @@ class FakeElement {
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     removeAttribute(name) { this.attributes.delete(name); }
     appendChild(child) { this.children.push(child); return child; }
+    querySelector(selector) {
+        return this.children.find((child) => child.className === selector.slice(1)) || null;
+    }
     blur() {}
 }
 

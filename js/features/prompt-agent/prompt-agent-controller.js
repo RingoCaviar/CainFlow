@@ -41,6 +41,8 @@ export function createPromptAgentController({
     function appendMessage(role, text, workSummary = []) {
         const { messages } = getElements();
         if (!messages) return null;
+        const emptyState = messages.querySelector?.('.prompt-agent-empty');
+        emptyState?.remove?.();
         const message = documentRef.createElement('article');
         message.className = `prompt-agent-message prompt-agent-message-${role}`;
         message.setAttribute('data-role', role);
