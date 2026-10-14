@@ -19,10 +19,11 @@ function harness({ selected = ['image-1'], nodeType = 'ImageGenerate' } = {}) {
         'image-1-resolution': control('1024x1024'),
         'image-1-generation-count': control('1')
     };
-    const node = { id: 'image-1', type: nodeType, data: { prompt: '数据提示词' } };
+    const node = { id: 'image-1', type: nodeType, data: { prompt: '数据提示词', protocolParams: {} } };
+    const source = { id: 'source-1', type: 'ImageImport', data: { imageAssetKey: 'media:reference-1', image: 'data:image/png;base64,cmVm' } };
     const state = {
         selectedNodes: new Set(selected),
-        nodes: new Map([['image-1', node]]),
+        nodes: new Map([['image-1', node], ['source-1', source]]),
         connections: [{ from: { nodeId: 'source-1', port: 'image' }, to: { nodeId: 'image-1', port: 'image_1' } }]
     };
     let saves = 0;
@@ -42,8 +43,14 @@ test('reads one explicitly selected image-generation node as Agent context', () 
         nodeId: 'image-1',
         prompt: '原始提示词',
         negativePrompt: '原始负面提示词',
-        parameters: { aspectRatio: '1:1', resolution: '1024x1024', count: 1 },
-        referenceImages: [{ sourceNodeId: 'source-1', sourcePort: 'image', targetPort: 'image_1' }]
+        parameters: {
+            aspectRatio: '1:1', resolution: '1024x1024', customWidth: '', customHeight: '',
+            quality: '', moderation: '', background: '', search: false, count: 1, protocolParams: {}
+        },
+        referenceImages: [{
+            sourceNodeId: 'source-1', sourcePort: 'image', targetPort: 'image_1',
+            assetKeys: ['media:reference-1'], images: ['data:image/png;base64,cmVm']
+        }]
     });
 });
 
@@ -68,6 +75,6 @@ test('applies a Prompt Plan only while its image-generation node remains selecte
     assert.equal(controls['image-1-aspect'].value, '16:9');
     assert.equal(controls['image-1-generation-count'].value, '2');
     assert.equal(node.data.prompt, '电影感城市夜景');
-    assert.equal(node.data.promptAgentNegativePrompt, '卡通、过度饱和');
+    assert.equal(node.data.protocolParams.negative_prompt, '卡通、过度饱和');
     assert.equal(getSaves(), 1);
 });

@@ -1,5 +1,9 @@
 function buildDefaultReply({ message, context }) {
-    const prompt = String(message || '').trim();
+    const instruction = String(message || '').trim();
+    const currentPrompt = String(context?.prompt || '').trim();
+    const prompt = currentPrompt
+        ? `${currentPrompt}\n\n调整要求：${instruction}`
+        : instruction;
     return {
         message: context ? '已根据当前生图节点整理 Prompt Plan。' : '已整理 Prompt Plan；选择一个生图节点后即可应用。',
         workSummary: context ? ['读取当前生图节点', '整理提示词与生成参数'] : ['理解创作需求', '整理提示词方向'],

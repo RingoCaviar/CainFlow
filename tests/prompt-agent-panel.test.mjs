@@ -139,3 +139,31 @@ test('keeps chatting but disables plan application without one selected image no
     const agentMessage = elements['prompt-agent-messages'].children[1];
     assert.equal(agentMessage.children[3].children[0].disabled, true);
 });
+
+test('default Prompt Plan keeps the selected node prompt when applying a follow-up instruction', async () => {
+    const elements = {
+        'btn-prompt-agent': new FakeElement(), 'prompt-agent-panel': new FakeElement(),
+        'btn-close-prompt-agent': new FakeElement(), 'prompt-agent-form': new FakeElement(),
+        'prompt-agent-input': new FakeElement(), 'prompt-agent-send': new FakeElement(),
+        'prompt-agent-messages': new FakeElement()
+    };
+    const documentRef = {
+        activeElement: null,
+        getElementById: (id) => elements[id] || null,
+        createElement: () => new FakeElement()
+    };
+    let applied = null;
+    const controller = createPromptAgentController({
+        documentRef,
+        nodeAdapter: {
+            getSelectedContext: () => ({ nodeId: 'image-1', prompt: '城市夜景', negativePrompt: '', parameters: {}, referenceImages: [] }),
+            applyPromptPlan: (plan) => { applied = plan; return true; }
+        }
+    });
+    controller.init();
+    elements['prompt-agent-input'].value = '更有电影感';
+    await elements['prompt-agent-form'].dispatch('submit');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    agentMessage.children[3].children[0].dispatch('click');
+    assert.equal(applied.prompt, '城市夜景\n\n调整要求：更有电影感');
+});
