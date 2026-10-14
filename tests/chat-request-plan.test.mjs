@@ -45,6 +45,16 @@ test('shared completion transport parses OpenAI and Google text without exposing
     assert.equal(google.text, 'Google reply');
 });
 
+test('shared completion transport joins OpenAI structured content parts', async () => {
+    const plan = createChatRequestPlan({ provider, model: openAiModel, protocol: 'openai', messages: [{ role: 'user', content: 'hello' }] });
+    const result = await requestChatCompletion(plan, {
+        fetchRef: async () => new Response(JSON.stringify({ choices: [{ message: {
+            content: [{ type: 'text', text: '{"prompt":"生成一张海报"}' }]
+        } }] }))
+    });
+    assert.equal(result.text, '{"prompt":"生成一张海报"}');
+});
+
 test('builds Google history and inline image parts without changing media order', () => {
     const plan = createChatRequestPlan({
         provider,

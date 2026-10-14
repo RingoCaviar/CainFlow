@@ -138,9 +138,12 @@ export async function requestChatCompletion(plan, { fetchRef = fetch, headers = 
         throw error;
     }
     const payload = await response.json();
-    const text = plan.protocol === 'google'
+    const rawText = plan.protocol === 'google'
         ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
         : payload.choices?.[0]?.message?.content;
+    const text = Array.isArray(rawText)
+        ? rawText.map((part) => typeof part === 'string' ? part : String(part?.text || '')).join('')
+        : rawText;
     if (!String(text || '').trim()) throw new ChatRequestPlanError('empty_response', 'API 返回了空回复');
     return { text: String(text), payload };
 }

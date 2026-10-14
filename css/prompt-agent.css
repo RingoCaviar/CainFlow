@@ -3,7 +3,8 @@
     z-index: var(--layer-panel, 30);
     top: 12px;
     right: 12px;
-    bottom: 12px;
+    /* Keep the canvas navigation controls reachable while the drawer is open. */
+    bottom: 72px;
     display: none;
     width: clamp(320px, 34vw, 720px);
     min-width: 300px;
@@ -144,5 +145,5 @@
 }
 
 @media (max-width: 720px) {
-    .prompt-agent-panel { left: 8px; right: 8px; width: auto; max-width: none; resize: none; }
+    .prompt-agent-panel { left: 8px; right: 8px; bottom: 64px; width: auto; max-width: none; resize: none; }
 }

@@ -65,6 +65,7 @@ function createHarness(createReply = async () => ({
         'prompt-agent-form': new FakeElement(),
         'prompt-agent-input': new FakeElement(),
         'prompt-agent-send': new FakeElement(),
+        'prompt-agent-model': new FakeElement(),
         'prompt-agent-messages': new FakeElement(),
         'prompt-agent-references': new FakeElement()
     };
@@ -131,6 +132,23 @@ test('passes selected node context to the Agent and applies the response plan', 
     agentMessage.children[3].children[0].dispatch('click');
     assert.equal(applied.prompt, '新提示词');
     assert.equal(elements['prompt-agent-panel'].classList.contains('active'), true);
+});
+
+test('refreshes chat models loaded after initialization before submitting', async () => {
+    let models = [];
+    let request = null;
+    const { elements } = createHarness(async (value) => {
+        request = value;
+        return { message: '计划已就绪。', workSummary: [], promptPlan: null };
+    }, undefined, undefined, { getChatModels: () => models });
+
+    models = [{ id: 'chat-provider-model', modelId: 'chat-v1', name: 'Chat v1' }];
+    elements['prompt-agent-input'].value = '生成一张海报';
+    await elements['prompt-agent-form'].dispatch('submit');
+
+    assert.equal(request.modelId, 'chat-provider-model');
+    assert.equal(elements['prompt-agent-model'].disabled, false);
+    assert.equal(elements['prompt-agent-model'].children.length, 1);
 });
 
 test('disables response actions when the selected target changes before application', async () => {

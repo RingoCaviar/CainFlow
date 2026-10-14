@@ -177,7 +177,12 @@ export function createPromptAgentController({
         button?.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
 
-    function open() { setOpen(true); }
+    function open() {
+        // Model settings can finish loading after the controller is initialized.
+        // Refresh here so the first request always sees the current chat models.
+        renderModelOptions();
+        setOpen(true);
+    }
     function close() { setOpen(false); }
     function toggle() {
         const { panel } = getElements();
@@ -377,6 +382,10 @@ export function createPromptAgentController({
 
     async function submit() {
         const { input, sendButton, cancelButton } = getElements();
+        // Do this immediately before reading the select value. This covers late
+        // settings hydration and prevents an otherwise valid request from being
+        // sent without a modelId.
+        renderModelOptions();
         const text = input?.value?.trim();
         const referenceImages = pendingReferenceImages.slice();
         if (!text && referenceImages.length === 0) return;
