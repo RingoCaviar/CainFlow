@@ -76,6 +76,7 @@ export function createConversationWorkbenchController({
     imageGenerationService = null,
     openSettings = () => {},
     getHistoryEntry = async () => null,
+    getHistoryMetadata = async () => [],
     putMediaAsset = async () => null,
     removeMediaReference = async () => false,
     recoverMissingMedia = null,
@@ -90,6 +91,7 @@ export function createConversationWorkbenchController({
     let activeConversation = null;
     let listStatus = 'active';
     let interactionMode = 'chat';
+    let historyMediaEntries = [];
     const selectedModelIdByMode = { chat: '', image: '' };
     const stagedContext = createStagedConversationContext();
     const visibleVersionByParent = new Map();
@@ -222,8 +224,32 @@ export function createConversationWorkbenchController({
         publishToolbarState();
     }
 
+    function renderHistoryMediaOptions() {
+        const select = element('conversation-history-media');
+        if (!select) return;
+        const currentValue = select.value;
+        const imageEntries = historyMediaEntries.filter((entry) => (
+            entry?.mediaType !== 'video' && (entry?.imageAssetKey || entry?.mediaAssetKey)
+        ));
+        select.innerHTML = '<option value="">选择共享图片</option>' + imageEntries.map((entry) => {
+            const label = entry.prompt || entry.title || `历史图片 #${entry.id}`;
+            return `<option value="${escapeHtml(String(entry.id))}">${escapeHtml(label)}</option>`;
+        }).join('');
+        if (currentValue && imageEntries.some((entry) => String(entry.id) === currentValue)) select.value = currentValue;
+    }
+
+    async function refreshHistoryMedia() {
+        historyMediaEntries = await getHistoryMetadata({ limit: 100, includeThumbs: false });
+        renderHistoryMediaOptions();
+        return historyMediaEntries;
+    }
+
 
     function stageMedia(item) {
+        if (item?.type !== 'media' || !(item.assetKey || item.mediaAssetKey)) {
+            showToast('独立对话只允许附加图片 Media asset', 'warning');
+            return stagedContext.list();
+        }
         stagedContext.add(item);
         renderStagedContext();
         return stagedContext.list();
@@ -544,6 +570,26 @@ export function createConversationWorkbenchController({
         });
         element('conversation-attach-file')?.addEventListener('click', () => element('conversation-file-input')?.click());
         element('conversation-file-input')?.addEventListener('change', (event) => void stageLocalImages(event.target.files).catch((error) => showToast(error.message, 'error')));
+        element('conversation-history-media')?.addEventListener('change', async (event) => {
+            const historyId = event.target.value;
+            event.target.value = '';
+            if (!historyId) return;
+            const metadata = historyMediaEntries.find((entry) => String(entry.id) === String(historyId));
+            const entry = await getHistoryEntry(historyId);
+            const assetKey = entry?.imageAssetKey || entry?.mediaAssetKey || metadata?.imageAssetKey || metadata?.mediaAssetKey;
+            if (!assetKey || entry?.mediaType === 'video' || metadata?.mediaType === 'video') {
+                showToast('共享图片资源不可用，请先恢复该 Media asset', 'warning');
+                return;
+            }
+            stageMedia({
+                id: `history:${historyId}`,
+                type: 'media',
+                label: metadata?.prompt || metadata?.title || `历史图片 #${historyId}`,
+                assetKey,
+                mediaType: 'image',
+                historyId: String(historyId)
+            });
+        });
         element('conversation-composer')?.addEventListener('paste', (event) => {
             const images = [...(event.clipboardData?.files || [])].filter((file) => String(file.type || '').startsWith('image/'));
             if (!images.length) return;
@@ -587,6 +633,7 @@ export function createConversationWorkbenchController({
         bind();
         renderModels();
         renderStagedContext();
+        await refreshHistoryMedia();
         await refresh();
         if (conversations[0]) {
             await selectConversation(conversations[0].id);

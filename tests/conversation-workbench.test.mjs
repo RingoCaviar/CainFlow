@@ -34,6 +34,7 @@ function workbenchDocument() {
         'conversation-search', 'conversation-new', 'conversation-list', 'conversation-title',
         'conversation-status', 'conversation-model', 'conversation-messages', 'conversation-composer',
         'conversation-guidance', 'conversation-mode-chat', 'conversation-mode-image', 'conversation-send',
+        'conversation-history-media', 'conversation-staged-context',
         'conversation-send-summary', 'conversation-list-pane', 'conversation-context-pane',
         'conversation-list-collapse', 'conversation-list-toggle', 'conversation-context-collapse', 'conversation-context-toggle',
         'conversation-drawer-backdrop', 'conversation-workflow-filter', 'conversation-archive-entry'
@@ -41,7 +42,8 @@ function workbenchDocument() {
     const elements = new Map(ids.map((id) => [id, {
         id, value: '', innerHTML: '', textContent: '', hidden: false, attributes: new Map(),
         classList: { values: new Set(), toggle(name, force) { force ? this.values.add(name) : this.values.delete(name); }, add(name) { this.values.add(name); }, remove(name) { this.values.delete(name); }, contains(name) { return this.values.has(name); } },
-        addEventListener() {},
+        listeners: new Map(),
+        addEventListener(type, handler) { this.listeners.set(type, handler); },
         setAttribute(name, value) { this.attributes.set(name, String(value)); }
     }]));
     return { getElementById: (id) => elements.get(id) || null, elements };
@@ -178,6 +180,27 @@ test('First send creates a Conversation and exposes setup guidance instead of do
     assert.equal(controller.getSnapshot().activeConversationId, 'c1');
     assert.equal(documentRef.elements.get('conversation-guidance').hidden, false);
     assert.ok(notices.some((message) => /还没有可用的对话模型/.test(message)));
+});
+
+test('Standalone chat explicitly stages a shared history Media image and rejects node context', async () => {
+    const documentRef = workbenchDocument();
+    const historySelect = documentRef.elements.get('conversation-history-media');
+    const controller = createConversationWorkbenchController({
+        documentRef,
+        api: { listConversations: async () => [] },
+        state: { models: [], providers: [] },
+        getHistoryMetadata: async () => [{ id: 7, mediaType: 'image', imageAssetKey: 'history:7', prompt: '参考构图' }],
+        getHistoryEntry: async () => ({ id: 7, mediaType: 'image', imageAssetKey: 'history:7' })
+    });
+
+    await controller.init();
+    assert.match(historySelect.innerHTML, /参考构图/);
+    historySelect.value = '7';
+    await historySelect.listeners.get('change')({ target: historySelect });
+    assert.match(documentRef.elements.get('conversation-staged-context').innerHTML, /参考构图/);
+
+    controller.stageMedia({ id: 'node-1', type: 'node-source', nodeId: 'node-1', mediaAssetKeys: ['node:1'] });
+    assert.doesNotMatch(documentRef.elements.get('conversation-staged-context').innerHTML, /node-1/);
 });
 
 test('New Conversation and chat model choices exclude video-only models', async () => {

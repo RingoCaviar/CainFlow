@@ -1049,6 +1049,7 @@ function getConversationWorkbenchControllerApi() {
             imageGenerationService: getConversationImageGenerationServiceApi(),
             openSettings: () => document.getElementById('btn-settings')?.click(),
             getHistoryEntry,
+            getHistoryMetadata,
             putMediaAsset,
             removeMediaReference,
             materializeMessage: async ({ message, textNodeType }) => {

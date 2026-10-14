@@ -171,6 +171,7 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
 .conversation-missing-media { margin-top: 8px; }
 .conversation-missing-media > span { margin-inline-start: auto; color: var(--accent-orange); }
 .conversation-composer-footer { padding-top: 8px; color: var(--text-secondary); font-size: 12px; }
+.conversation-history-media { max-width: min(240px, 32vw); min-height: 30px; padding: 5px 8px; border: 1px solid var(--border-input); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); }
 .conversation-send-details { margin-inline-start: auto; }
 .conversation-send-details summary { cursor: pointer; color: var(--text-primary); }
 .conversation-send-preview { display: grid; gap: 4px; max-width: min(520px, 70vw); padding: 8px 0; }
