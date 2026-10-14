@@ -231,12 +231,12 @@ The version of the persisted Declarative protocol configuration shape. CainFlow 
 _Avoid_: Unversioned protocol format
 
 **Built-in protocol configuration**:
-A read-only Declarative protocol configuration supplied and maintained by CainFlow. A user may copy it into a User-owned protocol configuration but cannot modify the supplied original.
-_Avoid_: Editable built-in protocol
+A versioned, immutable Declarative protocol baseline supplied and maintained by CainFlow. A user may save a stable-ID override in a separate user-owned layer; the shipped baseline remains unchanged, and resetting the override restores the current baseline.
+_Avoid_: Mutating the shipped protocol module, replacing the baseline with an override
 
 **User-owned protocol configuration**:
-A Declarative protocol configuration created by a user or copied from a Built-in protocol configuration. CainFlow preserves it across upgrades and does not overwrite it with the corresponding built-in configuration.
-_Avoid_: Overridable built-in protocol
+A Declarative protocol configuration created by a user, copied from a Built-in protocol configuration, or stored as a Built-in protocol override. CainFlow preserves the user-owned layer across upgrades, merges it over the matching baseline, and exposes an unknown future baseline as read-only until supported.
+_Avoid_: Silently discarding an override during an upgrade
 
 **Protocol validation**:
 The two-layer verification of a Declarative protocol configuration: offline schema and constraint validation with a redacted request preview, plus an explicitly user-initiated network test. Saving or importing a configuration never initiates a provider request.

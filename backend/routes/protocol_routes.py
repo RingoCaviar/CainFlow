@@ -4,6 +4,9 @@
 import json
 import os
 import re
+import shutil
+import tempfile
+import copy
 from urllib.parse import unquote
 
 from backend import config
@@ -11,6 +14,55 @@ from backend.services.http_helpers import write_error, write_json, write_text
 
 
 EXCLUDED_PROTOCOL_FILES = {'index.js', 'base-protocol.js', 'request-builder.js'}
+BUILT_IN_PROTOCOL_IDS = {
+    'google', 'openai', 'ttapi', 'ttapi-openai', 'newapi-image-async',
+    'veo-unified', 'veo-openai', 'doubao-video', 'api6789-seedance',
+    'async-video-api', 'relay-video', 'agnesimage'
+}
+OVERRIDE_FILE_NAME = 'protocol-overrides.json'
+
+
+def get_override_file_path():
+    return os.path.join(config.DATA_DIR, OVERRIDE_FILE_NAME)
+
+
+def load_protocol_overrides():
+    try:
+        with open(get_override_file_path(), 'r', encoding='utf-8') as source:
+            data = json.load(source)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+        # A malformed override file must not prevent the built-in baseline from
+        # loading. Keep the file for recovery and expose an empty set instead.
+        return {}
+
+
+def save_protocol_overrides(overrides):
+    target_path = get_override_file_path()
+    directory = os.path.dirname(target_path)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(prefix='protocol-overrides-', dir=directory)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+            json.dump(overrides, output, ensure_ascii=False, indent=2)
+            output.write('\n')
+            output.flush()
+            os.fsync(output.fileno())
+        if os.path.exists(target_path):
+            shutil.copy2(target_path, f'{target_path}.bak')
+        os.replace(temporary_path, target_path)
+        temporary_path = None
+        try:
+            directory_descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        except OSError:
+            pass
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
 
 def get_static_protocol_dir():
@@ -56,6 +108,9 @@ def handle_post(handler):
     if handler.path == '/api/protocol/save':
         save_protocol(handler)
         return True
+    if handler.path == '/api/protocol/override/import':
+        import_protocol_override(handler)
+        return True
     return False
 
 
@@ -64,10 +119,32 @@ def handle_get(handler):
     if handler.path == '/api/protocol/list':
         list_protocols(handler)
         return True
+    if handler.path == '/api/protocol/overrides':
+        write_json(handler, {'success': True, 'overrides': load_protocol_overrides()})
+        return True
     if handler.path.startswith('/api/protocol/module/'):
         serve_protocol_module(handler)
         return True
     return False
+
+
+def handle_delete(handler):
+    """删除一个内置协议覆盖，恢复随应用发布的基线。"""
+    path = handler.path.split('?', 1)[0]
+    prefix = '/api/protocol/override/'
+    if not path.startswith(prefix):
+        return False
+    protocol_id = unquote(path[len(prefix):])
+    if protocol_id not in BUILT_IN_PROTOCOL_IDS:
+        write_error(handler, 400, '只有内置协议支持删除覆盖记录')
+        return True
+    overrides = load_protocol_overrides()
+    existed = protocol_id in overrides
+    overrides.pop(protocol_id, None)
+    if existed:
+        save_protocol_overrides(overrides)
+    write_json(handler, {'success': True, 'removed': existed, 'protocolId': protocol_id})
+    return True
 
 
 def list_protocols(handler):
@@ -137,9 +214,42 @@ def save_protocol(handler):
             write_error(handler, 400, '缺少必要参数')
             return
 
+        adapter_error = validate_transport_adapters(protocol_config)
+        if adapter_error:
+            write_error(handler, 400, adapter_error)
+            return
+
         # 协议ID验证
         if not re.match(r'^[a-z][a-z0-9\-]*$', protocol_id):
             write_error(handler, 400, '协议ID格式不正确')
+            return
+
+        # Built-ins keep a stable ID and immutable shipped module. Persisting
+        # their edits as an independent record lets upgrades replace the
+        # baseline while preserving the user's intent.
+        if protocol_id in BUILT_IN_PROTOCOL_IDS:
+            overrides = load_protocol_overrides()
+            previous = overrides.get(protocol_id) if isinstance(overrides.get(protocol_id), dict) else {}
+            revision = int(previous.get('revision') or 0) + 1
+            base_schema_version = data.get('baseSchemaVersion') or protocol_config.get('baseSchemaVersion') or protocol_config.get('schemaVersion') or 1
+            base_revision = data.get('baseRevision') or protocol_config.get('baseRevision') or ''
+            record = {
+                'formatVersion': 1,
+                'protocolId': protocol_id,
+                'baseSchemaVersion': int(base_schema_version),
+                'baseRevision': str(base_revision),
+                'revision': revision,
+                'config': {**protocol_config, 'id': protocol_id},
+                'updatedAt': revision,
+                'source': 'user'
+            }
+            overrides[protocol_id] = record
+            save_protocol_overrides(overrides)
+            write_json(handler, {
+                'success': True,
+                'message': f'内置协议 {protocol_id} 的覆盖配置已保存',
+                'override': record
+            })
             return
 
         # 构建文件路径，并确保最终路径仍在协议目录内
@@ -154,9 +264,8 @@ def save_protocol(handler):
         # 生成协议文件内容
         file_content = generate_protocol_file(protocol_id, protocol_config)
 
-        # 写入文件
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(file_content)
+        # 原子替换：新内容完整落盘后才替换旧文件，并保留上一份可恢复副本。
+        atomic_write_protocol(file_path, file_content)
 
         write_json(handler, {
             'success': True,
@@ -166,6 +275,43 @@ def save_protocol(handler):
 
     except Exception as e:
         write_error(handler, 500, f'保存失败: {str(e)}')
+
+
+def import_protocol_override(handler):
+    """Import an override envelope through the same atomic writer."""
+    try:
+        content_length = int(handler.headers.get('Content-Length', 0))
+        body = handler.rfile.read(content_length)
+        data = json.loads(body.decode('utf-8'))
+        protocol_id = str(data.get('protocolId') or data.get('id') or '').strip()
+        override = data.get('override') or data.get('config')
+        if protocol_id not in BUILT_IN_PROTOCOL_IDS or not isinstance(override, dict):
+            write_error(handler, 400, '覆盖导入必须包含已知内置协议 ID 和 override 对象')
+            return
+        adapter_error = validate_transport_adapters(override)
+        if adapter_error:
+            write_error(handler, 400, adapter_error)
+            return
+        overrides = load_protocol_overrides()
+        previous = overrides.get(protocol_id) if isinstance(overrides.get(protocol_id), dict) else {}
+        revision = int(previous.get('revision') or 0) + 1
+        record = {
+            'formatVersion': 1,
+            'protocolId': protocol_id,
+            'baseSchemaVersion': int(data.get('baseSchemaVersion') or override.get('schemaVersion') or 1),
+            'baseRevision': str(data.get('baseRevision') or ''),
+            'revision': revision,
+            'config': {**override, 'id': protocol_id},
+            'updatedAt': revision,
+            'source': 'import'
+        }
+        overrides[protocol_id] = record
+        save_protocol_overrides(overrides)
+        write_json(handler, {'success': True, 'override': record})
+    except (ValueError, TypeError, json.JSONDecodeError) as error:
+        write_error(handler, 400, f'覆盖导入失败: {error}')
+    except Exception as error:
+        write_error(handler, 500, f'覆盖导入失败: {error}')
 
 
 def generate_protocol_file(protocol_id, config):
@@ -188,66 +334,139 @@ registerProtocol({to_camel_case(protocol_id)}Protocol);
 
 
 def build_serializable_protocol_config(protocol_id, raw_config):
-    """按协议配置白名单生成可序列化对象"""
-    top_level_defaults = {
-        'id': protocol_id,
-        'schemaVersion': raw_config.get('schemaVersion') or 1,
-        'label': raw_config.get('label') or protocol_id,
-        'taskTypes': raw_config.get('taskTypes') or ['image'],
-        'urlTemplate': raw_config.get('urlTemplate') or '{{endpoint}}/v1/endpoint',
-        'apikeyLocation': raw_config.get('apikeyLocation') or 'header',
-        'apikeyField': raw_config.get('apikeyField') or 'Authorization',
-        'parameters': build_serializable_parameters(raw_config.get('parameters') or {}),
-        'responsePath': raw_config.get('responsePath') or {
-            'image': 'data[0].url',
-            'chat': 'choices[0].message.content',
-            'video': 'data.video_url'
-        }
+    """生成协议模块，同时保留编辑器尚未理解的未来字段。"""
+    source = copy.deepcopy(raw_config) if isinstance(raw_config, dict) else {}
+    source['id'] = protocol_id
+    source['schemaVersion'] = source.get('schemaVersion') or 1
+    source['label'] = source.get('label') or protocol_id
+    source['taskTypes'] = source.get('taskTypes') or ['image']
+    source['urlTemplate'] = source.get('urlTemplate') or '{{endpoint}}/v1/endpoint'
+    source['apikeyLocation'] = source.get('apikeyLocation') or 'header'
+    source['apikeyField'] = source.get('apikeyField') or 'Authorization'
+    source['parameters'] = build_serializable_parameters(source.get('parameters') or {})
+    source['responsePath'] = source.get('responsePath') or {
+        'image': 'data[0].url',
+        'chat': 'choices[0].message.content',
+        'video': 'data.video_url'
     }
+    source['variants'] = _normalize_serializable_variants(source.get('variants') or {})
+    return source
 
-    for optional_key in (
-        'helpText', 'urlTemplates', 'fixedParams', 'videoMeta', 'variants',
-        'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask'
-    ):
-        if optional_key in raw_config and raw_config.get(optional_key) not in (None, ''):
-            top_level_defaults[optional_key] = raw_config.get(optional_key)
 
-    return top_level_defaults
+def _normalize_serializable_variants(variants):
+    if not isinstance(variants, dict):
+        return variants
+    normalized = copy.deepcopy(variants)
+    for variant in normalized.values():
+        if not isinstance(variant, dict):
+            continue
+        if isinstance(variant.get('parameters'), dict):
+            variant['parameters'] = build_serializable_parameters(variant['parameters'])
+        if isinstance(variant.get('variants'), dict):
+            variant['variants'] = _normalize_serializable_variants(variant['variants'])
+    return normalized
+
+
+def validate_transport_adapters(protocol_config):
+    """拒绝后端无法表达的 adapter 字段，避免保存时静默丢失配置。"""
+    if not isinstance(protocol_config, dict):
+        return '协议配置必须是对象'
+    declarations = []
+    nodes = [protocol_config]
+    while nodes:
+        node = nodes.pop()
+        if not isinstance(node, dict):
+            return '协议 variants 必须是对象映射。'
+        if 'transportAdapter' in node:
+            declarations.append(node.get('transportAdapter'))
+        if 'requestEncoding' in node and node.get('requestEncoding') not in (None, '', 'json', 'multipart'):
+            return f'requestEncoding “{node.get("requestEncoding")}” 不受支持；当前仅支持 json 或 multipart。'
+        if 'requestEncodingWhenReferenceImages' in node and node.get('requestEncodingWhenReferenceImages') not in (None, '', 'json', 'multipart'):
+            return f'requestEncodingWhenReferenceImages “{node.get("requestEncodingWhenReferenceImages")}” 不受支持；当前仅支持 json 或 multipart。'
+        variants = node.get('variants')
+        if variants is None:
+            continue
+        if not isinstance(variants, dict):
+            return '协议 variants 必须是对象映射。'
+        nodes.extend(variants.values())
+    for declaration in declarations:
+        if isinstance(declaration, str):
+            adapter_id, version = declaration, 1
+            keys = set()
+        elif isinstance(declaration, dict):
+            adapter_id = declaration.get('adapterId', '')
+            version = declaration.get('version', 1)
+            keys = set(declaration) - {'adapterId', 'version', 'parts'}
+        else:
+            return 'Transport adapter 配置必须是字符串或对象'
+        if adapter_id not in {'json', 'multipart'}:
+            return f'不支持 Transport adapter “{adapter_id}”，请切换到已注册的适配器。'
+        try:
+            if int(version) < 1 or int(version) > 1:
+                return f'Transport adapter “{adapter_id}” 的版本 {version} 当前不可用。'
+        except (TypeError, ValueError):
+            return f'Transport adapter “{adapter_id}” 的版本无效。'
+        if keys:
+            return f'Transport adapter “{adapter_id}” 不支持字段 “{sorted(keys)[0]}”。'
+        if isinstance(declaration, dict) and 'parts' in declaration:
+            if adapter_id != 'multipart' or not isinstance(declaration['parts'], list):
+                return 'multipart adapter 的 parts 必须是数组。'
+            for index, part in enumerate(declaration['parts']):
+                if not isinstance(part, dict):
+                    return f'multipart parts[{index}] 必须是对象。'
+                unsupported = set(part) - {'name', 'source', 'path', 'kind', 'repeat', 'mime', 'required', 'value'}
+                if unsupported:
+                    return f'multipart parts[{index}] 不支持字段 “{sorted(unsupported)[0]}”。'
+                if not str(part.get('name') or '').strip():
+                    return f'multipart parts[{index}] 缺少 name。'
+                if part.get('source') not in {'parameter', 'media', 'literal'}:
+                    return f'multipart parts[{index}] 的 source 不受支持。'
+                if part.get('kind', 'text') not in {'text', 'url', 'file'}:
+                    return f'multipart parts[{index}] 的 kind 不受支持。'
+                if part.get('source') != 'literal' and not str(part.get('path') or '').strip():
+                    return f'multipart parts[{index}] 需要 path。'
+                if part.get('source') == 'literal' and 'value' not in part:
+                    return f'multipart parts[{index}] 的 literal 需要 value。'
+    return ''
+
+
+def atomic_write_protocol(file_path, content):
+    """写入临时文件、同步后替换，并保存上一版本 .bak。"""
+    directory = os.path.dirname(file_path)
+    temporary_path = None
+    try:
+        descriptor, temporary_path = tempfile.mkstemp(prefix='.cainflow-protocol-', suffix='.tmp', dir=directory)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        if os.path.exists(file_path):
+            shutil.copy2(file_path, f'{file_path}.bak')
+        os.replace(temporary_path, file_path)
+        temporary_path = None
+        try:
+            directory_descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        except OSError:
+            pass
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
 
 
 def build_serializable_parameters(parameters):
-    """按参数字段白名单生成可序列化对象"""
-    allowed_keys = {
-        'id',
-        'label',
-        'exposed',
-        'inputPort',
-        'portType',
-        'portCount',
-        'portLabel',
-        'portOnly',
-        'required',
-        'omitIfEmpty',
-        'dataType',
-        'uiControl',
-        'options',
-        'defaultValue',
-        'requestField',
-        'taskTypes',
-        'min',
-        'max',
-        'step',
-        'note',
-        'description'
-    }
+    """规范化参数 ID/label，同时保留未知字段。"""
     result = {}
     for param_id, param in parameters.items():
         if not isinstance(param, dict):
             continue
-        clean_param = {}
-        for key in allowed_keys:
-            if key in param:
-                clean_param[key] = param.get(key)
+        clean_param = copy.deepcopy(param)
         clean_param['id'] = clean_param.get('id') or param_id
         clean_param['label'] = clean_param.get('label') or param_id
         result[param_id] = clean_param

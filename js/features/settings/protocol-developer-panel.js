@@ -3,14 +3,53 @@
  * 提供可视化的协议参数编辑界面
  */
 
-import { getAllProtocols, getProtocol, registerProtocol, loadProtocols, deleteProtocol as removeProtocol } from '../execution/protocols/index.js';
+import {
+    BUILT_IN_PROTOCOL_IDS,
+    clearProtocolOverride,
+    getAllProtocols,
+    getProtocol,
+    getProtocolOverride,
+    setProtocolOverride,
+    loadProtocols,
+    registerProtocol,
+    deleteProtocol as removeProtocol
+} from '../execution/protocols/index.js';
 import { wrapConfigProtocol } from '../execution/protocols/request-builder.js';
 import {
     compileVideoProtocol,
-    importVideoProtocolConfiguration,
+    migrateProtocolConfiguration,
     redactProtocolPreview,
     validateVideoProtocolConfiguration
 } from '../execution/protocols/video-protocol-compiler.js';
+import {
+    cloneDeclarativeProtocolValue,
+    getDeclarativeProtocolEditorContract,
+    normalizeDeclarativeProtocolConfiguration
+} from '../execution/protocols/declarative-protocol-schema.js';
+import { validateTransportAdapterConfiguration } from '../execution/protocols/transport-adapter-registry.js';
+import {
+    createProtocolOverrideExport,
+    parseProtocolOverrideImport
+} from '../execution/protocols/protocol-overrides.js';
+
+/**
+ * Import any declarative protocol. Video protocols receive the stricter
+ * async-variant validation, while image/chat protocols still use the shared
+ * schema migration path and remain valid override documents.
+ */
+export function importDeclarativeProtocolConfiguration(value) {
+    let parsed;
+    try {
+        parsed = typeof value === 'string' ? JSON.parse(value) : cloneDeclarativeProtocolValue(value);
+    } catch (error) {
+        throw new Error(`协议 JSON 无法解析：${error.message}`);
+    }
+    const imported = migrateProtocolConfiguration(parsed);
+    if (!imported.readOnly && imported.taskTypes?.includes('video')) {
+        validateVideoProtocolConfiguration(imported);
+    }
+    return imported;
+}
 
 export function createProtocolDeveloperPanel({ documentRef, showToast, refreshImageGenerateNodes = null, onProtocolRegistryChange = null }) {
     const panelId = 'protocol-developer-panel';
@@ -18,19 +57,6 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     let draftProtocol = null;
     let protocolsLoaded = false;
     let livePreviewBound = false;
-    const BUILT_IN_PROTOCOL_IDS = new Set([
-        'google',
-        'openai',
-        'ttapi',
-        'ttapi-openai',
-        'newapi-image-async',
-        'veo-unified',
-        'veo-openai',
-        'doubao-video',
-        'async-video-api',
-        'relay-video',
-        'agnesimage'
-    ]);
     const PROTOCOL_CONFIG_KEYS = [
         'id',
         'schemaVersion',
@@ -46,6 +72,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         'fixedParams',
         'videoMeta',
         'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask',
+        'transportAdapter',
         'readOnly', 'executionBlockedReason'
     ];
     const PARAMETER_CONFIG_KEYS = [
@@ -76,8 +103,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     ];
 
     function cloneSerializable(value) {
-        if (value === undefined || value === null) return value;
-        return JSON.parse(JSON.stringify(value));
+        return cloneDeclarativeProtocolValue(value);
     }
 
     function pickSerializableFields(source = {}, keys = []) {
@@ -90,7 +116,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     }
 
     function cleanParameterConfig(paramId, param = {}) {
-        const cleanParam = pickSerializableFields(param, PARAMETER_CONFIG_KEYS);
+        // Keep fields unknown to this editor in the serialized draft.  They
+        // remain visible through the generated contract as read-only values
+        // and are never silently discarded on import/save.
+        const cleanParam = cloneSerializable(param) || {};
         cleanParam.id = String(cleanParam.id || paramId || '').trim();
         cleanParam.label = String(cleanParam.label || cleanParam.id || paramId || '').trim();
         cleanParam.exposed = cleanParam.exposed === true;
@@ -104,7 +133,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     }
 
     function cleanProtocolConfig(protocol = {}) {
-        const cleanProtocol = pickSerializableFields(protocol, PROTOCOL_CONFIG_KEYS);
+        const cleanProtocol = normalizeDeclarativeProtocolConfiguration(protocol);
         cleanProtocol.id = String(cleanProtocol.id || '').trim();
         cleanProtocol.schemaVersion = Number(cleanProtocol.schemaVersion || 1);
         cleanProtocol.label = String(cleanProtocol.label || cleanProtocol.id || '').trim();
@@ -279,6 +308,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                                         <label>视频高级配置（JSON）</label>
                                         <textarea id="protocol-video-advanced" rows="10" placeholder='{"variants":{"model-id":{"requestEncoding":"json","createPath":"/v1/videos","queryPath":"/v1/videos/{{taskId}}","asyncTask":{"taskIdPath":"id","statusPath":"status","completedStatuses":["completed"],"resultPath":"video_url"}}}}'></textarea>
                                         <small style="color: var(--text-secondary); font-size: 12px;">用于模型变体、异步任务映射和鉴权规则。仅保存声明式 JSON，不支持脚本。</small>
+                                        <div id="protocol-schema-contract" style="margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); font-size: 12px;"></div>
                                     </div>
                                 </div>
 
@@ -345,6 +375,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         listContainer.innerHTML = sortedProtocols.map(protocol => {
             const isBuiltInProtocol = BUILT_IN_PROTOCOL_IDS.has(protocol.id);
+            const hasOverride = isBuiltInProtocol && Boolean(getProtocolOverride(protocol.id));
             return `
             <div class="protocol-card" data-protocol-id="${protocol.id}">
                 <div class="protocol-card-header">
@@ -359,17 +390,18 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                         <span class="protocol-param-count">
                             ${Object.keys(protocol.parameters || {}).length} 个参数
                         </span>
+                        ${isBuiltInProtocol ? `<span class="protocol-override-state">${hasOverride ? '已覆盖' : '使用内置基线'}</span>` : ''}
                     </div>
                 </div>
                 <div class="protocol-card-footer">
                     <button class="btn btn-sm btn-ghost btn-edit-protocol" data-protocol-id="${protocol.id}">
-                        ${isBuiltInProtocol ? '复制并编辑' : '编辑参数'}
+                        ${isBuiltInProtocol ? '编辑覆盖' : '编辑参数'}
                     </button>
                     <button class="btn btn-sm btn-ghost btn-view-json" data-protocol-id="${protocol.id}">
                         查看JSON
                     </button>
-                    <button class="btn btn-sm btn-delete-protocol ${isBuiltInProtocol ? 'hidden' : ''}" data-protocol-id="${protocol.id}">
-                        删除
+                    <button class="btn btn-sm btn-delete-protocol ${isBuiltInProtocol && !hasOverride ? 'hidden' : ''}" data-protocol-id="${protocol.id}">
+                        ${isBuiltInProtocol ? '恢复默认' : '删除'}
                     </button>
                 </div>
             </div>
@@ -380,8 +412,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         listContainer.querySelectorAll('.btn-edit-protocol').forEach(btn => {
             btn.addEventListener('click', () => {
                 const protocolId = btn.dataset.protocolId;
-                if (BUILT_IN_PROTOCOL_IDS.has(protocolId)) copyProtocol(protocolId);
-                else editProtocol(protocolId);
+                editProtocol(protocolId);
             });
         });
 
@@ -447,7 +478,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         documentRef.getElementById('btn-save-protocol').classList.remove('hidden');
         documentRef.getElementById('btn-export-protocol').classList.remove('hidden');
         documentRef.getElementById('btn-test-protocol').classList.remove('hidden');
-        documentRef.getElementById('btn-delete-protocol-footer').classList.toggle('hidden', BUILT_IN_PROTOCOL_IDS.has(draftProtocol.id));
+        documentRef.getElementById('btn-delete-protocol-footer').classList.toggle(
+            'hidden',
+            BUILT_IN_PROTOCOL_IDS.has(draftProtocol.id) && !getProtocolOverride(draftProtocol.id)
+        );
         const readOnly = draftProtocol.readOnly === true;
         documentRef.getElementById('btn-save-protocol').disabled = readOnly;
         documentRef.getElementById('btn-test-protocol').disabled = readOnly;
@@ -489,8 +523,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             requestEncoding: draftProtocol.requestEncoding,
             createPath: draftProtocol.createPath,
             queryPath: draftProtocol.queryPath,
-            asyncTask: draftProtocol.asyncTask
+            asyncTask: draftProtocol.asyncTask,
+            transportAdapter: draftProtocol.transportAdapter
         }, null, 2);
+        renderDeclarativeContractSummary(draftProtocol);
 
         // 渲染参数列表
         renderParametersList(draftProtocol.parameters || {});
@@ -962,7 +998,13 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             return;
         }
 
-        const json = JSON.stringify(cleanProtocolConfig(protocol), null, 2);
+        const json = JSON.stringify(
+            BUILT_IN_PROTOCOL_IDS.has(protocolId)
+                ? createProtocolOverrideExport(protocol, protocol.overrideRecord || getProtocolOverride(protocolId))
+                : cleanProtocolConfig(protocol),
+            null,
+            2
+        );
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = documentRef.createElement('a');
@@ -998,7 +1040,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             } catch (_) {
                 throw new Error('视频高级配置必须是有效 JSON');
             }
-            ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask']
+            ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask', 'transportAdapter']
                 .forEach((key) => {
                     if (advanced[key] !== undefined) nextProtocol[key] = advanced[key];
                 });
@@ -1157,6 +1199,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         draftProtocol = nextProtocol;
         currentEditingProtocol = draftProtocol;
+        renderDeclarativeContractSummary(draftProtocol);
         return cleanProtocolConfig(nextProtocol);
     }
 
@@ -1179,39 +1222,42 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 validateVideoProtocolConfiguration(data);
                 updatePreviewWithNodeValues();
             }
+            Object.entries(data.variants || {}).forEach(([, variant]) => {
+                validateTransportAdapterConfiguration(data, variant);
+            });
+            validateTransportAdapterConfiguration(data, {});
 
-            // 准备覆盖配置数据（只保存可配置的部分）
-            const overrideData = {
-                schemaVersion: data.schemaVersion,
-                label: data.label,
-                helpText: data.helpText,
-                urlTemplate: data.urlTemplate,
-                urlTemplates: data.urlTemplates,
-                taskTypes: data.taskTypes,
-                apikeyLocation: data.apikeyLocation,
-                apikeyField: data.apikeyField,
-                parameters: data.parameters,
-                responsePath: data.responsePath,
-                fixedParams: data.fixedParams,
-                videoMeta: data.videoMeta,
-                variants: data.variants,
-                authentication: data.authentication,
-                requestEncoding: data.requestEncoding,
-                createPath: data.createPath,
-                queryPath: data.queryPath,
-                asyncTask: data.asyncTask
-            };
+            // Keep the complete declarative document.  The generated editor
+            // only mutates known fields; unknown fields stay in this cloned
+            // payload so a load/edit/save round trip cannot erase future
+            // declarations.
+            const overrideData = cloneSerializable(data) || {};
+            delete overrideData.readOnly;
+            delete overrideData.executionBlockedReason;
+            delete overrideData.overrideRecord;
+            delete overrideData.overrideRevision;
+            delete overrideData.baseSchemaVersion;
+            delete overrideData.baseRevision;
 
             // 调用后端API保存到文件
+            const savePayload = {
+                id: data.id,
+                config: overrideData
+            };
+            if (BUILT_IN_PROTOCOL_IDS.has(data.id)) {
+                // Keep baseline identity beside the editable config.  The
+                // backend stores these fields on the override record so an
+                // upgrade can detect an incompatible baseline instead of
+                // silently applying a stale override.
+                savePayload.baseSchemaVersion = Number(data.baseSchemaVersion || data.schemaVersion || 1);
+                savePayload.baseRevision = String(data.baseRevision || '');
+            }
             const response = await fetch('/api/protocol/save', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    id: data.id,
-                    config: overrideData
-                })
+                body: JSON.stringify(savePayload)
             });
 
             const result = await response.json();
@@ -1221,8 +1267,17 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 documentRef.getElementById('panel-title').textContent = `编辑协议: ${data.label}`;
                 documentRef.getElementById('protocol-label').value = data.label || '';
 
-                // 重新注册协议（包装后的完整协议对象）
-                registerProtocol(data);
+                // Built-ins keep their stable ID; update only the in-memory
+                // override layer after the backend confirms the atomic save.
+                if (BUILT_IN_PROTOCOL_IDS.has(data.id)) {
+                    setProtocolOverride(data.id, result.override || {
+                        protocolId: data.id,
+                        baseSchemaVersion: data.schemaVersion || 1,
+                        config: data
+                    });
+                } else {
+                    registerProtocol(data);
+                }
                 notifyProtocolRegistryChange(data.id);
 
                 // 重新渲染参数列表，确保显示最新的保存数据
@@ -1270,7 +1325,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             return;
         }
 
-        const json = JSON.stringify(data.readOnly ? data : cleanProtocolConfig(data), null, 2);
+        const exportPayload = BUILT_IN_PROTOCOL_IDS.has(data.id)
+            ? createProtocolOverrideExport(data, data.overrideRecord || getProtocolOverride(data.id))
+            : (data.readOnly ? data : cleanProtocolConfig(data));
+        const json = JSON.stringify(exportPayload, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = documentRef.createElement('a');
@@ -1288,8 +1346,49 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     async function importProtocolFile(file) {
         if (!file) return;
         try {
-            const imported = importVideoProtocolConfiguration(await file.text());
-            if (getProtocol(imported.id) || BUILT_IN_PROTOCOL_IDS.has(imported.id)) {
+            const rawText = await file.text();
+            let parsed;
+            try { parsed = JSON.parse(rawText); } catch { parsed = null; }
+            if (parsed?.format === 'cainflow-protocol-override' || parsed?.override) {
+                const record = parseProtocolOverrideImport(parsed);
+                if (!BUILT_IN_PROTOCOL_IDS.has(record.protocolId)) {
+                    throw new Error(`协议 ID “${record.protocolId}” 不是可覆盖的内置协议`);
+                }
+                const imported = importDeclarativeProtocolConfiguration(record.config);
+                const userProtocol = cleanProtocolConfig(imported);
+                const currentBaseline = getProtocol(record.protocolId);
+                const incompatibleBaseline = currentBaseline && (
+                    record.baseSchemaVersion > Number(currentBaseline.schemaVersion || 1)
+                    || (record.baseRevision && currentBaseline.baseRevision
+                        && record.baseRevision !== currentBaseline.baseRevision)
+                );
+                if (incompatibleBaseline) {
+                    userProtocol.readOnly = true;
+                    userProtocol.executionBlockedReason = record.baseSchemaVersion > Number(currentBaseline.schemaVersion || 1)
+                        ? '此协议覆盖记录依赖更新版本的内置基线，当前版本只能只读保留。'
+                        : '此协议覆盖记录依赖不兼容的内置基线，当前版本只能只读保留。';
+                }
+                userProtocol.baseSchemaVersion = record.baseSchemaVersion;
+                userProtocol.baseRevision = record.baseRevision;
+                userProtocol.overrideRevision = record.revision;
+                userProtocol.overrideRecord = record;
+                editProtocolConfig(userProtocol);
+                showToast(`内置协议 ${userProtocol.id} 的覆盖已导入；确认预览后点击保存`, 'success');
+                return;
+            }
+            const imported = importDeclarativeProtocolConfiguration(rawText);
+            if (BUILT_IN_PROTOCOL_IDS.has(imported.id)) {
+                const currentBaseline = getProtocol(imported.id);
+                const importedDraft = cleanProtocolConfig({
+                    ...imported,
+                    baseSchemaVersion: currentBaseline?.baseSchemaVersion || imported.schemaVersion || 1,
+                    baseRevision: currentBaseline?.baseRevision || ''
+                });
+                editProtocolConfig(importedDraft);
+                showToast(`内置协议 ${imported.id} 的覆盖已导入；确认预览后点击保存`, 'success');
+                return;
+            }
+            if (getProtocol(imported.id)) {
                 throw new Error(`协议 ID “${imported.id}” 已存在，请先修改导入文件中的 ID`);
             }
             const userProtocol = cleanProtocolConfig(imported);
@@ -1326,6 +1425,14 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             showToast('请求路径模板必须生成 http 或 https 地址', 'error');
             return;
         }
+        const confirmed = typeof documentRef.defaultView?.confirm === 'function'
+            ? documentRef.defaultView.confirm(`将向 ${targetUrl} 发送 OPTIONS 请求，仅用于连通性测试，不会创建任务。继续吗？`)
+            : (typeof globalThis.confirm === 'function' ? globalThis.confirm(`将向 ${targetUrl} 发送 OPTIONS 请求，仅用于连通性测试，不会创建任务。继续吗？`) : false);
+        if (!confirmed) {
+            setSaveStatus('已取消联网测试，草稿保持不变', 'warning');
+            showToast('已取消联网测试，草稿保持不变', 'warning');
+            return;
+        }
         setSaveStatus('正在测试连通性…', 'saving');
         try {
             const response = await fetch('/proxy', {
@@ -1335,8 +1442,13 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                     'x-target-method': 'OPTIONS'
                 }
             });
-            setSaveStatus(`连通性测试收到 HTTP ${response.status}（未创建任务）`, response.ok ? 'success' : 'warning');
-            showToast(`供应商已响应 HTTP ${response.status}；未发送生成请求`, response.ok ? 'success' : 'warning');
+            if (!response.ok) {
+                setSaveStatus(`连通性测试失败：HTTP ${response.status}；草稿未保存`, 'error');
+                showToast(`供应商返回 HTTP ${response.status}；草稿未保存`, 'error');
+                return;
+            }
+            setSaveStatus(`连通性测试收到 HTTP ${response.status}（未创建任务）`, 'success');
+            showToast(`供应商已响应 HTTP ${response.status}；未发送生成请求`, 'success');
         } catch (error) {
             setSaveStatus(`连通性测试失败：${error.message}`, 'error');
             showToast(`连通性测试失败：${error.message}`, 'error');
@@ -1477,19 +1589,32 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     /**
      * 删除协议
      */
-    function deleteProtocol(protocolId) {
+    async function deleteProtocol(protocolId) {
         const protocol = getProtocol(protocolId);
         if (!protocol) {
             showToast('协议不存在', 'error');
             return;
         }
-        if (BUILT_IN_PROTOCOL_IDS.has(protocolId)) {
-            showToast('内置协议不能删除，只能编辑保存', 'warning');
+        const isBuiltIn = BUILT_IN_PROTOCOL_IDS.has(protocolId);
+        const confirmMsg = isBuiltIn
+            ? `确定要恢复内置协议 "${protocol.label}" (${protocolId}) 的默认配置吗？`
+            : `确定要删除协议 "${protocol.label}" (${protocolId}) 吗？\n\n注意：删除仅在当前会话有效，刷新页面后会恢复。`;
+        if (!confirm(confirmMsg)) {
             return;
         }
 
-        const confirmMsg = `确定要删除协议 "${protocol.label}" (${protocolId}) 吗？\n\n注意：删除仅在当前会话有效，刷新页面后会恢复。`;
-        if (!confirm(confirmMsg)) {
+        if (isBuiltIn) {
+            try {
+                const response = await fetch(`/api/protocol/override/${encodeURIComponent(protocolId)}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (!response.ok || result.success !== true) throw new Error(result.error || '恢复默认失败');
+                clearProtocolOverride(protocolId);
+                notifyProtocolRegistryChange(protocolId);
+                showToast(`协议 ${protocolId} 已恢复默认`, 'success');
+                renderProtocolList();
+            } catch (error) {
+                showToast(`恢复默认失败: ${error.message}`, 'error');
+            }
             return;
         }
 
@@ -1747,7 +1872,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             const advancedRaw = documentRef.getElementById('protocol-video-advanced')?.value.trim() || '';
             if (advancedRaw) {
                 const advanced = JSON.parse(advancedRaw);
-                ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask']
+                ['schemaVersion', 'variants', 'authentication', 'requestEncoding', 'createPath', 'queryPath', 'asyncTask', 'transportAdapter']
                     .forEach((key) => {
                         if (advanced[key] !== undefined) tempProtocol[key] = advanced[key];
                     });
@@ -1995,6 +2120,29 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         return div.innerHTML;
     }
 
+    function renderDeclarativeContractSummary(protocol = {}) {
+        const container = documentRef.getElementById('protocol-schema-contract');
+        if (!container) return;
+        const contract = getDeclarativeProtocolEditorContract(protocol);
+        const known = contract.fields.map(({ id }) => id).join('、');
+        const unknown = Object.keys(contract.unknownFields?.protocol || {});
+        const variantUnknown = (contract.variants || []).reduce((count, variant) => (
+            count + Object.keys(variant.unknownFields || {}).length
+                + Object.values(variant.parameters || {}).reduce((paramCount, parameter) => (
+                    paramCount + Object.keys(parameter.unknownFields || {}).length
+                ), 0)
+        ), 0);
+        const unknownNames = [...unknown, ...(variantUnknown ? [`variant/parameter（${variantUnknown} 项）`] : [])];
+        container.innerHTML = [
+            `<div><strong>声明式契约 v${contract.schemaVersion}</strong> · ${contract.variants.length} 个 variant · ${Object.keys(contract.parameters).length} 个协议级参数</div>`,
+            `<div style="margin-top: 4px;">结构化字段：${escapeHtmlForPreview(known)}</div>`,
+            `<div style="margin-top: 4px;">继承规则：对象递归合并，数组整体替换，null 清除</div>`,
+            unknownNames.length
+                ? `<div style="margin-top: 4px; color: var(--warning-color, #d97706);">未知字段（只读保留）：${escapeHtmlForPreview(unknownNames.join('、'))}</div>`
+                : '<div style="margin-top: 4px;">未知字段：无</div>'
+        ].join('');
+    }
+
     /**
      * 打开面板
      */
@@ -2037,6 +2185,9 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
     return {
         openPanel,
-        closePanel
+        closePanel,
+        // Expose the generated contract for settings integrations and tests;
+        // unknown fields are intentionally marked read-only by this result.
+        getEditorContract: () => getDeclarativeProtocolEditorContract(currentEditingProtocol || {})
     };
 }

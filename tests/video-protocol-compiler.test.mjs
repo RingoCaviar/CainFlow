@@ -123,6 +123,28 @@ test('redacts variant-owned custom authentication headers and query fields', () 
     assert.doesNotMatch(redactProtocolPreview({ url: plan.create.url }, plan.authentication).url, /secret/);
 });
 
+test('redacts secret fields and media values throughout protocol previews', () => {
+    const preview = redactProtocolPreview({
+        url: 'https://relay.example/v1/videos?signature=secret&safe=1',
+        headers: { Cookie: 'session-secret', 'X-Trace': 'safe' },
+        body: {
+            api_key: 'body-secret',
+            prompt: 'safe prompt',
+            image: 'data:image/png;base64,very-long-secret-pixels'
+        },
+        multipartFields: [
+            ['prompt', 'safe prompt'],
+            ['reference_image', 'data:image/png;base64,very-long-secret-pixels']
+        ]
+    });
+    assert.equal(preview.body.api_key, '<REDACTED>');
+    assert.equal(preview.body.prompt, 'safe prompt');
+    assert.deepEqual(preview.body.image, { redacted: true, size: 45, summary: 'data URL' });
+    assert.deepEqual(preview.multipartFields[1][1], { redacted: true, size: 45, summary: 'data URL' });
+    assert.match(preview.url, /signature=%3CREDACTED%3E/);
+    assert.equal(preview.headers.Cookie, '<REDACTED>');
+});
+
 test('validates and imports complete declarative video protocol configurations offline', () => {
     assert.equal(validateVideoProtocolConfiguration(protocol), true);
     assert.equal(importVideoProtocolConfiguration(JSON.stringify(protocol)).id, 'async-video-api');
@@ -187,6 +209,40 @@ test('compiles multipart media fields and query authentication without silently 
     });
     assert.match(queryAuthPlan.create.url, /key=secret/);
     assert.match(queryAuthPlan.queryUrl('task-42'), /key=secret/);
+});
+
+test('multipart adapter parts resolve declared parameter defaults', () => {
+    const plan = compileVideoProtocol({
+        protocol: {
+            id: 'multipart-defaults',
+            taskTypes: ['video'],
+            variants: {
+                'model-a': {
+                    transportAdapter: {
+                        adapterId: 'multipart',
+                        version: 1,
+                        parts: [
+                            { name: 'prompt', source: 'parameter', path: 'prompt', kind: 'text', required: true }
+                        ]
+                    },
+                    parameters: {
+                        prompt: { requestField: 'prompt', required: true, defaultValue: 'from default' }
+                    },
+                    createPath: '/v1/videos',
+                    queryPath: '/v1/videos/{{taskId}}',
+                    asyncTask: {
+                        taskIdPath: 'id',
+                        statusPath: 'status',
+                        completedStatuses: ['completed'],
+                        resultPath: 'video_url'
+                    }
+                }
+            }
+        },
+        endpoint: 'https://relay.example',
+        modelId: 'model-a'
+    });
+    assert.deepEqual(plan.create.fields, [['prompt', 'from default']]);
 });
 
 test('accepts a registered user-owned protocol as a model compatibility format', () => {

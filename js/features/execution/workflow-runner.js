@@ -17,7 +17,7 @@ import {
 } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
-import { getProtocol } from './protocols/index.js';
+import { getProtocolSnapshot } from './protocols/index.js';
 import { getGenerationInputProtocolId } from './provider-request-utils.js';
 import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-input-record.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
@@ -1136,7 +1136,7 @@ export function createWorkflowRunnerApi({
     function prepareVideoExecutionInput(node, inputs, connections = []) {
         const model = getSelectedNodeModel(node);
         return resolveVideoExecutionInputRecord({
-            protocol: getProtocol(getGenerationInputProtocolId(model)),
+            protocol: getProtocolSnapshot(getGenerationInputProtocolId(model)),
             modelId: model?.modelId,
             inputs,
             connections,

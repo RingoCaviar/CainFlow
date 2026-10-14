@@ -20,7 +20,7 @@ import {
     getResolvedProviderIdForModel,
     resolveProviderUrl
 } from './provider-request-utils.js';
-import { getProtocol } from './protocols/index.js';
+import { getProtocolSnapshot } from './protocols/index.js';
 import { compileVideoProtocol } from './protocols/video-protocol-compiler.js';
 import { buildMultipartFormData } from './protocols/multipart-transport-adapter.js';
 import { getPrimaryTextInput } from './execution-data-utils.js';
@@ -354,7 +354,7 @@ export function createAsyncMediaExecutionApi({
     }
 
     function compileDeclaredVideoPlan(apiCfg, modelCfg, protocol, parameters = {}, inputs = {}) {
-        const declarativeProtocol = getProtocol(protocol);
+        const declarativeProtocol = getProtocolSnapshot(protocol);
         if (!declarativeProtocol?.variants || Object.keys(declarativeProtocol.variants).length === 0) return null;
         return compileVideoProtocol({
             protocol: declarativeProtocol,

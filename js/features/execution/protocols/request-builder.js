@@ -3,6 +3,8 @@
  * 根据协议配置自动生成请求体、URL和解析响应
  */
 
+import { resolveDeclarativeProtocolVariant } from './declarative-protocol-schema.js';
+
 /**
  * 从协议配置构建请求体
  * @param {Object} protocol - 协议对象
@@ -11,19 +13,23 @@
  */
 export function buildRequestFromConfig(protocol, context) {
     const { parameters, inputs, modelConfig, taskType } = context;
+    const resolved = resolveDeclarativeProtocolVariant(protocol, modelConfig?.modelId);
+    const effectiveProtocol = resolved.matched || Object.keys(protocol?.variants || {}).length === 0
+        ? resolved.configuration
+        : protocol;
     const requestBody = {};
 
     // 1. 处理 model 参数
     // 如果协议的 parameters 中定义了 model，就按参数处理
     // 否则使用旧的 includeModel 逻辑（向后兼容）
-    const hasModelParam = protocol.parameters && protocol.parameters.model;
-    if (!hasModelParam && protocol.includeModel !== false) {
+    const hasModelParam = effectiveProtocol.parameters && effectiveProtocol.parameters.model;
+    if (!hasModelParam && effectiveProtocol.includeModel !== false) {
         // 旧逻辑：自动添加 model 字段
         requestBody.model = modelConfig.modelId;
     }
 
     // 2. 遍历协议的参数定义，构建请求体
-    Object.entries(protocol.parameters || {}).forEach(([paramId, paramDef]) => {
+    Object.entries(effectiveProtocol.parameters || {}).forEach(([paramId, paramDef]) => {
         if (paramDef.portOnly === true || paramId === 'referenceImages' || paramDef.id === 'referenceImages') {
             return;
         }
@@ -71,10 +77,10 @@ export function buildRequestFromConfig(protocol, context) {
     });
 
     // 3. 添加固定参数（不在parameters中定义的）
-    if (protocol.fixedParams) {
-        const fixedForTask = typeof protocol.fixedParams === 'function'
-            ? protocol.fixedParams(taskType)
-            : protocol.fixedParams;
+    if (effectiveProtocol.fixedParams) {
+        const fixedForTask = typeof effectiveProtocol.fixedParams === 'function'
+            ? effectiveProtocol.fixedParams(taskType)
+            : effectiveProtocol.fixedParams;
         Object.assign(requestBody, fixedForTask);
     }
 
@@ -181,29 +187,33 @@ function hasReferenceImages(inputs = {}) {
  */
 export function buildUrlFromTemplate(protocol, context) {
     const { apiConfig, modelConfig, taskType, parameters, inputs } = context;
+    const resolved = resolveDeclarativeProtocolVariant(protocol, modelConfig?.modelId);
+    const effectiveProtocol = resolved.matched || Object.keys(protocol?.variants || {}).length === 0
+        ? resolved.configuration
+        : protocol;
 
-    let template = protocol.urlTemplate || '{{endpoint}}/v1/endpoint';
+    let template = effectiveProtocol.urlTemplate || '{{endpoint}}/v1/endpoint';
 
     // 优先级：urlTemplates（对象形式，支持条件路径） > urlTemplate（字符串形式）
-    if (protocol.urlTemplates && typeof protocol.urlTemplates === 'object') {
+    if (effectiveProtocol.urlTemplates && typeof effectiveProtocol.urlTemplates === 'object') {
         // 对于图片任务，检查是否有参考图片，选择对应的路径
         if (taskType === 'image') {
             const hasImages = hasReferenceImages(inputs);
             // 如果有参考图且定义了 imageEdit 路径，使用编辑路径
-            if (hasImages && protocol.urlTemplates.imageEdit) {
-                template = protocol.urlTemplates.imageEdit;
+            if (hasImages && effectiveProtocol.urlTemplates.imageEdit) {
+                template = effectiveProtocol.urlTemplates.imageEdit;
             }
             // 否则使用 image 路径（生成路径）
-            else if (protocol.urlTemplates.image) {
-                template = protocol.urlTemplates.image;
+            else if (effectiveProtocol.urlTemplates.image) {
+                template = effectiveProtocol.urlTemplates.image;
             }
             // 最后回退到 taskType 路径
-            else if (protocol.urlTemplates[taskType]) {
-                template = protocol.urlTemplates[taskType];
+            else if (effectiveProtocol.urlTemplates[taskType]) {
+                template = effectiveProtocol.urlTemplates[taskType];
             }
         } else {
             // 其他任务类型直接按 taskType 查找
-            template = protocol.urlTemplates[taskType] || template;
+            template = effectiveProtocol.urlTemplates[taskType] || template;
         }
     }
 

@@ -35,7 +35,7 @@ import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnection
 import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
-import { getProtocol } from './protocols/index.js';
+import { getProtocolSnapshot } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
 import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
@@ -1353,7 +1353,7 @@ export function createExecutionCoreApi({
         const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
         const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
         const protocolParams = node.data?.protocolParams || {};
-        const declaredProtocol = getProtocol(protocol);
+        const declaredProtocol = getProtocolSnapshot(protocol);
         const declaredPlan = Object.keys(declaredProtocol?.variants || {}).length > 0
             ? compileVideoProtocol({
                 protocol: declaredProtocol,
@@ -1368,7 +1368,8 @@ export function createExecutionCoreApi({
             const safePlan = redactProtocolPreview({
                 url: declaredPlan.create.url,
                 headers: declaredPlan.create.headers,
-                body: declaredPlan.create.body
+                body: declaredPlan.create.body,
+                multipartFields: declaredPlan.create.encoding === 'multipart' ? declaredPlan.create.fields : undefined
             }, declaredPlan.authentication);
             return {
                 nodeId: id,
@@ -1381,7 +1382,7 @@ export function createExecutionCoreApi({
                 headers: safePlan.headers,
                 contentType: declaredPlan.create.encoding === 'multipart' ? 'multipart/form-data' : 'application/json',
                 requestBody: safePlan.body,
-                multipartFields: declaredPlan.create.encoding === 'multipart' ? declaredPlan.create.fields : undefined
+                multipartFields: declaredPlan.create.encoding === 'multipart' ? safePlan.multipartFields : undefined
             };
         }
         const aspect = protocolParams.size || protocolParams.aspect_ratio || protocolParams.aspect

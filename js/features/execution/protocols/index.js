@@ -5,10 +5,18 @@
 
 import { wrapConfigProtocol } from './request-builder.js';
 import { migrateProtocolConfiguration } from './video-protocol-compiler.js';
+import {
+    applyProtocolOverride,
+    createProtocolExecutionSnapshot,
+    createProtocolOverrideRecord,
+    normalizeProtocolOverrideRecord
+} from './protocol-overrides.js';
 
 // 协议存储
 const PROTOCOLS = new Map();
-const BUILT_IN_PROTOCOL_IDS = new Set([
+const BASE_PROTOCOLS = new Map();
+const PROTOCOL_OVERRIDES = new Map();
+export const BUILT_IN_PROTOCOL_IDS = new Set([
     'google',
     'openai',
     'ttapi',
@@ -23,11 +31,28 @@ const BUILT_IN_PROTOCOL_IDS = new Set([
     'agnesimage'
 ]);
 
+function clone(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function wrap(protocol) {
+    return wrapConfigProtocol(migrateProtocolConfiguration(protocol));
+}
+
+function applyRegisteredProtocol(id) {
+    const base = BASE_PROTOCOLS.get(id);
+    if (!base) return null;
+    const resolved = applyProtocolOverride(base, PROTOCOL_OVERRIDES.get(id) || null);
+    const wrapped = wrap(resolved);
+    PROTOCOLS.set(id, wrapped);
+    return wrapped;
+}
+
 /**
  * 注册一个协议
  * @param {Object} protocol - 协议对象
  */
-export function registerProtocol(protocol) {
+export function registerProtocol(protocol, options = {}) {
     if (!protocol || !protocol.id) {
         console.warn('[registerProtocol] 尝试注册无效的协议:', protocol);
         return;
@@ -35,10 +60,26 @@ export function registerProtocol(protocol) {
 
     console.log('[registerProtocol] 注册协议:', protocol.id, '标签:', protocol.label);
 
-    // 自动包装纯配置协议（添加 buildUrl/buildRequest/parseResponse 函数）
-    const wrappedProtocol = wrapConfigProtocol(migrateProtocolConfiguration(protocol));
+    const protocolId = String(protocol.id);
+    // Built-in modules establish an immutable baseline. Passing { override: true }
+    // updates only the independent user override record and never replaces it.
+    if (BUILT_IN_PROTOCOL_IDS.has(protocolId) && BASE_PROTOCOLS.has(protocolId) && options.override === true) {
+        setProtocolOverride(protocolId, createProtocolOverrideRecord({
+            protocolId,
+            baseProtocol: BASE_PROTOCOLS.get(protocolId),
+            config: protocol,
+            baseRevision: protocol.baseRevision || ''
+        }));
+        return applyRegisteredProtocol(protocolId);
+    }
 
-    PROTOCOLS.set(protocol.id, wrappedProtocol);
+    const wrappedProtocol = wrap(protocol);
+    if (BUILT_IN_PROTOCOL_IDS.has(protocolId)) {
+        BASE_PROTOCOLS.set(protocolId, wrappedProtocol);
+        return applyRegisteredProtocol(protocolId);
+    }
+
+    PROTOCOLS.set(protocolId, wrappedProtocol);
     console.log('[registerProtocol] 协议', protocol.id, '已注册，当前共有', PROTOCOLS.size, '个协议');
 }
 
@@ -50,6 +91,47 @@ export function registerProtocol(protocol) {
 export function getProtocol(id) {
     const canonicalId = id === 'relay-video' ? 'async-video-api' : id;
     return PROTOCOLS.get(canonicalId) || null;
+}
+
+/** Return a detached, immutable protocol snapshot for one execution attempt. */
+export function getProtocolSnapshot(id) {
+    const protocol = typeof id === 'string' ? getProtocol(id) : id;
+    return protocol ? createProtocolExecutionSnapshot(protocol) : null;
+}
+
+export function getProtocolOverride(id) {
+    const record = PROTOCOL_OVERRIDES.get(id);
+    return record ? clone(record) : null;
+}
+
+export function getProtocolOverrides() {
+    return Object.fromEntries(Array.from(PROTOCOL_OVERRIDES.entries()).map(([id, record]) => [id, clone(record)]));
+}
+
+export function setProtocolOverride(id, rawRecord) {
+    if (!BUILT_IN_PROTOCOL_IDS.has(id) || !BASE_PROTOCOLS.has(id)) {
+        throw new Error(`协议 “${id}” 不是已加载的内置协议，无法创建覆盖记录`);
+    }
+    const record = normalizeProtocolOverrideRecord(rawRecord, id);
+    if (!record.protocolId) record.protocolId = id;
+    record.config = { ...(record.config || {}), id };
+    PROTOCOL_OVERRIDES.set(id, record);
+    return applyRegisteredProtocol(id);
+}
+
+export function clearProtocolOverride(id) {
+    if (!PROTOCOL_OVERRIDES.delete(id)) return false;
+    applyRegisteredProtocol(id);
+    return true;
+}
+
+export function hydrateProtocolOverrides(records = {}) {
+    Object.entries(records || {}).forEach(([id, record]) => {
+        if (!BUILT_IN_PROTOCOL_IDS.has(id)) return;
+        PROTOCOL_OVERRIDES.set(id, normalizeProtocolOverrideRecord(record, id));
+        if (BASE_PROTOCOLS.has(id)) applyRegisteredProtocol(id);
+    });
+    return getProtocolOverrides();
 }
 
 /**
@@ -134,6 +216,19 @@ export async function loadProtocols() {
 
     // 动态导入所有协议
     // 注意：这些导入会触发各协议文件中的 registerProtocol() 调用
+    // Fetch override records before built-in modules register so each baseline
+    // is resolved exactly once during startup. A failed request is equivalent
+    // to an empty override set and leaves built-ins usable.
+    try {
+        const overrideResponse = await fetch('/api/protocol/overrides', { cache: 'no-store' });
+        if (overrideResponse.ok) {
+            const payload = await overrideResponse.json();
+            hydrateProtocolOverrides(payload.overrides || {});
+        }
+    } catch (error) {
+        console.warn('[loadProtocols] 获取协议覆盖记录失败，仅加载内置基线:', error);
+    }
+
     const builtInModules = [
         import('./google.js'),
         import('./openai.js'),

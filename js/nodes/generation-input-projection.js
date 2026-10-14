@@ -1,4 +1,4 @@
-import { resolveProtocolVariant } from '../features/execution/protocols/protocol-variant-resolver.js';
+import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 
 /**
  * Resolves the input contract for a protocol-driven generation card.
@@ -8,15 +8,18 @@ import { resolveProtocolVariant } from '../features/execution/protocols/protocol
 function getVariant(protocol, modelId) {
     const variants = protocol?.variants || {};
     const hasVariants = Object.keys(variants).length > 0;
-    const resolved = hasVariants ? resolveProtocolVariant(protocol, modelId) : { variant: null };
+    const resolved = hasVariants
+        ? resolveDeclarativeProtocolVariant(protocol, modelId)
+        : { variant: null, configuration: protocol };
     return {
         hasVariants,
-        variant: resolved.variant
+        variant: resolved.variant,
+        configuration: resolved.configuration || protocol
     };
 }
 
-function getParameters(protocol, variant) {
-    return { ...(protocol?.parameters || {}), ...(variant?.parameters || {}) };
+function getParameters(protocol, variant, configuration = null) {
+    return configuration?.parameters || { ...(protocol?.parameters || {}), ...(variant?.parameters || {}) };
 }
 
 function isSupportedInputPort(definition = {}) {
@@ -47,7 +50,7 @@ export function resolveGenerationInputProjection({ protocol, modelId, taskType }
         };
     }
 
-    const { hasVariants, variant } = getVariant(protocol, modelId);
+    const { hasVariants, variant, configuration } = getVariant(protocol, modelId);
     if (hasVariants && !variant) {
         return {
             protocolId: protocol.id || '', modelId: modelId || '', ports: [], promptPortIds: ['prompt'],
@@ -57,7 +60,7 @@ export function resolveGenerationInputProjection({ protocol, modelId, taskType }
         };
     }
 
-    const parameters = getParameters(protocol, variant);
+    const parameters = getParameters(protocol, variant, configuration);
     const ports = [];
     const unsupported = [];
     Object.entries(parameters).forEach(([key, definition]) => {

@@ -22,6 +22,7 @@ import { TtapiProtocol } from '../features/execution/protocols/ttapi.js';
 import { TtapiOpenaiProtocol } from '../features/execution/protocols/ttapi-openai.js';
 import { getProtocolParameterValues, renderProtocolParameters } from './protocol-ui-renderer.js';
 import { resolveProtocolVariant } from '../features/execution/protocols/protocol-variant-resolver.js';
+import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { bindProtocolNumberStepControls } from './protocol-event-binder.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
 import { isMultiConnectionInput } from './reference-image-ports.js';
@@ -1551,12 +1552,10 @@ export function createNodeDomBindingsApi({
         const model = state.models.find((candidate) => candidate.id === modelSelect.value) || null;
         const protocolId = getGenerationInputProtocolId(model);
         const protocol = getProtocol(protocolId) || null;
-        const { variant } = resolveProtocolVariant(protocol, model?.modelId);
-        if (!variant) return protocol;
-        return {
-            ...protocol,
-            parameters: { ...(protocol.parameters || {}), ...(variant.parameters || {}) }
-        };
+        if (!protocol) return null;
+        const resolved = resolveDeclarativeProtocolVariant(protocol, model?.modelId);
+        if (Object.keys(protocol?.variants || {}).length > 0 && !resolved.matched) return protocol;
+        return resolved.configuration;
     }
 
     function syncVideoGenerateProtocolParams(id) {

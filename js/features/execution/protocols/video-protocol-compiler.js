@@ -3,16 +3,28 @@
  * Callers only consume this plan; provider-specific encoding remains in adapters.
  */
 
-import { resolveProtocolVariant } from './protocol-variant-resolver.js';
+import {
+    DECLARATIVE_PROTOCOL_SCHEMA_VERSION,
+    cloneDeclarativeProtocolValue,
+    normalizeDeclarativeProtocolConfiguration,
+    resolveDeclarativeProtocolVariant
+} from './declarative-protocol-schema.js';
+import {
+    resolveMultipartParts,
+    resolveTransportAdapter,
+    validateTransportAdapterConfiguration
+} from './transport-adapter-registry.js';
 
-export const VIDEO_PROTOCOL_SCHEMA_VERSION = 1;
+export const VIDEO_PROTOCOL_SCHEMA_VERSION = DECLARATIVE_PROTOCOL_SCHEMA_VERSION;
 
 const SECRET_HEADER_NAMES = new Set([
     'authorization', 'apikey', 'api-key', 'api_key', 'x-api-key', 'tt-api-key'
 ]);
+const SECRET_FIELD_PATTERN = /(authorization|api[-_]?key|access[-_]?key|token|secret|password|credential|cookie|signature|private[-_]?key)/i;
+const MEDIA_FIELD_PATTERN = /(image|video|media|file|blob|base64|dataurl|data_url|mask|reference)/i;
 
 function clone(value) {
-    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+    return cloneDeclarativeProtocolValue(value);
 }
 
 function getPath(value, path = '') {
@@ -155,14 +167,33 @@ function compileMediaFields(variant = {}, inputs = {}) {
 }
 
 export function migrateProtocolConfiguration(rawProtocol = {}) {
-    const protocol = clone(rawProtocol) || {};
+    const protocol = normalizeDeclarativeProtocolConfiguration(rawProtocol);
     const version = Number(protocol.schemaVersion || 0);
+    if (protocol.readOnly === true) {
+        return {
+            ...protocol,
+            readOnly: true,
+            executionBlockedReason: protocol.executionBlockedReason || '此协议当前只能只读保留。'
+        };
+    }
     if (version > VIDEO_PROTOCOL_SCHEMA_VERSION) {
         return {
             ...protocol,
             readOnly: true,
             executionBlockedReason: '此协议由更新版本的 CainFlow 创建，当前版本只能只读保留。'
         };
+    }
+    const adapterDeclarations = [protocol.transportAdapter, ...Object.values(protocol.variants || {}).map((variant) => variant?.transportAdapter)]
+        .filter((declaration) => declaration !== undefined);
+    for (const declaration of adapterDeclarations) {
+        const adapter = resolveTransportAdapter({ transportAdapter: declaration }, {});
+        if (adapter.unsupported) {
+            return {
+                ...protocol,
+                readOnly: true,
+                executionBlockedReason: adapter.reason
+            };
+        }
     }
     return {
         ...protocol,
@@ -187,16 +218,19 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
         }
     }
     for (const [modelId, variant] of variants) {
+        const resolvedVariant = resolveDeclarativeProtocolVariant(protocol, modelId);
+        const effectiveVariant = resolvedVariant.configuration || variant;
         const prefix = `变体 “${modelId}”`;
-        const encoding = variant.requestEncoding || protocol.requestEncoding || 'json';
+        validateTransportAdapterConfiguration(protocol, effectiveVariant);
+        const encoding = effectiveVariant.requestEncoding || 'json';
         if (!['json', 'multipart'].includes(encoding)) throw new Error(`${prefix} 的 requestEncoding 仅支持 json 或 multipart`);
-        if (variant.requestEncodingWhenReferenceImages
-            && !['json', 'multipart'].includes(variant.requestEncodingWhenReferenceImages)) {
+        if (effectiveVariant.requestEncodingWhenReferenceImages
+            && !['json', 'multipart'].includes(effectiveVariant.requestEncodingWhenReferenceImages)) {
             throw new Error(`${prefix} 的 requestEncodingWhenReferenceImages 仅支持 json 或 multipart`);
         }
-        if (!(variant.createPath || protocol.createPath)) throw new Error(`${prefix} 缺少 createPath`);
-        if (!(variant.queryPath || protocol.queryPath)) throw new Error(`${prefix} 缺少 queryPath`);
-        const asyncTask = variant.asyncTask || protocol.asyncTask || {};
+        if (!effectiveVariant.createPath) throw new Error(`${prefix} 缺少 createPath`);
+        if (!effectiveVariant.queryPath) throw new Error(`${prefix} 缺少 queryPath`);
+        const asyncTask = effectiveVariant.asyncTask || {};
         for (const field of ['taskIdPath', 'statusPath', 'resultPath']) {
             if (!String(asyncTask[field] || '').trim()) throw new Error(`${prefix} 的 asyncTask 缺少 ${field}`);
         }
@@ -211,27 +245,27 @@ export function validateVideoProtocolConfiguration(rawProtocol = {}) {
         if (asyncTask.fallbackResultPaths !== undefined && !Array.isArray(asyncTask.fallbackResultPaths)) {
             throw new Error(`${prefix} 的 asyncTask.fallbackResultPaths 必须是数组`);
         }
-        const authentication = getAuthenticationRule(protocol, variant);
+        const authentication = getAuthenticationRule(effectiveVariant, {});
         if (!['header', 'query'].includes(authentication.location)) {
             throw new Error(`${prefix} 的 authentication.location 仅支持 header 或 query`);
         }
         if (!String(authentication.field || '').trim()) throw new Error(`${prefix} 的 authentication 缺少 field`);
         const template = String(authentication.template || '{apikey}');
         if (!template.includes('{apikey}')) throw new Error(`${prefix} 的 authentication.template 必须使用 {apikey} 占位符`);
-        if (variant.referenceImage) {
-            if (!['repeat-field', 'single-string', 'json-array'].includes(variant.referenceImage.mode)) {
+        if (effectiveVariant.referenceImage) {
+            if (!['repeat-field', 'single-string', 'json-array'].includes(effectiveVariant.referenceImage.mode)) {
                 throw new Error(`${prefix} 的 referenceImage mode 不受支持`);
             }
-            if (!String(variant.referenceImage.field || '').trim()) throw new Error(`${prefix} 的 referenceImage 缺少 field`);
-            if (variant.referenceImage.urlPattern !== undefined) {
+            if (!String(effectiveVariant.referenceImage.field || '').trim()) throw new Error(`${prefix} 的 referenceImage 缺少 field`);
+            if (effectiveVariant.referenceImage.urlPattern !== undefined) {
                 try {
-                    new RegExp(variant.referenceImage.urlPattern);
+                    new RegExp(effectiveVariant.referenceImage.urlPattern);
                 } catch {
                     throw new Error(`${prefix} 的 referenceImage.urlPattern 无效`);
                 }
             }
         }
-        const definitions = { ...(protocol.parameters || {}), ...(variant.parameters || {}) };
+        const definitions = effectiveVariant.parameters || {};
         for (const [paramId, definition] of Object.entries(definitions)) {
             if (!definition || typeof definition !== 'object') throw new Error(`${prefix} 的参数 “${paramId}” 定义无效`);
             if (definition.options !== undefined && !Array.isArray(definition.options)) {
@@ -260,22 +294,28 @@ export function importVideoProtocolConfiguration(json) {
 export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId, parameters = {}, inputs = {}, apiKey = '' } = {}) {
     const protocol = migrateProtocolConfiguration(rawProtocol);
     if (protocol.readOnly) throw new Error(protocol.executionBlockedReason);
-    const { variantId, variant } = resolveProtocolVariant(protocol, modelId);
+    const resolved = resolveDeclarativeProtocolVariant(protocol, modelId);
+    const { variantId, variant, configuration: effectiveVariant } = resolved;
     if (!variant) throw new Error(`协议 “${protocol.label || protocol.id || '当前协议'}” 未配置模型 “${modelId}” 的变体`);
+    const transportAdapter = validateTransportAdapterConfiguration(protocol, effectiveVariant);
 
-    const definitions = { ...(protocol.parameters || {}), ...(variant.parameters || {}) };
+    const definitions = effectiveVariant.parameters || {};
     const requestBody = { model: variantId };
+    const effectiveParameters = { ...parameters };
     Object.entries(definitions).forEach(([paramId, definition]) => {
         if (definition.portOnly === true || paramId === 'referenceImages') return;
         const value = parameters[paramId] === undefined ? definition.defaultValue : parameters[paramId];
         validateParameter(paramId, definition, value);
         if (value === undefined || value === null || value === '') return;
-        requestBody[definition.requestField || paramId] = convertValue(value, definition);
+        const resolvedValue = value === '{{modelId}}' ? variantId : value;
+        const convertedValue = convertValue(resolvedValue, definition);
+        effectiveParameters[paramId] = convertedValue;
+        requestBody[definition.requestField || paramId] = convertedValue;
     });
 
-    const media = compileMediaFields(variant, inputs);
-    const encoding = (media.images.length > 0 && variant.requestEncodingWhenReferenceImages)
-        || variant.requestEncoding || protocol.requestEncoding || 'json';
+    const media = compileMediaFields(effectiveVariant, inputs);
+    const encoding = (media.images.length > 0 && effectiveVariant.requestEncodingWhenReferenceImages)
+        || transportAdapter.encoding || effectiveVariant.requestEncoding || 'json';
     if (encoding === 'json') {
         media.fields.forEach(([field, value]) => {
             if (Object.hasOwn(requestBody, field)) {
@@ -284,23 +324,30 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
             requestBody[field] = value;
         });
     }
-    const authentication = getAuthenticationRule(protocol, variant);
+    const adapterParts = transportAdapter.config?.parts;
+    const multipartFields = encoding !== 'multipart'
+        ? []
+        : (Array.isArray(adapterParts) && adapterParts.length > 0
+            ? resolveMultipartParts(adapterParts, { parameters: effectiveParameters, inputs })
+            : [...Object.entries(requestBody), ...media.fields]);
+    const authentication = getAuthenticationRule(effectiveVariant, {});
     if (authentication.location === 'body' && apiKey) {
         throw new Error('异步视频协议暂不支持将 API Key 放在请求体中；请使用请求头或查询参数。');
     }
     const authenticatedCreate = applyAuthentication({
-        url: buildUrl(endpoint, variant.createPath || protocol.createPath, { modelId: variantId }),
+        url: buildUrl(endpoint, effectiveVariant.createPath, { modelId: variantId }),
         body: requestBody,
         authentication,
         apiKey
     });
     const headers = buildAuthenticationHeaders(authentication, apiKey);
     if (encoding === 'json') headers['Content-Type'] = 'application/json';
-    const asyncTask = variant.asyncTask || protocol.asyncTask || {};
+    const asyncTask = effectiveVariant.asyncTask || {};
     return {
         protocolId: protocol.id,
         schemaVersion: protocol.schemaVersion,
         variantId,
+        protocol: clone(effectiveVariant),
         authentication: clone(authentication),
         create: {
             method: 'POST',
@@ -308,11 +355,11 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
             encoding,
             headers,
             body: authenticatedCreate.body,
-            fields: encoding === 'multipart' ? [...Object.entries(authenticatedCreate.body), ...media.fields] : []
+            fields: multipartFields
         },
         asyncTask: clone(asyncTask),
         queryUrl(taskId) {
-            const queryUrl = buildUrl(endpoint, variant.queryPath || protocol.queryPath, { taskId, modelId: variantId });
+            const queryUrl = buildUrl(endpoint, effectiveVariant.queryPath, { taskId, modelId: variantId });
             return applyAuthentication({ url: queryUrl, body: {}, authentication, apiKey }).url;
         },
         parseTaskId(response) {
@@ -332,26 +379,58 @@ export function compileVideoProtocol({ protocol: rawProtocol, endpoint, modelId,
     };
 }
 
+function redactPreviewValue(value, fieldName = '') {
+    if (SECRET_FIELD_PATTERN.test(String(fieldName || ''))) return '<REDACTED>';
+    if (typeof value === 'string') {
+        if (/^data:[^,]+,/i.test(value)) {
+            return { redacted: true, size: value.length, summary: 'data URL' };
+        }
+        if (MEDIA_FIELD_PATTERN.test(String(fieldName || '')) && value.length > 64) {
+            return { redacted: true, size: value.length, summary: 'media value' };
+        }
+        return value;
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => redactPreviewValue(item, fieldName));
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+            key,
+            redactPreviewValue(item, key)
+        ]));
+    }
+    return value;
+}
+
 export function redactProtocolPreview(request = {}, authentication = {}) {
     const authenticationHeader = (authentication.location || 'header') === 'header'
         ? String(authentication.field || '').toLowerCase()
         : '';
+    const cloned = redactPreviewValue(request) || {};
     const headers = Object.fromEntries(Object.entries(request.headers || {}).map(([key, value]) => [
         key,
-        (SECRET_HEADER_NAMES.has(key.toLowerCase()) || key.toLowerCase() === authenticationHeader) ? '<REDACTED>' : value
+        (SECRET_HEADER_NAMES.has(key.toLowerCase()) || key.toLowerCase() === authenticationHeader)
+            ? '<REDACTED>'
+            : redactPreviewValue(value, key)
     ]));
     const redactUrl = (value) => {
-        if (!value || authentication.location !== 'query' || !authentication.field) return value;
+        if (!value) return value;
         try {
             const url = new URL(value);
-            if (url.searchParams.has(authentication.field)) url.searchParams.set(authentication.field, '<REDACTED>');
+            for (const key of [...url.searchParams.keys()]) {
+                if (SECRET_FIELD_PATTERN.test(key)
+                    || (authentication.location === 'query' && authentication.field
+                        && key.toLowerCase() === String(authentication.field).toLowerCase())) {
+                    url.searchParams.set(key, '<REDACTED>');
+                }
+            }
             return url.toString();
         } catch {
             return value;
         }
     };
     return {
-        ...clone(request),
+        ...cloned,
         headers,
         url: redactUrl(request.url),
         query_url_template: redactUrl(request.query_url_template)

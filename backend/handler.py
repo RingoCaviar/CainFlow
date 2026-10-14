@@ -118,6 +118,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if workflow_routes.handle_delete(self):
                 return
+            if protocol_routes.handle_delete(self):
+                return
             if storage_routes.handle_delete(self):
                 return
             if conversation_routes.handle_delete(self):
