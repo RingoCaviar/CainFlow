@@ -34,4 +34,9 @@ test('active workflow snapshots own Prompt Agent conversation state', async () =
     });
 
     assert.deepEqual(manager.getActiveWorkflowSnapshot().promptAgent, agentState);
+
+    manager.updateWorkflowTabDataById('workflow-a', {
+        workflowId: 'workflow-a', nodes: [], connections: [], version: '1.3'
+    }, { mergeRunResults: true });
+    assert.deepEqual(manager.getActiveWorkflowSnapshot().promptAgent, agentState);
 });

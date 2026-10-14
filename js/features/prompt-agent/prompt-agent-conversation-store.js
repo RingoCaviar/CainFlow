@@ -25,7 +25,15 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
     function compress() {
         while (contextLength() > limit && messages.length > 1) {
             const oldest = messages.shift();
-            memory = `${memory}\n${oldest.role === 'user' ? '用户' : 'Agent'}：${oldest.text}`.trim();
+            const plan = oldest.promptPlan;
+            const creativeSummary = plan
+                ? [
+                    plan.prompt ? `画面方向：${plan.prompt}` : '',
+                    plan.negativePrompt ? `避免：${plan.negativePrompt}` : '',
+                    Object.keys(plan.parameters || {}).length ? `参数：${JSON.stringify(plan.parameters)}` : ''
+                ].filter(Boolean).join('；')
+                : (oldest.role === 'user' ? `创作要求：${oldest.text}` : '');
+            if (creativeSummary) memory = `${memory}；${creativeSummary}`.replace(/^；/, '');
             const memoryLimit = Math.max(32, Math.floor(limit / 2));
             if (memory.length > memoryLimit) memory = memory.slice(-memoryLimit);
         }
@@ -52,10 +60,11 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
     }
 
     function getContext() {
-        return [
+        const context = [
             memory ? `工作流记忆：${memory}` : '',
             ...messages.map((message) => `${message.role === 'user' ? '用户' : 'Agent'}：${message.text}`)
         ].filter(Boolean).join('\n');
+        return context.length > limit ? context.slice(-limit) : context;
     }
 
     function setPanelWidth(width) {

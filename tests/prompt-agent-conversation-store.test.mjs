@@ -24,9 +24,16 @@ test('oversized context compresses older turns and keeps recent turns usable', (
 
     const snapshot = store.snapshot();
     assert.ok(snapshot.memory.length > 0);
+    assert.doesNotMatch(snapshot.memory, /用户：|Agent：/);
     assert.ok(snapshot.messages.length < 3);
     assert.match(store.getContext(), /侧脸构图/);
     assert.ok(store.getContext().length <= 180);
+});
+
+test('a single oversized recent turn is bounded when building Agent context', () => {
+    const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
+    store.append({ role: 'user', text: '场景'.repeat(100) });
+    assert.ok(store.getContext().length <= 80);
 });
 
 test('restoring missing workflow Agent data clears previous conversation', () => {

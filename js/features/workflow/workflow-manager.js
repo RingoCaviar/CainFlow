@@ -781,6 +781,7 @@ export function createWorkflowManagerApi({
                 canvas: { ...(data.canvas || {}) },
                 nodes: Array.isArray(data.nodes) ? data.nodes.map((node) => ({ ...node })) : [],
                 connections: Array.isArray(data.connections) ? data.connections.map((connection) => ({ ...connection })) : [],
+                promptAgent: data.promptAgent ? { ...data.promptAgent } : null,
                 version: data.version || WORKFLOW_VERSION
             };
         }
@@ -856,6 +857,7 @@ export function createWorkflowManagerApi({
         });
 
         return {
+            ...current,
             canvas: current.canvas || runtime.canvas || getEmptyWorkflowData().canvas,
             nodes: mergedNodes,
             connections: mergedConnections,

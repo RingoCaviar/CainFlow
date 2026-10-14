@@ -1,11 +1,11 @@
 import { createPromptAgentConversationStore } from './prompt-agent-conversation-store.js';
 
-function buildDefaultReply({ message, context }) {
+function buildDefaultReply({ message, context, workflowMemory = '' }) {
     const instruction = String(message || '').trim();
     const currentPrompt = String(context?.prompt || '').trim();
     const prompt = currentPrompt
         ? `${currentPrompt}\n\n调整要求：${instruction}`
-        : instruction;
+        : (workflowMemory ? `${workflowMemory}\n\n新要求：${instruction}` : instruction);
     return {
         message: context ? '已根据当前生图节点整理 Prompt Plan。' : '已整理 Prompt Plan；选择一个生图节点后即可应用。',
         workSummary: context ? ['读取当前生图节点', '整理提示词与生成参数'] : ['理解创作需求', '整理提示词方向'],
@@ -29,6 +29,7 @@ export function createPromptAgentController({
 } = {}) {
     let initialized = false;
     let resizeObserver = null;
+    let workflowRevision = 0;
 
     function getElements() {
         return {
@@ -212,11 +213,13 @@ export function createPromptAgentController({
         const text = input?.value?.trim();
         if (!text) return;
         appendMessage('user', text);
+        const requestWorkflowRevision = workflowRevision;
         input.value = '';
         if (sendButton) sendButton.disabled = true;
         try {
             const context = nodeAdapter?.getSelectedContext?.() || null;
             const reply = await createReply({ message: text, context, workflowMemory: conversationStore.getContext() });
+            if (requestWorkflowRevision !== workflowRevision) return;
             const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || [], { promptPlan: reply?.promptPlan || null });
             appendPromptPlan(agentMessage, reply?.promptPlan);
         } catch (error) {
@@ -264,6 +267,7 @@ export function createPromptAgentController({
     }
 
     function restoreWorkflow(value) {
+        workflowRevision += 1;
         conversationStore.restore(value);
         const { panel } = getElements();
         const width = conversationStore.snapshot().panelWidth;
