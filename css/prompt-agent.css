@@ -65,6 +65,18 @@
 .prompt-agent-work-summary summary { cursor: pointer; user-select: none; }
 .prompt-agent-work-summary ol { margin: 8px 0 0; padding-left: 20px; }
 
+.prompt-agent-plan {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--bg-input, var(--bg-dark));
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
+.prompt-agent-actions { display: flex; gap: 8px; margin-top: 10px; }
+
 .prompt-agent-composer { border-top: 1px solid var(--border-color); border-bottom: 0; }
 .prompt-agent-composer textarea {
     flex: 1;

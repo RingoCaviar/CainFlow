@@ -39,8 +39,17 @@ class FakeElement {
 
 function createHarness(createReply = async () => ({
     message: '已整理你的创作方向。',
-    workSummary: ['理解需求', '整理提示词方向']
-})) {
+    workSummary: ['理解需求', '整理提示词方向'],
+    promptPlan: {
+        targetNodeId: 'image-1',
+        prompt: '低饱和电影感海报',
+        negativePrompt: '过度饱和',
+        parameters: { aspectRatio: '16:9', count: 1 }
+    }
+}), nodeAdapter = {
+    getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
+    applyPromptPlan: () => true
+}) {
     const elements = {
         'btn-prompt-agent': new FakeElement(),
         'prompt-agent-panel': new FakeElement(),
@@ -55,7 +64,7 @@ function createHarness(createReply = async () => ({
         getElementById: (id) => elements[id] || null,
         createElement: () => new FakeElement()
     };
-    const controller = createPromptAgentController({ documentRef, createReply });
+    const controller = createPromptAgentController({ documentRef, createReply, nodeAdapter });
     controller.init();
     return { controller, elements };
 }
@@ -85,5 +94,48 @@ test('submitting a message renders a user turn and a collapsed Agent Work Summar
     assert.equal(agentMessage.children[0].open, false);
     assert.equal(agentMessage.children[0].children[0].textContent, '工作过程');
     assert.equal(agentMessage.children[1].textContent, '已整理你的创作方向。');
+    assert.equal(agentMessage.children[2].className, 'prompt-agent-plan');
+    assert.equal(agentMessage.children[3].children[0].textContent, '应用到节点');
     assert.equal(elements['prompt-agent-input'].value, '');
+});
+
+test('passes selected node context to the Agent and applies the response plan', async () => {
+    let request = null;
+    let applied = null;
+    const { elements } = createHarness(async (value) => {
+        request = value;
+        return {
+            message: '计划已就绪。',
+            workSummary: ['读取当前节点'],
+            promptPlan: { targetNodeId: 'image-1', prompt: '新提示词', negativePrompt: '', parameters: {} }
+        };
+    }, {
+        getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
+        applyPromptPlan: (plan) => { applied = plan; return true; }
+    });
+    elements['btn-prompt-agent'].dispatch('click');
+    elements['prompt-agent-input'].value = '调整一下';
+
+    await elements['prompt-agent-form'].dispatch('submit');
+    assert.equal(request.context.nodeId, 'image-1');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    agentMessage.children[3].children[0].dispatch('click');
+    assert.equal(applied.prompt, '新提示词');
+    assert.equal(elements['prompt-agent-panel'].classList.contains('active'), true);
+});
+
+test('keeps chatting but disables plan application without one selected image node', async () => {
+    const { elements } = createHarness(async () => ({
+        message: '选择一个生图节点后即可应用。',
+        workSummary: ['整理提示词方向'],
+        promptPlan: { targetNodeId: null, prompt: '草稿提示词', negativePrompt: '', parameters: {} }
+    }), {
+        getSelectedContext: () => null,
+        applyPromptPlan: () => false
+    });
+    elements['prompt-agent-input'].value = '先帮我写提示词';
+
+    await elements['prompt-agent-form'].dispatch('submit');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    assert.equal(agentMessage.children[3].children[0].disabled, true);
 });

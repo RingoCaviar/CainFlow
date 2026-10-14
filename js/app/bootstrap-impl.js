@@ -73,6 +73,7 @@ import { createWorkflowManagerApi } from '../features/workflow/workflow-manager.
 import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runtime-manager.js';
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentNodeAdapter } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -94,7 +95,6 @@ import { registerGlobalBridges } from './register-global-bridges.js';
 
 export async function initializeCainFlowApp() {
 const registry = createAppRegistry();
-const promptAgentController = createPromptAgentController({ documentRef: document });
 
 // ===== 工具函数 =====
 function generateId() {
@@ -832,6 +832,16 @@ function cancelRunningNode(nodeId) {
 function scheduleSave(options) {
     return getSessionManagerApi().scheduleSave(options);
 }
+
+const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
+    state,
+    documentRef: document,
+    scheduleSave
+});
+const promptAgentController = createPromptAgentController({
+    documentRef: document,
+    nodeAdapter: promptAgentNodeAdapter
+});
 
 function saveState() {
     return getSessionManagerApi().saveState();

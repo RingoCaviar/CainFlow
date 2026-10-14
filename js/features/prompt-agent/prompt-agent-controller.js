@@ -1,11 +1,21 @@
-const DEFAULT_REPLY = Object.freeze({
-    message: '已收到。后续接入生图节点后，我会在这里生成可应用的提示词方案。',
-    workSummary: ['理解创作需求', '整理提示词方向']
-});
+function buildDefaultReply({ message, context }) {
+    const prompt = String(message || '').trim();
+    return {
+        message: context ? '已根据当前生图节点整理 Prompt Plan。' : '已整理 Prompt Plan；选择一个生图节点后即可应用。',
+        workSummary: context ? ['读取当前生图节点', '整理提示词与生成参数'] : ['理解创作需求', '整理提示词方向'],
+        promptPlan: {
+            targetNodeId: context?.nodeId || null,
+            prompt,
+            negativePrompt: context?.negativePrompt || '',
+            parameters: { ...(context?.parameters || {}) }
+        }
+    };
+}
 
 export function createPromptAgentController({
     documentRef = document,
-    createReply = async () => DEFAULT_REPLY
+    createReply = async (request) => buildDefaultReply(request),
+    nodeAdapter = null
 } = {}) {
     let initialized = false;
 
@@ -73,6 +83,39 @@ export function createPromptAgentController({
         return message;
     }
 
+    function formatPlan(plan) {
+        const parts = [`Prompt\n${plan.prompt || '—'}`];
+        if (plan.negativePrompt) parts.push(`Negative Prompt\n${plan.negativePrompt}`);
+        const parameters = Object.entries(plan.parameters || {})
+            .filter(([, value]) => value !== '' && value !== undefined && value !== null)
+            .map(([key, value]) => `${key}: ${value}`);
+        if (parameters.length) parts.push(`参数\n${parameters.join(' · ')}`);
+        return parts.join('\n\n');
+    }
+
+    function appendPromptPlan(message, plan) {
+        if (!message || !plan) return;
+        const planElement = documentRef.createElement('section');
+        planElement.className = 'prompt-agent-plan';
+        planElement.textContent = formatPlan(plan);
+        message.appendChild(planElement);
+
+        const actions = documentRef.createElement('div');
+        actions.className = 'prompt-agent-actions';
+        const applyButton = documentRef.createElement('button');
+        applyButton.type = 'button';
+        applyButton.className = 'btn btn-primary';
+        applyButton.textContent = '应用到节点';
+        applyButton.disabled = !plan.targetNodeId;
+        applyButton.addEventListener('click', () => {
+            if (!nodeAdapter?.applyPromptPlan?.(plan)) return;
+            applyButton.textContent = '已应用';
+            applyButton.disabled = true;
+        });
+        actions.appendChild(applyButton);
+        message.appendChild(actions);
+    }
+
     async function submit() {
         const { input, sendButton } = getElements();
         const text = input?.value?.trim();
@@ -81,8 +124,10 @@ export function createPromptAgentController({
         input.value = '';
         if (sendButton) sendButton.disabled = true;
         try {
-            const reply = await createReply({ message: text });
-            appendMessage('agent', reply?.message || DEFAULT_REPLY.message, reply?.workSummary || []);
+            const context = nodeAdapter?.getSelectedContext?.() || null;
+            const reply = await createReply({ message: text, context });
+            const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || []);
+            appendPromptPlan(agentMessage, reply?.promptPlan);
         } catch (error) {
             appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。');
         } finally {
