@@ -258,6 +258,20 @@ test('a reply that finishes after switching workflows is not written into the ne
     assert.equal(controller.snapshotWorkflow().messages.length, 0);
 });
 
+test('a reply that fails after switching workflows is not written into the new workflow', async () => {
+    let rejectReply;
+    const { controller, elements } = createHarness(() => new Promise((resolve, reject) => { rejectReply = reject; }));
+    controller.restoreWorkflow({ version: 1, memory: '', messages: [], panelWidth: null });
+    elements['prompt-agent-input'].value = '旧工作流请求';
+    const pending = elements['prompt-agent-form'].dispatch('submit');
+    controller.restoreWorkflow({ version: 1, memory: '新工作流', messages: [], panelWidth: null });
+    rejectReply(new Error('迟到错误'));
+    await pending;
+
+    assert.equal(controller.snapshotWorkflow().memory, '新工作流');
+    assert.equal(controller.snapshotWorkflow().messages.length, 0);
+});
+
 test('default Prompt Plan uses restored Workflow Memory when no node prompt exists', async () => {
     const elements = {
         'btn-prompt-agent': new FakeElement(), 'prompt-agent-panel': new FakeElement(),
@@ -281,5 +295,33 @@ test('default Prompt Plan uses restored Workflow Memory when no node prompt exis
     const agentMessage = elements['prompt-agent-messages'].children[1];
     agentMessage.children[3].children[0].dispatch('click');
     assert.match(applied.prompt, /低饱和电影感城市/);
+    assert.match(applied.prompt, /改成侧脸/);
+});
+
+test('default Prompt Plan uses restored Workflow Memory with an existing node prompt', async () => {
+    const elements = {
+        'btn-prompt-agent': new FakeElement(), 'prompt-agent-panel': new FakeElement(),
+        'btn-close-prompt-agent': new FakeElement(), 'prompt-agent-form': new FakeElement(),
+        'prompt-agent-input': new FakeElement(), 'prompt-agent-send': new FakeElement(),
+        'prompt-agent-messages': new FakeElement()
+    };
+    const documentRef = { getElementById: (id) => elements[id] || null, createElement: () => new FakeElement() };
+    let applied = null;
+    const controller = createPromptAgentController({
+        documentRef,
+        nodeAdapter: {
+            getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
+            applyPromptPlan: (plan) => { applied = plan; return true; }
+        }
+    });
+    controller.init();
+    controller.restoreWorkflow({ version: 1, memory: '低饱和电影感城市', messages: [], panelWidth: null });
+    elements['prompt-agent-input'].value = '改成侧脸';
+    await elements['prompt-agent-form'].dispatch('submit');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    agentMessage.children[3].children[0].dispatch('click');
+
+    assert.match(applied.prompt, /低饱和电影感城市/);
+    assert.match(applied.prompt, /旧提示词/);
     assert.match(applied.prompt, /改成侧脸/);
 });

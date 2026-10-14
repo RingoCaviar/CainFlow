@@ -4,7 +4,7 @@ function buildDefaultReply({ message, context, workflowMemory = '' }) {
     const instruction = String(message || '').trim();
     const currentPrompt = String(context?.prompt || '').trim();
     const prompt = currentPrompt
-        ? `${currentPrompt}\n\n调整要求：${instruction}`
+        ? `${workflowMemory ? `${workflowMemory}\n\n` : ''}${currentPrompt}\n\n调整要求：${instruction}`
         : (workflowMemory ? `${workflowMemory}\n\n新要求：${instruction}` : instruction);
     return {
         message: context ? '已根据当前生图节点整理 Prompt Plan。' : '已整理 Prompt Plan；选择一个生图节点后即可应用。',
@@ -212,17 +212,19 @@ export function createPromptAgentController({
         const { input, sendButton } = getElements();
         const text = input?.value?.trim();
         if (!text) return;
+        const workflowMemory = conversationStore.getContext();
         appendMessage('user', text);
         const requestWorkflowRevision = workflowRevision;
         input.value = '';
         if (sendButton) sendButton.disabled = true;
         try {
             const context = nodeAdapter?.getSelectedContext?.() || null;
-            const reply = await createReply({ message: text, context, workflowMemory: conversationStore.getContext() });
+            const reply = await createReply({ message: text, context, workflowMemory });
             if (requestWorkflowRevision !== workflowRevision) return;
             const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || [], { promptPlan: reply?.promptPlan || null });
             appendPromptPlan(agentMessage, reply?.promptPlan);
         } catch (error) {
+            if (requestWorkflowRevision !== workflowRevision) return;
             appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。');
         } finally {
             if (sendButton) sendButton.disabled = false;
