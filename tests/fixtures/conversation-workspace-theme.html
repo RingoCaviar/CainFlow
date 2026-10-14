@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../index.css">
+    <style>
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+        body { margin: 0; }
+        .conversation-workspace { width: 100vw; height: 620px; }
+    </style>
+</head>
+<body>
+    <section class="conversation-workspace">
+        <aside id="list" class="conversation-pane conversation-list-pane">
+            <header class="conversation-pane-header"><strong>对话</strong><button class="btn btn-primary">新建</button></header>
+            <div class="conversation-list"><button class="conversation-list-item is-selected"><span class="conversation-list-item-title">镜头讨论</span><span class="conversation-list-item-meta">当前工作流</span></button></div>
+        </aside>
+        <main id="main" class="conversation-pane conversation-main-pane">
+            <header class="conversation-main-header"><h2>镜头讨论</h2></header>
+            <div class="conversation-messages"><article class="conversation-message is-assistant"><header><strong>助手</strong></header><div id="message" class="conversation-message-content">这是对话回复。</div></article></div>
+            <section class="conversation-composer-shell"><textarea id="conversation-composer">继续完善</textarea></section>
+        </main>
+        <aside id="context" class="conversation-pane conversation-context-pane"><section class="conversation-context-section"><h3>工作流摘要</h3><div>12 个节点</div></section></aside>
+    </section>
+    <pre id="surface-result"></pre>
+    <script>
+        addEventListener('load', () => {
+            const themes = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+            const inspect = (element) => {
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return { width: rect.width, background: style.backgroundColor, color: style.color, position: style.position };
+            };
+            const results = themes.map((themeId) => {
+                document.documentElement.dataset.appTheme = themeId;
+                return {
+                    themeId,
+                    viewportWidth: innerWidth,
+                    list: inspect(document.querySelector('#list')),
+                    main: inspect(document.querySelector('#main')),
+                    context: inspect(document.querySelector('#context')),
+                    message: inspect(document.querySelector('#message'))
+                };
+            });
+            document.querySelector('#surface-result').textContent = JSON.stringify(results);
+        });
+    </script>
+</body>
+</html>

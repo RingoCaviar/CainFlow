@@ -42,6 +42,58 @@ _Avoid_: Workflow name as identity, workflow path as identity
 The authoritative current-session record of an open workflow's Workflow identity, mutable label, running state, pending explicit-save state, and whether it is active. Presentation details, folder placement, dirty state, run result, and the editable workflow document are not part of this record.
 _Avoid_: Workflow tab as authority, duplicate open-workflow state
 
+**Conversation**:
+A durable multi-turn exchange with configured models that may exist independently or be linked to one Workflow identity. Its messages may contain text and references to shared Media assets.
+_Avoid_: Enlarged TextChat node, workflow chat log
+
+**Workflow-linked conversation**:
+A Conversation associated with one Workflow identity so it can use that workflow's node outputs and offer explicit canvas actions. Renaming or moving the workflow does not change the association.
+_Avoid_: Workflow-name-linked chat, conversation owned by a workflow tab
+
+**Workspace mode**:
+The active CainFlow interaction surface, either the canvas editor or the conversation workspace. Changing Workspace mode preserves the active workflow and does not constitute Workflow activation.
+_Avoid_: Page navigation, workflow switch, iframe mode
+
+**Conversation context projection**:
+The execution-time selection of conversation history, workflow summary, and explicitly attached node or Media asset references that fit the selected model's input capacity. The durable Conversation remains complete when earlier content is summarized or omitted from a request.
+_Avoid_: Truncated conversation, complete-history request
+
+**Conversation branch**:
+An alternative continuation retained when an earlier user message is edited or an assistant response is regenerated. Selecting a branch changes the visible continuation without overwriting another result.
+_Avoid_: Overwritten reply, duplicate conversation
+
+**Background conversation run**:
+A Conversation request that continues while another Conversation or the canvas editor is visible. One Conversation has at most one active request, while separate Conversations may run concurrently.
+_Avoid_: Hidden chat request, parallel replies in one conversation
+
+**Canvas action plan**:
+The complete preview of AI-proposed changes to one workflow, confirmed by the user and applied atomically as one undoable action. A rejected or failed plan leaves the workflow unchanged.
+_Avoid_: Direct AI canvas mutation, sequence of unrelated undo steps
+
+**Staged conversation context**:
+The removable set of local files, clipboard content, history Media assets, and workflow node outputs prepared for the next user message. Only the items visible in this set become explicit inputs when that message is sent.
+_Avoid_: Implicit open-media context, automatic canvas attachment
+
+**Conversation source snapshot**:
+The content and Media asset references captured from a workflow node when a user message is sent, together with the source Workflow identity and node ID. Later node changes do not rewrite the snapshot; obtaining newer content is an explicit action.
+_Avoid_: Live node message, mutable conversation attachment
+
+**Conversation execution record**:
+The immutable account of the model, Provider, system-prompt version, and request outcome used to produce one assistant response. Changing a Conversation's current defaults does not rewrite earlier execution records.
+_Avoid_: Conversation-wide model history, current-model attribution
+
+**Conversation request attempt**:
+One provider request made while producing an assistant response, including a failed or automatically retried request. Retrying retains earlier attempts while presenting them under the same response position.
+_Avoid_: Duplicate user message, overwritten request failure
+
+**Partial assistant response**:
+The retained incomplete output from a Conversation request stopped by the user. It is visibly distinguished from a completed response and may be continued, regenerated, or removed.
+_Avoid_: Failed response, completed truncated reply
+
+**Conversation package**:
+A portable export containing Conversation documents, an identity and reference manifest, and only the Media assets the user explicitly chooses to include. Import reconstructs local references without trusting source-device file paths.
+_Avoid_: Chat text dump, implicit media backup
+
 **Multi-connection input**:
 An input port that retains distinct connections from multiple source ports in an explicit order. Reconnecting the same source is rejected, while disconnecting one source leaves the others and their order intact.
 _Avoid_: Repeated input ports, array port

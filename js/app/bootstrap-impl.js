@@ -62,6 +62,14 @@ import { createThemeControllerApi } from '../features/ui/theme-controller.js';
 import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } from '../features/ui/animation-controller.js';
 import { applyCanvasUiSetting as applyCanvasUiSettingService } from '../features/ui/canvas-ui-controller.js';
 import { createToolbarControllerApi } from '../features/ui/toolbar-controller.js';
+import { createWorkspaceModeController } from '../features/ui/workspace-mode-controller.js';
+import { createConversationWorkbenchController } from '../features/conversation/conversation-workbench-controller.js';
+import { createConversationToolbarController } from '../features/conversation/conversation-toolbar-controller.js';
+import { createConversationExecutionService } from '../features/conversation/conversation-execution-service.js';
+import { createConversationImageGenerationService } from '../features/conversation/conversation-image-generation-service.js';
+import * as conversationApi from '../services/conversation-api.js';
+import { buildCanvasMaterializationPlan, createCanvasMaterializationCommand } from '../features/conversation/conversation-canvas-materialization.js';
+import { createChatRequestPlan, requestChatCompletion } from '../features/execution/chat-request-plan.js';
 import { createToastControllerApi } from '../features/ui/toast-controller.js';
 import { createFloatingNoticesController } from '../features/ui/floating-notices-controller.js';
 import { createLogPanelApi } from '../features/logs/log-panel.js';
@@ -1020,6 +1028,133 @@ function getToolbarControllerApi() {
     return registry.toolbarControllerApi;
 }
 
+function getWorkspaceModeControllerApi() {
+    if (!registry.workspaceModeControllerApi) {
+        registry.workspaceModeControllerApi = createWorkspaceModeController({
+            state,
+            documentRef: document,
+            saveState
+        });
+    }
+    return registry.workspaceModeControllerApi;
+}
+
+function getConversationWorkbenchControllerApi() {
+    if (!registry.conversationWorkbenchControllerApi) {
+        registry.conversationWorkbenchControllerApi = createConversationWorkbenchController({
+            state,
+            documentRef: document,
+            showToast,
+            executionService: getConversationExecutionServiceApi(),
+            imageGenerationService: getConversationImageGenerationServiceApi(),
+            openSettings: () => document.getElementById('btn-settings')?.click(),
+            getHistoryEntry,
+            putMediaAsset,
+            removeMediaReference,
+            materializeMessage: async ({ message, textNodeType }) => {
+                const workflowId = workflowManagerApi.getActiveWorkflowId?.() || '';
+                if (!workflowId) throw new Error('请先打开目标工作流');
+                const canvasRect = canvasContainer.getBoundingClientRect();
+                const zoom = Number(state.canvas.zoom) || 1;
+                const origin = {
+                    x: (canvasRect.width / 2 - state.canvas.x) / zoom,
+                    y: (canvasRect.height / 2 - state.canvas.y) / zoom
+                };
+                const plan = buildCanvasMaterializationPlan({
+                    workflowId,
+                    messageId: message.id,
+                    textNodeType,
+                    text: (message.parts || []).filter((part) => part.type === 'text').map((part) => part.text || '').join('\n'),
+                    media: (message.parts || []).filter((part) => part.type === 'media').map((part) => ({
+                        assetKey: part.assetKey, mediaType: part.mediaType || 'image', missing: part.missing === true
+                    })),
+                    origin
+                });
+                const preview = plan.nodes.map((node) => `${node.type} @ (${Math.round(node.x)}, ${Math.round(node.y)})`).join('\n');
+                if (!confirm(`将向当前工作流添加：\n${preview}\n\n资源引用将复用现有 Media asset。是否继续？`)) return { status: 'cancelled', nodeIds: [] };
+                const command = createCanvasMaterializationCommand({
+                    addNode,
+                    removeNode,
+                    pushHistory,
+                    discardHistory: (token) => getSessionManagerApi().discardLatestHistory(token),
+                    selectNode,
+                    save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
+                    switchToCanvas: () => getWorkspaceModeControllerApi().activate('canvas'),
+                    focusNode: (nodeId) => renderProjectionManager.focusNode(nodeId)
+                });
+                return command.apply(plan, { confirmed: true });
+            },
+            getActiveWorkflow: () => ({
+                id: workflowManagerApi.getActiveWorkflowId?.() || '',
+                label: workflowManagerApi.getActiveWorkflowName?.() || '',
+                revision: workflowManagerApi.getActiveWorkflowSnapshot?.()?.mediaOwnershipRevision
+                    ?? workflowManagerApi.getActiveWorkflowSnapshot?.()?.revision ?? 0
+            }),
+            onToolbarStateChange: (snapshot) => registry.conversationToolbarControllerApi?.sync(snapshot)
+        });
+    }
+    return registry.conversationWorkbenchControllerApi;
+}
+
+function getConversationToolbarControllerApi() {
+    if (!registry.conversationToolbarControllerApi) {
+        registry.conversationToolbarControllerApi = createConversationToolbarController({
+            documentRef: document,
+            workspaceModeController: getWorkspaceModeControllerApi(),
+            conversationWorkbenchController: getConversationWorkbenchControllerApi(),
+            showToast
+        });
+    }
+    return registry.conversationToolbarControllerApi;
+}
+
+function getConversationExecutionServiceApi() {
+    if (!registry.conversationExecutionServiceApi) {
+        registry.conversationExecutionServiceApi = createConversationExecutionService({
+            api: conversationApi,
+            createPlan: createChatRequestPlan,
+            executePlan: (plan, options) => requestChatCompletion(plan, {
+                ...options,
+                fetchRef: fetch,
+                headers: getProxyHeaders(plan.url, 'POST', plan.protocol === 'openai'
+                    ? { Authorization: `Bearer ${plan.provider.apikey}` }
+                    : {})
+            }),
+            onStateChange: (conversationId, runState) => {
+                getConversationWorkbenchControllerApi().projectRunState(conversationId, runState);
+            },
+            onMessagePersisted: (conversationId, message, metadata) => {
+                getConversationWorkbenchControllerApi().projectPersistedMessage(conversationId, message, metadata);
+            },
+            resolveMediaAsset: async (assetKey) => {
+                const value = await getImageAsset(assetKey);
+                if (!value) return null;
+                return value instanceof Blob ? blobToDataUrl(value) : value;
+            }
+        });
+    }
+    return registry.conversationExecutionServiceApi;
+}
+
+function getConversationImageGenerationServiceApi() {
+    if (!registry.conversationImageGenerationServiceApi) {
+        registry.conversationImageGenerationServiceApi = createConversationImageGenerationService({
+            ensureWorkflow: () => workflowManagerApi.ensureOpenWorkflow(),
+            createImageNode: ({ prompt, model, provider }) => addNode('ImageGenerate', 160, 120, {
+                prompt,
+                apiConfigId: model.id,
+                providerId: provider.id,
+                imageResultPersistence: 'transient'
+            }),
+            executeImageNode: (node, signal) => getExecutionCoreApi().executeNode(node, {}, signal),
+            onStateChange: (conversationId, runState) => {
+                getConversationWorkbenchControllerApi().projectRunState(conversationId, runState);
+            }
+        });
+    }
+    return registry.conversationImageGenerationServiceApi;
+}
+
 function getPromptLibraryApi() {
     if (!registry.promptLibraryApi) {
         registry.promptLibraryApi = createPromptLibraryApi({
@@ -1208,6 +1343,7 @@ function getStartupControllerApi() {
             checkNetworkConnectivity: (options) => settingsFeature.checkNetworkConnectivity(options),
             checkNetworkProxyMismatch: (force = false) => settingsFeature.checkNetworkProxyMismatch(force),
             ensureOpenWorkflow: canvasBenchmarkMode ? async () => true : () => workflowManagerApi.ensureOpenWorkflow(),
+            applyWorkspaceMode: (mode) => getWorkspaceModeControllerApi().activate(mode, { persist: false }),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),
             scheduleAutoUpdateCheck: () => updateManager.scheduleAutoUpdateCheck({ delayMs: 5000, force: true, showModal: false, showCanvasNotification: true }),
             checkRefreshNotice: () => updateManager.checkRefreshNotice(),
@@ -1381,6 +1517,7 @@ getThemeControllerApi().initTheme();
 
 // ===== 工具栏 =====
 getToolbarControllerApi().initToolbarControls();
+getWorkspaceModeControllerApi().init();
 
 function zoomToFit(targetNodes = null) {
     return getToolbarControllerApi().zoomToFit(targetNodes);
@@ -1579,6 +1716,7 @@ projectIoFeature = createProjectIoFeature({
     applyGlobalAnimationSetting,
     applyCanvasUiSetting,
     applyWorkflowSidebarWidth: (width) => workflowManagerApi.applyWorkflowSidebarWidth(width),
+    applyWorkspaceMode: (mode) => getWorkspaceModeControllerApi().activate(mode, { persist: false }),
     activateRestoredWorkflowState: (restoredState) => workflowManagerApi.activateRestoredWorkflowState(restoredState),
     clearImageAssets,
     clearOrphanedNodeAssets,
@@ -1694,6 +1832,10 @@ registerGlobalBridges({
 });
 
 await startupPromise;
+await getConversationWorkbenchControllerApi().init().catch((error) => {
+    showToast(`加载对话工作台失败：${error.message}`, 'error');
+});
+getConversationToolbarControllerApi().init();
 
 return {
     state,

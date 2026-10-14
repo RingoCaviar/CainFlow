@@ -2,10 +2,8 @@
  * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
  */
 import {
-    buildGoogleChatRequest,
     buildGoogleImageRequest,
     buildDoubaoVideoRequest,
-    buildOpenAiChatRequest,
     buildOpenAiImageRequest,
     buildNewApiAsyncImageRequest,
     buildOpenAiVideoRequest,
@@ -14,11 +12,13 @@ import {
     buildUnifiedVideoRequest,
     extractImageResult,
     getEffectiveProtocol,
+    getOpenAiImageContents,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     resolveProviderUrl,
     validateOpenAiImageSize
 } from './provider-request-utils.js';
+import { createChatRequestPlan, executeChatRequestPlan } from './chat-request-plan.js';
 import {
     appendReferenceImages,
     clearCanonicalImageOutput,
@@ -1429,29 +1429,28 @@ export function createExecutionCoreApi({
         };
     }
 
-    function buildTextChatRequestPreview(node, inputs) {
+    function createTextChatRequestPlan(node, inputs) {
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'chat');
         const sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
         const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
-        const requestBody = protocol === 'google'
-            ? buildGoogleChatRequest({
-                prompt,
-                inputs,
-                sysprompt,
-                searchEnabled: documentRef.getElementById(`${id}-search`)?.checked === true
-            })
-            : buildOpenAiChatRequest({ modelCfg, prompt, inputs, sysprompt });
-        return {
-            nodeId: id,
-            nodeType: node.type,
-            model: modelCfg.name || modelCfg.modelId,
-            provider: apiCfg.name || apiCfg.id || '',
+        return createChatRequestPlan({
+            provider: apiCfg,
+            model: modelCfg,
             protocol,
-            method: 'POST',
-            url: resolveProviderUrl(apiCfg, modelCfg, 'chat'),
-            contentType: 'application/json',
-            requestBody
+            systemPrompt: sysprompt,
+            messages: [{ role: 'user', content: prompt }],
+            media: getOpenAiImageContents(inputs).map((item) => ({ type: 'image', url: item.image_url.url })),
+            searchEnabled: documentRef.getElementById(`${id}-search`)?.checked === true,
+            customParams: inputs.params
+        });
+    }
+
+    function buildTextChatRequestPreview(node, inputs) {
+        return {
+            nodeId: node.id,
+            nodeType: node.type,
+            ...createTextChatRequestPlan(node, inputs).preview
         };
     }
 
@@ -2225,12 +2224,20 @@ export function createExecutionCoreApi({
             try {
                 let jsonResponse = null;
                 let responseText = '';
-                const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+                const chatPlan = createChatRequestPlan({
+                    provider: apiCfg,
+                    model: modelCfg,
+                    protocol: getEffectiveProtocol(modelCfg, apiCfg),
+                    systemPrompt: sysprompt,
+                    messages: [{ role: 'user', content: getPrimaryTextInput(prompt) }],
+                    media: getOpenAiImageContents(inputs).map((item) => ({ type: 'image', url: item.image_url.url })),
+                    searchEnabled: documentRef.getElementById(`${id}-search`)?.checked || false,
+                    customParams: inputs.params
+                });
+                const { protocol, url, requestBody } = chatPlan;
 
                 if (protocol === 'google') {
-                    const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked || false;
-                    const body = buildGoogleChatRequest({ prompt, inputs, sysprompt, searchEnabled });
-                    const url = resolveProviderUrl(apiCfg, modelCfg, 'chat');
+                    const body = requestBody;
 
                     const headers = getProxyHeaders(url, 'POST');
                     logRequestToPanel(`请求发送: ${modelCfg.name}`, url, body, {
@@ -2240,12 +2247,7 @@ export function createExecutionCoreApi({
                     });
 
                     responseText = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
-                        const res = await fetchRef('/proxy', {
-                            method: 'POST',
-                            headers,
-                            body: JSON.stringify(body),
-                            signal
-                        });
+                        const res = await executeChatRequestPlan(chatPlan, { fetchRef, headers, signal });
                         if (!res.ok) {
                             const t = await res.text();
                             const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
@@ -2278,8 +2280,6 @@ export function createExecutionCoreApi({
                         return resultText;
                     }, { nodeType: 'TextChat' });
                 } else {
-                    const url = resolveProviderUrl(apiCfg, modelCfg, 'chat');
-                    const requestBody = buildOpenAiChatRequest({ modelCfg, prompt, inputs, sysprompt });
                     const headers = getProxyHeaders(url, 'POST', {
                         Authorization: `Bearer ${apiCfg.apikey}`
                     });
@@ -2290,12 +2290,7 @@ export function createExecutionCoreApi({
                     });
 
                     responseText = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
-                        const res = await fetchRef('/proxy', {
-                            method: 'POST',
-                            headers,
-                            body: JSON.stringify(requestBody),
-                            signal
-                        });
+                        const res = await executeChatRequestPlan(chatPlan, { fetchRef, headers, signal });
                         if (!res.ok) {
                             const t = await res.text();
                             const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);

@@ -120,11 +120,12 @@ export function verifyScreenshotMatrix({ fixtureUrl, baselineDirectoryUrl, profi
     }
 }
 
-export function renderComputedFixture(fixtureUrl, profilePrefix) {
+export function renderComputedFixture(fixtureUrl, profilePrefix, windowSize = '') {
     assert.ok(chromePath, 'Chrome or Chromium is required for browser surface tests');
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     try {
-        const result = spawnSync(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--virtual-time-budget=1000', '--dump-dom', fixtureUrl.href], { encoding: 'utf8', timeout: 15000 });
+        const sizeArg = windowSize ? [`--window-size=${windowSize}`] : [];
+        const result = spawnSync(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', ...sizeArg, `--user-data-dir=${profile}`, '--virtual-time-budget=1000', '--dump-dom', fixtureUrl.href], { encoding: 'utf8', timeout: 15000 });
         assert.equal(result.status, 0, result.stderr);
         const match = result.stdout.match(/<pre id="surface-result">([^<]+)<\/pre>/);
         assert.ok(match, 'fixture must publish computed styles');
@@ -179,6 +180,41 @@ async function createCdpClient(webSocketUrl) {
         },
         close() { socket.close(); },
     };
+}
+
+export async function renderComputedFixtureAtViewport(fixtureUrl, profilePrefix, width, height) {
+    assert.ok(chromePath, 'Chrome or Chromium is required for browser surface tests');
+    const profile = mkdtempSync(join(tmpdir(), profilePrefix));
+    const port = 20000 + Math.floor(Math.random() * 20000);
+    const browser = spawn(chromePath, [
+        '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, fixtureUrl.href,
+    ], { stdio: 'ignore' });
+    let client;
+    try {
+        client = await createCdpClient(await connectToPage(port, fixtureUrl));
+        await client.send('Emulation.setDeviceMetricsOverride', {
+            width, height, deviceScaleFactor: 1, mobile: false
+        });
+        await client.send('Runtime.evaluate', {
+            expression: 'document.getElementById("surface-result").textContent = ""'
+        });
+        await client.send('Page.reload');
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+            const result = await client.send('Runtime.evaluate', {
+                expression: 'document.getElementById("surface-result")?.textContent || ""',
+                returnByValue: true
+            });
+            if (result.result.value) return JSON.parse(result.result.value);
+            await delay(25);
+        }
+        throw new Error('computed fixture did not publish results');
+    } finally {
+        client?.close();
+        browser.kill();
+        await new Promise((resolve) => browser.once('exit', resolve));
+        rmSync(profile, { recursive: true, force: true });
+    }
 }
 
 export async function renderHoveredFixture(fixtureUrl, profilePrefix) {

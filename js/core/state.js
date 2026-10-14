@@ -163,6 +163,7 @@ export function createInitialState() {
         workflowOrder: [],
         workflowFolders: [],
         workflowSidebarWidth: 320,
+        workspaceMode: 'canvas',
         isSpacePressed: false,
         isCutting: false,
         cutPath: [],

@@ -9,6 +9,7 @@ import {
     resolveWorkflowModelReferences
 } from './workflow-model-resolver.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
+import { normalizeWorkspaceMode } from '../ui/workspace-mode-controller.js';
 
 export function createProjectIoApi({
     state,
@@ -30,6 +31,7 @@ export function createProjectIoApi({
     applyGlobalAnimationSetting = () => {},
     applyCanvasUiSetting = () => {},
     applyWorkflowSidebarWidth = () => {},
+    applyWorkspaceMode = () => {},
     clearImageAssets = null,
     clearOrphanedNodeAssets = async () => true,
     clearOrphanedImageImportAssets = async () => true,
@@ -428,6 +430,8 @@ export function createProjectIoApi({
                     applyWorkflowSidebarWidth(state.workflowSidebarWidth);
                 }
             }
+            state.workspaceMode = normalizeWorkspaceMode(data.workspaceMode);
+            applyWorkspaceMode(state.workspaceMode);
             await restoreHandles();
             if (!await activateRestoredWorkflowState(restoredWorkflowState)) return false;
             scheduleStartupCacheCleanup(data);

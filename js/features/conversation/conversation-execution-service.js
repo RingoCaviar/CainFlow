@@ -1,0 +1,300 @@
+export class ConversationExecutionError extends Error {
+    constructor(code, message, details = {}) {
+        super(message);
+        this.name = 'ConversationExecutionError';
+        this.code = code;
+        this.details = details;
+    }
+}
+
+function textFromParts(parts = []) {
+    return parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n');
+}
+
+function contextText(parts = [], workflowSummary = null) {
+    const lines = [];
+    if (workflowSummary?.workflowId) {
+        lines.push(`[Workflow ${workflowSummary.workflowId} · revision ${workflowSummary.revision ?? 'unknown'}]`);
+        if (workflowSummary.nodeTypes?.length) lines.push(`Node types: ${workflowSummary.nodeTypes.join(', ')}`);
+        if (workflowSummary.connections?.length) lines.push(`Connections: ${workflowSummary.connections.join(', ')}`);
+    }
+    for (const part of parts) {
+        if (part?.type !== 'node-source') continue;
+        lines.push(`[Node ${part.nodeId} · ${part.nodeType}]\n${String(part.textSnapshot || '')}`);
+    }
+    return lines.join('\n\n');
+}
+
+function projectedUserText(text, contextParts, workflowSummary) {
+    return [String(text || '').trim(), contextText(contextParts, workflowSummary)].filter(Boolean).join('\n\n');
+}
+
+export function deriveConversationTitle(text, limit = 32) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '新对话';
+    return normalized.length > limit ? `${normalized.slice(0, limit).trim()}…` : normalized;
+}
+
+export function projectConversationContext({ conversation, nextUserText, maxCharacters = 48000 }) {
+    const durableMessages = (conversation?.messages || [])
+        .filter((message) => ['user', 'assistant'].includes(message?.role) && ['completed', 'partial'].includes(message?.status))
+        .map((message) => ({
+            role: message.role,
+            content: [textFromParts(message.parts), contextText(
+                message.parts, message.context?.workflowSummary)].filter(Boolean).join('\n\n')
+        }))
+        .filter((message) => message.content);
+    durableMessages.push({ role: 'user', content: String(nextUserText || '') });
+    let usedCharacters = 0;
+    const projected = [];
+    for (let index = durableMessages.length - 1; index >= 0; index -= 1) {
+        const message = durableMessages[index];
+        if (projected.length > 0 && usedCharacters + message.content.length > maxCharacters) break;
+        projected.unshift(message);
+        usedCharacters += message.content.length;
+    }
+    return {
+        messages: projected,
+        summary: {
+            durableMessageCount: durableMessages.length,
+            projectedMessageCount: projected.length,
+            omittedMessageCount: durableMessages.length - projected.length,
+            characterCount: usedCharacters,
+            limit: maxCharacters
+        }
+    };
+}
+
+export function createConversationExecutionService({
+    api,
+    createPlan,
+    executePlan,
+    now = () => Date.now(),
+    maxContextCharacters = 48000,
+    maxRetries = 0,
+    requestTimeoutMs = 120000,
+    resolveMediaAsset = async () => null,
+    onStateChange = () => {},
+    onMessagePersisted = () => {}
+}) {
+    const activeRuns = new Map();
+
+    async function persistFinal(run, { status, text, attempts }) {
+        const execution = {
+            modelId: run.model.id,
+            modelName: run.model.name || run.model.modelId || run.model.id,
+            providerId: run.provider.id,
+            providerName: run.provider.name || run.provider.id,
+            systemPromptVersion: run.conversation.systemPromptVersion || 1,
+            contextProjection: run.projection.summary,
+            status,
+            attempts
+        };
+        const result = await api.updateConversationMessage(run.conversation.id, run.assistantMessageId, {
+            revision: run.revision,
+            status,
+            parts: [{ type: 'text', text }],
+            execution
+        });
+        run.revision = result.conversationRevision;
+        return { text, status, execution, message: result.message, conversationRevision: run.revision };
+    }
+
+    async function send({ conversation, text, model, provider, contextParts = [], workflowSummary = null }) {
+        if (!conversation?.id) throw new ConversationExecutionError('invalid_conversation', 'Conversation identity is required');
+        if (activeRuns.has(conversation.id)) throw new ConversationExecutionError('conversation_busy', '该对话已有请求正在运行');
+        if (!String(text || '').trim()) throw new ConversationExecutionError('empty_message', '请输入提问内容');
+        const controller = new AbortController();
+        const run = {
+            conversation, model, provider, controller, revision: conversation.revision,
+            partialText: '', assistantMessageId: '', projection: null, attempts: [], timedOut: false
+        };
+        activeRuns.set(conversation.id, run);
+        onStateChange(conversation.id, { status: 'starting', partialText: '' });
+        try {
+            const durableContextParts = contextParts;
+            const userResult = await api.appendConversationMessage(conversation.id, {
+                revision: run.revision,
+                role: 'user',
+                status: 'completed',
+                parts: [{ type: 'text', text: String(text).trim() }, ...durableContextParts],
+                ...(workflowSummary?.workflowId ? { context: { workflowSummary } } : {})
+            });
+            run.revision = userResult.conversationRevision;
+            onMessagePersisted(conversation.id, userResult.message, { conversationRevision: run.revision });
+            if ((!conversation.messages || conversation.messages.length === 0) && conversation.title === '新对话' && api.updateConversation) {
+                const titled = await api.updateConversation(conversation.id, {
+                    revision: run.revision,
+                    title: deriveConversationTitle(text)
+                });
+                run.revision = titled.revision;
+                conversation.title = titled.title;
+            }
+            const assistantResult = await api.appendConversationMessage(conversation.id, {
+                revision: run.revision,
+                parentMessageId: userResult.message.id,
+                role: 'assistant',
+                status: 'pending',
+                parts: [{ type: 'text', text: '' }]
+            });
+            run.revision = assistantResult.conversationRevision;
+            run.assistantMessageId = assistantResult.message.id;
+            onMessagePersisted(conversation.id, assistantResult.message, { conversationRevision: run.revision });
+            run.projection = projectConversationContext({
+                conversation,
+                nextUserText: projectedUserText(text, contextParts, workflowSummary),
+                maxCharacters: maxContextCharacters
+            });
+            const media = [];
+            for (const part of durableContextParts) {
+                const candidates = part.type === 'media'
+                    ? [{ assetKey: part.assetKey, mediaType: part.mediaType }]
+                    : (part.mediaAssetKeys || []).map((assetKey) => ({ assetKey, mediaType: 'image' }));
+                for (const candidate of candidates) {
+                    const url = await resolveMediaAsset(candidate.assetKey);
+                    if (!url) throw new ConversationExecutionError('missing_media', `媒体资源 ${candidate.assetKey} 不可用，请先恢复或移除`);
+                    media.push({ type: candidate.mediaType || 'image', url });
+                }
+            }
+            const plan = createPlan({
+                provider, model,
+                protocol: model.protocol || provider.protocol,
+                systemPrompt: conversation.systemPrompt || '',
+                messages: run.projection.messages,
+                media
+            });
+            const attempts = run.attempts;
+            for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex += 1) {
+                const attempt = { ordinal: attemptIndex + 1, startedAt: now(), status: 'running' };
+                attempts.push(attempt);
+                onStateChange(conversation.id, { status: 'running', attempt: attempt.ordinal, partialText: run.partialText });
+                let timedOut = false;
+                const timeoutId = requestTimeoutMs > 0 ? setTimeout(() => {
+                    timedOut = true;
+                    run.timedOut = true;
+                    controller.abort();
+                }, requestTimeoutMs) : null;
+                try {
+                    const response = await executePlan(plan, {
+                        signal: controller.signal,
+                        onChunk(chunk) {
+                            run.partialText += String(chunk || '');
+                            onStateChange(conversation.id, { status: 'streaming', attempt: attempt.ordinal, partialText: run.partialText });
+                        }
+                    });
+                    const responseText = String(response?.text ?? run.partialText ?? '');
+                    if (!responseText.trim()) throw new ConversationExecutionError('empty_response', 'API 返回了空回复');
+                    run.partialText = responseText;
+                    attempt.status = 'completed';
+                    attempt.finishedAt = now();
+                    if (response?.diagnosticId) attempt.diagnosticId = response.diagnosticId;
+                    const completed = await persistFinal(run, { status: 'completed', text: responseText, attempts });
+                    onStateChange(conversation.id, { status: 'completed', partialText: responseText });
+                    return completed;
+                } catch (error) {
+                    if (timedOut) {
+                        error = new ConversationExecutionError('conversation_timeout', '对话请求超时');
+                    }
+                    attempt.status = controller.signal.aborted && !timedOut ? 'cancelled' : 'failed';
+                    attempt.finishedAt = now();
+                    attempt.error = { code: error.code || error.name || 'request_failed', summary: '请求失败，详细信息见本地诊断记录' };
+                    if (controller.signal.aborted || attemptIndex === maxRetries) throw error;
+                } finally {
+                    if (timeoutId) clearTimeout(timeoutId);
+                }
+            }
+        } catch (error) {
+            if (run.assistantMessageId) {
+                const stopped = controller.signal.aborted && !run.timedOut;
+                const status = stopped && run.partialText ? 'partial' : (stopped ? 'cancelled' : 'failed');
+                await persistFinal(run, { status, text: run.partialText, attempts: run.attempts }).catch(() => {});
+                onStateChange(conversation.id, { status, partialText: run.partialText, error });
+            }
+            throw error;
+        } finally {
+            activeRuns.delete(conversation.id);
+        }
+    }
+
+    function stop(conversationId) {
+        const run = activeRuns.get(conversationId);
+        if (!run) return false;
+        run.controller.abort();
+        return true;
+    }
+
+    function getRunState(conversationId) {
+        const run = activeRuns.get(conversationId);
+        return run ? { status: run.partialText ? 'streaming' : 'running', partialText: run.partialText } : null;
+    }
+
+    async function recoverInterrupted(conversation) {
+        let revision = conversation.revision;
+        const recovered = [];
+        for (const message of conversation.messages || []) {
+            if (message.role !== 'assistant' || !['pending', 'streaming'].includes(message.status)) continue;
+            const result = await api.updateConversationMessage(conversation.id, message.id, {
+                revision,
+                status: textFromParts(message.parts) ? 'partial' : 'failed',
+                parts: message.parts,
+                execution: {
+                    ...(message.execution || {}),
+                    status: 'interrupted',
+                    attempts: message.execution?.attempts || []
+                }
+            });
+            revision = result.conversationRevision;
+            recovered.push(result.message);
+        }
+        return { conversationRevision: revision, messages: recovered };
+    }
+
+    async function regenerate({ conversation, assistantMessageId, model, provider }) {
+        if (activeRuns.has(conversation.id)) throw new ConversationExecutionError('conversation_busy', '该对话已有请求正在运行');
+        const previous = (conversation.messages || []).find((message) => message.id === assistantMessageId && message.role === 'assistant');
+        if (!previous) throw new ConversationExecutionError('message_not_found', '未找到要重新生成的回复');
+        const parent = (conversation.messages || []).find((message) => message.id === previous.parentMessageId && message.role === 'user');
+        if (!parent) throw new ConversationExecutionError('parent_not_found', '未找到回复对应的用户消息');
+        const controller = new AbortController();
+        const contextParts = (parent.parts || []).filter((part) => part?.type !== 'text');
+        const projection = projectConversationContext({
+            conversation: { ...conversation, messages: (conversation.messages || []).slice(0, (conversation.messages || []).indexOf(parent)) },
+            nextUserText: projectedUserText(
+                textFromParts(parent.parts), contextParts, parent.context?.workflowSummary),
+            maxCharacters: maxContextCharacters
+        });
+        const run = { conversation, model, provider, controller, revision: conversation.revision, partialText: '', projection, assistantMessageId: '', attempts: [], timedOut: false };
+        activeRuns.set(conversation.id, run);
+        try {
+            const pending = await api.appendConversationMessage(conversation.id, {
+                revision: run.revision, parentMessageId: parent.id, role: 'assistant', status: 'pending',
+                parts: [{ type: 'text', text: '' }]
+            });
+            run.revision = pending.conversationRevision;
+            run.assistantMessageId = pending.message.id;
+            const media = [];
+            for (const part of contextParts) {
+                const candidates = part.type === 'media'
+                    ? [{ assetKey: part.assetKey, mediaType: part.mediaType }]
+                    : (part.mediaAssetKeys || []).map((assetKey) => ({ assetKey, mediaType: 'image' }));
+                for (const candidate of candidates) {
+                    const url = await resolveMediaAsset(candidate.assetKey);
+                    if (!url) throw new ConversationExecutionError('missing_media', `媒体资源 ${candidate.assetKey} 不可用，请先恢复或移除`);
+                    media.push({ type: candidate.mediaType || 'image', url });
+                }
+            }
+            const plan = createPlan({ provider, model, protocol: model.protocol || provider.protocol, systemPrompt: conversation.systemPrompt || '', messages: projection.messages, media });
+            const attempt = { ordinal: 1, startedAt: now(), status: 'running' };
+            run.attempts.push(attempt);
+            const response = await executePlan(plan, { signal: controller.signal });
+            const text = String(response?.text || '');
+            attempt.status = 'completed';
+            attempt.finishedAt = now();
+            return persistFinal(run, { status: 'completed', text, attempts: run.attempts });
+        } finally {
+            activeRuns.delete(conversation.id);
+        }
+    }
+
+    return { send, regenerate, stop, getRunState, recoverInterrupted };
+}

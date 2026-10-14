@@ -11,6 +11,7 @@ export function createStartupControllerApi({
     checkNetworkConnectivity = async () => {},
     checkNetworkProxyMismatch = async () => {},
     ensureOpenWorkflow = async () => true,
+    applyWorkspaceMode = () => {},
     updateCanvasTransform,
     scheduleAutoUpdateCheck,
     checkRefreshNotice,
@@ -111,6 +112,7 @@ export function createStartupControllerApi({
             initUI();
             const restored = await loadState();
             await ensureOpenWorkflow();
+            applyWorkspaceMode(state.workspaceMode);
             initLogs();
             Promise.resolve(syncProxyToServer()).catch((error) => {
                 consoleRef.error('Failed to sync proxy state to server on startup:', error);

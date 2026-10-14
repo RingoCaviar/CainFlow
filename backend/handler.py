@@ -2,7 +2,7 @@ import http.server
 
 from backend import state
 from backend import desktop_security
-from backend.routes import diagnostic_routes, media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
+from backend.routes import conversation_routes, diagnostic_routes, media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
 from backend.services.http_helpers import write_error, write_text
 from backend.services.log_service import should_log_path, start_request_log
 from backend.services.proxy_service import handle_proxy_request
@@ -39,6 +39,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if settings_routes.handle_get(self):
                 return
             if storage_routes.handle_get(self):
+                return
+            if conversation_routes.handle_get(self):
                 return
             if diagnostic_routes.handle_get(self):
                 return
@@ -91,6 +93,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if storage_routes.handle_post(self):
                 return
+            if conversation_routes.handle_post(self):
+                return
             if diagnostic_routes.handle_post(self):
                 return
             if self.path == '/proxy':
@@ -116,6 +120,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if storage_routes.handle_delete(self):
                 return
+            if conversation_routes.handle_delete(self):
+                return
             if should_log_path(self.path):
                 write_error(self, 404, 'Not Found')
                 return
@@ -129,6 +135,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if not self._authorize_desktop_api():
                 return
             if storage_routes.handle_put(self):
+                return
+            if conversation_routes.handle_put(self):
                 return
             if should_log_path(self.path):
                 write_error(self, 404, 'Not Found')
