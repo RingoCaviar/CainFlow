@@ -84,6 +84,23 @@ test('monitor refreshes backend state and can be stopped with no save lock', asy
     assert.equal(cleared, true);
 });
 
+test('monitor coalesces overlapping refreshes while a scan prompt is pending', async () => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    let safetyRequests = 0;
+    const controller = createMediaIntegrityDrawerController({
+        fetchRef: async (url) => {
+            if (url.endsWith('safety-status')) { safetyRequests += 1; await pending; return { ok: true, json: async () => ({ safety }) }; }
+            return { ok: true, json: async () => ({ report: null }) };
+        }
+    });
+    const first = controller.load();
+    const second = controller.load();
+    release();
+    await Promise.all([first, second]);
+    assert.equal(safetyRequests, 1);
+});
+
 test('controller pauses, resumes and retries through bounded backend scans', async () => {
     const requests = [];
     const controller = createMediaIntegrityDrawerController({

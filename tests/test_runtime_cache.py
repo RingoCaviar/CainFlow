@@ -207,6 +207,21 @@ class RuntimeCacheTests(unittest.TestCase):
             service.run_cache_maintenance(now_ms=int(time.time() * 1000) + 60 * 86400000)
             self.assertTrue(os.path.isfile(path))
 
+    def test_maintenance_removes_stale_content_addressed_orphan_and_empty_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            digest = 'a' * 64
+            path = os.path.join(service.assets_dir, digest[:2], f'{digest}.png')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'wb') as output:
+                output.write(b'orphan')
+            now = int(time.time() * 1000)
+            os.utime(path, ((now - 86400000) / 1000,) * 2)
+            result = service.run_cache_maintenance(now_ms=now)
+            self.assertEqual(1, result['orphanFilesDeleted'])
+            self.assertFalse(os.path.exists(path))
+            self.assertFalse(os.path.isdir(os.path.dirname(path)))
+
     def test_maintenance_unlink_failure_suspends_collection_and_retains_asset(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

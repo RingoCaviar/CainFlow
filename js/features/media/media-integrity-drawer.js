@@ -57,6 +57,8 @@ export function createMediaIntegrityDrawerController({
     setIntervalRef = setInterval, clearIntervalRef = clearInterval
 } = {}) {
     let monitorId = null;
+    let loadPromise = null;
+    let stepPromise = null;
     let state = { safety: null, report: null, scan: null, paused: false, loading: false, error: '', model: buildIntegrityDrawerModel() };
     const update = (patch = {}) => {
         state = { ...state, ...patch };
@@ -70,6 +72,8 @@ export function createMediaIntegrityDrawerController({
         return response.json();
     }
     async function load() {
+        if (loadPromise) return loadPromise;
+        loadPromise = (async () => {
         update({ loading: true, error: '' });
         try {
             const [safetyValue, reportValue] = await Promise.all([
@@ -77,9 +81,13 @@ export function createMediaIntegrityDrawerController({
             ]);
             return update({ safety: safetyValue.safety || null, report: reportValue.report || null, loading: false });
         } catch (error) { return update({ loading: false, error: error.message }); }
+        })();
+        try { return await loadPromise; } finally { loadPromise = null; }
     }
     async function step() {
         if (state.paused) return state;
+        if (stepPromise) return stepPromise;
+        stepPromise = (async () => {
         update({ loading: true, error: '' });
         try {
             const scan = await requestJson('/api/storage/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -88,6 +96,8 @@ export function createMediaIntegrityDrawerController({
             await load();
         } catch (error) { update({ loading: false, error: error.message }); }
         return state;
+        })();
+        try { return await stepPromise; } finally { stepPromise = null; }
     }
     async function runMissingAction(action, item, node) {
         try {

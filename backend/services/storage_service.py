@@ -1737,9 +1737,15 @@ class StorageService:
         self.trim_history(now_ms=now, max_deletions=100, cleanup=False)
         result = {**temporary, 'assetsDeleted': 0, 'quarantineReleased': 0}
         if self._cache_reclamation_verified():
+            orphan_files_deleted = self.cleanup_orphan_files(
+                max_count=100, older_than_ms=now - 5 * 60 * 1000, managed_only=True)
+            result['orphanFilesDeleted'] = orphan_files_deleted
+            result['orphanAssetsDeleted'] = orphan_files_deleted
             result.update(self.release_expired_media_quarantine(now_ms=now))
             result.update(self.cleanup_unreferenced_media_assets(
                 max_count=100, older_than_ms=now - CACHE_MAINTENANCE_INTERVAL_SECONDS * 1000))
+            result['orphanFilesDeleted'] = orphan_files_deleted
+            result['orphanAssetsDeleted'] = orphan_files_deleted
         else:
             result['gcSuspended'] = True
         # Completed deletion audits have a 90-day retention, not an unbounded log.
@@ -2658,7 +2664,15 @@ class StorageService:
         if deleted and cleanup:
             self.cleanup_unreferenced_media_assets()
 
-    def cleanup_orphan_files(self, max_count=None, older_than_ms=None):
+    @staticmethod
+    def _is_managed_asset_relative(relative):
+        parts = str(relative or '').split('/')
+        if len(parts) != 2 or len(parts[0]) != 2:
+            return False
+        stem = parts[1].rsplit('.', 1)[0]
+        return len(stem) == 64 and all(char in '0123456789abcdef' for char in stem.lower()) and stem[:2] == parts[0].lower()
+
+    def cleanup_orphan_files(self, max_count=None, older_than_ms=None, managed_only=False):
         self.initialize()
         if not self._cache_reclamation_verified() or self.get_meta('media_gc_authority') == 'formal':
             return 0
@@ -2670,10 +2684,11 @@ class StorageService:
             for root, _, filenames in os.walk(self.assets_dir):
                 for filename in filenames:
                     if max_count is not None and deleted >= max_count:
-                        return deleted
+                        break
                     path = os.path.join(root, filename)
                     relative = os.path.relpath(path, self.assets_dir).replace(os.sep, '/')
-                    if relative not in referenced and not os.path.islink(path):
+                    if (relative not in referenced and not os.path.islink(path)
+                            and (not managed_only or self._is_managed_asset_relative(relative))):
                         try:
                             if older_than_ms is not None and os.path.getmtime(path) * 1000 > older_than_ms:
                                 continue
@@ -2681,6 +2696,17 @@ class StorageService:
                                 continue
                             os.remove(path)
                             deleted += 1
+                        except OSError:
+                            pass
+                if max_count is not None and deleted >= max_count:
+                    break
+            if managed_only and deleted:
+                for root, directories, _ in os.walk(self.assets_dir, topdown=False):
+                    for directory in directories:
+                        path = os.path.join(root, directory)
+                        try:
+                            if os.path.realpath(path).startswith(os.path.realpath(self.assets_dir) + os.sep) and not os.listdir(path):
+                                os.rmdir(path)
                         except OSError:
                             pass
         return deleted
