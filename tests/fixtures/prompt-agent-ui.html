@@ -146,6 +146,7 @@ try {
     await waitFor(() => messages.querySelectorAll('[data-role="agent"]').length === 2);
     const validAgent = [...messages.querySelectorAll('[data-role="agent"]')].at(-1);
     const validPlan = validAgent.querySelector('.prompt-agent-plan');
+    const copyableText = getComputedStyle(validAgent.querySelector('.prompt-agent-message-body')).userSelect;
     const validActions = validAgent.querySelectorAll('.prompt-agent-actions button');
     const referenceRequest = requests[1];
     const referencesInRequest = referenceRequest.referenceImages.map((image) => image.name);
@@ -203,7 +204,7 @@ try {
     document.getElementById('surface-result').textContent = JSON.stringify({
         opened, widthStyle, widthSnapshot, noTargetDisabled, summaryCollapsed, summaryCanExpand,
         referencePreviewCount, referencesInRequest, referencesInWorkflow,
-        planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), applied,
+        planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), copyableText, applied,
         progressVisible, stopped, failureVisible, retriedWithPreview,
         focused: focusedNodes, themeSamples, persistedMessageCount, restored, clearedForNewWorkflow
     });

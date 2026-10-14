@@ -16,6 +16,7 @@ test('Prompt Agent browser flow keeps references, actions, recovery, workflow st
     assert.deepEqual(result.referencesInRequest, ['构图.png', '色彩.webp']);
     assert.deepEqual(result.referencesInWorkflow, ['构图.png', '色彩.webp']);
     assert.ok(result.planMentionsReferences);
+    assert.equal(result.copyableText, 'text');
     assert.ok(result.applied);
     assert.ok(result.progressVisible && result.stopped);
     assert.ok(result.failureVisible && result.retriedWithPreview);

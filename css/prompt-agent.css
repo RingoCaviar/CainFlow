@@ -16,6 +16,10 @@
     border-radius: 14px;
     background: var(--panel-bg, var(--bg-drawer));
     color: var(--text-primary);
+    /* The workbench disables selection globally for canvas gestures. Agent
+       replies are normal text and must remain selectable for copy/paste. */
+    user-select: text;
+    -webkit-user-select: text;
     box-shadow: var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.3));
 }
 
