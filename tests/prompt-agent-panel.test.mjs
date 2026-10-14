@@ -57,7 +57,7 @@ function createHarness(createReply = async () => ({
 }), nodeAdapter = {
     getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
     applyPromptPlan: () => true
-}, executionAdapter = null) {
+}, executionAdapter = null, controllerOptions = {}) {
     const elements = {
         'btn-prompt-agent': new FakeElement(),
         'prompt-agent-panel': new FakeElement(),
@@ -65,14 +65,15 @@ function createHarness(createReply = async () => ({
         'prompt-agent-form': new FakeElement(),
         'prompt-agent-input': new FakeElement(),
         'prompt-agent-send': new FakeElement(),
-        'prompt-agent-messages': new FakeElement()
+        'prompt-agent-messages': new FakeElement(),
+        'prompt-agent-references': new FakeElement()
     };
     const documentRef = {
         activeElement: null,
         getElementById: (id) => elements[id] || null,
         createElement: () => new FakeElement()
     };
-    const controller = createPromptAgentController({ documentRef, createReply, nodeAdapter, executionAdapter });
+    const controller = createPromptAgentController({ documentRef, createReply, nodeAdapter, executionAdapter, ...controllerOptions });
     controller.init();
     return { controller, elements };
 }
@@ -132,6 +133,29 @@ test('passes selected node context to the Agent and applies the response plan', 
     assert.equal(elements['prompt-agent-panel'].classList.contains('active'), true);
 });
 
+test('disables response actions when the selected target changes before application', async () => {
+    let selected = true;
+    let applied = false;
+    const { elements } = createHarness(async () => ({
+        message: '计划已就绪',
+        workSummary: [],
+        promptPlan: { targetNodeId: 'image-1', prompt: '新提示词', parameters: {} }
+    }), {
+        getSelectedContext: () => selected ? { nodeId: 'image-1', prompt: '', negativePrompt: '', parameters: {}, referenceImages: [] } : null,
+        applyPromptPlan: () => { applied = true; return true; }
+    });
+    elements['prompt-agent-input'].value = '调整';
+    await elements['prompt-agent-form'].dispatch('submit');
+    const agentMessage = elements['prompt-agent-messages'].children[1];
+    const actions = agentMessage.children[2];
+    selected = false;
+    actions.children[0].dispatch('click');
+
+    assert.equal(applied, false);
+    assert.equal(actions.children[0].disabled, true);
+    assert.equal(actions.children[1].disabled, true);
+});
+
 test('keeps chatting but disables plan application without one selected image node', async () => {
     const { elements } = createHarness(async () => ({
         message: '选择一个生图节点后即可应用。',
@@ -146,6 +170,29 @@ test('keeps chatting but disables plan application without one selected image no
     await elements['prompt-agent-form'].dispatch('submit');
     const agentMessage = elements['prompt-agent-messages'].children[1];
     assert.equal(agentMessage.children[3].children[0].disabled, true);
+});
+
+test('refreshes response actions after selecting the planned target node', async () => {
+    let selected = null;
+    const { controller, elements } = createHarness(async () => ({
+        message: '计划已就绪',
+        workSummary: [],
+        promptPlan: { targetNodeId: 'image-1', prompt: '草稿提示词', negativePrompt: '', parameters: {} }
+    }), {
+        getSelectedContext: () => selected,
+        applyPromptPlan: () => true
+    });
+    elements['prompt-agent-input'].value = '先整理提示词';
+
+    await elements['prompt-agent-form'].dispatch('submit');
+    const actions = elements['prompt-agent-messages'].children[1].children[2];
+    assert.equal(actions.children[0].disabled, true);
+    assert.equal(actions.children[1].disabled, true);
+
+    selected = { nodeId: 'image-1', prompt: '', negativePrompt: '', parameters: {}, referenceImages: [] };
+    controller.refreshActionStates();
+    assert.equal(actions.children[0].disabled, false);
+    assert.equal(actions.children[1].disabled, true);
 });
 
 test('default Prompt Plan keeps the selected node prompt when applying a follow-up instruction', async () => {
@@ -324,4 +371,88 @@ test('default Prompt Plan uses restored Workflow Memory with an existing node pr
     assert.match(applied.prompt, /低饱和电影感城市/);
     assert.match(applied.prompt, /旧提示词/);
     assert.match(applied.prompt, /改成侧脸/);
+});
+
+test('pasted reference images are previewed, sent, and persisted with the workflow conversation', async () => {
+    let request = null;
+    const createReply = async (value) => {
+        request = value;
+        return {
+            message: '已参考图片。',
+            workSummary: ['读取参考图'],
+            promptPlan: {
+                targetNodeId: 'image-1',
+                prompt: '参考构图',
+                parameters: {},
+                referenceImages: value.workflowReferenceImages
+            }
+        };
+    };
+    const { controller, elements } = createHarness(createReply, undefined, null, {
+        readReferenceFile: async (file) => ({ name: file.name, type: file.type, dataUrl: `data:${file.type};base64,AAAA` })
+    });
+    const file = { name: '构图.png', type: 'image/png' };
+    await elements['prompt-agent-form'].dispatch('paste', {
+        clipboardData: { items: [{ kind: 'file', getAsFile: () => file }] }
+    });
+
+    assert.equal(elements['prompt-agent-references'].children.length, 1);
+    elements['prompt-agent-input'].value = '沿用这个构图';
+    await elements['prompt-agent-form'].dispatch('submit');
+
+    assert.equal(request.referenceImages[0].name, '构图.png');
+    assert.equal(request.workflowReferenceImages[0].dataUrl, 'data:image/png;base64,AAAA');
+    assert.equal(controller.snapshotWorkflow().messages[0].referenceImages[0].name, '构图.png');
+    assert.equal(elements['prompt-agent-references'].children.length, 0);
+});
+
+test('dropped reference images remain available to later Prompt Plans', async () => {
+    const requests = [];
+    const { controller, elements } = createHarness(async (value) => {
+        requests.push(value);
+        return { message: '完成', workSummary: [], promptPlan: { targetNodeId: 'image-1', prompt: value.message, parameters: {}, referenceImages: value.workflowReferenceImages } };
+    }, undefined, null, {
+        readReferenceFile: async (file) => ({ name: file.name, type: file.type, dataUrl: `data:${file.type};base64,BBBB` })
+    });
+    await elements['prompt-agent-form'].dispatch('drop', {
+        dataTransfer: { files: [{ name: '风格.webp', type: 'image/webp' }] }
+    });
+    elements['prompt-agent-input'].value = '记住这个风格';
+    await elements['prompt-agent-form'].dispatch('submit');
+    elements['prompt-agent-input'].value = '再做一个版本';
+    await elements['prompt-agent-form'].dispatch('submit');
+
+    assert.equal(requests[1].referenceImages.length, 0);
+    assert.equal(requests[1].workflowReferenceImages[0].name, '风格.webp');
+});
+
+test('mixed clipboard paste keeps text while collecting its image reference', async () => {
+    const { elements } = createHarness(undefined, undefined, null, {
+        readReferenceFile: async (file) => ({ name: file.name, type: file.type, dataUrl: `data:${file.type};base64,DDDD` })
+    });
+    await elements['prompt-agent-form'].dispatch('paste', {
+        clipboardData: {
+            items: [{ kind: 'file', getAsFile: () => ({ name: '主体.png', type: 'image/png' }) }],
+            getData: () => '同时保留这句说明'
+        }
+    });
+
+    assert.equal(elements['prompt-agent-input'].value, '同时保留这句说明');
+    assert.equal(elements['prompt-agent-references'].children.length, 1);
+});
+
+test('a reference file that resolves after workflow restore is discarded', async () => {
+    let resolveReference;
+    const { controller, elements } = createHarness(undefined, undefined, null, {
+        readReferenceFile: () => new Promise((resolve) => { resolveReference = resolve; })
+    });
+    const pending = elements['prompt-agent-form'].dispatch('drop', {
+        dataTransfer: { files: [{ name: '旧工作流.png', type: 'image/png' }] }
+    });
+    controller.restoreWorkflow({ version: 1, memory: '', messages: [], panelWidth: null });
+    resolveReference({ name: '旧工作流.png', type: 'image/png', dataUrl: 'data:image/png;base64,EEEE' });
+    await pending;
+
+    assert.equal(elements['prompt-agent-references'].children.length, 0);
+    assert.equal(controller.snapshotWorkflow().messages.length, 0);
 });

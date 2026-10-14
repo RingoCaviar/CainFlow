@@ -761,7 +761,9 @@ function removeNode(id, options) {
 }
 
 function selectNode(id, isMulti) {
-    return getNodeLifecycleApi().selectNode(id, isMulti);
+    const result = getNodeLifecycleApi().selectNode(id, isMulti);
+    registry.promptAgentController?.refreshActionStates?.();
+    return result;
 }
 
 function toggleNodesEnabled(nodeIds, referenceNodeId = null) {
@@ -852,6 +854,7 @@ const promptAgentController = createPromptAgentController({
     executionAdapter: promptAgentExecutionAdapter,
     onStateChange: () => workflowManagerApi.markActiveWorkflowDirty()
 });
+registry.promptAgentController = promptAgentController;
 
 function saveState() {
     return getSessionManagerApi().saveState();

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/prompt-agent.css">
+    <style>
+        html, body { min-height: 100%; }
+        body { margin: 0; padding: 20px; background: var(--bg-canvas); }
+        #prompt-agent-panel { position: relative; inset: auto; height: 720px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <button id="btn-prompt-agent" class="btn btn-ghost" type="button" aria-controls="prompt-agent-panel"
+        aria-expanded="false">Prompt Agent</button>
+    <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-hidden="true" inert>
+        <header class="prompt-agent-header">
+            <h2>Prompt Agent</h2>
+            <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">×</button>
+        </header>
+        <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
+            <p class="prompt-agent-empty">描述你想生成的画面。</p>
+        </section>
+        <form id="prompt-agent-form" class="prompt-agent-composer">
+            <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
+            <textarea id="prompt-agent-input" rows="2" placeholder="描述你想生成的图片……" aria-label="Prompt Agent 输入"></textarea>
+            <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
+        </form>
+    </aside>
+    <pre id="surface-result"></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function waitFor(predicate, attempts = 40) {
+    for (let index = 0; index < attempts; index += 1) {
+        if (predicate()) return true;
+        await tick();
+    }
+    return Boolean(predicate());
+}
+
+try {
+    const panel = document.getElementById('prompt-agent-panel');
+    const form = document.getElementById('prompt-agent-form');
+    const input = document.getElementById('prompt-agent-input');
+    const messages = document.getElementById('prompt-agent-messages');
+    const references = document.getElementById('prompt-agent-references');
+    let selected = false;
+    let executionMode = 'stop';
+    let pendingRunResolve = null;
+    const requests = [];
+    const appliedPlans = [];
+    const stoppedNodes = [];
+    const focusedNodes = [];
+
+    const nodeAdapter = {
+        getSelectedContext: () => selected ? {
+            nodeId: 'image-1',
+            prompt: '城市夜景',
+            negativePrompt: '低质量',
+            parameters: { aspectRatio: '16:9', count: 1 },
+            referenceImages: []
+        } : null,
+        applyPromptPlan: (plan) => {
+            if (!selected || plan?.targetNodeId !== 'image-1') return false;
+            appliedPlans.push(plan);
+            return true;
+        }
+    };
+    const executionAdapter = {
+        applyAndGenerate: async (plan) => {
+            if (executionMode === 'stop') {
+                return new Promise((resolve) => { pendingRunResolve = resolve; });
+            }
+            if (executionMode === 'fail') throw new Error('供应商暂时不可用');
+            return { status: 'completed', images: ['data:image/png;base64,UkVTVUxU'] };
+        },
+        stop: (nodeId) => {
+            stoppedNodes.push(nodeId);
+            pendingRunResolve?.({ status: 'stopped', images: [] });
+            pendingRunResolve = null;
+            return true;
+        },
+        focus: (nodeId) => { focusedNodes.push(nodeId); return true; }
+    };
+    const createReply = async (request) => {
+        requests.push(request);
+        const hasTarget = Boolean(request.context?.nodeId);
+        return {
+            message: hasTarget ? '计划已就绪。' : '先选择一个生图节点即可应用。',
+            workSummary: hasTarget ? ['读取当前生图节点', '整理参考图与参数'] : ['理解创作需求'],
+            promptPlan: {
+                targetNodeId: hasTarget ? 'image-1' : null,
+                prompt: hasTarget ? `电影感海报：${request.message}` : request.message,
+                negativePrompt: '低质量',
+                parameters: { aspectRatio: '16:9' },
+                referenceImages: request.workflowReferenceImages
+            }
+        };
+    };
+    const controller = createPromptAgentController({ documentRef: document, createReply, nodeAdapter, executionAdapter });
+    controller.init();
+
+    const toolbar = document.getElementById('btn-prompt-agent');
+    toolbar.click();
+    const opened = panel.classList.contains('active')
+        && panel.getAttribute('aria-hidden') === 'false'
+        && !panel.hasAttribute('inert');
+
+    panel.style.width = '612px';
+    await tick();
+    const widthStyle = panel.style.width;
+    const widthSnapshot = controller.snapshotWorkflow().panelWidth;
+
+    input.value = '先帮我写提示词';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await waitFor(() => messages.querySelectorAll('[data-role="agent"]').length === 1);
+    const noTargetAgent = messages.querySelector('[data-role="agent"]');
+    const noTargetActions = noTargetAgent.querySelectorAll('.prompt-agent-actions button');
+    const noTargetDisabled = noTargetActions.length === 2 && [...noTargetActions].every((button) => button.disabled);
+    const summary = noTargetAgent.querySelector('.prompt-agent-work-summary');
+    const summaryCollapsed = summary?.open === false;
+    summary?.querySelector('summary')?.click();
+    const summaryCanExpand = summary?.open === true;
+
+    selected = true;
+    const pasteFile = new File([new Uint8Array([137, 80, 78, 71])], '构图.png', { type: 'image/png' });
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', {
+        value: { items: [{ kind: 'file', getAsFile: () => pasteFile }] }
+    });
+    form.dispatchEvent(paste);
+    await waitFor(() => references.children.length === 1);
+
+    const dropFile = new File([new Uint8Array([137, 80, 78, 71])], '色彩.webp', { type: 'image/webp' });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, 'dataTransfer', { value: { files: [dropFile] } });
+    form.dispatchEvent(drop);
+    await waitFor(() => references.children.length === 2);
+    const referencePreviewCount = references.querySelectorAll('img').length;
+
+    input.value = '沿用参考图生成电影海报';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await waitFor(() => messages.querySelectorAll('[data-role="agent"]').length === 2);
+    const validAgent = [...messages.querySelectorAll('[data-role="agent"]')].at(-1);
+    const validPlan = validAgent.querySelector('.prompt-agent-plan');
+    const validActions = validAgent.querySelectorAll('.prompt-agent-actions button');
+    const referenceRequest = requests[1];
+    const referencesInRequest = referenceRequest.referenceImages.map((image) => image.name);
+    const referencesInWorkflow = referenceRequest.workflowReferenceImages.map((image) => image.name);
+    validActions[0].click();
+    const applied = validActions[0].textContent === '已应用' && validActions[0].disabled && appliedPlans.length === 1;
+
+    validActions[1].click();
+    await waitFor(() => validAgent.querySelector('.prompt-agent-run-state')?.textContent.includes('正在生成'));
+    const runningState = validAgent.querySelector('.prompt-agent-run-state');
+    const progressVisible = runningState.textContent.includes('正在生成');
+    runningState.querySelector('button')?.click();
+    await waitFor(() => runningState.textContent === '已停止');
+    const stopped = runningState.textContent === '已停止' && stoppedNodes[0] === 'image-1';
+
+    input.value = '再做一个版本';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await waitFor(() => messages.querySelectorAll('[data-role="agent"]').length === 3);
+    const recoveryAgent = [...messages.querySelectorAll('[data-role="agent"]')].at(-1);
+    const recoveryActions = recoveryAgent.querySelectorAll('.prompt-agent-actions button');
+    executionMode = 'fail';
+    recoveryActions[1].click();
+    const failureState = await waitFor(() => recoveryAgent.querySelector('.prompt-agent-run-state')?.textContent.includes('供应商暂时不可用'));
+    const runState = recoveryAgent.querySelector('.prompt-agent-run-state');
+    const failureVisible = failureState && runState.textContent.includes('生成失败');
+    runState.querySelectorAll('button')[1]?.click();
+    executionMode = 'success';
+    runState.querySelector('button')?.click();
+    const completed = await waitFor(() => runState.querySelector('img')?.src.includes('data:image/png;base64,UkVTVUxU'));
+    const retriedWithPreview = completed && runState.textContent.startsWith('生成完成') && runState.querySelectorAll('img').length === 1;
+
+    const themeSamples = {};
+    for (const theme of ['light', 'dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        const style = getComputedStyle(panel);
+        themeSamples[theme] = {
+            display: style.display,
+            background: style.backgroundColor,
+            border: style.borderTopColor,
+            color: style.color
+        };
+    }
+
+    const persisted = controller.snapshotWorkflow();
+    const persistedMessageCount = persisted.messages.length;
+    controller.restoreWorkflow(persisted);
+    const restored = !panel.classList.contains('active')
+        && panel.style.width === `${persisted.panelWidth}px`
+        && messages.querySelectorAll('[data-role="agent"]').length === persistedMessageCount / 2;
+    controller.restoreWorkflow({ version: 1, memory: '', messages: [], panelWidth: null });
+    const clearedForNewWorkflow = messages.querySelector('.prompt-agent-empty')?.textContent.includes('描述你想生成')
+        && panel.style.width === ''
+        && !panel.classList.contains('active');
+
+    document.getElementById('surface-result').textContent = JSON.stringify({
+        opened, widthStyle, widthSnapshot, noTargetDisabled, summaryCollapsed, summaryCanExpand,
+        referencePreviewCount, referencesInRequest, referencesInWorkflow,
+        planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), applied,
+        progressVisible, stopped, failureVisible, retriedWithPreview,
+        focused: focusedNodes, themeSamples, persistedMessageCount, restored, clearedForNewWorkflow
+    });
+} catch (error) {
+    document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+}
+</script>
+</body>
+</html>

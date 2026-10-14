@@ -42,3 +42,45 @@ test('restoring missing workflow Agent data clears previous conversation', () =>
     store.restore(null);
     assert.deepEqual(store.snapshot(), { version: 1, memory: '', messages: [], panelWidth: null });
 });
+
+test('reference images round-trip without adding image payloads to text context', () => {
+    const store = createPromptAgentConversationStore();
+    store.append({
+        role: 'user',
+        text: '参考这个构图',
+        referenceImages: [{ name: '构图.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA' }]
+    });
+
+    const restored = createPromptAgentConversationStore();
+    restored.restore(store.snapshot());
+    assert.equal(restored.getReferenceImages()[0].dataUrl, 'data:image/png;base64,AAAA');
+    assert.match(restored.getContext(), /构图\.png/);
+    assert.doesNotMatch(restored.getContext(), /AAAA/);
+
+    store.append({
+        role: 'agent',
+        text: '已整理方案',
+        promptPlan: { prompt: '主体', parameters: {}, referenceImages: [{ name: '构图.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA' }] }
+    });
+    const plan = store.snapshot().messages.at(-1).promptPlan;
+    assert.equal(plan.referenceImages[0].dataUrl, undefined);
+    assert.equal(JSON.stringify(plan).includes('AAAA'), false);
+});
+
+test('reference images remain available after older turns are compressed', () => {
+    const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
+    store.append({
+        role: 'user',
+        text: '请保留这个主体和构图，并持续使用同一套视觉语言',
+        referenceImages: [{ name: '主体.png', type: 'image/png', dataUrl: 'data:image/png;base64,SOURCE' }]
+    });
+    store.append({ role: 'agent', text: '已整理第一版方案，并保留当前主体与构图。', promptPlan: { prompt: '主体', parameters: {} } });
+    store.append({ role: 'user', text: '再调整光线和色彩，让画面保持一致并继续迭代' });
+
+    const snapshot = store.snapshot();
+    assert.equal(snapshot.messages.some((message) => message.referenceImages?.length), false);
+    assert.equal(store.getReferenceImages()[0].name, '主体.png');
+    const restored = createPromptAgentConversationStore({ maxContextCharacters: 80 });
+    restored.restore(snapshot);
+    assert.equal(restored.getReferenceImages()[0].dataUrl, 'data:image/png;base64,SOURCE');
+});

@@ -1,11 +1,31 @@
 import { createPromptAgentConversationStore } from './prompt-agent-conversation-store.js';
 
-function buildDefaultReply({ message, context, workflowMemory = '' }) {
+function uniqueReferenceImages(images = []) {
+    const seen = new Set();
+    return images.filter((image) => {
+        const key = image?.dataUrl || `${image?.sourceNodeId || ''}:${image?.sourcePort || ''}:${image?.name || ''}`;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function buildDefaultReply({ message, context, workflowMemory = '', referenceImages = [], workflowReferenceImages = [] }) {
     const instruction = String(message || '').trim();
     const currentPrompt = String(context?.prompt || '').trim();
+    const allReferenceImages = uniqueReferenceImages([
+        ...(context?.referenceImages || []),
+        ...workflowReferenceImages,
+        ...referenceImages
+    ]);
+    const referenceInstruction = allReferenceImages.length
+        ? `围绕参考图生成一张保持主体与构图一致的图像（${allReferenceImages.length} 张参考图）`
+        : '';
     const prompt = currentPrompt
-        ? `${workflowMemory ? `${workflowMemory}\n\n` : ''}${currentPrompt}\n\n调整要求：${instruction}`
-        : (workflowMemory ? `${workflowMemory}\n\n新要求：${instruction}` : instruction);
+        ? `${workflowMemory ? `${workflowMemory}\n\n` : ''}${currentPrompt}${instruction ? `\n\n调整要求：${instruction}` : ''}`
+        : (workflowMemory
+            ? `${workflowMemory}${instruction ? `\n\n新要求：${instruction}` : ''}`
+            : (instruction || referenceInstruction));
     return {
         message: context ? '已根据当前生图节点整理 Prompt Plan。' : '已整理 Prompt Plan；选择一个生图节点后即可应用。',
         workSummary: context ? ['读取当前生图节点', '整理提示词与生成参数'] : ['理解创作需求', '整理提示词方向'],
@@ -13,9 +33,27 @@ function buildDefaultReply({ message, context, workflowMemory = '' }) {
             targetNodeId: context?.nodeId || null,
             prompt,
             negativePrompt: context?.negativePrompt || '',
-            parameters: { ...(context?.parameters || {}) }
+            parameters: { ...(context?.parameters || {}) },
+            referenceImages: allReferenceImages
         }
     };
+}
+
+function readImageFile(file) {
+    return new Promise((resolve, reject) => {
+        if (!file || !String(file.type || '').startsWith('image/')) {
+            reject(new TypeError('仅支持图片参考文件'));
+            return;
+        }
+        const reader = new FileReader();
+        reader.addEventListener('load', () => resolve({
+            name: String(file.name || '参考图'),
+            type: String(file.type || 'image/*'),
+            dataUrl: String(reader.result || '')
+        }));
+        reader.addEventListener('error', () => reject(reader.error || new Error('参考图读取失败')));
+        reader.readAsDataURL(file);
+    });
 }
 
 export function createPromptAgentController({
@@ -25,11 +63,14 @@ export function createPromptAgentController({
     executionAdapter = null,
     conversationStore = createPromptAgentConversationStore(),
     onStateChange = () => {},
+    readReferenceFile = readImageFile,
     resizeObserverFactory = (callback) => typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null
 } = {}) {
     let initialized = false;
     let resizeObserver = null;
     let workflowRevision = 0;
+    let pendingReferenceImages = [];
+    const promptPlanActionStates = new Set();
 
     function getElements() {
         return {
@@ -39,8 +80,69 @@ export function createPromptAgentController({
             form: documentRef.getElementById('prompt-agent-form'),
             input: documentRef.getElementById('prompt-agent-input'),
             sendButton: documentRef.getElementById('prompt-agent-send'),
-            messages: documentRef.getElementById('prompt-agent-messages')
+            messages: documentRef.getElementById('prompt-agent-messages'),
+            references: documentRef.getElementById('prompt-agent-references')
         };
+    }
+
+    function appendReferencePreviews(container, referenceImages = [], { removable = false } = {}) {
+        referenceImages.forEach((reference, index) => {
+            const item = documentRef.createElement('span');
+            item.className = 'prompt-agent-reference';
+            const image = documentRef.createElement('img');
+            image.src = reference.dataUrl;
+            image.alt = reference.name || `参考图 ${index + 1}`;
+            item.appendChild(image);
+            if (removable) {
+                const removeButton = documentRef.createElement('button');
+                removeButton.type = 'button';
+                removeButton.className = 'prompt-agent-reference-remove';
+                removeButton.textContent = '×';
+                removeButton.setAttribute('aria-label', `移除 ${image.alt}`);
+                removeButton.addEventListener('click', () => {
+                    pendingReferenceImages.splice(index, 1);
+                    renderPendingReferences();
+                });
+                item.appendChild(removeButton);
+            }
+            container.appendChild(item);
+        });
+    }
+
+    function renderPendingReferences() {
+        const { references, form } = getElements();
+        if (!references) return;
+        clearElement(references);
+        appendReferencePreviews(references, pendingReferenceImages, { removable: true });
+        references.hidden = pendingReferenceImages.length === 0;
+        form?.classList.toggle('has-reference-images', pendingReferenceImages.length > 0);
+    }
+
+    async function addReferenceFiles(files = []) {
+        const imageFiles = Array.from(files).filter((file) => String(file?.type || '').startsWith('image/'));
+        if (imageFiles.length === 0) return false;
+        const requestWorkflowRevision = workflowRevision;
+        const results = await Promise.allSettled(imageFiles.map((file) => readReferenceFile(file)));
+        if (requestWorkflowRevision !== workflowRevision) return false;
+        const references = results
+            .filter((result) => result.status === 'fulfilled')
+            .map((result) => result.value)
+            .filter((reference) => typeof reference?.dataUrl === 'string' && reference.dataUrl.startsWith('data:image/'));
+        if (references.length === 0) return false;
+        pendingReferenceImages = uniqueReferenceImages([...pendingReferenceImages, ...references]);
+        renderPendingReferences();
+        return true;
+    }
+
+    function insertPastedText(text) {
+        if (!text) return;
+        const { input } = getElements();
+        if (!input) return;
+        const start = Number.isFinite(input.selectionStart) ? input.selectionStart : input.value.length;
+        const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : start;
+        if (typeof input.setRangeText === 'function') input.setRangeText(text, start, end, 'end');
+        else input.value = `${input.value.slice(0, start)}${text}${input.value.slice(end)}`;
+        input.dispatchEvent?.(new Event('input', { bubbles: true }));
     }
 
     function setOpen(open) {
@@ -60,7 +162,7 @@ export function createPromptAgentController({
         setOpen(!panel?.classList.contains('active'));
     }
 
-    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null } = {}) {
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, referenceImages = [] } = {}) {
         const { messages } = getElements();
         if (!messages) return null;
         const emptyState = messages.querySelector?.('.prompt-agent-empty');
@@ -90,10 +192,16 @@ export function createPromptAgentController({
         body.className = 'prompt-agent-message-body';
         body.textContent = text;
         message.appendChild(body);
+        if (referenceImages.length) {
+            const references = documentRef.createElement('div');
+            references.className = 'prompt-agent-message-references';
+            appendReferencePreviews(references, referenceImages);
+            message.appendChild(references);
+        }
         messages.appendChild(message);
         messages.scrollTop = messages.scrollHeight;
         if (record) {
-            conversationStore.append({ role, text, workSummary, promptPlan });
+            conversationStore.append({ role, text, workSummary, promptPlan, referenceImages });
             onStateChange();
         }
         return message;
@@ -106,11 +214,16 @@ export function createPromptAgentController({
             .filter(([, value]) => value !== '' && value !== undefined && value !== null)
             .map(([key, value]) => `${key}: ${value}`);
         if (parameters.length) parts.push(`参数\n${parameters.join(' · ')}`);
+        if (plan.referenceImages?.length) parts.push(`参考图\n${plan.referenceImages.length} 张`);
         return parts.join('\n\n');
     }
 
     function appendPromptPlan(message, plan) {
         if (!message || !plan) return;
+        const hasValidTarget = () => {
+            const selected = nodeAdapter?.getSelectedContext?.();
+            return Boolean(plan.targetNodeId && selected?.nodeId === plan.targetNodeId);
+        };
         const planElement = documentRef.createElement('section');
         planElement.className = 'prompt-agent-plan';
         planElement.textContent = formatPlan(plan);
@@ -118,15 +231,29 @@ export function createPromptAgentController({
 
         const actions = documentRef.createElement('div');
         actions.className = 'prompt-agent-actions';
+        const actionState = {
+            applied: false,
+            running: false,
+            sync() {
+                const validTarget = hasValidTarget();
+                applyButton.disabled = this.applied || !validTarget;
+                generateButton.disabled = this.running || !validTarget || !executionAdapter;
+            }
+        };
+        promptPlanActionStates.add(actionState);
         const applyButton = documentRef.createElement('button');
         applyButton.type = 'button';
         applyButton.className = 'btn btn-primary';
         applyButton.textContent = '应用到节点';
-        applyButton.disabled = !plan.targetNodeId;
         applyButton.addEventListener('click', () => {
+            if (!hasValidTarget()) {
+                actionState.sync();
+                return;
+            }
             if (!nodeAdapter?.applyPromptPlan?.(plan)) return;
             applyButton.textContent = '已应用';
-            applyButton.disabled = true;
+            actionState.applied = true;
+            actionState.sync();
         });
         actions.appendChild(applyButton);
 
@@ -134,12 +261,22 @@ export function createPromptAgentController({
         generateButton.type = 'button';
         generateButton.className = 'btn btn-secondary';
         generateButton.textContent = '应用并生成';
-        generateButton.disabled = !plan.targetNodeId || !executionAdapter;
         generateButton.addEventListener('click', async () => {
-            await runPromptPlan(message, plan, actions);
+            if (!hasValidTarget()) {
+                actionState.sync();
+                return;
+            }
+            await runPromptPlan(message, plan, actions, null, actionState);
         });
         actions.appendChild(generateButton);
         message.appendChild(actions);
+        actionState.applyButton = applyButton;
+        actionState.generateButton = generateButton;
+        actionState.sync();
+    }
+
+    function refreshActionStates() {
+        promptPlanActionStates.forEach((actionState) => actionState.sync());
     }
 
     function clearElement(element) {
@@ -159,14 +296,14 @@ export function createPromptAgentController({
         });
     }
 
-    function renderFailedRun(runState, plan, message) {
+    function renderFailedRun(runState, plan, message, actionState = null) {
         clearElement(runState);
         runState.textContent = `生成失败：${message}`;
         const retryButton = documentRef.createElement('button');
         retryButton.type = 'button';
         retryButton.className = 'btn btn-secondary';
         retryButton.textContent = '重试';
-        retryButton.addEventListener('click', async () => runPromptPlan(runState.parentElement || null, plan, null, runState));
+        retryButton.addEventListener('click', async () => runPromptPlan(runState.parentElement || null, plan, null, runState, actionState));
         const focusButton = documentRef.createElement('button');
         focusButton.type = 'button';
         focusButton.className = 'btn btn-ghost';
@@ -176,7 +313,7 @@ export function createPromptAgentController({
         runState.appendChild(focusButton);
     }
 
-    async function runPromptPlan(message, plan, actions = null, existingRunState = null) {
+    async function runPromptPlan(message, plan, actions = null, existingRunState = null, actionState = null) {
         if (!executionAdapter || !plan?.targetNodeId) return;
         let runState = existingRunState;
         if (!runState) {
@@ -192,6 +329,10 @@ export function createPromptAgentController({
         stopButton.textContent = '停止';
         stopButton.addEventListener('click', () => executionAdapter.stop?.(plan.targetNodeId));
         runState.appendChild(stopButton);
+        if (actionState) {
+            actionState.running = true;
+            actionState.sync();
+        }
         Array.from(actions?.children || []).forEach((button) => { button.disabled = true; });
         try {
             const result = await executionAdapter.applyAndGenerate(plan);
@@ -202,24 +343,41 @@ export function createPromptAgentController({
                 renderCompletedRun(runState, result);
             }
         } catch (error) {
-            renderFailedRun(runState, plan, error?.message || '未知错误');
+            renderFailedRun(runState, plan, error?.message || '未知错误', actionState);
         } finally {
             Array.from(actions?.children || []).forEach((button) => { button.disabled = false; });
+            if (actionState) {
+                actionState.running = false;
+                actionState.sync();
+            }
         }
     }
 
     async function submit() {
         const { input, sendButton } = getElements();
         const text = input?.value?.trim();
-        if (!text) return;
+        const referenceImages = pendingReferenceImages.slice();
+        if (!text && referenceImages.length === 0) return;
         const workflowMemory = conversationStore.getContext();
-        appendMessage('user', text);
+        const workflowReferenceImages = uniqueReferenceImages([
+            ...conversationStore.getReferenceImages(),
+            ...referenceImages
+        ]);
+        appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages });
         const requestWorkflowRevision = workflowRevision;
         input.value = '';
+        pendingReferenceImages = [];
+        renderPendingReferences();
         if (sendButton) sendButton.disabled = true;
         try {
             const context = nodeAdapter?.getSelectedContext?.() || null;
-            const reply = await createReply({ message: text, context, workflowMemory });
+            const reply = await createReply({
+                message: text,
+                context,
+                workflowMemory,
+                referenceImages,
+                workflowReferenceImages
+            });
             if (requestWorkflowRevision !== workflowRevision) return;
             const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || [], { promptPlan: reply?.promptPlan || null });
             appendPromptPlan(agentMessage, reply?.promptPlan);
@@ -240,6 +398,31 @@ export function createPromptAgentController({
             event.preventDefault();
             await submit();
         });
+        form?.addEventListener('paste', async (event) => {
+            const files = Array.from(event.clipboardData?.items || [])
+                .map((item) => item.kind === 'file' ? item.getAsFile?.() : null)
+                .filter(Boolean);
+            if (files.some((file) => String(file.type || '').startsWith('image/'))) {
+                event.preventDefault();
+                insertPastedText(event.clipboardData?.getData?.('text/plain') || '');
+                await addReferenceFiles(files);
+            }
+        });
+        form?.addEventListener('dragover', (event) => {
+            if (Array.from(event.dataTransfer?.files || []).some((file) => String(file.type || '').startsWith('image/'))) {
+                event.preventDefault();
+                form.classList.add('is-dragging-reference');
+            }
+        });
+        form?.addEventListener('dragleave', () => form.classList.remove('is-dragging-reference'));
+        form?.addEventListener('drop', async (event) => {
+            form.classList.remove('is-dragging-reference');
+            const files = Array.from(event.dataTransfer?.files || []);
+            if (files.some((file) => String(file.type || '').startsWith('image/'))) {
+                event.preventDefault();
+                await addReferenceFiles(files);
+            }
+        });
         setOpen(false);
         const { panel } = getElements();
         resizeObserver = resizeObserverFactory?.((entries) => {
@@ -253,6 +436,7 @@ export function createPromptAgentController({
     function renderConversation() {
         const { messages } = getElements();
         if (!messages) return;
+        promptPlanActionStates.clear();
         clearElement(messages);
         const snapshot = conversationStore.snapshot();
         if (snapshot.messages.length === 0) {
@@ -263,18 +447,23 @@ export function createPromptAgentController({
             return;
         }
         snapshot.messages.forEach((item) => {
-            const message = appendMessage(item.role, item.text, item.workSummary || [], { record: false });
+            const message = appendMessage(item.role, item.text, item.workSummary || [], {
+                record: false,
+                referenceImages: item.referenceImages || []
+            });
             if (item.role === 'agent' && item.promptPlan) appendPromptPlan(message, item.promptPlan);
         });
     }
 
     function restoreWorkflow(value) {
         workflowRevision += 1;
+        pendingReferenceImages = [];
         conversationStore.restore(value);
         const { panel } = getElements();
         const width = conversationStore.snapshot().panelWidth;
         if (panel?.style) panel.style.width = width ? `${width}px` : '';
         renderConversation();
+        renderPendingReferences();
         close();
     }
 
@@ -285,5 +474,5 @@ export function createPromptAgentController({
         return conversationStore.snapshot();
     }
 
-    return { init, open, close, toggle, submit, restoreWorkflow, snapshotWorkflow };
+    return { init, open, close, toggle, submit, restoreWorkflow, snapshotWorkflow, refreshActionStates };
 }

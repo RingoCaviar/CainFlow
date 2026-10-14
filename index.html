@@ -357,9 +357,10 @@
                     <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">&times;</button>
                 </header>
                 <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
-                    <p class="prompt-agent-empty">描述你想生成的画面。当前版本先建立对话，后续会接入所选生图节点。</p>
+                    <p class="prompt-agent-empty">描述你想生成的画面。选择生图节点后可以应用 Prompt Plan。</p>
                 </section>
                 <form id="prompt-agent-form" class="prompt-agent-composer">
+                    <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
                     <textarea id="prompt-agent-input" rows="2" placeholder="描述你想生成的图片……" aria-label="Prompt Agent 输入"></textarea>
                     <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
                 </form>
