@@ -526,6 +526,12 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         // 使用干净草稿编辑，避免直接修改注册表中的运行时协议对象。
         setDraftProtocol(protocol);
+        // A read-only future-baseline view may have disabled the editor controls
+        // on a previous visit. Reset that state before opening a writable
+        // protocol again; the stable protocol ID remains immutable.
+        documentRef.getElementById('protocol-editor-view').querySelectorAll('input, textarea, select, button')
+            .forEach((control) => { control.disabled = false; });
+        documentRef.getElementById('protocol-id').disabled = true;
 
         // 如果协议的 parameters 中没有 model 参数，自动添加一个
         if (!draftProtocol.readOnly && !draftProtocol.parameters) {
