@@ -27,7 +27,7 @@ function element() {
     };
 }
 
-test('switching Workspace mode preserves the mounted canvas and its editor state', () => {
+test('Workspace mode always stays on the canvas and preserves its editor state', () => {
     const canvasWorkspace = element();
     const conversationWorkspace = element();
     conversationWorkspace.hidden = true;
@@ -58,20 +58,19 @@ test('switching Workspace mode preserves the mounted canvas and its editor state
 
     assert.equal(controller.activate('conversation'), true);
 
-    assert.equal(state.workspaceMode, 'conversation');
+    assert.equal(state.workspaceMode, 'canvas');
     assert.equal(state.canvas, canvasState);
     assert.equal(canvasWorkspace.child, canvasChild);
-    assert.equal(canvasWorkspace.hidden, true);
-    assert.equal(canvasWorkspace.inert, true);
-    assert.equal(sideBar.hidden, true);
-    assert.equal(conversationWorkspace.hidden, false);
-    assert.equal(conversationWorkspace.inert, false);
-    assert.equal(canvasButton.attributes.get('aria-pressed'), 'false');
-    assert.equal(conversationButton.attributes.get('aria-pressed'), 'true');
-    assert.deepEqual(saved, ['conversation']);
+    assert.equal(canvasWorkspace.hidden, false);
+    assert.equal(canvasWorkspace.inert, false);
+    assert.equal(sideBar.hidden, false);
+    assert.equal(conversationWorkspace.hidden, true);
+    assert.equal(conversationWorkspace.inert, true);
+    assert.equal(canvasButton.attributes.get('aria-pressed'), 'true');
+    assert.deepEqual(saved, ['canvas']);
 });
 
-test('Workspace mode controls and shortcuts activate the requested surface', () => {
+test('Workspace mode exposes only the canvas control and shortcut', () => {
     const listeners = new Map();
     const makeInteractive = () => ({
         ...element(),
@@ -81,8 +80,7 @@ test('Workspace mode controls and shortcuts activate the requested surface', () 
     const conversationWorkspace = makeInteractive(); conversationWorkspace.id = 'conversation-workspace';
     const sideBar = makeInteractive(); sideBar.id = 'side-bar';
     const canvasButton = makeInteractive(); canvasButton.id = 'btn-workspace-canvas';
-    const conversationButton = makeInteractive(); conversationButton.id = 'btn-workspace-conversation';
-    const elements = new Map([canvasWorkspace, conversationWorkspace, sideBar, canvasButton, conversationButton]
+    const elements = new Map([canvasWorkspace, conversationWorkspace, sideBar, canvasButton]
         .map((item) => [item.id, item]));
     const documentRef = {
         body: { dataset: {}, classList: classList() },
@@ -93,8 +91,6 @@ test('Workspace mode controls and shortcuts activate the requested surface', () 
     const controller = createWorkspaceModeController({ state, documentRef });
     controller.init();
 
-    listeners.get('btn-workspace-conversation:click')();
-    assert.equal(state.workspaceMode, 'conversation');
     listeners.get('document:keydown')({
         key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false,
         preventDefault() {}
@@ -103,7 +99,7 @@ test('Workspace mode controls and shortcuts activate the requested surface', () 
 });
 
 test('unknown persisted Workspace mode falls back to the canvas', () => {
-    assert.equal(normalizeWorkspaceMode('conversation'), 'conversation');
+    assert.equal(normalizeWorkspaceMode('conversation'), 'canvas');
     assert.equal(normalizeWorkspaceMode('future-mode'), 'canvas');
     assert.equal(normalizeWorkspaceMode(null), 'canvas');
 });
