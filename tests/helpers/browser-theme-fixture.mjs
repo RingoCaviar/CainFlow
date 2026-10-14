@@ -3,7 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { createServer as createNetServer } from 'node:net';
 import { inflateSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 
 export const chromePath = [
     process.env.CHROME_PATH,
@@ -11,6 +13,73 @@ export const chromePath = [
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
 ].filter(Boolean).find(existsSync);
+
+const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+
+async function findFreePort() {
+    const probe = createNetServer();
+    await new Promise((resolve, reject) => {
+        probe.once('error', reject);
+        probe.listen(0, '127.0.0.1', resolve);
+    });
+    const port = probe.address().port;
+    await new Promise((resolve) => probe.close(resolve));
+    return port;
+}
+
+export async function startCainflowServer({ session = null } = {}) {
+    const dataDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-data-'));
+    const workflowsDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-workflows-'));
+    const port = await findFreePort();
+    const python = process.env.CAINFLOW_PYTHON || 'python';
+    const child = spawn(python, ['server.py', '--browser', '--port', String(port)], {
+        cwd: repoRoot,
+        env: {
+            ...process.env,
+            CAINFLOW_DATA_DIR: dataDir,
+            CAINFLOW_WORKFLOWS_DIR: workflowsDir,
+            CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1'
+        },
+        stdio: 'ignore'
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+    try {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+            try {
+                const response = await fetch(`${baseUrl}/`);
+                if (response.ok) break;
+            } catch {}
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            if (child.exitCode !== null) throw new Error(`CainFlow server exited with code ${child.exitCode}`);
+            if (attempt === 119) throw new Error('CainFlow server did not become ready');
+        }
+        if (session) {
+            const response = await fetch(`${baseUrl}/api/storage/documents/session`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: session })
+            });
+            if (!response.ok) throw new Error(`CainFlow session seed failed: HTTP ${response.status}`);
+        }
+        return {
+            baseUrl,
+            dataDir,
+            async stop() {
+                if (child.exitCode === null) child.kill('SIGTERM');
+                await new Promise((resolve) => {
+                    if (child.exitCode !== null) resolve();
+                    else child.once('exit', resolve);
+                });
+                rmSync(dataDir, { recursive: true, force: true });
+                rmSync(workflowsDir, { recursive: true, force: true });
+            }
+        };
+    } catch (error) {
+        if (child.exitCode === null) child.kill('SIGTERM');
+        rmSync(dataDir, { recursive: true, force: true });
+        rmSync(workflowsDir, { recursive: true, force: true });
+        throw error;
+    }
+}
 
 export function parseColor(color) {
     if (color.startsWith('#')) {

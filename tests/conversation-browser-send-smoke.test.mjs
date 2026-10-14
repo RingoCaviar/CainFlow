@@ -1,19 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawn } from 'node:child_process';
+import { createServer as createHttpServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { chromePath } from './helpers/browser-theme-fixture.mjs';
+import { chromePath, startCainflowServer } from './helpers/browser-theme-fixture.mjs';
 
 const enabled = process.env.CAINFLOW_BROWSER_SMOKE === '1';
 const liveSendEnabled = process.env.CAINFLOW_BROWSER_LIVE_SEND === '1';
-const targetUrl = process.env.CAINFLOW_BROWSER_SMOKE_URL || 'http://localhost:8767/';
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function startDelayedProvider() {
+    const server = createHttpServer((request, response) => {
+        request.resume();
+        setTimeout(() => {
+            response.writeHead(200, { 'Content-Type': 'application/json' });
+            response.end(JSON.stringify({ choices: [{ message: { content: '浏览器探针已完成' } }] }));
+        }, 1500);
+    });
+    await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    return {
+        endpoint: `http://127.0.0.1:${address.port}/v1`,
+        async stop() { await new Promise((resolve) => server.close(resolve)); }
+    };
+}
 
 test('browser: sending without configuration gives a visible setup next step', { skip: !enabled }, async () => {
     assert.ok(chromePath, 'Chrome or Chromium is required');
+    const serverFixture = process.env.CAINFLOW_BROWSER_SMOKE_URL ? null : await startCainflowServer();
+    const targetUrl = process.env.CAINFLOW_BROWSER_SMOKE_URL || `${serverFixture.baseUrl}/`;
     const port = 34000 + Math.floor(Math.random() * 1000);
     const profile = mkdtempSync(join(tmpdir(), 'cainflow-send-smoke-'));
     const browser = spawn(chromePath, [
@@ -69,21 +90,31 @@ test('browser: sending without configuration gives a visible setup next step', {
         await evaluate("document.getElementById('btn-workspace-conversation').click()");
         await evaluate("document.getElementById('conversation-composer').value='浏览器发送探针'; document.getElementById('conversation-send').click()");
         await delay(400);
-        const result = JSON.parse(await evaluate("JSON.stringify({ mode: document.body.dataset.workspaceMode, title: document.getElementById('conversation-title').textContent, guidance: document.getElementById('conversation-guidance').textContent, visible: !document.getElementById('conversation-guidance').hidden })"));
+        const result = JSON.parse(await evaluate("JSON.stringify({ mode: document.body.dataset.workspaceMode, title: document.getElementById('conversation-title').textContent, guidance: document.getElementById('conversation-guidance').textContent, visible: !document.getElementById('conversation-guidance').hidden, independent: document.querySelector('.conversation-list-item-meta')?.textContent || '' })"));
         assert.equal(result.mode, 'conversation');
         assert.equal(result.title, '新对话');
         assert.equal(result.visible, true);
+        assert.match(result.independent, /独立对话/);
         assert.match(result.guidance, /还没有可用的对话模型|请选择一个对话模型|Provider/);
     } finally {
         socket?.close();
         browser.kill();
         await new Promise((resolve) => browser.once('exit', resolve));
         rmSync(profile, { recursive: true, force: true });
+        await serverFixture?.stop();
     }
 });
 
 test('browser: configured chat model completes a real conversation request', { skip: !liveSendEnabled }, async () => {
     assert.ok(chromePath, 'Chrome or Chromium is required');
+    const providerFixture = process.env.CAINFLOW_BROWSER_SMOKE_URL ? null : await startDelayedProvider();
+    const serverFixture = process.env.CAINFLOW_BROWSER_SMOKE_URL ? null : await startCainflowServer({
+        session: {
+            providers: [{ id: 'browser-provider', name: 'Browser Provider', type: 'openai', endpoint: providerFixture.endpoint, apikey: 'browser-test-key' }],
+            models: [{ id: 'browser-model', name: 'Browser model', modelId: 'browser-model', taskType: 'chat', protocol: 'openai', providerIds: ['browser-provider'] }]
+        }
+    });
+    const targetUrl = process.env.CAINFLOW_BROWSER_SMOKE_URL || `${serverFixture.baseUrl}/`;
     const port = 38000 + Math.floor(Math.random() * 1000);
     const profile = mkdtempSync(join(tmpdir(), 'cainflow-live-send-'));
     const browser = spawn(chromePath, [
@@ -133,6 +164,18 @@ test('browser: configured chat model completes a real conversation request', { s
         await evaluate(`(() => { const select = document.getElementById('conversation-model'); select.value = ${JSON.stringify(modelId)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
         await delay(250);
         await evaluate("document.getElementById('conversation-composer').value='只回复：对话链路已成功'; document.getElementById('conversation-send').click()");
+        let pendingVisible = false;
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+            const status = await evaluate("JSON.stringify([...document.querySelectorAll('.conversation-message')].map((message) => ({ role: message.className, status: message.dataset.messageStatus, text: message.textContent })))");
+            const messages = JSON.parse(status);
+            if (messages.some((message) => message.role.includes('is-user') && message.text.includes('只回复：对话链路已成功'))
+                && messages.some((message) => message.role.includes('is-assistant') && /pending|starting|running|streaming/.test(message.status))) {
+                pendingVisible = true;
+                break;
+            }
+            await delay(25);
+        }
+        assert.equal(pendingVisible, true, 'user and pending assistant messages must render before the provider responds');
         let completed = false;
         for (let attempt = 0; attempt < 240; attempt += 1) {
             const status = await evaluate("JSON.stringify([...document.querySelectorAll('.conversation-message')].map((message) => ({ role: message.className, status: message.dataset.messageStatus, text: message.textContent })))");
@@ -146,5 +189,7 @@ test('browser: configured chat model completes a real conversation request', { s
         browser.kill();
         await new Promise((resolve) => browser.once('exit', resolve));
         rmSync(profile, { recursive: true, force: true });
+        await serverFixture?.stop();
+        await providerFixture?.stop();
     }
 });
