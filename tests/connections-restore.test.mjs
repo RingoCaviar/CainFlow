@@ -89,14 +89,21 @@ function createHarness(connectionCount, {
             nodes.set(id, node);
         }
     }
+    let connectionForEachReads = 0;
+    const connections = Array.from({ length: connectionCount }, (_, index) => ({
+        id: `connection-${index + 1}`,
+        from: { nodeId: 'from', port: 'text' },
+        to: { nodeId: distinctTargets ? `to-${index + 1}` : 'to', port: 'text' },
+        type: 'text'
+    }));
+    const connectionForEach = connections.forEach.bind(connections);
+    connections.forEach = (...args) => {
+        connectionForEachReads += 1;
+        return connectionForEach(...args);
+    };
     const state = {
         nodes,
-        connections: Array.from({ length: connectionCount }, (_, index) => ({
-            id: `connection-${index + 1}`,
-            from: { nodeId: 'from', port: 'text' },
-            to: { nodeId: distinctTargets ? `to-${index + 1}` : 'to', port: 'text' },
-            type: 'text'
-        })),
+        connections,
         selectedNodes: new Set(),
         runningNodeIds: new Set(running ? ['from'] : []),
         canvas: { x: 0, y: 0, zoom: 1, isPanning: false }
@@ -169,6 +176,7 @@ function createHarness(connectionCount, {
         frames,
         paths,
         getPortRectReadCount() { return portRectReads; },
+        getConnectionForEachReadCount() { return connectionForEachReads; },
         setPortsVisible(visible) { portsVisible = visible; },
         setOutputPortLeft(left) { outputPortLeft = left; }
     };
@@ -221,6 +229,41 @@ test('connection restoration materializes only the requested batch', () => {
     assert.equal(restoration.renderNextBatch(100), true);
     assert.equal(paths.length, 201);
     restoration.finish({ completed: true });
+});
+
+test('connection restoration reuses the lane map across batches until layout invalidation', () => {
+    const { api, getConnectionForEachReadCount } = createHarness(201, { distinctTargets: true });
+
+    const restoration = api.beginConnectionRestoration();
+    restoration.renderNextBatch(100);
+    const firstBatchReads = getConnectionForEachReadCount();
+    assert.ok(firstBatchReads >= 2);
+
+    restoration.renderNextBatch(100);
+    assert.equal(getConnectionForEachReadCount(), firstBatchReads);
+
+    api.markNodeConnectionsDirty('from');
+    restoration.renderNextBatch(100);
+    assert.ok(getConnectionForEachReadCount() > firstBatchReads);
+    restoration.finish({ completed: false });
+});
+
+test('connection restoration rebuilds the lane map after topology index invalidation', () => {
+    const { api, state, getConnectionForEachReadCount } = createHarness(201, { distinctTargets: true });
+
+    const restoration = api.beginConnectionRestoration();
+    restoration.renderNextBatch(100);
+    const firstBatchReads = getConnectionForEachReadCount();
+
+    state.connections.push({
+        ...state.connections[0],
+        id: 'connection-extra'
+    });
+    api.rebuildConnectionIndex();
+    restoration.renderNextBatch(100);
+
+    assert.ok(getConnectionForEachReadCount() > firstBatchReads);
+    restoration.finish({ completed: false });
 });
 
 test('connection restoration materializes only connections near the viewport', () => {
@@ -458,6 +501,7 @@ test('later restoration batches use the latest node geometry when assigning conn
     const restoration = api.beginConnectionRestoration();
     restoration.renderNextBatch(100);
     state.nodes.get('to-101').y = -1000;
+    api.markNodeConnectionsDirty('to-101');
     restoration.renderNextBatch(100);
     restoration.finish({ completed: false });
 

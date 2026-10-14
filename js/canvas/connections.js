@@ -1097,8 +1097,7 @@ export function createConnectionsApi({
         });
     }
 
-    function getWholeConnectionRenderContext({ refreshLanes = false } = {}) {
-        if (refreshLanes) invalidateConnectionLaneCache();
+    function getWholeConnectionRenderContext() {
         const containerRect = canvasContainer.getBoundingClientRect();
         return {
             containerRect,
@@ -1145,7 +1144,7 @@ export function createConnectionsApi({
         return {
             renderViewport() {
                 if (finished) return true;
-                const context = getWholeConnectionRenderContext({ refreshLanes: true });
+                const context = getWholeConnectionRenderContext();
                 state.connections.forEach((connection) => {
                     if (isConnectionNearViewport(connection, context.viewport) || pathById.has(connection.id)) {
                         renderConnectionPath(connection, context);
@@ -1156,7 +1155,7 @@ export function createConnectionsApi({
             },
             renderNextBatch(batchSize) {
                 if (finished) return true;
-                const context = getWholeConnectionRenderContext({ refreshLanes: true });
+                const context = getWholeConnectionRenderContext();
                 const batchEnd = Math.min(nextConnectionIndex + batchSize, state.connections.length);
                 while (nextConnectionIndex < batchEnd) {
                     renderConnectionPath(state.connections[nextConnectionIndex], context);
