@@ -239,7 +239,11 @@ export function createConversationWorkbenchController({
     }
 
     async function refreshHistoryMedia() {
-        historyMediaEntries = await getHistoryMetadata({ limit: 100, includeThumbs: false });
+        try {
+            historyMediaEntries = await getHistoryMetadata({ limit: 100, includeThumbs: false });
+        } catch {
+            historyMediaEntries = [];
+        }
         renderHistoryMediaOptions();
         return historyMediaEntries;
     }
