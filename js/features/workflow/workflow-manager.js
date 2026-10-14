@@ -95,6 +95,7 @@ export function createWorkflowManagerApi({
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
     onWorkflowViewApplied = () => {},
+    getPromptAgentState = () => null,
     refreshRecoverableMediaNodes = async () => {},
     waitForImageRestores = async () => {},
     beginMediaRestoreBatch = () => {},
@@ -766,6 +767,7 @@ export function createWorkflowManagerApi({
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map(serializeConnection),
+            promptAgent: getPromptAgentState(),
             version: WORKFLOW_VERSION
         };
     }

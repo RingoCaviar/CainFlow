@@ -25,6 +25,7 @@ class FakeElement {
         this.textContent = '';
         this.disabled = false;
         this.open = false;
+        this.style = {};
     }
     addEventListener(type, handler) { this.listeners.set(type, handler); }
     dispatch(type, event = {}) { return this.listeners.get(type)?.({ preventDefault() {}, target: this, ...event }); }
@@ -36,6 +37,7 @@ class FakeElement {
         return this.children.find((child) => child.className === selector.slice(1)) || null;
     }
     blur() {}
+    getBoundingClientRect() { return { width: 480 }; }
 }
 
 function createHarness(createReply = async () => ({
@@ -217,4 +219,22 @@ test('generation progress exposes a stop action for the running node', async () 
     resolveRun({ status: 'stopped', images: [] });
     await running;
     assert.equal(runState.textContent, '已停止');
+});
+
+test('restores workflow conversation and width without reopening the panel', () => {
+    const { controller, elements } = createHarness();
+    controller.restoreWorkflow({
+        version: 1,
+        memory: '低饱和电影感',
+        panelWidth: 612,
+        messages: [
+            { role: 'user', text: '继续调整' },
+            { role: 'agent', text: '计划已恢复', promptPlan: { targetNodeId: 'image-1', prompt: '电影海报', parameters: {} } }
+        ]
+    });
+
+    assert.equal(elements['prompt-agent-panel'].style.width, '612px');
+    assert.equal(elements['prompt-agent-panel'].classList.contains('active'), false);
+    assert.equal(elements['prompt-agent-messages'].children.length, 2);
+    assert.equal(controller.snapshotWorkflow().memory, '低饱和电影感');
 });

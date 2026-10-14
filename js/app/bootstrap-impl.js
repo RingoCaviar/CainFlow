@@ -849,7 +849,8 @@ const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
 const promptAgentController = createPromptAgentController({
     documentRef: document,
     nodeAdapter: promptAgentNodeAdapter,
-    executionAdapter: promptAgentExecutionAdapter
+    executionAdapter: promptAgentExecutionAdapter,
+    onStateChange: () => workflowManagerApi.markActiveWorkflowDirty()
 });
 
 function saveState() {
@@ -1439,7 +1440,12 @@ const workflowManagerApi = createWorkflowManagerApi({
             ? 'Duplicate Workflow identity repaired'
             : record.error
     }),
-    onWorkflowViewApplied: (workflow) => getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow),
+    onWorkflowViewApplied: (workflow) => {
+        getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow);
+        const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflow?.workflowId);
+        promptAgentController.restoreWorkflow(tab?.data?.promptAgent || null);
+    },
+    getPromptAgentState: () => promptAgentController.snapshotWorkflow(),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
     beginMediaRestoreBatch,

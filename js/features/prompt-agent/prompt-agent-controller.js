@@ -1,3 +1,5 @@
+import { createPromptAgentConversationStore } from './prompt-agent-conversation-store.js';
+
 function buildDefaultReply({ message, context }) {
     const instruction = String(message || '').trim();
     const currentPrompt = String(context?.prompt || '').trim();
@@ -20,9 +22,13 @@ export function createPromptAgentController({
     documentRef = document,
     createReply = async (request) => buildDefaultReply(request),
     nodeAdapter = null,
-    executionAdapter = null
+    executionAdapter = null,
+    conversationStore = createPromptAgentConversationStore(),
+    onStateChange = () => {},
+    resizeObserverFactory = (callback) => typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null
 } = {}) {
     let initialized = false;
+    let resizeObserver = null;
 
     function getElements() {
         return {
@@ -53,7 +59,7 @@ export function createPromptAgentController({
         setOpen(!panel?.classList.contains('active'));
     }
 
-    function appendMessage(role, text, workSummary = []) {
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null } = {}) {
         const { messages } = getElements();
         if (!messages) return null;
         const emptyState = messages.querySelector?.('.prompt-agent-empty');
@@ -85,6 +91,10 @@ export function createPromptAgentController({
         message.appendChild(body);
         messages.appendChild(message);
         messages.scrollTop = messages.scrollHeight;
+        if (record) {
+            conversationStore.append({ role, text, workSummary, promptPlan });
+            onStateChange();
+        }
         return message;
     }
 
@@ -206,8 +216,8 @@ export function createPromptAgentController({
         if (sendButton) sendButton.disabled = true;
         try {
             const context = nodeAdapter?.getSelectedContext?.() || null;
-            const reply = await createReply({ message: text, context });
-            const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || []);
+            const reply = await createReply({ message: text, context, workflowMemory: conversationStore.getContext() });
+            const agentMessage = appendMessage('agent', reply?.message || 'Prompt Plan 已就绪。', reply?.workSummary || [], { promptPlan: reply?.promptPlan || null });
             appendPromptPlan(agentMessage, reply?.promptPlan);
         } catch (error) {
             appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。');
@@ -226,8 +236,48 @@ export function createPromptAgentController({
             await submit();
         });
         setOpen(false);
+        const { panel } = getElements();
+        resizeObserver = resizeObserverFactory?.((entries) => {
+            const width = entries?.[0]?.contentRect?.width || panel?.getBoundingClientRect?.().width;
+            if (conversationStore.setPanelWidth(width)) onStateChange();
+        }) || null;
+        if (panel) resizeObserver?.observe?.(panel);
         initialized = true;
     }
 
-    return { init, open, close, toggle, submit };
+    function renderConversation() {
+        const { messages } = getElements();
+        if (!messages) return;
+        clearElement(messages);
+        const snapshot = conversationStore.snapshot();
+        if (snapshot.messages.length === 0) {
+            const empty = documentRef.createElement('p');
+            empty.className = 'prompt-agent-empty';
+            empty.textContent = '描述你想生成的画面。选择生图节点后可以应用 Prompt Plan。';
+            messages.appendChild(empty);
+            return;
+        }
+        snapshot.messages.forEach((item) => {
+            const message = appendMessage(item.role, item.text, item.workSummary || [], { record: false });
+            if (item.role === 'agent' && item.promptPlan) appendPromptPlan(message, item.promptPlan);
+        });
+    }
+
+    function restoreWorkflow(value) {
+        conversationStore.restore(value);
+        const { panel } = getElements();
+        const width = conversationStore.snapshot().panelWidth;
+        if (panel?.style) panel.style.width = width ? `${width}px` : '';
+        renderConversation();
+        close();
+    }
+
+    function snapshotWorkflow() {
+        const { panel } = getElements();
+        const width = panel?.getBoundingClientRect?.().width;
+        conversationStore.setPanelWidth(width);
+        return conversationStore.snapshot();
+    }
+
+    return { init, open, close, toggle, submit, restoreWorkflow, snapshotWorkflow };
 }
