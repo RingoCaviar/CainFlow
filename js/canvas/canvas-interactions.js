@@ -213,6 +213,51 @@ export function createCanvasInteractionsApi({
         scheduleSave();
     }
 
+    function settleNodeResize() {
+        const r = state.resizing;
+        if (!r) return;
+        const node = state.nodes.get(r.nodeId);
+        if (node) {
+            let finalWidth = parseInt(node.el.style.width, 10) || r.startWidth;
+            let finalHeight = parseInt(node.el.style.height, 10) || r.startHeight;
+            distributeNodeTextareaResize(r, finalHeight);
+            if (typeof getNodeMinimumSize === 'function') {
+                let minimum = getNodeMinimumSize(node, {
+                    width: finalWidth,
+                    normalizeFlexibleHeights: true
+                });
+                const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
+                finalWidth = Math.min(configuredMaxWidth, Math.max(finalWidth, Number(minimum?.minWidth) || 0));
+                minimum = getNodeMinimumSize(node, {
+                    width: finalWidth,
+                    normalizeFlexibleHeights: true
+                });
+                finalHeight = Math.max(finalHeight, Number(minimum?.minHeight) || 0);
+                node.el.style.width = `${Math.round(finalWidth)}px`;
+                node.el.style.height = `${Math.round(finalHeight)}px`;
+            }
+            distributeNodeTextareaResize(r, finalHeight);
+            node.width = Math.round(finalWidth);
+            node.height = Math.round(finalHeight);
+            if (r.edge?.includes('left')) {
+                node.x = r.startNodeX + r.startWidth - node.width;
+                node.el.style.left = `${node.x}px`;
+            }
+            if (r.edge?.includes('top')) {
+                node.y = r.startNodeY + r.startHeight - node.height;
+                node.el.style.top = `${node.y}px`;
+            }
+            node.observedWidth = node.width;
+            node.observedHeight = node.height;
+            node.userResized = true;
+            node.el.classList.remove('is-interacting');
+            refreshNodeConnections(r.nodeId, { force: true });
+        }
+        if (r.cursorClass) documentRef.body.classList.remove(r.cursorClass);
+        state.resizing = null;
+        scheduleSave();
+    }
+
     function performSampleInteractionStep({ kind, phase, progress }) {
         if (kind === CANVAS_INTERACTION_KIND.PAN) {
             if (phase === 'start') {
@@ -799,6 +844,7 @@ export function createCanvasInteractionsApi({
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
             settleCanvasPan({ abort: true });
             settleNodeDrag({ abort: true });
+            settleNodeResize();
             for (const kind of projectionInteractionLeases.keys()) {
                 closeProjectionInteraction(kind, 'abort');
             }
@@ -1064,8 +1110,11 @@ export function createCanvasInteractionsApi({
                 const node = state.nodes.get(r.nodeId);
                 if (node) {
                     if (isNodeRunning(r.nodeId)) return;
-                    const targetW = r.startWidth + dx;
-                    const targetH = r.startHeight + dy;
+                    const edge = r.edge || 'bottom-right';
+                    const movesLeft = edge.includes('left');
+                    const movesTop = edge.includes('top');
+                    const targetW = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
+                    const targetH = r.startHeight + (movesTop ? -dy : edge.includes('bottom') ? dy : 0);
                     let dynamicMinWidth = r.minWidth;
                     let dynamicMinHeight = typeof getNodeMinimumSize === 'function' ? 0 : r.minHeight;
                     const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
@@ -1097,6 +1146,14 @@ export function createCanvasInteractionsApi({
                     const newH = Math.min(Math.max(targetH, dynamicMinHeight), maxHeight);
                     node.el.style.width = constrainedWidth + 'px';
                     node.el.style.height = newH + 'px';
+                    if (movesLeft) {
+                        node.x = r.startNodeX + r.startWidth - constrainedWidth;
+                        node.el.style.left = `${node.x}px`;
+                    }
+                    if (movesTop) {
+                        node.y = r.startNodeY + r.startHeight - newH;
+                        node.el.style.top = `${node.y}px`;
+                    }
                     distributeNodeTextareaResize(r, newH);
 
                     refreshNodeConnections(r.nodeId);
@@ -1207,41 +1264,7 @@ export function createCanvasInteractionsApi({
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 settleNodeDrag({ endPosition: pos });
             }
-            if (state.resizing) {
-                const r = state.resizing;
-                const node = state.nodes.get(r.nodeId);
-                if (node) {
-                    let finalWidth = parseInt(node.el.style.width, 10);
-                    let finalHeight = parseInt(node.el.style.height, 10);
-                    distributeNodeTextareaResize(r, finalHeight);
-                    if (typeof getNodeMinimumSize === 'function') {
-                        let minimum = getNodeMinimumSize(node, {
-                            width: finalWidth,
-                            normalizeFlexibleHeights: true
-                        });
-                        const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
-                        finalWidth = Math.min(configuredMaxWidth, Math.max(finalWidth, Number(minimum?.minWidth) || 0));
-                        minimum = getNodeMinimumSize(node, {
-                            width: finalWidth,
-                            normalizeFlexibleHeights: true
-                        });
-                        finalHeight = Math.max(finalHeight, Number(minimum?.minHeight) || 0);
-                        node.el.style.width = `${Math.round(finalWidth)}px`;
-                        node.el.style.height = `${Math.round(finalHeight)}px`;
-                    }
-                    distributeNodeTextareaResize(r, finalHeight);
-                    node.width = Math.round(finalWidth);
-                    node.height = Math.round(finalHeight);
-                    node.observedWidth = node.width;
-                    node.observedHeight = node.height;
-                    node.userResized = true;
-
-                    node.el.classList.remove('is-interacting');
-                    refreshNodeConnections(r.nodeId, { force: true });
-                }
-                state.resizing = null;
-                scheduleSave();
-            }
+            settleNodeResize();
             if (state.connecting) {
                 if (state.connecting.dragged) {
                     const releasedOnCanvas = e.target.closest('#canvas-container');

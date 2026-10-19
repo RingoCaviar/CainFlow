@@ -212,7 +212,11 @@ function renderNodeHeader(id, config, options = {}) {
             </div>
         </div>
         <button type="button" class="node-failure-summary hidden" data-node-id="${id}" title="查看完整错误"></button>
-        <div class="node-resize-handle" data-node-id="${id}"></div>
+        <div class="node-resize-handle node-resize-handle--left" data-node-id="${id}" data-resize-edge="left"></div>
+        <div class="node-resize-handle node-resize-handle--right" data-node-id="${id}" data-resize-edge="right"></div>
+        <div class="node-resize-handle node-resize-handle--top" data-node-id="${id}" data-resize-edge="top"></div>
+        <div class="node-resize-handle node-resize-handle--bottom" data-node-id="${id}" data-resize-edge="bottom"></div>
+        <div class="node-resize-handle node-resize-handle--bottom-right" data-node-id="${id}" data-resize-edge="bottom-right"></div>
     `;
 }
 

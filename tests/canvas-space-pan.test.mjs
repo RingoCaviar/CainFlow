@@ -399,6 +399,80 @@ test('a previously enlarged node can shrink back to its current content minimum'
     assert.equal(style.height, '320px');
 });
 
+test('each node edge resizes on its axis and preserves the opposite edge at canvas zoom', () => {
+    const cases = [
+        { edge: 'left', pointer: [140, 100], expected: [70, 60, 300, 240] },
+        { edge: 'right', pointer: [140, 100], expected: [50, 60, 340, 240] },
+        { edge: 'top', pointer: [100, 140], expected: [50, 80, 320, 220] },
+        { edge: 'bottom', pointer: [100, 140], expected: [50, 60, 320, 260] },
+        { edge: 'bottom-right', pointer: [140, 140], expected: [50, 60, 340, 260] }
+    ];
+    for (const { edge, pointer, expected } of cases) {
+        const { windowListeners, state, legacyRefreshCalls, saveCalls } = createHarness();
+        state.canvas.zoom = 2;
+        const style = { left: '50px', top: '60px', width: '320px', height: '240px' };
+        const node = { x: 50, y: 60, el: { style, classList: createClassList() } };
+        state.nodes.set('node-1', node);
+        state.resizing = {
+            nodeId: 'node-1', edge, startX: 100, startY: 100,
+            startNodeX: 50, startNodeY: 60, startWidth: 320, startHeight: 240,
+            minWidth: 180, maxWidth: 380, minHeight: 120, maxHeight: 300,
+            textareaResizeTargets: []
+        };
+        windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: pointer[0], clientY: pointer[1] });
+        windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
+            .listener({ clientX: pointer[0], clientY: pointer[1], target: { closest() { return null; } } });
+
+        assert.deepEqual([node.x, node.y, node.width, node.height], expected, edge);
+        assert.equal(style.left, `${expected[0]}px`, edge);
+        assert.equal(style.top, `${expected[1]}px`, edge);
+        assert.equal(node.userResized, true, edge);
+        assert.equal(state.resizing, null, edge);
+        assert.equal(legacyRefreshCalls.at(-1).force, true, edge);
+        assert.equal(saveCalls.length, 1, edge);
+    }
+});
+
+test('left and top resize clamp to content minimum without moving the opposite edge', () => {
+    for (const edge of ['left', 'top']) {
+        const { windowListeners, state } = createHarness({
+            getNodeMinimumSize() { return { minWidth: 260, minHeight: 180 }; }
+        });
+        const style = { left: '50px', top: '60px', width: '320px', height: '240px' };
+        const node = { x: 50, y: 60, el: { style, classList: createClassList() } };
+        state.nodes.set('node-1', node);
+        state.resizing = {
+            nodeId: 'node-1', edge, startX: 100, startY: 100,
+            startNodeX: 50, startNodeY: 60, startWidth: 320, startHeight: 240,
+            minWidth: 180, maxWidth: Infinity, minHeight: 120, maxHeight: Infinity,
+            textareaResizeTargets: []
+        };
+        windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 400, clientY: 400 });
+        windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
+            .listener({ clientX: 400, clientY: 400, target: { closest() { return null; } } });
+        assert.equal(node.x + node.width, 370, edge);
+        assert.equal(node.y + node.height, 300, edge);
+        assert.deepEqual([node.width, node.height], edge === 'left' ? [260, 240] : [320, 180]);
+    }
+});
+
+test('window blur settles a node resize and clears its cursor state', () => {
+    const { windowListeners, state, saveCalls } = createHarness();
+    const style = { left: '50px', top: '60px', width: '320px', height: '240px' };
+    state.nodes.set('node-1', { x: 50, y: 60, el: { style, classList: createClassList() } });
+    state.resizing = {
+        nodeId: 'node-1', edge: 'left', cursorClass: 'is-node-resizing-horizontal',
+        startX: 100, startY: 100, startNodeX: 50, startNodeY: 60,
+        startWidth: 320, startHeight: 240, minWidth: 180, minHeight: 120,
+        maxWidth: Infinity, maxHeight: Infinity, textareaResizeTargets: []
+    };
+    // The resize state must be cleared even when the pointer is released outside the window.
+    windowListeners.find(({ type }) => type === 'blur').listener();
+    assert.equal(state.resizing, null);
+    assert.equal(state.nodes.get('node-1').userResized, true);
+    assert.equal(saveCalls.length, 1);
+});
+
 test('temporary connection drawing uses one projection lease', () => {
     const { windowListeners, state, projectionCalls } = createHarness();
     state.connecting = {

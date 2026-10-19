@@ -2355,7 +2355,8 @@ export function createNodeDomBindingsApi({
             scrollToCloneSource(id);
         });
 
-        const resizeHandle = el.querySelector('.node-resize-handle');
+        const resizeHandles = el.querySelectorAll('.node-resize-handle');
+        const resizeHandle = el.querySelector('.node-resize-handle--bottom-right');
         resizeHandle.title = '拖动调整大小，双击适应内容';
         resizeHandle.addEventListener('dblclick', (e) => {
             e.preventDefault();
@@ -2381,7 +2382,7 @@ export function createNodeDomBindingsApi({
             });
         });
 
-        resizeHandle.addEventListener('mousedown', (e) => {
+        resizeHandles.forEach((handle) => handle.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
@@ -2410,10 +2411,18 @@ export function createNodeDomBindingsApi({
                 ? configuredMaxWidth
                 : Infinity;
 
+            const edge = handle.dataset.resizeEdge;
+            const cursor = edge === 'left' || edge === 'right'
+                ? 'horizontal'
+                : edge === 'top' || edge === 'bottom' ? 'vertical' : 'diagonal';
             state.resizing = {
                 nodeId: id,
+                edge,
+                cursorClass: `is-node-resizing-${cursor}`,
                 startX: e.clientX,
                 startY: e.clientY,
+                startNodeX: node.x,
+                startNodeY: node.y,
                 startWidth: currentWidth,
                 startHeight: currentHeight,
                 minWidth: defaultMinimum.minWidth,
@@ -2426,13 +2435,14 @@ export function createNodeDomBindingsApi({
             pushHistory();
             el.classList.add('is-interacting');
             documentRef.body.classList.add('is-interacting');
+            documentRef.body.classList.add(state.resizing.cursorClass);
             documentRef.getElementById('connections-group').classList.add('is-interacting');
-        });
+        }));
 
-        resizeHandle.addEventListener('mouseup', () => {
+        resizeHandles.forEach((handle) => handle.addEventListener('mouseup', () => {
             if (state.resizing?.nodeId === id) return;
             enforceNodeContentMinimum(id, { save: false, updateConnections: true });
-        });
+        }));
 
         bindNodeRunCancelButton(id, el);
         bindNodePorts(el);

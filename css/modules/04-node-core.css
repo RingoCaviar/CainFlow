@@ -183,25 +183,51 @@
     pointer-events: none;
 }
 
-/* Node resize handle 鈥?Reduced hitbox to avoid interference with image dragging */
+/* Keep side resize targets just outside the card so ports remain clickable. */
 .node-resize-handle {
     position: absolute;
+    z-index: 50;
+    touch-action: none;
+}
+
+.node-resize-handle--left,
+.node-resize-handle--right {
+    top: 14px;
+    bottom: 14px;
+    width: 8px;
+    cursor: ew-resize;
+}
+
+.node-resize-handle--left { left: -8px; }
+.node-resize-handle--right { right: -8px; }
+
+.node-resize-handle--top,
+.node-resize-handle--bottom {
+    left: 14px;
+    right: 14px;
+    height: 8px;
+    cursor: ns-resize;
+}
+
+.node-resize-handle--top { top: -4px; }
+.node-resize-handle--bottom { bottom: -4px; }
+
+.node-resize-handle--bottom-right {
     bottom: 0;
     right: 0;
     width: 14px;
     height: 14px;
     cursor: nwse-resize;
-    z-index: 50;
-    /* Above glass background but below main ports/interactive content if needed */
+    z-index: 51;
     opacity: 0.3;
     transition: opacity var(--transition);
 }
 
-.node:hover .node-resize-handle {
+.node:hover .node-resize-handle--bottom-right {
     opacity: 1;
 }
 
-.node-resize-handle::after {
+.node-resize-handle--bottom-right::after {
     content: '';
     position: absolute;
     bottom: 4px;
@@ -212,6 +238,21 @@
     border-radius: 50%;
     box-shadow: -6px 0 0 var(--text-dim), 0 -6px 0 var(--text-dim), -6px -6px 0 var(--text-dim), -12px 0 0 var(--text-dim), 0 -12px 0 var(--text-dim);
     opacity: 0.5;
+}
+
+body.is-interacting.is-node-resizing-horizontal #canvas-container,
+body.is-interacting.is-node-resizing-horizontal #canvas-container * {
+    cursor: ew-resize !important;
+}
+
+body.is-interacting.is-node-resizing-vertical #canvas-container,
+body.is-interacting.is-node-resizing-vertical #canvas-container * {
+    cursor: ns-resize !important;
+}
+
+body.is-interacting.is-node-resizing-diagonal #canvas-container,
+body.is-interacting.is-node-resizing-diagonal #canvas-container * {
+    cursor: nwse-resize !important;
 }
 
 .node:hover {

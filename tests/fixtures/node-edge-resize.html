@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <style>
+        #canvas-container { position: relative; width: 800px; height: 600px; }
+        #node { left: 120px; top: 80px; width: 340px; height: 260px; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"><div id="node" class="node"></div></div>
+    <div id="connections-group"></div>
+    <pre id="surface-result"></pre>
+    <script type="module">
+        import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+        import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+        import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
+
+        try {
+            const node = document.getElementById('node');
+            node.innerHTML = createNodeMarkup({
+                type: 'TextMerge', id: 'sample', config: NODE_CONFIGS.TextMerge,
+                restoreData: {}, state: { models: [], providers: [] }
+            });
+            const edges = ['left', 'right', 'top', 'bottom', 'bottom-right'];
+            const handles = edges.map((edge) => {
+                const element = node.querySelector(`[data-resize-edge="${edge}"]`);
+                const rect = element.getBoundingClientRect();
+                const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return { edge, cursor: getComputedStyle(element).cursor, hit: target === element };
+            });
+            const port = node.querySelector('.node-port.input .port-dot');
+            const portRect = port.getBoundingClientRect();
+            const nodeRect = node.getBoundingClientRect();
+            const portTarget = document.elementFromPoint(nodeRect.left + 2, portRect.top + portRect.height / 2);
+            const outputPort = node.querySelector('.node-port.output .port-dot');
+            const outputRect = outputPort.getBoundingClientRect();
+            const outputTarget = document.elementFromPoint(nodeRect.right - 2, outputRect.top + outputRect.height / 2);
+            const deleteButton = node.querySelector('.node-delete');
+            const deleteRect = deleteButton.getBoundingClientRect();
+            const buttonTarget = document.elementFromPoint(deleteRect.left + deleteRect.width / 2, deleteRect.top + deleteRect.height / 2);
+            const state = {
+                nodes: new Map([['sample', {
+                    id: 'sample', type: 'TextMerge', el: node, x: 120, y: 80,
+                    width: 340, height: 260, data: {}
+                }]]),
+                selectedNodes: new Set(), connections: [], runningNodeIds: new Set(),
+                canvas: { x: 0, y: 0, zoom: 1 }, models: [], providers: []
+            };
+            const bindings = createNodeDomBindingsApi({
+                state, canvasContainer: document.getElementById('canvas-container'),
+                connectionsGroup: document.getElementById('connections-group'),
+                viewportApi: {}, pushHistory() {}, scheduleSave() {}, showToast() {},
+                debounce: (callback) => callback,
+                getNodeMinimumSizeFromLifecycle: () => ({ minWidth: 180, minHeight: 120 })
+            });
+            bindings.bindNodeInteractions({ id: 'sample', type: 'TextMerge', el: node });
+            const boundEdges = edges.map((edge) => {
+                const handle = node.querySelector(`[data-resize-edge="${edge}"]`);
+                handle.dispatchEvent(new MouseEvent('mousedown', {
+                    bubbles: true, button: 0, clientX: 150, clientY: 100
+                }));
+                const bound = state.resizing?.edge === edge;
+                state.resizing = null;
+                node.classList.remove('is-interacting');
+                document.body.classList.remove('is-interacting',
+                    'is-node-resizing-horizontal', 'is-node-resizing-vertical', 'is-node-resizing-diagonal');
+                return { edge, bound };
+            });
+            document.body.classList.add('is-interacting', 'is-node-resizing-horizontal');
+            const activeCursor = getComputedStyle(deleteButton).cursor;
+            document.getElementById('surface-result').textContent = JSON.stringify({
+                handles, boundEdges,
+                inputPortAccessible: !!portTarget?.closest('.node-port.input'),
+                outputPortAccessible: !!outputTarget?.closest('.node-port.output'),
+                deleteAccessible: buttonTarget?.closest('.node-delete') === deleteButton, activeCursor
+            });
+        } catch (error) {
+            document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+        }
+    </script>
+</body>
+</html>
