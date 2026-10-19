@@ -11,7 +11,6 @@ export function createWorkspaceModeController({
         const mode = normalizeWorkspaceMode(requestedMode);
         const canvasWorkspace = documentRef.getElementById('canvas-container');
         const sideBar = documentRef.getElementById('side-bar');
-        const canvasButton = documentRef.getElementById('btn-workspace-canvas');
         if (!canvasWorkspace) return false;
 
         state.workspaceMode = 'canvas';
@@ -23,15 +22,11 @@ export function createWorkspaceModeController({
             sideBar.hidden = false;
             sideBar.inert = false;
         }
-        canvasButton?.setAttribute('aria-pressed', 'true');
-        canvasButton?.classList.toggle?.('is-selected', true);
         if (persist) saveState();
         return true;
     }
 
     function init() {
-        documentRef.getElementById('btn-workspace-canvas')?.addEventListener(
-            'click', () => activate('canvas'));
         documentRef.addEventListener('keydown', (event) => {
             if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
             const digit = event.code === 'Digit1' ? '1'

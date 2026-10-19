@@ -33,7 +33,6 @@ test('Workspace mode always stays on the canvas and preserves its editor state',
     conversationWorkspace.hidden = true;
     conversationWorkspace.inert = true;
     const sideBar = element();
-    const canvasButton = element();
     const conversationButton = element();
     const canvasChild = { id: 'node-a' };
     canvasWorkspace.child = canvasChild;
@@ -43,7 +42,6 @@ test('Workspace mode always stays on the canvas and preserves its editor state',
         ['canvas-container', canvasWorkspace],
         ['conversation-workspace', conversationWorkspace],
         ['side-bar', sideBar],
-        ['btn-workspace-canvas', canvasButton],
         ['btn-workspace-conversation', conversationButton]
     ]);
     const documentRef = {
@@ -66,11 +64,13 @@ test('Workspace mode always stays on the canvas and preserves its editor state',
     assert.equal(sideBar.hidden, false);
     assert.equal(conversationWorkspace.hidden, true);
     assert.equal(conversationWorkspace.inert, true);
-    assert.equal(canvasButton.attributes.get('aria-pressed'), 'true');
     assert.deepEqual(saved, ['canvas']);
 });
 
-test('Workspace mode exposes only the canvas control and shortcut', () => {
+test('Workspace mode retains the canvas shortcut without a toolbar control', async () => {
+    const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    assert.doesNotMatch(html, /id="btn-workspace-canvas"/);
+
     const listeners = new Map();
     const makeInteractive = () => ({
         ...element(),
@@ -79,8 +79,7 @@ test('Workspace mode exposes only the canvas control and shortcut', () => {
     const canvasWorkspace = makeInteractive(); canvasWorkspace.id = 'canvas-container';
     const conversationWorkspace = makeInteractive(); conversationWorkspace.id = 'conversation-workspace';
     const sideBar = makeInteractive(); sideBar.id = 'side-bar';
-    const canvasButton = makeInteractive(); canvasButton.id = 'btn-workspace-canvas';
-    const elements = new Map([canvasWorkspace, conversationWorkspace, sideBar, canvasButton]
+    const elements = new Map([canvasWorkspace, conversationWorkspace, sideBar]
         .map((item) => [item.id, item]));
     const documentRef = {
         body: { dataset: {}, classList: classList() },
@@ -104,7 +103,7 @@ test('unknown persisted Workspace mode falls back to the canvas', () => {
     assert.equal(normalizeWorkspaceMode(null), 'canvas');
 });
 
-test('Workspace mode switch inherits every application theme and has a narrow-window rule', async () => {
+test('Conversation workspace styles inherit every application theme and have a narrow-window rule', async () => {
     const [workspaceCss, themeIndex] = await Promise.all([
         readFile(new URL('../css/features/conversation-workspace.css', import.meta.url), 'utf8'),
         readFile(new URL('../css/themes.css', import.meta.url), 'utf8')

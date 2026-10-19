@@ -1,27 +1,4 @@
 /* Conversation Workspace uses the shared CainFlow surface, border, control and motion contracts. */
-.workspace-mode-switch {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 2px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
-    background: var(--surface-control);
-}
-
-.workspace-mode-switch .btn {
-    min-height: 28px;
-    padding: 4px 10px;
-    border-color: transparent;
-    background: transparent;
-}
-
-.workspace-mode-switch .btn.is-selected {
-    border-color: var(--panel-active-border);
-    background: var(--surface-control-hover);
-    color: var(--text-primary);
-}
-
 .toolbar-conversation-only { display: none; }
 body.workspace-mode-conversation .toolbar-canvas-only { display: none; }
 body.workspace-mode-conversation .toolbar-conversation-only { display: flex; }
@@ -190,10 +167,6 @@ body.workspace-mode-conversation #toolbar::after { display: none; }
     .conversation-toolbar-title,
     .conversation-toolbar-actions { flex-wrap: wrap; }
     .conversation-return-canvas { margin-inline-start: 0; }
-    .workspace-mode-switch .btn {
-        padding-inline: 8px;
-    }
-
     .conversation-workspace { grid-template-columns: minmax(0, 1fr); }
     .conversation-list-pane {
         position: absolute;
