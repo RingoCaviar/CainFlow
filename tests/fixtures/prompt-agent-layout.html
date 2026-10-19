@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/01-toolbar.css">
+    <link rel="stylesheet" href="../../css/prompt-agent.css">
+    <style>#toolbar .btn { min-width: 100px; }</style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="toolbar">
+            <button class="btn">CainFlow</button>
+            <button class="btn">节点</button>
+            <button class="btn">运行</button>
+            <button class="btn">停止</button>
+            <button class="btn">工作流</button>
+            <button class="btn">设置</button>
+            <button id="btn-prompt-agent" class="btn active" aria-expanded="true">Agent</button>
+            <button class="btn">历史记录</button>
+            <button class="btn">通知</button>
+            <button class="btn">帮助</button>
+        </div>
+        <main id="main-layout">
+            <aside id="prompt-agent-panel" class="prompt-agent-panel active">
+                <header class="prompt-agent-header"><h2>Prompt Agent</h2></header>
+            </aside>
+        </main>
+    </div>
+    <script>
+        const container = document.getElementById('app-container');
+        const toolbar = document.getElementById('toolbar');
+        const panel = document.getElementById('prompt-agent-panel');
+        const samples = [1200, 640].map((width) => {
+            container.style.width = `${width}px`;
+            document.documentElement.style.setProperty('--toolbar-height', `${toolbar.offsetHeight}px`);
+            const toolbarRect = toolbar.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            return {
+                width,
+                toolbarHeight: toolbarRect.height,
+                gap: panelRect.top - toolbarRect.bottom,
+                panelBottom: panelRect.bottom,
+                viewportHeight: window.innerHeight
+            };
+        });
+        const output = document.createElement('pre');
+        output.id = 'surface-result';
+        output.textContent = JSON.stringify(samples);
+        document.body.appendChild(output);
+    </script>
+</body>
+</html>

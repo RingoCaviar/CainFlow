@@ -23,7 +23,11 @@
     box-shadow: var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.3));
 }
 
-.prompt-agent-panel.active { display: flex; }
+.prompt-agent-panel.active {
+    display: flex;
+    /* Opening Agent keeps the toolbar expanded; reserve its measured height. */
+    top: calc(var(--toolbar-height, 48px) + var(--app-chrome-gap, 8px));
+}
 
 .prompt-agent-header,
 .prompt-agent-composer {
