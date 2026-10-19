@@ -92,6 +92,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     }
 
     function getModelFetchProtocol(provider) {
+        if (getEndpointHost(provider?.endpoint) === 'api.openai.com') return 'openai';
         if (isVectorEngineEndpoint(provider?.endpoint)) return 'openai';
         if (isTtapiOpenAiEndpoint(provider?.endpoint)) return 'ttapi-openai';
         if (isTtapiEndpoint(provider?.endpoint)) return 'ttapi';
