@@ -1194,6 +1194,41 @@ else:
             self.assertIsNotNone(service.get_asset_info(retained['asset_key']))
             self.assertIsNotNone(service.get_asset_info(historical['asset_key']))
 
+    def test_manual_temporary_cleanup_reclaims_unreferenced_registered_images(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            retained = service.put_media_asset(b'retained-image', 'image/png', 'workflow-node', 'workflow:node')
+            stale = service.put_asset('media:stale-image', b'stale-image', 'image/png', 'media')
+            stale_path = os.path.join(service.assets_dir, stale['relative_path'])
+            retained_path = os.path.join(service.assets_dir, retained['relative_path'])
+            orphan_dir = os.path.join(service.assets_dir, 'legacy')
+            os.makedirs(orphan_dir)
+            orphan_path = os.path.join(orphan_dir, 'unused.png')
+            with open(orphan_path, 'wb') as output:
+                output.write(b'unused-image')
+
+            result = service.clear_temporary()
+
+            self.assertEqual(1, result['assetsDeleted'])
+            self.assertEqual(1, result['orphanFilesDeleted'])
+            self.assertFalse(os.path.exists(stale_path))
+            self.assertFalse(os.path.exists(orphan_path))
+            self.assertTrue(os.path.exists(retained_path))
+
+    def test_manual_temporary_cleanup_reports_suspended_reclamation_without_deleting_images(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            stale = service.put_asset('media:stale-image', b'stale-image', 'image/png', 'media')
+            stale_path = os.path.join(service.assets_dir, stale['relative_path'])
+            service._safety_status.update({'state': 'gc_suspended', 'reason': 'integrity_damage_detected'})
+            service._write_safety_status(service._safety_status)
+
+            result = service.clear_temporary()
+
+            self.assertTrue(result['gcSuspended'])
+            self.assertEqual(1, result['candidatesRetained'])
+            self.assertTrue(os.path.exists(stale_path))
+
     def test_node_orphan_cleanup_preserves_closed_workflow_node_references(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

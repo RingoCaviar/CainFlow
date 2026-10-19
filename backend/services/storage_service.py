@@ -2832,8 +2832,14 @@ class StorageService:
                     deleted += 1
                 except OSError:
                     pass
-        return {'temporaryDeleted': deleted,
-                'orphanAssetsDeleted': 0 if managed_only else self.cleanup_orphan_files(max_count=max_count)}
+        if managed_only:
+            return {'temporaryDeleted': deleted, 'orphanAssetsDeleted': 0}
+        media_cleanup = self.cleanup_unreferenced_media_assets(max_count=max_count)
+        return {
+            'temporaryDeleted': deleted,
+            'orphanAssetsDeleted': media_cleanup['orphanFilesDeleted'],
+            **media_cleanup,
+        }
 
     def factory_reset(self):
         self.initialize()

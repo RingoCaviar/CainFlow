@@ -1292,8 +1292,16 @@ export function createUiControllerApi({
                     body: JSON.stringify({ action: 'clear-temporary' })
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
                 await clearCacheStorageForOrigin();
-                showToast('临时缓存和孤儿文件已清理', 'success');
+                if (result.gcSuspended) {
+                    const retained = Number(result.candidatesRetained || 0);
+                    showToast(`媒体文件回收已暂停，${retained} 项无引用资产仍保留；请在缓存面板查看完整性状态`, 'warning', 8000);
+                } else {
+                    const removed = Number(result.temporaryDeleted || 0)
+                        + Number(result.assetsDeleted || 0) + Number(result.orphanFilesDeleted || 0);
+                    showToast(`缓存清理完成：删除 ${removed} 个临时项或无引用文件`, 'success');
+                }
                 settingsControllerApi?.updateCacheUsage(true);
             } catch (error) {
                 showToast(`临时缓存清理失败：${error.message}`, 'error');
