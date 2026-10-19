@@ -48,6 +48,7 @@ import { createMediaControllerApi } from '../features/media/media-controller.js'
 import { collectRetainedNodeAssetIds as collectRetainedNodeAssetIdsForWorkflows } from '../features/media/node-asset-retention.js';
 import { createMissingMediaBrowserActions } from '../features/media/missing-media-action-browser.js';
 import { createImagePainterApi } from '../features/media/image-painter.js';
+import { createEditedImageImport } from '../features/media/image-painter-output.js';
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
@@ -633,6 +634,11 @@ const imagePainterApi = createImagePainterApi({
     applyEditedImage: async ({ nodeId, dataUrl, node }) => {
         if (node?.type === 'ImageImport') {
             return loadImageData(nodeId, dataUrl);
+        }
+        if (node?.type === 'ImageSave') {
+            return createEditedImageImport({
+                sourceNode: node, dataUrl, addNode, loadImageData, removeNode, selectNode
+            });
         }
         return false;
     },

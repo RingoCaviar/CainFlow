@@ -1869,14 +1869,14 @@ export function createNodeLifecycleApi({
     }
 
     async function removeNode(id, options = {}) {
-        const selectedIds = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
+        const selectedIds = !options.onlyId && state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
         const lockedIds = selectedIds.filter((nid) => isNodeRunning(nid));
         const idsToRemove = selectedIds.filter((nid) => !isNodeRunning(nid));
         if (lockedIds.length > 0) {
             showToast(lockedIds.length > 1 ? `有 ${lockedIds.length} 个节点正在运行，暂不能删除` : '节点正在运行，暂不能删除', 'warning');
         }
         if (idsToRemove.length === 0) return;
-        const mediaUndoOwnerId = pushHistory();
+        const mediaUndoOwnerId = options.skipHistory ? null : pushHistory();
         const preservedConnectionCandidates = options.preserveConnections
             ? buildPreservedConnections(idsToRemove)
             : [];
@@ -1930,12 +1930,14 @@ export function createNodeLifecycleApi({
         updateAllConnections();
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
-        if (preservedConnectionCount > 0) {
-            showToast(idsToRemove.length > 1
-                ? `已删除 ${idsToRemove.length} 个节点，已保留 ${preservedConnectionCount} 条连线`
-                : '节点已删除，连线已保留', 'info');
-        } else {
-            showToast(idsToRemove.length > 1 ? `已删除 ${idsToRemove.length} 个节点` : '节点已删除', 'info');
+        if (options.showToast !== false) {
+            if (preservedConnectionCount > 0) {
+                showToast(idsToRemove.length > 1
+                    ? `已删除 ${idsToRemove.length} 个节点，已保留 ${preservedConnectionCount} 条连线`
+                    : '节点已删除，连线已保留', 'info');
+            } else {
+                showToast(idsToRemove.length > 1 ? `已删除 ${idsToRemove.length} 个节点` : '节点已删除', 'info');
+            }
         }
         scheduleSave();
         if (getCacheSidebarActive()) {

@@ -21,7 +21,7 @@ export function createImagePainterApi({
             <div class="painter-btn painter-btn-undo" id="painter-undo" title="撤回 (Ctrl+Z)" disabled>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
             </div>
-            <div class="painter-btn painter-btn-save" id="painter-save" title="应用并保存 (S)">
+            <div class="painter-btn painter-btn-save" id="painter-save" title="确认编辑 (Ctrl+S)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
             <div class="painter-btn painter-btn-cancel" id="painter-cancel" title="取消并退出 (Esc)">
@@ -403,59 +403,81 @@ export function createImagePainterApi({
             documentRef.removeEventListener('keydown', onKey);
         }
 
+        let saving = false;
         async function save() {
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            shapes.forEach((shape) => drawShape(shape));
+            if (saving || !img.complete || !img.naturalWidth) return;
+            saving = true;
+            try {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+                shapes.forEach((shape) => drawShape(shape));
 
-            const data = canvas.toDataURL('image/png');
-            const node = state.nodes.get(nodeId);
-            if (node) {
-                const handledByExternalApply = await applyEditedImage({
-                    nodeId,
-                    dataUrl: data,
-                    node,
-                    source: src
-                });
-                if (handledByExternalApply) {
-                    showToast('图片已更新', 'success');
-                } else if (node.imageData !== undefined) {
-                    node.imageData = data;
-                    node.imageDataList = [data];
-                    node.data = node.data || {};
-                    node.data.image = data;
-                    node.data.images = [data];
-                    const dropZone = node.el.querySelector(`#${nodeId}-drop`);
-                    if (dropZone) {
-                        dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
+                const data = canvas.toDataURL('image/png');
+                const node = state.nodes.get(nodeId);
+                if (node?.type === 'ImageSave') {
+                    const created = await applyEditedImage({ nodeId, dataUrl: data, node, source: src });
+                    if (!created) {
+                        showToast('编辑结果未能创建图片导入节点，请重试', 'error');
+                        return;
                     }
-                } else if (node.data && node.data.image !== undefined) {
-                    node.data.image = data;
-                    node.data.images = [data];
-                    node.imageData = data;
-                    node.imageDataList = [data];
-                    const nodeImage = node.el.querySelector('img');
-                    if (nodeImage) nodeImage.src = data;
+                    showToast('已创建图片导入节点', 'success');
+                    cleanup();
+                    return;
                 }
+                if (node) {
+                    const handledByExternalApply = await applyEditedImage({
+                        nodeId,
+                        dataUrl: data,
+                        node,
+                        source: src
+                    });
+                    if (handledByExternalApply) {
+                        showToast('图片已更新', 'success');
+                    } else if (node.imageData !== undefined) {
+                        node.imageData = data;
+                        node.imageDataList = [data];
+                        node.data = node.data || {};
+                        node.data.image = data;
+                        node.data.images = [data];
+                        const dropZone = node.el.querySelector(`#${nodeId}-drop`);
+                        if (dropZone) {
+                            dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
+                        }
+                    } else if (node.data && node.data.image !== undefined) {
+                        node.data.image = data;
+                        node.data.images = [data];
+                        node.imageData = data;
+                        node.imageDataList = [data];
+                        const nodeImage = node.el.querySelector('img');
+                        if (nodeImage) nodeImage.src = data;
+                    }
 
-                if (!handledByExternalApply && (node.dirHandle || dirHandles.get(nodeId))) {
-                    await autoSaveToDir(nodeId, data);
+                    if (!handledByExternalApply && (node.dirHandle || dirHandles.get(nodeId))) {
+                        await autoSaveToDir(nodeId, data);
+                    }
+                    scheduleSave();
+                    if (!handledByExternalApply) {
+                        showToast('图片已更新', 'success');
+                    }
                 }
-                scheduleSave();
-                if (!handledByExternalApply) {
-                    showToast('图片已更新', 'success');
-                }
+                cleanup();
+            } catch (error) {
+                console.warn('Saving edited image failed:', error);
+                showToast('保存编辑结果失败，请重试', 'error');
+            } finally {
+                saving = false;
             }
-            cleanup();
         }
 
         undoBtn.addEventListener('click', undo);
         overlay.querySelector('#painter-save').addEventListener('click', save);
-        overlay.querySelector('#painter-cancel').addEventListener('click', cleanup);
+        overlay.querySelector('#painter-cancel').addEventListener('click', () => {
+            if (!saving) cleanup();
+        });
 
         function onKey(e) {
-            if (e.key === 'Escape') cleanup();
+            if (e.key === 'Escape' && !saving) cleanup();
             if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 save();
