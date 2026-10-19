@@ -1,10 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../js/features/prompt-agent/prompt-agent-model.js';
 
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', capabilities: { imageInput: true }, providerIds: ['provider-1'] };
 const provider = { id: 'provider-1', name: 'Test', endpoint: 'https://example.test/v1', apikey: 'secret' };
+
+test('Agent offers only configured chat models with a usable Provider', () => {
+    const models = [
+        model,
+        { ...model, id: 'orphan', providerIds: ['missing'] },
+        { ...model, id: 'incomplete', protocol: '' },
+        { ...model, id: 'wrong-format', protocol: 'newapi-image-async' },
+        { ...model, id: 'image', taskType: 'image' }
+    ];
+    assert.deepEqual(getAvailablePromptAgentModels(models, [provider]).map((item) => item.id), ['chat-1']);
+    assert.deepEqual(getAvailablePromptAgentModels([model], [{ ...provider, endpoint: '  ' }]), []);
+});
 
 test('Prompt Agent sends a real structured chat request and converts the response to a target-bound plan', async () => {
     let request;

@@ -83,8 +83,8 @@ import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentNodeAdapter } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
-import { createPromptAgentModelReply } from '../features/prompt-agent/prompt-agent-model.js';
-import { getModelsForTask } from '../features/execution/provider-request-utils.js';
+import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
+import { getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -869,15 +869,13 @@ const promptAgentController = createPromptAgentController({
     documentRef: document,
     nodeAdapter: promptAgentNodeAdapter,
     executionAdapter: promptAgentExecutionAdapter,
-    getChatModels: () => getModelsForTask(state.models || [], 'chat'),
+    getChatModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
     createReply: (request) => {
-        const chatModels = getModelsForTask(state.models || [], 'chat');
+        const chatModels = getAvailablePromptAgentModels(state.models || [], state.providers || []);
         const model = chatModels.find((item) => item.id === request.modelId) || chatModels[0];
-        const provider = (state.providers || []).find((item) =>
-            Array.isArray(model?.providerIds) ? model.providerIds.includes(item.id) : item.id === model?.providerId
-        );
+        const provider = getResolvedProviderForModel(model, state.providers || []);
         return createPromptAgentModelReply({
             ...request,
             model,
@@ -1686,7 +1684,11 @@ settingsFeature = createSettingsFeature({
     getHandle,
     deleteHandle,
     showToast,
-    saveState,
+    saveState: (...args) => {
+        const saved = saveState(...args);
+        promptAgentController.refreshModels();
+        return saved;
+    },
     addLog,
     checkUpdate: (isManual) => updateManager.checkUpdate(isManual),
     downloadLatestUpdate: () => updateManager.downloadLatestUpdate(),

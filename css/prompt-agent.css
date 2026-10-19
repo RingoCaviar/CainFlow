@@ -43,6 +43,14 @@
 .prompt-agent-model-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .prompt-agent-model-label select { max-width: 170px; min-width: 80px; }
 
+.prompt-agent-model-hint {
+    margin: 0;
+    padding: 8px 12px 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
 .prompt-agent-messages {
     flex: 1;
     overflow: auto;

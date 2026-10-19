@@ -1,5 +1,14 @@
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
-import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
+
+export function getAvailablePromptAgentModels(models = [], providers = []) {
+    return getModelsForTask(models, 'chat').filter((model) => {
+        if (!model?.id || !model?.modelId || !getModelProtocolConfig(model.protocol)?.defaultTaskTypes.includes('chat')) return false;
+        const provider = getResolvedProviderForModel(model, providers);
+        return Boolean(String(provider?.endpoint || '').trim());
+    });
+}
 
 const SYSTEM_PROMPT = `你是 CainFlow 的 Prompt Agent。请根据用户要求、当前生图节点和工作流上下文，生成可直接检查的 Prompt Plan。
 只返回一个 JSON 对象，不要 Markdown 代码围栏，不要解释推理过程。字段必须是：

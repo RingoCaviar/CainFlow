@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import { createPromptAgentController } from '../js/features/prompt-agent/prompt-agent-controller.js';
 
+const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test' };
+
 class ClassList {
     constructor(initial = []) { this.values = new Set(initial); }
     add(...names) { names.forEach((name) => this.values.add(name)); }
@@ -66,6 +68,7 @@ function createHarness(createReply = async () => ({
         'prompt-agent-input': new FakeElement(),
         'prompt-agent-send': new FakeElement(),
         'prompt-agent-model': new FakeElement(),
+        'prompt-agent-model-hint': new FakeElement(),
         'prompt-agent-messages': new FakeElement(),
         'prompt-agent-references': new FakeElement()
     };
@@ -74,7 +77,10 @@ function createHarness(createReply = async () => ({
         getElementById: (id) => elements[id] || null,
         createElement: () => new FakeElement()
     };
-    const controller = createPromptAgentController({ documentRef, createReply, nodeAdapter, executionAdapter, ...controllerOptions });
+    const controller = createPromptAgentController({
+        documentRef, createReply, nodeAdapter, executionAdapter,
+        getChatModels: () => [TEST_CHAT_MODEL], ...controllerOptions
+    });
     controller.init();
     return { controller, elements };
 }
@@ -149,6 +155,30 @@ test('refreshes chat models loaded after initialization before submitting', asyn
     assert.equal(request.modelId, 'chat-provider-model');
     assert.equal(elements['prompt-agent-model'].disabled, false);
     assert.equal(elements['prompt-agent-model'].children.length, 1);
+});
+
+test('unavailable chat models show a quiet hint and keep the draft until a model is configured', async () => {
+    let models = [];
+    let requests = 0;
+    const { elements } = createHarness(async () => {
+        requests += 1;
+        return { message: '已就绪', workSummary: [], promptPlan: null };
+    }, undefined, undefined, { getChatModels: () => models });
+
+    assert.equal(elements['prompt-agent-model-hint'].hidden, false);
+    assert.equal(elements['prompt-agent-send'].disabled, true);
+    elements['prompt-agent-input'].value = '保留这段草稿';
+    await elements['prompt-agent-form'].dispatch('submit');
+    assert.equal(requests, 0);
+    assert.equal(elements['prompt-agent-input'].value, '保留这段草稿');
+    assert.equal(elements['prompt-agent-messages'].children.length, 0);
+
+    models = [TEST_CHAT_MODEL];
+    elements['prompt-agent-input'].dispatch('focus');
+    assert.equal(elements['prompt-agent-model-hint'].hidden, true);
+    assert.equal(elements['prompt-agent-send'].disabled, false);
+    await elements['prompt-agent-form'].dispatch('submit');
+    assert.equal(requests, 1);
 });
 
 test('disables response actions when the selected target changes before application', async () => {
@@ -251,6 +281,7 @@ test('default Prompt Plan keeps the selected node prompt when applying a follow-
     let applied = null;
     const controller = createPromptAgentController({
         documentRef,
+        getChatModels: () => [TEST_CHAT_MODEL],
         nodeAdapter: {
             getSelectedContext: () => ({ nodeId: 'image-1', prompt: '城市夜景', negativePrompt: '', parameters: {}, referenceImages: [] }),
             applyPromptPlan: (plan) => { applied = plan; return true; }
@@ -371,6 +402,7 @@ test('default Prompt Plan uses restored Workflow Memory when no node prompt exis
     let applied = null;
     const controller = createPromptAgentController({
         documentRef,
+        getChatModels: () => [TEST_CHAT_MODEL],
         nodeAdapter: {
             getSelectedContext: () => ({ nodeId: 'image-1', prompt: '', negativePrompt: '', parameters: {}, referenceImages: [] }),
             applyPromptPlan: (plan) => { applied = plan; return true; }
@@ -397,6 +429,7 @@ test('default Prompt Plan uses restored Workflow Memory with an existing node pr
     let applied = null;
     const controller = createPromptAgentController({
         documentRef,
+        getChatModels: () => [TEST_CHAT_MODEL],
         nodeAdapter: {
             getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
             applyPromptPlan: (plan) => { applied = plan; return true; }

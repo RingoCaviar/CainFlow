@@ -73,6 +73,7 @@ export function createPromptAgentController({
     let resizeObserver = null;
     let workflowRevision = 0;
     let activeReplyController = null;
+    let requestPending = false;
     let pendingReferenceImages = [];
     const promptPlanActionStates = new Set();
 
@@ -86,15 +87,18 @@ export function createPromptAgentController({
             sendButton: documentRef.getElementById('prompt-agent-send'),
             cancelButton: documentRef.getElementById('prompt-agent-cancel'),
             modelSelect: documentRef.getElementById('prompt-agent-model'),
+            modelHint: documentRef.getElementById('prompt-agent-model-hint'),
             messages: documentRef.getElementById('prompt-agent-messages'),
             references: documentRef.getElementById('prompt-agent-references')
         };
     }
 
     function renderModelOptions() {
-        const { modelSelect } = getElements();
-        if (!modelSelect) return;
+        const { modelSelect, modelHint, sendButton } = getElements();
         const models = getChatModels().filter((model) => model?.id && model?.modelId);
+        if (modelHint) modelHint.hidden = models.length > 0;
+        if (sendButton) sendButton.disabled = requestPending || models.length === 0;
+        if (!modelSelect) return models;
         const selected = getSelectedModelId() || models[0]?.id || '';
         modelSelect.replaceChildren?.();
         models.forEach((model) => {
@@ -105,6 +109,7 @@ export function createPromptAgentController({
         });
         modelSelect.value = models.some((model) => model.id === selected) ? selected : (models[0]?.id || '');
         modelSelect.disabled = models.length === 0;
+        return models;
     }
 
     function appendReferencePreviews(container, referenceImages = [], { removable = false } = {}) {
@@ -186,7 +191,8 @@ export function createPromptAgentController({
     function close() { setOpen(false); }
     function toggle() {
         const { panel } = getElements();
-        setOpen(!panel?.classList.contains('active'));
+        if (panel?.classList.contains('active')) close();
+        else open();
     }
 
     function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, referenceImages = [] } = {}) {
@@ -396,7 +402,8 @@ export function createPromptAgentController({
         // Do this immediately before reading the select value. This covers late
         // settings hydration and prevents an otherwise valid request from being
         // sent without a modelId.
-        renderModelOptions();
+        const models = renderModelOptions();
+        if (requestPending || models.length === 0) return;
         const text = input?.value?.trim();
         const referenceImages = pendingReferenceImages.slice();
         if (!text && referenceImages.length === 0) return;
@@ -412,6 +419,7 @@ export function createPromptAgentController({
         renderPendingReferences();
         if (sendButton) sendButton.disabled = true;
         if (cancelButton) cancelButton.hidden = false;
+        requestPending = true;
         const replyController = typeof AbortController === 'function' ? new AbortController() : null;
         activeReplyController = replyController;
         try {
@@ -422,7 +430,7 @@ export function createPromptAgentController({
                 workflowMemory,
                 referenceImages,
                 workflowReferenceImages,
-                modelId: getElements().modelSelect?.value || getSelectedModelId(),
+                modelId: getElements().modelSelect?.value || getSelectedModelId() || models[0].id,
                 signal: replyController?.signal
             });
             if (requestWorkflowRevision !== workflowRevision) return;
@@ -433,14 +441,15 @@ export function createPromptAgentController({
             appendMessage('agent', replyController?.signal.aborted ? '已取消本次 Agent 请求。' : (error?.message || 'Agent 暂时无法回复，请稍后重试。'));
         } finally {
             if (activeReplyController === replyController) activeReplyController = null;
-            if (sendButton) sendButton.disabled = false;
+            requestPending = false;
+            renderModelOptions();
             if (cancelButton) cancelButton.hidden = true;
         }
     }
 
     function init() {
         if (initialized) return;
-        const { button, closeButton, form, modelSelect, cancelButton } = getElements();
+        const { button, closeButton, form, input, modelSelect, cancelButton } = getElements();
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);
         form?.addEventListener('submit', async (event) => {
@@ -448,6 +457,7 @@ export function createPromptAgentController({
             await submit();
         });
         modelSelect?.addEventListener('change', () => setSelectedModelId(modelSelect.value));
+        input?.addEventListener('focus', renderModelOptions);
         cancelButton?.addEventListener('click', () => activeReplyController?.abort());
         renderModelOptions();
         form?.addEventListener('paste', async (event) => {
@@ -529,6 +539,6 @@ export function createPromptAgentController({
 
     return {
         init, open, close, toggle, submit, cancelRequest: () => activeReplyController?.abort(),
-        restoreWorkflow, snapshotWorkflow, refreshActionStates
+        restoreWorkflow, snapshotWorkflow, refreshActionStates, refreshModels: renderModelOptions
     };
 }
