@@ -100,7 +100,8 @@ export function createToolbarControllerApi({
         const safeViewW = Math.max(120, viewW - leftInset);
         const safeViewH = Math.max(120, viewH - topInset);
 
-        const zoom = Math.min(safeViewW / worldW, safeViewH / worldH, 1.2);
+        const maxZoom = nodesToFit.length === 1 ? 2 : 1.2;
+        const zoom = Math.min(safeViewW / worldW, safeViewH / worldH, maxZoom);
         const finalZoom = Math.max(0.1, zoom);
         const safeCenterX = leftInset + safeViewW / 2;
         const safeCenterY = topInset + safeViewH / 2;
