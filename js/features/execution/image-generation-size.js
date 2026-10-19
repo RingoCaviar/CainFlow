@@ -95,7 +95,7 @@ export function normalizeImageSizeControls({ resolution = '', aspect = '', custo
     const rawAspect = legacy?.aspect || String(aspect || '').trim();
     const normalizedAspect = usesOpenAiImageSize(protocol)
         ? (normalizedResolution && normalizedResolution !== 'custom'
-            ? (ratioOptions.some((option) => option.value === rawAspect) && rawAspect ? rawAspect : '1:1')
+            ? (ratioOptions.some((option) => option.value === rawAspect) ? rawAspect : '')
             : '')
         : (ratioOptions.some((option) => option.value === rawAspect) ? rawAspect : '');
     return {

@@ -67,6 +67,12 @@ try {
     resolution.value='2K';resolution.dispatchEvent(new Event('change',{bubbles:true}));
     const presetSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
         readonly:!requested.isContentEditable && !requested.querySelector('input'),customHidden:node.querySelector('#sample-custom-resolution-field').classList.contains('hidden')};
+    aspect.value='';aspect.dispatchEvent(new Event('change',{bubbles:true}));
+    const autoAspectSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
+        savedResolution:state.nodes.get('sample').data.resolution};
+    aspect.value='16:9';aspect.dispatchEvent(new Event('change',{bubbles:true}));
+    const restoredAspectSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
+        savedResolution:state.nodes.get('sample').data.resolution};
     resolution.value='custom';resolution.dispatchEvent(new Event('change',{bubbles:true}));
     const width=node.querySelector('#sample-custom-resolution-width');
     const heightInput=node.querySelector('#sample-custom-resolution-height');
@@ -86,7 +92,7 @@ try {
     const otherModelSize={resolution:resolution.value,customAvailable:Array.from(resolution.options).some(option=>option.value==='custom'),
         aspectDisabled:aspect.disabled,requested:requested.textContent};
     model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
-    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,aspectFirst,presetSize,seededCustom,customSize,otherModelSize,
+    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,aspectFirst,presetSize,autoAspectSize,restoredAspectSize,seededCustom,customSize,otherModelSize,
         restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }

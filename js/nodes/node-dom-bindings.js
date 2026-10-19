@@ -2540,7 +2540,6 @@ export function createNodeDomBindingsApi({
                         if (heightInput && !heightInput.value) heightInput.value = previousSize?.[2] || '1024';
                     }
                     if (resolutionSelect.value === 'custom' || !resolutionSelect.value) aspectSelect.value = '';
-                    else if (!aspectSelect.value) aspectSelect.value = '1:1';
                 }
                 updateImageGenerateCustomResolutionVisibility(id);
                 fitNodeToContent(id);
@@ -2551,7 +2550,6 @@ export function createNodeDomBindingsApi({
                 const provider = getResolvedProviderForModel(model, state.providers, providerSelect?.value || '');
                 if (usesOpenAiImageSize(getEffectiveProtocol(model, provider)) && resolutionSelect) {
                     if (aspectSelect.value && !resolutionSelect.value) resolutionSelect.value = '1K';
-                    else if (!aspectSelect.value && resolutionSelect.value !== 'custom') resolutionSelect.value = '';
                     updateImageGenerateCustomResolutionVisibility(id);
                 }
                 syncImageGenerateRequestResolution(id);

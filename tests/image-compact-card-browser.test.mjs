@@ -24,6 +24,12 @@ test('image card retains editable advanced values and primary controls across se
     assert.deepEqual(bound.presetSize, {
         resolution: '2K', aspect: '16:9', requested: '2048 × 1152 px', readonly: true, customHidden: true
     });
+    assert.deepEqual(bound.autoAspectSize, {
+        resolution: '2K', aspect: '', requested: '2048 × 2048 px', savedResolution: '2K'
+    });
+    assert.deepEqual(bound.restoredAspectSize, {
+        resolution: '2K', aspect: '16:9', requested: '2048 × 1152 px', savedResolution: '2K'
+    });
     assert.deepEqual(bound.aspectFirst, { resolution: '1K', requested: '1536 × 864 px' });
     assert.deepEqual(bound.seededCustom, { width: '2048', height: '1152' });
     assert.deepEqual(bound.customSize, {

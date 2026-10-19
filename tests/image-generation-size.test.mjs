@@ -48,6 +48,15 @@ test('legacy pixel dimensions migrate to separate controls; custom size remains 
     assert.equal(resolveImageRequestSize({ protocol: 'newapi-image-async', resolution: '2K', aspect: '16:9' }).resolution, '2k');
 });
 
+test('OpenAI keeps a selected resolution tier when the ratio is automatic', () => {
+    assert.deepEqual(normalizeImageSizeControls({ resolution: '2K', aspect: '' }, 'openai'), {
+        resolution: '2K', aspect: '', customWidth: '', customHeight: ''
+    });
+    assert.deepEqual(resolveImageRequestSize({ protocol: 'openai', resolution: '2K', aspect: '' }), {
+        resolution: '2048x2048', aspect: '', display: '2048 × 2048 px'
+    });
+});
+
 test('non-OpenAI requests keep resolution tier and aspect ratio as independent fields', () => {
     const googleSize = resolveImageRequestSize({ protocol: 'google', resolution: '4K', aspect: '3:2' });
     assert.deepEqual(buildGoogleImageRequest({ prompt: '山谷', ...googleSize }).generationConfig.imageConfig, {
@@ -76,6 +85,14 @@ test('image node renders separate controls and a read-only request resolution', 
     assert.match(markup, /<output[^>]*id="image-requested-resolution"[^>]*>2048 × 1152 px<\/output>/);
     assert.match(markup, /id="image-custom-resolution-field"/);
     assert.match(markup, /image-custom-resolution hidden/);
+
+    const autoAspectMarkup = createNodeMarkup({
+        type: 'ImageGenerate', id: 'image-auto', config: imageGenerateNode,
+        restoreData: { apiConfigId: 'model', providerId: 'provider', resolution: '2K', aspect: '' }, state
+    });
+    assert.match(autoAspectMarkup, /id="image-auto-aspect"[^>]*>\s*<option value="" selected>/);
+    assert.match(autoAspectMarkup, /id="image-auto-resolution"[^>]*>[\s\S]*?<option value="2K" selected>/);
+    assert.match(autoAspectMarkup, /<output[^>]*id="image-auto-requested-resolution"[^>]*>2048 × 2048 px<\/output>/);
 });
 
 test('OpenAI request preview and execution use the same combined resolution and ratio', async () => {
@@ -113,4 +130,10 @@ test('OpenAI request preview and execution use the same combined resolution and 
     assert.equal(preview.requestBody.size, '2048x1152');
     assert.deepEqual(sentBody, preview.requestBody);
     assert.equal('aspect_ratio' in sentBody, false);
+
+    elements.get('image-aspect').value = '';
+    const autoAspectPreview = api.buildNodeRequestPreview(node.id);
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal), /request captured/);
+    assert.equal(autoAspectPreview.requestBody.size, '2048x2048');
+    assert.deepEqual(sentBody, autoAspectPreview.requestBody);
 });
