@@ -870,6 +870,7 @@ const promptAgentController = createPromptAgentController({
     nodeAdapter: promptAgentNodeAdapter,
     executionAdapter: promptAgentExecutionAdapter,
     getChatModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
+    openModelSettings: () => document.getElementById('btn-settings')?.click(),
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
     createReply: (request) => {

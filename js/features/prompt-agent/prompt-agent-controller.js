@@ -62,6 +62,7 @@ export function createPromptAgentController({
     nodeAdapter = null,
     executionAdapter = null,
     getChatModels = () => [],
+    openModelSettings = () => {},
     getSelectedModelId = () => '',
     setSelectedModelId = () => {},
     conversationStore = createPromptAgentConversationStore(),
@@ -88,6 +89,7 @@ export function createPromptAgentController({
             cancelButton: documentRef.getElementById('prompt-agent-cancel'),
             modelSelect: documentRef.getElementById('prompt-agent-model'),
             modelHint: documentRef.getElementById('prompt-agent-model-hint'),
+            addModelButton: documentRef.getElementById('prompt-agent-add-model'),
             messages: documentRef.getElementById('prompt-agent-messages'),
             references: documentRef.getElementById('prompt-agent-references')
         };
@@ -449,7 +451,7 @@ export function createPromptAgentController({
 
     function init() {
         if (initialized) return;
-        const { button, closeButton, form, input, modelSelect, cancelButton } = getElements();
+        const { button, closeButton, form, input, modelSelect, addModelButton, cancelButton } = getElements();
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);
         form?.addEventListener('submit', async (event) => {
@@ -457,6 +459,7 @@ export function createPromptAgentController({
             await submit();
         });
         modelSelect?.addEventListener('change', () => setSelectedModelId(modelSelect.value));
+        addModelButton?.addEventListener('click', openModelSettings);
         input?.addEventListener('focus', renderModelOptions);
         cancelButton?.addEventListener('click', () => activeReplyController?.abort());
         renderModelOptions();

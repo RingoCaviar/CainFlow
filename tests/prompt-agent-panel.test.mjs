@@ -69,6 +69,7 @@ function createHarness(createReply = async () => ({
         'prompt-agent-send': new FakeElement(),
         'prompt-agent-model': new FakeElement(),
         'prompt-agent-model-hint': new FakeElement(),
+        'prompt-agent-add-model': new FakeElement(),
         'prompt-agent-messages': new FakeElement(),
         'prompt-agent-references': new FakeElement()
     };
@@ -160,13 +161,19 @@ test('refreshes chat models loaded after initialization before submitting', asyn
 test('unavailable chat models show a quiet hint and keep the draft until a model is configured', async () => {
     let models = [];
     let requests = 0;
+    let settingsOpens = 0;
     const { elements } = createHarness(async () => {
         requests += 1;
         return { message: '已就绪', workSummary: [], promptPlan: null };
-    }, undefined, undefined, { getChatModels: () => models });
+    }, undefined, undefined, {
+        getChatModels: () => models,
+        openModelSettings: () => { settingsOpens += 1; }
+    });
 
     assert.equal(elements['prompt-agent-model-hint'].hidden, false);
     assert.equal(elements['prompt-agent-send'].disabled, true);
+    elements['prompt-agent-add-model'].dispatch('click');
+    assert.equal(settingsOpens, 1);
     elements['prompt-agent-input'].value = '保留这段草稿';
     await elements['prompt-agent-form'].dispatch('submit');
     assert.equal(requests, 0);

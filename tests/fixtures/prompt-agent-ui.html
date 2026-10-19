@@ -20,7 +20,7 @@
             <label class="prompt-agent-model-label">模型<select id="prompt-agent-model"></select></label>
             <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">×</button>
         </header>
-        <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden>暂无可用的对话模型，请在设置中检查模型及 Provider。</p>
+        <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden>暂无可用模型，<button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
         <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
             <p class="prompt-agent-empty">描述你想生成的画面。</p>
         </section>
@@ -103,15 +103,19 @@ try {
         };
     };
     let chatModels = [];
+    let settingsOpens = 0;
     const controller = createPromptAgentController({
         documentRef: document, createReply, nodeAdapter, executionAdapter,
-        getChatModels: () => chatModels
+        getChatModels: () => chatModels,
+        openModelSettings: () => { settingsOpens += 1; }
     });
     controller.init();
     const modelHint = document.getElementById('prompt-agent-model-hint');
     const unavailable = !modelHint.hidden && document.getElementById('prompt-agent-send').disabled;
     const hintStyle = getComputedStyle(modelHint);
     const subtleHint = hintStyle.fontSize === '12px' && hintStyle.backgroundColor === 'rgba(0, 0, 0, 0)';
+    document.getElementById('prompt-agent-add-model').click();
+    const addModelOpensSettings = settingsOpens === 1;
     chatModels = [{ id: 'chat-1', modelId: 'chat-test', name: 'Chat test' }];
 
     const toolbar = document.getElementById('btn-prompt-agent');
@@ -121,6 +125,16 @@ try {
         && !panel.hasAttribute('inert')
         && modelHint.hidden
         && !document.getElementById('prompt-agent-send').disabled;
+    const modelSelect = document.getElementById('prompt-agent-model');
+    const selectIsModern = getComputedStyle(modelSelect).appearance === 'none'
+        && parseFloat(getComputedStyle(modelSelect.parentElement).borderRadius) >= 8;
+    panel.style.width = '320px';
+    const narrowPanelRect = panel.getBoundingClientRect();
+    const narrowLabelRect = modelSelect.parentElement.getBoundingClientRect();
+    const narrowCloseRect = document.getElementById('btn-close-prompt-agent').getBoundingClientRect();
+    const narrowHeaderFits = narrowLabelRect.right <= narrowPanelRect.right - 8
+        && narrowCloseRect.right <= narrowPanelRect.right - 8
+        && narrowLabelRect.width >= 200;
 
     panel.style.width = '612px';
     await tick();
@@ -215,7 +229,8 @@ try {
         && !panel.classList.contains('active');
 
     document.getElementById('surface-result').textContent = JSON.stringify({
-        opened, unavailable, subtleHint, widthStyle, widthSnapshot, noTargetDisabled, summaryCollapsed, summaryCanExpand,
+        opened, unavailable, subtleHint, addModelOpensSettings, selectIsModern, narrowHeaderFits,
+        widthStyle, widthSnapshot, noTargetDisabled, summaryCollapsed, summaryCanExpand,
         referencePreviewCount, referencesInRequest, referencesInWorkflow,
         planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), copyableText, applied,
         progressVisible, stopped, failureVisible, retriedWithPreview,

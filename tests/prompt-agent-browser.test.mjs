@@ -9,6 +9,8 @@ test('Prompt Agent browser flow keeps references, actions, recovery, workflow st
     assert.equal(result.error, undefined);
     assert.ok(result.opened);
     assert.ok(result.unavailable && result.subtleHint);
+    assert.ok(result.addModelOpensSettings);
+    assert.ok(result.selectIsModern && result.narrowHeaderFits);
     assert.equal(result.widthStyle, '612px');
     assert.ok(result.widthSnapshot >= 600);
     assert.ok(result.noTargetDisabled);

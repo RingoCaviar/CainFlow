@@ -1,5 +1,6 @@
 .prompt-agent-panel {
     position: absolute;
+    container-type: inline-size;
     z-index: var(--layer-panel, 30);
     top: 12px;
     right: 12px;
@@ -38,10 +39,64 @@
     border-bottom: 1px solid var(--border-color);
 }
 
-.prompt-agent-header h2 { margin: 0; font-size: 15px; }
-.prompt-agent-header .btn { margin-left: auto; }
-.prompt-agent-model-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
-.prompt-agent-model-label select { max-width: 170px; min-width: 80px; }
+.prompt-agent-header h2 { margin: 0; font-size: 15px; white-space: nowrap; }
+.prompt-agent-header .btn { flex: none; margin-left: 0; }
+.prompt-agent-model-label {
+    position: relative;
+    display: inline-flex;
+    flex: 0 1 178px;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin-left: auto;
+    padding: 6px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: var(--surface-control);
+    color: var(--text-secondary);
+    font-size: 11px;
+    transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+.prompt-agent-model-label::after {
+    content: '';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+.prompt-agent-model-label:hover { border-color: var(--panel-active-border); background: var(--surface-control-hover); }
+.prompt-agent-model-label:focus-within { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.prompt-agent-model-label:has(select:disabled) { opacity: 0.65; }
+.prompt-agent-model-label select {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    padding: 0 16px 0 0;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+.prompt-agent-model-label select:disabled { cursor: not-allowed; }
+.prompt-agent-model-label select option { background: var(--panel-bg); color: var(--text-primary); }
+
+@container (max-width: 390px) {
+    .prompt-agent-header { flex-wrap: wrap; }
+    .prompt-agent-header h2 { margin-right: auto; }
+    .prompt-agent-model-label { order: 2; flex: 1 0 100%; margin-left: 0; }
+}
 
 .prompt-agent-model-hint {
     margin: 0;
@@ -50,6 +105,17 @@
     font-size: 12px;
     line-height: 1.45;
 }
+.prompt-agent-model-hint button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent-primary);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.prompt-agent-model-hint button:hover { text-decoration: underline; }
+.prompt-agent-model-hint button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; border-radius: 2px; }
 
 .prompt-agent-messages {
     flex: 1;
