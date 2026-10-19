@@ -6,7 +6,6 @@ import {
     DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
     getGenerationInputProtocolId,
-    getImageAspectOptionsForModel,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
@@ -15,7 +14,7 @@ import {
     getVideoProtocolOptionMeta,
     VIDEO_ASPECT_OPTIONS
 } from '../features/execution/provider-request-utils.js';
-import { normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
+import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../features/execution/image-generation-size.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
@@ -414,9 +413,8 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         customHeight: rd.customHeight || customResolutionMatch?.[2]
     }, protocol);
     const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, sizeControls.resolution, selectedProviderId);
-    const aspectOptions = getImageAspectOptionsForModel(selectedModel, providers, selectedProviderId);
+    const aspectControl = getImageAspectSelectState(protocol, sizeControls.resolution, sizeControls.aspect);
     const showCustomResolution = sizeControls.resolution === 'custom';
-    const aspectDisabled = usesOpenAiImageSize(protocol) && showCustomResolution;
     let requestedResolution = '请输入有效的宽度和高度';
     try {
         requestedResolution = resolveImageRequestSize({ protocol, ...sizeControls }).display;
@@ -460,8 +458,8 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         ${renderNodeFormField({
             label: '宽高比',
             fieldId: `${id}-aspect-field`,
-            content: `<select id="${id}-aspect" ${aspectDisabled ? 'disabled' : ''}>
-                ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === sizeControls.aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
+            content: `<select id="${id}-aspect"${aspectControl.disabled ? ' disabled' : ''} title="${escapeHtml(aspectControl.title)}">
+                ${aspectControl.options.map((option) => `<option value="${option.value}"${option.disabled ? ' disabled' : ''}${option.value === aspectControl.value ? ' selected' : ''}>${option.label}</option>`).join('')}
             </select>`
         })}
         ${renderNodeFormField({

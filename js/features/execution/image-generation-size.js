@@ -28,7 +28,6 @@ export const IMAGE_ASPECT_OPTIONS = [
 ];
 
 export const OPENAI_IMAGE_ASPECT_OPTIONS = [
-    { value: '', label: '自动' },
     ...['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
         .map((value) => ({ value, label: value }))
 ];
@@ -74,6 +73,26 @@ export function getImageAspectOptionsForProtocol(protocol) {
     return usesOpenAiImageSize(protocol) ? OPENAI_IMAGE_ASPECT_OPTIONS : IMAGE_ASPECT_OPTIONS;
 }
 
+export function getImageAspectSelectState(protocol, resolution, aspect = '') {
+    const options = getImageAspectOptionsForProtocol(protocol);
+    if (!usesOpenAiImageSize(protocol)) {
+        return { options, value: aspect, disabled: false, title: '' };
+    }
+    if (!resolution || resolution === 'custom') {
+        const label = resolution === 'custom' ? '由自定义宽高决定' : '由模型决定';
+        return {
+            options: [{ value: '', label, disabled: true }, ...options],
+            value: '', disabled: true, title: label
+        };
+    }
+    return {
+        options,
+        value: options.some((option) => option.value === aspect) ? aspect : '1:1',
+        disabled: false,
+        title: ''
+    };
+}
+
 export function getLegacyOpenAiImageSizeSelection(size) {
     const value = String(size || '').trim().toLowerCase();
     if (!/^\d{2,5}x\d{2,5}$/.test(value)) return null;
@@ -95,7 +114,7 @@ export function normalizeImageSizeControls({ resolution = '', aspect = '', custo
     const rawAspect = legacy?.aspect || String(aspect || '').trim();
     const normalizedAspect = usesOpenAiImageSize(protocol)
         ? (normalizedResolution && normalizedResolution !== 'custom'
-            ? (ratioOptions.some((option) => option.value === rawAspect) ? rawAspect : '')
+            ? (ratioOptions.some((option) => option.value === rawAspect) ? rawAspect : '1:1')
             : '')
         : (ratioOptions.some((option) => option.value === rawAspect) ? rawAspect : '');
     return {

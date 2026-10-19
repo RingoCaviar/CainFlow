@@ -21,11 +21,15 @@ test('image card retains editable advanced values and primary controls across se
     assert.ok(bound.hiddenOther && bound.restored);
     assert.equal(bound.saved, 'transparent');
     assert.equal(bound.persisted, 'transparent');
+    assert.deepEqual(bound.initialSize, {
+        resolution: '', aspectDisabled: true, aspectLabel: '由模型决定', requested: '自动（由模型决定）'
+    });
     assert.deepEqual(bound.presetSize, {
         resolution: '2K', aspect: '16:9', requested: '2048 × 1152 px', readonly: true, customHidden: true
     });
-    assert.deepEqual(bound.autoAspectSize, {
-        resolution: '2K', aspect: '', requested: '2048 × 2048 px', savedResolution: '2K'
+    assert.equal(bound.noAutoAspectOption, true);
+    assert.deepEqual(bound.squareAspectSize, {
+        resolution: '2K', aspect: '1:1', requested: '2048 × 2048 px', savedResolution: '2K'
     });
     assert.deepEqual(bound.restoredAspectSize, {
         resolution: '2K', aspect: '16:9', requested: '2048 × 1152 px', savedResolution: '2K'
@@ -33,9 +37,9 @@ test('image card retains editable advanced values and primary controls across se
     assert.deepEqual(bound.aspectFirst, { resolution: '1K', requested: '1536 × 864 px' });
     assert.deepEqual(bound.seededCustom, { width: '2048', height: '1152' });
     assert.deepEqual(bound.customSize, {
-        editable: true, outputHidden: true, aspectDisabled: true, hint: ''
+        editable: true, outputHidden: true, aspectDisabled: true, aspectLabel: '由自定义宽高决定', hint: ''
     });
     assert.deepEqual(bound.otherModelSize, {
-        resolution: '', customAvailable: false, aspectDisabled: false, requested: '默认（未指定）'
+        resolution: '', customAvailable: false, aspectDisabled: false, autoAspectAvailable: true, requested: '默认（未指定）'
     });
 });

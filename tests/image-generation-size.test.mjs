@@ -29,6 +29,14 @@ test('OpenAI resolution tiers and ratios produce valid exact request sizes', () 
     }
 });
 
+test('OpenAI compatible image ratios do not offer a misleading automatic choice', () => {
+    for (const protocol of ['openai', 'ttapi-openai']) {
+        const options = getImageAspectOptionsForProtocol(protocol);
+        assert.equal(options.some(({ value, label }) => value === '' || label === '自动'), false, protocol);
+        assert.equal(options[0].value, '1:1');
+    }
+});
+
 test('legacy pixel dimensions migrate to separate controls; custom size remains editable and validated', () => {
     assert.deepEqual(normalizeImageSizeControls({ resolution: '2048x1152' }, 'openai'), {
         resolution: '2K', aspect: '16:9', customWidth: '', customHeight: ''
@@ -48,9 +56,9 @@ test('legacy pixel dimensions migrate to separate controls; custom size remains 
     assert.equal(resolveImageRequestSize({ protocol: 'newapi-image-async', resolution: '2K', aspect: '16:9' }).resolution, '2k');
 });
 
-test('OpenAI keeps a selected resolution tier when the ratio is automatic', () => {
+test('OpenAI migrates an empty saved ratio to an explicit square ratio', () => {
     assert.deepEqual(normalizeImageSizeControls({ resolution: '2K', aspect: '' }, 'openai'), {
-        resolution: '2K', aspect: '', customWidth: '', customHeight: ''
+        resolution: '2K', aspect: '1:1', customWidth: '', customHeight: ''
     });
     assert.deepEqual(resolveImageRequestSize({ protocol: 'openai', resolution: '2K', aspect: '' }), {
         resolution: '2048x2048', aspect: '', display: '2048 × 2048 px'
@@ -86,13 +94,14 @@ test('image node renders separate controls and a read-only request resolution', 
     assert.match(markup, /id="image-custom-resolution-field"/);
     assert.match(markup, /image-custom-resolution hidden/);
 
-    const autoAspectMarkup = createNodeMarkup({
-        type: 'ImageGenerate', id: 'image-auto', config: imageGenerateNode,
+    const emptyAspectMarkup = createNodeMarkup({
+        type: 'ImageGenerate', id: 'image-empty', config: imageGenerateNode,
         restoreData: { apiConfigId: 'model', providerId: 'provider', resolution: '2K', aspect: '' }, state
     });
-    assert.match(autoAspectMarkup, /id="image-auto-aspect"[^>]*>\s*<option value="" selected>/);
-    assert.match(autoAspectMarkup, /id="image-auto-resolution"[^>]*>[\s\S]*?<option value="2K" selected>/);
-    assert.match(autoAspectMarkup, /<output[^>]*id="image-auto-requested-resolution"[^>]*>2048 × 2048 px<\/output>/);
+    assert.match(emptyAspectMarkup, /id="image-empty-aspect"[^>]*>[\s\S]*?<option value="1:1" selected>/);
+    assert.doesNotMatch(emptyAspectMarkup, /id="image-empty-aspect"[^>]*>\s*<option value=""[^>]*>自动<\/option>/);
+    assert.match(emptyAspectMarkup, /id="image-empty-resolution"[^>]*>[\s\S]*?<option value="2K" selected>/);
+    assert.match(emptyAspectMarkup, /<output[^>]*id="image-empty-requested-resolution"[^>]*>2048 × 2048 px<\/output>/);
 });
 
 test('OpenAI request preview and execution use the same combined resolution and ratio', async () => {
@@ -132,8 +141,8 @@ test('OpenAI request preview and execution use the same combined resolution and 
     assert.equal('aspect_ratio' in sentBody, false);
 
     elements.get('image-aspect').value = '';
-    const autoAspectPreview = api.buildNodeRequestPreview(node.id);
+    const legacyEmptyAspectPreview = api.buildNodeRequestPreview(node.id);
     await assert.rejects(api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal), /request captured/);
-    assert.equal(autoAspectPreview.requestBody.size, '2048x2048');
-    assert.deepEqual(sentBody, autoAspectPreview.requestBody);
+    assert.equal(legacyEmptyAspectPreview.requestBody.size, '2048x2048');
+    assert.deepEqual(sentBody, legacyEmptyAspectPreview.requestBody);
 });

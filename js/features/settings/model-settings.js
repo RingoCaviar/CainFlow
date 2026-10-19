@@ -3,7 +3,6 @@
  */
 import {
     getEffectiveProtocol,
-    getImageAspectOptionsForModel,
     getImageResolutionOptionsForModel,
     getModelProviderIds,
     getModelsForTask,
@@ -13,7 +12,7 @@ import {
     resolveProviderUrl,
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
-import { normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../execution/image-generation-size.js';
+import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../execution/image-generation-size.js';
 import {
     getModelProtocolHelpText,
     getProtocolSelectOptions,
@@ -682,13 +681,13 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = controls.resolution;
-        aspectSelect.innerHTML = getImageAspectOptionsForModel(model, state.providers, normalizedProviderId)
-            .map((option) => `<option value="${option.value}">${option.label}</option>`)
+        const aspectControl = getImageAspectSelectState(protocol, controls.resolution, controls.aspect);
+        aspectSelect.innerHTML = aspectControl.options
+            .map((option) => `<option value="${option.value}" ${option.disabled ? 'disabled' : ''}>${option.label}</option>`)
             .join('');
-        aspectSelect.value = controls.aspect;
-        const openAiSize = usesOpenAiImageSize(protocol);
-        aspectSelect.disabled = openAiSize && controls.resolution === 'custom';
-        aspectSelect.title = aspectSelect.disabled ? '自定义宽高决定比例' : '';
+        aspectSelect.value = aspectControl.value;
+        aspectSelect.disabled = aspectControl.disabled;
+        aspectSelect.title = aspectControl.title;
         const isOpenAiModel = protocol === 'openai';
         const isTtapiOpenAiModel = protocol === 'ttapi-openai';
         const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
