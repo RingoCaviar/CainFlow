@@ -59,6 +59,23 @@ try {
     background.value='transparent';
     background.dispatchEvent(new Event('change',{bubbles:true}));
     const summary=node.querySelector('#sample-advanced-summary').textContent;
+    const resolution=node.querySelector('#sample-resolution');
+    const aspect=node.querySelector('#sample-aspect');
+    const requested=node.querySelector('#sample-requested-resolution');
+    aspect.value='16:9';aspect.dispatchEvent(new Event('change',{bubbles:true}));
+    const aspectFirst={resolution:resolution.value,requested:requested.textContent};
+    resolution.value='2K';resolution.dispatchEvent(new Event('change',{bubbles:true}));
+    const presetSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
+        readonly:!requested.isContentEditable && !requested.querySelector('input'),customHidden:node.querySelector('#sample-custom-resolution-field').classList.contains('hidden')};
+    resolution.value='custom';resolution.dispatchEvent(new Event('change',{bubbles:true}));
+    const width=node.querySelector('#sample-custom-resolution-width');
+    const heightInput=node.querySelector('#sample-custom-resolution-height');
+    const seededCustom={width:width.value,height:heightInput.value};
+    width.value='1920';width.dispatchEvent(new Event('input',{bubbles:true}));
+    heightInput.value='1088';heightInput.dispatchEvent(new Event('input',{bubbles:true}));
+    const customSize={editable:!node.querySelector('#sample-custom-resolution-field').classList.contains('hidden'),
+        outputHidden:requested.classList.contains('hidden'),aspectDisabled:aspect.disabled,
+        hint:node.querySelector('#sample-custom-resolution-hint').textContent};
     details.open=false;
     details.dispatchEvent(new Event('toggle'));
     const closedHeight=node.getBoundingClientRect().height;
@@ -66,8 +83,10 @@ try {
     model.add(new Option('Gemini', 'other'));
     model.value='other';model.dispatchEvent(new Event('change',{bubbles:true}));
     const hiddenOther=details.classList.contains('hidden');
+    const otherModelSize={resolution:resolution.value,customAvailable:Array.from(resolution.options).some(option=>option.value==='custom'),
+        aspectDisabled:aspect.disabled,requested:requested.textContent};
     model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
-    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,
+    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,aspectFirst,presetSize,seededCustom,customSize,otherModelSize,
         restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }

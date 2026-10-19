@@ -1,3 +1,6 @@
+import { getEffectiveProtocol, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { normalizeImageSizeControls, usesOpenAiImageSize } from '../execution/image-generation-size.js';
+
 function readValue(documentRef, id, fallback = '') {
     const value = documentRef.getElementById(id)?.value;
     return value === undefined || value === null ? fallback : value;
@@ -100,10 +103,30 @@ export function createPromptAgentNodeAdapter({
         };
         writeValue(documentRef, `${node.id}-prompt`, plan.prompt || '', createEvent);
         writeValue(documentRef, `${node.id}-param-negative_prompt`, plan.negativePrompt || '', createEvent);
-        writeValue(documentRef, `${node.id}-aspect`, plan.parameters?.aspectRatio, createEvent);
-        writeValue(documentRef, `${node.id}-resolution`, plan.parameters?.resolution, createEvent);
-        writeValue(documentRef, `${node.id}-custom-resolution-width`, plan.parameters?.customWidth, createEvent);
-        writeValue(documentRef, `${node.id}-custom-resolution-height`, plan.parameters?.customHeight, createEvent);
+        const sizePlan = plan.parameters || {};
+        const hasSizeChange = ['aspectRatio', 'resolution', 'customWidth', 'customHeight']
+            .some((key) => sizePlan[key] !== undefined && sizePlan[key] !== null);
+        if (hasSizeChange) {
+            const modelId = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '');
+            const model = state.models?.find((candidate) => candidate.id === modelId);
+            const providerId = readValue(documentRef, `${node.id}-provider`, node.providerId || '');
+            const provider = getResolvedProviderForModel(model, state.providers, providerId);
+            const protocol = getEffectiveProtocol(model, provider);
+            const currentResolution = readValue(documentRef, `${node.id}-resolution`, node.data?.resolution || '');
+            const requestedResolution = sizePlan.resolution ?? (
+                usesOpenAiImageSize(protocol) && sizePlan.aspectRatio && !currentResolution ? '1K' : currentResolution
+            );
+            const controls = normalizeImageSizeControls({
+                resolution: requestedResolution,
+                aspect: sizePlan.aspectRatio ?? readValue(documentRef, `${node.id}-aspect`, node.data?.aspect || ''),
+                customWidth: sizePlan.customWidth ?? readValue(documentRef, `${node.id}-custom-resolution-width`, node.data?.customWidth || ''),
+                customHeight: sizePlan.customHeight ?? readValue(documentRef, `${node.id}-custom-resolution-height`, node.data?.customHeight || '')
+            }, protocol);
+            writeValue(documentRef, `${node.id}-resolution`, controls.resolution, createEvent);
+            writeValue(documentRef, `${node.id}-aspect`, controls.aspect, createEvent);
+            writeValue(documentRef, `${node.id}-custom-resolution-width`, controls.customWidth, createEvent);
+            writeValue(documentRef, `${node.id}-custom-resolution-height`, controls.customHeight, createEvent);
+        }
         writeValue(documentRef, `${node.id}-quality`, plan.parameters?.quality, createEvent);
         writeValue(documentRef, `${node.id}-moderation`, plan.parameters?.moderation, createEvent);
         writeValue(documentRef, `${node.id}-background`, plan.parameters?.background, createEvent);

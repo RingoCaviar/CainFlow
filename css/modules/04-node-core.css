@@ -721,6 +721,33 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     color: #f87171;
 }
 
+.image-request-resolution {
+    display: block;
+    box-sizing: border-box;
+    min-height: 34px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 16px;
+    cursor: default;
+    user-select: text;
+}
+
+.image-custom-resolution-inputs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.image-custom-resolution-inputs span {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
 .node-field input::placeholder,
 .node-field textarea::placeholder {
     color: var(--text-dim);

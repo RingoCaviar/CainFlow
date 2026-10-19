@@ -73,8 +73,19 @@ test('applies a Prompt Plan only while its image-generation node remains selecte
     assert.equal(controls['image-1-prompt'].value, '电影感城市夜景');
     assert.equal(controls['image-1-param-negative_prompt'].value, '卡通、过度饱和');
     assert.equal(controls['image-1-aspect'].value, '16:9');
+    assert.equal(controls['image-1-resolution'].value, '2K');
     assert.equal(controls['image-1-generation-count'].value, '2');
     assert.equal(node.data.prompt, '电影感城市夜景');
     assert.equal(node.data.protocolParams.negative_prompt, '卡通、过度饱和');
     assert.equal(getSaves(), 1);
+});
+
+test('a ratio-only Prompt Plan selects a resolution tier so the ratio reaches OpenAI', () => {
+    const { adapter, controls } = harness();
+    controls['image-1-resolution'].value = '';
+    assert.equal(adapter.applyPromptPlan({
+        targetNodeId: 'image-1', prompt: '横幅', parameters: { aspectRatio: '16:9' }
+    }), true);
+    assert.equal(controls['image-1-resolution'].value, '1K');
+    assert.equal(controls['image-1-aspect'].value, '16:9');
 });

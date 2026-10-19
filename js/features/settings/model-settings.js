@@ -3,16 +3,17 @@
  */
 import {
     getEffectiveProtocol,
+    getImageAspectOptionsForModel,
     getImageResolutionOptionsForModel,
     getModelProviderIds,
     getModelsForTask,
     normalizeAutoCompleteBase,
-    normalizeImageResolutionForModel,
     normalizeModelProtocol,
     normalizeModelTaskType,
     resolveProviderUrl,
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
+import { normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../execution/image-generation-size.js';
 import {
     getModelProtocolHelpText,
     getProtocolSelectOptions,
@@ -660,7 +661,8 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
         const providerSelect = documentRef.getElementById(`${id}-provider`);
         const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
-        if (!modelSelect || !resolutionSelect) return;
+        const aspectSelect = documentRef.getElementById(`${id}-aspect`);
+        if (!modelSelect || !resolutionSelect || !aspectSelect) return;
 
         const model = state.models.find((candidate) => candidate.id === modelSelect.value);
         const selectedProviderId = providerSelect?.value || '';
@@ -669,18 +671,28 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         if (providerSelect && providerSelect.value !== normalizedProviderId) {
             providerSelect.value = normalizedProviderId;
         }
-        const normalizedValue = normalizeImageResolutionForModel(resolutionSelect.value, model, state.providers, normalizedProviderId);
+        const protocol = getEffectiveProtocol(model, provider);
+        const controls = normalizeImageSizeControls({
+            resolution: resolutionSelect.value,
+            aspect: aspectSelect.value,
+            customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value,
+            customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value
+        }, protocol);
         resolutionSelect.innerHTML = getImageResolutionOptionsForModel(model, state.providers, normalizedProviderId)
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
-        resolutionSelect.value = normalizedValue;
-        const protocol = getEffectiveProtocol(model, provider);
+        resolutionSelect.value = controls.resolution;
+        aspectSelect.innerHTML = getImageAspectOptionsForModel(model, state.providers, normalizedProviderId)
+            .map((option) => `<option value="${option.value}">${option.label}</option>`)
+            .join('');
+        aspectSelect.value = controls.aspect;
+        const openAiSize = usesOpenAiImageSize(protocol);
+        aspectSelect.disabled = openAiSize && controls.resolution === 'custom';
+        aspectSelect.title = aspectSelect.disabled ? '自定义宽高决定比例' : '';
         const isOpenAiModel = protocol === 'openai';
         const isTtapiOpenAiModel = protocol === 'ttapi-openai';
         const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
-        const aspectField = documentRef.getElementById(`${id}-aspect-field`);
-        if (aspectField) aspectField.classList.toggle('hidden', usesOpenAiImageControls);
         const qualityField = documentRef.getElementById(`${id}-quality-field`);
         if (qualityField) qualityField.classList.toggle('hidden', !usesOpenAiImageControls);
         [
@@ -701,8 +713,19 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         }
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (customField) customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
+        documentRef.getElementById(`${id}-requested-resolution`)?.classList.toggle('hidden', resolutionSelect.value === 'custom');
         const widthInput = documentRef.getElementById(`${id}-custom-resolution-width`);
         const heightInput = documentRef.getElementById(`${id}-custom-resolution-height`);
+        if (controls.customWidth && widthInput) widthInput.value = controls.customWidth;
+        if (controls.customHeight && heightInput) heightInput.value = controls.customHeight;
+        const requestedResolution = documentRef.getElementById(`${id}-requested-resolution`);
+        if (requestedResolution) {
+            try {
+                requestedResolution.textContent = resolveImageRequestSize({ protocol, ...controls }).display;
+            } catch {
+                requestedResolution.textContent = '请输入有效的宽度和高度';
+            }
+        }
         const hint = documentRef.getElementById(`${id}-custom-resolution-hint`);
         if (widthInput && heightInput && hint) {
             const validation = resolutionSelect.value === 'custom'

@@ -7,14 +7,15 @@ import {
     DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
     getGenerationInputProtocolId,
+    getImageAspectOptionsForModel,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     getVideoProtocolOptionMeta,
-    normalizeImageResolutionForModel,
     validateOpenAiImageSize
 } from '../features/execution/provider-request-utils.js';
+import { normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
 import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
@@ -1752,23 +1753,34 @@ export function createNodeDomBindingsApi({
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
         const providerSelect = documentRef.getElementById(`${id}-provider`);
         const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
-        if (!modelSelect || !resolutionSelect) return;
+        const aspectSelect = documentRef.getElementById(`${id}-aspect`);
+        if (!modelSelect || !resolutionSelect || !aspectSelect) return;
 
         const { model, providerId: selectedProviderId } = syncNodeProviderOptions(id, 'ImageGenerate');
         const provider = getResolvedProviderForModel(model, state.providers, selectedProviderId);
-        const previousValue = resolutionSelect.value;
-        const normalizedValue = normalizeImageResolutionForModel(previousValue, model, state.providers, selectedProviderId);
+        const protocol = getEffectiveProtocol(model, provider);
+        const controls = normalizeImageSizeControls({
+            resolution: resolutionSelect.value,
+            aspect: aspectSelect.value,
+            customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value,
+            customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value
+        }, protocol);
         const options = getImageResolutionOptionsForModel(model, state.providers, selectedProviderId);
         resolutionSelect.innerHTML = options
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
-        resolutionSelect.value = normalizedValue;
-        const protocol = getEffectiveProtocol(model, provider);
+        resolutionSelect.value = controls.resolution;
+        aspectSelect.innerHTML = getImageAspectOptionsForModel(model, state.providers, selectedProviderId)
+            .map((option) => `<option value="${option.value}">${option.label}</option>`)
+            .join('');
+        aspectSelect.value = controls.aspect;
+        if (controls.customWidth) documentRef.getElementById(`${id}-custom-resolution-width`).value = controls.customWidth;
+        if (controls.customHeight) documentRef.getElementById(`${id}-custom-resolution-height`).value = controls.customHeight;
         const isOpenAiModel = protocol === 'openai';
         const isTtapiOpenAiModel = protocol === 'ttapi-openai';
         const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
-        updateImageGenerateAspectVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
+        updateImageGenerateAspectAvailability(id, protocol);
         updateImageGenerateQualityVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
         updateImageGenerateOpenAiExtraVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
         updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && !isNewApiAsyncImage);
@@ -1796,10 +1808,13 @@ export function createNodeDomBindingsApi({
         summary.textContent = configured.length > 0 ? configured.join(' · ') : '内容审核、背景 · 默认';
     }
 
-    function updateImageGenerateAspectVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
-        const aspectField = documentRef.getElementById(`${id}-aspect-field`);
-        if (!aspectField) return;
-        aspectField.classList.toggle('hidden', isOpenAiModel && !isNewApiAsyncImage);
+    function updateImageGenerateAspectAvailability(id, protocol) {
+        const aspectSelect = documentRef.getElementById(`${id}-aspect`);
+        const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
+        if (!aspectSelect || !resolutionSelect) return;
+        const disabled = usesOpenAiImageSize(protocol) && resolutionSelect.value === 'custom';
+        aspectSelect.disabled = disabled;
+        aspectSelect.title = disabled ? '自定义宽高决定比例' : '';
     }
 
     function updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
@@ -1847,8 +1862,33 @@ export function createNodeDomBindingsApi({
         const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
         if (!resolutionSelect || !customField) return;
-        customField.classList.toggle('hidden', resolutionSelect.value !== 'custom');
+        const custom = resolutionSelect.value === 'custom';
+        customField.classList.toggle('hidden', !custom);
+        documentRef.getElementById(`${id}-requested-resolution`)?.classList.toggle('hidden', custom);
         updateImageGenerateCustomResolutionValidation(id);
+        syncImageGenerateRequestResolution(id);
+    }
+
+    function syncImageGenerateRequestResolution(id) {
+        const modelId = documentRef.getElementById(`${id}-apiconfig`)?.value;
+        const model = state.models.find((candidate) => candidate.id === modelId);
+        const providerId = documentRef.getElementById(`${id}-provider`)?.value || '';
+        const provider = getResolvedProviderForModel(model, state.providers, providerId);
+        const protocol = getEffectiveProtocol(model, provider);
+        const resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
+        const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
+        const output = documentRef.getElementById(`${id}-requested-resolution`);
+        updateImageGenerateAspectAvailability(id, protocol);
+        if (!output) return;
+        try {
+            output.textContent = resolveImageRequestSize({
+                protocol, resolution, aspect,
+                customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '',
+                customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value || ''
+            }).display;
+        } catch {
+            output.textContent = '请输入有效的宽度和高度';
+        }
     }
 
     function updateImageGenerateCustomResolutionValidation(id) {
@@ -2487,13 +2527,40 @@ export function createNodeDomBindingsApi({
             });
             const resolutionSelect = el.querySelector(`#${id}-resolution`);
             resolutionSelect?.addEventListener('change', () => {
+                const model = state.models.find((candidate) => candidate.id === modelSelect?.value);
+                const provider = getResolvedProviderForModel(model, state.providers, providerSelect?.value || '');
+                const aspectSelect = el.querySelector(`#${id}-aspect`);
+                if (usesOpenAiImageSize(getEffectiveProtocol(model, provider))) {
+                    if (resolutionSelect.value === 'custom') {
+                        const requested = el.querySelector(`#${id}-requested-resolution`)?.textContent || '';
+                        const previousSize = requested.match(/(\d+)\s*×\s*(\d+)/);
+                        const widthInput = el.querySelector(`#${id}-custom-resolution-width`);
+                        const heightInput = el.querySelector(`#${id}-custom-resolution-height`);
+                        if (widthInput && !widthInput.value) widthInput.value = previousSize?.[1] || '1024';
+                        if (heightInput && !heightInput.value) heightInput.value = previousSize?.[2] || '1024';
+                    }
+                    if (resolutionSelect.value === 'custom' || !resolutionSelect.value) aspectSelect.value = '';
+                    else if (!aspectSelect.value) aspectSelect.value = '1:1';
+                }
                 updateImageGenerateCustomResolutionVisibility(id);
                 fitNodeToContent(id);
+            });
+            el.querySelector(`#${id}-aspect`)?.addEventListener('change', () => {
+                const aspectSelect = el.querySelector(`#${id}-aspect`);
+                const model = state.models.find((candidate) => candidate.id === modelSelect?.value);
+                const provider = getResolvedProviderForModel(model, state.providers, providerSelect?.value || '');
+                if (usesOpenAiImageSize(getEffectiveProtocol(model, provider)) && resolutionSelect) {
+                    if (aspectSelect.value && !resolutionSelect.value) resolutionSelect.value = '1K';
+                    else if (!aspectSelect.value && resolutionSelect.value !== 'custom') resolutionSelect.value = '';
+                    updateImageGenerateCustomResolutionVisibility(id);
+                }
+                syncImageGenerateRequestResolution(id);
             });
             const customWidthInput = el.querySelector(`#${id}-custom-resolution-width`);
             const customHeightInput = el.querySelector(`#${id}-custom-resolution-height`);
             const syncCustomResolutionValidation = () => {
                 updateImageGenerateCustomResolutionValidation(id);
+                syncImageGenerateRequestResolution(id);
                 fitNodeToContent(id);
             };
             customWidthInput?.addEventListener('input', syncCustomResolutionValidation);

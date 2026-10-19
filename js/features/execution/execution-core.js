@@ -15,9 +15,9 @@ import {
     getOpenAiImageContents,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
-    resolveProviderUrl,
-    validateOpenAiImageSize
+    resolveProviderUrl
 } from './provider-request-utils.js';
+import { resolveImageRequestSize } from './image-generation-size.js';
 import { createChatRequestPlan, executeChatRequestPlan } from './chat-request-plan.js';
 import {
     appendReferenceImages,
@@ -1289,12 +1289,7 @@ export function createExecutionCoreApi({
     function buildImageGenerateRequestPreview(node, inputs) {
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
-        const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
-        const selectedResolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
-        const customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';
-        const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
-        const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
-        const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
+        const { aspect, resolution } = readImageGenerateRequestSize(id, protocol);
         const quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
         const moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
         const background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
@@ -1341,6 +1336,16 @@ export function createExecutionCoreApi({
             note: isOpenAiImageEdit ? '该节点实际发送时会把参考图转换为 multipart/form-data 文件字段。' : '',
             requestBody
         };
+    }
+
+    function readImageGenerateRequestSize(id, protocol) {
+        return resolveImageRequestSize({
+            protocol,
+            aspect: documentRef.getElementById(`${id}-aspect`)?.value || '',
+            resolution: documentRef.getElementById(`${id}-resolution`)?.value || '',
+            customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '',
+            customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value || ''
+        });
     }
 
     function buildVideoGenerateRequestPreview(node, inputs) {
@@ -1751,12 +1756,6 @@ export function createExecutionCoreApi({
                 if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
                 node.providerId = resolvedProviderId;
 
-                const aspect = documentRef.getElementById(`${id}-aspect`).value;
-                const selectedResolution = documentRef.getElementById(`${id}-resolution`).value;
-                const customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';
-                const customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
-                const customResolution = customWidth && customHeight ? `${customWidth}x${customHeight}` : '';
-                const resolution = selectedResolution === 'custom' ? customResolution : selectedResolution;
                 const quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
                 const moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
                 const background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
@@ -1768,6 +1767,7 @@ export function createExecutionCoreApi({
                 if (!prompt) throw new Error('请输入提示词');
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+                const { aspect, resolution } = readImageGenerateRequestSize(id, protocol);
                 const isGoogle = protocol === 'google';
                 const isTtapi = protocol === 'ttapi';
                 const isTtapiOpenAi = protocol === 'ttapi-openai';
@@ -1791,10 +1791,6 @@ export function createExecutionCoreApi({
                     });
                 }
 
-                if ((protocol === 'openai' || isTtapiOpenAi) && selectedResolution === 'custom') {
-                    const validation = validateOpenAiImageSize(customWidth, customHeight);
-                    if (!validation.valid) throw new Error(`自定义分辨率不符合 OpenAI 规范：${validation.errors.join(' ')}`);
-                }
                 const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
                 const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits(?:$|[?#])/i.test(url);
                 const mask = isOpenAiImageEdit ? getImageGenerateMask(inputs) : null;

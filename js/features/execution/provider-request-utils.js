@@ -9,6 +9,20 @@ import {
 import { getProtocol } from './protocols/index.js';
 import { normalizeImageList } from './execution-data-utils.js';
 import { requireModelCompatibilityFormat } from './model-compatibility-format.js';
+import {
+    OPENAI_IMAGE_RESOLUTION_OPTIONS,
+    getImageAspectOptionsForProtocol,
+    getImageResolutionOptionsForProtocol,
+    normalizeImageSizeControls,
+    validateOpenAiImageSize
+} from './image-generation-size.js';
+
+export {
+    GOOGLE_IMAGE_RESOLUTION_OPTIONS,
+    OPENAI_IMAGE_RESOLUTION_OPTIONS,
+    NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS,
+    validateOpenAiImageSize
+} from './image-generation-size.js';
 
 
 function getImageInputKeys(inputs = {}) {
@@ -24,39 +38,6 @@ function getImageInputKeys(inputs = {}) {
             return numA - numB;
         });
 }
-
-export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
-    { value: '', label: '默认 (1K)' },
-    { value: '2K', label: '2K' },
-    { value: '4K', label: '4K' }
-];
-
-export const OPENAI_IMAGE_RESOLUTION_OPTIONS = [
-    { value: '', label: '自动 (auto)' },
-    { value: '1024x1024', label: '1024×1024 · 1:1 方图' },
-    { value: '1024x768', label: '1024×768 · 4:3 1K 横图' },
-    { value: '768x1024', label: '768×1024 · 3:4 1K 竖图' },
-    { value: '1536x1024', label: '1536×1024 · 3:2 横图' },
-    { value: '1024x1536', label: '1024×1536 · 2:3 竖图' },
-    { value: '2048x2048', label: '2048×2048 · 1:1 2K 方图' },
-    { value: '2048x1536', label: '2048×1536 · 4:3 2K 横图' },
-    { value: '1536x2048', label: '1536×2048 · 3:4 2K 竖图' },
-    { value: '2048x1152', label: '2048×1152 · 16:9 2K 横图' },
-    { value: '1152x2048', label: '1152×2048 · 9:16 2K 竖图' },
-    { value: '2880x2880', label: '2880×2880 · 1:1 4K 方图' },
-    { value: '3072x2304', label: '3072×2304 · 4:3 4K 横图' },
-    { value: '2304x3072', label: '2304×3072 · 3:4 4K 竖图' },
-    { value: '3840x2160', label: '3840×2160 · 16:9 4K 横图' },
-    { value: '2160x3840', label: '2160×3840 · 9:16 4K 竖图' },
-    { value: 'custom', label: '自定义' }
-];
-
-export const NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS = [
-    { value: '', label: '默认' },
-    { value: '1k', label: '1K' },
-    { value: '2k', label: '2K' },
-    { value: '4k', label: '4K' }
-];
 
 export const VIDEO_ASPECT_OPTIONS = [
     { value: '16:9', label: '16:9 横屏' },
@@ -266,53 +247,22 @@ export function getGenerationInputProtocolId(modelCfg = {}) {
 export function getImageResolutionOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
     const protocol = getEffectiveProtocol(model, provider);
-    if (protocol === 'newapi-image-async') return NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS;
-    return (protocol === 'openai' || protocol === 'ttapi-openai') ? OPENAI_IMAGE_RESOLUTION_OPTIONS : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
+    return getImageResolutionOptionsForProtocol(protocol);
+}
+
+export function getImageAspectOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
+    const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
+    return getImageAspectOptionsForProtocol(getEffectiveProtocol(model, provider));
 }
 
 export function normalizeImageResolutionForModel(resolution, model = {}, providers = null, preferredProviderId = '') {
-    const options = getImageResolutionOptionsForModel(model, providers, preferredProviderId);
-    const value = String(resolution || '').trim();
-    if (options.some((option) => option.value === value)) return value;
-    return options[0]?.value || '';
-}
-
-export function validateOpenAiImageSize(widthValue, heightValue) {
-    const width = Number(widthValue);
-    const height = Number(heightValue);
-    const errors = [];
-
-    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
-        return {
-            valid: false,
-            errors: ['请输入有效的宽度和高度。'],
-            width,
-            height
-        };
-    }
-
-    const longSide = Math.max(width, height);
-    const shortSide = Math.min(width, height);
-    const totalPixels = width * height;
-
-    if (longSide > 3840) errors.push('最大边长必须小于或等于 3840px。');
-    if (width % 16 !== 0 || height % 16 !== 0) errors.push('宽度和高度都必须是 16px 的倍数。');
-    if (longSide / shortSide > 3) errors.push('长边与短边之比不得超过 3:1。');
-    if (totalPixels < 655360 || totalPixels > 8294400) {
-        errors.push('总像素数必须至少为 655,360，且不得超过 8,294,400。');
-    }
-
-    return {
-        valid: errors.length === 0,
-        errors,
-        width,
-        height
-    };
+    const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
+    return normalizeImageSizeControls({ resolution }, getEffectiveProtocol(model, provider)).resolution;
 }
 
 function isOpenAiImageResolutionOptionValid(option) {
     const value = String(option?.value || '').trim();
-    if (!value || value === 'custom') return true;
+    if (!value || value === 'custom' || ['1K', '2K', '4K'].includes(value)) return true;
     const match = value.match(/^(\d{2,5})x(\d{2,5})$/i);
     if (!match) return false;
     return validateOpenAiImageSize(match[1], match[2]).valid;

@@ -6,15 +6,16 @@ import {
     DOUBAO_VIDEO_RESOLUTION_OPTIONS,
     getEffectiveProtocol,
     getGenerationInputProtocolId,
+    getImageAspectOptionsForModel,
     getImageResolutionOptionsForModel,
     getModelProviders,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     getModelsForTask,
     getVideoProtocolOptionMeta,
-    normalizeImageResolutionForModel,
     VIDEO_ASPECT_OPTIONS
 } from '../features/execution/provider-request-utils.js';
+import { normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
@@ -258,11 +259,10 @@ function getSelectedModelForTask(models, selectedId, taskType) {
     return filteredModels.find((model) => model.id === selectedId) || filteredModels[0] || null;
 }
 
-function renderImageResolutionOptions(model, providers, selectedResolution) {
-    const normalizedResolution = normalizeImageResolutionForModel(selectedResolution, model, providers);
-    return getImageResolutionOptionsForModel(model, providers)
+function renderImageResolutionOptions(model, providers, selectedResolution, providerId) {
+    return getImageResolutionOptionsForModel(model, providers, providerId)
         .map((option) => {
-            const selected = option.value === normalizedResolution ? 'selected' : '';
+            const selected = option.value === selectedResolution ? 'selected' : '';
             return `<option value="${option.value}" ${selected}>${option.label}</option>`;
         })
         .join('');
@@ -400,14 +400,27 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const providerOptions = modelProviders
         .map((provider) => `<option value="${provider.id}" ${selectedProviderId === provider.id ? 'selected' : ''}>${provider.name || provider.id}</option>`)
         .join('');
-    const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, rd.resolution);
     const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
     const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
     const isOpenAiModel = !!selectedModel && protocol === 'openai';
     const isTtapiOpenAiModel = !!selectedModel && protocol === 'ttapi-openai';
     const isNewApiAsyncImage = !!selectedModel && protocol === 'newapi-image-async';
     const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
-    const showCustomResolution = rd.resolution === 'custom';
+    const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
+    const sizeControls = normalizeImageSizeControls({
+        resolution: rd.resolution,
+        aspect: rd.aspect,
+        customWidth: rd.customWidth || customResolutionMatch?.[1],
+        customHeight: rd.customHeight || customResolutionMatch?.[2]
+    }, protocol);
+    const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, sizeControls.resolution, selectedProviderId);
+    const aspectOptions = getImageAspectOptionsForModel(selectedModel, providers, selectedProviderId);
+    const showCustomResolution = sizeControls.resolution === 'custom';
+    const aspectDisabled = usesOpenAiImageSize(protocol) && showCustomResolution;
+    let requestedResolution = '请输入有效的宽度和高度';
+    try {
+        requestedResolution = resolveImageRequestSize({ protocol, ...sizeControls }).display;
+    } catch { /* The editable custom fields display their own validation message. */ }
     const imageQuality = ['low', 'medium', 'high', 'auto'].includes(String(rd.quality || '').toLowerCase())
         ? String(rd.quality).toLowerCase()
         : '';
@@ -417,9 +430,8 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const imageBackground = ['transparent', 'opaque', 'auto'].includes(String(rd.background || '').toLowerCase())
         ? String(rd.background).toLowerCase()
         : '';
-    const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
-    const customWidth = rd.customWidth || customResolutionMatch?.[1] || '';
-    const customHeight = rd.customHeight || customResolutionMatch?.[2] || '';
+    const customWidth = sizeControls.customWidth;
+    const customHeight = sizeControls.customHeight;
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
 
     return `
@@ -447,24 +459,9 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '宽高比',
-            fieldClass: usesOpenAiImageControls ? 'hidden' : '',
             fieldId: `${id}-aspect-field`,
-            content: `<select id="${id}-aspect">
-                <option value="" ${!rd.aspect ? 'selected' : ''}>自动</option>
-                <option value="1:1" ${rd.aspect === '1:1' ? 'selected' : ''}>1:1</option>
-                <option value="1:4" ${rd.aspect === '1:4' ? 'selected' : ''}>1:4</option>
-                <option value="1:8" ${rd.aspect === '1:8' ? 'selected' : ''}>1:8</option>
-                <option value="2:3" ${rd.aspect === '2:3' ? 'selected' : ''}>2:3</option>
-                <option value="3:2" ${rd.aspect === '3:2' ? 'selected' : ''}>3:2</option>
-                <option value="3:4" ${rd.aspect === '3:4' ? 'selected' : ''}>3:4</option>
-                <option value="4:1" ${rd.aspect === '4:1' ? 'selected' : ''}>4:1</option>
-                <option value="4:3" ${rd.aspect === '4:3' ? 'selected' : ''}>4:3</option>
-                <option value="4:5" ${rd.aspect === '4:5' ? 'selected' : ''}>4:5</option>
-                <option value="5:4" ${rd.aspect === '5:4' ? 'selected' : ''}>5:4</option>
-                <option value="8:1" ${rd.aspect === '8:1' ? 'selected' : ''}>8:1</option>
-                <option value="9:16" ${rd.aspect === '9:16' ? 'selected' : ''}>9:16</option>
-                <option value="16:9" ${rd.aspect === '16:9' ? 'selected' : ''}>16:9</option>
-                <option value="21:9" ${rd.aspect === '21:9' ? 'selected' : ''}>21:9</option>
+            content: `<select id="${id}-aspect" ${aspectDisabled ? 'disabled' : ''}>
+                ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === sizeControls.aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
             </select>`
         })}
         ${renderNodeFormField({
@@ -512,16 +509,20 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             </div>
         </details>
         ${renderNodeFormField({
-            label: '自定义分辨率',
-            fieldClass: `node-field--full ${showCustomResolution ? '' : 'hidden'}`.trim(),
-            fieldId: `${id}-custom-resolution-field`,
+            label: '实际请求分辨率',
+            fieldClass: 'node-field--full',
+            fieldId: `${id}-requested-resolution-field`,
             content: `
-                <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;">
-                    <input type="number" id="${id}-custom-resolution-width" value="${customWidth}" placeholder="宽度" min="1" max="99999" />
-                    <span style="color:var(--text-dim);font-size:12px;">x</span>
-                    <input type="number" id="${id}-custom-resolution-height" value="${customHeight}" placeholder="高度" min="1" max="99999" />
+                <output class="image-request-resolution ${showCustomResolution ? 'hidden' : ''}" id="${id}-requested-resolution" aria-live="polite">${escapeHtml(requestedResolution)}</output>
+                <div class="image-custom-resolution ${showCustomResolution ? '' : 'hidden'}" id="${id}-custom-resolution-field">
+                    <div class="image-custom-resolution-inputs">
+                        <input type="number" id="${id}-custom-resolution-width" value="${escapeHtml(customWidth)}" placeholder="宽度" aria-label="自定义宽度" min="1" max="99999" />
+                        <span>×</span>
+                        <input type="number" id="${id}-custom-resolution-height" value="${escapeHtml(customHeight)}" placeholder="高度" aria-label="自定义高度" min="1" max="99999" />
+                        <span>px</span>
+                    </div>
+                    <div class="custom-resolution-hint" id="${id}-custom-resolution-hint" aria-live="polite"></div>
                 </div>
-                <div class="custom-resolution-hint" id="${id}-custom-resolution-hint" aria-live="polite"></div>
             `
         })}
         ${renderNodeFormToggleField({

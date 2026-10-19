@@ -21,4 +21,15 @@ test('image card retains editable advanced values and primary controls across se
     assert.ok(bound.hiddenOther && bound.restored);
     assert.equal(bound.saved, 'transparent');
     assert.equal(bound.persisted, 'transparent');
+    assert.deepEqual(bound.presetSize, {
+        resolution: '2K', aspect: '16:9', requested: '2048 × 1152 px', readonly: true, customHidden: true
+    });
+    assert.deepEqual(bound.aspectFirst, { resolution: '1K', requested: '1536 × 864 px' });
+    assert.deepEqual(bound.seededCustom, { width: '2048', height: '1152' });
+    assert.deepEqual(bound.customSize, {
+        editable: true, outputHidden: true, aspectDisabled: true, hint: ''
+    });
+    assert.deepEqual(bound.otherModelSize, {
+        resolution: '', customAvailable: false, aspectDisabled: false, requested: '默认（未指定）'
+    });
 });
