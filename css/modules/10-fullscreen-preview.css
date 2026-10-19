@@ -105,6 +105,10 @@
     box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
 }
 
+.fullscreen-overlay.has-paint-action .fullscreen-copy-btn {
+    right: 128px;
+}
+
 .fullscreen-overlay.has-crop-action .fullscreen-copy-btn {
     right: 184px;
 }

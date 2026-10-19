@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css">
+    <link rel="stylesheet" href="../../css/features/image-cropper.css">
+    <style>body { margin: 0; } .fullscreen-overlay { position: fixed; inset: 0; }</style>
+</head>
+<body>
+    <div class="fullscreen-overlay has-paint-action" id="save-preview">
+        <div class="fullscreen-close"></div>
+        <button class="fullscreen-copy-btn"></button>
+        <div class="fullscreen-paint-btn"></div>
+    </div>
+    <div class="fullscreen-overlay has-paint-action has-crop-action" id="import-preview" style="top: 80px;">
+        <div class="fullscreen-close"></div>
+        <button class="fullscreen-copy-btn"></button>
+        <button class="fullscreen-crop-btn"></button>
+        <div class="fullscreen-paint-btn"></div>
+    </div>
+    <pre id="surface-result"></pre>
+    <script>
+        const selectors = ['.fullscreen-close', '.fullscreen-copy-btn', '.fullscreen-crop-btn', '.fullscreen-paint-btn'];
+        const result = ['save-preview', 'import-preview'].map((id) => {
+            const overlay = document.getElementById(id);
+            return Object.fromEntries(selectors.map((selector) => {
+                const element = overlay.querySelector(selector);
+                const rect = element?.getBoundingClientRect();
+                return [selector, rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null];
+            }));
+        });
+        document.getElementById('surface-result').textContent = JSON.stringify(result);
+    </script>
+</body>
+</html>

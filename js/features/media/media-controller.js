@@ -3091,6 +3091,7 @@ export function createMediaControllerApi({
             context.node?.type === 'ImageImport'
             && context.node.importMode !== 'url'
         );
+        overlay.classList.toggle('has-paint-action', Boolean(nodeId));
         overlay.classList.toggle('has-crop-action', canCropImageImport);
         overlay.innerHTML = `
             <div class="fullscreen-close" title="关闭 (Esc)">
