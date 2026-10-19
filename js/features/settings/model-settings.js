@@ -93,7 +93,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     function getProviderModelListUrl(provider, protocol) {
         const endpoint = String(provider?.endpoint || '').trim().replace(/\/+$/, '');
         if (!endpoint) return '';
-        let base = normalizeAutoCompleteBase(endpoint, protocol).replace(/\/models\/?$/i, '');
+        let base = normalizeAutoCompleteBase(endpoint.replace(/\/models\/?$/i, ''), protocol);
         if (protocol === 'google') {
             const query = provider?.apikey ? `?key=${encodeURIComponent(provider.apikey)}` : '';
             return `${base}/v1beta/models${query}`;
@@ -115,7 +115,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     function getOpenAiProviderBaseUrl(provider, protocol) {
         const endpoint = String(provider?.endpoint || '').trim().replace(/\/+$/, '');
         if (!endpoint) return '';
-        let base = normalizeAutoCompleteBase(endpoint, protocol).replace(/\/models\/?$/i, '');
+        let base = normalizeAutoCompleteBase(endpoint.replace(/\/models\/?$/i, ''), protocol);
         base = base.replace(/\/v\d+(?:beta)?$/i, '');
         return base.replace(/\/+$/, '');
     }
