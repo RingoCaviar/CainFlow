@@ -23,3 +23,21 @@ test('thumbnail quota rejection preserves history without a dangling thumbnail r
         globalThis.fetch = originalFetch;
     }
 });
+
+test('manual asset cleanup can return retained-media details without changing boolean callers', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        success: true, assetsDeleted: 0, orphanFilesDeleted: 0,
+        gcSuspended: true, candidatesRetained: 2
+    }), { status: 200 });
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.equal(await storage.clearOrphanedNodeAssets(new Set()), true);
+        assert.deepEqual(await storage.clearOrphanedNodeAssets(new Set(), { detailed: true }), {
+            success: true, assetsDeleted: 0, orphanFilesDeleted: 0,
+            gcSuspended: true, candidatesRetained: 2
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

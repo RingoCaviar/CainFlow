@@ -1195,19 +1195,30 @@ export function createUiControllerApi({
     }
 
     async function clearCurrentNodeAssetsOnly() {
+        const outcomes = [];
+        const recordOutcome = (value) => {
+            const outcome = typeof value === 'object' && value !== null ? value : { success: value === true };
+            outcomes.push(outcome);
+            return outcome.success !== false;
+        };
+        const summary = () => ({
+            success: outcomes.every((outcome) => outcome.success !== false),
+            assetsDeleted: outcomes.reduce((sum, outcome) => sum + Number(outcome.assetsDeleted || 0), 0),
+            orphanFilesDeleted: outcomes.reduce((sum, outcome) => sum + Number(outcome.orphanFilesDeleted || 0), 0),
+            gcSuspended: outcomes.some((outcome) => outcome.gcSuspended),
+            candidatesRetained: Math.max(0, ...outcomes.map((outcome) => Number(outcome.candidatesRetained || 0)))
+        });
         if (clearOrphanedNodeAssets) {
             await refreshRecoverableMediaNodes();
-            const cleared = await clearOrphanedNodeAssets(collectRetainedNodeAssetIds());
-            if (!cleared) return false;
-            if (clearOrphanedHistoryAssets) await clearOrphanedHistoryAssets();
-            return true;
+            if (!recordOutcome(await clearOrphanedNodeAssets(collectRetainedNodeAssetIds(), { detailed: true }))) return summary();
+            if (clearOrphanedHistoryAssets) recordOutcome(await clearOrphanedHistoryAssets({ detailed: true }));
+            return summary();
         }
 
         if (clearImageAssets) {
-            const cleared = await clearImageAssets({ preserveHistory: true });
-            if (!cleared) return false;
-            if (clearOrphanedHistoryAssets) await clearOrphanedHistoryAssets();
-            return true;
+            if (!recordOutcome(await clearImageAssets({ preserveHistory: true, detailed: true }))) return summary();
+            if (clearOrphanedHistoryAssets) recordOutcome(await clearOrphanedHistoryAssets({ detailed: true }));
+            return summary();
         }
 
         const db = await openDB();
@@ -1221,11 +1232,11 @@ export function createUiControllerApi({
             cursor.continue();
         };
         const cleared = await waitForTransaction(tx);
-        if (!cleared) return false;
+        if (!cleared) return { success: false };
         if (clearOrphanedHistoryAssets) {
-            await clearOrphanedHistoryAssets();
+            recordOutcome(await clearOrphanedHistoryAssets({ detailed: true }));
         }
-        return true;
+        return summary();
     }
 
     function initCache() {
@@ -1357,10 +1368,14 @@ export function createUiControllerApi({
             if (!confirmed) return;
 
             try {
-                const ok = await clearCurrentNodeAssetsOnly();
-                if (!ok) throw new Error('IndexedDB 节点资产清理未完成');
-
-                showToast('当前工作的节点资产缓存已清理，当前节点图片已保留', 'success');
+                const result = await clearCurrentNodeAssetsOnly();
+                if (!result.success) throw new Error('节点资产清理未完成');
+                if (result.gcSuspended || result.candidatesRetained > 0) {
+                    const retained = result.candidatesRetained > 0 ? `至少 ${result.candidatesRetained} 项无引用资产仍保留` : '媒体物理回收未执行';
+                    showToast(`节点缓存已检查，媒体回收未完成；${retained}，请在缓存面板查看完整性状态`, 'warning', 8000);
+                } else {
+                    showToast('当前工作的节点资产缓存已清理，当前节点图片已保留', 'success');
+                }
                 settingsControllerApi?.updateCacheUsage(true);
             } catch (e) {
                 showToast('资产清理失败: ' + e.message, 'error');
@@ -1381,9 +1396,16 @@ export function createUiControllerApi({
             }
 
             try {
-                const ok = await clearImageImportAssets();
-                if (!ok) throw new Error('IndexedDB 图片导入缓存清理未完成');
-                showToast('图片导入节点缓存已清理', 'success');
+                const outcome = await clearImageImportAssets({ detailed: true });
+                const result = typeof outcome === 'object' && outcome !== null ? outcome : { success: outcome === true };
+                if (result.success === false) throw new Error('图片导入缓存清理未完成');
+                if (result.gcSuspended || Number(result.candidatesRetained || 0) > 0) {
+                    const count = Number(result.candidatesRetained || 0);
+                    const retained = count > 0 ? `至少 ${count} 项无引用资产仍保留` : '媒体物理回收未执行';
+                    showToast(`图片导入缓存已检查，媒体回收未完成；${retained}，请在缓存面板查看完整性状态`, 'warning', 8000);
+                } else {
+                    showToast('图片导入节点缓存已清理', 'success');
+                }
                 settingsControllerApi?.updateCacheUsage();
             } catch (e) {
                 showToast('图片导入缓存清理失败: ' + e.message, 'error');

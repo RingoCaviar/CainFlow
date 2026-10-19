@@ -2557,11 +2557,14 @@ class StorageService:
                 'candidatesRetained': len(keys),
             }
         deleted = sum(1 for key in keys if self.delete_asset(key))
+        with self._connect() as db:
+            retained = sum(1 for key in keys if db.execute(
+                'SELECT 1 FROM assets WHERE asset_key=?', (key,)).fetchone())
         return {
             'assetsDeleted': deleted,
             'orphanFilesDeleted': self.cleanup_orphan_files() if max_count is None else 0,
-            'gcSuspended': False,
-            'candidatesRetained': 0,
+            'gcSuspended': not self._cache_reclamation_verified(),
+            'candidatesRetained': retained,
         }
 
     def save_history(self, entry):
@@ -2756,11 +2759,23 @@ class StorageService:
                 delete_keys.append(key)
             elif mode == 'media-orphans' and kind == 'media':
                 delete_keys.append(key)
-        deleted = sum(1 for key in delete_keys if self.delete_asset(key))
+        failed_keys = [key for key in delete_keys if not self.delete_asset(key)]
+        deleted = len(delete_keys) - len(failed_keys)
         media_cleanup = self.cleanup_unreferenced_media_assets()
+        # The general sweep only includes modern media kinds. Legacy node/import
+        # rows selected above must also be reported if safety holds them back.
+        retained_legacy = 0
+        with self._connect() as db:
+            for key in failed_keys:
+                row = db.execute('SELECT kind FROM assets WHERE asset_key=?', (key,)).fetchone()
+                if (row and row['kind'] not in {'media', 'history', 'thumbnail', 'retired'}
+                        and not self._asset_has_consumers(db, key)):
+                    retained_legacy += 1
         return {
             'assetsDeleted': deleted + media_cleanup['assetsDeleted'],
             'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'],
+            'gcSuspended': media_cleanup['gcSuspended'],
+            'candidatesRetained': media_cleanup['candidatesRetained'] + retained_legacy,
             'legacyKeepKeysIgnored': legacy_keep_keys_count > 0,
             'legacyKeepKeysCount': legacy_keep_keys_count,
         }

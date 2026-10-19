@@ -227,10 +227,40 @@ class RuntimeCacheTests(unittest.TestCase):
             service = self.make_service(root)
             asset = service.put_asset('thumb:locked', b'locked', 'image/png', 'thumbnail')
             with mock.patch('backend.services.storage_service.os.remove', side_effect=PermissionError('locked')):
-                service.run_cache_maintenance(now_ms=int(time.time() * 1000) + 6 * 60 * 1000)
+                result = service.run_cache_maintenance(now_ms=int(time.time() * 1000) + 6 * 60 * 1000)
             safety = service.get_storage_safety_status()
             self.assertEqual('gc_suspended', safety['state'])
             self.assertEqual('media_asset_delete_failed', safety['reason'])
+            self.assertTrue(result['gcSuspended'])
+            self.assertEqual(1, result['candidatesRetained'])
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
+    def test_manual_asset_cleanup_reports_retained_media_when_reclamation_is_suspended(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_asset('media:stale', b'stale', 'image/png', 'media')
+            service._safety_status.update({'state': 'gc_suspended', 'reason': 'test_guard'})
+            service._write_safety_status(service._safety_status)
+
+            result = service.cleanup_assets('nodes')
+
+            self.assertTrue(result['gcSuspended'])
+            self.assertEqual(1, result['candidatesRetained'])
+            self.assertEqual(0, result['assetsDeleted'])
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
+    def test_manual_import_cleanup_reports_retained_legacy_image_when_reclamation_is_suspended(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_asset('image-import:old', b'old', 'image/png', 'image-import')
+            service._safety_status.update({'state': 'gc_suspended', 'reason': 'test_guard'})
+            service._write_safety_status(service._safety_status)
+
+            result = service.cleanup_assets('image-import')
+
+            self.assertTrue(result['gcSuspended'])
+            self.assertEqual(1, result['candidatesRetained'])
+            self.assertEqual(0, result['assetsDeleted'])
             self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
 
     def test_worker_maintains_after_scan_and_remains_interruptible(self):

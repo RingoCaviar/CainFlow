@@ -113,12 +113,13 @@ async function getAssetBlob(key) {
     }
 }
 
-async function postMaintenance(action, extra = {}) {
+async function postMaintenance(action, extra = {}, { detailed = false } = {}) {
     const response = await fetch('/api/storage/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...extra })
     });
-    return response.ok;
+    if (!detailed) return response.ok;
+    return response.ok ? await response.json() : { success: false };
 }
 
 function createThumbnail(dataUrl, size = 256) {
@@ -502,11 +503,11 @@ export function createDiskStorageApi(getState) {
         saveWorkflowImportMediaAsset,
         putMediaAsset, referenceMediaAsset, removeMediaReference,
         deleteImageAsset, deleteImageImportAsset: deleteImageAsset,
-        clearImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import' }),
+        clearImageImportAssets: (options = {}) => postMaintenance('clear-assets', { mode: 'image-import' }, options),
         clearOrphanedImageImportAssets: () => postMaintenance('clear-assets', { mode: 'image-import-orphans' }),
-        clearImageAssets: ({ preserveHistory = true } = {}) => postMaintenance('clear-assets', { mode: preserveHistory ? 'nodes' : 'all' }),
-        clearOrphanedHistoryAssets: () => postMaintenance('clear-assets', { mode: 'orphans' }),
-        clearOrphanedNodeAssets: () => postMaintenance('clear-assets', { mode: 'node-orphans' }),
+        clearImageAssets: ({ preserveHistory = true, detailed = false } = {}) => postMaintenance('clear-assets', { mode: preserveHistory ? 'nodes' : 'all' }, { detailed }),
+        clearOrphanedHistoryAssets: (options = {}) => postMaintenance('clear-assets', { mode: 'orphans' }, options),
+        clearOrphanedNodeAssets: (_keepKeys, options = {}) => postMaintenance('clear-assets', { mode: 'node-orphans' }, options),
         trimHistoryCache: () => postMaintenance('trim-history'), createThumbnail, createVideoThumbnail,
         saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
         updateHistoryThumb, clearHistory: () => postMaintenance('clear-history'), deleteHistoryEntry

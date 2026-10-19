@@ -28,6 +28,7 @@ function createDocument() {
     };
     const clearButton = createElement();
     elements.set('btn-clear-assets', clearButton);
+    elements.set('btn-clear-image-import-assets', createElement());
     elements.set('btn-toggle-cache', createElement());
     elements.set('cache-sidebar', createElement());
     return { documentRef, clearButton, elements };
@@ -82,4 +83,68 @@ test('node asset cache cleanup keeps current node assets and removes only recove
         ['clear-orphans', ['active-node', 'active-asset']],
         'update-usage'
     ]);
+});
+
+test('manual node cleanup warns when media reclamation retains candidates', async () => {
+    const { documentRef, clearButton, elements } = createDocument();
+    const toasts = [];
+    const api = createUiControllerApi({
+        state: {}, panelManager: {}, settingsModal: {},
+        openDB: async () => { throw new Error('unexpected IndexedDB fallback'); },
+        clearHistory: async () => true,
+        clearOrphanedNodeAssets: async () => ({
+            success: true, assetsDeleted: 0, orphanFilesDeleted: 0,
+            gcSuspended: true, candidatesRetained: 2
+        }),
+        collectRetainedNodeAssetIds: () => new Set(),
+        refreshRecoverableMediaNodes: async () => {},
+        getHistory: async () => [], renderHistoryList: () => {}, renderLogs: () => {},
+        historyPreviewApi: {}, historyFullscreenApi: {},
+        settingsControllerApi: { updateCacheUsage: () => {} },
+        applyHistoryGridCols: () => {}, saveState: () => {},
+        showToast: (...args) => toasts.push(args), copyToClipboard: () => {},
+        downloadImage: () => {}, initFeatureModules: () => {},
+        documentRef, localStorageRef: {}, indexedDbRef: {},
+        locationRef: { reload() {} }, confirmRef: () => true, alertRef: () => {}
+    });
+    api.initCache();
+    const click = clearButton.click();
+    elements.get('cache-clear-node-assets-dialog').onclick({
+        preventDefault() {}, target: { closest: () => ({ getAttribute: () => 'confirm' }) }
+    });
+    await click;
+
+    assert.equal(toasts.some(([, type]) => type === 'success'), false);
+    assert.equal(toasts[0][1], 'warning');
+    assert.match(toasts[0][0], /2/);
+});
+
+test('manual image import cleanup warns when legacy images remain on disk', async () => {
+    const { documentRef, elements } = createDocument();
+    const toasts = [];
+    const api = createUiControllerApi({
+        state: {}, panelManager: {}, settingsModal: {}, openDB: async () => null,
+        clearHistory: async () => true,
+        clearImageImportAssets: async () => ({
+            success: true, assetsDeleted: 0, gcSuspended: true, candidatesRetained: 1
+        }),
+        getHistory: async () => [], renderHistoryList: () => {}, renderLogs: () => {},
+        historyPreviewApi: {}, historyFullscreenApi: {},
+        settingsControllerApi: { updateCacheUsage: () => {} },
+        applyHistoryGridCols: () => {}, saveState: () => {},
+        showToast: (...args) => toasts.push(args), copyToClipboard: () => {},
+        downloadImage: () => {}, initFeatureModules: () => {},
+        documentRef, localStorageRef: {}, indexedDbRef: {},
+        locationRef: { reload() {} }, confirmRef: () => true, alertRef: () => {}
+    });
+    api.initCache();
+    const click = elements.get('btn-clear-image-import-assets').click();
+    elements.get('cache-clear-image-import-assets-dialog').onclick({
+        preventDefault() {}, target: { closest: () => ({ getAttribute: () => 'confirm' }) }
+    });
+    await click;
+
+    assert.equal(toasts.some(([, type]) => type === 'success'), false);
+    assert.equal(toasts[0][1], 'warning');
+    assert.match(toasts[0][0], /1/);
 });
