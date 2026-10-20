@@ -170,4 +170,3 @@ export function resolveImageRequestSize({ protocol = '', resolution = '', aspect
         display: requestResolution ? `${label}（具体像素由模型决定）` : label
     };
 }
-
