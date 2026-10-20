@@ -3,6 +3,7 @@
  */
 import { AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
 import { videoTimeoutMinutesToSeconds } from '../execution/async-media-execution.js';
+import { getPromptAgentCacheUsage } from '../prompt-agent/prompt-agent-cache-usage.js';
 import {
     clearLegacyBrowserStorage,
     migrateLegacyBrowserStorage,
@@ -31,6 +32,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         applyCanvasUiSetting,
         fitNodeToContent,
         getActiveWorkflowId = () => '',
+        getPromptAgentCacheState = () => null,
         documentRef,
         windowRef,
         localStorageRef,
@@ -812,12 +814,39 @@ export function createGeneralSettings({ ctx, dialogs }) {
         return `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(2)} MB`;
     }
 
+    function updateAgentCacheUsage(force = false) {
+        const sidebar = documentRef.getElementById('cache-sidebar');
+        if (!force && sidebar && !sidebar.classList?.contains('active')) return;
+        const display = documentRef.getElementById('usage-agent');
+        if (!display) return;
+        const current = documentRef.getElementById('usage-agent-current');
+        const detail = documentRef.getElementById('usage-agent-detail');
+        const context = documentRef.getElementById('usage-agent-context');
+        const formatBytes = (bytes) => bytes < 1024 ? `${bytes} B`
+            : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : formatMB(bytes);
+        try {
+            const { total, current: active } = getPromptAgentCacheUsage(getPromptAgentCacheState() || {});
+            display.textContent = formatBytes(total.bytes);
+            if (current) current.textContent = formatBytes(active.bytes);
+            if (detail) detail.textContent = `${total.workflowCount} 个场景 · ${total.messageCount} 条消息 · ${total.referenceCount} 张参考图`;
+            if (context) context.textContent = `上下文 ${active.activeMessageCount} 条 · 归档 ${active.archivedMessageCount} 条 · 摘要 ${active.summaryCount} 份`;
+        } catch {
+            display.textContent = '暂时无法统计';
+            if (current) current.textContent = '—';
+            if (detail) detail.textContent = '重新打开缓存面板可重试。';
+            if (context) context.textContent = '';
+        }
+    }
+
     let pendingCacheUsage = null;
     let pendingCacheUsageWorkflowId = '';
     let cacheUsageRevision = 0;
     async function updateCacheUsage(force = false) {
         const cacheSidebar = documentRef.getElementById('cache-sidebar');
         if (!force && cacheSidebar && !cacheSidebar.classList?.contains('active')) return;
+        // Local Agent state is current even while the separate disk audit is
+        // pending or unavailable. Updating it never triggers a storage write.
+        updateAgentCacheUsage(force);
         const workflowId = getActiveWorkflowId();
         if (pendingCacheUsage && !force && pendingCacheUsageWorkflowId === workflowId) return pendingCacheUsage;
         const display = documentRef.getElementById('cache-size-display');
@@ -889,6 +918,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
         playNotificationSound,
         renderGeneralSettings,
         updateImageSaveWarnings,
+        updateAgentCacheUsage,
         updateCacheUsage
     };
 }

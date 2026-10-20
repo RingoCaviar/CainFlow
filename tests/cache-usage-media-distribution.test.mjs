@@ -140,3 +140,61 @@ test('background cache changes skip the closed drawer and opening forces a fresh
         assert.equal(display.textContent, '1.00 MB');
     } finally { globalThis.fetch = originalFetch; }
 });
+
+test('Agent cache updates from live context without waiting for or repeating the disk audit', async () => {
+    const originalFetch = globalThis.fetch;
+    const elements = new Map([
+        'cache-size-display', 'usage-agent', 'usage-agent-current', 'usage-agent-detail', 'usage-agent-context'
+    ].map((id) => [id, { textContent: '' }]));
+    let open = true;
+    elements.set('cache-sidebar', { classList: { contains: () => open } });
+    const image = { name: '参考图', dataUrl: 'data:image/png;base64,AAAA' };
+    let activeConversation = {
+        memory: '新补充', contextSummary: '已有摘要',
+        messages: [{ role: 'user', text: '最新要求', referenceImages: [image] }],
+        archivedMessages: [{ role: 'user', text: '早期要求', referenceImages: [image] }],
+        referenceImages: [image]
+    };
+    const workflows = [{ workflowId: 'active', data: { promptAgent: {
+        messages: Array.from({ length: 20 }, () => ({ role: 'user', text: '已被替换的旧快照' }))
+    } } }];
+    let finishAudit;
+    let requests = 0;
+    globalThis.fetch = () => {
+        requests += 1;
+        return new Promise((resolve) => { finishAudit = resolve; });
+    };
+    try {
+        const api = createGeneralSettings({
+            ctx: {
+                state: { cacheSizes: {} }, getActiveWorkflowId: () => 'active',
+                getPromptAgentCacheState: () => ({ workflows, activeWorkflowId: 'active', activeConversation }),
+                documentRef: { getElementById: (id) => elements.get(id) || null }
+            }, dialogs: {}
+        });
+        const pending = api.updateCacheUsage();
+        assert.equal(requests, 1);
+        assert.equal(elements.get('usage-agent-detail').textContent, '1 个场景 · 2 条消息 · 1 张参考图');
+        assert.equal(elements.get('usage-agent-context').textContent, '上下文 1 条 · 归档 1 条 · 摘要 2 份');
+        assert.notEqual(elements.get('usage-agent').textContent, '0 B');
+
+        activeConversation = { memory: '', messages: [], panelWidth: 612 };
+        api.updateAgentCacheUsage();
+        assert.equal(requests, 1);
+        assert.equal(elements.get('usage-agent').textContent, '0 B');
+        assert.equal(elements.get('usage-agent-current').textContent, '0 B');
+        finishAudit({ ok: true, json: async () => ({ actualMediaBytes: 1024 * 1024 }) });
+        await pending;
+        assert.equal(elements.get('cache-size-display').textContent, '1.00 MB');
+        assert.equal(elements.get('usage-agent').textContent, '0 B');
+
+        open = false;
+        activeConversation = { messages: [{ role: 'user', text: '关闭期间新增消息' }] };
+        api.updateAgentCacheUsage();
+        assert.equal(elements.get('usage-agent').textContent, '0 B');
+        api.updateAgentCacheUsage(true);
+        assert.notEqual(elements.get('usage-agent').textContent, '0 B');
+        assert.equal(elements.get('usage-agent-detail').textContent, '1 个场景 · 1 条消息 · 0 张参考图');
+        assert.equal(requests, 1);
+    } finally { globalThis.fetch = originalFetch; }
+});

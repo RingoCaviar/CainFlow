@@ -39,7 +39,7 @@ test('reports rejected application and failed workflow results without switching
         nodeAdapter: { applyPromptPlan: () => true },
         runWorkflow: async () => ({ started: true, executed: false, reason: 'error' })
     });
-    await assert.rejects(() => failed.applyAndGenerate({ targetNodeId: 'image-1' }), /生成失败/);
+    await assert.rejects(() => failed.applyAndGenerate({ targetNodeId: 'image-1' }), /检查节点配置/);
 });
 
 test('maps existing workflow timeout and external cancellation outcomes without showing stale success', async () => {

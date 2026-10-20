@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/02-buttons.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/prompt-agent.css">
+    <style>
+        body { padding: 24px; background: var(--bg-canvas); }
+        #prompt-agent-panel { position: relative; inset: auto; width: 480px; height: 760px; margin-top: 16px; }
+        #surface-result { display: none; }
+    </style>
+</head>
+<body>
+    <button id="btn-prompt-agent" class="btn" type="button">Prompt Agent</button>
+    <div id="fixture"></div>
+    <pre id="surface-result"></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentNodeAdapter } from '../../js/features/prompt-agent/prompt-agent-node-adapter.js';
+import { createPromptAgentInput } from '../../js/features/prompt-agent/prompt-agent-input.js';
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const check = (condition, message) => { if (!condition) throw new Error(message); };
+const numbers = (element) => [...element.querySelectorAll('.prompt-agent-reference-number')].map((item) => item.textContent);
+// Code-native fixture art makes each imported image visibly distinguishable.
+function fixtureImage(index) {
+    const colors = ['#445d78', '#bc7857', '#5e8e7e', '#957898', '#a99559', '#6d8dbe'];
+    return `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180">
+        <rect width="180" height="180" fill="${colors[index % colors.length]}"/>
+        <circle cx="${48 + index * 7}" cy="54" r="23" fill="#fff" opacity=".75"/>
+        <path d="M0 150 L65 65 L115 125 L155 80 L180 110 V180 H0Z" fill="#172c40" opacity=".65"/>
+        </svg>`)}`;
+}
+
+try {
+    // Exercise the production markup, including button defaults and hidden states.
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.getElementById('fixture').appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    const panel = document.getElementById('prompt-agent-panel');
+    const picker = document.getElementById('prompt-agent-reference-picker');
+    const list = document.getElementById('prompt-agent-reference-picker-list');
+    const pending = document.getElementById('prompt-agent-references');
+    const messages = document.getElementById('prompt-agent-messages');
+    const plus = document.getElementById('prompt-agent-add-reference');
+    const names = ['主体原图', '配色参考', '山间构图', '光线氛围', '材质细节', '背景参考'];
+    const nodes = names.map((name, index) => ({
+        id: `import-${index}`, type: 'ImageImport', customTitle: name,
+        data: index === 1
+            ? { mediaAssetKeys: ['media:original-1'], imagePreviewThumbnail: fixtureImage(index) }
+            : { imageList: [fixtureImage(index)] }
+    }));
+    const state = { nodes: new Map(nodes.map((node) => [node.id, node])), selectedNodes: new Set(), connections: [] };
+    const model = { id: 'chat-1', modelId: 'chat-test', name: '视觉对话模型', protocol: 'openai', capabilities: { imageInput: true } };
+    const reads = [];
+    const requests = [];
+    const nodeAdapter = createPromptAgentNodeAdapter({
+        state,
+        getNodeImages: async (node) => { reads.push(node.id); return [fixtureImage(Number(node.id.split('-')[1]))]; }
+    });
+    const controller = createPromptAgentController({
+        nodeAdapter, getChatModels: () => [model],
+        createReply: async (request) => {
+            requests.push(createPromptAgentInput({ ...request, model }));
+            return { intent: 'chat', message: '已收到参考图 1 和参考图 2，可以继续描述需要参考的内容。', promptPlan: null };
+        }
+    });
+    controller.init();
+    controller.open();
+    plus.click();
+    check(!picker.hidden && list.children.length === 6, 'plus must list all current import nodes');
+    check(reads.length === 0, 'listing must not hydrate originals');
+    check(document.activeElement === list.children[0], 'opening must focus the first option');
+    list.children[1].click();
+    await tick();
+    list.children[0].click();
+    await tick();
+    check(JSON.stringify(numbers(pending)) === '["1","2"]', 'pending numbers must follow selection order');
+    check(list.children[1].getAttribute('aria-label').includes('参考图 1'), 'selected option must expose its number');
+    check(list.children[0].getAttribute('aria-checked') === 'true', 'selected options must be checked');
+    check(JSON.stringify(reads) === '["import-1","import-0"]', 'only selected originals may be loaded');
+    list.children[1].click();
+    await tick();
+    check(list.children[0].getAttribute('aria-label').includes('参考图 1'), 'deselecting must renumber');
+    list.children[1].click();
+    await tick();
+
+    document.getElementById('prompt-agent-reference-picker-close').click();
+    check(picker.hidden && document.activeElement === plus, 'done must return focus to plus');
+    document.getElementById('prompt-agent-input').value = '参考图 1 的构图，结合参考图 2 的配色';
+    await controller.submit();
+    check(pending.hidden && picker.hidden, 'sending must clear pending selection and close picker');
+    const catalog = JSON.parse(requests[0].messages.at(-1).content).images;
+    check(catalog[0].name === '主体原图' && catalog[1].name === '配色参考', 'media and displayed order must agree');
+    check(JSON.stringify(catalog.map((image) => image.referenceNumbers)) === '[[1],[2]]', 'visible numbers must reach the model');
+    check(JSON.stringify(numbers(messages)) === '["1","2"]', 'sent message must retain number badges');
+    const snapshot = controller.snapshotWorkflow();
+    controller.restoreWorkflow(snapshot);
+    controller.open();
+    check(JSON.stringify(numbers(messages)) === '["1","2"]', 'restored history must retain number badges');
+    plus.click();
+    list.children[2].click();
+    await tick();
+    list.children[4].click();
+    await tick();
+    pending.querySelector('.prompt-agent-reference-remove').click();
+    check(list.children[2].getAttribute('aria-checked') === 'false', 'remove must uncheck the corresponding option');
+    check(list.children[4].getAttribute('aria-label').includes('参考图 1'), 'remaining selection must be renumbered');
+    list.children[2].click();
+    await tick();
+
+    const samples = [];
+    for (const theme of ['light', 'dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        for (const width of [300, 612]) {
+            panel.style.width = `${width}px`;
+            const bounds = panel.getBoundingClientRect();
+            const pickerBounds = picker.getBoundingClientRect();
+            const formBounds = document.getElementById('prompt-agent-form').getBoundingClientRect();
+            const inputBounds = document.getElementById('prompt-agent-input').getBoundingClientRect();
+            samples.push({
+                theme, width,
+                pickerFits: pickerBounds.left >= bounds.left && pickerBounds.right <= bounds.right && pickerBounds.top > bounds.top,
+                composerFits: formBounds.bottom <= bounds.bottom && inputBounds.width >= 100 && formBounds.width <= bounds.width,
+                galleryFits: list.scrollWidth <= list.clientWidth + 1,
+                hiddenCancel: getComputedStyle(document.getElementById('prompt-agent-cancel')).display === 'none',
+                selectedBorder: getComputedStyle(list.children[2]).borderTopColor,
+                unselectedBorder: getComputedStyle(list.children[0]).borderTopColor
+            });
+        }
+    }
+    document.getElementById('prompt-agent-form').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    check(picker.hidden && document.activeElement === plus, 'Escape must close and restore focus');
+    plus.click();
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    check(picker.hidden, 'outside pointerdown must close the picker');
+    const originalNodes = state.nodes;
+    state.nodes = new Map();
+    plus.click();
+    check(list.children.length === 0 && document.getElementById('prompt-agent-reference-picker-status').textContent.includes('还没有'), 'empty scene must not show old candidates');
+    state.nodes = originalNodes;
+    controller.refreshActionStates();
+    document.documentElement.dataset.appTheme = 'light';
+    panel.style.width = '480px';
+    document.getElementById('prompt-agent-input').value = '参考图 1 的材质，参考图 2 的构图';
+    document.getElementById('surface-result').textContent = JSON.stringify({ samples, selected: numbers(pending), sent: numbers(messages) });
+} catch (error) {
+    document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+}
+</script>
+</body>
+</html>

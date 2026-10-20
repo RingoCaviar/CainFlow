@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/02-buttons.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/prompt-agent.css">
+    <style>
+        body { padding: 24px; background: var(--bg-canvas); }
+        #prompt-agent-panel { position: relative; inset: auto; width: 480px; height: 760px; margin-top: 16px; }
+        #surface-result { display: none; }
+    </style>
+</head>
+<body>
+    <button id="btn-prompt-agent" class="btn" type="button">Prompt Agent</button>
+    <div id="fixture"></div>
+    <pre id="surface-result"></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentInput } from '../../js/features/prompt-agent/prompt-agent-input.js';
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const check = (condition, message) => { if (!condition) throw new Error(message); };
+const model = { id: 'chat-1', modelId: 'chat-test', name: '视觉对话模型', protocol: 'openai', capabilities: { imageInput: true } };
+
+try {
+    // Read the production markup so missing command elements cannot be hidden
+    // by a separately maintained fixture copy.
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.getElementById('fixture').appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    const panel = document.getElementById('prompt-agent-panel');
+    const input = document.getElementById('prompt-agent-input');
+    const menu = document.getElementById('prompt-agent-command-menu');
+    const status = document.getElementById('prompt-agent-command-status');
+    const messages = document.getElementById('prompt-agent-messages');
+    const references = document.getElementById('prompt-agent-references');
+    check(menu.hidden && status.hidden, 'command UI must start hidden');
+    check(input.placeholder.includes('/'), 'input must advertise slash commands');
+
+    let models = [model];
+    const replies = [];
+    const compactions = [];
+    let settleCompaction;
+    let rejectCompaction;
+    const imageUrl = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#415d75"/><circle cx="40" cy="35" r="18" fill="#f0d4a3"/></svg>')}`;
+    const image = { referenceId: 'import-1', name: '人物参考', dataUrl: imageUrl, previewUrl: imageUrl };
+    const controller = createPromptAgentController({
+        getChatModels: () => models,
+        createReply: async (request) => {
+            replies.push(createPromptAgentInput({ ...request, model }));
+            return { intent: 'chat', message: '保留既定主角和风格，继续调整光线。', promptPlan: null };
+        },
+        createCompaction: (request) => {
+            compactions.push(request);
+            return new Promise((resolve, reject) => { settleCompaction = resolve; rejectCompaction = reject; });
+        },
+        nodeAdapter: {
+            getSelectedContext: () => null,
+            getSceneReferenceImages: () => [image],
+            readSceneReferenceImage: async () => image
+        }
+    });
+    const type = (text) => {
+        input.value = text;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const key = (key, options = {}) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }));
+    const activeCommand = () => menu.querySelector('[aria-selected="true"] .prompt-agent-command-name')?.textContent;
+    controller.init();
+    controller.restoreWorkflow({
+        version: 1, memory: '之前的创作记忆', panelWidth: 612,
+        messages: [{ role: 'user', text: '旧工作流需求' }, { role: 'agent', text: '旧工作流回复' }]
+    });
+    controller.open();
+    type('/');
+    check(!menu.hidden && menu.children.length === 2, 'slash must list two commands');
+    check(activeCommand() === '/clear', 'first command must be selected initially');
+    key('Enter', { isComposing: true });
+    await tick();
+    check(!menu.hidden && controller.snapshotWorkflow().messages.length === 2, 'IME confirmation must not execute a command');
+    key('ArrowDown');
+    check(activeCommand() === '/compact', 'ArrowDown must select compact');
+    key('ArrowUp');
+    check(activeCommand() === '/clear', 'ArrowUp must select clear');
+    key('Escape');
+    check(menu.hidden && input.value === '/', 'Escape must dismiss the menu without editing the draft');
+    type('/co');
+    check(menu.children.length === 1 && activeCommand() === '/compact', 'typing must filter commands');
+
+    type('');
+    document.getElementById('prompt-agent-add-reference').click();
+    document.getElementById('prompt-agent-reference-picker-list').children[0].click();
+    await tick();
+    check(!references.hidden, 'fixture must have a pending attachment before clear');
+    models = [];
+    controller.refreshModels();
+    type('/clear');
+    key('Enter');
+    await tick();
+    const cleared = controller.snapshotWorkflow();
+    check(cleared.messages.length === 0 && !cleared.archivedMessages?.length && !cleared.contextSummary && cleared.memory === '' && !cleared.referenceImages?.length, 'clear must erase conversation context');
+    check(references.hidden && menu.hidden && input.value === '', 'clear must remove draft references and consume command text');
+    check(replies.length === 0 && compactions.length === 0, 'clear must work without contacting any model');
+    check(panel.classList.contains('active') && panel.style.width === '612px', 'clear must preserve open state and panel width');
+    check(!status.hidden && status.textContent.includes('清空'), 'clear must give visible feedback');
+
+    models = [model];
+    controller.refreshModels();
+    type('固定主角是蓝色小猫，不要添加文字。');
+    await controller.submit();
+    type('刚才的夜景改成清晨。');
+    await controller.submit();
+    const beforeCompact = controller.snapshotWorkflow();
+    type('/co');
+    menu.children[0].click();
+    await tick();
+    check(compactions.length === 1 && compactions[0].modelId === model.id, 'clicking compact must use the selected model');
+    check(!status.hidden && status.textContent.includes('压缩'), 'compaction progress must be visible');
+    check(compactions[0].signal instanceof AbortSignal, 'compaction must support cancellation');
+    settleCompaction({ summary: '固定主角：蓝色小猫。用户要求不要添加文字；最新场景为清晨。' });
+    await tick();
+    await tick();
+    const compacted = controller.snapshotWorkflow();
+    check(compacted.contextSummary.includes('蓝色小猫'), 'successful compact must retain a continuation summary');
+    check(compacted.archivedMessages.length === beforeCompact.messages.length && compacted.messages.length === 0, 'compaction must preserve viewable history outside the active context');
+    check(messages.textContent.includes('刚才的夜景改成清晨。'), 'earlier messages must stay visible after compact');
+    check(!status.hidden && /压缩|整理/.test(status.textContent), 'compaction completion must be visible');
+    controller.restoreWorkflow(compacted);
+    controller.open();
+    check(messages.textContent.includes('刚才的夜景改成清晨。'), 'restored compacted history must stay visible');
+    type('继续，换成黄昏。');
+    await controller.submit();
+    const continuation = replies.at(-1).messages;
+    const currentInput = JSON.parse(continuation.at(-1).content);
+    check(currentInput.contextSummary.includes('蓝色小猫') && currentInput.contextSummary.includes('不要添加文字'), 'next request must include compacted memory');
+    check(!continuation.some((message) => message.content.includes('刚才的夜景改成清晨。')), 'compacted turns must not be resent as full history');
+
+    const beforeFailure = controller.snapshotWorkflow();
+    type('/compact');
+    key('Enter');
+    await tick();
+    rejectCompaction(new Error('测试网络故障'));
+    await tick();
+    await tick();
+    const afterFailure = controller.snapshotWorkflow();
+    check(beforeFailure.contextSummary === afterFailure.contextSummary
+        && JSON.stringify(beforeFailure.messages) === JSON.stringify(afterFailure.messages)
+        && JSON.stringify(beforeFailure.archivedMessages) === JSON.stringify(afterFailure.archivedMessages),
+        'failed compact must preserve existing context and history');
+    check(!status.hidden && status.textContent.includes('测试网络故障'), 'failure must be observable');
+
+    type('/clear');
+    key('Enter');
+    await tick();
+    const clearedAfterCompact = controller.snapshotWorkflow();
+    check(!clearedAfterCompact.contextSummary && !clearedAfterCompact.archivedMessages?.length
+        && clearedAfterCompact.messages.length === 0,
+        'clear must erase compacted summaries and archived history as well');
+    check(replies.length === 3 && compactions.length === 2, 'commands must not leak into normal model replies');
+
+    type('画面中的文字包含 /clear');
+    check(menu.hidden, 'slashes inside a normal prompt must not open command suggestions');
+    type('/');
+    const samples = [];
+    for (const theme of ['light', 'dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        for (const width of [300, 612]) {
+            panel.style.width = `${width}px`;
+            const bounds = panel.getBoundingClientRect();
+            const menuBounds = menu.getBoundingClientRect();
+            const inputBounds = input.getBoundingClientRect();
+            const formBounds = document.getElementById('prompt-agent-form').getBoundingClientRect();
+            const active = menu.querySelector('[aria-selected="true"]');
+            const inactive = menu.querySelector('[aria-selected="false"]');
+            samples.push({
+                theme, width,
+                menuFits: menuBounds.left >= bounds.left && menuBounds.right <= bounds.right && menuBounds.top > bounds.top,
+                optionsFit: menu.scrollWidth <= menu.clientWidth + 1 && [...menu.children].every((item) => item.scrollWidth <= item.clientWidth + 1),
+                composerFits: formBounds.bottom <= bounds.bottom && inputBounds.width >= 100 && formBounds.width <= bounds.width,
+                selectedBorder: getComputedStyle(active).borderTopColor,
+                unselectedBorder: getComputedStyle(inactive).borderTopColor,
+                descriptionColor: getComputedStyle(active.querySelector('.prompt-agent-command-description')).color,
+                background: getComputedStyle(menu).backgroundColor
+            });
+        }
+    }
+    const screenshotOptions = new URLSearchParams(location.search);
+    const screenshotTheme = screenshotOptions.get('theme');
+    document.documentElement.dataset.appTheme = ['light', 'dark', 'pink'].includes(screenshotTheme) ? screenshotTheme : 'light';
+    panel.style.width = screenshotOptions.get('width') === '300' ? '300px' : '480px';
+    document.getElementById('surface-result').textContent = JSON.stringify({
+        clearedWithoutModel: true, continuedFromSummary: true, historyRetained: true,
+        failurePreservedContext: true, keyboardAndClick: true,
+        compactionCount: compactions.length, samples
+    });
+} catch (error) {
+    document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+}
+</script>
+</body>
+</html>

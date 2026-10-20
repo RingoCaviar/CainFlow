@@ -85,6 +85,7 @@ import { createPromptAgentController } from '../features/prompt-agent/prompt-age
 import { createPromptAgentNodeAdapter } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentCompaction } from '../features/prompt-agent/prompt-agent-compaction.js';
 import { getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
@@ -817,7 +818,7 @@ function waitForRunStartFrame() {
     });
 }
 
-async function runWorkflow(runInput = null) {
+async function runWorkflow(runInput = null, { waitForCompletion = false } = {}) {
     if (state.isRunStarting) return false;
     state.isRunStarting = true;
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
@@ -833,7 +834,9 @@ async function runWorkflow(runInput = null) {
         const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
             || workflowManagerApi.getActiveWorkflowSnapshot();
         const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput);
+        // Forward the completion promise without holding the launch guard for
+        // the full generation; other workflow branches can still be started.
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion });
     } finally {
         state.isRunStarting = false;
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
@@ -856,12 +859,18 @@ function scheduleSave(options) {
 const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
     state,
     documentRef: document,
-    scheduleSave
+    scheduleSave,
+    getNodeImages: async (node) => (await mediaControllerApi.getNodeFullscreenImageContext(node.id)).images,
+    resolveImageSource: async (source) => {
+        if (/^data:image\//i.test(source)) return source;
+        if (!/^https?:\/\//i.test(source)) throw new Error('图片来源不可用，请重新导入图片。');
+        return blobToDataUrl(await getExecutionCoreApi().downloadGeneratedImage(source));
+    }
 });
 const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     state,
     nodeAdapter: promptAgentNodeAdapter,
-    runWorkflow,
+    runWorkflow: (runInput) => runWorkflow(runInput, { waitForCompletion: true }),
     cancelRunningNode,
     focusNode: focusCanvasNode
 });
@@ -892,7 +901,22 @@ const promptAgentController = createPromptAgentController({
                 ? { Authorization: `Bearer ${provider?.apikey || ''}` } : {})
         });
     },
-    onStateChange: () => workflowManagerApi.markActiveWorkflowDirty()
+    createCompaction: (request) => {
+        const chatModels = getAvailablePromptAgentModels(state.models || [], state.providers || []);
+        const model = chatModels.find((item) => item.id === request.modelId) || chatModels[0];
+        const provider = getResolvedProviderForModel(model, state.providers || []);
+        return createPromptAgentCompaction({
+            ...request,
+            model,
+            providers: state.providers || [],
+            getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', model?.protocol === 'openai'
+                ? { Authorization: `Bearer ${provider?.apikey || ''}` } : {})
+        });
+    },
+    onStateChange: () => {
+        workflowManagerApi.markActiveWorkflowDirty();
+        settingsControllerApi?.updateAgentCacheUsage();
+    }
 });
 registry.promptAgentController = promptAgentController;
 
@@ -1614,6 +1638,7 @@ const workflowManagerApi = createWorkflowManagerApi({
         getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow);
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflow?.workflowId);
         promptAgentController.restoreWorkflow(tab?.data?.promptAgent || null);
+        settingsControllerApi?.updateAgentCacheUsage();
     },
     getPromptAgentState: () => promptAgentController.snapshotWorkflow(),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
@@ -1703,6 +1728,12 @@ settingsFeature = createSettingsFeature({
     applyGlobalAnimationSetting,
     applyCanvasUiSetting,
     fitNodeToContent,
+    getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
+    getPromptAgentCacheState: () => ({
+        workflows: state.workflowTabs || [],
+        activeWorkflowId: workflowManagerApi.getActiveWorkflowId(),
+        activeConversation: promptAgentController.snapshotWorkflow()
+    }),
     floatingNoticesApi: getFloatingNoticesApi(),
     refreshImageGenerateNodes,
     refreshVideoGenerateNodes,

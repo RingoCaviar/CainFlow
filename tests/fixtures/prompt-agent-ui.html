@@ -3,17 +3,20 @@
 <head>
     <meta charset="utf-8">
     <link rel="stylesheet" href="../../css/modules/00-foundation.css">
-    <link rel="stylesheet" href="../../css/themes.css">
     <link rel="stylesheet" href="../../css/prompt-agent.css">
+    <link rel="stylesheet" href="../../css/modules/02-buttons.css">
+    <link rel="stylesheet" href="../../css/layout/workbench.css">
+    <link rel="stylesheet" href="../../css/themes.css">
     <style>
         html, body { min-height: 100%; }
         body { margin: 0; padding: 20px; background: var(--bg-canvas); }
         #prompt-agent-panel { position: relative; inset: auto; height: 720px; margin-top: 16px; }
+        .button-preview #surface-result { display: none; }
     </style>
 </head>
 <body>
     <button id="btn-prompt-agent" class="btn btn-ghost" type="button" aria-controls="prompt-agent-panel"
-        aria-expanded="false">Prompt Agent</button>
+        aria-expanded="false">Agent</button>
     <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-hidden="true" inert>
         <header class="prompt-agent-header">
             <h2>Prompt Agent</h2>
@@ -89,6 +92,9 @@ try {
     };
     const createReply = async (request) => {
         requests.push(request);
+        if (request.message === '先讨论构图') {
+            return { intent: 'chat', message: '可以先比较主体位置与留白。', workSummary: [], promptPlan: null };
+        }
         const hasTarget = Boolean(request.context?.nodeId);
         return {
             message: hasTarget ? '计划已就绪。' : '先选择一个生图节点即可应用。',
@@ -227,6 +233,11 @@ try {
     const clearedForNewWorkflow = messages.querySelector('.prompt-agent-empty')?.textContent.includes('描述你想生成')
         && panel.style.width === ''
         && !panel.classList.contains('active');
+    input.value = '先讨论构图';
+    await controller.submit();
+    const discussion = messages.querySelector('[data-role="agent"]');
+    const discussionHasNoActions = discussion?.textContent.includes('比较主体位置')
+        && discussion.querySelectorAll('.prompt-agent-actions, .prompt-agent-plan').length === 0;
 
     document.getElementById('surface-result').textContent = JSON.stringify({
         opened, unavailable, subtleHint, addModelOpensSettings, selectIsModern, narrowHeaderFits,
@@ -234,8 +245,21 @@ try {
         referencePreviewCount, referencesInRequest, referencesInWorkflow,
         planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), copyableText, applied,
         progressVisible, stopped, failureVisible, retriedWithPreview,
-        focused: focusedNodes, themeSamples, persistedMessageCount, restored, clearedForNewWorkflow
+        focused: focusedNodes, themeSamples, persistedMessageCount, restored, clearedForNewWorkflow, discussionHasNoActions
     });
+    // Optional manual visual review uses the same exercised control and production skins.
+    const preview = new URLSearchParams(location.search);
+    if (['light', 'dark', 'pink'].includes(preview.get('previewTheme'))) {
+        document.documentElement.dataset.appTheme = preview.get('previewTheme');
+        document.body.classList.add('button-preview');
+        const neighbour = document.createElement('button');
+        neighbour.className = 'btn btn-ghost';
+        neighbour.textContent = '缓存';
+        neighbour.style.marginRight = '12px';
+        toolbar.before(neighbour);
+        if (preview.get('expanded') !== 'false') controller.open();
+        if (preview.get('focus') === 'true') toolbar.focus();
+    }
 } catch (error) {
     document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
 }

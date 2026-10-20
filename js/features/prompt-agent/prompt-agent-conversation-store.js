@@ -3,6 +3,21 @@ function clone(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeContextSummary(summary) {
+    if (typeof summary !== 'string' || !summary.trim()) throw new Error('上下文摘要不能为空。');
+    const normalized = summary.trim();
+    if (normalized.length > 3000) throw new Error('上下文摘要不能超过 3000 字符。');
+    return normalized;
+}
+
+function latestPromptPlan(messages) {
+    return messages.findLast((message) => message.promptPlan)?.promptPlan || null;
+}
+
+export function getPromptAgentReferenceKey(image) {
+    return image?.referenceId || image?.dataUrl || `${image?.sourceNodeId || ''}:${image?.sourcePort || ''}:${image?.name || ''}`;
+}
+
 function normalizeReferenceImages(images = []) {
     const seen = new Set();
     return images
@@ -10,11 +25,14 @@ function normalizeReferenceImages(images = []) {
         .map((image) => ({
             name: String(image.name || '参考图'),
             type: String(image.type || 'image/*'),
-            dataUrl: image.dataUrl
+            dataUrl: image.dataUrl,
+            ...(image.referenceId ? { referenceId: String(image.referenceId) } : {}),
+            ...(image.sourceNodeId ? { sourceNodeId: String(image.sourceNodeId), sourceImageIndex: Number(image.sourceImageIndex) || 0 } : {})
         }))
         .filter((image) => {
-            if (seen.has(image.dataUrl)) return false;
-            seen.add(image.dataUrl);
+            const key = getPromptAgentReferenceKey(image);
+            if (seen.has(key)) return false;
+            seen.add(key);
             return true;
         });
 }
@@ -27,7 +45,7 @@ function normalizePromptPlan(plan) {
         .filter((image) => image && typeof image === 'object')
         .map((image) => {
             const safe = {};
-            ['name', 'type', 'sourceNodeId', 'sourcePort', 'targetPort', 'assetKeys'].forEach((key) => {
+            ['name', 'type', 'referenceId', 'sourceNodeId', 'sourceImageIndex', 'sourcePort', 'targetPort', 'assetKeys', 'imageId', 'role', 'imageCount'].forEach((key) => {
                 if (image[key] !== undefined && image[key] !== null) safe[key] = clone(image[key]);
             });
             if (Array.isArray(image.images)) safe.imageCount = image.images.length;
@@ -40,6 +58,7 @@ function normalizeMessage(message = {}) {
     return {
         role: message.role === 'agent' ? 'agent' : 'user',
         text: String(message.text || ''),
+        ...(typeof message.intent === 'string' ? { intent: message.intent } : {}),
         ...(Array.isArray(message.referenceImages) ? {
             referenceImages: normalizeReferenceImages(message.referenceImages)
         } : {}),
@@ -51,9 +70,13 @@ function normalizeMessage(message = {}) {
 export function createPromptAgentConversationStore({ maxContextCharacters = 4000 } = {}) {
     const limit = Math.max(64, Number(maxContextCharacters) || 4000);
     let memory = '';
+    let contextSummary = '';
     let messages = [];
+    let archivedMessages = [];
+    let compactedMessageCount = 0;
     let panelWidth = null;
     let referenceImages = [];
+    let previousPromptPlan = null;
 
     function contextLength() {
         return memory.length + messages.reduce((total, message) => total
@@ -65,7 +88,9 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
     function compress() {
         while (contextLength() > limit && messages.length > 1) {
             const oldest = messages.shift();
+            archivedMessages.push(oldest);
             const plan = oldest.promptPlan;
+            if (plan) previousPromptPlan = normalizePromptPlan(plan);
             referenceImages = normalizeReferenceImages([
                 ...referenceImages,
                 ...(oldest.referenceImages || [])
@@ -94,12 +119,33 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
     }
 
     function restore(value) {
-        memory = typeof value?.memory === 'string' ? value.memory : '';
-        messages = Array.isArray(value?.messages) ? value.messages.map(normalizeMessage) : [];
-        referenceImages = normalizeReferenceImages([
+        const restoredSummary = value?.contextSummary === undefined || value?.contextSummary === ''
+            ? ''
+            : normalizeContextSummary(value.contextSummary);
+        const restoredMessages = Array.isArray(value?.messages) ? value.messages.map(normalizeMessage) : [];
+        const restoredArchive = Array.isArray(value?.archivedMessages) ? value.archivedMessages.map(normalizeMessage) : [];
+        const restoredCompactedCount = value?.compactedMessageCount === undefined
+            ? (restoredSummary ? restoredArchive.length : 0)
+            : value.compactedMessageCount;
+        if (!Number.isInteger(restoredCompactedCount) || restoredCompactedCount < 0
+            || restoredCompactedCount > restoredArchive.length || (restoredCompactedCount > 0 && !restoredSummary)) {
+            throw new Error('已压缩的归档消息数量无效。');
+        }
+        const restoredReferences = normalizeReferenceImages([
             ...(Array.isArray(value?.referenceImages) ? value.referenceImages : []),
-            ...messages.flatMap((message) => message.referenceImages || [])
+            ...restoredArchive.flatMap((message) => message.referenceImages || []),
+            ...restoredMessages.flatMap((message) => message.referenceImages || [])
         ]);
+        const restoredPlan = value?.previousPromptPlan
+            ? normalizePromptPlan(value.previousPromptPlan)
+            : normalizePromptPlan(latestPromptPlan(restoredArchive));
+        memory = typeof value?.memory === 'string' ? value.memory : '';
+        contextSummary = restoredSummary;
+        messages = restoredMessages;
+        archivedMessages = restoredArchive;
+        compactedMessageCount = restoredCompactedCount;
+        referenceImages = restoredReferences;
+        previousPromptPlan = restoredPlan;
         panelWidth = Number.isFinite(Number(value?.panelWidth)) && Number(value.panelWidth) > 0
             ? Math.round(Number(value.panelWidth))
             : null;
@@ -108,6 +154,16 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
 
     function snapshot() {
         const snapshot = { version: 1, memory, messages: clone(messages), panelWidth };
+        if (contextSummary) {
+            snapshot.contextSummary = contextSummary;
+            snapshot.compactedMessageCount = compactedMessageCount;
+        }
+        if (archivedMessages.length) snapshot.archivedMessages = clone(archivedMessages);
+        // Compaction may remove the last draft before a short follow-up. Keep
+        // that complete draft separately only while no retained turn has one.
+        if (previousPromptPlan && !messages.some((message) => message.promptPlan)) {
+            snapshot.previousPromptPlan = clone(previousPromptPlan);
+        }
         if (referenceImages.length) snapshot.referenceImages = clone(referenceImages);
         return snapshot;
     }
@@ -122,7 +178,8 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
                 return `${message.role === 'user' ? '用户' : 'Agent'}：${message.text}${references}`;
             })
         ].filter(Boolean).join('\n');
-        return context.length > limit ? context.slice(-limit) : context;
+        const recentContext = context.length > limit ? context.slice(-limit) : context;
+        return [contextSummary ? `上下文摘要：${contextSummary}` : '', recentContext].filter(Boolean).join('\n');
     }
 
     function getReferenceImages() {
@@ -132,6 +189,16 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         ]));
     }
 
+    function getCompactionContext() {
+        const context = snapshot();
+        const archive = context.archivedMessages || [];
+        // Automatic trimming retains original turns for a future semantic
+        // compaction. Only the prefix covered by a checkpoint stays excluded.
+        context.messages = [...archive.slice(compactedMessageCount), ...context.messages];
+        context.archivedMessages = archive.slice(0, compactedMessageCount);
+        return context;
+    }
+
     function setPanelWidth(width) {
         const next = Math.round(Number(width));
         if (!Number.isFinite(next) || next <= 0 || next === panelWidth) return false;
@@ -139,5 +206,30 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         return true;
     }
 
-    return { append, restore, snapshot, getContext, getReferenceImages, setPanelWidth };
+    function compact(summary) {
+        // Validate and prepare replacement state before touching live history.
+        const normalizedSummary = normalizeContextSummary(summary);
+        const preservedPlan = normalizePromptPlan(latestPromptPlan(messages) || previousPromptPlan || latestPromptPlan(archivedMessages));
+        const preservedReferences = getReferenceImages();
+        const preservedArchive = [...archivedMessages, ...messages];
+        contextSummary = normalizedSummary;
+        memory = '';
+        messages = [];
+        archivedMessages = preservedArchive;
+        compactedMessageCount = preservedArchive.length;
+        previousPromptPlan = preservedPlan;
+        referenceImages = preservedReferences;
+    }
+
+    function clear() {
+        memory = '';
+        contextSummary = '';
+        messages = [];
+        archivedMessages = [];
+        compactedMessageCount = 0;
+        referenceImages = [];
+        previousPromptPlan = null;
+    }
+
+    return { append, restore, snapshot, getContext, getReferenceImages, getCompactionContext, setPanelWidth, compact, clear };
 }

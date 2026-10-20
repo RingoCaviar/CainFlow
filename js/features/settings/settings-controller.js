@@ -165,6 +165,7 @@ export function createSettingsControllerApi(options) {
         updateImageSaveWarnings: generalSettingsApi.updateImageSaveWarnings,
         updateAllNodeModelDropdowns: modelSettingsApi.updateAllNodeModelDropdowns,
         updateCacheUsage: generalSettingsApi.updateCacheUsage,
+        updateAgentCacheUsage: generalSettingsApi.updateAgentCacheUsage,
         initSettingsUI
     };
 }

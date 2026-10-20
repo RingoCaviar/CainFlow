@@ -1,3 +1,47 @@
+/* Agent's accent stays in the shared palette so its highlight follows every theme. */
+#btn-prompt-agent {
+    --prompt-agent-accent-start: color-mix(in srgb, var(--accent-pink) 64%, var(--accent-blue));
+    --prompt-agent-accent-end: var(--accent-blue);
+    --prompt-agent-button-tint: 12%;
+    position: relative;
+    border: 1px solid transparent;
+    background:
+        linear-gradient(115deg,
+            color-mix(in srgb, var(--prompt-agent-accent-start) var(--prompt-agent-button-tint), var(--surface-panel-strong, var(--panel-bg))),
+            color-mix(in srgb, var(--prompt-agent-accent-end) var(--prompt-agent-button-tint), var(--surface-panel-strong, var(--panel-bg)))) padding-box,
+        linear-gradient(115deg,
+            color-mix(in srgb, var(--prompt-agent-accent-start) 58%, var(--border-color)),
+            color-mix(in srgb, var(--prompt-agent-accent-end) 52%, var(--border-color))) border-box;
+    color: var(--text-primary);
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 8%, transparent);
+    transition: box-shadow var(--motion-fast, 150ms), color var(--motion-fast, 150ms);
+}
+
+#btn-prompt-agent:hover {
+    --prompt-agent-button-tint: 20%;
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent),
+        0 0 14px color-mix(in srgb, var(--prompt-agent-accent-start) 17%, transparent);
+}
+
+#btn-prompt-agent[aria-expanded="true"] {
+    --prompt-agent-button-tint: 27%;
+    box-shadow:
+        inset 0 -2px 0 color-mix(in srgb, var(--prompt-agent-accent-start) 75%, var(--prompt-agent-accent-end)),
+        0 0 16px color-mix(in srgb, var(--prompt-agent-accent-end) 18%, transparent);
+}
+
+#btn-prompt-agent:active {
+    --prompt-agent-button-tint: 32%;
+}
+
+#btn-prompt-agent:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 3px;
+}
+
 .prompt-agent-panel {
     position: absolute;
     container-type: inline-size;
@@ -119,6 +163,7 @@
 
 .prompt-agent-messages {
     flex: 1;
+    min-height: 0;
     overflow: auto;
     padding: 16px;
 }
@@ -180,7 +225,7 @@
     border: 1px solid var(--border-color);
 }
 
-.prompt-agent-composer { flex-wrap: wrap; border-top: 1px solid var(--border-color); border-bottom: 0; }
+.prompt-agent-composer { position: relative; flex: none; flex-wrap: wrap; border-top: 1px solid var(--border-color); border-bottom: 0; }
 .prompt-agent-composer.is-dragging-reference { outline: 2px solid var(--accent-color, var(--accent-purple)); outline-offset: -4px; }
 .prompt-agent-references,
 .prompt-agent-message-references {
@@ -190,6 +235,7 @@
     gap: 8px;
 }
 .prompt-agent-references[hidden] { display: none; }
+.prompt-agent-references { max-height: 136px; overflow: auto; padding: 6px; }
 .prompt-agent-reference { position: relative; display: inline-flex; }
 .prompt-agent-reference img {
     width: 52px;
@@ -198,6 +244,33 @@
     border: 1px solid var(--border-color);
     border-radius: 8px;
     background: var(--bg-input, var(--bg-dark));
+}
+.prompt-agent-reference-number {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    display: grid;
+    place-items: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.86);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+}
+.prompt-agent-reference.is-loading img { opacity: 0.45; }
+.prompt-agent-reference.is-loading::after {
+    content: '…';
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    color: var(--text-primary);
+    font-weight: 700;
 }
 .prompt-agent-reference-remove {
     position: absolute;
@@ -213,8 +286,128 @@
     cursor: pointer;
 }
 .prompt-agent-message-references { margin-top: 9px; }
+.prompt-agent-reference-error { flex: 0 0 100%; margin: 0; color: var(--text-primary); font-size: 12px; overflow-wrap: anywhere; }
+.prompt-agent-reference-error[hidden],
+.prompt-agent-reference-picker[hidden],
+.prompt-agent-command-menu[hidden],
+.prompt-agent-command-status[hidden],
+.prompt-agent-composer .btn[hidden] { display: none; }
+.prompt-agent-command-status {
+    flex: 0 0 100%;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+.prompt-agent-command-menu {
+    position: absolute;
+    z-index: 3;
+    bottom: calc(100% + 8px);
+    left: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: min(320px, 40vh);
+    overflow: auto;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--panel-bg, var(--bg-drawer));
+    box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.25));
+}
+.prompt-agent-command-option {
+    display: grid;
+    flex: none;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: 4px 10px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.prompt-agent-command-option:hover { background: var(--surface-control-hover); }
+.prompt-agent-command-option.is-active,
+.prompt-agent-command-option[aria-selected="true"] {
+    border-color: var(--accent-primary);
+    background: var(--accent-subtle, var(--surface-control-hover));
+}
+.prompt-agent-command-option:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.prompt-agent-command-option:disabled { opacity: 0.6; cursor: not-allowed; }
+.prompt-agent-command-name { font-size: 13px; font-weight: 650; font-family: var(--font-mono, monospace); }
+.prompt-agent-command-title { min-width: 0; font-size: 13px; font-weight: 600; }
+.prompt-agent-command-description { grid-column: 1 / -1; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.prompt-agent-add-reference.btn {
+    flex: none;
+    width: 32px;
+    height: 36px;
+    padding: 0;
+    font-size: 24px;
+    line-height: 1;
+}
+.prompt-agent-reference-picker {
+    position: absolute;
+    z-index: 2;
+    bottom: calc(100% + 8px);
+    left: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    max-height: min(360px, 45vh);
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--panel-bg, var(--bg-drawer));
+    box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.25));
+}
+.prompt-agent-reference-picker-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; }
+.prompt-agent-reference-picker-header .btn { padding: 4px 8px; font-size: 12px; }
+.prompt-agent-reference-picker-status { flex: none; margin: 6px 0 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.prompt-agent-reference-picker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; min-height: 0; overflow: auto; padding: 2px; }
+.prompt-agent-reference-option {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.prompt-agent-reference-option:hover { background: var(--surface-control-hover); }
+.prompt-agent-reference-option.is-selected { border-color: var(--accent-primary); background: var(--accent-subtle, var(--surface-control-hover)); }
+.prompt-agent-reference-option:focus-visible,
+.prompt-agent-add-reference:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.prompt-agent-reference-option-preview {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--bg-input, var(--bg-dark));
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+.prompt-agent-reference-option-preview img { width: 100%; height: 100%; object-fit: cover; }
+.prompt-agent-reference-check { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--panel-bg, var(--bg-drawer)); font-size: 12px; }
+.prompt-agent-reference-option.is-selected .prompt-agent-reference-check { border-color: var(--accent-primary); color: var(--accent-primary); }
+.prompt-agent-reference-option-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.5; }
 .prompt-agent-composer textarea {
     flex: 1;
+    min-width: 0;
     min-height: 42px;
     max-height: 150px;
     resize: vertical;

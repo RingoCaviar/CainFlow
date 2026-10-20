@@ -381,7 +381,19 @@
                 </section>
                 <form id="prompt-agent-form" class="prompt-agent-composer">
                     <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
-                    <textarea id="prompt-agent-input" rows="2" placeholder="描述你想生成的图片……" aria-label="Prompt Agent 输入"></textarea>
+                    <p id="prompt-agent-reference-error" class="prompt-agent-reference-error" role="status" hidden></p>
+                    <p id="prompt-agent-command-status" class="prompt-agent-command-status" role="status" aria-live="polite" hidden></p>
+                    <div id="prompt-agent-command-menu" class="prompt-agent-command-menu" role="listbox" aria-label="Agent 命令" hidden></div>
+                    <section id="prompt-agent-reference-picker" class="prompt-agent-reference-picker" aria-label="选择场景参考图" hidden>
+                        <div class="prompt-agent-reference-picker-header">
+                            <span>场景参考图</span>
+                            <button id="prompt-agent-reference-picker-close" class="btn btn-ghost" type="button" aria-label="关闭参考图选择">完成</button>
+                        </div>
+                        <p id="prompt-agent-reference-picker-status" class="prompt-agent-reference-picker-status" aria-live="polite"></p>
+                        <div id="prompt-agent-reference-picker-list" class="prompt-agent-reference-picker-list" role="group" aria-label="图片导入节点"></div>
+                    </section>
+                    <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加场景参考图" title="从当前场景添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker">+</button>
+                    <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" aria-label="Prompt Agent 输入" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
                     <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
                     <button id="prompt-agent-cancel" class="btn btn-secondary" type="button" hidden>停止请求</button>
                 </form>
@@ -967,6 +979,22 @@
                     </div>
                 </div>
             </div>
+
+            <section class="cache-info-card cache-agent-card" aria-label="Agent 缓存">
+                <div class="cache-agent-heading">
+                    <span class="cache-item-label">Agent 缓存</span>
+                    <span class="cache-agent-scope">已打开场景</span>
+                </div>
+                <div id="usage-agent" class="cache-metric-value">0 B</div>
+                <div id="usage-agent-detail" class="cache-metric-hint">0 个场景 · 0 条消息 · 0 张参考图</div>
+                <div class="cache-agent-current">
+                    <span class="cache-item-label">当前场景</span>
+                    <span id="usage-agent-current" class="cache-item-value">0 B</span>
+                </div>
+                <div id="usage-agent-context" class="cache-metric-hint">上下文 0 条 · 归档 0 条 · 摘要 0 份</div>
+                <p class="cache-metric-hint">含聊天、摘要和参考图，按场景数据大小估算，包含未保存修改。保存后属于基础数据，不计入上方媒体占用。</p>
+                <p class="cache-metric-hint">使用 /clear 清空当前场景；/compact 压缩上下文并保留历史记录。</p>
+            </section>
 
             <div class="cache-section-actions">
                 <button id="btn-clear-temporary-cache" class="btn btn-secondary cache-action-btn">

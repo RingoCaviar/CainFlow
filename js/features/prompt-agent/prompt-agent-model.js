@@ -1,6 +1,9 @@
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
+import { PROMPT_AGENT_SYSTEM_PROMPT } from './prompt-agent-instructions.js';
+import { createPromptAgentInput } from './prompt-agent-input.js';
+import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -10,66 +13,80 @@ export function getAvailablePromptAgentModels(models = [], providers = []) {
     });
 }
 
-const SYSTEM_PROMPT = `你是 CainFlow 的 Prompt Agent。请根据用户要求、当前生图节点和工作流上下文，生成可直接检查的 Prompt Plan。
-只返回一个 JSON 对象，不要 Markdown 代码围栏，不要解释推理过程。字段必须是：
-{"message": string, "workSummary": string[], "prompt": string, "negativePrompt": string, "parameters": object}。
-message 是简短回复；workSummary 最多 5 条可观察步骤；parameters 只能包含适合当前节点的生成参数。不要输出 targetNodeId，客户端会绑定当前明确选中的节点。`;
-
 function parseJson(text) {
     const value = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try { return JSON.parse(value); } catch {
         const start = value.indexOf('{');
         const end = value.lastIndexOf('}');
-        if (start >= 0 && end > start) return JSON.parse(value.slice(start, end + 1));
+        if (start >= 0 && end > start) {
+            try { return JSON.parse(value.slice(start, end + 1)); } catch { /* use the actionable error below */ }
+        }
         throw new Error('模型返回的 Prompt Plan 不是有效 JSON');
     }
 }
 
-function normalizeReply(payload, context, referenceImages = []) {
+function normalizeReply(payload, context, images = []) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('模型返回了无效的 Prompt Plan');
-    const plan = payload.promptPlan && typeof payload.promptPlan === 'object' ? payload.promptPlan : payload;
-    const prompt = String(plan.prompt || '').trim();
-    if (!prompt) throw new Error('模型没有返回可用的 Prompt');
-    const parameters = plan.parameters && typeof plan.parameters === 'object' && !Array.isArray(plan.parameters)
-        ? { ...plan.parameters } : {};
-    return {
-        message: String(payload.message || '已生成 Prompt Plan。').slice(0, 500),
+    // Accept older flat plans, while giving conversation-only replies an
+    // explicit representation rather than forcing invented image requests.
+    const plan = Object.hasOwn(payload, 'promptPlan') ? payload.promptPlan : (payload.prompt ? payload : null);
+    const intent = payload.intent || (plan ? 'generate' : 'chat');
+    if (!['chat', 'clarify', 'generate', 'edit', 'refine'].includes(intent)) throw new Error('模型返回了无效的意图类型');
+    const reply = {
+        intent,
+        message: typeof payload.message === 'string' ? payload.message.trim() : '',
         workSummary: Array.isArray(payload.workSummary)
-            ? payload.workSummary.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5)
-            : ['读取当前生图节点', '根据模型回复整理 Prompt Plan'],
+            ? payload.workSummary.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean).slice(0, 3)
+            : [],
+        promptPlan: null
+    };
+    if (intent === 'chat' || intent === 'clarify') {
+        if (!reply.message) throw new Error('模型没有返回可用的回复');
+        return reply;
+    }
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan) || typeof plan.prompt !== 'string' || !plan.prompt.trim()) {
+        throw new Error('模型没有返回可用的 Prompt');
+    }
+    if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') throw new Error('负面提示词必须是文本');
+    const parameters = normalizePromptAgentParameters(plan.parameters ?? {}, context ? context.parameterSchema : {});
+    const imageRoles = plan.imageRoles ?? [];
+    if (!Array.isArray(imageRoles)) throw new Error('图片角色必须是数组');
+    const selectedImages = imageRoles.map((item) => {
+        const image = images.find((candidate) => candidate.imageId === item?.imageId);
+        if (!image || !['edit-target', 'reference', 'supporting'].includes(item.role)) throw new Error('模型引用了无效的图片或图片角色');
+        return { ...image.reference, imageId: image.imageId, role: item.role };
+    });
+    if (intent === 'edit' && !imageRoles.some((item) => item.role === 'edit-target')) {
+        throw new Error('编辑方案缺少明确的目标图片，请指定要修改的图片');
+    }
+    return {
+        ...reply,
+        message: reply.message || '已整理 Prompt Plan。',
         promptPlan: {
             targetNodeId: context?.nodeId || null,
-            prompt,
-            negativePrompt: String(plan.negativePrompt || '').trim(),
+            prompt: plan.prompt.trim(),
+            ...(typeof plan.negativePrompt === 'string' ? { negativePrompt: plan.negativePrompt.trim() } : {}),
             parameters,
-            referenceImages
+            referenceImages: selectedImages
         }
     };
 }
 
 export async function createPromptAgentModelReply({
-    message = '', context = null, workflowMemory = '', referenceImages = [], workflowReferenceImages = [],
+    message = '', context = null, conversation = null, workflowMemory = '', referenceImages = [], workflowReferenceImages = [],
     model, providers = [], fetchRef = fetch, headers = {}, getHeaders = null, signal
 } = {}) {
     const provider = getResolvedProviderForModel(model, providers);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
-    const media = referenceImages.filter((item) => /^data:image\/.+;base64,/i.test(String(item?.dataUrl || '')))
-        .map((item) => ({ type: 'image', url: item.dataUrl }));
-    const contextText = [
-        context ? `当前生图节点：${JSON.stringify({
-            prompt: context.prompt || '', negativePrompt: context.negativePrompt || '', parameters: context.parameters || {},
-            referenceImages: context.referenceImages || []
-        })}` : '当前没有明确选中的生图节点。',
-        workflowMemory ? `工作流上下文：${workflowMemory}` : '',
-        workflowReferenceImages.length ? `工作流参考图数量：${workflowReferenceImages.length}` : ''
-    ].filter(Boolean).join('\n');
+    const input = createPromptAgentInput({
+        message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model
+    });
     const plan = createChatRequestPlan({
-        provider, model, protocol: model.protocol, systemPrompt: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: `${contextText}\n\n用户要求：${String(message || '').trim()}` }],
-        media, capabilities: model.capabilities || {}
+        provider, model, protocol: model.protocol, systemPrompt: PROMPT_AGENT_SYSTEM_PROMPT,
+        messages: input.messages, media: input.media, capabilities: model.capabilities || {}
     });
     const response = await requestChatCompletion(plan, {
         fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal
     });
-    return normalizeReply(parseJson(response.text), context, referenceImages);
+    return normalizeReply(parseJson(response.text), context, input.images);
 }

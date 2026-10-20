@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light" class="animations-disabled">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/02-buttons.css">
+    <link rel="stylesheet" href="../../css/modules/13-drawers-history-log.css">
+    <link rel="stylesheet" href="../../css/layout/workbench.css">
+    <link rel="stylesheet" href="../../css/features/panels.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <style>
+        body { padding: 24px; background: var(--bg-canvas); }
+        #cache-sidebar { position: relative; inset: auto; width: 360px; height: 880px; }
+        #surface-result { display: none; }
+    </style>
+</head>
+<body>
+    <div id="fixture"></div>
+    <pre id="surface-result"></pre>
+<script type="module">
+import { createGeneralSettings } from '../../js/features/settings/general-settings.js';
+import { createPromptAgentConversationStore } from '../../js/features/prompt-agent/prompt-agent-conversation-store.js';
+
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.getElementById('fixture').append(document.importNode(page.getElementById('cache-sidebar'), true));
+    const sidebar = document.getElementById('cache-sidebar');
+    const card = sidebar.querySelector('.cache-agent-card');
+    sidebar.classList.add('active');
+
+    const reference = { name: '参考图 1', type: 'image/png', dataUrl: 'data:image/png;base64,cmVmZXJlbmNl', referenceId: 'ref-1' };
+    const store = createPromptAgentConversationStore();
+    store.append({ role: 'user', text: '保留参考图的构图，生成蓝紫色城市夜景。', referenceImages: [reference] });
+    store.append({ role: 'agent', text: '已整理画面要求。', referenceImages: [reference] });
+    const other = createPromptAgentConversationStore();
+    other.append({ role: 'user', text: '另一个场景的草稿' });
+    const workflows = [
+        { workflowId: 'current', data: { promptAgent: { messages: Array.from({ length: 7 }, () => ({ role: 'user', text: '已过时的 tab 快照' })) } } },
+        { workflowId: 'other', data: { promptAgent: other.snapshot() } }
+    ];
+    const workflowsBefore = JSON.stringify(workflows);
+    const state = {};
+    let sourceReads = 0, networkCalls = 0, stateWrites = 0;
+    window.fetch = async () => { networkCalls += 1; throw new Error('本地 Agent 统计不应请求网络'); };
+    const settings = createGeneralSettings({
+        ctx: {
+            state, documentRef: document, windowRef: window,
+            saveState: () => { stateWrites += 1; },
+            getPromptAgentCacheState: () => {
+                sourceReads += 1;
+                return { workflows, activeWorkflowId: 'current', activeConversation: store.snapshot() };
+            }
+        },
+        dialogs: {}
+    });
+    const readDisplay = () => ({
+        total: document.getElementById('usage-agent').textContent,
+        current: document.getElementById('usage-agent-current').textContent,
+        detail: document.getElementById('usage-agent-detail').textContent,
+        context: document.getElementById('usage-agent-context').textContent
+    });
+    const stages = {};
+    settings.updateAgentCacheUsage();
+    stages.initial = readDisplay();
+    store.compact('用户要求：保留参考图 1 的构图，蓝紫色城市夜景。待用户继续细化。');
+    settings.updateAgentCacheUsage();
+    stages.compacted = readDisplay();
+    store.append({ role: 'user', text: '再增加雨后的倒影。' });
+    settings.updateAgentCacheUsage();
+    stages.followup = readDisplay();
+    const previewConversation = store.snapshot();
+
+    sidebar.classList.remove('active');
+    const readsBeforeClosed = sourceReads;
+    store.clear();
+    settings.updateAgentCacheUsage();
+    const closedSkipped = sourceReads === readsBeforeClosed
+        && JSON.stringify(readDisplay()) === JSON.stringify(stages.followup);
+    settings.updateAgentCacheUsage(true);
+    stages.cleared = readDisplay();
+    const forcedWhileClosed = sourceReads === readsBeforeClosed + 1;
+
+    store.restore(previewConversation);
+    sidebar.classList.add('active');
+    settings.updateAgentCacheUsage();
+    const themeSamples = [];
+    for (const theme of ['light', 'dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        for (const width of [320, 360]) {
+            sidebar.style.width = `${width}px`;
+            const bounds = card.getBoundingClientRect();
+            const drawer = sidebar.getBoundingClientRect();
+            const textFits = [...card.querySelectorAll('div, p, span')].every((element) => {
+                const rect = element.getBoundingClientRect();
+                return rect.left >= bounds.left && rect.right <= bounds.right;
+            });
+            themeSamples.push({
+                theme, width, textFits,
+                cardFits: bounds.left >= drawer.left && bounds.right <= drawer.right,
+                overflow: card.scrollWidth > card.clientWidth,
+                background: getComputedStyle(card).backgroundColor,
+                color: getComputedStyle(card).color
+            });
+        }
+    }
+    document.documentElement.dataset.appTheme = 'light';
+    sidebar.style.width = '360px';
+    const content = sidebar.querySelector('.drawer-content');
+    content.scrollTop = card.offsetTop - content.offsetTop - 24;
+    document.getElementById('surface-result').textContent = JSON.stringify({
+        stages, closedSkipped, forcedWhileClosed, themeSamples,
+        networkCalls, stateWrites,
+        sourceUnchanged: JSON.stringify(workflows) === workflowsBefore && Object.keys(state).length === 0,
+        currentHint: card.textContent.includes('包含未保存修改'),
+        compactHint: card.textContent.includes('/compact 压缩上下文并保留历史记录')
+    });
+} catch (error) {
+    document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+}
+</script>
+</body>
+</html>

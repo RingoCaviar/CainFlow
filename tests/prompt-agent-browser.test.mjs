@@ -31,4 +31,5 @@ test('Prompt Agent browser flow keeps references, actions, recovery, workflow st
     }
     assert.ok(result.persistedMessageCount >= 6);
     assert.ok(result.restored && result.clearedForNewWorkflow);
+    assert.ok(result.discussionHasNoActions);
 });

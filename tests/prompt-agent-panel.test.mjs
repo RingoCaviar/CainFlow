@@ -67,11 +67,20 @@ function createHarness(createReply = async () => ({
         'prompt-agent-form': new FakeElement(),
         'prompt-agent-input': new FakeElement(),
         'prompt-agent-send': new FakeElement(),
+        'prompt-agent-cancel': new FakeElement(),
+        'prompt-agent-command-menu': new FakeElement(),
+        'prompt-agent-command-status': new FakeElement(),
         'prompt-agent-model': new FakeElement(),
         'prompt-agent-model-hint': new FakeElement(),
         'prompt-agent-add-model': new FakeElement(),
         'prompt-agent-messages': new FakeElement(),
-        'prompt-agent-references': new FakeElement()
+        'prompt-agent-references': new FakeElement(),
+        'prompt-agent-add-reference': new FakeElement(),
+        'prompt-agent-reference-picker': new FakeElement(),
+        'prompt-agent-reference-picker-close': new FakeElement(),
+        'prompt-agent-reference-picker-list': new FakeElement(),
+        'prompt-agent-reference-picker-status': new FakeElement(),
+        'prompt-agent-reference-error': new FakeElement()
     };
     const documentRef = {
         activeElement: null,
@@ -139,6 +148,33 @@ test('passes selected node context to the Agent and applies the response plan', 
     agentMessage.children[3].children[0].dispatch('click');
     assert.equal(applied.prompt, '新提示词');
     assert.equal(elements['prompt-agent-panel'].classList.contains('active'), true);
+});
+
+test('discussion and clarification remain conversational, and later turns receive the full prior draft', async () => {
+    const requests = [];
+    const { controller, elements } = createHarness(async (request) => {
+        requests.push(request);
+        if (requests.length === 1) return {
+            intent: 'generate', message: '第一版', workSummary: [],
+            promptPlan: { targetNodeId: 'image-1', prompt: '红车海报；标题“出发”', parameters: {} }
+        };
+        return { intent: 'clarify', message: '希望调整哪一部分？', workSummary: [], promptPlan: null };
+    });
+    elements['prompt-agent-input'].value = '写一版海报';
+    await controller.submit();
+    elements['prompt-agent-input'].value = '讨论一下';
+    await controller.submit();
+    assert.equal(requests[1].conversation.messages.length, 2);
+    assert.equal(requests[1].conversation.messages[1].promptPlan.prompt, '红车海报；标题“出发”');
+    assert.equal(requests[1].conversation.messages.some((message) => message.text === '讨论一下'), false);
+    const lastMessage = elements['prompt-agent-messages'].children.at(-1);
+    assert.equal(lastMessage.children.length, 1);
+    assert.equal(lastMessage.children[0].textContent, '希望调整哪一部分？');
+    assert.equal(controller.snapshotWorkflow().messages.at(-1).intent, 'clarify');
+    controller.restoreWorkflow(null);
+    elements['prompt-agent-input'].value = '新工作流';
+    await controller.submit();
+    assert.deepEqual(requests.at(-1).conversation.messages, []);
 });
 
 test('refreshes chat models loaded after initialization before submitting', async () => {
@@ -536,4 +572,375 @@ test('a reference file that resolves after workflow restore is discarded', async
 
     assert.equal(elements['prompt-agent-references'].children.length, 0);
     assert.equal(controller.snapshotWorkflow().messages.length, 0);
+});
+
+const sceneReferences = [
+    { referenceId: 'import-a', sourceNodeId: 'a', sourceImageIndex: 0, name: '主体', previewUrl: 'data:image/png;base64,AAAA' },
+    { referenceId: 'import-b', sourceNodeId: 'b', sourceImageIndex: 0, name: '风格', previewUrl: 'data:image/png;base64,BBBB' }
+];
+const previewNumbers = (container) => container.children.map((item) => item.querySelector('.prompt-agent-reference-number').textContent);
+function sceneAdapter(readSceneReferenceImage = async (reference) => ({ ...reference, dataUrl: reference.previewUrl })) {
+    return { getSelectedContext: () => null, getSceneReferenceImages: () => sceneReferences, readSceneReferenceImage };
+}
+
+test('plus selects scene references in click order and renumbers after deselecting or removing', async () => {
+    let request;
+    const { controller, elements } = createHarness(async (value) => {
+        request = value;
+        return { message: '已收到参考图', promptPlan: null };
+    }, sceneAdapter());
+    const picker = elements['prompt-agent-reference-picker'];
+    const list = elements['prompt-agent-reference-picker-list'];
+    const pending = elements['prompt-agent-references'];
+    elements['prompt-agent-add-reference'].dispatch('click');
+    assert.equal(picker.hidden, false);
+    assert.equal(list.children.length, 2);
+    await list.children[1].dispatch('click');
+    await list.children[0].dispatch('click');
+    assert.deepEqual(previewNumbers(pending), ['1', '2']);
+    assert.equal(pending.children[0].children[0].alt, '参考图 1：风格');
+    assert.equal(list.children[0].attributes.get('aria-label'), '主体，参考图 2');
+    assert.equal(list.children[1].attributes.get('aria-checked'), 'true');
+
+    await list.children[1].dispatch('click');
+    assert.deepEqual(previewNumbers(pending), ['1']);
+    assert.equal(list.children[0].attributes.get('aria-label'), '主体，参考图 1');
+    await list.children[1].dispatch('click');
+    pending.children[0].querySelector('.prompt-agent-reference-remove').dispatch('click');
+    assert.equal(list.children[0].attributes.get('aria-checked'), 'false');
+    assert.equal(list.children[1].attributes.get('aria-label'), '风格，参考图 1');
+    await list.children[0].dispatch('click');
+
+    await elements['prompt-agent-form'].dispatch('submit');
+    assert.deepEqual(request.referenceImages.map((image) => image.sourceNodeId), ['b', 'a']);
+    assert.equal(picker.hidden, true);
+    assert.equal(pending.hidden, true);
+    const snapshot = controller.snapshotWorkflow();
+    assert.deepEqual(snapshot.messages[0].referenceImages.map((image) => image.referenceId), ['import-b', 'import-a']);
+    controller.restoreWorkflow(snapshot);
+    const sent = elements['prompt-agent-messages'].children[0].querySelector('.prompt-agent-message-references');
+    assert.deepEqual(previewNumbers(sent), ['1', '2']);
+    assert.equal(sent.children[0].children[0].alt, '参考图 1：风格');
+});
+
+test('parallel original-image reads keep click order and prevent sending incomplete references', async () => {
+    const resolvers = new Map();
+    let request;
+    const { elements } = createHarness(async (value) => {
+        request = value;
+        return { message: '收到', promptPlan: null };
+    }, sceneAdapter((reference) => new Promise((resolve) => resolvers.set(reference.referenceId, resolve))));
+    elements['prompt-agent-add-reference'].dispatch('click');
+    const list = elements['prompt-agent-reference-picker-list'];
+    const first = list.children[1].dispatch('click');
+    const second = list.children[0].dispatch('click');
+    elements['prompt-agent-input'].value = '用第 2 张的主体';
+    assert.equal(elements['prompt-agent-send'].disabled, true);
+    await elements['prompt-agent-form'].dispatch('submit');
+    assert.equal(request, undefined);
+    assert.equal(elements['prompt-agent-input'].value, '用第 2 张的主体');
+    resolvers.get('import-a')({ ...sceneReferences[0], dataUrl: 'data:image/png;base64,FULL_A' });
+    await second;
+    assert.equal(elements['prompt-agent-send'].disabled, true);
+    resolvers.get('import-b')({ ...sceneReferences[1], dataUrl: 'data:image/png;base64,FULL_B' });
+    await first;
+    assert.equal(elements['prompt-agent-send'].disabled, false);
+    await elements['prompt-agent-form'].dispatch('submit');
+    assert.deepEqual(request.referenceImages.map((image) => image.dataUrl), ['data:image/png;base64,FULL_B', 'data:image/png;base64,FULL_A']);
+});
+
+test('failed or cancelled selections can be retried without resurrecting a removed image', async () => {
+    let resolveImage;
+    let fail = true;
+    const { elements } = createHarness(undefined, sceneAdapter(async (reference) => {
+        if (fail) throw new Error('原图已丢失');
+        return new Promise((resolve) => { resolveImage = () => resolve({ ...reference, dataUrl: reference.previewUrl }); });
+    }));
+    elements['prompt-agent-add-reference'].dispatch('click');
+    const list = elements['prompt-agent-reference-picker-list'];
+    await list.children[0].dispatch('click');
+    assert.equal(elements['prompt-agent-references'].children.length, 0);
+    assert.equal(elements['prompt-agent-reference-error'].hidden, false);
+    assert.match(elements['prompt-agent-reference-error'].textContent, /原图已丢失/);
+    assert.equal(elements['prompt-agent-send'].disabled, false);
+    fail = false;
+    const loading = list.children[0].dispatch('click');
+    await list.children[0].dispatch('click');
+    resolveImage();
+    await loading;
+    assert.equal(elements['prompt-agent-references'].children.length, 0);
+    assert.equal(elements['prompt-agent-reference-error'].hidden, true);
+    const retry = list.children[0].dispatch('click');
+    resolveImage();
+    await retry;
+    assert.deepEqual(previewNumbers(elements['prompt-agent-references']), ['1']);
+});
+
+test('scene reads finishing after a workflow switch cannot add references to the new workflow', async () => {
+    let finish;
+    const { controller, elements } = createHarness(undefined, sceneAdapter((reference) => new Promise((resolve) => {
+        finish = () => resolve({ ...reference, dataUrl: reference.previewUrl });
+    })));
+    elements['prompt-agent-add-reference'].dispatch('click');
+    const loading = elements['prompt-agent-reference-picker-list'].children[0].dispatch('click');
+    controller.restoreWorkflow(null);
+    finish();
+    await loading;
+    assert.equal(elements['prompt-agent-reference-picker'].hidden, true);
+    assert.equal(elements['prompt-agent-references'].children.length, 0);
+    assert.equal(elements['prompt-agent-send'].disabled, false);
+    assert.equal(controller.snapshotWorkflow().messages.length, 0);
+});
+
+test('the picker refreshes the current scene and exposes an empty state and keyboard dismissal', () => {
+    let candidates = sceneReferences;
+    const { controller, elements } = createHarness(undefined, {
+        ...sceneAdapter(), getSceneReferenceImages: () => candidates
+    });
+    elements['prompt-agent-add-reference'].dispatch('click');
+    assert.equal(elements['prompt-agent-reference-picker-list'].children.length, 2);
+    candidates = [];
+    controller.refreshActionStates();
+    assert.equal(elements['prompt-agent-reference-picker-list'].children.length, 0);
+    assert.match(elements['prompt-agent-reference-picker-status'].textContent, /还没有/);
+    elements['prompt-agent-form'].dispatch('keydown', { key: 'Escape' });
+    assert.equal(elements['prompt-agent-reference-picker'].hidden, true);
+    assert.equal(elements['prompt-agent-add-reference'].attributes.get('aria-expanded'), 'false');
+});
+
+function enterText(elements, text) {
+    elements['prompt-agent-input'].value = text;
+    elements['prompt-agent-input'].dispatch('input');
+}
+
+test('clear works without a model and erases drafts, attachments, plans and checkpoints while preserving the panel', async () => {
+    let replyCount = 0;
+    const { controller, elements } = createHarness(async () => { replyCount++; }, undefined, null, { getChatModels: () => [] });
+    controller.restoreWorkflow({
+        memory: '记忆', contextSummary: '摘要', panelWidth: 612,
+        archivedMessages: [{ role: 'user', text: '旧消息' }],
+        messages: [{ role: 'agent', text: '方案', promptPlan: { prompt: '蓝猫', parameters: {} } }],
+        referenceImages: [{ name: '旧图', dataUrl: 'data:image/png;base64,OLD' }]
+    });
+    controller.open();
+    enterText(elements, '/clear');
+    assert.equal(elements['prompt-agent-send'].disabled, false);
+    await controller.submit();
+    const snapshot = controller.snapshotWorkflow();
+    assert.deepEqual(snapshot.messages, []);
+    for (const key of ['contextSummary', 'archivedMessages', 'referenceImages', 'previousPromptPlan']) assert.equal(snapshot[key], undefined);
+    assert.equal(snapshot.memory, '');
+    assert.equal(elements['prompt-agent-panel'].style.width, '612px');
+    assert.equal(elements['prompt-agent-panel'].classList.contains('active'), true);
+    assert.equal(replyCount, 0);
+    assert.match(elements['prompt-agent-command-status'].textContent, /已清空/);
+});
+
+test('clear fences late replies and image reads without unlocking a newer request', async () => {
+    const replyResolvers = [];
+    let resolveImage;
+    const { controller, elements } = createHarness((request) => new Promise((resolve) => replyResolvers.push({ request, resolve })), undefined, null, {
+        readReferenceFile: () => new Promise((resolve) => { resolveImage = resolve; })
+    });
+    enterText(elements, '旧任务');
+    const oldReply = controller.submit();
+    const oldImage = elements['prompt-agent-form'].dispatch('drop', { dataTransfer: { files: [{ type: 'image/png', name: '旧图' }] } });
+    enterText(elements, '/clear');
+    await controller.submit();
+    assert.equal(replyResolvers[0].request.signal.aborted, true);
+    enterText(elements, '新任务');
+    const newReply = controller.submit();
+    replyResolvers[0].resolve({ message: '迟到回复' });
+    resolveImage({ name: '迟到图片', dataUrl: 'data:image/png;base64,LATE' });
+    await Promise.all([oldReply, oldImage]);
+    assert.equal(elements['prompt-agent-send'].disabled, true);
+    assert.equal(elements['prompt-agent-cancel'].hidden, false);
+    assert.equal(elements['prompt-agent-references'].children.length, 0);
+    assert.deepEqual(controller.snapshotWorkflow().messages.map((message) => message.text), ['新任务']);
+    replyResolvers[1].resolve({ message: '新回复' });
+    await newReply;
+    assert.deepEqual(controller.snapshotWorkflow().messages.map((message) => message.text), ['新任务', '新回复']);
+});
+
+test('slash menus filter and handle keyboard selection without executing an IME confirmation', async () => {
+    const { controller, elements } = createHarness();
+    enterText(elements, '/');
+    const menu = elements['prompt-agent-command-menu'];
+    const input = elements['prompt-agent-input'];
+    assert.equal(menu.hidden, false);
+    assert.equal(menu.children.length, 2);
+    await input.dispatch('keydown', { key: 'ArrowDown' });
+    assert.equal(menu.children[1].attributes.get('aria-selected'), 'true');
+    await input.dispatch('keydown', { key: 'Enter', isComposing: true });
+    assert.equal(menu.hidden, false);
+    await input.dispatch('keydown', { key: 'Enter', shiftKey: true });
+    assert.equal(menu.hidden, false);
+    assert.equal(input.value, '/');
+    await input.dispatch('keydown', { key: 'Escape' });
+    assert.equal(menu.hidden, true);
+    enterText(elements, '/cle');
+    assert.equal(menu.children.length, 1);
+    await input.dispatch('keydown', { key: 'Enter' });
+    assert.match(elements['prompt-agent-command-status'].textContent, /已清空/);
+    assert.deepEqual(controller.snapshotWorkflow().messages, []);
+    enterText(elements, '讨论 /clear 的意思');
+    assert.equal(menu.hidden, true);
+});
+
+test('unknown commands and unavailable or empty compaction stay local', async () => {
+    let calls = 0;
+    let models = [];
+    const { controller, elements } = createHarness(async () => { calls++; }, undefined, null, {
+        getChatModels: () => models, createCompaction: async () => { calls++; }
+    });
+    enterText(elements, '/unknown');
+    await controller.submit();
+    assert.match(elements['prompt-agent-command-status'].textContent, /未知命令/);
+    enterText(elements, '/compact');
+    await controller.submit();
+    assert.match(elements['prompt-agent-command-status'].textContent, /还没有/);
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '猫' }] });
+    enterText(elements, '/compact');
+    await controller.submit();
+    assert.match(elements['prompt-agent-command-status'].textContent, /配置/);
+    assert.equal(elements['prompt-agent-input'].value, '/compact');
+    models = [TEST_CHAT_MODEL];
+    controller.restoreWorkflow({ contextSummary: '蓝色小猫', messages: [] });
+    await controller.submit();
+    assert.match(elements['prompt-agent-command-status'].textContent, /还没有新增/);
+    assert.equal(calls, 0);
+});
+
+test('compaction preserves transcript cards and pending references, then merges only subsequent context', async () => {
+    const compactions = [];
+    let completeCompaction;
+    const replies = [];
+    const { controller, elements } = createHarness(async (request) => {
+        replies.push(request);
+        return { message: '已调整', promptPlan: { prompt: '蓝猫，黄昏', parameters: {} } };
+    }, sceneAdapter(), null, { createCompaction: (request) => {
+        compactions.push(request);
+        return new Promise((resolve) => { completeCompaction = resolve; });
+    } });
+    controller.restoreWorkflow({ messages: [
+        { role: 'user', text: '蓝猫，没有文字' },
+        { role: 'agent', text: '初稿', promptPlan: { prompt: '蓝猫，清晨，没有文字', parameters: { count: 2 } } }
+    ] });
+    const originalCards = elements['prompt-agent-messages'].children.slice();
+    elements['prompt-agent-add-reference'].dispatch('click');
+    await elements['prompt-agent-reference-picker-list'].children[0].dispatch('click');
+    enterText(elements, '/compact');
+    const compacting = controller.submit();
+    assert.equal(compactions[0].modelId, TEST_CHAT_MODEL.id);
+    assert.equal(compactions[0].conversation.messages.length, 2);
+    enterText(elements, '压缩期间继续写的草稿');
+    completeCompaction({ summary: '保持蓝猫和无文字要求，最新清晨方案待应用。' });
+    await compacting;
+    assert.deepEqual(elements['prompt-agent-messages'].children, originalCards);
+    assert.equal(elements['prompt-agent-input'].value, '压缩期间继续写的草稿');
+    assert.equal(elements['prompt-agent-references'].children.length, 1);
+    const compacted = controller.snapshotWorkflow();
+    assert.equal(compacted.contextSummary, '保持蓝猫和无文字要求，最新清晨方案待应用。');
+    assert.equal(compacted.archivedMessages.length, 2);
+    assert.equal(compacted.messages.length, 0);
+    assert.equal(compacted.previousPromptPlan.parameters.count, 2);
+    enterText(elements, '改为黄昏');
+    await controller.submit();
+    assert.equal(replies[0].conversation.contextSummary, compacted.contextSummary);
+    assert.equal(replies[0].conversation.messages.length, 0);
+    enterText(elements, '/compact');
+    const again = controller.submit();
+    assert.equal(compactions[1].conversation.messages.length, 2);
+    assert.equal(compactions[1].conversation.contextSummary, compacted.contextSummary);
+    completeCompaction({ summary: '保持蓝猫和无文字要求，已修改草稿为黄昏，尚未应用。' });
+    await again;
+    assert.equal(controller.snapshotWorkflow().archivedMessages.length, 4);
+});
+
+test('failed or invalid compaction leaves the entire saved context unchanged', async () => {
+    for (const createCompaction of [
+        async () => { throw new Error('网络中断'); },
+        async () => ({ summary: '' }),
+        async () => ({ summary: '长'.repeat(3001) })
+    ]) {
+        const { controller, elements } = createHarness(undefined, undefined, null, { createCompaction });
+        controller.restoreWorkflow({ contextSummary: '旧摘要', messages: [{ role: 'user', text: '新要求' }] });
+        const before = controller.snapshotWorkflow();
+        enterText(elements, '/compact');
+        await controller.submit();
+        assert.deepEqual(controller.snapshotWorkflow(), before);
+        assert.match(elements['prompt-agent-command-status'].textContent, /压缩失败/);
+        assert.equal(elements['prompt-agent-cancel'].hidden, true);
+    }
+});
+
+test('cancelling compaction discards even a cancellation-resistant reply and keeps the original context', async () => {
+    let finish;
+    let request;
+    const { controller, elements } = createHarness(undefined, undefined, null, {
+        createCompaction: (value) => {
+            request = value;
+            return new Promise((resolve) => { finish = resolve; });
+        }
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '原要求' }] });
+    const before = controller.snapshotWorkflow();
+    enterText(elements, '/compact');
+    const pending = controller.submit();
+    elements['prompt-agent-cancel'].dispatch('click');
+    assert.equal(request.signal.aborted, true);
+    assert.equal(elements['prompt-agent-cancel'].hidden, true);
+    finish({ summary: '不应写回的摘要' });
+    await pending;
+    assert.deepEqual(controller.snapshotWorkflow(), before);
+    assert.match(elements['prompt-agent-command-status'].textContent, /已取消压缩/);
+});
+
+test('clearing or switching workflow during compaction discards its late result without touching a newer operation', async () => {
+    for (const reset of ['clear', 'switch']) {
+        let finishCompact;
+        let finishReply;
+        const { controller, elements } = createHarness(() => new Promise((resolve) => { finishReply = resolve; }), undefined, null, {
+            createCompaction: () => new Promise((resolve) => { finishCompact = resolve; })
+        });
+        controller.restoreWorkflow({ messages: [{ role: 'user', text: '旧上下文' }] });
+        enterText(elements, '/compact');
+        const pendingCompact = controller.submit();
+        if (reset === 'clear') {
+            enterText(elements, '/clear');
+            await controller.submit();
+        } else controller.restoreWorkflow({ messages: [], memory: '新场景' });
+        enterText(elements, '新对话');
+        const pendingReply = controller.submit();
+        finishCompact({ summary: '旧摘要' });
+        await pendingCompact;
+        assert.equal(controller.snapshotWorkflow().contextSummary, undefined);
+        assert.equal(elements['prompt-agent-cancel'].hidden, false);
+        assert.equal(elements['prompt-agent-send'].disabled, true);
+        finishReply({ message: '新回复' });
+        await pendingReply;
+        assert.deepEqual(controller.snapshotWorkflow().messages.map((message) => message.text), ['新对话', '新回复']);
+    }
+});
+
+test('a new action error during compaction cannot be archived by a summary that never saw it', async () => {
+    let finish;
+    const { controller, elements } = createHarness(undefined, {
+        getSelectedContext: () => ({ nodeId: 'image-1' }),
+        applyPromptPlan: () => false
+    }, null, { createCompaction: () => new Promise((resolve) => { finish = resolve; }) });
+    controller.restoreWorkflow({ messages: [
+        { role: 'user', text: '蓝猫' },
+        { role: 'agent', text: '方案', promptPlan: { targetNodeId: 'image-1', prompt: '蓝猫', parameters: {} } }
+    ] });
+    enterText(elements, '/compact');
+    const compacting = controller.submit();
+    const actions = elements['prompt-agent-messages'].children[1].querySelector('.prompt-agent-actions');
+    await actions.children[0].dispatch('click');
+    assert.equal(controller.snapshotWorkflow().messages.length, 3);
+    finish({ summary: '只有之前两条消息的摘要' });
+    await compacting;
+    assert.equal(controller.snapshotWorkflow().messages.length, 3);
+    assert.equal(controller.snapshotWorkflow().contextSummary, undefined);
+    assert.match(elements['prompt-agent-command-status'].textContent, /对话已更新/);
 });

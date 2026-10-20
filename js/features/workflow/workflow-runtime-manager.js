@@ -1014,6 +1014,32 @@ export function createWorkflowRuntimeManager({
         return nodes;
     }
 
+    async function captureWorkflowNodeResult(node, includeImages) {
+        let images = includeImages ? getCanonicalImageList(node, { includeResizePreview: false }).slice() : [];
+        if (includeImages && images.length === 0 && IMAGE_RESULT_NODE_TYPES.has(node.type)) {
+            const keys = (node.data?.mediaAssetKeys?.length
+                ? node.data.mediaAssetKeys : [node.data?.imageAssetKey])
+                .filter((key) => typeof key === 'string' && key);
+            const batches = await Promise.all(keys.map(async (key) => {
+                try {
+                    return normalizeImageList(typeof getImageAssetList === 'function'
+                        ? await getImageAssetList(key) : await getImageAsset?.(key));
+                } catch (error) {
+                    // A preview read error must not turn a successful generation
+                    // into a failed run; its persisted result still belongs to the node.
+                    addLog('warning', '运行结果预览读取失败', error?.message || String(error), { nodeId: node.id });
+                    return [];
+                }
+            }));
+            images = batches.flat();
+        }
+        return {
+            nodeId: node.id,
+            images,
+            ...(node.executionFailure?.message ? { error: node.executionFailure.message } : {})
+        };
+    }
+
     function deriveWorkflowRunResult(context, caughtError = null) {
         if (!context) return '';
         if (caughtError || context.runResult === 'error' || context.abortReason) return 'error';
@@ -1753,7 +1779,7 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    async function runWorkflowInContext(workflow, workflowData, runInput = null) {
+    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
@@ -1778,7 +1804,7 @@ export function createWorkflowRuntimeManager({
         if (!plan) {
             context.dispose();
             syncGlobalRunToolbarState();
-            return false;
+            return waitForCompletion ? { started: false, executed: false, reason: 'no-plan' } : false;
         }
         const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
             .filter((nodeId) => context.state.nodes.get(nodeId)?.enabled !== false);
@@ -1788,7 +1814,7 @@ export function createWorkflowRuntimeManager({
             context.dispose();
             showToast(`当前运行线路上有 ${overlappingNodeIds.length} 个节点仍在运行，请等待这些节点完成后再运行`, 'warning');
             syncGlobalRunToolbarState();
-            return false;
+            return waitForCompletion ? { started: false, executed: false, reason: 'already-running' } : false;
         }
 
         context.activePlanNodeIds = new Set(runnableNodeIds);
@@ -1809,9 +1835,11 @@ export function createWorkflowRuntimeManager({
 
         context.promise = (async () => {
             let runError = null;
+            let executionResult = null;
+            let completionResult;
             try {
                 await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan));
-                await context.runner.runWorkflow(runInput);
+                executionResult = await context.runner.runWorkflow(runInput);
             } catch (error) {
                 runError = error;
                 const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(workflowId) || workflowName;
@@ -1836,6 +1864,18 @@ export function createWorkflowRuntimeManager({
                     }
                 }
                 const runResult = deriveWorkflowRunResult(context, runError);
+                if (waitForCompletion) {
+                    // Capture this run's outputs before disposal clears its nodes.
+                    // The visible canvas may already show a different workflow.
+                    completionResult = {
+                        ...(executionResult || { started: context.nodeRunStarted === true, executed: false, reason: 'error', outcome: 'failed' }),
+                        workflowId,
+                        ...(runError ? { reason: 'error', outcome: 'failed', error: runError.message || String(runError) } : {}),
+                        nodeResults: await Promise.all(getWorkflowRunResultNodes(context).map((node) => captureWorkflowNodeResult(
+                            node, !runError && executionResult?.outcome === 'completed'
+                        )))
+                    };
+                }
                 context.activePlanNodeIds.clear();
                 const stillRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);
                 let runningStateError = null;
@@ -1862,8 +1902,11 @@ export function createWorkflowRuntimeManager({
                 }
                 if (runningStateError) throw runningStateError;
             }
+            return completionResult;
         })();
-        return true;
+        // Toolbar callers only need launch acceptance; result consumers must
+        // await the exact context they started, including result persistence.
+        return waitForCompletion ? context.promise : true;
     }
 
     function getRunConflictInfo(workflow, workflowData, runInput = null) {

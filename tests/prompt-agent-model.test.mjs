@@ -2,9 +2,67 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../js/features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', capabilities: { imageInput: true }, providerIds: ['provider-1'] };
 const provider = { id: 'provider-1', name: 'Test', endpoint: 'https://example.test/v1', apikey: 'secret' };
+
+test('explicit compaction sends the checkpoint and exact latest draft with historical image ordinals but no archived dialogue', async () => {
+    const store = createPromptAgentConversationStore();
+    const images = [
+        { name: '主体', referenceId: 'source-a', dataUrl: 'data:image/png;base64,SUBJECT' },
+        { name: '配色', referenceId: 'source-b', dataUrl: 'data:image/png;base64,COLOR' }
+    ];
+    store.append({ role: 'user', text: '仅归档的原话_不要再次发送', referenceImages: images });
+    store.append({ role: 'agent', text: '仅归档的回复_不要再次发送', promptPlan: {
+        targetNodeId: 'node-1', prompt: '蓝猫海报，标题“出发！”', negativePrompt: '水印',
+        parameters: { count: 2 }, referenceImages: [{ ...images[0], role: 'edit-target' }]
+    } });
+    store.compact('保留蓝猫主体与精确标题，图2仅配色参考。草稿尚未应用。');
+    const restored = createPromptAgentConversationStore();
+    restored.restore(store.snapshot());
+    const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
+        message: '沿用第2张的配色',
+        conversation: restored.snapshot(),
+        workflowReferenceImages: restored.getReferenceImages()
+    });
+    await result;
+    const messages = request().messages;
+    const current = JSON.parse(messages.at(-1).content[0].text);
+    assert.equal(current.contextSummary, store.snapshot().contextSummary);
+    assert.equal(current.workflowMemory, '');
+    assert.deepEqual(current.earlierReferenceTurns, [{
+        messageNumber: 1, referenceImages: [
+            { referenceNumber: 1, name: '主体', imageId: 'image-1' },
+            { referenceNumber: 2, name: '配色', imageId: 'image-2' }
+        ]
+    }]);
+    assert.doesNotMatch(JSON.stringify(messages), /仅归档的原话|仅归档的回复/);
+    const plan = JSON.parse(messages.find((item) => item.role === 'assistant').content).promptPlan;
+    assert.equal(plan.prompt, '蓝猫海报，标题“出发！”');
+    assert.equal(plan.negativePrompt, '水印');
+    assert.equal(plan.parameters.count, 2);
+    assert.equal(plan.referenceImages[0].role, 'edit-target');
+    assert.deepEqual(messages.at(-1).content.slice(1).map((part) => part.image_url.url), images.map((image) => image.dataUrl));
+});
+
+test('the complete latest plan survives compaction even when its text exceeds the ordinary history budget', async () => {
+    const prompt = `${'必须保留的精确文字'.repeat(2100)}结尾也不能丢`;
+    for (const messages of [[], [{ role: 'user', text: '后续讨论'.repeat(5000) }]]) {
+        const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
+            conversation: {
+                contextSummary: '保留上版完整方案',
+                previousPromptPlan: { prompt, parameters: { count: 2 } },
+                messages
+            }
+        });
+        await result;
+        const plan = JSON.parse(request().messages.find((item) => item.role === 'assistant').content).promptPlan;
+        assert.equal(plan.prompt, prompt);
+        assert.equal(plan.parameters.count, 2);
+        assert.equal(JSON.parse(request().messages.at(-1).content).contextSummary, '保留上版完整方案');
+    }
+});
 
 test('Agent offers only configured chat models with a usable Provider', () => {
     const models = [
@@ -42,4 +100,198 @@ test('Prompt Agent rejects missing configuration and malformed model plans', asy
     await assert.rejects(createPromptAgentModelReply({ model, providers: [provider], message: '你好', fetchRef: async () => ({
         ok: true, json: async () => ({ choices: [{ message: { content: '不是 JSON' } }] })
     }) }), /有效 JSON/);
+});
+
+function replyHarness(payload, options = {}) {
+    let request;
+    const result = createPromptAgentModelReply({
+        model, providers: [provider], message: '再暖一点', ...options,
+        fetchRef: async (url, init) => {
+            request = JSON.parse(init.body);
+            const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            return { ok: true, json: async () => options.model?.protocol === 'google'
+                ? { candidates: [{ content: { parts: [{ text }] } }] }
+                : { choices: [{ message: { content: text } }] } };
+        }
+    });
+    return { result, request: () => request };
+}
+
+test('discussion and clarification replies do not require or expose an applicable plan', async () => {
+    for (const intent of ['chat', 'clarify']) {
+        const { result } = replyHarness({
+            intent, message: '请说明希望保留哪张图中的主体。', workSummary: [],
+            // A stray model plan must not turn a discussion into an action.
+            promptPlan: { prompt: '不应被应用', parameters: {} }
+        });
+        assert.deepEqual(await result, {
+            intent, message: '请说明希望保留哪张图中的主体。', workSummary: [], promptPlan: null
+        });
+    }
+});
+
+test('follow-ups send complete unapplied drafts with assistant roles and keep the current request separate', async () => {
+    const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
+        context: { nodeId: 'image-1', prompt: '旧城市图', parameters: {} },
+        conversation: {
+            memory: '旧风格摘要',
+            messages: [
+                { role: 'user', text: '红车海报，标题“出发！”' },
+                { role: 'agent', text: '已整理', intent: 'generate', promptPlan: {
+                    targetNodeId: 'image-1', prompt: '红色汽车海报，标题“出发！”', negativePrompt: '人物', parameters: { count: 2 }
+                } }
+            ]
+        },
+        message: '车换蓝色，标题不变'
+    });
+    await result;
+    const messages = request().messages;
+    assert.deepEqual(messages.map((item) => item.role), ['system', 'user', 'assistant', 'user']);
+    const draft = JSON.parse(messages[2].content).promptPlan;
+    assert.equal(draft.prompt, '红色汽车海报，标题“出发！”');
+    assert.equal(draft.parameters.count, 2);
+    const current = JSON.parse(messages.at(-1).content);
+    assert.equal(current.currentNode.prompt, '旧城市图');
+    assert.equal(current.userRequest, '车换蓝色，标题不变');
+    assert.equal(JSON.stringify(messages).split('车换蓝色，标题不变').length - 1, 1);
+});
+
+test('current, historical, connected and result images are real deduplicated media with explicit availability', async () => {
+    const a = { name: '配色.png', dataUrl: 'data:image/png;base64,REF_A' };
+    const b = 'data:image/png;base64,NODE_B';
+    const c = 'data:image/png;base64,RESULT_C';
+    const { result, request } = replyHarness({
+        intent: 'generate', message: '按配色参考整理新画面', promptPlan: {
+            prompt: '新空间站', negativePrompt: null, parameters: {},
+            imageRoles: [{ imageId: 'image-1', role: 'reference' }]
+        }
+    }, {
+        referenceImages: [a], workflowReferenceImages: [a],
+        context: {
+            nodeId: 'image-1', parameters: {},
+            referenceImages: [
+                { sourceNodeId: 'source-a', images: [a.dataUrl] },
+                { sourceNodeId: 'source-b', images: [b] },
+                { sourceNodeId: 'missing', assetKeys: ['media:missing'], images: [] }
+            ],
+            outputImages: [{ sourceNodeId: 'image-1', images: [c] }]
+        }
+    });
+    const reply = await result;
+    const content = request().messages.at(-1).content;
+    assert.deepEqual(content.filter((part) => part.type === 'image_url').map((part) => part.image_url.url), [a.dataUrl, b, c]);
+    assert.doesNotMatch(content[0].text, /base64|REF_A|NODE_B|RESULT_C|media:missing/);
+    const catalog = JSON.parse(content[0].text).images;
+    assert.deepEqual(catalog[0].origins, ['本轮附件', '节点输入', '历史附件']);
+    assert.equal(catalog[0].connectedToNode, true);
+    assert.equal(catalog[2].visionAvailable, false);
+    assert.equal(catalog[2].attachmentIndex, undefined);
+    assert.equal(catalog[3].attachmentIndex, 3);
+    assert.equal(catalog[3].connectedToNode, false);
+    assert.equal(reply.promptPlan.referenceImages.length, 1);
+    assert.equal(reply.promptPlan.referenceImages[0].role, 'reference');
+    assert.equal(Object.hasOwn(reply.promptPlan, 'negativePrompt'), false);
+});
+
+test('historical pictures remain visible on a text-only follow-up for OpenAI and Google', async () => {
+    for (const protocol of ['openai', 'google']) {
+        const { result, request } = replyHarness({ intent: 'chat', message: '比较构图', promptPlan: null }, {
+            model: { ...model, protocol },
+            workflowReferenceImages: [{ name: '前一张.png', dataUrl: 'data:image/png;base64,HISTORY' }]
+        });
+        await result;
+        if (protocol === 'google') {
+            assert.deepEqual(request().contents.at(-1).parts[1].inlineData, { mimeType: 'image/png', data: 'HISTORY' });
+        } else {
+            assert.equal(request().messages.at(-1).content[1].image_url.url, 'data:image/png;base64,HISTORY');
+        }
+    }
+});
+
+test('visible reference numbers map to media even when equal images are selected from different nodes', async () => {
+    const a = { name: '主体', referenceId: 'node-a', dataUrl: 'data:image/png;base64,SAME' };
+    const b = { name: '复制的主体', referenceId: 'node-b', dataUrl: a.dataUrl };
+    const c = { name: '背景', referenceId: 'node-c', dataUrl: 'data:image/png;base64,BACKGROUND' };
+    const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
+        referenceImages: [a, c, b],
+        workflowReferenceImages: [a, b, c],
+        conversation: { messages: [{ role: 'user', text: '之前的顺序', referenceImages: [c, a] }] }
+    });
+    await result;
+    const messages = request().messages;
+    const content = messages.at(-1).content;
+    assert.deepEqual(JSON.parse(content[0].text).images.map((image) => image.referenceNumbers), [[1, 3], [2]]);
+    assert.deepEqual(content.slice(1).map((image) => image.image_url.url), [a.dataUrl, c.dataUrl]);
+    assert.deepEqual(JSON.parse(messages[1].content).referenceImages, [
+        { referenceNumber: 1, name: '背景', imageId: 'image-2' },
+        { referenceNumber: 2, name: '主体', imageId: 'image-1' }
+    ]);
+});
+
+test('text-only models receive explicit missing-vision metadata without image payloads', async () => {
+    const { result, request } = replyHarness({ intent: 'clarify', message: '当前模型无法看图，请描述要修改的对象。', promptPlan: null }, {
+        model: { ...model, capabilities: { imageInput: false } },
+        referenceImages: [{ name: '照片', dataUrl: 'data:image/png;base64,UNSEEN' }]
+    });
+    assert.equal((await result).intent, 'clarify');
+    assert.doesNotMatch(JSON.stringify(request()), /UNSEEN/);
+    const input = JSON.parse(request().messages.at(-1).content);
+    assert.equal(input.images[0].visionAvailable, false);
+});
+
+test('new plans accept only supported parameter changes and preserve null negative prompts', async () => {
+    const context = { nodeId: 'node-1', negativePrompt: '保持原值', parameterSchema: {
+        count: { type: 'integer', minimum: 1, maximum: 4 },
+        aspectRatio: { type: 'string', enum: ['1:1', '16:9'] },
+        protocolParams: { type: 'object', properties: { seed: { type: 'integer', minimum: 0 } } }
+    } };
+    const payload = { intent: 'refine', message: '已调整', promptPlan: {
+        prompt: '暖色光线的原场景', negativePrompt: null,
+        parameters: { count: 2, protocolParams: { seed: 42 } }, imageRoles: []
+    } };
+    const reply = await replyHarness(payload, { context }).result;
+    assert.equal(Object.hasOwn(reply.promptPlan, 'negativePrompt'), false);
+    assert.deepEqual(reply.promptPlan.parameters, { count: 2, protocolParams: { seed: 42 } });
+    for (const parameters of [
+        { count: 99 }, { count: true }, { aspectRatio: '77:1' },
+        { providerId: 'other' }, { protocolParams: { unknown: 42 } }, []
+    ]) {
+        await assert.rejects(replyHarness({ ...payload, promptPlan: { ...payload.promptPlan, parameters } }, { context }).result, /参数/);
+    }
+});
+
+test('malformed plans and invented image references fail before reaching node actions', async () => {
+    for (const payload of [
+        { intent: 'unknown', message: 'x' },
+        { intent: 'generate', promptPlan: null },
+        { intent: 'generate', promptPlan: { prompt: { text: 'x' } } },
+        { intent: 'generate', promptPlan: { prompt: '猫', negativePrompt: [] } },
+        { intent: 'edit', promptPlan: { prompt: '改背景', imageRoles: [] } },
+        { intent: 'generate', promptPlan: { prompt: '猫', imageRoles: [{ imageId: 'nonexistent', role: 'reference' }] } },
+        'prefix { malformed } suffix'
+    ]) {
+        await assert.rejects(replyHarness(payload).result);
+    }
+});
+
+test('compressed conversations retain the last complete draft and bound older history', async () => {
+    const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
+        conversation: {
+            memory: '摘要',
+            previousPromptPlan: { prompt: '白色陶瓷杯；文字“早安”', parameters: {} },
+            messages: [{ role: 'user', text: '再暖一点' }]
+        }
+    });
+    await result;
+    assert.match(request().messages.find((item) => item.role === 'assistant').content, /白色陶瓷杯/);
+    const bounded = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
+        conversation: { messages: [
+            { role: 'user', text: '旧'.repeat(20000) },
+            { role: 'agent', text: '草稿', promptPlan: { prompt: '保留最近完整方案', parameters: {} } }
+        ] }
+    });
+    await bounded.result;
+    assert.ok(JSON.stringify(bounded.request()).length < 20000);
+    assert.match(bounded.request().messages.find((item) => item.role === 'assistant').content, /保留最近完整方案/);
+    assert.equal(JSON.parse(bounded.request().messages.at(-1).content).historyOmitted, true);
 });

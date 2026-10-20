@@ -1322,6 +1322,7 @@ export function createUiControllerApi({
             usageMonitorId = null;
         };
         const startCacheMonitoring = () => {
+            settingsControllerApi?.updateAgentCacheUsage?.();
             void integrityController.startMonitoring().then(() => settingsControllerApi?.updateCacheUsage(true));
             if (usageMonitorId !== null) return;
             usageMonitorId = setInterval(() => {
