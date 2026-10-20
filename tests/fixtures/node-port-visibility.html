@@ -35,22 +35,100 @@
                     state: { models: [], providers: [] }
                 });
                 const nodeRect = node.getBoundingClientRect();
+                const shell = node.querySelector('.node-glass-bg');
+                const shellRect = shell.getBoundingClientRect();
+                const hasUnmaskedBorder = (port) => {
+                    const shellStyle = getComputedStyle(shell);
+                    const side = port.dataset.direction === 'input' ? 'Left' : 'Right';
+                    const separator = getComputedStyle(port, '::after');
+                    const portRect = port.getBoundingClientRect();
+                    const inset = side === 'Left' ? portRect.left - shellRect.left : shellRect.right - portRect.right;
+                    const containedSeparator = separator.content !== 'none'
+                        && separator.position === 'absolute'
+                        && separator.height === '1px'
+                        && separator.pointerEvents === 'none'
+                        && inset >= 10;
+                    return getComputedStyle(port, '::before').content === 'none'
+                        && (separator.content === 'none' || containedSeparator)
+                        && parseFloat(shellStyle[`border${side}Width`]) >= 1;
+                };
                 const ports = Array.from(node.querySelectorAll('.node-port'), (port) => {
                     const dot = port.querySelector('.port-dot');
                     const rect = dot.getBoundingClientRect();
+                    const labelRect = port.querySelector('.port-label').getBoundingClientRect();
                     const x = port.dataset.direction === 'input' ? nodeRect.left - 3 : nodeRect.right + 3;
+                    const edge = port.dataset.direction === 'input' ? shellRect.left : shellRect.right;
+                    const inside = port.dataset.direction === 'input' ? shellRect.left + 3 : shellRect.right - 3;
                     const y = rect.top + rect.height / 2;
                     return {
                         direction: port.dataset.direction,
                         name: port.dataset.port,
-                        outerHit: document.elementFromPoint(x, y) === dot
+                        outerHit: document.elementFromPoint(x, y) === dot,
+                        innerHit: document.elementFromPoint(inside, y) === dot,
+                        edgeOffset: Math.round((rect.left + rect.width / 2 - edge) * 100) / 100,
+                        labelInset: Math.round((port.dataset.direction === 'input' ? labelRect.left - edge : edge - labelRect.right) * 100) / 100,
+                        labelDotCenterOffset: Math.round(((labelRect.top + labelRect.bottom - rect.top - rect.bottom) / 2) * 100) / 100,
+                        hasUnmaskedBorder: hasUnmaskedBorder(port)
                     };
+                });
+                const verticalGaps = Array.from(node.querySelectorAll('.node-inputs-section, .node-outputs-section'), (section) => {
+                    const dots = Array.from(section.querySelectorAll('.port-dot'), (dot) => dot.getBoundingClientRect());
+                    return dots.slice(1).map((rect, index) => Math.round((rect.top - dots[index].bottom) * 100) / 100);
+                }).flat();
+                const dividerGaps = Array.from(node.querySelectorAll('.node-inputs-section, .node-outputs-section'), (section) => {
+                    const rows = Array.from(section.querySelectorAll('.node-port'));
+                    return rows.slice(0, -1).map((port, index) => {
+                        const separator = getComputedStyle(port, '::after');
+                        const dividerTop = port.getBoundingClientRect().top + parseFloat(separator.top);
+                        const upperLabel = port.querySelector('.port-label').getBoundingClientRect();
+                        const lowerLabel = rows[index + 1].querySelector('.port-label').getBoundingClientRect();
+                        const round = (value) => Math.round(value * 100) / 100;
+                        return {
+                            above: round(dividerTop - upperLabel.bottom),
+                            below: round(lowerLabel.top - dividerTop - parseFloat(separator.height))
+                        };
+                    });
+                }).flat();
+                const headerRect = node.querySelector('.node-header').getBoundingClientRect();
+                const row = node.querySelector('.node-ports-row');
+                const rowRect = row.getBoundingClientRect();
+                const upperBorder = headerRect.bottom - parseFloat(getComputedStyle(node.querySelector('.node-header')).borderBottomWidth) / 2;
+                const lowerBorder = rowRect.bottom - parseFloat(getComputedStyle(row).borderBottomWidth) / 2;
+                const rowBandGaps = Array.from(node.querySelectorAll('.node-inputs-section, .node-outputs-section'), (section) => {
+                    const rows = Array.from(section.querySelectorAll('.node-port'));
+                    const dividers = rows.slice(0, -1).map((port) => {
+                        const separator = getComputedStyle(port, '::after');
+                        return port.getBoundingClientRect().top + parseFloat(separator.top) + parseFloat(separator.height) / 2;
+                    });
+                    const boundaries = [upperBorder, ...dividers, lowerBorder];
+                    const round = (value) => Math.round(value * 100) / 100;
+                    return rows.map((port, index) => {
+                        const dot = port.querySelector('.port-dot').getBoundingClientRect();
+                        const center = (dot.top + dot.bottom) / 2;
+                        return {
+                            above: round(center - boundaries[index]),
+                            below: round(boundaries[index + 1] - center)
+                        };
+                    });
+                }).flat();
+                const stateBordersUnmasked = [
+                    ['selected'], ['running'], ['completed'], ['error'], ['workflow-running-locked'],
+                    ['selected', 'running'], ['running', 'workflow-running-locked']
+                ].every((classes) => {
+                    node.classList.add(...classes);
+                    const matches = Array.from(node.querySelectorAll('.node-port')).every(hasUnmaskedBorder);
+                    node.classList.remove(...classes);
+                    return matches;
                 });
                 const media = node.querySelector('.save-preview-container, .preview-container');
                 return {
                     type,
                     nodeOverflow: getComputedStyle(node).overflowX,
                     mediaOverflow: getComputedStyle(media).overflowX,
+                    stateBordersUnmasked,
+                    verticalGaps,
+                    dividerGaps,
+                    rowBandGaps,
                     ports
                 };
             });

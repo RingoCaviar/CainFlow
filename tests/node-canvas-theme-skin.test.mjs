@@ -9,13 +9,17 @@ test('the application loads the node and canvas skin after theme styles', async 
 
 test('the node and canvas skin owns semantic shell, state, and port drawing roles', async () => {
     const skin = await readFile(new URL('../css/features/node-canvas-theme-skin.css', import.meta.url), 'utf8');
+    const core = await readFile(new URL('../css/modules/04-node-core.css', import.meta.url), 'utf8');
     for (const role of ['--node-surface', '--node-border', '--node-border-selected', '--node-border-running', '--node-port-surface']) {
         assert.match(skin, new RegExp(`${role}:\\s*var\\(--`));
     }
     assert.match(skin, /[.]node-glass-bg\s*\{[\s\S]*?border:\s*1px solid var\(--node-border\)/);
     assert.match(skin, /[.]node[.]selected [.]node-glass-bg\s*\{[\s\S]*?var\(--node-border-selected\)/);
     assert.match(skin, /[.]node[.]running [.]node-glass-bg\s*\{[\s\S]*?var\(--node-border-running\)/);
-    assert.match(skin, /[.]port-dot[.]connected\s*\{[\s\S]*?var\(--node-port-ring\)/);
+    assert.match(core, /[.]port-dot\s*\{[\s\S]*?border:\s*0/);
+    assert.match(skin, /[.]node-port[.]input [.]port-dot\s*\{[\s\S]*?linear-gradient\(to right, var\(--port-color\)/);
+    assert.match(skin, /[.]node-port[.]output [.]port-dot\s*\{[\s\S]*?linear-gradient\(to left, var\(--port-color\)/);
+    assert.match(skin, /[.]port-dot[.]connected\s*\{[\s\S]*?color-mix\(in srgb, var\(--port-color\)/);
 });
 
 test('node error popovers consume the semantic danger surface roles', async () => {

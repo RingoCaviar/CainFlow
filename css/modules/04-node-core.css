@@ -895,7 +895,8 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     column-gap: 16px;
     align-items: start;
-    padding: 6px 12px 5px;
+    /* Balance port centers between the header, row separators, and bottom divider. */
+    padding: 0.5px 12px;
     border-bottom: 1px solid var(--node-section-divider);
     /* The visible outside halves must sit above the side resize handles. */
     z-index: 52;
@@ -938,10 +939,30 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     position: relative;
     cursor: crosshair;
     min-height: 24px;
-    padding: 5px 0;
+    padding: 2px 0;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
+}
+
+/* The line sits midway in the 2px gap between adjacent port rows. */
+.node-inputs-section .node-port:not(:last-child)::after,
+.node-outputs-section .node-port:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: calc(100% + 0.5px);
+    left: 0;
+    right: 0;
+    height: 1px;
+    pointer-events: none;
+}
+
+.node-inputs-section .node-port:not(:last-child)::after {
+    background: linear-gradient(to right, var(--node-section-divider), transparent);
+}
+
+.node-outputs-section .node-port:not(:last-child)::after {
+    background: linear-gradient(to left, var(--node-section-divider), transparent);
 }
 
 #canvas-container .node-port.connection-target-unavailable:not(.is-hidden-by-collapse) {
@@ -950,12 +971,12 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 
 #canvas-container .node-port.connection-target-available:not(.execution-error) .port-dot {
     transform: scale(1.2);
-    box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--port-color) 45%, transparent);
 }
 
 #canvas-container .node-port.connection-target-nearest:not(.execution-error) .port-dot {
     transform: scale(1.45);
-    box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 30%, transparent), 0 0 14px currentColor;
+    box-shadow: 0 0 18px color-mix(in srgb, var(--port-color) 70%, transparent);
 }
 
 .node-port.input {
@@ -967,11 +988,12 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .port-dot {
-    width: 12px;
-    height: 12px;
+    width: 22.4px;
+    height: 22.4px;
     border-radius: 50%;
-    border: 2px solid;
-    background: var(--bg-node);
+    border: 0;
+    --port-color: var(--port-any);
+    background: var(--port-color);
     transition: all var(--transition);
     flex-shrink: 0;
     position: relative;
@@ -979,94 +1001,45 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .node-port.input .port-dot {
-    margin-left: -12px;
-    left: -6px;
-    /* Keep a 2px painted lip over the shell border so the outside half joins the card. */
-    clip-path: inset(0 calc(50% - 2px) 0 0);
+    /* The dot stays on the shell edge; its flow space no longer indents the label. */
+    margin-left: -22.4px;
+    left: -0.8px;
+    clip-path: path("M 11.2 0 A 11.2 11.2 0 0 0 11.2 22.4 Z");
 }
 
 .node-port.output .port-dot {
-    margin-right: -12px;
-    right: -6px;
-    clip-path: inset(0 0 0 calc(50% - 2px));
+    margin-right: -22.4px;
+    right: -0.8px;
+    clip-path: path("M 11.2 0 A 11.2 11.2 0 0 1 11.2 22.4 Z");
 }
 
 .port-dot.type-image {
-    border-color: var(--port-image);
+    --port-color: var(--port-image);
 }
 
 .port-dot.type-video {
-    background: linear-gradient(135deg, #22d3ee, #0ea5e9);
-    box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.24), 0 6px 16px rgba(14, 165, 233, 0.28);
+    --port-color: var(--accent-cyan);
 }
 
 .port-dot.type-text {
-    border-color: var(--port-text);
+    --port-color: var(--port-text);
 }
 
 .port-dot.type-params {
-    border-color: var(--port-params);
+    --port-color: var(--port-params);
 }
 
 .port-dot.type-any {
-    border-color: var(--port-any);
+    --port-color: var(--port-any);
 }
 
 .port-dot:hover {
     transform: scale(1.3);
-    box-shadow: 0 0 12px currentColor;
-}
-
-.port-dot.type-image:hover {
-    background: var(--port-image);
-    box-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
-}
-
-.port-dot.type-video:hover {
-    transform: scale(1.08);
-}
-
-.port-dot.type-text:hover {
-    background: var(--port-text);
-    box-shadow: 0 0 12px rgba(34, 211, 238, 0.5);
-}
-
-.port-dot.type-params:hover {
-    background: var(--port-params);
-    box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
-}
-
-.port-dot.type-any:hover {
-    background: var(--port-any);
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--port-color) 55%, transparent);
 }
 
 .port-dot.connected {
-    background: currentColor;
-}
-
-.port-dot.type-image.connected {
-    background: var(--port-image);
-    border-color: var(--port-image);
-}
-
-.port-dot.type-video.connected {
-    box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.36), 0 0 0 6px rgba(34, 211, 238, 0.12);
-}
-
-.port-dot.type-text.connected {
-    background: var(--port-text);
-    border-color: var(--port-text);
-}
-
-.port-dot.type-params.connected {
-    background: var(--port-params);
-    border-color: var(--port-params);
-}
-
-.port-dot.type-any.connected {
-    background: var(--port-any);
-    border-color: var(--port-any);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--port-color) 45%, transparent);
 }
 
 .port-label {

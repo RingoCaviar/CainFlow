@@ -52,6 +52,7 @@
                 const y = rect.top + rect.height / 2;
                 return {
                     borderOffset: Math.round((center - borderCenter) * 100) / 100,
+                    edgeOffset: Math.round((center - (isInput ? shellRect.left : shellRect.right)) * 100) / 100,
                     clipPath: getComputedStyle(port).clipPath,
                     outerHit: document.elementFromPoint(outerX, y) === port,
                     seamHit: document.elementFromPoint(seamX, y) === port,

@@ -59,7 +59,6 @@ html:root #canvas-container {
     --node-control-border: var(--border-input);
     --node-control-focus: var(--accent-primary);
     --node-port-surface: var(--bg-node);
-    --node-port-ring: color-mix(in srgb, var(--accent-primary) 14%, transparent);
     --node-shell-shadow: var(--shadow-node);
     --node-shell-hover-shadow: var(--shadow-node-hover);
     --node-glass-filter: none;
@@ -125,16 +124,22 @@ html:root #canvas-container .node.running .node-glass-bg { border-color: var(--n
 html:root #canvas-container .node.workflow-running-locked .node-glass-bg { border-color: var(--node-border-locked); border-width: 1px; }
 html:root #canvas-container .node.completed .node-glass-bg { border-color: var(--node-border-success); box-shadow: 0 0 12px var(--node-status-success-glow); }
 html:root #canvas-container .node.error .node-glass-bg { border-color: var(--node-border-error); border-width: 2px; box-shadow: 0 0 16px color-mix(in srgb, var(--node-border-error) 42%, transparent); }
-html:root #canvas-container .node-port.execution-error .port-dot { background: var(--accent-red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-red) 34%, transparent); }
+html:root #canvas-container .node-port.execution-error .port-dot { --port-color: var(--accent-red); box-shadow: 0 0 10px color-mix(in srgb, var(--accent-red) 50%, transparent); }
 html:root #canvas-container .node-header { background: var(--node-header-surface); border-bottom-color: var(--node-border); }
 html:root #canvas-container .node-body { background: var(--node-body-surface); }
 html:root #canvas-container :is(.node-field label, .port-label) { color: var(--node-field-label); }
 html:root #canvas-container :is(.node-field input, .node-field select, .node-field textarea) { background: var(--node-control-surface); border-color: var(--node-control-border); }
 html:root #canvas-container :is(.node-field input, .node-field select, .node-field textarea):focus { border-color: var(--node-control-focus); }
-html:root #canvas-container .port-dot { background: var(--node-port-surface); }
-html:root #canvas-container .port-dot.connected { box-shadow: 0 0 0 3px var(--node-port-ring); }
-html:root #canvas-container .node-port.connection-target-available:not(.execution-error) .port-dot { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent); }
-html:root #canvas-container .node-port.connection-target-nearest:not(.execution-error) .port-dot { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 30%, transparent), 0 0 14px currentColor; }
+/* The colored outside half fades into the card at the shell seam. */
+html:root #canvas-container .node-port.input .port-dot {
+    background: linear-gradient(to right, var(--port-color) 12%, color-mix(in srgb, var(--port-color) 80%, var(--node-port-surface)) 52%, color-mix(in srgb, var(--port-color) 34%, var(--node-port-surface)) 100%);
+}
+html:root #canvas-container .node-port.output .port-dot {
+    background: linear-gradient(to left, var(--port-color) 12%, color-mix(in srgb, var(--port-color) 80%, var(--node-port-surface)) 52%, color-mix(in srgb, var(--port-color) 34%, var(--node-port-surface)) 100%);
+}
+html:root #canvas-container .port-dot.connected { box-shadow: 0 0 10px color-mix(in srgb, var(--port-color) 45%, transparent); }
+html:root #canvas-container .node-port.connection-target-available:not(.execution-error) .port-dot { box-shadow: 0 0 12px color-mix(in srgb, var(--port-color) 45%, transparent); }
+html:root #canvas-container .node-port.connection-target-nearest:not(.execution-error) .port-dot { box-shadow: 0 0 18px color-mix(in srgb, var(--port-color) 70%, transparent); }
 html:root #canvas-container .node-run-cancel-btn { --node-run-cancel-bg: var(--node-cancel-bg); --node-run-cancel-bg-hover: var(--node-cancel-bg-hover); --node-run-cancel-border: var(--node-cancel-border); --node-run-cancel-border-hover: var(--node-cancel-border); --node-run-cancel-text: var(--node-cancel-text); --node-run-cancel-progress-fill: var(--accent-red); }
 html:root #canvas-container .node-clone-badge { background: var(--node-clone-bg); border-color: var(--node-clone-border); color: var(--node-clone-text); }
 html:root #canvas-container .node.batch-connection-source,

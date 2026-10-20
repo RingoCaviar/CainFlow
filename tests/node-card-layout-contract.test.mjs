@@ -31,12 +31,13 @@ test('image previews fill the available card area', () => {
 
 test('node cards use compact headers and edge-aligned ports with stable hit areas', () => {
     assert.match(core, /\.node-header\s*\{[\s\S]*?padding:\s*8px 12px;/);
-    assert.match(core, /\.node-ports-row\s*\{[\s\S]*?padding:\s*6px 12px 5px;/);
+    assert.match(core, /\.node-ports-row\s*\{[\s\S]*?padding:\s*0\.5px 12px;/);
     assert.match(core, /\.node-ports-row\.has-inputs-only \.node-inputs-section\s*\{[\s\S]*?justify-self:\s*start;[\s\S]*?width:\s*max-content;/);
     assert.match(core, /\.node-ports-row\.has-outputs-only \.node-outputs-section\s*\{[\s\S]*?justify-self:\s*end;[\s\S]*?width:\s*max-content;/);
     assert.match(core, /\.node-port\s*\{[\s\S]*?min-height:\s*24px;/);
-    assert.match(core, /\.node-port\.input \.port-dot\s*\{[\s\S]*?margin-left:\s*-12px;/);
-    assert.match(core, /\.node-port\.output \.port-dot\s*\{[\s\S]*?margin-right:\s*-12px;/);
+    assert.match(core, /\.port-dot\s*\{[\s\S]*?width:\s*22\.4px;[\s\S]*?height:\s*22\.4px;/);
+    assert.match(core, /\.node-port\.input \.port-dot\s*\{[\s\S]*?margin-left:\s*-22\.4px;/);
+    assert.match(core, /\.node-port\.output \.port-dot\s*\{[\s\S]*?margin-right:\s*-22\.4px;/);
 });
 
 test('resizing honors the measured content height at the final width', () => {
