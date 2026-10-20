@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import tempfile
 import time
@@ -198,14 +199,27 @@ class RuntimeCacheTests(unittest.TestCase):
             service.run_cache_maintenance(now_ms=now)
             self.assertEqual(['asset-new', 'user-file'], sorted(os.listdir(service.temp_dir)))
 
-    def test_maintenance_preserves_unknown_files_even_if_they_are_old(self):
+    def test_maintenance_removes_unregistered_files_regardless_of_name_or_age(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
             path = os.path.join(service.assets_dir, 'unknown.bin')
             with open(path, 'wb') as output:
                 output.write(b'unknown')
-            service.run_cache_maintenance(now_ms=int(time.time() * 1000) + 60 * 86400000)
-            self.assertTrue(os.path.isfile(path))
+            result = service.run_cache_maintenance(now_ms=int(time.time() * 1000))
+            self.assertEqual(1, result['orphanFilesDeleted'])
+            self.assertFalse(os.path.exists(path))
+
+    def test_formal_maintenance_also_removes_unregistered_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, formal=True)
+            path = os.path.join(service.assets_dir, 'legacy-image.png')
+            with open(path, 'wb') as output:
+                output.write(b'unregistered')
+
+            result = service.run_cache_maintenance()
+
+            self.assertEqual(1, result['orphanFilesDeleted'])
+            self.assertFalse(os.path.exists(path))
 
     def test_maintenance_removes_stale_content_addressed_orphan_and_empty_directories(self):
         with tempfile.TemporaryDirectory() as root:
@@ -263,6 +277,115 @@ class RuntimeCacheTests(unittest.TestCase):
             self.assertEqual(0, result['assetsDeleted'])
             self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
 
+    def test_node_cleanup_reclaims_superseded_operation_media_but_keeps_current_and_pending_results(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            obsolete_owner = json.dumps(['wf', 'removed-node', 'old'], separators=(',', ':'))
+            current_owner = json.dumps(['wf', 'node', 'current'], separators=(',', ':'))
+            now = time.time()
+            with mock.patch('backend.services.storage_service.time.time', return_value=now - 600):
+                obsolete = service.put_media_asset_list(
+                    ['data:image/png;base64,b2Jzb2xldGU='], 'workflow-operation', obsolete_owner)[0]
+                current = service.put_media_asset(b'current', 'image/png', 'workflow-operation', current_owner)
+            recent_owner = json.dumps(['wf', 'node', 'recent'], separators=(',', ':'))
+            with mock.patch('backend.services.storage_service.time.time', return_value=now - 60):
+                recent = service.put_media_asset(b'recent', 'image/png', 'workflow-operation', recent_owner)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            with mock.patch('backend.services.storage_service.time.time', return_value=now):
+                self.assertEqual(1, service.record_media_workflow_revision('wf', 1, epoch, [{
+                    'ownerType': 'workflow-node', 'ownerId': 'node',
+                    'assetKeys': [current['asset_key']],
+                }]))
+                committed = service.replace_media_owner_references(
+                    workflow_id='wf', owner_type='workflow-node', owner_id='node',
+                    operation_id='save-1', idempotency_key='wf:node:save-1',
+                    expected_generation=0, document_revision=1, storage_epoch=epoch,
+                    asset_keys=[current['asset_key']],
+                )
+            self.assertEqual('committed', committed['status'])
+            pending_owner = json.dumps(['wf', 'node', 'pending'], separators=(',', ':'))
+            with mock.patch('backend.services.storage_service.time.time', return_value=now + 60):
+                pending = service.put_media_asset(b'pending', 'image/png', 'workflow-operation', pending_owner)
+
+            result = service.cleanup_assets('node-orphans')
+
+            self.assertIsNone(service.get_asset_info(obsolete['asset_key']))
+            self.assertEqual(2, result['operationOwnersReleased'])
+            self.assertIsNotNone(service.get_asset_info(current['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(recent['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(pending['asset_key']))
+            self.assertEqual(len(b'current') + len(b'recent') + len(b'pending'),
+                             service.get_stats()['actualMediaBytes'])
+            with mock.patch('backend.services.storage_service.time.time', return_value=now + 120):
+                service.record_media_workflow_revision('wf', 1, epoch, [{
+                    'ownerType': 'workflow-node', 'ownerId': 'node',
+                    'assetKeys': [current['asset_key']],
+                }])
+            self.assertEqual(0, service.cleanup_assets('node-orphans')['operationOwnersReleased'])
+            self.assertIsNotNone(service.get_asset_info(pending['asset_key']))
+            with service._connect() as db:
+                self.assertEqual(0, db.execute(
+                    'SELECT COUNT(*) FROM media_operation_owner_items WHERE owner_id=?',
+                    (obsolete_owner,)).fetchone()[0])
+
+    def test_node_cleanup_keeps_operations_until_the_document_owner_commit_finishes(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner = json.dumps(['wf', 'node', 'old'], separators=(',', ':'))
+            asset = service.put_media_asset(b'old', 'image/png', 'workflow-operation', owner)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            with mock.patch('backend.services.storage_service.time.time', return_value=time.time() + 60):
+                service.record_media_workflow_revision('wf', 1, epoch, [{
+                    'ownerType': 'workflow-node', 'ownerId': 'node', 'assetKeys': [],
+                }])
+
+            result = service.cleanup_assets('node-orphans')
+
+            self.assertEqual(0, result['operationOwnersReleased'])
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
+    def test_background_maintenance_reclaims_superseded_operation_media(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner = json.dumps(['wf', 'removed-node', 'old'], separators=(',', ':'))
+            old = service.put_media_asset(b'old', 'image/png', 'workflow-operation', owner)
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            later = time.time() + 60
+            with mock.patch('backend.services.storage_service.time.time', return_value=later):
+                service.record_media_workflow_revision('wf', 1, epoch, [])
+
+            result = service.run_cache_maintenance(now_ms=int((later + 6 * 60) * 1000))
+
+            self.assertEqual(1, result['operationOwnersReleased'])
+            self.assertEqual(1, result['assetsDeleted'])
+            self.assertIsNone(service.get_asset_info(old['asset_key']))
+
+    def test_import_cleanup_does_not_detach_a_formal_workflow_owner(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_media_asset(b'import', 'image/png', 'workflow-operation',
+                                            json.dumps(['wf', 'import-node', 'operation']))
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('wf', 1, epoch, [{
+                'ownerType': 'workflow-import', 'ownerId': 'import-node',
+                'assetKeys': [asset['asset_key']],
+            }])
+            service.replace_media_owner_references(
+                workflow_id='wf', owner_type='workflow-import', owner_id='import-node',
+                operation_id='save-1', idempotency_key='wf:import-node:save-1',
+                expected_generation=0, document_revision=1, storage_epoch=epoch,
+                asset_keys=[asset['asset_key']],
+            )
+
+            service.cleanup_assets('image-import')
+
+            owner_id = service._formal_reference_owner_id('wf', 'workflow-import', 'import-node')
+            with service._connect() as db:
+                self.assertIsNotNone(db.execute('''SELECT 1 FROM media_asset_refs
+                    WHERE owner_type='workflow-import' AND owner_id=? AND asset_key=?''',
+                    (owner_id, asset['asset_key'])).fetchone())
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
     def test_worker_maintains_after_scan_and_remains_interruptible(self):
         from backend import main
         with mock.patch.object(main, 'storage_service') as service, \
@@ -274,7 +397,25 @@ class RuntimeCacheTests(unittest.TestCase):
             stop.wait.return_value = True
             main._recover_media_transitions()
             service.run_cache_maintenance.assert_called_once_with()
+            service.set_background_scan_pending.assert_called_once_with(False)
             stop.wait.assert_called_once_with(300)
+
+    def test_worker_rechecks_integrity_after_unregistered_files_are_removed(self):
+        from backend import main
+        with mock.patch.object(main, 'storage_service') as service, \
+                mock.patch.object(main, '_storage_recovery_stop') as stop, \
+                mock.patch.object(main.workflow_service, 'list_workflows', return_value={'workflows': []}):
+            service.get_storage_safety_status.return_value = {'reason': 'unregistered_files_removed'}
+            service.recover_media_owner_transitions.return_value = {'nextCursor': ''}
+            service.scan_media_integrity_page.return_value = {'complete': True}
+            stop.is_set.return_value = False
+            stop.wait.return_value = True
+
+            main._maintain_runtime_cache()
+
+            service.scan_media_integrity_page.assert_called_once()
+            self.assertEqual([mock.call(True), mock.call(False)],
+                             service.set_background_scan_pending.call_args_list)
 
 
 if __name__ == '__main__':

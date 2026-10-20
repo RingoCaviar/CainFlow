@@ -158,6 +158,10 @@ _Avoid_: Node cache cleanup, keep-key cleanup
 A versioned, time-stamped diagnostic snapshot comparing durable consumer documents, Media asset owner references, asset metadata, and physical media files. It records repairable and user-actionable inconsistencies but never determines Media asset liveness.
 _Avoid_: Media asset index, cache authority, live reference list
 
+**Unregistered Media file**:
+A regular file in the managed Media asset directory whose normalized physical path has no matching asset metadata record. This describes a disk-to-database mismatch, not the absence of a known producer.
+_Avoid_: Unowned Media asset, zero-reference Media asset
+
 **Missing Media asset**:
 A Media asset identity retained by a durable consumer when either its asset metadata or physical media file is absent. The retained position in a Media asset reference list remains explicit until the user recovers or removes it.
 _Avoid_: Cache miss, silently omitted media

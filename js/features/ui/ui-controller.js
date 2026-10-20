@@ -1205,8 +1205,10 @@ export function createUiControllerApi({
             success: outcomes.every((outcome) => outcome.success !== false),
             assetsDeleted: outcomes.reduce((sum, outcome) => sum + Number(outcome.assetsDeleted || 0), 0),
             orphanFilesDeleted: outcomes.reduce((sum, outcome) => sum + Number(outcome.orphanFilesDeleted || 0), 0),
-            gcSuspended: outcomes.some((outcome) => outcome.gcSuspended),
-            candidatesRetained: Math.max(0, ...outcomes.map((outcome) => Number(outcome.candidatesRetained || 0)))
+            orphanFilesFailed: Number(outcomes.at(-1)?.orphanFilesFailed || 0),
+            operationOwnersReleased: outcomes.reduce((sum, outcome) => sum + Number(outcome.operationOwnersReleased || 0), 0),
+            gcSuspended: Boolean(outcomes.at(-1)?.gcSuspended),
+            candidatesRetained: Number(outcomes.at(-1)?.candidatesRetained || 0)
         });
         if (clearOrphanedNodeAssets) {
             await refreshRecoverableMediaNodes();
@@ -1249,71 +1251,127 @@ export function createUiControllerApi({
         if (!btnToggle || !cacheSidebar) return;
 
         const integrityRoot = documentRef.getElementById('media-integrity-panel');
+        let lastIntegrityViewKey = '';
         const integrityController = createMediaIntegrityDrawerController({
             getWorkflows: getIntegrityWorkflows,
             getNodes: () => [...state.nodes.values()],
             getWorkflowId: getActiveWorkflowId,
             getWorkflowName: getActiveWorkflowName,
+            isActive: () => cacheSidebar.classList.contains('active'),
+            shouldPoll: () => !documentRef.hidden,
             onMissingAction: handleMissingMediaAction,
-            onChange: (integrityState) => renderMediaIntegrityDrawer(integrityRoot, integrityState, {
-                onPause: () => integrityController.pause(), onResume: () => integrityController.resume(),
-                onRetry: () => integrityController.retry(), onScan: () => integrityController.step(),
-                onExport: () => {
-                    const blob = new Blob([JSON.stringify(integrityController.exportDiagnostics(), null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob); const anchor = documentRef.createElement('a');
-                    anchor.href = url; anchor.download = 'cainflow-media-integrity-redacted.json'; anchor.style.display = 'none';
-                    documentRef.body?.appendChild(anchor); anchor.click(); anchor.remove?.();
-                    setTimeout(() => URL.revokeObjectURL(url), 0);
-                },
-                onAction: async (action, item) => {
-                    const node = state.nodes.get(item.nodeId);
-                    if (action === 'locate') { node?.el?.scrollIntoView?.({ block: 'center' }); return; }
-                    if (action === 'details') { alertRef(`${item.workflowName} / ${item.nodeName}\n${item.mediaType} · ${item.positionLabel}\nidentity: ${item.identity}\n来源域: ${item.sourceDomain}`); return; }
-                    await integrityController.runMissingAction(action, item, node);
-                    await refreshRecoverableMediaNodes();
-                },
-                onBatchRecover: async () => {
-                    if (!confirmRef(`确认恢复 ${integrityState.model.recoverableCount} 项媒体？`)) return;
-                    for (const item of integrityState.model.items.filter((candidate) => candidate.recoverable)) {
-                        await integrityController.runMissingAction('remote-recover', item, state.nodes.get(item.nodeId));
+            onChange: (integrityState) => {
+                const viewKey = JSON.stringify([
+                    integrityState.model.state, integrityState.model.items, integrityState.error
+                ]);
+                if (viewKey === lastIntegrityViewKey) return;
+                lastIntegrityViewKey = viewKey;
+                renderMediaIntegrityDrawer(integrityRoot, integrityState, {
+                    onAction: async (action, item) => {
+                        const node = state.nodes.get(item.nodeId);
+                        if (action === 'locate') { node?.el?.scrollIntoView?.({ block: 'center' }); return; }
+                        if (action === 'details') { alertRef(`${item.workflowName} / ${item.nodeName}\n${item.mediaType} · ${item.positionLabel}\nidentity: ${item.identity}\n来源域: ${item.sourceDomain}`); return; }
+                        const result = await integrityController.runMissingAction(action, item, node);
+                        await refreshRecoverableMediaNodes();
+                        if (!result.error) await refreshCachePanel({ recheck: true });
+                    },
+                    onBatchRecover: async () => {
+                        if (!confirmRef(`确认恢复 ${integrityState.model.recoverableCount} 项媒体？`)) return;
+                        for (const item of integrityState.model.items.filter((candidate) => candidate.recoverable)) {
+                            await integrityController.runMissingAction('remote-recover', item, state.nodes.get(item.nodeId));
+                        }
+                        await refreshRecoverableMediaNodes();
+                        if (!integrityController.getState().error) await refreshCachePanel({ recheck: true });
                     }
-                    await refreshRecoverableMediaNodes();
-                }
-            })
+                });
+            }
         });
 
+        const refreshCachePanel = async ({ recheck = false } = {}) => {
+            await integrityController.refresh({ recheck });
+            await settingsControllerApi?.updateCacheUsage(true);
+        };
+        const runCacheCleanup = async (action) => {
+            // A startup scan can lift the physical GC guard before the manual action.
+            await integrityController.refresh();
+            const normalize = (value) => typeof value === 'object' && value !== null
+                ? value : { success: value === true };
+            let result = normalize(await action());
+            if (result.success === false) return result;
+            const after = await integrityController.refresh();
+            if (result.gcSuspended && !after.error && after.safety?.state === 'healthy') {
+                // Deleting unregistered files can itself require a new scan. Finish
+                // the registered-media sweep in this click once that scan succeeds.
+                const retry = normalize(await action());
+                const totals = {};
+                for (const field of ['historyDeleted', 'temporaryDeleted', 'assetsDeleted',
+                    'orphanFilesDeleted', 'operationOwnersReleased']) {
+                    totals[field] = Number(result[field] || 0) + Number(retry[field] || 0);
+                }
+                result = { ...retry, ...totals };
+                await integrityController.refresh();
+            }
+            await settingsControllerApi?.updateCacheUsage(true);
+            return result;
+        };
+        let usageMonitorId = null;
+        const stopCacheMonitoring = () => {
+            integrityController.stopMonitoring();
+            if (usageMonitorId !== null) clearInterval(usageMonitorId);
+            usageMonitorId = null;
+        };
+        const startCacheMonitoring = () => {
+            void integrityController.startMonitoring().then(() => settingsControllerApi?.updateCacheUsage(true));
+            if (usageMonitorId !== null) return;
+            usageMonitorId = setInterval(() => {
+                if (!cacheSidebar.classList.contains('active')) { stopCacheMonitoring(); return; }
+                if (!documentRef.hidden) settingsControllerApi?.updateCacheUsage();
+            }, 20000);
+        };
+
         btnToggle.addEventListener('click', () => {
-            panelManager.toggle('cache', () => {
-                settingsControllerApi?.updateCacheUsage();
-                integrityController.startMonitoring();
-            });
-            if (!cacheSidebar.classList.contains('active')) integrityController.stopMonitoring();
+            panelManager.toggle('cache', startCacheMonitoring);
+            if (!cacheSidebar.classList.contains('active')) stopCacheMonitoring();
         });
 
         btnClose?.addEventListener('click', () => {
-            integrityController.stopMonitoring();
+            stopCacheMonitoring();
             cacheSidebar.classList.remove('active');
             btnToggle.classList.remove('active');
         });
 
         btnClearTemporary?.addEventListener('click', async () => {
             try {
-                const response = await fetch('/api/storage/maintenance', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'clear-temporary' })
+                const result = await runCacheCleanup(async () => {
+                    const response = await fetch('/api/storage/maintenance', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'clear-temporary' })
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
                 });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const result = await response.json();
-                await clearCacheStorageForOrigin();
-                if (result.gcSuspended) {
+                if (result.success === false) throw new Error('硬盘缓存清理未完成');
+                const browserCacheCleared = await clearCacheStorageForOrigin();
+                const failed = Number(result.temporaryFailed || 0) + Number(result.orphanFilesFailed || 0);
+                if (failed > 0 || !browserCacheCleared) {
+                    const details = [];
+                    if (failed > 0) details.push(`${failed} 个文件或目录处理失败`);
+                    if (!browserCacheCleared) details.push('浏览器缓存删除失败');
+                    if (result.gcSuspended) details.push('媒体文件回收已暂停');
+                    showToast(`缓存仅部分清理：${details.join('，')}，请重试`, 'warning', 8000);
+                } else if (result.gcSuspended || Number(result.candidatesRetained || 0) > 0) {
                     const retained = Number(result.candidatesRetained || 0);
-                    showToast(`媒体文件回收已暂停，${retained} 项无引用资产仍保留；请在缓存面板查看完整性状态`, 'warning', 8000);
+                    const removed = Number(result.orphanFilesDeleted || 0);
+                    const detail = retained > 0 ? `至少 ${retained} 项无引用资产仍保留`
+                        : removed > 0 ? `已删除 ${removed} 个未登记文件，正在重新核查`
+                            : '部分媒体文件可能保留';
+                    showToast(`媒体文件回收未完成，${detail}；请在缓存面板查看完整性状态`, 'warning', 8000);
                 } else {
                     const removed = Number(result.temporaryDeleted || 0)
                         + Number(result.assetsDeleted || 0) + Number(result.orphanFilesDeleted || 0);
-                    showToast(`缓存清理完成：删除 ${removed} 个临时项或无引用文件`, 'success');
+                    const operations = Number(result.operationOwnersReleased || 0);
+                    showToast(`缓存清理完成：删除 ${removed} 个文件，释放 ${operations} 项过期写入；当前节点图片仍会保留`, 'success');
                 }
-                settingsControllerApi?.updateCacheUsage(true);
             } catch (error) {
                 showToast(`临时缓存清理失败：${error.message}`, 'error');
             }
@@ -1345,11 +1403,18 @@ export function createUiControllerApi({
             if (!confirmed) return;
 
             try {
-                const ok = await clearHistory();
-                if (!ok) throw new Error('硬盘历史清理未完成');
-
-                showToast('历史生成记录已清空', 'success');
-                settingsControllerApi?.updateCacheUsage();
+                const result = await runCacheCleanup(() => clearHistory({ detailed: true }));
+                if (result.success === false) throw new Error('硬盘历史清理未完成');
+                if (result.gcSuspended || Number(result.candidatesRetained || 0) > 0
+                        || Number(result.orphanFilesFailed || 0) > 0) {
+                    const details = [];
+                    if (result.gcSuspended) details.push('媒体回收仍暂停');
+                    if (Number(result.candidatesRetained || 0) > 0) details.push(`${result.candidatesRetained} 项媒体仍待回收`);
+                    if (Number(result.orphanFilesFailed || 0) > 0) details.push(`${result.orphanFilesFailed} 个文件删除失败`);
+                    showToast(`历史记录已清空，但${details.join('，')}；请查看缓存面板`, 'warning', 8000);
+                } else {
+                    showToast('历史生成记录及无引用媒体已清理', 'success');
+                }
                 if (documentRef.getElementById('history-sidebar')?.classList.contains('active')) {
                     renderHistoryList();
                 }
@@ -1368,15 +1433,15 @@ export function createUiControllerApi({
             if (!confirmed) return;
 
             try {
-                const result = await clearCurrentNodeAssetsOnly();
+                const result = await runCacheCleanup(clearCurrentNodeAssetsOnly);
                 if (!result.success) throw new Error('节点资产清理未完成');
-                if (result.gcSuspended || result.candidatesRetained > 0) {
+                if (result.gcSuspended || result.candidatesRetained > 0 || result.orphanFilesFailed > 0) {
                     const retained = result.candidatesRetained > 0 ? `至少 ${result.candidatesRetained} 项无引用资产仍保留` : '媒体物理回收未执行';
-                    showToast(`节点缓存已检查，媒体回收未完成；${retained}，请在缓存面板查看完整性状态`, 'warning', 8000);
+                    const detail = result.orphanFilesFailed > 0 ? `${result.orphanFilesFailed} 个孤儿文件删除失败` : retained;
+                    showToast(`节点缓存已检查，媒体回收未完成；${detail}，请在缓存面板查看完整性状态`, 'warning', 8000);
                 } else {
-                    showToast('当前工作的节点资产缓存已清理，当前节点图片已保留', 'success');
+                    showToast(`节点遗留缓存已清理：删除 ${result.assetsDeleted} 项资产，释放 ${result.operationOwnersReleased} 项过期写入；当前节点图片已保留`, 'success');
                 }
-                settingsControllerApi?.updateCacheUsage(true);
             } catch (e) {
                 showToast('资产清理失败: ' + e.message, 'error');
             }
@@ -1385,9 +1450,9 @@ export function createUiControllerApi({
         documentRef.getElementById('btn-clear-image-import-assets')?.addEventListener('click', async () => {
             const confirmed = await confirmCacheCleanup({
                 id: 'cache-clear-image-import-assets-dialog',
-                title: '清理图片导入节点缓存',
-                message: '确定要清理所有图片导入节点缓存吗？',
-                note: '已保存工作流中的图片导入节点可能无法再从本地缓存恢复图片。'
+                title: '清理图片导入遗留缓存',
+                message: '确定要清理图片导入节点的遗留缓存吗？',
+                note: '当前工作流仍在使用的导入图片会保留；删除对应节点后才能释放。'
             });
             if (!confirmed) return;
             if (typeof clearImageImportAssets !== 'function') {
@@ -1396,17 +1461,18 @@ export function createUiControllerApi({
             }
 
             try {
-                const outcome = await clearImageImportAssets({ detailed: true });
-                const result = typeof outcome === 'object' && outcome !== null ? outcome : { success: outcome === true };
+                const result = await runCacheCleanup(() => clearImageImportAssets({ detailed: true }));
                 if (result.success === false) throw new Error('图片导入缓存清理未完成');
-                if (result.gcSuspended || Number(result.candidatesRetained || 0) > 0) {
+                if (result.gcSuspended || Number(result.candidatesRetained || 0) > 0
+                        || Number(result.orphanFilesFailed || 0) > 0) {
                     const count = Number(result.candidatesRetained || 0);
                     const retained = count > 0 ? `至少 ${count} 项无引用资产仍保留` : '媒体物理回收未执行';
-                    showToast(`图片导入缓存已检查，媒体回收未完成；${retained}，请在缓存面板查看完整性状态`, 'warning', 8000);
+                    const detail = Number(result.orphanFilesFailed || 0) > 0
+                        ? `${result.orphanFilesFailed} 个孤儿文件删除失败` : retained;
+                    showToast(`图片导入缓存已检查，媒体回收未完成；${detail}，请在缓存面板查看完整性状态`, 'warning', 8000);
                 } else {
-                    showToast('图片导入节点缓存已清理', 'success');
+                    showToast('图片导入遗留缓存已清理；当前节点引用的图片已保留', 'success');
                 }
-                settingsControllerApi?.updateCacheUsage();
             } catch (e) {
                 showToast('图片导入缓存清理失败: ' + e.message, 'error');
             }

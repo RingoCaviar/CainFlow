@@ -199,8 +199,7 @@ def handle_post(handler):
             if action == 'clear-temporary':
                 result = storage_service.clear_temporary()
             elif action == 'clear-history':
-                storage_service.clear_history()
-                result = {'success': True}
+                result = storage_service.clear_history()
             elif action == 'factory-reset':
                 storage_service.factory_reset()
                 result = {'success': True}

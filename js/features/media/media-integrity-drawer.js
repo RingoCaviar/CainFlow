@@ -54,11 +54,14 @@ export function createDiagnosticExport({ safety = {}, report = {} } = {}) {
 export function createMediaIntegrityDrawerController({
     fetchRef = fetch, getWorkflows = () => [], getNodes = () => [], getWorkflowId = () => '',
     getWorkflowName = () => '', onMissingAction = async () => {}, onChange = () => {},
+    isActive = () => true, shouldPoll = () => true,
     setIntervalRef = setInterval, clearIntervalRef = clearInterval
 } = {}) {
     let monitorId = null;
     let loadPromise = null;
     let stepPromise = null;
+    let refreshPromise = null;
+    let refreshIncludesRecheck = false;
     let state = { safety: null, report: null, scan: null, paused: false, loading: false, error: '', model: buildIntegrityDrawerModel() };
     const update = (patch = {}) => {
         state = { ...state, ...patch };
@@ -66,19 +69,32 @@ export function createMediaIntegrityDrawerController({
         onChange(state);
         return state;
     };
-    async function requestJson(url, options) {
+    async function requestJson(url, options, allowNotFound = false) {
         const response = await fetchRef(url, options);
+        if (allowNotFound && response.status === 404) return { report: null };
         if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `HTTP ${response.status || 500}`);
         return response.json();
     }
-    async function load() {
+    async function load({ poll = false } = {}) {
         if (loadPromise) return loadPromise;
         loadPromise = (async () => {
         update({ loading: true, error: '' });
         try {
-            const [safetyValue, reportValue] = await Promise.all([
-                requestJson('/api/storage/safety-status'), requestJson('/api/storage/integrity-report')
-            ]);
+            let safetyValue; let reportValue;
+            if (poll) {
+                safetyValue = await requestJson('/api/storage/safety-status');
+                const publishedId = String(safetyValue.safety?.reportId || '');
+                const reportUnchanged = publishedId
+                    ? publishedId === state.report?.reportId
+                    : !state.report;
+                reportValue = reportUnchanged
+                    ? { report: state.report }
+                    : await requestJson('/api/storage/integrity-report', undefined, true);
+            } else {
+                [safetyValue, reportValue] = await Promise.all([
+                    requestJson('/api/storage/safety-status'), requestJson('/api/storage/integrity-report', undefined, true)
+                ]);
+            }
             return update({ safety: safetyValue.safety || null, report: reportValue.report || null, loading: false });
         } catch (error) { return update({ loading: false, error: error.message }); }
         })();
@@ -93,11 +109,42 @@ export function createMediaIntegrityDrawerController({
             const scan = await requestJson('/api/storage/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'scan-media-integrity', workflows: getWorkflows(), batchSize: 100 }) });
             update({ scan, report: scan.report || state.report, loading: false });
-            await load();
+            if (scan.complete) await load();
         } catch (error) { update({ loading: false, error: error.message }); }
         return state;
         })();
         try { return await stepPromise; } finally { stepPromise = null; }
+    }
+    const needsScan = () => !state.safety?.backgroundScanPending && state.safety?.state !== 'healthy' && (
+        state.safety?.state === 'scan_required' || state.safety?.state === 'scanning' || state.scan?.complete === false
+        || (state.safety?.state === 'gc_suspended'
+            && ['unclean_shutdown', 'fast_check_timeout'].includes(state.safety?.reason))
+        || (state.scan?.complete !== true && !state.report)
+    );
+    async function refresh({ recheck = false, preloaded = false } = {}) {
+        if (refreshPromise) {
+            if (!recheck || refreshIncludesRecheck) return refreshPromise;
+            await refreshPromise;
+            return refresh({ recheck: true });
+        }
+        refreshIncludesRecheck = recheck;
+        const request = (async () => {
+            update({ paused: false, error: '' });
+            if (!preloaded) await load();
+            if (state.error || state.safety?.backgroundScanPending || (!recheck && !needsScan())) return state;
+            do {
+                await step();
+            } while (!state.error && state.scan?.complete === false && isActive() && shouldPoll());
+            return state;
+        })();
+        refreshPromise = request;
+        try { return await request; }
+        finally {
+            if (refreshPromise === request) {
+                refreshPromise = null;
+                refreshIncludesRecheck = false;
+            }
+        }
     }
     async function runMissingAction(action, item, node) {
         try {
@@ -108,21 +155,27 @@ export function createMediaIntegrityDrawerController({
         catch (error) { update({ error: error.message || '媒体操作失败' }); }
         return state;
     }
+    const stopMonitoring = () => { if (monitorId !== null) clearIntervalRef(monitorId); monitorId = null; };
     return {
-        load, step, retry: () => { update({ scan: null, error: '', paused: false }); return step(); },
+        load, step, refresh, retry: () => { update({ scan: null, error: '', paused: false }); return step(); },
         pause: () => update({ paused: true }), resume: () => update({ paused: false }),
-        startMonitoring: (intervalMs = 3000) => {
-            if (monitorId === null) monitorId = setIntervalRef(load, intervalMs);
-            return load();
+        startMonitoring: (intervalMs = 5000) => {
+            if (monitorId === null) monitorId = setIntervalRef(() => {
+                if (!isActive()) { stopMonitoring(); return; }
+                if (!shouldPoll()) return;
+                if (refreshPromise) return refreshPromise;
+                return load({ poll: true }).then((current) => current.error || !needsScan() ? current : refresh({ preloaded: true }));
+            }, intervalMs);
+            return refresh();
         },
-        stopMonitoring: () => { if (monitorId !== null) clearIntervalRef(monitorId); monitorId = null; },
+        stopMonitoring,
         runMissingAction, getState: () => state,
         exportDiagnostics: () => createDiagnosticExport(state)
     };
 }
 
 export function renderMediaIntegrityDrawer(root, state, {
-    onPause, onResume, onRetry, onScan, onAction, onBatchRecover, onExport
+    onAction, onBatchRecover
 } = {}) {
     if (!root) return;
     root.replaceChildren();
@@ -134,21 +187,12 @@ export function renderMediaIntegrityDrawer(root, state, {
         return element;
     };
     const model = state.model;
-    const status = add('section', `integrity-status-card integrity-status-card--${model.paused ? 'paused' : 'healthy'}`, '');
-    add('strong', '', model.paused ? '物理回收已暂停' : '物理回收正常', status);
-    add('p', '', `原因：${model.reason}`, status);
-    add('p', '', model.saveImpact, status);
-    add('p', '', `扫描：${state.loading ? '正在加载' : model.phase} · 进度 ${model.progress} · 截止修订 ${model.cutoffRevision || '—'}`, status);
-    if (state.error) add('p', 'integrity-error', `操作失败：${state.error}`, status);
-    const controls = add('div', 'integrity-controls', '', status);
-    const button = (label, handler, parent = controls) => { const value = add('button', 'btn btn-secondary btn-xs', label, parent); value.type = 'button'; value.addEventListener('click', handler); return value; };
-    button(state.paused ? '继续扫描' : '暂停扫描', state.paused ? onResume : onPause);
-    button('扫描一步', onScan);
-    button('重试', onRetry);
-    button('导出脱敏诊断', onExport);
+    const button = (label, handler, parent) => { const value = add('button', 'btn btn-secondary btn-xs', label, parent); value.type = 'button'; value.addEventListener('click', handler); return value; };
     const summary = add('section', 'integrity-summary', '');
     add('strong', '', `待处理 ${model.pendingCount} 项 · 可恢复 ${model.recoverableCount} 项`, summary);
     if (model.recoverableCount) button('确认批量恢复', onBatchRecover, summary).classList.add('integrity-batch-recover');
+    if (model.paused && model.state !== 'unknown') add('p', 'integrity-notice', '媒体回收已暂停，清理可能保留文件');
+    if (state.error) add('p', 'integrity-error', `操作失败：${state.error}`);
     const list = add('div', 'integrity-missing-list', '');
     model.items.forEach((item) => {
         const card = add('article', 'integrity-missing-item', '', list);

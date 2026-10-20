@@ -1,4 +1,5 @@
 import os
+import hashlib
 import json
 import sqlite3
 import subprocess
@@ -7,11 +8,21 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
+from unittest import mock
 
 from backend.services.storage_service import StorageError, StorageService
 
 
 class StorageServiceTests(unittest.TestCase):
+    def test_background_scan_flag_is_exposed_to_monitoring_without_persisting(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            service.set_background_scan_pending(True)
+            self.assertTrue(service.get_storage_safety_status()['backgroundScanPending'])
+            service.set_background_scan_pending(False)
+            self.assertFalse(service.get_storage_safety_status()['backgroundScanPending'])
+
     def test_transition_contract_replays_after_restart_and_rejects_changed_intent(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
@@ -1305,6 +1316,10 @@ else:
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, verified=False)
             os.makedirs(os.path.dirname(service.database_path), exist_ok=True)
+            os.makedirs(service.assets_dir, exist_ok=True)
+            old_media = os.path.join(service.assets_dir, 'old-media.png')
+            with open(old_media, 'wb') as file:
+                file.write(b'old-media')
             with open(service.database_path, 'wb') as file:
                 file.write(b'not-a-sqlite-database')
             service.initialize()
@@ -1314,6 +1329,8 @@ else:
             status = service.get_storage_safety_status()
             self.assertEqual('repair_required', status['state'])
             self.assertEqual('database_unreadable', status['reason'])
+            self.assertEqual(0, service.cleanup_orphan_files())
+            self.assertTrue(os.path.isfile(old_media))
 
     def test_integrity_scan_is_resumable_and_classifies_each_durable_source(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1357,8 +1374,10 @@ else:
                 repairs_applied += result.get('repairsApplied', 0)
             classes = {item['damageClass'] for item in result['report']['damageItems']}
             self.assertTrue({'missing_file', 'missing_metadata', 'unassociated_owner',
-                             'unregistered_file', 'interrupted_transition', 'partial_reference_list'} <= classes,
+                             'interrupted_transition', 'partial_reference_list'} <= classes,
                             classes)
+            self.assertNotIn('unregistered_file', classes)
+            self.assertFalse(os.path.exists(unregistered_path))
             self.assertEqual(1, repairs_applied)
             self.assertEqual('gc_suspended', restarted.get_storage_safety_status()['state'])
             self.assertEqual(original_workflows, workflows)
@@ -1396,6 +1415,22 @@ else:
             self.assertTrue(cancelled['cancelled'])
             self.assertNotEqual('healthy', service.get_storage_safety_status()['state'])
 
+    def test_malformed_inner_file_cursor_is_rejected_before_resuming(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.put_asset('media:first', b'first', 'image/png', 'media')
+            self.assertFalse(service.scan_media_integrity_page([], batch_size=1)['complete'])
+            with open(service._integrity_checkpoint_path, encoding='utf-8') as source:
+                checkpoint = json.load(source)
+            checkpoint['sourceIndex'] = 5
+            checkpoint['sourceCursors']['files']['afterName'] = 17
+            with open(service._integrity_checkpoint_path, 'w', encoding='utf-8') as output:
+                json.dump(checkpoint, output)
+
+            with self.assertRaises(StorageError):
+                service.scan_media_integrity_page([], batch_size=1)
+            self.assertEqual('repair_required', service.get_storage_safety_status()['state'])
+
     def test_missing_media_report_does_not_reenable_physical_reclamation(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, verified=False)
@@ -1424,6 +1459,23 @@ else:
             self.assertIn('assets', replay['checkpoint']['rescanSet'])
             self.assertIsNone(service.get_media_integrity_report())
 
+    def test_integrity_scan_pages_return_progress_without_accumulated_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.put_asset('media:example', b'example', 'image/png', 'media')
+            for _ in range(100):
+                result = service.scan_media_integrity_page([], batch_size=1)
+                if result['complete']:
+                    break
+                checkpoint = result['checkpoint']
+                self.assertIn(checkpoint['phase'], {'scan', 'validate'})
+                self.assertIn('cutoffRevision', checkpoint)
+                self.assertNotIn('evidence', checkpoint)
+                self.assertNotIn('validationEvidence', checkpoint)
+                self.assertLess(len(json.dumps(result)), 4096)
+            else:
+                self.fail('Integrity scan did not complete within 100 pages')
+
     def test_integrity_sources_return_only_the_requested_stable_page(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, verified=False)
@@ -1441,6 +1493,361 @@ else:
             self.assertTrue(set(item['asset_key'] for item in first).isdisjoint(
                 item['asset_key'] for item in second))
 
+    def test_file_scan_keeps_ordered_root_cursor_across_bounded_pages(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            for name in ('a.bin', 'b.bin', 'c.bin'):
+                with open(os.path.join(service.assets_dir, name), 'wb') as output:
+                    output.write(name.encode())
+            os.mkdir(os.path.join(service.assets_dir, 'nested'))
+            with open(os.path.join(service.assets_dir, 'nested', 'child.bin'), 'wb') as output:
+                output.write(b'child')
+
+            cursor = 0
+            pages = []
+            for _ in range(10):
+                page, cursor, done, _ = service._integrity_source_page('files', cursor, 1, [])
+                self.assertLessEqual(len(page), 1)
+                pages.extend(page)
+                if done:
+                    break
+            else:
+                self.fail('File scan did not finish')
+
+            self.assertEqual(['a.bin', 'b.bin', 'c.bin', 'nested/child.bin'], pages)
+
+    def test_file_scan_reloads_a_directory_after_its_entries_change(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            for name in ('a.bin', 'c.bin'):
+                with open(os.path.join(service.assets_dir, name), 'wb') as output:
+                    output.write(name.encode())
+            first, cursor, done, _ = service._integrity_source_page('files', 0, 1, [])
+            self.assertEqual(['a.bin'], first)
+            self.assertFalse(done)
+
+            with open(os.path.join(service.assets_dir, 'b.bin'), 'wb') as output:
+                output.write(b'b')
+            second, cursor, _, _ = service._integrity_source_page('files', cursor, 1, [])
+            self.assertEqual(['b.bin'], second)
+            third, _, done, _ = service._integrity_source_page('files', cursor, 1, [])
+            self.assertEqual(['c.bin'], third)
+            self.assertTrue(done)
+
+    def test_file_scan_bounds_empty_directory_work_and_reaches_deep_image(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            for index in range(30):
+                os.mkdir(os.path.join(service.assets_dir, f'dir-{index:02}'))
+            deep_image = os.path.join(service.assets_dir, 'dir-29', 'unused.png')
+            with open(deep_image, 'wb') as output:
+                output.write(b'image')
+            scan = os.scandir
+            scanned = []
+
+            def tracked_scan(path):
+                scanned.append(path)
+                return scan(path)
+
+            cursor = 0
+            found = []
+            for _ in range(100):
+                scanned.clear()
+                with mock.patch('backend.services.storage_service.os.scandir', side_effect=tracked_scan):
+                    page, cursor, done, _ = service._integrity_source_page('files', cursor, 1, [])
+                self.assertLessEqual(len(scanned), 2)
+                found.extend(page)
+                if done:
+                    break
+            else:
+                self.fail('File scan did not finish')
+            self.assertEqual(['dir-29/unused.png'], found)
+
+    def test_integrity_scan_detects_file_inserted_before_validation_cursor_with_same_directory_mtime(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            service.initialize()
+            for name in ('b.png', 'c.png'):
+                with open(os.path.join(service.assets_dir, name), 'wb') as output:
+                    output.write(name.encode())
+            inserted = False
+            with mock.patch.object(service, '_next_integrity_batch_size', return_value=1):
+                for _ in range(100):
+                    result = service.scan_media_integrity_page([], batch_size=1)
+                    checkpoint = result.get('checkpoint') or {}
+                    if (not inserted and checkpoint.get('phase') == 'validate'
+                            and checkpoint.get('sourceIndex') == 5 and checkpoint.get('cursor') == 1):
+                        directory_stat = os.stat(service.assets_dir)
+                        with open(os.path.join(service.assets_dir, 'a.png'), 'wb') as output:
+                            output.write(b'a')
+                        os.utime(service.assets_dir, ns=(directory_stat.st_atime_ns, directory_stat.st_mtime_ns))
+                        inserted = True
+                    if result['complete']:
+                        break
+                else:
+                    self.fail('Integrity scan did not finish')
+            self.assertTrue(inserted)
+            self.assertFalse(os.path.exists(os.path.join(service.assets_dir, 'a.png')))
+            self.assertNotIn('unregistered_file', {
+                item['damageClass'] for item in result['report']['damageItems']})
+
+    def test_manual_cleanup_retries_unregistered_deletion_after_scan_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root, verified=False)
+            retained = service.put_media_asset(b'retained', 'image/png', 'history', '1')
+            retained_path = os.path.join(service.assets_dir, retained['relative_path'])
+            orphan = os.path.join(service.assets_dir, 'legacy', 'new.png')
+            os.makedirs(os.path.dirname(orphan))
+            with open(orphan, 'wb') as output:
+                output.write(b'unknown')
+            original_remove = os.remove
+
+            def fail_orphan(path):
+                if path == orphan:
+                    raise PermissionError('locked')
+                return original_remove(path)
+
+            with mock.patch('backend.services.storage_service.os.remove', side_effect=fail_orphan):
+                result, _ = self.finish_integrity_scan(service, [])
+            self.assertIn('unregistered_file', {
+                item['damageClass'] for item in result['report']['damageItems']})
+            self.assertEqual('gc_suspended', service.get_storage_safety_status()['state'])
+
+            cleanup = service.clear_temporary()
+            self.assertEqual(1, cleanup['orphanFilesDeleted'])
+            self.assertEqual(0, cleanup['orphanFilesFailed'])
+            self.assertFalse(os.path.exists(orphan))
+            self.assertTrue(os.path.isfile(retained_path))
+            self.assertEqual('scan_required', service.get_storage_safety_status()['state'])
+            result, _ = self.finish_integrity_scan(service, [])
+            self.assertNotIn('unregistered_file', {
+                item['damageClass'] for item in result['report']['damageItems']})
+            self.assertEqual('healthy', service.get_storage_safety_status()['state'])
+
+    def test_unregistered_sweep_waits_for_inflight_asset_registration(self):
+        with tempfile.TemporaryDirectory() as root:
+            writer = self.make_service(root)
+            cleaner = self.make_service(root, verified=False)
+            materialized = threading.Event()
+            release = threading.Event()
+            outcome = {}
+
+            def pause(stage):
+                if stage == 'media_materialized':
+                    materialized.set()
+                    if not release.wait(5):
+                        raise TimeoutError('writer was not released')
+
+            writer._transition_fault_injector = pause
+
+            def write():
+                try:
+                    outcome['asset'] = writer.put_media_asset(b'new-media', 'image/png', 'history', '1')
+                except Exception as error:
+                    outcome['writer_error'] = error
+
+            def sweep():
+                try:
+                    outcome['deleted'] = cleaner.cleanup_orphan_files()
+                except Exception as error:
+                    outcome['cleaner_error'] = error
+
+            write_thread = threading.Thread(target=write)
+            sweep_thread = threading.Thread(target=sweep)
+            write_thread.start()
+            try:
+                self.assertTrue(materialized.wait(5))
+                sweep_thread.start()
+                sweep_thread.join(timeout=0.05)
+                self.assertTrue(sweep_thread.is_alive())
+            finally:
+                release.set()
+            write_thread.join(timeout=5)
+            sweep_thread.join(timeout=5)
+            self.assertFalse(write_thread.is_alive())
+            self.assertFalse(sweep_thread.is_alive())
+            self.assertNotIn('writer_error', outcome)
+            self.assertNotIn('cleaner_error', outcome)
+            self.assertEqual(0, outcome['deleted'])
+            self.assertIsNotNone(cleaner.get_asset(outcome['asset']['asset_key']))
+
+    def test_manual_temporary_cleanup_removes_fresh_and_stale_files_inside_old_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            nested = os.path.join(service.temp_dir, 'nested')
+            os.makedirs(nested)
+            stale = os.path.join(nested, 'stale.png')
+            fresh = os.path.join(nested, 'fresh.png')
+            for path in (stale, fresh):
+                with open(path, 'wb') as output:
+                    output.write(b'image')
+            now = int(time.time() * 1000)
+            old = now / 1000 - 600
+            os.utime(stale, (old, old))
+            os.utime(nested, (old, old))
+
+            result = service.clear_temporary(now_ms=now)
+
+            self.assertEqual(2, result['temporaryDeleted'])
+            self.assertFalse(os.path.exists(stale))
+            self.assertFalse(os.path.exists(fresh))
+
+    def test_clearing_history_reports_retained_media_when_reclamation_is_paused(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_asset('history:1', b'history-image', 'image/png', 'history')
+            service.save_history({'id': 1, 'imageAssetKey': asset['asset_key']})
+            service._safety_status.update({'state': 'gc_suspended', 'reason': 'test_guard'})
+            service._write_safety_status(service._safety_status)
+
+            result = service.clear_history()
+
+            self.assertEqual(1, result['historyDeleted'])
+            self.assertEqual(0, result['assetsDeleted'])
+            self.assertEqual(1, result['candidatesRetained'])
+            self.assertTrue(result['gcSuspended'])
+            self.assertEqual([], service.list_history())
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
+    def test_clearing_history_reclaims_history_only_media_and_preserves_shared_media(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            history_only = service.put_asset('history:1', b'history-only', 'image/png', 'history')
+            shared = service.put_asset('history:2', b'shared', 'image/png', 'history')
+            service.save_history({'id': 1, 'imageAssetKey': history_only['asset_key']})
+            service.save_history({'id': 2, 'imageAssetKey': shared['asset_key']})
+            service.add_media_reference('workflow-node', 'wf:node', shared['asset_key'])
+
+            result = service.clear_history()
+
+            self.assertEqual(2, result['historyDeleted'])
+            self.assertEqual(1, result['assetsDeleted'])
+            self.assertEqual(0, result['candidatesRetained'])
+            self.assertFalse(result['gcSuspended'])
+            self.assertIsNone(service.get_asset_info(history_only['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(shared['asset_key']))
+            self.assertEqual(len(b'shared'), service.get_stats()['actualMediaBytes'])
+
+    def test_manual_temporary_cleanup_reports_locked_nested_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            nested = os.path.join(service.temp_dir, 'nested')
+            os.makedirs(nested)
+            path = os.path.join(nested, 'locked.png')
+            with open(path, 'wb') as output:
+                output.write(b'image')
+            now = int(time.time() * 1000)
+            old = now / 1000 - 600
+            os.utime(path, (old, old))
+            original_remove = os.remove
+
+            def remove(candidate):
+                if candidate == path:
+                    raise PermissionError('locked')
+                return original_remove(candidate)
+
+            with mock.patch('backend.services.storage_service.os.remove', side_effect=remove):
+                result = service.clear_temporary(now_ms=now)
+
+            self.assertEqual(1, result['temporaryFailed'])
+            self.assertTrue(os.path.isfile(path))
+
+    def test_manual_cleanup_reports_orphan_file_deletion_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            orphan = os.path.join(service.assets_dir, 'unused.png')
+            with open(orphan, 'wb') as output:
+                output.write(b'image')
+            original_remove = os.remove
+
+            def remove(path):
+                if path == orphan:
+                    raise PermissionError('locked')
+                return original_remove(path)
+
+            with mock.patch('backend.services.storage_service.os.remove', side_effect=remove):
+                result = service.clear_temporary()
+
+            self.assertEqual(1, result['orphanFilesFailed'])
+            self.assertTrue(os.path.isfile(orphan))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows paths are case insensitive')
+    def test_cleanup_and_integrity_scan_keep_registered_file_with_case_variant_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            directory = os.path.join(service.assets_dir, 'Mixed')
+            os.makedirs(directory)
+            path = os.path.join(directory, 'Photo.PNG')
+            with open(path, 'wb') as output:
+                output.write(b'image')
+            with service._connect() as db:
+                db.execute('''INSERT INTO assets(asset_key, sha256, kind, mime_type,
+                    size_bytes, relative_path, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)''',
+                    ('media:case', hashlib.sha256(b'image').hexdigest(), 'media', 'image/png',
+                     5, 'mixed/photo.png', int(time.time() * 1000)))
+
+            self.assertEqual(0, service.cleanup_orphan_files())
+            self.assertTrue(os.path.isfile(path))
+            result, _ = self.finish_integrity_scan(service, [])
+            self.assertNotIn('missing_file', {item['damageClass'] for item in result['report']['damageItems']})
+            self.assertNotIn('unregistered_file', {item['damageClass'] for item in result['report']['damageItems']})
+
+    def test_cache_stats_reuse_aggregates_until_a_dependency_changes(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            statements = []
+            connect = service._connect
+
+            @contextmanager
+            def traced_connect():
+                with connect() as db:
+                    db.set_trace_callback(statements.append)
+                    yield db
+
+            with mock.patch.object(service, '_connect', traced_connect):
+                first = service.get_stats('workflow-a')
+                second = service.get_stats('workflow-a')
+                full_scans = lambda: sum('GROUP BY relative_path' in sql for sql in statements)
+                self.assertEqual(1, full_scans())
+                self.assertEqual(first, second)
+                self.assertIsNot(first, second)
+
+                service.put_asset('media:one', b'one', 'image/png', 'media')
+                statements.clear()
+                self.assertEqual(3, service.get_stats('workflow-a')['actualMediaBytes'])
+                self.assertEqual(1, full_scans())
+
+                service.put_document('session', {'value': 'changed'})
+                statements.clear()
+                self.assertGreater(service.get_stats('workflow-a')['documentBytes'], 0)
+                self.assertEqual(1, full_scans())
+
+                with service._connect() as db:
+                    db.execute('''INSERT INTO history(id, timestamp, media_type, asset_key, metadata_json)
+                        VALUES(1, 1, 'image', 'media:one', '{}')''')
+                statements.clear()
+                self.assertEqual(1, service.get_stats('workflow-a')['history'])
+                self.assertEqual(1, full_scans())
+
+                with service._connect() as db:
+                    db.execute('''INSERT INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                        VALUES('history', '1', 'media:one', 1)''')
+                statements.clear()
+                self.assertEqual(1, service.get_stats('workflow-a')['mediaReferences'])
+                self.assertEqual(1, full_scans())
+
+                statements.clear()
+                service.get_stats('workflow-b')
+                self.assertEqual(1, full_scans())
+
+                service.set_media_cache_limit(1234)
+                statements.clear()
+                self.assertEqual(1234, service.get_stats('workflow-a')['mediaCacheLimitBytes'])
+                self.assertEqual(1, full_scans())
+
     def test_integrity_batch_size_adapts_to_page_cost(self):
         self.assertEqual(20, StorageService._next_integrity_batch_size(10, 0.001))
         self.assertEqual(5, StorageService._next_integrity_batch_size(10, 0.1))
@@ -1456,15 +1863,18 @@ else:
                 nonlocal inserted
                 if not inserted:
                     inserted = True
+                    directory_stat = os.stat(service.assets_dir)
                     with open(os.path.join(service.assets_dir, 'late.bin'), 'wb') as output:
                         output.write(b'late')
+                    os.utime(service.assets_dir, ns=(directory_stat.st_atime_ns, directory_stat.st_mtime_ns))
                 return original_publish(*args, **kwargs)
 
             service._publish_integrity_report = publish
             result, _ = self.finish_integrity_scan(service, [])
 
             self.assertTrue(inserted)
-            self.assertIn('unregistered_file', {
+            self.assertFalse(os.path.exists(os.path.join(service.assets_dir, 'late.bin')))
+            self.assertNotIn('unregistered_file', {
                 item['damageClass'] for item in result['report']['damageItems']})
 
     def test_changed_workflow_snapshot_is_replayed_before_publication(self):
@@ -1693,18 +2103,21 @@ else:
                 service.audit_media_gc_candidates(['wf'])
             self.assertEqual('media_gc_audit_failed', service.get_storage_safety_status()['reason'])
 
-    def test_unregistered_files_enter_versioned_quarantine_without_being_released(self):
+    def test_cleanup_deletes_legacy_unregistered_quarantine_files_and_metadata(self):
         with tempfile.TemporaryDirectory() as root:
-            service = self.make_service(root, verified=False)
-            service.initialize()
-            path = os.path.join(service.assets_dir, 'legacy.bin')
+            service = self.make_service(root)
+            digest = hashlib.sha256(b'legacy').hexdigest()
+            os.makedirs(service._media_quarantine_dir, exist_ok=True)
+            path = os.path.join(service._media_quarantine_dir, f'unregistered-{digest}')
             with open(path, 'wb') as output:
                 output.write(b'legacy')
-            result = service.quarantine_unregistered_media_files()
-            self.assertEqual(1, result['quarantined'])
+            service.set_meta(f'media_unregistered_quarantine:{digest}', '{}')
+
+            result = service.cleanup_orphan_files(detailed=True)
+
+            self.assertEqual(1, result['deleted'])
             self.assertFalse(os.path.exists(path))
-            self.assertTrue(os.path.exists(result['items'][0]['quarantinePath']))
-            self.assertGreater(result['items'][0]['releaseAfter'], result['items'][0]['quarantinedAt'])
+            self.assertEqual('', service.get_meta(f'media_unregistered_quarantine:{digest}'))
 
     def test_gc_canary_requires_clean_observation_and_respects_count_and_byte_limits(self):
         with tempfile.TemporaryDirectory() as root:

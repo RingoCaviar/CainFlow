@@ -231,7 +231,7 @@ def print_banner():
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
 
-def _recover_media_transitions():
+def _recover_media_transitions_initial():
     def load_current_workflows():
         workflows = []
         for name in workflow_service.list_workflows(config.WORKFLOWS_DIR).get('workflows', []):
@@ -250,7 +250,7 @@ def _recover_media_transitions():
         except Exception:
             # Never log workflow content or storage paths from an exception.
             print('Media ownership recovery paused; durable transition records are retained.')
-            return
+            return False
         cursor = result['nextCursor']
         if not cursor:
             break
@@ -264,13 +264,28 @@ def _recover_media_transitions():
         if scan.get('complete'):
             break
         _storage_recovery_stop.wait(0.05)
-    _maintain_runtime_cache()
+    return True
+
+
+def _recover_media_transitions():
+    try:
+        ready = _recover_media_transitions_initial()
+    finally:
+        storage_service.set_background_scan_pending(False)
+    if ready:
+        _maintain_runtime_cache()
 
 
 def _maintain_runtime_cache():
     while not _storage_recovery_stop.is_set():
         try:
             storage_service.run_cache_maintenance()
+            if storage_service.get_storage_safety_status()['reason'] == 'unregistered_files_removed':
+                storage_service.set_background_scan_pending(True)
+                try:
+                    _recover_media_transitions_initial()
+                finally:
+                    storage_service.set_background_scan_pending(False)
         except Exception:
             # Never include local paths, workflow content or raw exceptions.
             print('Cache maintenance paused; protected media and recovery evidence are retained.')
@@ -298,9 +313,15 @@ def initialize_runtime():
     cleanup_update_temp_files()
     diagnostic_service.initialize()
     if _storage_recovery_thread is None:
-        _storage_recovery_thread = threading.Thread(
-            target=_recover_media_transitions, name='media-owner-recovery', daemon=True)
-        _storage_recovery_thread.start()
+        storage_service.set_background_scan_pending(True)
+        try:
+            _storage_recovery_thread = threading.Thread(
+                target=_recover_media_transitions, name='media-owner-recovery', daemon=True)
+            _storage_recovery_thread.start()
+        except Exception:
+            storage_service.set_background_scan_pending(False)
+            _storage_recovery_thread = None
+            raise
 
 
 def create_server(host=None, port=None):

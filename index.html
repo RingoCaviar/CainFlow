@@ -913,9 +913,10 @@
             <div id="media-integrity-panel" class="media-integrity-panel" aria-live="polite"></div>
             <div class="cache-info-card">
                 <div class="cache-metric-label">
-                    本地媒体原件：实际占用</div>
+                    已登记媒体占用（去重估算）</div>
                 <div id="cache-size-display" class="cache-metric-value">
                     0.00 MB</div>
+                <div class="cache-metric-hint">包含当前工作流仍在使用的图片；清理缓存不会删除这些结果。</div>
             </div>
 
             <div class="cache-breakdown">
@@ -939,6 +940,10 @@
                     <div class="cache-item-label">缩略图</div>
                     <div id="usage-thumbnail-media" class="cache-item-value">0 项 · 0.00 MB
                     </div>
+                </div>
+                <div class="cache-item">
+                    <div class="cache-item-label">临时写入与待恢复结果</div>
+                    <div id="usage-operation-media" class="cache-item-value">0 项 · 0.00 MB</div>
                 </div>
                 <div class="cache-item">
                     <div class="cache-item-label">💾 基础数据 (存档与配置)</div>
@@ -973,10 +978,10 @@
                         <polyline points="3 6 5 6 21 6" />
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                     </svg>
-                    清理图片导入节点缓存
+                    清理图片导入遗留缓存
                 </button>
                 <p class="cache-action-note">
-                    只清理旧节点遗留资产和可由上游重新恢复的重复预览缓存；当前节点中的源图片和生成结果会保留。
+                    当前节点中的源图片和生成结果会保留并计入媒体文件占用；删除对应节点或结果后才能释放这些文件。
                 </p>
             </div>
         </div>

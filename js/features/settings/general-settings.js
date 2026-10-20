@@ -812,44 +812,61 @@ export function createGeneralSettings({ ctx, dialogs }) {
         return `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(2)} MB`;
     }
 
+    let pendingCacheUsage = null;
+    let pendingCacheUsageWorkflowId = '';
+    let cacheUsageRevision = 0;
     async function updateCacheUsage(force = false) {
+        const cacheSidebar = documentRef.getElementById('cache-sidebar');
+        if (!force && cacheSidebar && !cacheSidebar.classList?.contains('active')) return;
+        const workflowId = getActiveWorkflowId();
+        if (pendingCacheUsage && !force && pendingCacheUsageWorkflowId === workflowId) return pendingCacheUsage;
         const display = documentRef.getElementById('cache-size-display');
         const historyEl = documentRef.getElementById('usage-history');
         const workflowMediaEl = documentRef.getElementById('usage-workflow-media');
         const importMediaEl = documentRef.getElementById('usage-import-media');
         const thumbnailMediaEl = documentRef.getElementById('usage-thumbnail-media');
+        const operationMediaEl = documentRef.getElementById('usage-operation-media');
         const localEl = documentRef.getElementById('usage-local');
         if (!display) return;
 
-        try {
-            if (force) {
-                state.cacheSizes[storeHistoryName] = null;
-                state.cacheSizes[storeAssetsName] = null;
+        const revision = ++cacheUsageRevision;
+        const request = (async () => {
+            try {
+                if (force) {
+                    state.cacheSizes[storeHistoryName] = null;
+                    state.cacheSizes[storeAssetsName] = null;
+                }
+
+                const query = workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : '';
+                const response = await fetch(`/api/storage/maintenance${query}`, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const stats = await response.json();
+                if (revision !== cacheUsageRevision || workflowId !== getActiveWorkflowId()) return;
+                const localBytes = Number(stats.documentBytes || 0);
+                const totalBytes = Number(stats.actualMediaBytes || 0);
+                const distribution = stats.mediaReferenceDistribution || {};
+                const formatReference = (ownerType) => {
+                    const item = distribution[ownerType] || {};
+                    return `${Number(item.assets || 0)} 项 · ${formatMB(Number(item.bytes || 0))}`;
+                };
+
+                display.textContent = formatMB(totalBytes);
+                if (workflowMediaEl) workflowMediaEl.textContent = formatReference('workflow-node');
+                if (importMediaEl) importMediaEl.textContent = formatReference('workflow-import');
+                if (historyEl) historyEl.textContent = formatReference('history');
+                if (thumbnailMediaEl) thumbnailMediaEl.textContent = formatReference('history-thumbnail');
+                if (operationMediaEl) operationMediaEl.textContent = formatReference('workflow-operation');
+                if (localEl) localEl.textContent = formatMB(localBytes);
+            } catch (error) {
+                if (revision !== cacheUsageRevision || workflowId !== getActiveWorkflowId()) return;
+                display.textContent = '获取失败';
+                console.error('Cache audit failed:', error);
             }
-
-            const workflowId = getActiveWorkflowId();
-            const query = workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : '';
-            const response = await fetch(`/api/storage/maintenance${query}`, { cache: 'no-store' });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const stats = await response.json();
-            const localBytes = Number(stats.documentBytes || 0);
-            const totalBytes = Number(stats.actualMediaBytes || 0);
-            const distribution = stats.mediaReferenceDistribution || {};
-            const formatReference = (ownerType) => {
-                const item = distribution[ownerType] || {};
-                return `${Number(item.assets || 0)} 项 · ${formatMB(Number(item.bytes || 0))}`;
-            };
-
-            display.textContent = formatMB(totalBytes);
-            if (workflowMediaEl) workflowMediaEl.textContent = formatReference('workflow-node');
-            if (importMediaEl) importMediaEl.textContent = formatReference('workflow-import');
-            if (historyEl) historyEl.textContent = formatReference('history');
-            if (thumbnailMediaEl) thumbnailMediaEl.textContent = formatReference('history-thumbnail');
-            if (localEl) localEl.textContent = formatMB(localBytes);
-        } catch (error) {
-            display.textContent = '获取失败';
-            console.error('Cache audit failed:', error);
-        }
+        })();
+        pendingCacheUsage = request;
+        pendingCacheUsageWorkflowId = workflowId;
+        try { return await request; }
+        finally { if (pendingCacheUsage === request) pendingCacheUsage = null; }
     }
 
     return {

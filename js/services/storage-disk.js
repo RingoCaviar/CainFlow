@@ -510,6 +510,6 @@ export function createDiskStorageApi(getState) {
         clearOrphanedNodeAssets: (_keepKeys, options = {}) => postMaintenance('clear-assets', { mode: 'node-orphans' }, options),
         trimHistoryCache: () => postMaintenance('trim-history'), createThumbnail, createVideoThumbnail,
         saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
-        updateHistoryThumb, clearHistory: () => postMaintenance('clear-history'), deleteHistoryEntry
+        updateHistoryThumb, clearHistory: (options = {}) => postMaintenance('clear-history', {}, options), deleteHistoryEntry
     };
 }

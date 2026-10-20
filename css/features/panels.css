@@ -743,6 +743,13 @@ body.workflow-sidebar-resizing * {
     font-family: var(--font-mono);
 }
 
+.cache-metric-hint {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
 .cache-breakdown {
     margin-top: 20px;
 }

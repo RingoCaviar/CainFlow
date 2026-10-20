@@ -1,5 +1,7 @@
 import hashlib
 import base64
+import copy
+import heapq
 import json
 import mimetypes
 import os
@@ -31,6 +33,7 @@ HISTORY_MAX_ENTRIES = 1000
 HISTORY_RETENTION_DAYS = 365
 DEFAULT_MEDIA_CACHE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024
 CACHE_MAINTENANCE_INTERVAL_SECONDS = 5 * 60
+MEDIA_OPERATION_OWNER_GRACE_MS = 5 * 60 * 1000
 MEDIA_QUARANTINE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 DOCUMENT_NAMES = {
     'session', 'ui_bootstrap', 'prompt_library', 'logs_state',
@@ -57,6 +60,9 @@ class StorageService:
         self._fast_check_budget_seconds = max(0, float(fast_check_budget_seconds))
         self._transition_fault_injector = transition_fault_injector or (lambda _stage: None)
         self._integrity_coordinator_id = str(uuid.uuid4())
+        self._background_scan_pending = False
+        self._stats_lock = threading.Lock()
+        self._stats_cache = {}
         self._supported_schema_version = int(supported_schema_version)
 
     def initialize(self):
@@ -280,8 +286,13 @@ class StorageService:
 
     def get_storage_safety_status(self):
         self.initialize()
-        return {key: value for key, value in self._safety_status.items()
-                if key not in {'cleanShutdown', 'integrityReport'}}
+        status = {key: value for key, value in self._safety_status.items()
+                  if key not in {'cleanShutdown', 'integrityReport'}}
+        status['backgroundScanPending'] = self._background_scan_pending
+        return status
+
+    def set_background_scan_pending(self, pending):
+        self._background_scan_pending = bool(pending)
 
     def assert_storage_writable(self):
         self.initialize()
@@ -401,38 +412,63 @@ class StorageService:
             }
             page = []
             directory_revisions = {}
-            while len(page) < limit and (state['currentDirectory'] or state['pendingDirectories']):
-                if not state['currentDirectory']:
+            work_units = 0
+            while (len(page) < limit and work_units < limit
+                   and (state['currentDirectory'] or state['afterName'] or state['pendingDirectories'])):
+                if not state['currentDirectory'] and not state['afterName']:
                     state['currentDirectory'] = state['pendingDirectories'].pop(0)
                     state['afterName'] = ''
                 directory = os.path.realpath(os.path.join(root, state['currentDirectory']))
                 if os.path.commonpath((root, directory)) != root:
                     raise StorageError('Unsafe media path encountered during integrity scan')
-                with os.scandir(directory) as iterator:
-                    entries = sorted(iterator, key=lambda entry: entry.name)
-                directory_revisions[state['currentDirectory']] = os.stat(directory).st_mtime_ns
-                exhausted = True
-                for entry in entries:
-                    if entry.name <= state['afterName']:
-                        continue
-                    state['afterName'] = entry.name
+                # Re-read each page and fingerprint every entry. A same-timestamp
+                # insertion before afterName must invalidate this paged traversal.
+                entry_limit = max(1, limit - work_units)
+                entries, signature = self._integrity_directory_page(
+                    directory, state['afterName'], entry_limit)
+                directory_revisions[state['currentDirectory']] = signature
+                exhausted = len(entries) <= entry_limit
+                work_units += 1 + min(len(entries), entry_limit)
+                for entry in entries[:entry_limit]:
+                    name = entry.name
+                    state['afterName'] = name
                     relative = os.path.relpath(entry.path, root).replace(os.sep, '/')
                     if entry.is_dir(follow_symlinks=False):
                         state['pendingDirectories'].append(relative)
                     elif entry.is_file(follow_symlinks=False):
                         page.append(relative)
-                        if len(page) >= limit:
-                            exhausted = False
-                            break
                 if exhausted:
                     state['currentDirectory'] = ''
                     state['afterName'] = ''
-            done = not state['currentDirectory'] and not state['pendingDirectories']
+                else:
+                    break
+            done = not state['currentDirectory'] and not state['afterName'] and not state['pendingDirectories']
             return page, state, done, directory_revisions
         if source == 'sourceErrors':
             # File errors are collected alongside the bounded file page.
             return [], cursor, True, {}
         raise StorageError('Unknown Media integrity scan source')
+
+    @staticmethod
+    def _integrity_directory_page(directory, after_name, limit):
+        count = checksum = 0
+
+        def entries_with_fingerprint(iterator):
+            nonlocal count, checksum
+            for entry in iterator:
+                kind = 'd' if entry.is_dir(follow_symlinks=False) else (
+                    'f' if entry.is_file(follow_symlinks=False) else 'o')
+                encoded = f'{kind}:{entry.name}'.encode('utf-8', 'surrogatepass')
+                checksum = (checksum + int.from_bytes(
+                    hashlib.blake2b(encoded, digest_size=16).digest(), 'big')) % (1 << 128)
+                count += 1
+                if entry.name > after_name:
+                    yield entry
+
+        with os.scandir(directory) as iterator:
+            page = heapq.nsmallest(limit + 1, entries_with_fingerprint(iterator), key=lambda entry: entry.name)
+        modified = os.stat(directory).st_mtime_ns
+        return page, f'{modified}:{count}:{checksum:032x}'
 
     @staticmethod
     def _inspect_integrity_file(path):
@@ -527,9 +563,20 @@ class StorageService:
     def _integrity_directories_match(self, revisions):
         root = os.path.realpath(self.assets_dir)
         try:
-            return all(os.stat(os.path.join(root, *relative.split('/'))).st_mtime_ns == expected
-                       for relative, expected in revisions.items())
-        except OSError:
+            for relative, expected in revisions.items():
+                if not isinstance(expected, str):
+                    return False
+                directory = os.path.realpath(os.path.join(root, *relative.split('/')))
+                if os.path.commonpath((root, directory)) != root:
+                    return False
+                modified = os.stat(directory).st_mtime_ns
+                if not expected.startswith(f'{modified}:'):
+                    return False
+                _, signature = self._integrity_directory_page(directory, '', 1)
+                if signature != expected:
+                    return False
+            return True
+        except (OSError, ValueError):
             return False
 
     @staticmethod
@@ -547,6 +594,25 @@ class StorageService:
         if any(key not in checkpoint or not isinstance(checkpoint[key], expected)
                for key, expected in required.items()):
             return False
+        cursors = checkpoint['sourceCursors']
+        if set(cursors) != set(partition_names):
+            return False
+        for name, cursor in cursors.items():
+            if name == 'files':
+                if (not isinstance(cursor, dict)
+                        or not {'pendingDirectories', 'currentDirectory', 'afterName'} <= set(cursor)
+                        or not isinstance(cursor['pendingDirectories'], list)
+                        or not all(isinstance(path, str) for path in cursor['pendingDirectories'])
+                        or not isinstance(cursor['currentDirectory'], str)
+                        or not isinstance(cursor['afterName'], str)):
+                    return False
+            elif name == 'workflows' and isinstance(cursor, dict):
+                if (not {'workflowIndex', 'nodeIndex'} <= set(cursor)
+                        or not all(isinstance(cursor[key], int) and cursor[key] >= 0
+                                   for key in ('workflowIndex', 'nodeIndex'))):
+                    return False
+            elif not isinstance(cursor, int) or cursor < 0:
+                return False
         return (
             checkpoint['scannerVersion'] == INTEGRITY_SCANNER_VERSION
             and checkpoint['reportVersion'] == INTEGRITY_REPORT_VERSION
@@ -564,6 +630,14 @@ class StorageService:
             and all(isinstance(value, str) for value in checkpoint['partitionRevisions'].values())
             and all(name in partition_names for name in checkpoint['rescanSet'])
         )
+
+    @staticmethod
+    def _integrity_checkpoint_progress(checkpoint):
+        """Expose scan progress without sending accumulated media evidence to the client."""
+        keys = ('scanId', 'scannerVersion', 'reportVersion', 'storageEpoch',
+                'phase', 'sourceIndex', 'cursor', 'cutoffRevision',
+                'partitionRevisions', 'damageCounts', 'rescanSet')
+        return {key: checkpoint[key] for key in keys}
 
     def scan_media_integrity_page(self, workflows, batch_size=100, cancelled=False):
         """Advance a durable, epoch-fenced integrity scan without holding a long write transaction."""
@@ -628,7 +702,9 @@ class StorageService:
                 if source == 'files':
                     revision_target = (checkpoint['fileDirectoryRevisions'] if checkpoint['phase'] == 'scan'
                                        else checkpoint['validationFileDirectoryRevisions'])
-                    revision_target.update(directory_revisions)
+                    for directory, signature in directory_revisions.items():
+                        previous = revision_target.get(directory, signature)
+                        revision_target[directory] = signature if previous == signature else None
                 checkpoint['sourceCursors'][source] = next_cursor
                 if source == 'files':
                     root = os.path.realpath(self.assets_dir)
@@ -656,10 +732,8 @@ class StorageService:
         if checkpoint['sourceIndex'] < len(names):
             self._write_integrity_checkpoint(lease_token, checkpoint)
             self._release_integrity_scan(lease_token)
-            return {'complete': False, 'cancelled': False, 'nextBatchSize': checkpoint['nextBatchSize'], 'checkpoint': {
-                key: checkpoint[key] for key in ('scanId', 'scannerVersion', 'reportVersion', 'storageEpoch',
-                                                  'sourceIndex', 'cursor', 'partitionRevisions', 'damageCounts', 'rescanSet')
-            }}
+            return {'complete': False, 'cancelled': False, 'nextBatchSize': checkpoint['nextBatchSize'],
+                    'checkpoint': self._integrity_checkpoint_progress(checkpoint)}
         if checkpoint['phase'] == 'scan':
             checkpoint.update({
                 'phase': 'validate', 'sourceIndex': 0, 'cursor': 0,
@@ -671,7 +745,7 @@ class StorageService:
             self._write_integrity_checkpoint(lease_token, checkpoint)
             self._release_integrity_scan(lease_token)
             return {'complete': False, 'cancelled': False, 'nextBatchSize': checkpoint['nextBatchSize'],
-                    'checkpoint': checkpoint}
+                    'checkpoint': self._integrity_checkpoint_progress(checkpoint)}
         partitions = checkpoint['evidence']
         validation_revisions = {
             name: self._integrity_partition_digest(checkpoint['validationEvidence'][name])
@@ -688,6 +762,9 @@ class StorageService:
         final_revisions = validation_revisions
         changed = [name for name in names if validation_revisions[name] != scan_revisions[name]]
         changed.extend(self._integrity_changed_partitions_after(checkpoint['cutoffRevision']))
+        if (None in checkpoint['fileDirectoryRevisions'].values()
+                or None in checkpoint['validationFileDirectoryRevisions'].values()):
+            changed.append('files')
         changed = sorted(set(changed))
         if changed:
             checkpoint.update({'sourceIndex': 0, 'cursor': 0,
@@ -701,7 +778,8 @@ class StorageService:
                                'cutoffRevision': self._integrity_change_revision()})
             self._write_integrity_checkpoint(lease_token, checkpoint)
             self._release_integrity_scan(lease_token)
-            return {'complete': False, 'cancelled': False, 'checkpoint': checkpoint}
+            return {'complete': False, 'cancelled': False,
+                    'checkpoint': self._integrity_checkpoint_progress(checkpoint)}
         repairs_applied = self._repair_integrity_damage(
             workflows, partitions, checkpoint['damageItems'], checkpoint['scanId'])
         if repairs_applied:
@@ -720,7 +798,29 @@ class StorageService:
             self._write_integrity_checkpoint(lease_token, checkpoint)
             self._release_integrity_scan(lease_token)
             return {'complete': False, 'cancelled': False, 'repairsApplied': repairs_applied,
-                    'checkpoint': checkpoint}
+                    'checkpoint': self._integrity_checkpoint_progress(checkpoint)}
+        if any(item['damageClass'] == 'unregistered_file' for item in checkpoint['damageItems']):
+            cleanup = self.cleanup_orphan_files(detailed=True, validated_scan=True)
+            if cleanup['deleted']:
+                # The file evidence changed after deletion; publish only a fresh scan.
+                checkpoint.update({
+                    'sourceIndex': 0, 'cursor': 0,
+                    'partitionRevisions': {name: '' for name in names},
+                    'sourceCursors': {name: ({'pendingDirectories': [''], 'currentDirectory': '', 'afterName': ''}
+                                             if name == 'files' else 0) for name in names},
+                    'evidence': {name: [] for name in names}, 'damageItems': [],
+                    'phase': 'scan', 'validationEvidence': {name: [] for name in names},
+                    'fileDirectoryRevisions': {}, 'validationFileDirectoryRevisions': {},
+                    'damageCounts': {}, 'rescanSet': ['files'],
+                    'rescanCount': checkpoint['rescanCount'] + 1,
+                    'cutoffRevision': self._integrity_change_revision(),
+                })
+                self._write_integrity_checkpoint(lease_token, checkpoint)
+                self._release_integrity_scan(lease_token)
+                return {'complete': False, 'cancelled': False,
+                        'orphanFilesDeleted': cleanup['deleted'],
+                        'orphanFilesFailed': cleanup['failed'],
+                        'checkpoint': self._integrity_checkpoint_progress(checkpoint)}
         report = {
             'reportId': checkpoint['scanId'], 'reportVersion': INTEGRITY_REPORT_VERSION,
             'scannerVersion': INTEGRITY_SCANNER_VERSION, 'storageEpoch': epoch,
@@ -745,7 +845,8 @@ class StorageService:
                                'cutoffRevision': self._integrity_change_revision()})
             self._write_integrity_checkpoint(lease_token, checkpoint)
             self._release_integrity_scan(lease_token)
-            return {'complete': False, 'cancelled': False, 'checkpoint': checkpoint}
+            return {'complete': False, 'cancelled': False,
+                    'checkpoint': self._integrity_checkpoint_progress(checkpoint)}
         try:
             os.remove(self._integrity_checkpoint_path)
         except FileNotFoundError:
@@ -891,7 +992,9 @@ class StorageService:
         damages = []
         assets = {row['asset_key']: row for row in partitions['assets']}
         files = set(partitions['files'])
-        expected_files = {row['relative_path'] for row in partitions['assets']}
+        file_paths = {self._filesystem_relative_key(path) for path in files}
+        expected_files = {self._filesystem_relative_key(row['relative_path'])
+                          for row in partitions['assets']}
         workflow_ids = {str(item.get('workflowId') or '') for item in workflows or [] if isinstance(item, dict)}
         item_groups = {}
         for item in partitions['ownerItems']:
@@ -908,15 +1011,17 @@ class StorageService:
                 add('partial_reference_list', identity, expectedCount=len(expected['assetKeys']), actualCount=len(actual))
         with self._connect() as db:
             for row in partitions['assets']:
-                if row['relative_path'] not in files and not self._verified_quarantine_item(db, row):
+                if (self._filesystem_relative_key(row['relative_path']) not in file_paths
+                        and not self._verified_quarantine_item(db, row)):
                     add('missing_file', row['asset_key'])
         referenced_keys = {row['asset_key'] for row in partitions['references']} | {
             row['asset_key'] for row in partitions['ownerItems']
         }
         for key in sorted(referenced_keys - set(assets)):
             add('missing_metadata', key)
-        for path in sorted(files - expected_files):
-            add('unregistered_file', path)
+        for path in sorted(files):
+            if self._filesystem_relative_key(path) not in expected_files:
+                add('unregistered_file', path)
         for owner in partitions['owners']:
             if owner['workflow_id'] not in workflow_ids and not owner['tombstoned']:
                 add('unassociated_owner', (owner['workflow_id'], owner['owner_type'], owner['owner_id']))
@@ -1080,6 +1185,23 @@ class StorageService:
                     partition_name TEXT NOT NULL,
                     changed_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS cache_stats_revision (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                    revision INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT OR IGNORE INTO cache_stats_revision(singleton, revision) VALUES(1, 0);
+                CREATE TRIGGER IF NOT EXISTS cache_stats_documents_insert AFTER INSERT ON documents
+                BEGIN UPDATE cache_stats_revision SET revision=revision+1 WHERE singleton=1; END;
+                CREATE TRIGGER IF NOT EXISTS cache_stats_documents_update AFTER UPDATE ON documents
+                BEGIN UPDATE cache_stats_revision SET revision=revision+1 WHERE singleton=1; END;
+                CREATE TRIGGER IF NOT EXISTS cache_stats_documents_delete AFTER DELETE ON documents
+                BEGIN UPDATE cache_stats_revision SET revision=revision+1 WHERE singleton=1; END;
+                CREATE TRIGGER IF NOT EXISTS cache_stats_history_insert AFTER INSERT ON history
+                BEGIN UPDATE cache_stats_revision SET revision=revision+1 WHERE singleton=1; END;
+                CREATE TRIGGER IF NOT EXISTS cache_stats_history_update AFTER UPDATE ON history
+                BEGIN UPDATE cache_stats_revision SET revision=revision+1 WHERE singleton=1; END;
+                CREATE TRIGGER IF NOT EXISTS cache_stats_history_delete AFTER DELETE ON history
+                BEGIN UPDATE cache_stats_revision SET revision=revision+1 WHERE singleton=1; END;
                 CREATE TABLE IF NOT EXISTS media_integrity_coordinator (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                     coordinator_id TEXT NOT NULL,
@@ -1108,6 +1230,8 @@ class StorageService:
                 CREATE TRIGGER IF NOT EXISTS media_integrity_refs_insert AFTER INSERT ON media_asset_refs
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('references', unixepoch()*1000); END;
                 CREATE TRIGGER IF NOT EXISTS media_integrity_refs_delete AFTER DELETE ON media_asset_refs
+                BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('references', unixepoch()*1000); END;
+                CREATE TRIGGER IF NOT EXISTS media_integrity_refs_update AFTER UPDATE ON media_asset_refs
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('references', unixepoch()*1000); END;
                 CREATE TRIGGER IF NOT EXISTS media_integrity_owners_insert AFTER INSERT ON media_asset_owners
                 BEGIN INSERT INTO media_integrity_changes(partition_name, changed_at) VALUES('owners', unixepoch()*1000); END;
@@ -1458,34 +1582,6 @@ class StorageService:
             raise
         return {'quarantined': moved, 'recoverable': moved, 'reason': reason}
 
-    def quarantine_unregistered_media_files(self, now_ms=None):
-        """Protect unregistered files without inventing an owner or deleting content."""
-        self.initialize()
-        now = int(now_ms or time.time() * 1000)
-        with self._connect() as db:
-            registered = {row[0] for row in db.execute('SELECT relative_path FROM assets')}
-        os.makedirs(self._media_quarantine_dir, exist_ok=True)
-        items = []
-        for root, _, filenames in os.walk(self.assets_dir):
-            for filename in filenames:
-                source = os.path.join(root, filename)
-                relative = os.path.relpath(source, self.assets_dir).replace(os.sep, '/')
-                if relative in registered:
-                    continue
-                digest = self._sha256_file(source)
-                destination = os.path.join(self._media_quarantine_dir, f'unregistered-{digest}')
-                if os.path.exists(destination) and self._sha256_file(destination) != digest:
-                    self._open_gc_circuit_breaker('unregistered_quarantine_conflict')
-                    raise StorageError('Unregistered Media quarantine conflict')
-                if not os.path.exists(destination):
-                    os.replace(source, destination)
-                record = {'identity': digest[:16], 'sha256': digest, 'quarantinePath': destination,
-                          'quarantinedAt': now, 'releaseAfter': now + 30 * 24 * 60 * 60 * 1000,
-                          'storageEpoch': self._safety_status['storageEpoch']}
-                self.set_meta(f'media_unregistered_quarantine:{digest}', json.dumps(record, separators=(',', ':')))
-                items.append(record)
-        return {'quarantined': len(items), 'recoverable': len(items), 'items': items}
-
     def restore_quarantined_media(self, asset_key):
         self.initialize()
         with self._lock, self._connect() as db:
@@ -1730,24 +1826,25 @@ class StorageService:
                 'gcSuspended': not self._cache_reclamation_verified()}
 
     def run_cache_maintenance(self, now_ms=None):
-        """Bounded background pass; never promotes the canary or relaxes retention."""
+        """Bound registered-media work, then sweep every unregistered physical file."""
         self.initialize()
         now = int(time.time() * 1000) if now_ms is None else int(now_ms)
         temporary = self.clear_temporary(now_ms=now, managed_only=True, max_count=100)
+        operation_owners_released = self.cleanup_superseded_operation_owners(now_ms=now)
         self.trim_history(now_ms=now, max_deletions=100, cleanup=False)
-        result = {**temporary, 'assetsDeleted': 0, 'quarantineReleased': 0}
+        result = {**temporary, 'assetsDeleted': 0, 'quarantineReleased': 0,
+                  'operationOwnersReleased': operation_owners_released}
         if self._cache_reclamation_verified():
-            orphan_files_deleted = self.cleanup_orphan_files(
-                max_count=100, older_than_ms=now - 5 * 60 * 1000, managed_only=True)
-            result['orphanFilesDeleted'] = orphan_files_deleted
-            result['orphanAssetsDeleted'] = orphan_files_deleted
             result.update(self.release_expired_media_quarantine(now_ms=now))
             result.update(self.cleanup_unreferenced_media_assets(
                 max_count=100, older_than_ms=now - CACHE_MAINTENANCE_INTERVAL_SECONDS * 1000))
-            result['orphanFilesDeleted'] = orphan_files_deleted
-            result['orphanAssetsDeleted'] = orphan_files_deleted
         else:
             result['gcSuspended'] = True
+        orphan_cleanup = self.cleanup_orphan_files(detailed=True)
+        result['orphanFilesDeleted'] = result.get('orphanFilesDeleted', 0) + orphan_cleanup['deleted']
+        result['orphanFilesFailed'] = result.get('orphanFilesFailed', 0) + orphan_cleanup['failed']
+        result['orphanAssetsDeleted'] = result['orphanFilesDeleted']
+        result['gcSuspended'] = not self._cache_reclamation_verified()
         # Completed deletion audits have a 90-day retention, not an unbounded log.
         with self._connect() as db:
             db.execute('''DELETE FROM meta WHERE key IN (SELECT key FROM meta
@@ -2036,7 +2133,8 @@ class StorageService:
             db.execute('''INSERT INTO media_workflow_revisions(workflow_id, document_revision, storage_epoch, updated_at)
                 VALUES(?, ?, ?, ?) ON CONFLICT(workflow_id) DO UPDATE SET
                     document_revision=excluded.document_revision, storage_epoch=excluded.storage_epoch,
-                    updated_at=excluded.updated_at''',
+                    updated_at=CASE WHEN excluded.document_revision > media_workflow_revisions.document_revision
+                        THEN excluded.updated_at ELSE media_workflow_revisions.updated_at END''',
                 (workflow_id, revision, str(storage_epoch), int(time.time() * 1000)))
             db.execute('DELETE FROM media_workflow_owner_lists WHERE workflow_id=?', (workflow_id,))
             db.executemany('''INSERT INTO media_workflow_owner_lists(
@@ -2536,6 +2634,83 @@ class StorageService:
             db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (owner_id,))
         return {'cancelled': True, 'workflowId': workflow_id}
 
+    def cleanup_superseded_operation_owners(self, now_ms=None):
+        """Release temporary writes superseded by a fully committed Workflow revision.
+
+        A newer manifest alone is insufficient: all of its formal owner lists
+        must match the committed target digests before older operations can be
+        ruled out. The write transaction fences new references to a cancelled
+        operation while the evidence is checked.
+        """
+        self.initialize()
+        if not self._cache_reclamation_verified():
+            return 0
+        now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        released = 0
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not self._cache_reclamation_verified():
+                return 0
+            operations_by_workflow = {}
+            for row in db.execute('''SELECT owner_id, MAX(created_at) AS last_created_at
+                    FROM media_asset_refs WHERE owner_type='workflow-operation'
+                    GROUP BY owner_id'''):
+                try:
+                    identity = json.loads(row['owner_id'])
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if (not isinstance(identity, list) or len(identity) != 3
+                        or any(not isinstance(part, str) or not part for part in identity)):
+                    continue
+                operations_by_workflow.setdefault(identity[0], []).append(row)
+            if not operations_by_workflow:
+                return 0
+            revisions = db.execute('''SELECT workflow_id, document_revision, storage_epoch, updated_at
+                FROM media_workflow_revisions''').fetchall()
+            for revision in revisions:
+                workflow_id = revision['workflow_id']
+                operation_rows = operations_by_workflow.get(workflow_id, [])
+                if not operation_rows:
+                    continue
+                if revision['storage_epoch'] != self._safety_status['storageEpoch']:
+                    continue
+                if db.execute('''SELECT 1 FROM media_asset_transitions
+                    WHERE workflow_id=? AND status NOT IN ('completed','superseded','stale','cancelled')
+                    LIMIT 1''', (workflow_id,)).fetchone():
+                    continue
+                manifests = db.execute('''SELECT owner_type, owner_id, target_digest
+                    FROM media_workflow_owner_lists
+                    WHERE workflow_id=? AND document_revision=?''',
+                    (workflow_id, revision['document_revision'])).fetchall()
+                committed = True
+                for manifest in manifests:
+                    identity = (workflow_id, manifest['owner_type'], manifest['owner_id'])
+                    owner = db.execute('''SELECT document_revision, tombstoned, updated_at
+                        FROM media_asset_owners
+                        WHERE workflow_id=? AND owner_type=? AND owner_id=?''', identity).fetchone()
+                    keys = [row[0] for row in db.execute('''SELECT asset_key
+                        FROM media_asset_owner_items
+                        WHERE workflow_id=? AND owner_type=? AND owner_id=? ORDER BY position''', identity)]
+                    if (not owner or owner['document_revision'] != revision['document_revision']
+                            or owner['updated_at'] < revision['updated_at']
+                            or (owner['tombstoned'] and keys)
+                            or self._reference_list_digest(keys) != manifest['target_digest']):
+                        committed = False
+                        break
+                if not committed:
+                    continue
+                for row in operation_rows:
+                    if (row['last_created_at'] >= revision['updated_at']
+                            or row['last_created_at'] > now - MEDIA_OPERATION_OWNER_GRACE_MS):
+                        continue
+                    db.execute('''INSERT OR IGNORE INTO media_cancelled_operation_owners(owner_id, cancelled_at)
+                        VALUES(?, ?)''', (row['owner_id'], now))
+                    db.execute("DELETE FROM media_asset_refs WHERE owner_type='workflow-operation' AND owner_id=?",
+                               (row['owner_id'],))
+                    db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (row['owner_id'],))
+                    released += 1
+        return released
+
     def cleanup_unreferenced_media_assets(self, max_count=None, older_than_ms=None):
         self.initialize()
         with self._connect() as db:
@@ -2553,6 +2728,7 @@ class StorageService:
             return {
                 'assetsDeleted': 0,
                 'orphanFilesDeleted': 0,
+                'orphanFilesFailed': 0,
                 'gcSuspended': True,
                 'candidatesRetained': len(keys),
             }
@@ -2562,7 +2738,8 @@ class StorageService:
                 'SELECT 1 FROM assets WHERE asset_key=?', (key,)).fetchone())
         return {
             'assetsDeleted': deleted,
-            'orphanFilesDeleted': self.cleanup_orphan_files() if max_count is None else 0,
+            'orphanFilesDeleted': 0,
+            'orphanFilesFailed': 0,
             'gcSuspended': not self._cache_reclamation_verified(),
             'candidatesRetained': retained,
         }
@@ -2648,9 +2825,21 @@ class StorageService:
         return True
 
     def clear_history(self):
-        for entry in self.list_history():
-            self.delete_history(entry['id'])
-        return True
+        self.initialize()
+        self.assert_storage_writable()
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            deleted = db.execute('DELETE FROM history').rowcount
+            db.execute("DELETE FROM media_asset_refs WHERE owner_type IN ('history', 'history-thumbnail')")
+        media_cleanup = self.cleanup_unreferenced_media_assets()
+        orphan_cleanup = self.cleanup_orphan_files(detailed=True)
+        return {
+            'historyDeleted': deleted,
+            **media_cleanup,
+            'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'] + orphan_cleanup['deleted'],
+            'orphanFilesFailed': media_cleanup['orphanFilesFailed'] + orphan_cleanup['failed'],
+            'gcSuspended': not self._cache_reclamation_verified(),
+        }
 
     def trim_history(self, max_entries=HISTORY_MAX_ENTRIES, retention_days=HISTORY_RETENTION_DAYS,
                      now_ms=None, max_deletions=None, cleanup=True):
@@ -2668,55 +2857,116 @@ class StorageService:
             self.cleanup_unreferenced_media_assets()
 
     @staticmethod
-    def _is_managed_asset_relative(relative):
-        parts = str(relative or '').split('/')
-        if len(parts) != 2 or len(parts[0]) != 2:
-            return False
-        stem = parts[1].rsplit('.', 1)[0]
-        return len(stem) == 64 and all(char in '0123456789abcdef' for char in stem.lower()) and stem[:2] == parts[0].lower()
+    def _filesystem_relative_key(relative):
+        return os.path.normcase(os.path.normpath(str(relative).replace('/', os.sep)))
 
-    def cleanup_orphan_files(self, max_count=None, older_than_ms=None, managed_only=False):
+    def _unregistered_cleanup_allowed(self, validated_scan):
+        status = self._safety_status or {}
+        if status.get('reason') == 'database_unreadable':
+            return False
+        if (self._read_schema_version() != self._supported_schema_version
+                or not self._has_expected_schema_structure()):
+            return False
+        if validated_scan:
+            return True
+        if status.get('state') in {'scanning', 'repair_required'} or status.get('reason') in {
+                'database_unreadable', 'unknown_schema_version',
+                'schema_version_changed', 'schema_structure_changed'}:
+            return False
+        return True
+
+    def cleanup_orphan_files(self, max_count=None, detailed=False, validated_scan=False):
         self.initialize()
-        if not self._cache_reclamation_verified() or self.get_meta('media_gc_authority') == 'formal':
-            return 0
-        deleted = 0
+        if not self._unregistered_cleanup_allowed(validated_scan):
+            return {'deleted': 0, 'failed': 0} if detailed else 0
+        deleted = failed = 0
+
+        def walk_error(_error):
+            nonlocal failed
+            failed += 1
+
         with self._lock, self._connect() as db:
             # Serialize with file publication, so an in-flight upload is not an orphan.
             db.execute('BEGIN IMMEDIATE')
-            referenced = {row[0] for row in db.execute('SELECT DISTINCT relative_path FROM assets')}
-            for root, _, filenames in os.walk(self.assets_dir):
+            referenced = {self._filesystem_relative_key(row[0])
+                          for row in db.execute('SELECT DISTINCT relative_path FROM assets')}
+            assets_root = os.path.realpath(self.assets_dir)
+            for root, _, filenames in os.walk(self.assets_dir, onerror=walk_error):
                 for filename in filenames:
                     if max_count is not None and deleted >= max_count:
                         break
                     path = os.path.join(root, filename)
                     relative = os.path.relpath(path, self.assets_dir).replace(os.sep, '/')
-                    if (relative not in referenced and not os.path.islink(path)
-                            and (not managed_only or self._is_managed_asset_relative(relative))):
+                    if (self._filesystem_relative_key(relative) not in referenced
+                            and not os.path.islink(path)):
                         try:
-                            if older_than_ms is not None and os.path.getmtime(path) * 1000 > older_than_ms:
-                                continue
-                            if not os.path.realpath(path).startswith(os.path.realpath(self.assets_dir) + os.sep):
+                            if not os.path.realpath(path).startswith(assets_root + os.sep):
                                 continue
                             os.remove(path)
                             deleted += 1
                         except OSError:
-                            pass
+                            failed += 1
                 if max_count is not None and deleted >= max_count:
                     break
-            if managed_only and deleted:
+            # Older builds could place unregistered files in a separate quarantine.
+            if (max_count is None or deleted < max_count) and not os.path.islink(self._media_quarantine_dir):
+                quarantine_root = os.path.realpath(self._media_quarantine_dir)
+                try:
+                    quarantine_names = os.listdir(self._media_quarantine_dir)
+                except FileNotFoundError:
+                    quarantine_names = []
+                except OSError:
+                    quarantine_names = []
+                    failed += 1
+                for name in quarantine_names:
+                    digest = name.removeprefix('unregistered-')
+                    if (not name.startswith('unregistered-') or len(digest) != 64
+                            or any(char not in '0123456789abcdef' for char in digest)):
+                        continue
+                    if max_count is not None and deleted >= max_count:
+                        break
+                    path = os.path.join(self._media_quarantine_dir, name)
+                    if (os.path.islink(path) or not os.path.isfile(path)
+                            or not os.path.realpath(path).startswith(quarantine_root + os.sep)):
+                        continue
+                    try:
+                        os.remove(path)
+                        db.execute('DELETE FROM meta WHERE key=?', (f'media_unregistered_quarantine:{digest}',))
+                        deleted += 1
+                    except OSError:
+                        failed += 1
+            if deleted:
                 for root, directories, _ in os.walk(self.assets_dir, topdown=False):
                     for directory in directories:
                         path = os.path.join(root, directory)
                         try:
-                            if os.path.realpath(path).startswith(os.path.realpath(self.assets_dir) + os.sep) and not os.listdir(path):
+                            if (not os.path.islink(path)
+                                    and os.path.realpath(path).startswith(assets_root + os.sep)
+                                    and not os.listdir(path)):
                                 os.rmdir(path)
                         except OSError:
                             pass
-        return deleted
+            state = self._safety_status.get('state')
+            reason = self._safety_status.get('reason')
+            if (deleted and not validated_scan and
+                    (state in {'healthy', 'scan_required'} or reason in {
+                        'integrity_damage_detected', 'unclean_shutdown',
+                        'unregistered_files_removed'})):
+                self._safety_status.update({
+                    'state': 'scan_required', 'reason': 'unregistered_files_removed',
+                    'detectedAt': int(time.time() * 1000),
+                    'recoveryConditions': ['complete_integrity_scan'],
+                })
+                self._safety_status.pop('integrityReport', None)
+                self._safety_status.pop('reportId', None)
+                self._safety_status.pop('reportPublishedAt', None)
+                self._write_safety_status(self._safety_status)
+        return {'deleted': deleted, 'failed': failed} if detailed else deleted
 
     def cleanup_assets(self, mode, keep_keys=None):
         self.initialize()
         self.assert_storage_writable()
+        operation_owners_released = self.cleanup_superseded_operation_owners()
         keep_keys = {str(key) for key in (keep_keys or []) if str(key)}
         legacy_keep_keys_count = len(keep_keys)
         if legacy_keep_keys_count and self.get_meta('media_gc_authority') == 'formal':
@@ -2734,7 +2984,7 @@ class StorageService:
                     tuple(keep_keys),
                 )
             elif mode == 'image-import':
-                db.execute("DELETE FROM media_asset_refs WHERE owner_type='workflow-import'")
+                db.execute("DELETE FROM media_asset_refs WHERE owner_type='workflow-import' AND owner_id NOT LIKE 'owner:%'")
             history_keys = {
                 value for row in db.execute('SELECT asset_key, thumb_asset_key FROM history')
                 for value in row if value
@@ -2762,6 +3012,7 @@ class StorageService:
         failed_keys = [key for key in delete_keys if not self.delete_asset(key)]
         deleted = len(delete_keys) - len(failed_keys)
         media_cleanup = self.cleanup_unreferenced_media_assets()
+        orphan_cleanup = self.cleanup_orphan_files(detailed=True)
         # The general sweep only includes modern media kinds. Legacy node/import
         # rows selected above must also be reported if safety holds them back.
         retained_legacy = 0
@@ -2773,8 +3024,10 @@ class StorageService:
                     retained_legacy += 1
         return {
             'assetsDeleted': deleted + media_cleanup['assetsDeleted'],
-            'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'],
-            'gcSuspended': media_cleanup['gcSuspended'],
+            'operationOwnersReleased': operation_owners_released,
+            'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'] + orphan_cleanup['deleted'],
+            'orphanFilesFailed': media_cleanup['orphanFilesFailed'] + orphan_cleanup['failed'],
+            'gcSuspended': not self._cache_reclamation_verified(),
             'candidatesRetained': media_cleanup['candidatesRetained'] + retained_legacy,
             'legacyKeepKeysIgnored': legacy_keep_keys_count > 0,
             'legacyKeepKeysCount': legacy_keep_keys_count,
@@ -2825,35 +3078,73 @@ class StorageService:
 
     def clear_temporary(self, now_ms=None, managed_only=False, max_count=None):
         self.initialize()
-        deleted = 0
-        stale_before = (time.time() if now_ms is None else now_ms / 1000) - 5 * 60
+        deleted = failed = 0
+        # A manual clear holds the same database write lock as asset publication,
+        # so even recently abandoned temporary files can be removed safely.
+        stale_before = ((time.time() if now_ms is None else now_ms / 1000) - 5 * 60
+                        if managed_only else float('inf'))
+
+        def walk_error(_error):
+            nonlocal failed
+            failed += 1
+
         with self._lock, self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             root = os.path.realpath(self.temp_dir)
-            for name in os.listdir(self.temp_dir):
+            if managed_only:
+                try:
+                    entries = [(self.temp_dir, [], os.listdir(self.temp_dir))]
+                except OSError:
+                    entries = []
+                    failed += 1
+            else:
+                entries = os.walk(self.temp_dir, topdown=False, onerror=walk_error)
+            for directory, child_directories, filenames in entries:
+                if managed_only and os.path.realpath(directory) != root:
+                    continue
+                for name in filenames:
+                    if max_count is not None and deleted >= max_count:
+                        break
+                    path = os.path.join(directory, name)
+                    if managed_only and (directory != self.temp_dir or not name.startswith('asset-')
+                                         or not os.path.isfile(path)):
+                        continue
+                    try:
+                        if (os.path.islink(path) or not os.path.realpath(path).startswith(root + os.sep)
+                                or os.path.getmtime(path) > stale_before):
+                            continue
+                        os.remove(path)
+                        deleted += 1
+                    except OSError:
+                        failed += 1
+                if managed_only:
+                    continue
+                for name in child_directories:
+                    path = os.path.join(directory, name)
+                    try:
+                        if (not os.path.islink(path)
+                                and os.path.realpath(path).startswith(root + os.sep)
+                                and not os.listdir(path)):
+                            os.rmdir(path)
+                    except OSError:
+                        failed += 1
                 if max_count is not None and deleted >= max_count:
                     break
-                path = os.path.join(self.temp_dir, name)
-                try:
-                    if (os.path.islink(path) or not os.path.realpath(path).startswith(root + os.sep)
-                            or os.path.getmtime(path) > stale_before):
-                        continue
-                    if managed_only and (not name.startswith('asset-') or not os.path.isfile(path)):
-                        continue
-                    if os.path.isdir(path):
-                        shutil.rmtree(path)
-                    else:
-                        os.remove(path)
-                    deleted += 1
-                except OSError:
-                    pass
         if managed_only:
-            return {'temporaryDeleted': deleted, 'orphanAssetsDeleted': 0}
+            return {'temporaryDeleted': deleted, 'temporaryFailed': failed, 'orphanAssetsDeleted': 0}
+        operation_owners_released = self.cleanup_superseded_operation_owners(now_ms=now_ms)
         media_cleanup = self.cleanup_unreferenced_media_assets(max_count=max_count)
+        orphan_cleanup = self.cleanup_orphan_files(detailed=True)
+        orphan_deleted = media_cleanup['orphanFilesDeleted'] + orphan_cleanup['deleted']
         return {
             'temporaryDeleted': deleted,
-            'orphanAssetsDeleted': media_cleanup['orphanFilesDeleted'],
+            'temporaryFailed': failed,
+            'operationOwnersReleased': operation_owners_released,
             **media_cleanup,
+            'orphanFilesDeleted': orphan_deleted,
+            'orphanFilesFailed': media_cleanup['orphanFilesFailed'] + orphan_cleanup['failed'],
+            'orphanAssetsDeleted': orphan_deleted,
+            'gcSuspended': not self._cache_reclamation_verified(),
         }
 
     def factory_reset(self):
@@ -2872,7 +3163,22 @@ class StorageService:
 
     def get_stats(self, workflow_id=''):
         self.initialize()
-        with self._connect() as db:
+        workflow_id = str(workflow_id or '')
+        with self._stats_lock, self._connect() as db:
+            db.execute('BEGIN')
+            revision = db.execute('''
+                SELECT (SELECT COALESCE(MAX(revision), 0) FROM media_integrity_changes),
+                    (SELECT revision FROM cache_stats_revision WHERE singleton=1),
+                    (SELECT value FROM meta WHERE key='media_cache_limit_bytes')
+            ''').fetchone()
+            cache_key = (revision[0], revision[1], revision[2])
+            cached = self._stats_cache.get(workflow_id)
+            if revision[1] is not None and cached and cached[0] == cache_key:
+                return copy.deepcopy(cached[1])
+            try:
+                media_cache_limit = max(0, int(revision[2])) if revision[2] is not None else DEFAULT_MEDIA_CACHE_LIMIT_BYTES
+            except (TypeError, ValueError):
+                media_cache_limit = DEFAULT_MEDIA_CACHE_LIMIT_BYTES
             documents = db.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
             assets, asset_bytes = db.execute('SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets').fetchone()
             media_assets, media_bytes = db.execute("SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind='media'").fetchone()
@@ -2907,17 +3213,23 @@ class StorageService:
                 reference_distribution[row['owner_type']] = {
                     'assets': row['assets'], 'bytes': row['bytes']
                 }
-        return {
-            'documents': documents, 'documentBytes': document_bytes,
-            'assets': assets, 'assetBytes': asset_bytes, 'history': history,
-            'historyBytes': history_bytes, 'imageImportBytes': import_bytes,
-            'nodeAssetBytes': max(0, asset_bytes - history_bytes - import_bytes),
-            'totalBytes': asset_bytes + document_bytes,
-            'mediaAssets': media_assets, 'mediaBytes': media_bytes,
-            'actualMediaBytes': actual_media_bytes,
-            'mediaReferenceDistribution': reference_distribution,
-            'mediaReferences': media_references, 'mediaCacheLimitBytes': self.get_media_cache_limit(),
-        }
+            stats = {
+                'documents': documents, 'documentBytes': document_bytes,
+                'assets': assets, 'assetBytes': asset_bytes, 'history': history,
+                'historyBytes': history_bytes, 'imageImportBytes': import_bytes,
+                'nodeAssetBytes': max(0, asset_bytes - history_bytes - import_bytes),
+                'totalBytes': asset_bytes + document_bytes,
+                'mediaAssets': media_assets, 'mediaBytes': media_bytes,
+                'actualMediaBytes': actual_media_bytes,
+                'mediaReferenceDistribution': reference_distribution,
+                'mediaReferences': media_references, 'mediaCacheLimitBytes': media_cache_limit,
+            }
+            if revision[1] is not None:
+                self._stats_cache.pop(workflow_id, None)
+                self._stats_cache[workflow_id] = (cache_key, stats)
+                if len(self._stats_cache) > 8:
+                    self._stats_cache.pop(next(iter(self._stats_cache)))
+            return copy.deepcopy(stats)
 
     def get_export_directory(self):
         configured = self.get_document('export_settings', {}).get('value') or {}
