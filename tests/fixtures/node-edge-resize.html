@@ -4,9 +4,12 @@
     <meta charset="utf-8">
     <link rel="stylesheet" href="../../css/modules/00-foundation.css">
     <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
     <style>
         #canvas-container { position: relative; width: 800px; height: 600px; }
         #node { left: 120px; top: 80px; width: 340px; height: 260px; }
+        *, *::before, *::after { transition: none !important; }
     </style>
 </head>
 <body>
@@ -31,13 +34,30 @@
                 const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
                 return { edge, cursor: getComputedStyle(element).cursor, hit: target === element };
             });
-            const port = node.querySelector('.node-port.input .port-dot');
-            const portRect = port.getBoundingClientRect();
             const nodeRect = node.getBoundingClientRect();
-            const portTarget = document.elementFromPoint(nodeRect.left + 2, portRect.top + portRect.height / 2);
-            const outputPort = node.querySelector('.node-port.output .port-dot');
-            const outputRect = outputPort.getBoundingClientRect();
-            const outputTarget = document.elementFromPoint(nodeRect.right - 2, outputRect.top + outputRect.height / 2);
+            const shell = node.querySelector('.node-glass-bg');
+            const shellRect = shell.getBoundingClientRect();
+            const shellStyle = getComputedStyle(shell);
+            const measurePort = (direction) => {
+                const port = node.querySelector(`.node-port.${direction} .port-dot`);
+                const rect = port.getBoundingClientRect();
+                const isInput = direction === 'input';
+                const borderCenter = isInput
+                    ? shellRect.left + parseFloat(shellStyle.borderLeftWidth) / 2
+                    : shellRect.right - parseFloat(shellStyle.borderRightWidth) / 2;
+                const center = rect.left + rect.width / 2;
+                const outerX = isInput ? shellRect.left - 3 : shellRect.right + 3;
+                const innerX = isInput ? shellRect.left + 3 : shellRect.right - 3;
+                const y = rect.top + rect.height / 2;
+                return {
+                    borderOffset: Math.round((center - borderCenter) * 100) / 100,
+                    clipPath: getComputedStyle(port).clipPath,
+                    outerHit: document.elementFromPoint(outerX, y) === port,
+                    innerHit: document.elementFromPoint(innerX, y) === port
+                };
+            };
+            const inputPort = measurePort('input');
+            const outputPort = measurePort('output');
             const deleteButton = node.querySelector('.node-delete');
             const deleteRect = deleteButton.getBoundingClientRect();
             const buttonTarget = document.elementFromPoint(deleteRect.left + deleteRect.width / 2, deleteRect.top + deleteRect.height / 2);
@@ -73,8 +93,7 @@
             const activeCursor = getComputedStyle(deleteButton).cursor;
             document.getElementById('surface-result').textContent = JSON.stringify({
                 handles, boundEdges,
-                inputPortAccessible: !!portTarget?.closest('.node-port.input'),
-                outputPortAccessible: !!outputTarget?.closest('.node-port.output'),
+                inputPort, outputPort,
                 deleteAccessible: buttonTarget?.closest('.node-delete') === deleteButton, activeCursor
             });
         } catch (error) {

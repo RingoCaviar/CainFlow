@@ -897,6 +897,8 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     align-items: start;
     padding: 6px 12px 5px;
     border-bottom: 1px solid var(--node-section-divider);
+    /* The visible outside halves must sit above the side resize handles. */
+    z-index: 52;
 }
 
 .node-ports-row.has-inputs-only,
@@ -973,16 +975,19 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     transition: all var(--transition);
     flex-shrink: 0;
     position: relative;
-    /* No longer absolute to avoid edge clipping */
     z-index: 100;
 }
 
 .node-port.input .port-dot {
     margin-left: -12px;
+    left: -6px;
+    clip-path: inset(0 50% 0 0);
 }
 
 .node-port.output .port-dot {
     margin-right: -12px;
+    right: -6px;
+    clip-path: inset(0 0 0 50%);
 }
 
 .port-dot.type-image {

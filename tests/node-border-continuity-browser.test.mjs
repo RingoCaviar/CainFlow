@@ -9,7 +9,7 @@ test('real node surfaces and controls layer above the continuous border shell', 
     assert.equal(result.shell, '0');
     assert.equal(result.header, '1');
     assert.equal(result.body, '1');
-    assert.equal(result.ports, '1');
+    assert.ok(Number(result.ports) > Number(result.resize));
     assert.ok(Number(result.port) > Number(result.shell));
     assert.ok(Number(result.resize) > Number(result.shell));
 });
