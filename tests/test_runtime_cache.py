@@ -57,6 +57,22 @@ class RuntimeCacheTests(unittest.TestCase):
             service.run_cache_maintenance(now_ms=int(time.time() * 1000) + 6 * 60 * 1000)
             self.assertEqual(0, service.get_stats()['assetBytes'])
 
+    def test_maintenance_releases_legacy_undo_ownership_while_physical_gc_is_paused(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_asset('media:old-undo', b'old-undo', 'image/png', 'media')
+            with service._connect() as db:
+                db.execute('''INSERT INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                    VALUES('workflow-undo', 'workflow:undo:node', ?, 1)''', (asset['asset_key'],))
+            service._safety_status.update({'state': 'gc_suspended', 'reason': 'test-paused'})
+            service._write_safety_status(service._safety_status)
+
+            result = service.run_cache_maintenance()
+
+            self.assertEqual(1, result['undoOwnersReleased'])
+            self.assertEqual(0, service.get_stats()['mediaPhysicalBreakdown']['undo']['assets'])
+            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
+
     def test_approved_quarantine_expires_but_not_before_retention(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root, formal=True)

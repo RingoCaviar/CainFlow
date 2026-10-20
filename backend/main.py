@@ -242,6 +242,7 @@ def _recover_media_transitions_initial():
         return workflows
 
     workflows = load_current_workflows()
+    storage_service.release_legacy_undo_media_references()
     storage_service.recover_workflow_operation_owners(workflows)
     cursor = ''
     while not _storage_recovery_stop.is_set():

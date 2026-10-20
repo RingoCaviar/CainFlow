@@ -1207,6 +1207,7 @@ export function createUiControllerApi({
             orphanFilesDeleted: outcomes.reduce((sum, outcome) => sum + Number(outcome.orphanFilesDeleted || 0), 0),
             orphanFilesFailed: Number(outcomes.at(-1)?.orphanFilesFailed || 0),
             operationOwnersReleased: outcomes.reduce((sum, outcome) => sum + Number(outcome.operationOwnersReleased || 0), 0),
+            undoOwnersReleased: outcomes.reduce((sum, outcome) => sum + Number(outcome.undoOwnersReleased || 0), 0),
             gcSuspended: Boolean(outcomes.at(-1)?.gcSuspended),
             candidatesRetained: Number(outcomes.at(-1)?.candidatesRetained || 0)
         });
@@ -1305,7 +1306,7 @@ export function createUiControllerApi({
                 const retry = normalize(await action());
                 const totals = {};
                 for (const field of ['historyDeleted', 'temporaryDeleted', 'assetsDeleted',
-                    'orphanFilesDeleted', 'operationOwnersReleased']) {
+                    'orphanFilesDeleted', 'operationOwnersReleased', 'undoOwnersReleased']) {
                     totals[field] = Number(result[field] || 0) + Number(retry[field] || 0);
                 }
                 result = { ...retry, ...totals };
@@ -1428,7 +1429,7 @@ export function createUiControllerApi({
                 id: 'cache-clear-node-assets-dialog',
                 title: '清理节点资产缓存（当前工作）',
                 message: '确定要清理当前工作的节点资产缓存吗？',
-                note: '这只会删除旧节点遗留资产缓存和可由上游重新恢复的重复预览缓存，当前节点中的源图片和生成结果会被保留。'
+                note: '只清理无引用媒体。当前节点以及已保存工作流仍引用的图片会保留；撤销快照不会保留图片文件。'
             });
             if (!confirmed) return;
 
@@ -1440,7 +1441,7 @@ export function createUiControllerApi({
                     const detail = result.orphanFilesFailed > 0 ? `${result.orphanFilesFailed} 个孤儿文件删除失败` : retained;
                     showToast(`节点缓存已检查，媒体回收未完成；${detail}，请在缓存面板查看完整性状态`, 'warning', 8000);
                 } else {
-                    showToast(`节点遗留缓存已清理：删除 ${result.assetsDeleted} 项资产，释放 ${result.operationOwnersReleased} 项过期写入；当前节点图片已保留`, 'success');
+                    showToast(`节点遗留缓存已清理：删除 ${result.assetsDeleted} 项资产，释放 ${result.operationOwnersReleased} 项过期写入、${result.undoOwnersReleased} 项旧撤销引用；当前节点图片已保留`, 'success');
                 }
             } catch (e) {
                 showToast('资产清理失败: ' + e.message, 'error');

@@ -372,7 +372,7 @@ test('restoring a video generation node exposes its local Media asset to connect
     assert.equal(state.nodes.get('video-restored').data.video.assetKey, 'media:abc');
 });
 
-test('restored image batches transfer every owner to the undo snapshot before deletion', async () => {
+test('deleting restored image batches does not give the undo snapshot disk ownership', async () => {
     const children = [];
     const nodesLayer = { children, appendChild(element) { children.push(element); } };
     const documentRef = {
@@ -407,14 +407,8 @@ test('restored image batches transfer every owner to the undo snapshot before de
 
     assert.deepEqual(state.nodes.get('batch-restored').data.mediaAssetKeys, ['media:first', 'media:second', 'media:first']);
     await lifecycle.removeNode('batch-restored');
-    assert.deepEqual(protectedForUndo, [
-        ['workflow-undo', 'workflow-1:undo-1:batch-restored', 'media:first'],
-        ['workflow-undo', 'workflow-1:undo-1:batch-restored', 'media:second']
-    ]);
-    assert.deepEqual(released, [
-        ['workflow-node', 'workflow-1:batch-restored', 'media:first'],
-        ['workflow-node', 'workflow-1:batch-restored', 'media:second']
-    ]);
+    assert.deepEqual(protectedForUndo, []);
+    assert.deepEqual(released, []);
 });
 
 test('reopening a node restores Missing Media asset state without Node execution failure', () => {

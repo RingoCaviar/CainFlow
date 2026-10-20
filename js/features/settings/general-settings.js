@@ -824,6 +824,11 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const historyEl = documentRef.getElementById('usage-history');
         const workflowMediaEl = documentRef.getElementById('usage-workflow-media');
         const importMediaEl = documentRef.getElementById('usage-import-media');
+        const allWorkflowsEl = documentRef.getElementById('usage-all-workflows');
+        const undoMediaEl = documentRef.getElementById('usage-undo-media');
+        const undoMediaRow = documentRef.getElementById('usage-undo-row');
+        const unreferencedMediaEl = documentRef.getElementById('usage-unreferenced-media');
+        const otherMediaEl = documentRef.getElementById('usage-other-media');
         const thumbnailMediaEl = documentRef.getElementById('usage-thumbnail-media');
         const operationMediaEl = documentRef.getElementById('usage-operation-media');
         const localEl = documentRef.getElementById('usage-local');
@@ -845,17 +850,28 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 const localBytes = Number(stats.documentBytes || 0);
                 const totalBytes = Number(stats.actualMediaBytes || 0);
                 const distribution = stats.mediaReferenceDistribution || {};
+                const physical = stats.mediaPhysicalBreakdown || {};
                 const formatReference = (ownerType) => {
                     const item = distribution[ownerType] || {};
+                    return `${Number(item.assets || 0)} 项 · ${formatMB(Number(item.bytes || 0))}`;
+                };
+                const formatPhysical = (reason) => {
+                    const item = physical[reason] || {};
                     return `${Number(item.assets || 0)} 项 · ${formatMB(Number(item.bytes || 0))}`;
                 };
 
                 display.textContent = formatMB(totalBytes);
                 if (workflowMediaEl) workflowMediaEl.textContent = formatReference('workflow-node');
                 if (importMediaEl) importMediaEl.textContent = formatReference('workflow-import');
+                if (allWorkflowsEl) allWorkflowsEl.textContent = formatPhysical('workflows');
+                if (undoMediaEl) undoMediaEl.textContent = formatPhysical('undo');
+                if (undoMediaRow) undoMediaRow.style.display = Number(physical.undo?.assets || 0) > 0 ? '' : 'none';
+                if (unreferencedMediaEl) unreferencedMediaEl.textContent = formatPhysical('unreferenced');
+                if (otherMediaEl) otherMediaEl.textContent = formatPhysical('other');
                 if (historyEl) historyEl.textContent = formatReference('history');
                 if (thumbnailMediaEl) thumbnailMediaEl.textContent = formatReference('history-thumbnail');
-                if (operationMediaEl) operationMediaEl.textContent = formatReference('workflow-operation');
+                if (operationMediaEl) operationMediaEl.textContent = physical.operations
+                    ? formatPhysical('operations') : formatReference('workflow-operation');
                 if (localEl) localEl.textContent = formatMB(localBytes);
             } catch (error) {
                 if (revision !== cacheUsageRevision || workflowId !== getActiveWorkflowId()) return;

@@ -2,6 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDiskStorageApi } from '../js/services/storage-disk.js';
 
+test('history restore checks media metadata and treats transport errors as unknown', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({ url, options });
+        if (url.endsWith('media%3Aavailable')) {
+            return new Response(JSON.stringify({ asset: { asset_key: 'media:available' } }), { status: 200 });
+        }
+        return new Response('{}', { status: url.endsWith('media%3Amissing') ? 404 : 503 });
+    };
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        assert.equal(await storage.mediaAssetExists('media:available'), true);
+        assert.equal(await storage.mediaAssetExists('media:missing'), false);
+        await assert.rejects(storage.mediaAssetExists('media:unknown'), /HTTP 503/);
+        assert.ok(requests.every(({ options }) => options.cache === 'no-store'));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('saving generated-image history creates the Media asset with the history owner', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

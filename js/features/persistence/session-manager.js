@@ -22,8 +22,8 @@ export function createSessionManagerApi({
     beginMediaRestoreBatch = () => {},
     endMediaRestoreBatch = () => {},
     finalizeMediaRestoreBatch = async () => {},
-    referenceMediaAsset = async () => false,
-    removeMediaReference = async () => false
+    removeMediaReference = async () => false,
+    mediaAssetExists = async () => true
 }) {
     let saveTimer = null;
     let onBeforeSave = () => {};
@@ -31,8 +31,14 @@ export function createSessionManagerApi({
     const uiBootstrapStorageKey = 'cainflow_ui_bootstrap';
     const viewportStorageKey = 'nodeflow_ai_viewport_state';
     const storageFailureToastIntervalMs = 8000;
-    const pendingUndoReleaseStorageKey = 'cainflow_pending_undo_media_releases';
     let storageTextEncoder = null;
+    // Older builds persisted whole snapshots to retry releasing undo media.
+    // The backend now clears those legacy owners itself; keep no disk copy.
+    try {
+        if (localStorageRef?.getItem?.('cainflow_pending_undo_media_releases') !== null) {
+            localStorageRef?.removeItem?.('cainflow_pending_undo_media_releases');
+        }
+    } catch { /* Best effort. */ }
 
     async function updateSnapshotMediaOwners(snapshot, operation) {
         const undoOwnerId = snapshot?.mediaUndoOwnerId || '';
@@ -48,47 +54,74 @@ export function createSessionManagerApi({
         return succeeded;
     }
 
-    async function protectSnapshotMediaOwners(snapshot) {
-        return updateSnapshotMediaOwners(snapshot, referenceMediaAsset);
+    function getSnapshotMediaKeys(node) {
+        const topLevel = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : [];
+        const nested = Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : [];
+        return [...new Set([...topLevel, ...nested, node?.imageAssetKey, node?.data?.imageAssetKey,
+            node?.imageImportAssetKey, node?.data?.imageImportAssetKey]
+            .filter((key) => typeof key === 'string' && key.startsWith('media:')))];
     }
 
-    function getSnapshotMediaKeys(node) {
-        const keys = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : node?.data?.mediaAssetKeys;
-        const importKey = node?.type === 'ImageImport'
-            ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
-            : '';
-        return [...new Set(((keys?.length > 0 ? keys : [importKey]) || [])
-            .filter((key) => typeof key === 'string' && key.startsWith('media:')))];
+    async function discardMissingSnapshotMedia(snapshot) {
+        const keys = [...new Set((snapshot.nodes || []).flatMap(getSnapshotMediaKeys))];
+        if (keys.length === 0) return { snapshot, missingCount: 0 };
+        const available = new Set();
+        for (let index = 0; index < keys.length; index += 16) {
+            const batch = keys.slice(index, index + 16);
+            const exists = await Promise.all(batch.map((key) => mediaAssetExists(key)));
+            batch.forEach((key, offset) => { if (exists[offset]) available.add(key); });
+        }
+        if (available.size === keys.length) return { snapshot, missingCount: 0 };
+        const nodes = (snapshot.nodes || []).map((original) => {
+            const originalKeys = getSnapshotMediaKeys(original);
+            if (originalKeys.every((key) => available.has(key))) return original;
+            const node = { ...original, data: original.data ? { ...original.data } : undefined };
+            const retained = originalKeys.filter((key) => available.has(key));
+            for (const holder of [node, node.data].filter(Boolean)) {
+                if (Array.isArray(holder.mediaAssetKeys)) {
+                    holder.mediaAssetKeys = holder.mediaAssetKeys.filter((key) => (
+                        typeof key !== 'string' || !key.startsWith('media:') || available.has(key)
+                    ));
+                }
+                for (const field of ['imageAssetKey', 'imageImportAssetKey']) {
+                    if (typeof holder[field] === 'string' && holder[field].startsWith('media:')
+                        && !available.has(holder[field])) {
+                        if (field === 'imageImportAssetKey') holder[field] = retained[0] || '';
+                        else if (retained.length) holder[field] = retained[0];
+                        else delete holder[field];
+                    }
+                }
+                if (retained.length === 0) {
+                    delete holder.imageCount;
+                    delete holder.imageAssetReady;
+                    delete holder.imageMemoryReleased;
+                    delete holder.imageHydratedAt;
+                    delete holder.imagePreviewIndex;
+                } else if (Number(holder.imageCount) > retained.length) {
+                    holder.imageCount = retained.length;
+                    if (Number(holder.imagePreviewIndex) >= retained.length) {
+                        holder.imagePreviewIndex = retained.length - 1;
+                    }
+                }
+            }
+            return node;
+        });
+        return { snapshot: { ...snapshot, nodes }, missingCount: keys.length - available.size };
     }
 
     async function releaseSnapshotMediaOwners(snapshot) {
         return updateSnapshotMediaOwners(snapshot, removeMediaReference);
     }
 
-    function readPendingUndoReleases() {
-        try {
-            const value = JSON.parse(localStorageRef?.getItem?.(pendingUndoReleaseStorageKey) || '[]');
-            return Array.isArray(value) ? value : [];
-        } catch { return []; }
-    }
-
-    function writePendingUndoReleases(snapshots) {
-        try { localStorageRef?.setItem?.(pendingUndoReleaseStorageKey, JSON.stringify(snapshots)); } catch { /* Retry later. */ }
-    }
-
-    async function retryPendingUndoReleases(additional = []) {
-        const failed = [];
-        for (const snapshot of [...readPendingUndoReleases(), ...additional]) {
-            if (!await releaseSnapshotMediaOwners(snapshot)) failed.push(snapshot);
-        }
-        writePendingUndoReleases(failed);
+    async function releaseLegacySnapshotMediaOwners(snapshots) {
+        for (const snapshot of snapshots) await releaseSnapshotMediaOwners(snapshot);
     }
 
     function clearUndoStack() {
         const snapshots = [...state.undoStack.splice(0), ...getRedoStack().splice(0)].flatMap((raw) => {
             try { return [JSON.parse(raw)]; } catch { return []; }
         });
-        void retryPendingUndoReleases(snapshots);
+        void releaseLegacySnapshotMediaOwners(snapshots);
         updateHistoryButtons();
     }
 
@@ -419,25 +452,6 @@ export function createSessionManagerApi({
                 if (importAssetKey) ids.add(importAssetKey);
             });
         });
-        [...state.undoStack, ...getRedoStack()].forEach((raw) => {
-            try {
-                const snapshot = JSON.parse(raw);
-                if (!Array.isArray(snapshot?.nodes)) return;
-                snapshot.nodes.forEach((node) => {
-                    if (node?.id) ids.add(node.id);
-                    const imageAssetKey = typeof node?.imageAssetKey === 'string' && node.imageAssetKey
-                        ? node.imageAssetKey
-                        : (typeof node?.data?.imageAssetKey === 'string' ? node.data.imageAssetKey : '');
-                    if (imageAssetKey) ids.add(imageAssetKey);
-                    const importAssetKey = typeof node?.imageImportAssetKey === 'string' && node.imageImportAssetKey
-                        ? node.imageImportAssetKey
-                        : (typeof node?.data?.imageImportAssetKey === 'string' ? node.data.imageImportAssetKey : '');
-                    if (importAssetKey) ids.add(importAssetKey);
-                });
-            } catch {
-                // Ignore invalid legacy undo entries.
-            }
-        });
         return ids;
     }
 
@@ -451,12 +465,12 @@ export function createSessionManagerApi({
 
     function captureHistorySnapshot() {
         const workflowId = getWorkflowSnapshot()?.active?.workflowId || 'workflow';
-        const mediaUndoOwnerId = `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+        const historyId = `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
         const snapshot = sanitizeWorkflowDataForSessionCache({
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map((connection) => ({ ...connection }))
         });
-        snapshot.mediaUndoOwnerId = mediaUndoOwnerId;
+        snapshot.historyId = historyId;
         return snapshot;
     }
 
@@ -464,7 +478,7 @@ export function createSessionManagerApi({
         stack.push(JSON.stringify(snapshot));
         if (stack.length > 5) {
             const evicted = stack.shift();
-            try { void retryPendingUndoReleases([JSON.parse(evicted)]); } catch { /* Legacy snapshot. */ }
+            try { void releaseLegacySnapshotMediaOwners([JSON.parse(evicted)]); } catch { /* Legacy snapshot. */ }
             cleanupOrphanedNodeAssetsSoon();
         }
     }
@@ -474,20 +488,20 @@ export function createSessionManagerApi({
         const discardedRedoSnapshots = getRedoStack().splice(0).flatMap((raw) => {
             try { return [JSON.parse(raw)]; } catch { return []; }
         });
-        if (discardedRedoSnapshots.length > 0) void retryPendingUndoReleases(discardedRedoSnapshots);
+        if (discardedRedoSnapshots.length > 0) void releaseLegacySnapshotMediaOwners(discardedRedoSnapshots);
         pushSnapshot(state.undoStack, snapshot);
         updateHistoryButtons();
-        return snapshot.mediaUndoOwnerId;
+        return snapshot.historyId;
     }
 
-    function discardLatestHistory(mediaUndoOwnerId) {
+    function discardLatestHistory(historyId) {
         const raw = state.undoStack.at(-1);
         if (!raw) return false;
         try {
             const snapshot = JSON.parse(raw);
-            if (snapshot.mediaUndoOwnerId !== mediaUndoOwnerId) return false;
+            if ((snapshot.historyId || snapshot.mediaUndoOwnerId) !== historyId) return false;
             state.undoStack.pop();
-            void retryPendingUndoReleases([snapshot]);
+            void releaseLegacySnapshotMediaOwners([snapshot]);
             updateHistoryButtons();
             return true;
         } catch {
@@ -532,14 +546,20 @@ export function createSessionManagerApi({
         }
 
         const currentSnapshot = captureHistorySnapshot();
-        if (!await protectSnapshotMediaOwners(currentSnapshot)) {
-            await retryPendingUndoReleases([currentSnapshot]);
-            showToast(`媒体历史快照保护失败，未${label}操作`, 'error');
+        const raw = sourceStack.at(-1);
+        let originalSnapshot;
+        let snapshot;
+        let missingCount = 0;
+        try {
+            originalSnapshot = JSON.parse(raw);
+            ({ snapshot, missingCount } = await discardMissingSnapshotMedia(
+                migrateLegacyWorkflowData(originalSnapshot)
+            ));
+        } catch (error) {
+            console.warn('Cannot check history media before restore:', error);
+            showToast(`媒体状态检查失败，未${label}操作`, 'error');
             return;
         }
-
-        const raw = sourceStack.at(-1);
-        const snapshot = migrateLegacyWorkflowData(JSON.parse(raw));
         const currentNodeIds = new Set([...state.nodes.keys()].map(String));
         await applySnapshotGraph(snapshot);
         onBeforeSave({
@@ -555,18 +575,19 @@ export function createSessionManagerApi({
         if (!persistence?.committed && persistence !== true) {
             await applySnapshotGraph(currentSnapshot);
             onBeforeSave({ dirty: true, mediaOwnershipClearRestoreMarkers: true });
-            await retryPendingUndoReleases([currentSnapshot]);
             showToast(`工作流已被并发修改或保存失败，未${label}操作`, 'error');
             return;
         }
 
         sourceStack.pop();
         pushSnapshot(destinationStack, currentSnapshot);
-        await retryPendingUndoReleases([snapshot]);
+        await releaseLegacySnapshotMediaOwners([originalSnapshot]);
         updateHistoryButtons();
         saveState();
         cleanupOrphanedNodeAssetsSoon();
-        showToast(`已${label}上一步操作`, 'info');
+        showToast(missingCount > 0
+            ? `已${label}节点和连线；${missingCount} 项已清理图片无法恢复`
+            : `已${label}上一步操作`, missingCount > 0 ? 'warning' : 'info');
     }
 
     async function undo() {

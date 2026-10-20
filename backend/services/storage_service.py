@@ -1831,13 +1831,17 @@ class StorageService:
         now = int(time.time() * 1000) if now_ms is None else int(now_ms)
         temporary = self.clear_temporary(now_ms=now, managed_only=True, max_count=100)
         operation_owners_released = self.cleanup_superseded_operation_owners(now_ms=now)
+        undo_owners_released = self.release_legacy_undo_media_references()
         self.trim_history(now_ms=now, max_deletions=100, cleanup=False)
         result = {**temporary, 'assetsDeleted': 0, 'quarantineReleased': 0,
-                  'operationOwnersReleased': operation_owners_released}
+                  'operationOwnersReleased': operation_owners_released,
+                  'undoOwnersReleased': undo_owners_released}
         if self._cache_reclamation_verified():
             result.update(self.release_expired_media_quarantine(now_ms=now))
-            result.update(self.cleanup_unreferenced_media_assets(
-                max_count=100, older_than_ms=now - CACHE_MAINTENANCE_INTERVAL_SECONDS * 1000))
+            cleanup = self.cleanup_unreferenced_media_assets(
+                max_count=100, older_than_ms=now - CACHE_MAINTENANCE_INTERVAL_SECONDS * 1000)
+            result.update(cleanup)
+            result['undoOwnersReleased'] += undo_owners_released
         else:
             result['gcSuspended'] = True
         orphan_cleanup = self.cleanup_orphan_files(detailed=True)
@@ -2030,6 +2034,8 @@ class StorageService:
         owner_type, owner_id, asset_key = (str(value or '').strip() for value in (owner_type, owner_id, asset_key))
         if not owner_type or not owner_id or not asset_key:
             raise StorageError('Media asset reference owner and asset key are required')
+        if owner_type == 'workflow-undo':
+            raise StorageError('Undo snapshots cannot own Media assets')
         with self._lock, self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             self._assert_legacy_workflow_owner_alive(db, owner_type, owner_id)
@@ -2111,6 +2117,8 @@ class StorageService:
             keys = [str(key or '').strip() for key in (item.get('assetKeys') or [])]
             if not owner_type or not owner_id or any(not key for key in keys):
                 raise StorageError('Workflow Media asset manifest is invalid')
+            if owner_type == 'workflow-undo':
+                raise StorageError('Undo snapshots cannot own Media assets')
             manifests.append((owner_type, owner_id, self._reference_list_digest(keys)))
         with self._lock, self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -2355,6 +2363,8 @@ class StorageService:
         intent = str(intent or '').strip()
         if not all((workflow_id, owner_type, owner_id, operation_id, idempotency_key)) or any(not key for key in keys):
             raise StorageError('Complete Media asset owner transition identity is required')
+        if owner_type == 'workflow-undo':
+            raise StorageError('Undo snapshots cannot own Media assets')
         if intent not in MEDIA_TRANSITION_INTENTS:
             raise StorageError('Unknown Media asset owner transition intent')
         expected_generation = int(expected_generation)
@@ -2527,6 +2537,8 @@ class StorageService:
         owner_type, owner_id = (str(value or '').strip() for value in (owner_type, owner_id))
         if not owner_type or not owner_id:
             raise StorageError('Media asset reference owner and asset key are required')
+        if owner_type == 'workflow-undo':
+            raise StorageError('Undo snapshots cannot own Media assets')
         if not isinstance(body, (bytes, bytearray)) or not body:
             raise StorageError('Asset body is empty')
         digest = hashlib.sha256(bytes(body)).hexdigest()
@@ -2543,6 +2555,8 @@ class StorageService:
         owner_type, owner_id = (str(value or '').strip() for value in (owner_type, owner_id))
         if not owner_type or not owner_id or not isinstance(values, list) or not values:
             raise StorageError('Complete Media asset operation owner list is required')
+        if owner_type == 'workflow-undo':
+            raise StorageError('Undo snapshots cannot own Media assets')
         decoded = []
         for value in values:
             source = str(value or '')
@@ -2711,8 +2725,32 @@ class StorageService:
                     released += 1
         return released
 
+    def release_legacy_undo_media_references(self):
+        """Undo snapshots are metadata only; drop references made by older clients."""
+        self.initialize()
+        self.assert_storage_writable()
+        with self._connect() as db:
+            if not db.execute("SELECT 1 FROM media_asset_refs WHERE owner_type='workflow-undo' LIMIT 1").fetchone():
+                return 0
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute("SELECT 1 FROM media_asset_refs WHERE owner_type='workflow-undo' LIMIT 1").fetchone():
+                return 0
+            now = int(time.time() * 1000)
+            # Preserve the workflow origin required by formal GC audits. Shared
+            # media remains protected by any other surviving owner reference.
+            db.execute('''INSERT OR IGNORE INTO media_gc_candidate_provenance(
+                    asset_key, workflow_id, observed_at)
+                SELECT DISTINCT ref.asset_key, workflow.workflow_id, ?
+                FROM media_asset_refs ref JOIN media_workflow_revisions workflow
+                    ON substr(ref.owner_id, 1, length(workflow.workflow_id) + 1)
+                        = workflow.workflow_id || ':'
+                WHERE ref.owner_type='workflow-undo' ''', (now,))
+            return db.execute("DELETE FROM media_asset_refs WHERE owner_type='workflow-undo'").rowcount
+
     def cleanup_unreferenced_media_assets(self, max_count=None, older_than_ms=None):
         self.initialize()
+        undo_owners_released = self.release_legacy_undo_media_references()
         with self._connect() as db:
             keys = [row[0] for row in db.execute('''
                 SELECT asset_key FROM assets WHERE kind IN ('media', 'history', 'thumbnail', 'retired') AND NOT EXISTS (
@@ -2731,6 +2769,7 @@ class StorageService:
                 'orphanFilesFailed': 0,
                 'gcSuspended': True,
                 'candidatesRetained': len(keys),
+                'undoOwnersReleased': undo_owners_released,
             }
         deleted = sum(1 for key in keys if self.delete_asset(key))
         with self._connect() as db:
@@ -2742,6 +2781,7 @@ class StorageService:
             'orphanFilesFailed': 0,
             'gcSuspended': not self._cache_reclamation_verified(),
             'candidatesRetained': retained,
+            'undoOwnersReleased': undo_owners_released,
         }
 
     def save_history(self, entry):
@@ -3025,6 +3065,7 @@ class StorageService:
         return {
             'assetsDeleted': deleted + media_cleanup['assetsDeleted'],
             'operationOwnersReleased': operation_owners_released,
+            'undoOwnersReleased': media_cleanup['undoOwnersReleased'],
             'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'] + orphan_cleanup['deleted'],
             'orphanFilesFailed': media_cleanup['orphanFilesFailed'] + orphan_cleanup['failed'],
             'gcSuspended': not self._cache_reclamation_verified(),
@@ -3182,13 +3223,56 @@ class StorageService:
             documents = db.execute('SELECT COUNT(*) FROM documents').fetchone()[0]
             assets, asset_bytes = db.execute('SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets').fetchone()
             media_assets, media_bytes = db.execute("SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM assets WHERE kind='media'").fetchone()
-            actual_media_bytes = db.execute('''
-                SELECT COALESCE(SUM(size_bytes), 0) FROM (
-                    SELECT relative_path, MAX(size_bytes) AS size_bytes
-                    FROM assets
-                    GROUP BY relative_path
+            # Count each physical path once per reason; reasons can overlap when owners share media.
+            physical = db.execute('''
+                WITH asset_reasons AS (
+                    SELECT a.relative_path, a.size_bytes,
+                        (EXISTS (SELECT 1 FROM media_asset_refs r
+                            WHERE r.asset_key=a.asset_key
+                                AND r.owner_type IN ('workflow-node', 'workflow-import'))
+                         OR EXISTS (SELECT 1 FROM media_asset_owner_items o
+                            WHERE o.asset_key=a.asset_key
+                                AND o.owner_type IN ('workflow-node', 'workflow-import'))) AS workflow_owned,
+                        EXISTS (SELECT 1 FROM media_asset_refs r
+                            WHERE r.asset_key=a.asset_key AND r.owner_type='workflow-undo') AS undo_owned,
+                        EXISTS (SELECT 1 FROM media_asset_refs r
+                            WHERE r.asset_key=a.asset_key
+                                AND r.owner_type IN ('workflow-operation', 'media-transition')) AS operation_owned,
+                        (EXISTS (SELECT 1 FROM media_asset_refs r
+                            WHERE r.asset_key=a.asset_key AND r.owner_type NOT IN (
+                                'workflow-node', 'workflow-import', 'workflow-undo',
+                                'workflow-operation', 'media-transition',
+                                'history', 'history-thumbnail'))
+                         OR EXISTS (SELECT 1 FROM media_asset_owner_items o
+                            WHERE o.asset_key=a.asset_key AND o.owner_type NOT IN (
+                                'workflow-node', 'workflow-import'))) AS other_owned,
+                        (EXISTS (SELECT 1 FROM media_asset_refs r WHERE r.asset_key=a.asset_key)
+                         OR EXISTS (SELECT 1 FROM media_asset_owner_items o
+                            WHERE o.asset_key=a.asset_key)) AS referenced
+                    FROM assets a
+                ), physical_paths AS (
+                    SELECT relative_path, MAX(size_bytes) AS size_bytes,
+                        MAX(workflow_owned) AS workflow_owned,
+                        MAX(undo_owned) AS undo_owned,
+                        MAX(operation_owned) AS operation_owned,
+                        MAX(other_owned) AS other_owned,
+                        MAX(referenced) AS referenced
+                    FROM asset_reasons GROUP BY relative_path
                 )
-            ''').fetchone()[0]
+                SELECT COALESCE(SUM(size_bytes), 0) AS total_bytes,
+                    COALESCE(SUM(workflow_owned), 0) AS workflow_assets,
+                    COALESCE(SUM(CASE WHEN workflow_owned THEN size_bytes ELSE 0 END), 0) AS workflow_bytes,
+                    COALESCE(SUM(undo_owned), 0) AS undo_assets,
+                    COALESCE(SUM(CASE WHEN undo_owned THEN size_bytes ELSE 0 END), 0) AS undo_bytes,
+                    COALESCE(SUM(operation_owned), 0) AS operation_assets,
+                    COALESCE(SUM(CASE WHEN operation_owned THEN size_bytes ELSE 0 END), 0) AS operation_bytes,
+                    COALESCE(SUM(other_owned), 0) AS other_assets,
+                    COALESCE(SUM(CASE WHEN other_owned THEN size_bytes ELSE 0 END), 0) AS other_bytes,
+                    COALESCE(SUM(CASE WHEN referenced THEN 0 ELSE 1 END), 0) AS unreferenced_assets,
+                    COALESCE(SUM(CASE WHEN referenced THEN 0 ELSE size_bytes END), 0) AS unreferenced_bytes
+                FROM physical_paths
+            ''').fetchone()
+            actual_media_bytes = physical['total_bytes']
             media_references = db.execute('SELECT COUNT(*) FROM media_asset_refs').fetchone()[0]
             history = db.execute('SELECT COUNT(*) FROM history').fetchone()[0]
             document_bytes = db.execute('SELECT COALESCE(SUM(LENGTH(value_json)), 0) FROM documents').fetchone()[0]
@@ -3198,17 +3282,33 @@ class StorageService:
             reference_params = []
             reference_filter = ''
             if workflow_id:
-                reference_filter = "WHERE owner_type NOT IN ('workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation') OR (owner_type IN ('workflow-node', 'workflow-import', 'workflow-undo') AND substr(owner_id, 1, length(?) + 1) = ? || ':') OR (owner_type='workflow-operation' AND json_extract(owner_id, '$[0]')=?)"
-                reference_params.extend([workflow_id, workflow_id, workflow_id])
+                reference_filter = '''WHERE refs.owner_type NOT IN
+                    ('workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation')
+                    OR (refs.owner_type IN ('workflow-node', 'workflow-import') AND (
+                        substr(refs.owner_id, 1, length(?) + 1) = ? || ':'
+                        OR EXISTS (SELECT 1 FROM media_asset_owner_items o
+                            WHERE o.workflow_id=? AND o.owner_type=refs.owner_type
+                                AND o.asset_key=refs.asset_key)))
+                    OR (refs.owner_type='workflow-undo'
+                        AND substr(refs.owner_id, 1, length(?) + 1) = ? || ':')
+                    OR (refs.owner_type='workflow-operation'
+                        AND CASE WHEN json_valid(refs.owner_id)
+                            THEN json_extract(refs.owner_id, '$[0]') ELSE NULL END=?)'''
+                reference_params.extend([workflow_id] * 6)
             for row in db.execute(f'''
-                SELECT unique_refs.owner_type, COUNT(*) AS assets,
-                    COALESCE(SUM(unique_assets.size_bytes), 0) AS bytes
+                SELECT physical_refs.owner_type, COUNT(*) AS assets,
+                    COALESCE(SUM(physical_refs.size_bytes), 0) AS bytes
                 FROM (
-                    SELECT DISTINCT owner_type, asset_key FROM media_asset_refs
-                    {reference_filter}
-                ) AS unique_refs
-                JOIN assets AS unique_assets ON unique_assets.asset_key = unique_refs.asset_key
-                GROUP BY unique_refs.owner_type
+                    SELECT unique_refs.owner_type, unique_assets.relative_path,
+                        MAX(unique_assets.size_bytes) AS size_bytes
+                    FROM (
+                        SELECT DISTINCT refs.owner_type, refs.asset_key
+                        FROM media_asset_refs AS refs {reference_filter}
+                    ) AS unique_refs
+                    JOIN assets AS unique_assets ON unique_assets.asset_key = unique_refs.asset_key
+                    GROUP BY unique_refs.owner_type, unique_assets.relative_path
+                ) AS physical_refs
+                GROUP BY physical_refs.owner_type
             ''', reference_params):
                 reference_distribution[row['owner_type']] = {
                     'assets': row['assets'], 'bytes': row['bytes']
@@ -3221,6 +3321,16 @@ class StorageService:
                 'totalBytes': asset_bytes + document_bytes,
                 'mediaAssets': media_assets, 'mediaBytes': media_bytes,
                 'actualMediaBytes': actual_media_bytes,
+                'mediaPhysicalBreakdown': {
+                    'workflows': {'assets': physical['workflow_assets'], 'bytes': physical['workflow_bytes']},
+                    'undo': {'assets': physical['undo_assets'], 'bytes': physical['undo_bytes']},
+                    'operations': {'assets': physical['operation_assets'], 'bytes': physical['operation_bytes']},
+                    'other': {'assets': physical['other_assets'], 'bytes': physical['other_bytes']},
+                    'unreferenced': {
+                        'assets': physical['unreferenced_assets'],
+                        'bytes': physical['unreferenced_bytes'],
+                    },
+                },
                 'mediaReferenceDistribution': reference_distribution,
                 'mediaReferences': media_references, 'mediaCacheLimitBytes': media_cache_limit,
             }

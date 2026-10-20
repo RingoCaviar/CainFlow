@@ -831,6 +831,24 @@ else:
             self.assertEqual({'assets': 1, 'bytes': len(b'other-image')}, distribution['workflow-import'])
             self.assertEqual({'assets': 1, 'bytes': len(b'shared-image')}, distribution['history'])
 
+    def test_media_reference_distribution_deduplicates_aliases_of_one_physical_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            first = service.put_asset('media:first', b'same-image', 'image/png', 'media')
+            second = service.put_asset('media:second', b'same-image', 'image/png', 'media')
+            service.add_media_reference('workflow-node', 'workflow-a:first', first['asset_key'])
+            self.assertEqual({'assets': 0, 'bytes': 0},
+                             service.get_stats('workflow-a')['mediaPhysicalBreakdown']['unreferenced'])
+            service.add_media_reference('workflow-node', 'workflow-a:second', second['asset_key'])
+
+            stats = service.get_stats('workflow-a')
+
+            self.assertEqual(len(b'same-image'), stats['actualMediaBytes'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'same-image')},
+                             stats['mediaReferenceDistribution']['workflow-node'])
+            self.assertEqual({'assets': 0, 'bytes': 0},
+                             stats['mediaPhysicalBreakdown']['unreferenced'])
+
     def test_media_reference_distribution_filters_workflow_node_owners_by_workflow(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
@@ -850,6 +868,98 @@ else:
             distribution = service.get_stats('workflow-a')['mediaReferenceDistribution']
 
             self.assertEqual({'assets': 1, 'bytes': 1}, distribution['workflow-import'])
+
+    def test_media_reference_distribution_attributes_hashed_formal_owners_to_their_workflow(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            active = service.put_asset('media:active', b'active-image', 'image/png', 'media')
+            other = service.put_asset('media:other', b'other-image', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            for workflow_id, asset in (('workflow-a', active), ('workflow-b', other)):
+                self.record_manifest(service, workflow_id, 1, epoch, 'node', [asset['asset_key']])
+                result = service.replace_media_owner_references(
+                    workflow_id=workflow_id, owner_type='workflow-node', owner_id='node',
+                    operation_id=f'{workflow_id}-save', idempotency_key=f'{workflow_id}-save',
+                    expected_generation=0, document_revision=1, storage_epoch=epoch,
+                    asset_keys=[asset['asset_key']])
+                self.assertEqual('committed', result['status'])
+
+            stats = service.get_stats('workflow-a')
+
+            self.assertEqual(len(b'active-image') + len(b'other-image'), stats['actualMediaBytes'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'active-image')},
+                             stats['mediaReferenceDistribution']['workflow-node'])
+
+    def test_media_reference_distribution_attributes_formal_import_to_its_workflow(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            imported = service.put_asset('media:imported', b'imported-image', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('workflow-a', 1, epoch, [{
+                'ownerType': 'workflow-import', 'ownerId': 'import',
+                'assetKeys': [imported['asset_key']],
+            }])
+            result = service.replace_media_owner_references(
+                workflow_id='workflow-a', owner_type='workflow-import', owner_id='import',
+                operation_id='save', idempotency_key='import-save', expected_generation=0,
+                document_revision=1, storage_epoch=epoch, asset_keys=[imported['asset_key']])
+            self.assertEqual('committed', result['status'])
+
+            stats = service.get_stats('workflow-a')
+
+            self.assertEqual({'assets': 1, 'bytes': len(b'imported-image')},
+                             stats['mediaReferenceDistribution']['workflow-import'])
+
+    def test_cache_usage_explains_media_left_after_current_nodes_are_removed(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            other = service.put_media_asset(b'other-workflow', 'image/png',
+                                            'workflow-node', 'workflow-b:node')
+            undo = service.put_asset('media:undo-snapshot', b'undo-snapshot', 'image/png', 'media')
+            with service._connect() as db:
+                db.execute('''INSERT INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                    VALUES('workflow-undo', 'workflow-a:undo:node', ?, 1)''', (undo['asset_key'],))
+            orphan = service.put_asset('media:orphan', b'orphan', 'image/png', 'media')
+
+            stats = service.get_stats('workflow-a')
+
+            self.assertEqual(len(b'other-workflow') + len(b'undo-snapshot') + len(b'orphan'),
+                             stats['actualMediaBytes'])
+            self.assertNotIn('workflow-node', stats['mediaReferenceDistribution'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'other-workflow')},
+                             stats['mediaPhysicalBreakdown']['workflows'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'undo-snapshot')},
+                             stats['mediaPhysicalBreakdown']['undo'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'orphan')},
+                             stats['mediaPhysicalBreakdown']['unreferenced'])
+
+            result = service.cleanup_assets('node-orphans')
+            self.assertEqual(2, result['assetsDeleted'])
+            self.assertEqual(1, result['undoOwnersReleased'])
+            self.assertIsNotNone(service.get_asset_info(other['asset_key']))
+            self.assertIsNone(service.get_asset_info(undo['asset_key']))
+            self.assertIsNone(service.get_asset_info(orphan['asset_key']))
+            self.assertEqual({'assets': 0, 'bytes': 0},
+                             service.get_stats('workflow-a')['mediaPhysicalBreakdown']['unreferenced'])
+
+    def test_cache_usage_includes_other_workflow_operations_and_legacy_references(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            operation = service.put_media_asset(
+                b'pending-operation', 'image/png', 'workflow-operation',
+                json.dumps(['workflow-b', 'node', 'operation']))
+            legacy = service.put_media_asset(b'legacy-reference', 'image/png', 'node', 'legacy-node')
+
+            stats = service.get_stats('workflow-a')
+
+            self.assertEqual(len(b'pending-operation') + len(b'legacy-reference'),
+                             stats['actualMediaBytes'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'pending-operation')},
+                             stats['mediaPhysicalBreakdown']['operations'])
+            self.assertEqual({'assets': 1, 'bytes': len(b'legacy-reference')},
+                             stats['mediaPhysicalBreakdown']['other'])
+            self.assertIsNotNone(service.get_asset_info(operation['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(legacy['asset_key']))
 
     def test_workflow_deletion_seals_formal_owners_across_restart_and_preserves_other_workflows(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1180,15 +1290,74 @@ else:
     def test_releasing_workflow_media_also_removes_undo_snapshot_owners(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
-            asset = service.put_media_asset(b'undo-only', 'image/png', 'workflow-undo', 'workflow-a:undo:node')
-            service.add_media_reference('workflow-undo', 'workflow-b:undo:node', asset['asset_key'])
+            asset = service.put_asset('media:undo-only', b'undo-only', 'image/png', 'media')
+            with service._connect() as db:
+                db.executemany('''INSERT INTO media_asset_refs(
+                    owner_type, owner_id, asset_key, created_at) VALUES('workflow-undo', ?, ?, 1)''', [
+                    ('workflow-a:undo:node', asset['asset_key']),
+                    ('workflow-b:undo:node', asset['asset_key']),
+                ])
 
             result = service.release_workflow_media_references('workflow-a')
 
             self.assertEqual(1, result['referencesDeleted'])
-            self.assertIsNotNone(service.get_asset_info(asset['asset_key']))
-            service.release_workflow_media_references('workflow-b')
+            self.assertEqual(1, result['undoOwnersReleased'])
             self.assertIsNone(service.get_asset_info(asset['asset_key']))
+
+    def test_undo_snapshots_cannot_acquire_media_ownership(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_asset('media:existing', b'existing', 'image/png', 'media')
+            with self.assertRaises(StorageError):
+                service.add_media_reference('workflow-undo', 'workflow:undo:node', asset['asset_key'])
+            with self.assertRaises(StorageError):
+                service.put_media_asset(b'new', 'image/png', 'workflow-undo', 'workflow:undo:node')
+            with self.assertRaises(StorageError):
+                service.put_media_asset_list(['data:image/png;base64,bmV3'], 'workflow-undo', 'workflow:undo:node')
+            with service._connect() as db:
+                self.assertEqual(0, db.execute("SELECT COUNT(*) FROM media_asset_refs "
+                                               "WHERE owner_type='workflow-undo'").fetchone()[0])
+
+    def test_manual_orphan_cleanup_releases_legacy_undo_owners_without_deleting_shared_media(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            undo_only = service.put_asset('media:undo-only', b'undo-only', 'image/png', 'media')
+            shared = service.put_asset('media:shared', b'shared', 'image/png', 'media')
+            with service._connect() as db:
+                db.executemany('''INSERT INTO media_asset_refs(
+                    owner_type, owner_id, asset_key, created_at) VALUES('workflow-undo', ?, ?, 1)''', [
+                    ('workflow-a:undo:node', undo_only['asset_key']),
+                    ('workflow-a:undo:other', shared['asset_key']),
+                ])
+            service.add_media_reference('history', '1', shared['asset_key'])
+
+            result = service.cleanup_assets('node-orphans')
+
+            self.assertEqual(2, result['undoOwnersReleased'])
+            self.assertIsNone(service.get_asset_info(undo_only['asset_key']))
+            self.assertIsNotNone(service.get_asset_info(shared['asset_key']))
+            with service._connect() as db:
+                self.assertEqual(0, db.execute("SELECT COUNT(*) FROM media_asset_refs "
+                                               "WHERE owner_type='workflow-undo'").fetchone()[0])
+
+    def test_formal_cleanup_releases_legacy_undo_ownership_even_while_reclamation_is_guarded(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            asset = service.put_asset('media:legacy-undo', b'legacy-undo', 'image/png', 'media')
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('workflow-a', 1, epoch, [])
+            service.set_meta('media_gc_authority', 'formal')
+            with service._connect() as db:
+                db.execute('''INSERT INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                    VALUES('workflow-undo', 'workflow-a:undo:node', ?, 1)''', (asset['asset_key'],))
+
+            result = service.cleanup_assets('node-orphans')
+
+            self.assertEqual(1, result['undoOwnersReleased'])
+            self.assertEqual(0, service.get_stats('workflow-a')['mediaPhysicalBreakdown']['undo']['assets'])
+            with service._connect() as db:
+                self.assertEqual(1, db.execute('''SELECT COUNT(*) FROM media_gc_candidate_provenance
+                    WHERE workflow_id='workflow-a' AND asset_key=?''', (asset['asset_key'],)).fetchone()[0])
 
     def test_node_orphan_cleanup_removes_stale_node_media_but_keeps_retained_and_history_media(self):
         with tempfile.TemporaryDirectory() as root:

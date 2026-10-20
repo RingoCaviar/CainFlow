@@ -31,6 +31,42 @@ test('cache usage separates unique physical media from overlapping owner distrib
     } finally { globalThis.fetch = originalFetch; }
 });
 
+test('cache usage identifies media retained by other workflows, undo and pending collection', async () => {
+    const originalFetch = globalThis.fetch;
+    const elements = new Map([
+        'cache-size-display', 'usage-workflow-media', 'usage-all-workflows',
+        'usage-undo-media', 'usage-operation-media', 'usage-other-media',
+        'usage-unreferenced-media'
+    ].map((id) => [id, { textContent: '' }]));
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({
+        actualMediaBytes: 5 * 1024 * 1024,
+        mediaReferenceDistribution: {},
+        mediaPhysicalBreakdown: {
+            workflows: { assets: 1, bytes: 1024 * 1024 },
+            undo: { assets: 1, bytes: 1024 * 1024 },
+            operations: { assets: 1, bytes: 1024 * 1024 },
+            other: { assets: 1, bytes: 1024 * 1024 },
+            unreferenced: { assets: 1, bytes: 1024 * 1024 }
+        }
+    }) });
+    try {
+        const api = createGeneralSettings({
+            ctx: { state: { cacheSizes: {} }, storeHistoryName: 'history', storeAssetsName: 'assets',
+                getActiveWorkflowId: () => 'workflow-a',
+                documentRef: { getElementById: (id) => elements.get(id) || null } },
+            dialogs: {}
+        });
+        await api.updateCacheUsage();
+        assert.equal(elements.get('cache-size-display').textContent, '5.00 MB');
+        assert.equal(elements.get('usage-workflow-media').textContent, '0 项 · 0.00 MB');
+        assert.equal(elements.get('usage-all-workflows').textContent, '1 项 · 1.00 MB');
+        assert.equal(elements.get('usage-undo-media').textContent, '1 项 · 1.00 MB');
+        assert.equal(elements.get('usage-operation-media').textContent, '1 项 · 1.00 MB');
+        assert.equal(elements.get('usage-other-media').textContent, '1 项 · 1.00 MB');
+        assert.equal(elements.get('usage-unreferenced-media').textContent, '1 项 · 1.00 MB');
+    } finally { globalThis.fetch = originalFetch; }
+});
+
 test('cache usage coalesces background polls and keeps the newest forced refresh', async () => {
     const originalFetch = globalThis.fetch;
     const responses = [];

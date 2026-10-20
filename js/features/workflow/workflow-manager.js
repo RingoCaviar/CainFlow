@@ -595,6 +595,7 @@ export function createWorkflowManagerApi({
             }
             delete data.mediaOwnershipRestoreOwnerIds;
             pendingLegacyMediaMigrations.delete(migrationKey);
+            updateCacheUsage();
             return returnOutcome ? { ok: true, documentPersisted: true } : true;
         } catch (error) {
             if (documentPersisted) {

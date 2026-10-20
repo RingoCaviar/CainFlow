@@ -393,6 +393,12 @@ export function createDiskStorageApi(getState) {
         return asset ? { ...asset, mediaOperationId: stableOperationId, mediaTemporaryOwnerId: ownerId } : null;
     }
     async function getImageAsset(key) { return blobToDataUrl(await getAssetBlob(key)); }
+    async function mediaAssetExists(key) {
+        const response = await fetch(`/api/storage/media-assets/${encodeURIComponent(String(key))}`, { cache: 'no-store' });
+        if (response.status === 404) return false;
+        if (!response.ok) throw new Error(`Media asset lookup failed: HTTP ${response.status}`);
+        return Boolean((await response.json()).asset);
+    }
     async function getImageAssetBlob(key) { return getAssetBlob(key); }
     async function getImageAssetList(key) {
         const blob = await getAssetBlob(key);
@@ -488,7 +494,7 @@ export function createDiskStorageApi(getState) {
     void flushPendingMediaCancellations();
     return {
         openDB: async () => ({ diskBacked: true }), saveHandle, getHandle, deleteHandle,
-        getImageAsset, getImageAssetBlob, getImageAssetList,
+        getImageAsset, getImageAssetBlob, getImageAssetList, mediaAssetExists,
         saveWorkflowNodeMediaAsset,
         saveWorkflowNodeMediaAssets,
         cancelWorkflowNodeMediaOperation,
