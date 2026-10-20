@@ -24,10 +24,12 @@ test('image card retains editable advanced values and primary controls across se
     assert.deepEqual(bound.initialSize, {
         resolution: '', aspectDisabled: true, aspectLabel: '由模型决定', requested: '自动（由模型决定）'
     });
+    assert.deepEqual(bound.autoAspectDropdown, { triggerDisabled: true, expanded: 'false', panelHidden: true, enabledOptionCount: 0 });
     assert.deepEqual(bound.presetSize, {
         resolution: '2K', aspect: '16:9', requested: '2048 × 1152 px', readonly: true, customHidden: true
     });
     assert.equal(bound.noAutoAspectOption, true);
+    assert.equal(bound.presetDropdownOpened, true);
     assert.deepEqual(bound.squareAspectSize, {
         resolution: '2K', aspect: '1:1', requested: '2048 × 2048 px', savedResolution: '2K'
     });
@@ -39,7 +41,9 @@ test('image card retains editable advanced values and primary controls across se
     assert.deepEqual(bound.customSize, {
         editable: true, outputHidden: true, aspectDisabled: true, aspectLabel: '由自定义宽高决定', hint: ''
     });
+    assert.deepEqual(bound.customAspectDropdown, { triggerDisabled: true, expanded: 'false', panelHidden: true, enabledOptionCount: 0 });
     assert.deepEqual(bound.otherModelSize, {
-        resolution: '', customAvailable: false, aspectDisabled: false, autoAspectAvailable: true, requested: '默认（未指定）'
+        resolution: '', customAvailable: false, aspectDisabled: false, autoAspectAvailable: true, requested: '默认（未指定）',
+        triggerDisabled: false, dropdownOpened: true
     });
 });

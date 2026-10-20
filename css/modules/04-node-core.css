@@ -818,6 +818,16 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     box-shadow: var(--node-select-focus-shadow);
 }
 
+.node-select-trigger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.node-select-trigger:disabled:hover {
+    border-color: var(--node-select-border);
+    box-shadow: none;
+}
+
 .node-select-trigger-label {
     min-width: 0;
     overflow: hidden;

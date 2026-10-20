@@ -798,6 +798,15 @@ export function createNodeDomBindingsApi({
         const panel = wrapper.querySelector('.node-select-panel');
         if (!trigger || !panel) return;
 
+        trigger.disabled = selectEl.disabled;
+        trigger.title = selectEl.title || '';
+        wrapper.classList.toggle('disabled', selectEl.disabled);
+        if (selectEl.disabled) {
+            wrapper.classList.remove('open');
+            trigger.setAttribute('aria-expanded', 'false');
+            panel.classList.add('hidden');
+        }
+
         const selectedOption = selectEl.selectedOptions?.[0] || selectEl.options?.[0] || null;
         const selectedLabel = selectedOption?.textContent || selectEl.value || '--';
         const triggerLabel = trigger.querySelector('.node-select-trigger-label');
@@ -808,7 +817,7 @@ export function createNodeDomBindingsApi({
                 type="button"
                 class="node-select-option${option.selected ? ' selected' : ''}"
                 data-value="${escapeHtml(option.value)}"
-                ${option.disabled ? 'disabled' : ''}
+                ${selectEl.disabled || option.disabled ? 'disabled' : ''}
             >${escapeHtml(option.textContent || option.value || '')}</button>
         `).join('');
 
@@ -816,7 +825,7 @@ export function createNodeDomBindingsApi({
             button.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (button.disabled) return;
+                if (selectEl.disabled || button.disabled) return;
                 const nextValue = button.dataset.value || '';
                 closeNodeSelectDropdowns();
                 if (selectEl.value !== nextValue) {
@@ -850,6 +859,7 @@ export function createNodeDomBindingsApi({
         trigger?.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
+            if (selectEl.disabled) return;
             const willOpen = panel?.classList.contains('hidden');
             closeNodeSelectDropdowns(willOpen ? wrapper : null);
             if (!panel) return;

@@ -62,8 +62,15 @@ try {
     const resolution=node.querySelector('#sample-resolution');
     const aspect=node.querySelector('#sample-aspect');
     const requested=node.querySelector('#sample-requested-resolution');
+    const aspectWrapper=aspect.nextElementSibling;
+    const aspectTrigger=aspectWrapper.querySelector('.node-select-trigger');
     const initialSize={resolution:resolution.value,aspectDisabled:aspect.disabled,
         aspectLabel:aspect.selectedOptions[0]?.textContent,requested:requested.textContent};
+    aspectTrigger.click();
+    const autoAspectDropdown={triggerDisabled:aspectTrigger.disabled,
+        expanded:aspectTrigger.getAttribute('aria-expanded'),panelHidden:aspectWrapper.querySelector('.node-select-panel').classList.contains('hidden'),
+        enabledOptionCount:aspectWrapper.querySelectorAll('.node-select-option:not(:disabled)').length};
+    aspectTrigger.click();
     resolution.value='1K';resolution.dispatchEvent(new Event('change',{bubbles:true}));
     aspect.value='16:9';aspect.dispatchEvent(new Event('change',{bubbles:true}));
     const aspectFirst={resolution:resolution.value,requested:requested.textContent};
@@ -71,13 +78,20 @@ try {
     const presetSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
         readonly:!requested.isContentEditable && !requested.querySelector('input'),customHidden:node.querySelector('#sample-custom-resolution-field').classList.contains('hidden')};
     const noAutoAspectOption=!Array.from(aspect.options).some(option=>option.value==='' || option.textContent==='自动');
-    aspect.value='1:1';aspect.dispatchEvent(new Event('change',{bubbles:true}));
+    aspectTrigger.click();
+    const presetDropdownOpened=aspectTrigger.getAttribute('aria-expanded')==='true';
+    aspectWrapper.querySelector('.node-select-option[data-value="1:1"]').click();
     const squareAspectSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
         savedResolution:state.nodes.get('sample').data.resolution};
     aspect.value='16:9';aspect.dispatchEvent(new Event('change',{bubbles:true}));
     const restoredAspectSize={resolution:resolution.value,aspect:aspect.value,requested:requested.textContent,
         savedResolution:state.nodes.get('sample').data.resolution};
+    aspectTrigger.click();
     resolution.value='custom';resolution.dispatchEvent(new Event('change',{bubbles:true}));
+    await Promise.resolve();
+    const customAspectDropdown={triggerDisabled:aspectTrigger.disabled,
+        expanded:aspectTrigger.getAttribute('aria-expanded'),panelHidden:aspectWrapper.querySelector('.node-select-panel').classList.contains('hidden'),
+        enabledOptionCount:aspectWrapper.querySelectorAll('.node-select-option:not(:disabled)').length};
     const width=node.querySelector('#sample-custom-resolution-width');
     const heightInput=node.querySelector('#sample-custom-resolution-height');
     const seededCustom={width:width.value,height:heightInput.value};
@@ -93,12 +107,15 @@ try {
     const model=node.querySelector('#sample-apiconfig');
     model.add(new Option('Gemini', 'other'));
     model.value='other';model.dispatchEvent(new Event('change',{bubbles:true}));
+    await Promise.resolve();
+    aspectTrigger.click();
     const hiddenOther=details.classList.contains('hidden');
     const otherModelSize={resolution:resolution.value,customAvailable:Array.from(resolution.options).some(option=>option.value==='custom'),
         aspectDisabled:aspect.disabled,autoAspectAvailable:Array.from(aspect.options).some(option=>option.value==='' && !option.disabled),
-        requested:requested.textContent};
+        requested:requested.textContent,triggerDisabled:aspectTrigger.disabled,
+        dropdownOpened:aspectTrigger.getAttribute('aria-expanded')==='true'};
     model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
-    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,initialSize,aspectFirst,presetSize,noAutoAspectOption,squareAspectSize,restoredAspectSize,seededCustom,customSize,otherModelSize,
+    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,initialSize,autoAspectDropdown,aspectFirst,presetSize,noAutoAspectOption,presetDropdownOpened,squareAspectSize,restoredAspectSize,customAspectDropdown,seededCustom,customSize,otherModelSize,
         restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }
