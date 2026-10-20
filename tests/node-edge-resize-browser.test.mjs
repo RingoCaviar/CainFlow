@@ -21,10 +21,12 @@ test('node edges expose the matching resize cursors without covering ports or co
     ]);
     assert.ok(Math.abs(result.inputPort.borderOffset) <= 1, `input port is ${result.inputPort.borderOffset}px from the border`);
     assert.ok(Math.abs(result.outputPort.borderOffset) <= 1, `output port is ${result.outputPort.borderOffset}px from the border`);
-    assert.equal(result.inputPort.clipPath, 'inset(0px 50% 0px 0px)');
-    assert.equal(result.outputPort.clipPath, 'inset(0px 0px 0px 50%)');
+    assert.equal(result.inputPort.clipPath, 'inset(0px calc(50% - 2px) 0px 0px)');
+    assert.equal(result.outputPort.clipPath, 'inset(0px 0px 0px calc(50% - 2px))');
     assert.equal(result.inputPort.outerHit, true);
     assert.equal(result.outputPort.outerHit, true);
+    assert.equal(result.inputPort.seamHit, true);
+    assert.equal(result.outputPort.seamHit, true);
     assert.equal(result.inputPort.innerHit, false);
     assert.equal(result.outputPort.innerHit, false);
     assert.equal(result.deleteAccessible, true);

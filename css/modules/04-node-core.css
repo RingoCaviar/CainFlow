@@ -981,13 +981,14 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 .node-port.input .port-dot {
     margin-left: -12px;
     left: -6px;
-    clip-path: inset(0 50% 0 0);
+    /* Keep a 2px painted lip over the shell border so the outside half joins the card. */
+    clip-path: inset(0 calc(50% - 2px) 0 0);
 }
 
 .node-port.output .port-dot {
     margin-right: -12px;
     right: -6px;
-    clip-path: inset(0 0 0 50%);
+    clip-path: inset(0 0 0 calc(50% - 2px));
 }
 
 .port-dot.type-image {

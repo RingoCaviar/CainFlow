@@ -48,11 +48,13 @@
                 const center = rect.left + rect.width / 2;
                 const outerX = isInput ? shellRect.left - 3 : shellRect.right + 3;
                 const innerX = isInput ? shellRect.left + 3 : shellRect.right - 3;
+                const seamX = borderCenter;
                 const y = rect.top + rect.height / 2;
                 return {
                     borderOffset: Math.round((center - borderCenter) * 100) / 100,
                     clipPath: getComputedStyle(port).clipPath,
                     outerHit: document.elementFromPoint(outerX, y) === port,
+                    seamHit: document.elementFromPoint(seamX, y) === port,
                     innerHit: document.elementFromPoint(innerX, y) === port
                 };
             };
