@@ -2517,7 +2517,7 @@ export function createNodeDomBindingsApi({
             advanced?.addEventListener('change', () => syncImageAdvancedSummary(id));
             advanced?.addEventListener('mousedown', (event) => event.stopPropagation());
             advanced?.addEventListener('toggle', () => {
-                fitNodeToContent(id, { allowShrink: true, reason: 'element-resize', forceConnectionRefresh: true });
+                fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize', forceConnectionRefresh: true });
                 connectionProjection?.nodeGeometryChanged(id);
             });
             const modelSelect = el.querySelector(`#${id}-apiconfig`);

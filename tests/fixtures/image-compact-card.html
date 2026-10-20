@@ -134,7 +134,15 @@ try {
     const afterProviderSwitchHeight=node.getBoundingClientRect().height;
     provider.value='provider';provider.dispatchEvent(new Event('change',{bubbles:true}));
     const restoredProviderHeight=node.getBoundingClientRect().height;
-    result.push({bindings:true,compactHeight,openHeight,closedHeight,beforeModelSwitchHeight,beforeModelSwitchMinimum,afterModelSwitchHeight,afterModelSwitchMinimum,afterModelSwitchWidth,restoredModelHeight,beforeProviderSwitchHeight,afterProviderSwitchHeight,restoredProviderHeight,geometry,summary,hiddenOther,initialSize,autoAspectDropdown,aspectFirst,presetSize,noAutoAspectOption,presetDropdownOpened,squareAspectSize,restoredAspectSize,customAspectDropdown,seededCustom,customSize,otherModelSize,
+    const beforeAdvancedToggleWidth=node.getBoundingClientRect().width;
+    const beforeAdvancedToggleHeight=node.getBoundingClientRect().height;
+    details.open=true;details.dispatchEvent(new Event('toggle'));
+    const expandedAdvancedWidth=node.getBoundingClientRect().width;
+    const expandedAdvancedHeight=node.getBoundingClientRect().height;
+    details.open=false;details.dispatchEvent(new Event('toggle'));
+    const collapsedAdvancedWidth=node.getBoundingClientRect().width;
+    const collapsedAdvancedHeight=node.getBoundingClientRect().height;
+    result.push({bindings:true,compactHeight,openHeight,closedHeight,beforeModelSwitchHeight,beforeModelSwitchMinimum,afterModelSwitchHeight,afterModelSwitchMinimum,afterModelSwitchWidth,restoredModelHeight,beforeProviderSwitchHeight,afterProviderSwitchHeight,restoredProviderHeight,beforeAdvancedToggleWidth,beforeAdvancedToggleHeight,expandedAdvancedWidth,expandedAdvancedHeight,collapsedAdvancedWidth,collapsedAdvancedHeight,geometry,summary,hiddenOther,initialSize,autoAspectDropdown,aspectFirst,presetSize,noAutoAspectOption,presetDropdownOpened,squareAspectSize,restoredAspectSize,customAspectDropdown,seededCustom,customSize,otherModelSize,
         restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }
