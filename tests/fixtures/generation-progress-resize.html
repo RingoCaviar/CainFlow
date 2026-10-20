@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <link rel="stylesheet" href="../../css/modules/05-node-media.css">
+    <link rel="stylesheet" href="../../css/modules/06-node-text.css">
+    <link rel="stylesheet" href="../../css/modules/07-node-controls.css">
+    <link rel="stylesheet" href="../../css/components/nodes.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+    <style>
+        #canvas-container { position: relative; width: 1000px; height: 1200px; }
+        #node { left: 60px; top: 0; width: 410px; }
+        *, *::before, *::after { transition: none !important; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"><div id="node" class="node node-generate"></div></div>
+    <div id="connections-group"></div>
+    <pre id="surface-result"></pre>
+    <script type="module">
+        import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+        import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+        import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
+        import { createNodeLifecycleApi } from '../../js/nodes/node-lifecycle.js';
+        import { createCanvasInteractionsApi } from '../../js/canvas/canvas-interactions.js';
+
+        try {
+            const node = document.getElementById('node');
+            node.innerHTML = createNodeMarkup({
+                type: 'ImageGenerate', id: 'sample', config: NODE_CONFIGS.ImageGenerate,
+                restoreData: {}, state: { models: [], providers: [] }
+            });
+            // A restored card can retain height after controls contract; dragging must not leave that slack below progress.
+            const initialHeight = Math.ceil(node.getBoundingClientRect().height) + 80;
+            node.style.height = `${initialHeight}px`;
+            const state = {
+                nodes: new Map([['sample', {
+                    id: 'sample', type: 'ImageGenerate', el: node, x: 60, y: 0,
+                    width: 410, height: initialHeight, data: {}
+                }]]),
+                selectedNodes: new Set(), connections: [], runningNodeIds: new Set(),
+                canvas: { x: 0, y: 0, zoom: 1 }, models: [], providers: []
+            };
+            const noop = () => {};
+            const canvasContainer = document.getElementById('canvas-container');
+            const lifecycle = createNodeLifecycleApi({
+                state, nodeConfigs: NODE_CONFIGS, nodesLayer: canvasContainer,
+                scheduleSave: noop, updateAllConnections: noop, updatePortStyles: noop
+            });
+            const bindings = createNodeDomBindingsApi({
+                state, canvasContainer, connectionsGroup: document.getElementById('connections-group'),
+                viewportApi: {}, pushHistory: noop, scheduleSave: noop, showToast: noop,
+                debounce: (fn) => fn, getNodeMinimumSizeFromLifecycle: lifecycle.getNodeMinimumSize,
+                enforceNodeContentMinimum: lifecycle.enforceNodeContentMinimum
+            });
+            bindings.bindNodeInteractions({ id: 'sample', type: 'ImageGenerate', el: node });
+            const interactions = createCanvasInteractionsApi({
+                state, canvasContainer, nodesLayer: canvasContainer, tempConnection: document.createElement('svg'),
+                viewportApi: { screenToCanvas: (x, y) => ({ x, y }), updateCanvasTransform: noop },
+                getPortPosition: noop, drawTempConnection: noop, updateAllConnections: noop,
+                updatePortStyles: noop, scheduleSave: noop, serializeOneNode: noop, addNode: noop,
+                checkLineIntersection: noop, getConnectionSamplePoints: () => [],
+                getNodeMinimumSize: lifecycle.getNodeMinimumSize,
+                enforceNodeContentMinimum: lifecycle.enforceNodeContentMinimum
+            });
+            interactions.initCanvasInteractions();
+
+            const gap = () => {
+                const card = node.getBoundingClientRect();
+                const body = node.querySelector('.node-body').getBoundingClientRect();
+                const field = node.querySelector('.node-generation-progress-field').getBoundingClientRect();
+                const progress = node.querySelector('.api-generation-progress').getBoundingClientRect();
+                const prompt = node.querySelector('.image-generate-prompt').getBoundingClientRect();
+                const progressLabel = node.querySelector('.node-generation-progress-field label').getBoundingClientRect();
+                return {
+                    cardHeight: Math.round(card.height), bodyHeight: Math.round(body.height),
+                    promptHeight: Math.round(prompt.height),
+                    bottomGap: Math.round((card.bottom - progress.bottom) * 100) / 100,
+                    promptToProgressGap: Math.round((progressLabel.top - prompt.bottom) * 100) / 100,
+                    bodyGap: Math.round((card.bottom - body.bottom) * 100) / 100,
+                    fieldGap: Math.round((body.bottom - field.bottom) * 100) / 100,
+                    progressFieldGap: Math.round((field.bottom - progress.bottom) * 100) / 100
+                };
+            };
+            const before = gap();
+            const handle = node.querySelector('[data-resize-edge="bottom"]');
+            handle.dispatchEvent(new MouseEvent('mousedown', {
+                bubbles: true, button: 0, clientX: 300, clientY: 600
+            }));
+            window.dispatchEvent(new MouseEvent('mousemove', {
+                bubbles: true, button: 0, clientX: 300, clientY: 780
+            }));
+            const during = gap();
+            window.dispatchEvent(new MouseEvent('mouseup', {
+                bubbles: true, button: 0, clientX: 300, clientY: 780
+            }));
+            const after = gap();
+            handle.dispatchEvent(new MouseEvent('mousedown', {
+                bubbles: true, button: 0, clientX: 300, clientY: 780
+            }));
+            window.dispatchEvent(new MouseEvent('mousemove', {
+                bubbles: true, button: 0, clientX: 300, clientY: 620
+            }));
+            window.dispatchEvent(new MouseEvent('mouseup', {
+                bubbles: true, button: 0, clientX: 300, clientY: 620
+            }));
+            const shrunk = gap();
+            document.getElementById('surface-result').textContent = JSON.stringify({ before, during, after, shrunk });
+        } catch (error) {
+            document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+        }
+    </script>
+</body>
+</html>

@@ -436,6 +436,17 @@
     margin-bottom: 0;
 }
 
+/* Put spare resized height into the prompt instead of leaving a tail below progress. */
+.node-generate .node-body {
+    flex: 1 1 auto;
+    padding-bottom: 4px;
+}
+
+.node-generate .node-field-expand,
+.node-generate .node-field-expand textarea {
+    flex: 1 1 auto;
+}
+
 .node-error-msg:empty {
     display: none;
 }
