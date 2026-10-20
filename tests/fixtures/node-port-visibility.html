@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/modules/04-node-core.css">
+    <link rel="stylesheet" href="../../css/modules/05-node-media.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+    <style>
+        #canvas-container { position: relative; width: 960px; height: 640px; }
+        #save { left: 120px; top: 80px; width: 300px; height: 460px; }
+        #preview { left: 510px; top: 80px; width: 300px; height: 460px; }
+        *, *::before, *::after { transition: none !important; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="save" class="node node-save"></div>
+        <div id="preview" class="node node-preview"></div>
+    </div>
+    <pre id="surface-result"></pre>
+    <script type="module">
+        import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+        import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+
+        try {
+            const cards = [
+                { id: 'save', type: 'ImageSave' },
+                { id: 'preview', type: 'ImagePreview' }
+            ].map(({ id, type }) => {
+                const node = document.getElementById(id);
+                node.innerHTML = createNodeMarkup({
+                    type, id, config: NODE_CONFIGS[type], restoreData: {},
+                    state: { models: [], providers: [] }
+                });
+                const nodeRect = node.getBoundingClientRect();
+                const ports = Array.from(node.querySelectorAll('.node-port'), (port) => {
+                    const dot = port.querySelector('.port-dot');
+                    const rect = dot.getBoundingClientRect();
+                    const x = port.dataset.direction === 'input' ? nodeRect.left - 3 : nodeRect.right + 3;
+                    const y = rect.top + rect.height / 2;
+                    return {
+                        direction: port.dataset.direction,
+                        name: port.dataset.port,
+                        outerHit: document.elementFromPoint(x, y) === dot
+                    };
+                });
+                const media = node.querySelector('.save-preview-container, .preview-container');
+                return {
+                    type,
+                    nodeOverflow: getComputedStyle(node).overflowX,
+                    mediaOverflow: getComputedStyle(media).overflowX,
+                    ports
+                };
+            });
+            document.getElementById('surface-result').textContent = JSON.stringify(cards);
+        } catch (error) {
+            document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+        }
+    </script>
+</body>
+</html>

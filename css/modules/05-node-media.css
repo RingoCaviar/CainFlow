@@ -218,10 +218,6 @@
     background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
 }
 
-.node-preview {
-    overflow: hidden !important;
-}
-
 .node-preview .node-body {
     max-height: 100%;
     min-width: 0;
@@ -820,10 +816,6 @@
 /* Node-specific: Image Save */
 .node-save .node-header-color {
     background: linear-gradient(90deg, var(--accent-orange), var(--accent-red));
-}
-
-.node-save {
-    overflow: hidden !important;
 }
 
 .save-preview-container {
