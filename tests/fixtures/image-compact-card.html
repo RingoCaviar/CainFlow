@@ -106,7 +106,15 @@ try {
     const closedHeight=node.getBoundingClientRect().height;
     const model=node.querySelector('#sample-apiconfig');
     model.add(new Option('Gemini', 'other'));
+    state.nodes.get('sample').userResized=true;
+    state.nodes.get('sample').width=460;
+    node.style.width='460px';
+    const beforeModelSwitchHeight=node.getBoundingClientRect().height;
+    const beforeModelSwitchMinimum=lifecycle.getNodeMinimumSize(state.nodes.get('sample'),{width:460}).minHeight;
     model.value='other';model.dispatchEvent(new Event('change',{bubbles:true}));
+    const afterModelSwitchHeight=node.getBoundingClientRect().height;
+    const afterModelSwitchMinimum=lifecycle.getNodeMinimumSize(state.nodes.get('sample'),{width:460}).minHeight;
+    const afterModelSwitchWidth=node.getBoundingClientRect().width;
     await Promise.resolve();
     aspectTrigger.click();
     const hiddenOther=details.classList.contains('hidden');
@@ -115,7 +123,18 @@ try {
         requested:requested.textContent,triggerDisabled:aspectTrigger.disabled,
         dropdownOpened:aspectTrigger.getAttribute('aria-expanded')==='true'};
     model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
-    result.push({bindings:true,compactHeight,openHeight,closedHeight,geometry,summary,hiddenOther,initialSize,autoAspectDropdown,aspectFirst,presetSize,noAutoAspectOption,presetDropdownOpened,squareAspectSize,restoredAspectSize,customAspectDropdown,seededCustom,customSize,otherModelSize,
+    const restoredModelHeight=node.getBoundingClientRect().height;
+    state.models[0].protocol='';
+    state.models[0].providerIds.push('google-provider');
+    state.providers.push({id:'google-provider',type:'google',name:'Gemini'});
+    const provider=node.querySelector('#sample-provider');
+    provider.add(new Option('Gemini','google-provider'));
+    const beforeProviderSwitchHeight=node.getBoundingClientRect().height;
+    provider.value='google-provider';provider.dispatchEvent(new Event('change',{bubbles:true}));
+    const afterProviderSwitchHeight=node.getBoundingClientRect().height;
+    provider.value='provider';provider.dispatchEvent(new Event('change',{bubbles:true}));
+    const restoredProviderHeight=node.getBoundingClientRect().height;
+    result.push({bindings:true,compactHeight,openHeight,closedHeight,beforeModelSwitchHeight,beforeModelSwitchMinimum,afterModelSwitchHeight,afterModelSwitchMinimum,afterModelSwitchWidth,restoredModelHeight,beforeProviderSwitchHeight,afterProviderSwitchHeight,restoredProviderHeight,geometry,summary,hiddenOther,initialSize,autoAspectDropdown,aspectFirst,presetSize,noAutoAspectOption,presetDropdownOpened,squareAspectSize,restoredAspectSize,customAspectDropdown,seededCustom,customSize,otherModelSize,
         restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }

@@ -2525,14 +2525,14 @@ export function createNodeDomBindingsApi({
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
-                fitNodeToContent(id);
+                fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
             const providerSelect = el.querySelector(`#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
-                fitNodeToContent(id);
+                fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
             const resolutionSelect = el.querySelector(`#${id}-resolution`);
             resolutionSelect?.addEventListener('change', () => {
@@ -2649,7 +2649,7 @@ export function createNodeDomBindingsApi({
                 syncVideoGenerateProtocolFields(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
-                fitNodeToContent(id);
+                fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
             const providerSelect = el.querySelector(`#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
@@ -2657,7 +2657,7 @@ export function createNodeDomBindingsApi({
                 syncVideoGenerateProtocolFields(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
-                fitNodeToContent(id);
+                fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
             const generationCountInput = el.querySelector(`#${id}-generation-count`);
             const doubaoDurationInput = el.querySelector(`#${id}-doubao-duration`);

@@ -782,7 +782,10 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 }
 
                 node.providerId = providerSettings.getResolvedModelProviderId(selectedModel, providerSelect?.value || currentProviderId);
-                if (node.type === 'ImageGenerate') syncImageGenerateResolutionOptions(id);
+                if (node.type === 'ImageGenerate') {
+                    syncImageGenerateResolutionOptions(id);
+                    fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
+                }
                 if (node.type === 'VideoGenerate' || node.type === 'TextChat') {
                     providerSelect?.dispatchEvent(new windowRef.Event('change', { bubbles: true }));
                 }
