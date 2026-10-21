@@ -240,7 +240,7 @@ export function createPromptAgentController({
         const model = fixedModel || models.find(item => item.id === (getElements().modelSelect?.value || getSelectedModelId())) || models[0];
         const conversation = conversationStore.getCompactionContext();
         const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
-        return measurePromptAgentContext({ model, message, conversation,
+        const measurement = measurePromptAgentContext({ model, message, conversation,
             context: nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
             referenceImages: pendingReferenceImages.filter(image => !image.loading && !image.error),
             workflowReferenceImages: uniqueReferenceImages([
@@ -248,6 +248,13 @@ export function createPromptAgentController({
                 ...(referenceSource?.getContextReferences?.(conversation) || [])
             ])
         }, tokenObservation);
+        // An empty conversation has no accumulated context. Keep the full
+        // request estimate for execution, but do not present system instructions
+        // and ambient canvas candidates as uncleared conversation history.
+        const emptyConversation = !conversation.messages.length && !conversation.archivedMessages?.length
+            && !conversation.memory && !conversation.contextSummary && !conversation.previousPromptPlan
+            && !conversationStore.getReferenceImages().length && !pendingReferenceImages.length && !message.trim();
+        return { ...measurement, emptyConversation };
     }
 
     async function autoCompact(operation, modelId, message = '') {
@@ -308,19 +315,22 @@ export function createPromptAgentController({
             }
             if (command.name === '/compact') {
                 const usage = compressionProgress();
+                const displayedPercent = usage.emptyConversation ? 0 : usage.percent;
                 const meter = documentRef.createElement('span');
                 meter.className = 'prompt-agent-context-usage';
-                meter.style.setProperty('--context-usage', `${usage.percent}%`);
+                meter.style.setProperty('--context-usage', `${displayedPercent}%`);
                 meter.setAttribute('role', 'meter');
                 meter.setAttribute('aria-label', '自动压缩阈值进度');
                 meter.setAttribute('aria-valuemin', '0');
                 meter.setAttribute('aria-valuemax', '100');
-                meter.setAttribute('aria-valuenow', String(usage.percent));
-                const detail = `自动压缩阈值进度：约 ${usage.used} / ${usage.threshold} Token；${usage.source}。发送前及回复后达到阈值时调用模型压缩，与圆环共用计数。`;
-                meter.setAttribute('aria-valuetext', `${usage.percent}%，${detail}`);
+                meter.setAttribute('aria-valuenow', String(displayedPercent));
+                const detail = usage.emptyConversation
+                    ? `暂无对话上下文。下次请求的系统指令和画布候选预计占用约 ${usage.used} / ${usage.threshold} Token，并非残留聊天；发送时按完整请求检查自动压缩阈值。`
+                    : `自动压缩阈值进度：约 ${usage.used} / ${usage.threshold} Token（含系统指令及画布候选）；${usage.source}。发送前及回复后达到阈值时调用模型压缩，与圆环共用计数。`;
+                meter.setAttribute('aria-valuetext', `${displayedPercent}%，${detail}`);
                 meter.title = detail;
                 const value = documentRef.createElement('span');
-                value.textContent = `≈${usage.percent}%`;
+                value.textContent = usage.emptyConversation ? '0%' : `≈${displayedPercent}%`;
                 meter.appendChild(value);
                 option.appendChild(meter);
                 option.classList.add('has-context-usage');

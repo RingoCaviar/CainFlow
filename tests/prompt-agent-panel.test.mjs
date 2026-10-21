@@ -39,6 +39,11 @@ test('server calibration is displayed but not persisted or carried into another 
     controller.restoreWorkflow({ messages: [{ role: 'user', text: '另一个工作流' }] });
     enterText(elements, '/compact');
     assert.doesNotMatch(meter().title, /接口实际输入用量校准/);
+    enterText(elements, '/clear');
+    await controller.submit();
+    enterText(elements, '/compact');
+    assert.equal(meter().attributes.get('aria-valuenow'), '0');
+    assert.match(meter().title, /并非残留聊天/);
 });
 
 function selectedImageStore() {
@@ -1307,7 +1312,7 @@ test('compression ring shows real threshold progress without a model and follows
     const { controller, elements } = createHarness(undefined, undefined, null, { getChatModels: () => [] });
     const meter = () => elements['prompt-agent-command-menu'].children[0].querySelector('.prompt-agent-context-usage');
     enterText(elements, '/compact');
-    assert.match(meter().children[0].textContent, /^≈\d+%$/);
+    assert.equal(meter().attributes.get('aria-valuenow'), '0');
     controller.restoreWorkflow({ messages: [{ role: 'user', text: 'a'.repeat(1992) }] });
     enterText(elements, '/compact');
     assert.ok(Number(meter().attributes.get('aria-valuenow')) > 0);
@@ -1315,7 +1320,14 @@ test('compression ring shows real threshold progress without a model and follows
     enterText(elements, '/clear');
     await controller.submit();
     enterText(elements, '/compact');
-    assert.match(meter().children[0].textContent, /^≈\d+%$/);
+    assert.equal(meter().attributes.get('aria-valuenow'), '0');
+    assert.match(meter().title, /暂无对话上下文/);
+    controller.restoreWorkflow({ contextSummary: '压缩后保留的摘要', messages: [] });
+    enterText(elements, '/compact');
+    assert.ok(Number(meter().attributes.get('aria-valuenow')) > 0, 'a summary-only conversation is not empty');
+    controller.restoreWorkflow({});
+    enterText(elements, '/compact');
+    assert.equal(meter().attributes.get('aria-valuenow'), '0');
 });
 
 

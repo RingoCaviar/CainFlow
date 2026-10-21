@@ -177,8 +177,8 @@ try {
     check(menu.hidden, 'slashes inside a normal prompt must not open command suggestions');
     type('/');
     const ring = menu.querySelector('.prompt-agent-context-usage');
-    check(Number(ring?.getAttribute('aria-valuenow')) > 0 && ring.textContent.startsWith('≈'), 'clear resets automatic compression progress');
-    check(ring.title.includes('/ 12000 Token') && ring.title.includes('自动压缩阈值进度'), 'meter describes the real automatic compression threshold');
+    check(ring?.getAttribute('aria-valuenow') === '0' && ring.textContent === '0%', 'clear resets automatic compression progress');
+    check(ring.title.includes('/ 12000 Token') && ring.title.includes('暂无对话上下文') && ring.title.includes('完整请求'), 'empty meter distinguishes future request overhead from cleared history');
     const samples = [];
     for (const theme of ['light', 'dark', 'pink']) {
         document.documentElement.dataset.appTheme = theme;
