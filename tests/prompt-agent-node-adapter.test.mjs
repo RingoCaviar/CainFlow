@@ -73,6 +73,7 @@ test('applying an Agent plan connects its references and reapplying does not dup
     assert.equal(state.connections.length, 1);
     assert.deepEqual(state.connections[0].from, { nodeId: 'source-1', port: 'image' });
     assert.deepEqual(state.connections[0].to, { nodeId: 'image-1', port: 'referenceImages' });
+    assert.equal(adapter.getContext('image-1').referenceImages[0].sourceNodeId, 'source-1');
     const id = state.connections[0].id;
     assert.equal(adapter.applyPromptPlan(plan), true);
     assert.equal(state.connections.length, 1);

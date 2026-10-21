@@ -130,7 +130,7 @@ try {
                 prompt: hasTarget ? `电影感海报：${request.message}` : request.message,
                 negativePrompt: '低质量',
                 parameters: hasTarget ? { aspectRatio: '16:9' } : {},
-                referenceImages: request.workflowReferenceImages
+                referenceImages: request.workflowReferenceImages.filter(image => image.dataUrl)
             }
         };
     };
@@ -246,7 +246,8 @@ try {
     const validActions = validAgent.querySelectorAll('.prompt-agent-actions button');
     const referenceRequest = requests[1];
     const referencesInRequest = referenceRequest.referenceImages.map((image) => image.name);
-    const referencesInWorkflow = referenceRequest.workflowReferenceImages.map((image) => image.name);
+    const referencesInWorkflow = referenceRequest.workflowReferenceImages.filter(image => image.dataUrl).map((image) => image.name);
+    if (!referenceRequest.workflowReferenceImages.some(image => image.runId)) throw new Error("Missing generated-result candidates");
     validActions[0].click();
     const applied = validActions[0].textContent === '已应用' && validActions[0].disabled && appliedPlans.length === 2;
     const referenceConnectionsApplied = state.connections.filter((connection) => connection.to.nodeId === 'image-1'

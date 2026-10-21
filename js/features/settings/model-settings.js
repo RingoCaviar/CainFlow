@@ -569,6 +569,10 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                             <div style="font-size:11px;color:var(--text-dim);line-height:1.45;padding-top:8px;">${getModelProtocolHelp(mod)}</div>
                         </div>
                     </div>
+                    ${taskType === 'chat' ? `<div class="card-row"><div class="card-field">
+                        <label>自动压缩阈值（Token）</label>
+                        <input type="number" min="1" step="1" value="${Number.isSafeInteger(mod.autoCompactTokenLimit) && mod.autoCompactTokenLimit > 0 ? mod.autoCompactTokenLimit : ''}" placeholder="默认 12000；按本地 Token 估算触发" aria-label="自动压缩阈值 Token" data-id="${mod.id}" data-field="autoCompactTokenLimit" />
+                    </div></div>` : ''}
                 </div>
             `;
             modelsList.appendChild(el);
@@ -580,6 +584,18 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 const field = event.target.dataset.field;
                 const mod = state.models.find((candidate) => candidate.id === id);
                 if (!mod) return;
+                if (field === 'autoCompactTokenLimit') {
+                    const value = Number(event.target.value);
+                    if (event.target.value.trim() && (!Number.isSafeInteger(value) || value <= 0)) {
+                        showToast('自动压缩阈值必须是正整数 Token 数', 'warning');
+                        event.target.value = mod.autoCompactTokenLimit || '';
+                        return;
+                    }
+                    if (event.target.value.trim()) mod.autoCompactTokenLimit = value;
+                    else delete mod.autoCompactTokenLimit;
+                    saveState();
+                    return;
+                }
                 const provider = providerSettings.getResolvedModelProvider(mod);
                 mod[field] = field === 'taskType'
                     ? normalizeModelTaskType(event.target.value, mod)

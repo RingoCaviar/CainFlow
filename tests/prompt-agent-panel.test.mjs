@@ -3,9 +3,25 @@ import test from 'node:test';
 
 import { createPromptAgentController } from '../js/features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
+import { measurePromptAgentContext } from '../js/features/prompt-agent/prompt-agent-token-budget.js';
 
 const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test' };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
+
+test('server calibration is displayed but not persisted or carried into another workflow', async () => {
+    const { controller, elements } = createHarness(async request => ({ message: '收到', intent: 'chat', tokenObservation: {
+        inputTokens: 3000, measurement: measurePromptAgentContext({ ...request, model: TEST_CHAT_MODEL })
+    } }));
+    enterText(elements, '你好');
+    await controller.submit();
+    enterText(elements, '/compact');
+    const meter = () => elements['prompt-agent-command-menu'].children[0].querySelector('.prompt-agent-context-usage');
+    assert.match(meter().title, /接口实际输入用量校准/);
+    assert.doesNotMatch(JSON.stringify(controller.snapshotWorkflow()), /tokenObservation/);
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '另一个工作流' }] });
+    enterText(elements, '/compact');
+    assert.doesNotMatch(meter().title, /接口实际输入用量校准/);
+});
 
 function selectedImageStore() {
     const store = createPromptAgentConversationStore();
@@ -36,7 +52,7 @@ class FakeElement {
         this.textContent = '';
         this.disabled = false;
         this.open = false;
-        this.style = {};
+        this.style = { setProperty(name, value) { this[name] = value; } };
     }
     addEventListener(type, handler) { this.listeners.set(type, handler); }
     dispatch(type, event = {}) { return this.listeners.get(type)?.({ preventDefault() {}, target: this, ...event }); }
@@ -1266,4 +1282,130 @@ test('a new action error during compaction cannot be archived by a summary that 
     assert.equal(controller.snapshotWorkflow().messages.length, 3);
     assert.equal(controller.snapshotWorkflow().contextSummary, undefined);
     assert.match(elements['prompt-agent-command-status'].textContent, /对话已更新/);
+});
+
+
+test('compression ring shows real threshold progress without a model and follows restore and clear', async () => {
+    const { controller, elements } = createHarness(undefined, undefined, null, { getChatModels: () => [] });
+    const meter = () => elements['prompt-agent-command-menu'].children[0].querySelector('.prompt-agent-context-usage');
+    enterText(elements, '/compact');
+    assert.match(meter().children[0].textContent, /^≈\d+%$/);
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: 'a'.repeat(1992) }] });
+    enterText(elements, '/compact');
+    assert.ok(Number(meter().attributes.get('aria-valuenow')) > 0);
+    assert.match(meter().title, /12000 Token/);
+    enterText(elements, '/clear');
+    await controller.submit();
+    enterText(elements, '/compact');
+    assert.match(meter().children[0].textContent, /^≈\d+%$/);
+});
+
+
+test('automatic compaction runs before send, preserves original turns and supplies the summary to reply', async () => {
+    const events = [], requests = [];
+    const { controller, elements } = createHarness(async request => {
+        events.push('reply'); requests.push(request); return { message: '继续', intent: 'chat' };
+    }, undefined, null, {
+        // Leaves room for the unknown-model image reserve after compaction.
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 8000 }],
+        createCompaction: async request => {
+            events.push('compact');
+            assert.equal(request.conversation.messages[0].text.length, 12000);
+            return { summary: '保留猫与蓝色背景' };
+        }
+    });
+    const reference = { name: '猫', sourceNodeId: 'ref', dataUrl: 'data:image/png;base64,YQ==' };
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '旧'.repeat(12000), referenceImages: [reference] },
+        { role: 'agent', text: '方案', promptPlan: { prompt: '精确标题 ABC', parameters: {} } }] });
+    enterText(elements, '继续调整');
+    await controller.submit();
+    assert.deepEqual(events, ['compact', 'reply']);
+    assert.equal(requests[0].conversation.contextSummary, '保留猫与蓝色背景');
+    assert.equal(requests[0].conversation.previousPromptPlan.prompt, '精确标题 ABC');
+    assert.equal(requests[0].workflowReferenceImages[0].dataUrl, reference.dataUrl);
+    assert.equal(controller.snapshotWorkflow().archivedMessages[0].text.length, 12000);
+});
+
+test('automatic compaction after reply preserves the reply and never loops when retained plan stays over budget', async () => {
+    let calls = 0;
+    const { controller, elements } = createHarness(async () => ({ message: '大方案', promptPlan: { prompt: '方案'.repeat(7000), parameters: {} } }), undefined, null, {
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        createCompaction: async () => { calls++; return { summary: '保留方案' }; }
+    });
+    enterText(elements, '画猫');
+    await controller.submit();
+    assert.equal(calls, 1);
+    assert.equal(controller.snapshotWorkflow().previousPromptPlan.prompt.length, 14000);
+    assert.equal(controller.snapshotWorkflow().archivedMessages.length, 2);
+    assert.match(elements['prompt-agent-command-status'].textContent, /不会继续循环/);
+});
+
+test('failed automatic compaction preserves draft and history and does not send the ordinary request', async () => {
+    let replies = 0;
+    const { controller, elements } = createHarness(async () => { replies++; return { message: '不应调用' }; }, undefined, null, {
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        createCompaction: async () => { throw new Error('网络故障'); }
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '旧'.repeat(12000) }] });
+    const before = controller.snapshotWorkflow();
+    enterText(elements, '继续');
+    await controller.submit();
+    assert.equal(replies, 0);
+    assert.equal(elements['prompt-agent-input'].value, '继续');
+    assert.deepEqual(controller.snapshotWorkflow(), before);
+    assert.match(elements['prompt-agent-command-status'].textContent, /自动压缩失败.*原上下文已保留/);
+});
+
+test('workflow switch discards a late automatic summary and does not send the stale draft', async () => {
+    let finish, replies = 0;
+    const { controller, elements } = createHarness(async () => { replies++; return { message: '不应调用' }; }, undefined, null, {
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        createCompaction: () => new Promise(resolve => { finish = resolve; })
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '旧'.repeat(12000) }] });
+    enterText(elements, '继续');
+    const pending = controller.submit();
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '新工作流' }] });
+    finish({ summary: '旧摘要' });
+    await pending;
+    assert.equal(replies, 0);
+    assert.equal(controller.snapshotWorkflow().messages[0].text, '新工作流');
+    assert.equal(controller.snapshotWorkflow().contextSummary, undefined);
+});
+
+
+for (const action of ['cancel', 'clear']) test(`automatic compaction ${action} discards late summary`, async () => {
+    let finish, replies = 0;
+    const { controller, elements } = createHarness(async () => { replies++; return { message: '不应调用' }; }, undefined, null, {
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        createCompaction: () => new Promise(resolve => { finish = resolve; })
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '原文'.repeat(12000) }] });
+    enterText(elements, '继续');
+    const pending = controller.submit();
+    if (action === 'clear') { enterText(elements, '/clear'); await controller.submit(); }
+    else await elements['prompt-agent-cancel'].dispatch('click');
+    finish({ summary: '过期摘要' });
+    await pending;
+    assert.equal(replies, 0);
+    assert.equal(controller.snapshotWorkflow().contextSummary, undefined);
+    assert.equal(controller.snapshotWorkflow().messages.length, action === 'clear' ? 0 : 1);
+});
+
+
+test('typing the next draft during automatic compaction does not erase it when the captured request continues', async () => {
+    let finish;
+    const sent = [];
+    const { controller, elements } = createHarness(async request => { sent.push(request.message); return { message: '完成' }; }, undefined, null, {
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        createCompaction: () => new Promise(resolve => { finish = resolve; })
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '旧'.repeat(12000) }] });
+    enterText(elements, '本次请求');
+    const pending = controller.submit();
+    enterText(elements, '下一次草稿');
+    finish({ summary: '旧要求摘要' });
+    await pending;
+    assert.deepEqual(sent, ['本次请求']);
+    assert.equal(elements['prompt-agent-input'].value, '下一次草稿');
 });

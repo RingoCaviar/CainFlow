@@ -134,7 +134,7 @@ export function createPromptAgentNodeAdapter({
         const node = state?.nodes?.get(nodeId);
         if (node?.type !== 'ImageGenerate') return null;
         const referenceImages = (state.connections || [])
-            .filter((connection) => connection?.to?.nodeId === node.id && /^image_\d+$/.test(connection?.to?.port || ''))
+            .filter((connection) => connection?.to?.nodeId === node.id && /^(?:referenceImages|image|image_\d+)$/.test(connection?.to?.port || ''))
             .map((connection) => getReferenceImageDescriptor(state, connection));
         const protocolParams = { ...(node.data?.protocolParams || {}) };
         const modelId = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '');

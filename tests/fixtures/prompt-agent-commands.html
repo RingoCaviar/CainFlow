@@ -176,6 +176,9 @@ try {
     type('画面中的文字包含 /clear');
     check(menu.hidden, 'slashes inside a normal prompt must not open command suggestions');
     type('/');
+    const ring = menu.querySelector('.prompt-agent-context-usage');
+    check(Number(ring?.getAttribute('aria-valuenow')) > 0 && ring.textContent.startsWith('≈'), 'clear resets automatic compression progress');
+    check(ring.title.includes('/ 12000 Token') && ring.title.includes('自动压缩阈值进度'), 'meter describes the real automatic compression threshold');
     const samples = [];
     for (const theme of ['light', 'dark', 'pink']) {
         document.documentElement.dataset.appTheme = theme;
@@ -190,6 +193,9 @@ try {
             const modelSelectors = [document.getElementById('prompt-agent-model'), imageModelSelect];
             samples.push({
                 theme, width,
+                ringVisible: getComputedStyle(ring).backgroundImage.includes('conic-gradient')
+                    && ring.getBoundingClientRect().width === ring.getBoundingClientRect().height
+                    && getComputedStyle(ring.firstElementChild).backgroundColor !== 'rgba(0, 0, 0, 0)',
                 menuFits: menuBounds.left >= bounds.left && menuBounds.right <= bounds.right && menuBounds.top > bounds.top,
                 optionsFit: menu.scrollWidth <= menu.clientWidth + 1 && [...menu.children].every((item) => item.scrollWidth <= item.clientWidth + 1),
                 composerFits: formBounds.bottom <= bounds.bottom && inputBounds.width >= 100 && formBounds.width <= bounds.width,
@@ -208,6 +214,17 @@ try {
             });
         }
     }
+    model.autoCompactTokenLimit = 4000;
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '必须保留'.repeat(5000) }] });
+    type('继续下一步');
+    const autoRun = controller.submit();
+    await tick();
+    check(compactions.length === 3 && status.textContent.includes('自动压缩'), 'threshold must trigger the model before ordinary reply');
+    settleCompaction({ summary: '保留所有明确要求' });
+    await autoRun;
+    check(controller.snapshotWorkflow().archivedMessages[0].text.length === 20000, 'automatic compression must retain full history');
+    check(replies.at(-1).messages.at(-1).content.includes('保留所有明确要求'), 'reply must use automatically generated summary');
+    type('/');
     const screenshotOptions = new URLSearchParams(location.search);
     const screenshotTheme = screenshotOptions.get('theme');
     document.documentElement.dataset.appTheme = ['light', 'dark', 'pink'].includes(screenshotTheme) ? screenshotTheme : 'light';
@@ -216,7 +233,7 @@ try {
         clearedWithoutModel: true, continuedFromSummary: true, historyRetained: true,
         failurePreservedContext: true, keyboardAndClick: true,
         imageModelSurvivesCommands: true,
-        compactionCount: compactions.length, samples
+        automaticCompression: true, compactionCount: compactions.length, samples
     });
 } catch (error) {
     document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });

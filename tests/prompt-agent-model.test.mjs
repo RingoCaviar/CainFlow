@@ -7,6 +7,22 @@ import { createPromptAgentConversationStore } from '../js/features/prompt-agent/
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', capabilities: { imageInput: true }, providerIds: ['provider-1'] };
 const provider = { id: 'provider-1', name: 'Test', endpoint: 'https://example.test/v1', apikey: 'secret' };
 
+test('OpenAI and Google expose actual input usage without counting generated output', async () => {
+    for (const protocol of ['openai', 'google']) {
+        const reply = await createPromptAgentModelReply({ model: { ...model, protocol }, providers: [provider], message: '你好',
+            fetchRef: async () => ({ ok: true, json: async () => protocol === 'google' ? {
+                candidates: [{ content: { parts: [{ text: JSON.stringify({ intent: 'chat', message: '你好' }) }] } }],
+                usageMetadata: { promptTokenCount: 1234, totalTokenCount: 8888 }
+            } : {
+                choices: [{ message: { content: JSON.stringify({ intent: 'chat', message: '你好' }) } }],
+                usage: { prompt_tokens: 1234, total_tokens: 8888, prompt_tokens_details: { cached_tokens: 1000 } }
+            } })
+        });
+        assert.equal(reply.tokenObservation.inputTokens, 1234);
+        assert.ok(reply.tokenObservation.measurement.textTokens > 0);
+    }
+});
+
 test('explicit compaction sends the checkpoint and exact latest draft with historical image ordinals but no archived dialogue', async () => {
     const store = createPromptAgentConversationStore();
     const images = [
@@ -274,7 +290,7 @@ test('malformed plans and invented image references fail before reaching node ac
     }
 });
 
-test('compressed conversations retain the last complete draft and bound older history', async () => {
+test('conversations retain the complete draft and do not silently omit long uncompressed history', async () => {
     const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
         conversation: {
             memory: '摘要',
@@ -291,7 +307,33 @@ test('compressed conversations retain the last complete draft and bound older hi
         ] }
     });
     await bounded.result;
-    assert.ok(JSON.stringify(bounded.request()).length < 20000);
+    assert.ok(JSON.stringify(bounded.request()).length > 20000);
     assert.match(bounded.request().messages.find((item) => item.role === 'assistant').content, /保留最近完整方案/);
-    assert.equal(JSON.parse(bounded.request().messages.at(-1).content).historyOmitted, true);
+    assert.equal(JSON.parse(bounded.request().messages.at(-1).content).historyOmitted, false);
+});
+
+
+test('context-only result selection preserves run identity without inventing image contents', async () => {
+    const { result, request } = replyHarness({ intent: 'edit', message: '编辑上一批第二张', promptPlan: {
+        prompt: '仅修改背景，保留主体', imageRoles: [{ imageId: 'image-2', role: 'edit-target' }]
+    } }, { message: '把刚才第二张背景换成雪山', workflowReferenceImages: [1, 2].map(number => ({
+        referenceId: `result:run:${number}`, runId: 'run', messageNumber: 4, resultNumber: number,
+        name: `结果 ${number}`, assetKey: `asset:${number}`, contextOrigin: '对话生成结果'
+    })) });
+    const reply = await result;
+    assert.equal(reply.promptPlan.referenceImages[0].assetKey, 'asset:2');
+    const input = JSON.parse(request().messages.at(-1).content);
+    assert.deepEqual(input.images.map(image => [image.runId, image.resultNumber, image.visionAvailable]),
+        [['run', 1, false], ['run', 2, false]]);
+});
+
+test('current node output batch resolves each selected image to its own pixels and index', async () => {
+    const { result } = replyHarness({ intent: 'edit', promptPlan: {
+        prompt: '修改第二张', imageRoles: [{ imageId: 'image-2', role: 'edit-target' }]
+    } }, { context: { nodeId: 'generator', parameterSchema: {}, outputImages: [{
+        sourceNodeId: 'generator', sourcePort: 'image', images: ['data:image/png;base64,FIRST', 'data:image/png;base64,SECOND']
+    }] } });
+    const ref = (await result).promptPlan.referenceImages[0];
+    assert.equal(ref.dataUrl, 'data:image/png;base64,SECOND');
+    assert.equal(ref.sourceImageIndex, 1);
 });

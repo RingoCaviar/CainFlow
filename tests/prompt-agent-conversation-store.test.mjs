@@ -84,24 +84,24 @@ test('conversation and Workflow Memory round-trip as workflow-scoped data', () =
     assert.match(restored.getContext(), /城市夜景/);
 });
 
-test('oversized context compresses older turns and keeps recent turns usable', () => {
+test('oversized context retains every original turn until model compaction succeeds', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 90 });
     store.append({ role: 'user', text: `角色设定：${'红色长发'.repeat(12)}` });
     store.append({ role: 'agent', text: `已记录：${'电影感'.repeat(12)}` });
     store.append({ role: 'user', text: '这次改成侧脸构图' });
 
     const snapshot = store.snapshot();
-    assert.ok(snapshot.memory.length > 0);
+    assert.equal(snapshot.memory, '');
     assert.doesNotMatch(snapshot.memory, /用户：|Agent：/);
-    assert.ok(snapshot.messages.length < 3);
+    assert.equal(snapshot.messages.length, 3);
     assert.match(store.getContext(), /侧脸构图/);
-    assert.ok(store.getContext().length <= 180);
+    assert.match(store.getContext(), /角色设定/);
 });
 
-test('a single oversized recent turn is bounded when building Agent context', () => {
+test('a single oversized recent turn is never truncated when building Agent context', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     store.append({ role: 'user', text: '场景'.repeat(100) });
-    assert.ok(store.getContext().length <= 80);
+    assert.ok(store.getContext().includes('场景'.repeat(100)));
 });
 
 test('restoring missing workflow Agent data clears previous conversation', () => {
@@ -164,7 +164,7 @@ test('context trimming, compaction and clearing retain the explicitly selected i
     store.setImageModelId('image-model');
     store.append({ role: 'user', text: '初始要求'.repeat(30) });
     store.append({ role: 'agent', text: '新的方案' });
-    assert.ok(store.snapshot().archivedMessages.length > 0);
+    assert.equal(store.snapshot().messages.length, 2);
     assert.equal(store.getImageModelId(), 'image-model');
     store.compact('保留最新方案');
     assert.equal(store.snapshot().imageModelId, 'image-model');
@@ -209,6 +209,7 @@ test('reference images remain available after older turns are compressed', () =>
     });
     store.append({ role: 'agent', text: '已整理第一版方案，并保留当前主体与构图。', promptPlan: { prompt: '主体', parameters: {} } });
     store.append({ role: 'user', text: '再调整光线和色彩，让画面保持一致并继续迭代' });
+    store.compact('保留主体及构图');
 
     const snapshot = store.snapshot();
     assert.equal(snapshot.messages.some((message) => message.referenceImages?.length), false);
@@ -239,6 +240,7 @@ test('compression preserves the complete latest draft, image roles and workflow 
     };
     store.append({ role: 'agent', intent: 'edit', text: '上版方案', promptPlan: draft });
     store.append({ role: 'user', text: '新的讨论'.repeat(40) });
+    store.compact('保留完整方案与图片角色');
     const snapshot = store.snapshot();
     assert.equal(snapshot.previousPromptPlan.prompt, draft.prompt);
     assert.equal(snapshot.previousPromptPlan.referenceImages[0].role, 'edit-target');
@@ -308,7 +310,7 @@ test('repeated compaction merges only new visible turns into the archive and rou
     assert.equal(restored.snapshot().previousPromptPlan.prompt, '蓝色主体');
 });
 
-test('automatic compaction archives old turns without truncating an explicit checkpoint', () => {
+test('new turns and explicit checkpoint remain intact before semantic compaction', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     const summary = `最初目标必须保留：${'固定身份和构图。'.repeat(30)}`;
     store.append({ role: 'user', text: '初始要求' });
@@ -322,7 +324,7 @@ test('automatic compaction archives old turns without truncating an explicit che
     assert.equal(snapshot.archivedMessages[0].text, '初始要求');
     assert.ok(snapshot.memory.length <= 40);
     assert.ok(store.getContext().startsWith(`上下文摘要：${summary}\n`));
-    assert.ok(store.getContext().length <= summary.length + 80 + 8);
+    assert.match(store.getContext(), /补充要求/);
     assert.match(store.getContext(), /最后一条要求/);
 
     const restored = createPromptAgentConversationStore({ maxContextCharacters: 80 });
@@ -401,7 +403,7 @@ test('invalid restored checkpoints are rejected atomically while legacy snapshot
     assert.match(store.getContext(), /旧版记忆.*\n用户：旧版消息/);
 });
 
-test('manual compaction receives every automatically archived turn before its first semantic checkpoint', () => {
+test('model compaction receives every uncompressed original turn without truncation', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     const firstConstraint = '永久硬约束：必须保留右下角原始商标文字。';
     store.append({ role: 'user', text: firstConstraint });
@@ -410,13 +412,13 @@ test('manual compaction receives every automatically archived turn before its fi
     store.append({ role: 'user', text: '最后补充'.repeat(60) });
     const ordinary = store.snapshot();
     assert.doesNotMatch(ordinary.memory, /永久硬约束/);
-    assert.equal(ordinary.messages.some((message) => message.text === firstConstraint), false);
+    assert.equal(ordinary.messages.some((message) => message.text === firstConstraint), true);
     const compaction = store.getCompactionContext();
     assert.deepEqual(compaction.archivedMessages, []);
     assert.equal(compaction.messages[0].text, firstConstraint);
     assert.equal(compaction.messages.length, 4);
     compaction.messages[0].text = '不能修改原存储';
-    assert.equal(store.snapshot().archivedMessages[0].text, firstConstraint);
+    assert.equal(store.snapshot().messages[0].text, firstConstraint);
 });
 
 test('successive checkpoints persist their boundary and include only newly archived original turns for compaction', () => {
@@ -429,7 +431,7 @@ test('successive checkpoints persist their boundary and include only newly archi
     store.append({ role: 'user', text: '第二阶段最新请求'.repeat(30) });
     const snapshot = store.snapshot();
     assert.equal(snapshot.compactedMessageCount, 2);
-    assert.equal(snapshot.archivedMessages.length, 4);
+    assert.equal(snapshot.archivedMessages.length, 2);
     const restored = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     restored.restore(snapshot);
     assert.deepEqual(restored.snapshot(), snapshot);
@@ -449,7 +451,7 @@ test('target bindings survive automatic trimming, explicit compaction and restor
         const store = createPromptAgentConversationStore({ maxContextCharacters: compact === 'automatic' ? 64 : 4000 });
         const old = store.append({ role: 'agent', text: '旧方案', promptPlan: { targetNodeId: null, prompt: '同一提示词', parameters: {} } });
         const latest = store.append({ role: 'agent', text: '新方案', promptPlan: { targetNodeId: null, prompt: '同一提示词', parameters: {} } });
-        if (compact === 'automatic') store.append({ role: 'user', text: '继续'.repeat(80) });
+        if (compact === 'automatic') { store.append({ role: 'user', text: '继续'.repeat(80) }); store.compact('自动模型摘要'); }
         if (compact === 'explicit') store.compact('保留新方案');
         assert.equal(store.bindPromptPlanTarget(latest, 'created'), true);
         assert.equal(store.bindPromptPlanTarget(latest, 'another'), false);

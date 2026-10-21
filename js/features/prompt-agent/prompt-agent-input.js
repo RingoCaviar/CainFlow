@@ -1,5 +1,3 @@
-const HISTORY_CHARACTER_LIMIT = 16000;
-
 function isImageSource(source, protocol) {
     return typeof source === 'string' && (/^data:image\/[^;]+;base64,/i.test(source)
         || (protocol !== 'google' && /^https:\/\//i.test(source)));
@@ -7,7 +5,6 @@ function isImageSource(source, protocol) {
 
 function projectHistory(conversation, images) {
     const history = [];
-    let length = 0;
     let omitted = false;
     const messages = Array.isArray(conversation?.messages) ? conversation.messages.map((message, index) => ({
         ...message, messageNumber: (conversation.archivedMessages?.length || 0) + index + 1
@@ -15,7 +12,6 @@ function projectHistory(conversation, images) {
     if (conversation?.previousPromptPlan && !messages.some((message) => message.promptPlan)) {
         messages.unshift({ role: 'agent', text: '压缩前保留的上一版草稿，未确认已应用。', promptPlan: conversation.previousPromptPlan });
     }
-    const latestPlanMessage = messages.findLast((message) => message.promptPlan);
     for (const message of messages.slice().reverse()) {
         const content = JSON.stringify({
             messageNumber: message.messageNumber,
@@ -27,7 +23,8 @@ function projectHistory(conversation, images) {
                 negativePrompt: message.promptPlan.negativePrompt,
                 parameters: message.promptPlan.parameters || {},
                 referenceImages: (message.promptPlan.referenceImages || []).map((image) => ({
-                    name: image.name, role: image.role, sourceNodeId: image.sourceNodeId
+                    name: image.name, role: image.role, sourceNodeId: image.sourceNodeId,
+                    imageId: images.find((entry) => entry.source === image.dataUrl || (image.referenceId && entry.reference.referenceId === image.referenceId))?.imageId || null
                 }))
             } } : {}),
             ...(message.referenceImages?.length ? { referenceImages: message.referenceImages.map((image, index) => ({
@@ -36,14 +33,7 @@ function projectHistory(conversation, images) {
                 imageId: images.find((entry) => entry.source === image.dataUrl)?.imageId || null
             })) } : {})
         });
-        if (length + content.length > HISTORY_CHARACTER_LIMIT && message !== latestPlanMessage) {
-            omitted = true;
-            // Continue looking for the complete latest draft even if recent
-            // discussion has already exhausted the ordinary history budget.
-            continue;
-        }
         history.unshift({ role: message.role === 'agent' ? 'assistant' : 'user', content });
-        length += content.length;
     }
     // A compressed conversation may begin with the latest draft. Keep it.
     if (history[0]?.role === 'assistant') {
@@ -59,18 +49,20 @@ export function createPromptAgentInput({
     const images = [];
     const bySource = new Map();
     const addImage = (image, origin, connectedToNode = false, referenceNumber = null) => {
-        const sources = image.dataUrl ? [image.dataUrl] : (image.images?.length ? image.images : [null]);
+        const sources = image.dataUrl ? [image.dataUrl] : (image.images?.length ? image.images : Array(Math.max(1, image.assetKeys?.length || 0)).fill(null));
         sources.forEach((source, index) => {
-            const key = source || `${image.sourceNodeId || ''}:${image.sourcePort || ''}:${image.name || ''}:${index}`;
+            const key = source || image.referenceId || `${image.sourceNodeId || ''}:${image.sourcePort || ''}:${image.name || ''}:${index}`;
             let entry = bySource.get(key);
             if (!entry) {
                 entry = {
                     imageId: `image-${images.length + 1}`,
                     name: image.name || `${origin} ${images.length + 1}`,
                     origins: [],
+                    ...(image.selectedOnCanvas ? { selectedOnCanvas: true } : {}),
+                    ...(image.runId ? { runId: image.runId, resultNumber: image.resultNumber, messageNumber: image.messageNumber, prompt: image.prompt } : {}),
                     connectedToNode: false,
                     visionAvailable: model?.capabilities?.imageInput !== false && isImageSource(source, model?.protocol),
-                    reference: image,
+                    reference: { ...image, ...(source ? { dataUrl: source } : {}), sourceImageIndex: image.sourceImageIndex ?? index },
                     source
                 };
                 images.push(entry);
@@ -87,7 +79,7 @@ export function createPromptAgentInput({
     referenceImages.forEach((image, index) => addImage(image, '本轮附件', false, index + 1));
     (context?.referenceImages || []).forEach((image) => addImage(image, '节点输入', true));
     (context?.outputImages || []).forEach((image) => addImage(image, '节点生成结果'));
-    workflowReferenceImages.forEach((image) => addImage(image, '历史附件'));
+    workflowReferenceImages.forEach((image) => addImage(image, image.contextOrigin || '历史附件'));
     const media = [];
     const imageCatalog = images.map(({ source, reference, ...entry }) => {
         if (entry.visionAvailable) {
@@ -107,7 +99,7 @@ export function createPromptAgentInput({
             model: context.model || null
         } : null,
         contextSummary: String(conversation?.contextSummary || ''),
-        workflowMemory: String(conversation?.memory ?? workflowMemory).slice(-4000),
+        workflowMemory: String(conversation?.memory ?? workflowMemory),
         // Keep the user's per-message image numbering without resending any
         // archived dialogue. Pixel attachments are resolved by the catalog.
         earlierReferenceTurns: (conversation?.archivedMessages || []).flatMap((turn, index) => (

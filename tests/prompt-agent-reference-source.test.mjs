@@ -76,3 +76,61 @@ test('a missing history original reports an error without creating a node',async
     const source=createPromptAgentReferenceSource({state:{nodes:new Map()},nodeAdapter:{getSceneReferenceImages:()=>[]},getHistoryEntry:async()=>null,createImportNode:()=>{created=true;}});
     await assert.rejects(source.importReference({historyId:'gone'},{isCurrent:()=>true}),/原图缺失/);assert.equal(created,false);
 });
+
+
+test('context candidates retain archived run identity and exact batch positions, excluding disabled scene nodes', () => {
+    const h = harness();
+    h.state.nodes.set('disabled', { id: 'disabled', type: 'ImageImport', enabled: false });
+    h.state.nodes.set('scene', { id: 'scene', type: 'ImageImport' });
+    h.state.selectedNodes = new Set(['scene']);
+    const refs = h.source.getContextReferences({ archivedMessages: [{ promptPlan: { prompt: '猫海报' }, runs: [
+        { runId: 'old', mediaAssetKeys: ['asset:a', 'asset:b'] }
+    ] }], messages: [{ runs: [{ runId: 'new', mediaAssetKeys: ['asset:c'] }] }] });
+    assert.deepEqual(refs.map(ref => ref.sourceNodeId).filter(Boolean), ['scene']);
+    assert.equal(refs[0].selectedOnCanvas, true);
+    assert.deepEqual(refs.filter(ref => ref.runId).map(ref => [ref.runId, ref.messageNumber, ref.resultNumber, ref.assetKey]),
+        [['old', 1, 1, 'asset:a'], ['old', 1, 2, 'asset:b'], ['new', 2, 1, 'asset:c']]);
+    assert.equal(h.reads, 0);
+});
+
+test('selected result uses its exact original asset, imports once and never connects the generating node', async () => {
+    const state = { nodes: new Map([['generator', { id: 'generator', type: 'ImageGenerate' }]]) };
+    const reads = [], saved = [];
+    let creates = 0;
+    const nodeAdapter = {
+        getSceneReferenceImages: () => [...state.nodes.values()].filter(n => n.type === 'ImageImport').map(n => ({ referenceId: n.id, sourceNodeId: n.id })),
+        readSceneReferenceImage: async ref => ({ ...ref, dataUrl: 'data:image/png;base64,SECOND' })
+    };
+    const source = createPromptAgentReferenceSource({ state, nodeAdapter,
+        getImageAsset: async key => { reads.push(key); return 'data:image/png;base64,SECOND'; },
+        createImportNode: () => { const id = `import-${++creates}`; state.nodes.set(id, { id, type: 'ImageImport' }); return id; },
+        loadImageData: async (id, data) => { saved.push(data); state.nodes.get(id).imageImportAssetKey = 'asset:second'; return true; }
+    });
+    const plan = { referenceImages: [{ runId: 'batch', assetKey: 'asset:second', role: 'edit-target' }] };
+    const first = await source.preparePlanReferences(plan, { isCurrent: () => true });
+    const second = await source.preparePlanReferences(plan, { isCurrent: () => true });
+    assert.equal(creates, 1);
+    assert.deepEqual(reads, ['asset:second', 'asset:second']);
+    assert.deepEqual(saved, ['data:image/png;base64,SECOND']);
+    assert.equal(first[0].sourceNodeId, 'import-1');
+    assert.equal(second[0].sourceNodeId, 'import-1');
+    assert.equal(first[0].role, 'edit-target');
+    assert.equal(first[0].sourceImageIndex, 0);
+});
+
+test('missing result originals and cancelled resolution never create replacement nodes', async () => {
+    let current = true, finish;
+    const source = createPromptAgentReferenceSource({ state: { nodes: new Map() },
+        nodeAdapter: { getSceneReferenceImages: () => [] },
+        getImageAsset: () => new Promise(resolve => { finish = resolve; }),
+        createImportNode: () => assert.fail('must not create a node')
+    });
+    const plan = { referenceImages: [{ runId: 'run', assetKey: 'asset:missing', role: 'edit-target' }] };
+    const missing = source.preparePlanReferences(plan, { isCurrent: () => current });
+    finish('');
+    await assert.rejects(missing, /原图缺失/);
+    const cancelled = source.preparePlanReferences(plan, { isCurrent: () => current });
+    current = false;
+    finish(image.dataUrl);
+    assert.equal(await cancelled, null);
+});

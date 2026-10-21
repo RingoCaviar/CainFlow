@@ -95,8 +95,7 @@ function normalizeMessage(message = {}, options = {}) {
     };
 }
 
-export function createPromptAgentConversationStore({ maxContextCharacters = 4000 } = {}) {
-    const limit = Math.max(64, Number(maxContextCharacters) || 4000);
+export function createPromptAgentConversationStore() {
     let memory = '';
     let contextSummary = '';
     let messages = [];
@@ -106,44 +105,10 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
     let referenceImages = [];
     let previousPromptPlan = null;
 
-    function contextLength() {
-        return memory.length + messages.reduce((total, message) => total
-            + message.text.length
-            + (message.referenceImages || []).reduce((length, image) => length + image.name.length + 8, 0)
-            + 8, 0);
-    }
-
-    function compress() {
-        while (contextLength() > limit && messages.length > 1) {
-            const oldest = messages.shift();
-            archivedMessages.push(oldest);
-            const plan = oldest.promptPlan;
-            if (plan) previousPromptPlan = normalizePromptPlan(plan);
-            referenceImages = normalizeReferenceImages([
-                ...referenceImages,
-                ...(oldest.referenceImages || [])
-            ]);
-            const referenceSummary = oldest.referenceImages?.length
-                ? `参考图：${oldest.referenceImages.map((image) => image.name).join('、')}`
-                : '';
-            const creativeSummary = plan
-                ? [
-                    plan.prompt ? `画面方向：${plan.prompt}` : '',
-                    plan.negativePrompt ? `避免：${plan.negativePrompt}` : '',
-                    Object.keys(plan.parameters || {}).length ? `参数：${JSON.stringify(plan.parameters)}` : ''
-                ].filter(Boolean).join('；')
-                : (oldest.role === 'user' ? [`创作要求：${oldest.text}`, referenceSummary].filter(Boolean).join('；') : '');
-            if (creativeSummary) memory = `${memory}；${creativeSummary}`.replace(/^；/, '');
-            const memoryLimit = Math.max(32, Math.floor(limit / 2));
-            if (memory.length > memoryLimit) memory = memory.slice(-memoryLimit);
-        }
-    }
-
     function append(message) {
         const normalized = normalizeMessage(message);
         if (!normalized.text && !normalized.promptPlan && !normalized.referenceImages?.length && !normalized.runs?.length) return;
         messages.push(normalized);
-        compress();
         return archivedMessages.length + messages.length - 1;
     }
 
@@ -226,7 +191,6 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         referenceImages = restoredReferences;
         previousPromptPlan = restoredPlan;
         imageModelId = typeof value?.imageModelId === 'string' ? value.imageModelId.trim() : '';
-        compress();
     }
 
     function snapshot() {
@@ -256,7 +220,7 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
                 return `${message.role === 'user' ? '用户' : 'Agent'}：${message.text}${references}`;
             })
         ].filter(Boolean).join('\n');
-        const recentContext = context.length > limit ? context.slice(-limit) : context;
+        const recentContext = context;
         return [contextSummary ? `上下文摘要：${contextSummary}` : '', recentContext].filter(Boolean).join('\n');
     }
 

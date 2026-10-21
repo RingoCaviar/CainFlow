@@ -4,6 +4,7 @@ import { getModelProtocolConfig } from '../execution/model-protocol-registry.js'
 import { PROMPT_AGENT_SYSTEM_PROMPT } from './prompt-agent-instructions.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
+import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -88,5 +89,13 @@ export async function createPromptAgentModelReply({
     const response = await requestChatCompletion(plan, {
         fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal
     });
-    return normalizeReply(parseJson(response.text), context, input.images);
+    const reply = normalizeReply(parseJson(response.text), context, input.images);
+    const inputTokens = model.protocol === 'google'
+        ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
+    if (Number.isSafeInteger(inputTokens) && inputTokens > 0) {
+        reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext({
+            message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model
+        }) };
+    }
+    return reply;
 }

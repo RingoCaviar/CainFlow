@@ -393,6 +393,30 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-command-name { font-size: 13px; font-weight: 650; font-family: var(--font-mono, monospace); }
 .prompt-agent-command-title { min-width: 0; font-size: 13px; font-weight: 600; }
 .prompt-agent-command-description { grid-column: 1 / -1; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.prompt-agent-command-option.has-context-usage { grid-template-columns: auto 1fr 38px; }
+.has-context-usage .prompt-agent-command-description { grid-column: 1 / 3; }
+.prompt-agent-context-usage {
+    grid-column: 3;
+    grid-row: 1 / 3;
+    align-self: center;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: conic-gradient(var(--accent-primary) var(--context-usage), var(--border-color) 0);
+}
+.prompt-agent-context-usage > span {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--panel-bg, var(--bg-drawer));
+    color: var(--text-primary);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
 .prompt-agent-add-reference.btn {
     display: grid;
     place-items: center;

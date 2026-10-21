@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { createModelSettings } from '../js/features/settings/model-settings.js';
 
-function createHarness(models = []) {
+function createHarness(models = [], inputs = []) {
     const events = [];
     const collapseState = new Map();
     const renderedCards = new Map();
@@ -16,7 +16,7 @@ function createHarness(models = []) {
             const id = selector.match(/data-model-id="([^"]+)"/)?.[1];
             return id ? renderedCards.get(id) || null : null;
         },
-        querySelectorAll() { return []; }
+        querySelectorAll(selector) { return selector === 'input:not([data-field="providerIds"]), select' ? inputs : []; }
     };
     const documentRef = {
         createElement() {
@@ -107,4 +107,19 @@ test('a fetched MiniMax H3 model is classified as video', () => {
     const harness = createHarness();
 
     assert.equal(harness.api.inferFetchedModelTaskType('minimax-h3', { name: 'MiniMax H3' }), 'video');
+});
+
+
+test('automatic compaction Token threshold saves as a number, rejects invalid values and allows default', () => {
+    const input = { dataset: { id: 'chat', field: 'autoCompactTokenLimit' }, value: '',
+        addEventListener(type, handler) { if (type === 'change') this.change = handler; } };
+    const h = createHarness([{ id: 'chat', name: 'Chat', modelId: 'custom', taskType: 'chat', protocol: 'openai' }], [input]);
+    h.api.renderModels();
+    input.value = '16000'; input.change({ target: input });
+    assert.equal(JSON.parse(JSON.stringify(h.state.models))[0].autoCompactTokenLimit, 16000);
+    assert.ok(h.events.includes('saved'));
+    input.value = '-1'; input.change({ target: input });
+    assert.equal(h.state.models[0].autoCompactTokenLimit, 16000);
+    input.value = ''; input.change({ target: input });
+    assert.equal(h.state.models[0].autoCompactTokenLimit, undefined);
 });

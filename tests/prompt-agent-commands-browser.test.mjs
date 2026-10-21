@@ -13,10 +13,12 @@ test('Agent slash commands support keyboard selection, model-free clear and dura
     assert.ok(result.historyRetained);
     assert.ok(result.failurePreservedContext);
     assert.ok(result.imageModelSurvivesCommands);
-    assert.equal(result.compactionCount, 2);
+    assert.equal(result.compactionCount, 3);
+    assert.ok(result.automaticCompression);
     assert.equal(result.samples.length, 6);
     for (const sample of result.samples) {
         const context = `${sample.theme} at ${sample.width}px`;
+        assert.ok(sample.ringVisible, `usage ring must be circular and visible: ${context}`);
         assert.ok(sample.menuFits, `command menu must stay inside panel: ${context}`);
         assert.ok(sample.optionsFit, `command labels must fit without horizontal scrolling: ${context}`);
         assert.ok(sample.composerFits, `composer must remain usable: ${context}`);

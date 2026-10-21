@@ -55,7 +55,54 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         if (!scene) throw new Error('导入节点尚未就绪，请重试。');
         return { ...image, referenceId: scene.referenceId, sourceNodeId: node.id, sourceImageIndex: 0 };
     }
-    return { listHistory, readHistory, importReference,
+    function getContextReferences(conversation) {
+        const scene = nodeAdapter.getSceneReferenceImages().filter(item => {
+            const node = state.nodes.get(item.sourceNodeId);
+            return node && node.enabled !== false && !state.runningNodeIds?.has(node.id);
+        }).map(item => ({ ...item, selectedOnCanvas: state.selectedNodes?.has(item.sourceNodeId) || false, contextOrigin: '当前画布素材' }));
+        const results = [...(conversation.archivedMessages || []), ...(conversation.messages || [])].flatMap((message, index) =>
+            (message.runs || []).flatMap(run => (run.mediaAssetKeys || []).map((key, resultIndex) => ({
+                referenceId: `agent-result:${run.runId}:${resultIndex}`, assetKey: key,
+                runId: run.runId, resultNumber: resultIndex + 1, messageNumber: index + 1,
+                name: `第 ${index + 1} 条消息生成结果 ${resultIndex + 1}`,
+                prompt: message.promptPlan?.prompt || '', contextOrigin: '对话生成结果'
+            })))
+        );
+        return [...scene, ...results];
+    }
+
+    async function preparePlanReferences(plan, { isCurrent, onSourceNode = () => {} }) {
+        const references = [];
+        for (const reference of plan.referenceImages || []) {
+            if (!isCurrent()) return null;
+            const scene = nodeAdapter.getSceneReferenceImages().find(item => item.referenceId === reference.referenceId);
+            let image;
+            if (scene) {
+                image = await nodeAdapter.readSceneReferenceImage(scene);
+            } else if (reference.runId || (reference.sourceNodeId && state.nodes.get(reference.sourceNodeId)?.type !== 'ImageImport')) {
+                // Freeze one result in an ordinary import: never connect a generator
+                // to itself, or accidentally send its entire current batch.
+                if (reference.sourceNodeId && !state.nodes.has(reference.sourceNodeId)) throw new Error('参考图来源已删除，请重新选择。');
+                const key = reference.assetKey || reference.assetKeys?.[reference.sourceImageIndex || 0];
+                const candidate = { name: reference.name, ...(key ? { historyId: `agent-asset:${key}` } : {}) };
+                const dataUrl = key ? await getImageAsset(key) : reference.dataUrl;
+                if (!isCurrent()) return null;
+                if (!dataUrl?.startsWith('data:image/')) throw new Error('参考原图缺失，请恢复图片后重试。');
+                candidate.resolvedImage = { name: reference.name, dataUrl };
+                image = await importReference(candidate, {
+                    isCurrent, onSourceNode, slot: references.length,
+                    read: async () => candidate.resolvedImage
+                });
+            } else {
+                image = reference;
+            }
+            if (!isCurrent() || !image) return null;
+            references.push({ ...image, role: reference.role, imageId: reference.imageId });
+        }
+        return references;
+    }
+
+    return { listHistory, readHistory, importReference, getContextReferences, preparePlanReferences,
         getReferenceId: candidate => {
             if (!candidate.historyId) return candidate.referenceId;
             const node = candidate.historyId && [...state.nodes.values()].find(item => reusable(item, candidate.historyId));

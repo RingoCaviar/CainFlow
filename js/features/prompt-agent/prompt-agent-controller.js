@@ -1,4 +1,5 @@
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
+import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus } from './prompt-agent-model-menu.js';
 import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
@@ -99,6 +100,7 @@ export function createPromptAgentController({
     let scrollToLatestOnOpen = false;
     let workflowRevision = 0;
     let conversationRevision = 0;
+    let tokenObservation = null;
     let activeOperation = null;
     let requestPending = false;
     let commandMenuOpen = false;
@@ -232,6 +234,49 @@ export function createPromptAgentController({
         input?.removeAttribute('aria-activedescendant');
     }
 
+    function compressionProgress(message = '', fixedModel = null) {
+        const models = getChatModels();
+        const model = fixedModel || models.find(item => item.id === (getElements().modelSelect?.value || getSelectedModelId())) || models[0];
+        const conversation = conversationStore.getCompactionContext();
+        const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
+        return measurePromptAgentContext({ model, message, conversation,
+            context: nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
+            referenceImages: pendingReferenceImages.filter(image => !image.loading && !image.error),
+            workflowReferenceImages: uniqueReferenceImages([
+                ...conversationStore.getReferenceImages(),
+                ...(referenceSource?.getContextReferences?.(conversation) || [])
+            ])
+        }, tokenObservation);
+    }
+
+    async function autoCompact(operation, modelId, message = '') {
+        if (!compressionProgress(message, operation.model).reached) return true;
+        const conversation = conversationStore.getCompactionContext();
+        if (!conversation.messages.length && !conversation.memory) return true;
+        const revision = conversationRevision;
+        operation.kind = 'compact';
+        setCommandStatus('已达到 Token 阈值，正在自动压缩上下文…');
+        try {
+            const result = await createCompaction({ conversation, modelId, signal: operation.controller.signal });
+            if (!isCurrentOperation(operation)) return false;
+            if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重试');
+            conversationStore.compact(result?.summary);
+            tokenObservation = null;
+            conversationRevision += 1;
+            onStateChange();
+            if (commandMenuOpen) renderCommandMenu();
+            setCommandStatus(compressionProgress(message, operation.model).reached
+                ? '已自动压缩；保留的方案或素材仍超过阈值，不会继续循环压缩或截断。'
+                : '已自动压缩上下文，历史记录、参考图和最新方案已保留。');
+            return true;
+        } catch (error) {
+            if (isCurrentOperation(operation)) setCommandStatus(`自动压缩失败：${error?.message || '请重试'}。原上下文已保留，请重试发送或使用 /compact。`);
+            return false;
+        } finally {
+            operation.kind = 'reply';
+        }
+    }
+
     function renderCommandMenu({ resetSelection = false } = {}) {
         const { commandMenu, input } = getElements();
         const query = input?.value?.trim().toLowerCase() || '';
@@ -259,6 +304,25 @@ export function createPromptAgentController({
                 label.className = `prompt-agent-command-${field}`;
                 label.textContent = command[field];
                 option.appendChild(label);
+            }
+            if (command.name === '/compact') {
+                const usage = compressionProgress();
+                const meter = documentRef.createElement('span');
+                meter.className = 'prompt-agent-context-usage';
+                meter.style.setProperty('--context-usage', `${usage.percent}%`);
+                meter.setAttribute('role', 'meter');
+                meter.setAttribute('aria-label', '自动压缩阈值进度');
+                meter.setAttribute('aria-valuemin', '0');
+                meter.setAttribute('aria-valuemax', '100');
+                meter.setAttribute('aria-valuenow', String(usage.percent));
+                const detail = `自动压缩阈值进度：约 ${usage.used} / ${usage.threshold} Token；${usage.source}。发送前及回复后达到阈值时调用模型压缩，与圆环共用计数。`;
+                meter.setAttribute('aria-valuetext', `${usage.percent}%，${detail}`);
+                meter.title = detail;
+                const value = documentRef.createElement('span');
+                value.textContent = `≈${usage.percent}%`;
+                meter.appendChild(value);
+                option.appendChild(meter);
+                option.classList.add('has-context-usage');
             }
             option.addEventListener('click', () => executeCommand(command.name));
             commandMenu.appendChild(option);
@@ -316,6 +380,7 @@ export function createPromptAgentController({
             importQueue = Promise.resolve();
             const clearedRevision = workflowRevision;
             conversationStore.clear();
+            tokenObservation = null;
             const prefix = `${getWorkflowId()}\0`;
             for (const key of runImages.keys()) if (key.startsWith(prefix)) runImages.delete(key);
             pendingReferenceImages = [];
@@ -370,8 +435,10 @@ export function createPromptAgentController({
             if (!isCurrentOperation(operation)) return;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重新压缩');
             conversationStore.compact(result?.summary);
+            tokenObservation = null;
             // Keep the transcript and any running generation cards in place.
             onStateChange();
+            if (commandMenuOpen) renderCommandMenu();
             setCommandStatus('上下文已压缩。后续对话将使用摘要，历史记录仍可查看。');
         } catch (error) {
             if (!isCurrentOperation(operation)) return;
@@ -751,6 +818,7 @@ export function createPromptAgentController({
             message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, referenceImages, intent });
             conversationRevision += 1;
             onStateChange();
+            if (commandMenuOpen) renderCommandMenu();
         }
         return message;
     }
@@ -1186,26 +1254,33 @@ export function createPromptAgentController({
         // sent without a modelId.
         const models = renderModelOptions();
         if (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error)) return;
-        const referenceImages = pendingReferenceImages.slice();
-        if (!text && referenceImages.length === 0) return;
-        const workflowMemory = conversationStore.getContext();
-        // Snapshot before appending the current turn: preserve assistant drafts
-        // and role boundaries without duplicating the new user request.
-        const conversation = conversationStore.snapshot();
-        const workflowReferenceImages = uniqueReferenceImages([
-            ...conversationStore.getReferenceImages(),
-            ...referenceImages
-        ]);
-        appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages });
-        input.value = '';
-        pendingReferenceImages = [];
-        referencePickerError = '';
-        setReferencePickerOpen(false);
-        closeCommandMenu();
-        setCommandStatus();
-        renderPendingReferences();
+        if (!text && pendingReferenceImages.length === 0) return;
+        const stagedReferences = pendingReferenceImages.slice();
         const operation = beginOperation('reply');
+        const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
+        operation.model = { ...models.find(model => model.id === replyModelId) };
         try {
+            if (compressionProgress(text, operation.model).reached && !await autoCompact(operation, replyModelId, text)) return;
+            if (!isCurrentOperation(operation)) return;
+            const referenceImages = stagedReferences.filter(image => pendingReferenceImages.includes(image));
+            if (!text && !referenceImages.length) return;
+            const workflowMemory = conversationStore.getContext();
+            // Snapshot before appending the current turn: preserve assistant drafts
+            // and role boundaries without duplicating the new user request.
+            const conversation = conversationStore.getCompactionContext();
+            const workflowReferenceImages = uniqueReferenceImages([
+                ...conversationStore.getReferenceImages(),
+                ...referenceImages,
+                ...(referenceSource?.getContextReferences?.(conversation) || [])
+            ]);
+            appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages });
+            if (input.value.trim() === text) input.value = '';
+            pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
+            referencePickerError = '';
+            setReferencePickerOpen(false);
+            closeCommandMenu();
+            setCommandStatus();
+            renderPendingReferences();
             const previousPlan = conversation.messages.findLast((message) => message.promptPlan)?.promptPlan
                 || conversation.previousPromptPlan;
             const context = nodeAdapter?.getSelectedContext?.()
@@ -1218,17 +1293,33 @@ export function createPromptAgentController({
                 conversation,
                 referenceImages,
                 workflowReferenceImages,
-                modelId: getElements().modelSelect?.value || getSelectedModelId() || models[0].id,
+                modelId: replyModelId,
                 signal: operation.controller.signal
             });
             if (!isCurrentOperation(operation)) return;
             if (Array.isArray(reply?.promptPlan?.referenceImages)) {
-                reply.promptPlan.referenceImages = reply.promptPlan.referenceImages.filter((image) => !operation.removedReferenceNodeIds?.has(image.sourceNodeId));
+                const selected = reply.promptPlan.referenceImages;
+                const preparingNodes = new Set(selected.map(image => image.sourceNodeId).filter(Boolean));
+                const sourcesExist = () => isCurrentOperation(operation)
+                    && ![...preparingNodes].some(id => operation.removedReferenceNodeIds?.has(id));
+                if (!sourcesExist()) throw new Error('所选参考图已删除，请重新提出方案。');
+                if (referenceSource?.preparePlanReferences) {
+                    const prepared = await referenceSource.preparePlanReferences(reply.promptPlan, {
+                        isCurrent: sourcesExist,
+                        onSourceNode: id => preparingNodes.add(id)
+                    });
+                    if (!isCurrentOperation(operation)) return;
+                    if (!prepared) throw new Error('参考图已变化，请重新提出方案。');
+                    reply.promptPlan.referenceImages = prepared;
+                }
             }
+            tokenObservation = reply?.tokenObservation || null;
             const agentMessage = appendMessage('agent', reply?.message || '已整理本轮回复。', reply?.workSummary || [], {
                 promptPlan: reply?.promptPlan || null, intent: reply?.intent
             });
             appendPromptPlan(agentMessage, reply?.promptPlan);
+            await autoCompact(operation, replyModelId);
+
         } catch (error) {
             if (!isCurrentOperation(operation)) return;
             appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。');
@@ -1261,7 +1352,10 @@ export function createPromptAgentController({
             event.preventDefault();
             await submit();
         });
-        modelSelect?.addEventListener('change', () => setSelectedModelId(modelSelect.value));
+        modelSelect?.addEventListener('change', () => {
+            setSelectedModelId(modelSelect.value);
+            if (commandMenuOpen) renderCommandMenu();
+        });
         modelSelect?.addEventListener('focus', renderModelOptions);
         addModelButton?.addEventListener('click', openModelSettings);
         const { imageModelSelect, addImageModelButton } = getElements();
@@ -1447,6 +1541,7 @@ export function createPromptAgentController({
         referencePickerError = '';
         setCommandStatus();
         conversationStore.restore(value);
+        tokenObservation = null;
         for (const message of [...(value?.archivedMessages || []), ...(value?.messages || [])]) {
             for (const run of message.runs || []) {
                 if (['running', 'pending'].includes(run.status) && !activeRuns.has(runKey(getWorkflowId(), run.runId))) {
@@ -1467,6 +1562,7 @@ export function createPromptAgentController({
 
     function syncWorkflowState(value) {
         conversationStore.restore(value);
+        tokenObservation = null;
         conversationRevision += 1;
         refreshRunViews();
         refreshActionStates();
