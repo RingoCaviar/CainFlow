@@ -30,3 +30,20 @@ python -m unittest tests.test_deleted_node_media tests.test_runtime_cache tests.
 3. 删除 B 的节点并保存；清理后仅无人使用的图片应被回收，Agent 图片仍在。
 4. 重启并重新打开两份工作流，确认历史图片、消息与归档未受影响。
 5. 缓存面板分类可重叠；处于完整性检查或安全回收暂停时，应显示真实保留状态，不能为了让数字归零而跳过保护。
+
+## 数据库自动整理回归
+
+关联 `cache-cleanup#004`。数据库整理在缓存清理事务结束后执行，只回收 SQLite 空闲页。测试使用独立临时数据库及应用服务，不整理开发者真实数据库。
+
+```powershell
+python -m unittest tests.test_database_compaction tests.test_deleted_node_media tests.test_runtime_cache tests.test_storage_routes -q
+node --test tests/database-compaction-http.test.mjs tests/workflow-deleted-node-media.test.mjs
+```
+
+- 清空大体积历史元数据后，确认 `cainflow.db` 实际文件变小，不能只检查记录数量或接口成功。
+- 图片缓存、临时缓存、历史记录三个真实 HTTP 清理入口均返回整理结果；其他工作流和 Agent 归档图片仍返回完整原图。
+- 整理前后逐表比较全部逻辑记录；工作流 JSON 不变，Agent 当前与归档记录、正式媒体 owner 保持不变。重启后会话和原图仍可读取，外键及完整性检查通过。
+- 后台维护仅在达到空间与比例阈值时整理；未达到阈值及无空闲页时跳过。显式清理因忙碌或磁盘不足延后后，下一轮维护会重试。
+- 外部读事务、写事务和同进程另一整理动作均不会互相覆盖数据；在整理窗口开始后的写入会等待窗口结束并保存成功。
+- 受控磁盘不足与 SQLite 写入失败不影响缓存清理的既有结果；实际中断 VACUUM 后全部逻辑记录不变，锁释放，后续写入和整理可成功。
+- 持久安全状态暂停、后台扫描、有效扫描租约、未完成检查点或不兼容 schema 时延后；原有游标与数据保留。

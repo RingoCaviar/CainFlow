@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote, unquote_to_bytes
 
 from backend import config
+from backend.services.database_compaction import compact_sqlite_database
 
 
 SCHEMA_VERSION = 10
@@ -64,6 +65,7 @@ class StorageService:
         self._stats_lock = threading.Lock()
         self._stats_cache = {}
         self._supported_schema_version = int(supported_schema_version)
+        self._database_compaction_pending = False
 
     def initialize(self):
         with self._lock:
@@ -1887,6 +1889,39 @@ class StorageService:
         return {'quarantineReleased': released, 'quarantineBytesReleased': released_bytes,
                 'gcSuspended': not self._cache_reclamation_verified()}
 
+    def compact_database(self, *, background=False):
+        """Reclaim SQLite free pages without changing any consumer or media owner."""
+        if not self._lock.acquire(blocking=False):
+            self._database_compaction_pending = True
+            return {'status': 'deferred', 'reason': 'busy', 'reclaimedBytes': 0}
+        try:
+            def can_compact(db):
+                if self._background_scan_pending or not self._cache_reclamation_verified():
+                    return 'storage-not-healthy'
+                versions = dict(db.execute("SELECT key, value FROM meta WHERE key IN "
+                                           "('schema_version', 'minimum_compatible_schema_version')"))
+                try:
+                    minimum_version = int(versions.get('minimum_compatible_schema_version', '0'))
+                except (ValueError, TypeError):
+                    return 'schema-version'
+                if (versions.get('schema_version') != str(self._supported_schema_version)
+                        or minimum_version > self._supported_schema_version):
+                    return 'schema-version'
+                if os.path.exists(self._integrity_checkpoint_path):
+                    return 'integrity-scan'
+                lease = db.execute('SELECT lease_expires_at FROM media_integrity_coordinator WHERE singleton=1').fetchone()
+                if lease and lease[0] > int(time.time() * 1000):
+                    return 'integrity-scan'
+                return None
+
+            result = compact_sqlite_database(
+                self.database_path, can_compact=can_compact,
+                background=background and not self._database_compaction_pending)
+            self._database_compaction_pending = result['status'] == 'deferred'
+            return result
+        finally:
+            self._lock.release()
+
     def run_cache_maintenance(self, now_ms=None):
         """Bound registered-media work, then sweep every unregistered physical file."""
         self.initialize()
@@ -1917,6 +1952,7 @@ class StorageService:
                 WHERE key LIKE 'media_gc_release:%' AND json_valid(value)
                 AND json_extract(value, '$.phase')='released' AND json_extract(value, '$.at') < ?
                 LIMIT 100)''', (now - 90 * 86400000,))
+        result['databaseCompaction'] = self.compact_database(background=True)
         return result
 
     def _asset_relative_path(self, digest, mime_type):
@@ -3028,6 +3064,7 @@ class StorageService:
             'orphanFilesDeleted': media_cleanup['orphanFilesDeleted'] + orphan_cleanup['deleted'],
             'orphanFilesFailed': media_cleanup['orphanFilesFailed'] + orphan_cleanup['failed'],
             'gcSuspended': not self._cache_reclamation_verified(),
+            'databaseCompaction': self.compact_database(),
         }
 
     def trim_history(self, max_entries=HISTORY_MAX_ENTRIES, retention_days=HISTORY_RETENTION_DAYS,
@@ -3221,6 +3258,7 @@ class StorageService:
             'candidatesRetained': media_cleanup['candidatesRetained'] + retained_legacy,
             'legacyKeepKeysIgnored': legacy_keep_keys_count > 0,
             'legacyKeepKeysCount': legacy_keep_keys_count,
+            'databaseCompaction': self.compact_database(),
         }
 
     def release_workflow_media_references(self, workflow_id):
@@ -3343,6 +3381,7 @@ class StorageService:
             'orphanFilesFailed': media_cleanup['orphanFilesFailed'] + orphan_cleanup['failed'],
             'orphanAssetsDeleted': orphan_deleted,
             'gcSuspended': not self._cache_reclamation_verified(),
+            'databaseCompaction': self.compact_database(),
         }
 
     def factory_reset(self):

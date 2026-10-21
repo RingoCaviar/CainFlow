@@ -52,3 +52,17 @@
 `node --test tests/disk-cache-quota.test.mjs`
 
 测试使用隔离临时目录与注入时间，不清理开发者真实媒体库。
+
+## SQLite 文件整理
+
+关联本地 Issue：`cache-cleanup#004`。
+
+清理图片缓存、临时缓存或历史记录完成后，后端会尝试回收 `cainflow.db` 内已经释放的空闲页。后台五分钟维护也会检查空闲页，默认仅在空闲空间至少 1 MiB 且占数据库页数至少 20% 时整理，避免小量写入反复重写数据库。手动清理不受此阈值限制；本进程中延后的整理会在后续维护时重试，重启后重新按实际空闲页判断。
+
+整理使用 SQLite 原生 `VACUUM`，随后通过 `wal_checkpoint(TRUNCATE)` 将结果写回主文件并收尾 WAL。它只重新组织已存在的记录和索引，不增加逻辑删除规则，不改变工作流、Agent 消息与归档、媒体 owner、转换恢复记录或图片文件，也不切换 `auto_vacuum` 或应用存储 schema 版本。清理动作本身仍遵守原有引用与安全回收规则。
+
+整理使用独立连接，在获取独占窗口后再次验证持久安全状态与 storage epoch、应用 schema、完整性扫描租约和检查点。因为 `VACUUM` 可能重排隐式 rowid，存在未完成扫描或有效租约时必须延后，不能删除检查点来绕过保护。连接关闭时释放独占锁；其他数据库连接已在使用时最多等待 50 ms，获取不到窗口即返回可重试状态。VACUUM 设置约 3 秒的 SQLite 指令执行预算，超时中断由 SQLite 事务回滚；底层磁盘 I/O 不属于硬实时保证。
+
+整理前检查数据库和临时目录所在磁盘的可用空间，为临时副本与日志保留余量。磁盘不足、并发占用、SQLite 或文件系统错误不会把已经成功的缓存清理改为失败，也不会手动替换、删除数据库或 WAL。结果中独立返回 `databaseCompaction`，包含 `completed`、`skipped` 或 `deferred` 状态、原因及实际主文件回收字节数。仍被使用的记录不属于可回收空间，文件体积不要求归零。
+
+SQLite 行为依据：[VACUUM](https://www.sqlite.org/lang_vacuum.html)、[locking_mode](https://www.sqlite.org/pragma.html#pragma_locking_mode)、[WAL checkpoint](https://www.sqlite.org/pragma.html#pragma_wal_checkpoint)。
