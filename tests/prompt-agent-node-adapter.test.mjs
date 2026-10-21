@@ -2,6 +2,44 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../js/features/prompt-agent/prompt-agent-node-adapter.js';
+import { createPromptAgentReferenceSource } from '../js/features/prompt-agent/prompt-agent-reference-source.js';
+import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
+
+test('A to B to C continuation sends latest pixels and replaces the actual generation reference connection', async () => {
+    const { state, adapter } = harness();
+    const pixels = { 'media:B': 'data:image/png;base64,BBBB', 'media:C': 'data:image/png;base64,CCCC' };
+    let next = 0, request;
+    const source = createPromptAgentReferenceSource({ state, nodeAdapter: adapter,
+        getImageAsset: async key => pixels[key],
+        createImportNode: () => { const id = `latest-${++next}`; state.nodes.set(id, { id, type: 'ImageImport', data: {} }); return id; },
+        loadImageData: async (id, dataUrl) => {
+            const node = state.nodes.get(id); node.data.image = dataUrl;
+            node.imageImportAssetKey = Object.keys(pixels).find(key => pixels[key] === dataUrl); return true;
+        }
+    });
+    const conversation = { messages: [{ role: 'agent', runs: [] }] };
+    for (const name of ['B', 'C']) {
+        conversation.messages[0].runs.push({ runId: name, status: 'completed', mediaAssetKeys: [`media:${name}`] });
+        const refs = await source.hydrateLatestResults(source.getContextReferences(conversation), { isCurrent: () => true });
+        const reply = await createPromptAgentModelReply({ message: '继续修改背景', conversation,
+            context: adapter.getSelectedContext(), workflowReferenceImages: refs,
+            model: { id: 'chat', modelId: 'chat', protocol: 'openai', providerIds: ['provider'] },
+            providers: [{ id: 'provider', endpoint: 'https://example.test' }],
+            fetchRef: async (_, init) => { request = JSON.parse(init.body); return { ok: true, json: async () => ({
+                choices: [{ message: { content: JSON.stringify({ intent: 'edit', promptPlan: {
+                    prompt: '背景变蓝', imageRoles: [{ imageId: 'image-1', role: 'edit-target' }]
+                } }) } }]
+            }) }; }
+        });
+        assert.ok(JSON.stringify(request).includes(pixels[`media:${name}`]));
+        reply.promptPlan.referenceImages = await source.preparePlanReferences(reply.promptPlan, { isCurrent: () => true });
+        assert.equal(adapter.applyPromptPlan(reply.promptPlan), true);
+        const inputs = adapter.getContext('image-1').referenceImages;
+        assert.equal(inputs.length, 1);
+        assert.deepEqual(inputs[0].images, [pixels[`media:${name}`]]);
+        assert.notEqual(inputs[0].sourceNodeId, 'source-1');
+    }
+});
 
 function control(value = '') {
     return {

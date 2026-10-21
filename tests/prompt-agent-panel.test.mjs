@@ -8,6 +8,24 @@ import { measurePromptAgentContext } from '../js/features/prompt-agent/prompt-ag
 const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test' };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
 
+test('late latest-result reads cannot submit into a restored or cleared conversation', async () => {
+    for (const action of ['restore', 'clear']) {
+        let finish, replies = 0;
+        const { controller, elements } = createHarness(async () => { replies++; return { message: 'bad' }; }, undefined, null, {
+            referenceSource: { getContextReferences: () => [{ latestResult: true, referenceId: 'result', assetKey: 'media:B' }],
+                hydrateLatestResults: () => new Promise(resolve => { finish = resolve; }) }
+        });
+        enterText(elements, '修改背景');
+        const sending = controller.submit();
+        if (action === 'restore') controller.restoreWorkflow({ messages: [{ role: 'user', text: '另一个工作流' }] });
+        else { enterText(elements, '/clear'); await controller.submit(); }
+        finish([{ latestResult: true, dataUrl: 'data:image/png;base64,BBBB' }]);
+        await sending;
+        assert.equal(replies, 0);
+        assert.doesNotMatch(JSON.stringify(controller.snapshotWorkflow()), /BBBB|修改背景/);
+    }
+});
+
 test('server calibration is displayed but not persisted or carried into another workflow', async () => {
     const { controller, elements } = createHarness(async request => ({ message: '收到', intent: 'chat', tokenObservation: {
         inputTokens: 3000, measurement: measurePromptAgentContext({ ...request, model: TEST_CHAT_MODEL })

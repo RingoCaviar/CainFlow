@@ -1,3 +1,5 @@
+import { latestResultRun } from './prompt-agent-result-order.js';
+
 export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode, loadImageData, scheduleSave = () => {} }) {
     const assetKey = node => node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
     const reusable = (node, id) => node?.type === 'ImageImport' && node.importMode !== 'url'
@@ -56,6 +58,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         return { ...image, referenceId: scene.referenceId, sourceNodeId: node.id, sourceImageIndex: 0 };
     }
     function getContextReferences(conversation) {
+        const latest = latestResultRun(conversation);
         const scene = nodeAdapter.getSceneReferenceImages().filter(item => {
             const node = state.nodes.get(item.sourceNodeId);
             return node && node.enabled !== false && !state.runningNodeIds?.has(node.id);
@@ -64,11 +67,27 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
             (message.runs || []).flatMap(run => (run.mediaAssetKeys || []).map((key, resultIndex) => ({
                 referenceId: `agent-result:${run.runId}:${resultIndex}`, assetKey: key,
                 runId: run.runId, resultNumber: resultIndex + 1, messageNumber: index + 1,
+                latestResult: run.runId === latest?.runId,
                 name: `第 ${index + 1} 条消息生成结果 ${resultIndex + 1}`,
                 prompt: message.promptPlan?.prompt || '', contextOrigin: '对话生成结果'
             })))
         );
         return [...scene, ...results];
+    }
+
+    async function hydrateLatestResults(references, { isCurrent }) {
+        const hydrated = [];
+        for (const reference of references) {
+            if (!isCurrent()) return null;
+            if (!reference.latestResult) { hydrated.push(reference); continue; }
+            let dataUrl;
+            try { dataUrl = await getImageAsset(reference.assetKey); }
+            catch { throw new Error('最新生成结果读取失败，请恢复原图后重试。'); }
+            if (!isCurrent()) return null;
+            if (!dataUrl?.startsWith('data:image/')) throw new Error('最新生成结果原图缺失，不能改用旧参考图。');
+            hydrated.push({ ...reference, dataUrl });
+        }
+        return hydrated;
     }
 
     async function preparePlanReferences(plan, { isCurrent, onSourceNode = () => {} }) {
@@ -102,7 +121,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         return references;
     }
 
-    return { listHistory, readHistory, importReference, getContextReferences, preparePlanReferences,
+    return { listHistory, readHistory, importReference, getContextReferences, hydrateLatestResults, preparePlanReferences,
         getReferenceId: candidate => {
             if (!candidate.historyId) return candidate.referenceId;
             const node = candidate.historyId && [...state.nodes.values()].find(item => reusable(item, candidate.historyId));

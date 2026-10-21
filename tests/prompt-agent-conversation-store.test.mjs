@@ -1,5 +1,29 @@
 import assert from 'node:assert/strict';
+import { latestResultRun } from '../js/features/prompt-agent/prompt-agent-result-order.js';
 import test from 'node:test';
+
+test('completion order survives compaction and restore; saving old results cannot reorder them', () => {
+    const store = createPromptAgentConversationStore();
+    const older = store.append({ role: 'agent', text: '旧方案' });
+    const newer = store.append({ role: 'agent', text: '新方案' });
+    store.beginRun(older, { runId: 'older', status: 'running' });
+    store.beginRun(newer, { runId: 'newer', status: 'running' });
+    store.finishRun('newer', { status: 'completed', mediaAssetKeys: ['media:newer'] });
+    store.finishRun('older', { status: 'completed', mediaAssetKeys: ['media:older'] });
+    assert.equal(latestResultRun(store.snapshot()).runId, 'older');
+    const order = store.getRun('newer').completionOrder;
+    store.finishRun('newer', { persistenceStatus: 'saved', completionOrder: 999 });
+    assert.equal(store.getRun('newer').completionOrder, order);
+    store.compact('两轮结果');
+    const restored = createPromptAgentConversationStore();
+    restored.restore(store.snapshot());
+    assert.equal(latestResultRun(restored.snapshot()).runId, 'older');
+    assert.equal(latestResultRun({ messages: [{ runs: [
+        { runId: 'A', status: 'completed', mediaAssetKeys: ['media:A'] },
+        { runId: 'B', status: 'completed', mediaAssetKeys: ['media:B'] },
+        { runId: 'C', status: 'failed', mediaAssetKeys: [] }
+    ] }] }).runId, 'B');
+});
 
 test('canvas deletion removes references from current and compacted conversations but preserves generated runs', () => {
     const store = createPromptAgentConversationStore();

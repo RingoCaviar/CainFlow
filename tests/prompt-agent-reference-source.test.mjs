@@ -4,6 +4,24 @@ import { createPromptAgentReferenceSource } from '../js/features/prompt-agent/pr
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 const image = { name: '图片', dataUrl: 'data:image/png;base64,AAAA' };
 
+test('latest result hydration uses immutable assets, completion order and cancellation fences', async () => {
+    const reads = [];
+    const source = createPromptAgentReferenceSource({ state: { nodes: new Map() },
+        nodeAdapter: { getSceneReferenceImages: () => [] }, getImageAsset: async key => { reads.push(key); return image.dataUrl; } });
+    const references = source.getContextReferences({ archivedMessages: [{ runs: [
+        { runId: 'older-message-new-run', completionOrder: 5, status: 'completed', mediaAssetKeys: ['media:new'] }
+    ] }], messages: [{ runs: [{ runId: 'newer-message-old-run', completionOrder: 3, status: 'completed', mediaAssetKeys: ['media:old'] }] }] });
+    const hydrated = await source.hydrateLatestResults(references, { isCurrent: () => true });
+    assert.deepEqual(reads, ['media:new']);
+    assert.equal(hydrated[0].dataUrl, image.dataUrl);
+    assert.equal(hydrated[1].dataUrl, undefined);
+    let current = true;
+    const cancelled = createPromptAgentReferenceSource({ state: {}, nodeAdapter: {}, getImageAsset: async () => { current = false; return image.dataUrl; } });
+    assert.equal(await cancelled.hydrateLatestResults(references, { isCurrent: () => current }), null);
+    const missing = createPromptAgentReferenceSource({ state: {}, nodeAdapter: {}, getImageAsset: async () => null });
+    await assert.rejects(missing.hydrateLatestResults(references, { isCurrent: () => true }), /原图缺失/);
+});
+
 test('import exposes its source identity before saving so canvas deletion cancels late references', async () => {
     const state = { nodes: new Map() };
     let pendingNodeId, finishSave;

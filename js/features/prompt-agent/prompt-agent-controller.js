@@ -1,5 +1,6 @@
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
+import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus } from './prompt-agent-model-menu.js';
 import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
@@ -969,7 +970,9 @@ export function createPromptAgentController({
                 const run = [...(snapshot?.archivedMessages || []), ...(snapshot?.messages || [])]
                     .flatMap((message) => message.runs || []).find((candidate) => candidate.runId === runId);
                 if (!run) return false;
-                return update(run) === false ? false : snapshot;
+                if (update(run) === false) return false;
+                stampResultCompletion(snapshot, run);
+                return snapshot;
             });
         }
         if (revision !== workflowRevision || getWorkflowId() !== workflowId) return false;
@@ -997,6 +1000,9 @@ export function createPromptAgentController({
         let handoffComplete = false;
         try {
             if (!readRun(workflowId, runId, revision)) return;
+            // Capture completion before asynchronous ownership/save work. Retrying
+            // persistence must never make an older batch appear newer.
+            mutateRun(workflowId, runId, run => { run.status = 'completed'; }, revision);
             if (result.images?.length) runImages.set(key, result.images.slice());
             if (retainRunResults && !result.mediaOwnershipTemporaryOwners?.length && result.persistenceStatus !== 'saved') {
                 retained = { ...result, ...await retainRunResults({ workflowId, runId,
@@ -1268,11 +1274,19 @@ export function createPromptAgentController({
             // Snapshot before appending the current turn: preserve assistant drafts
             // and role boundaries without duplicating the new user request.
             const conversation = conversationStore.getCompactionContext();
-            const workflowReferenceImages = uniqueReferenceImages([
+            let workflowReferenceImages = uniqueReferenceImages([
                 ...conversationStore.getReferenceImages(),
                 ...referenceImages,
                 ...(referenceSource?.getContextReferences?.(conversation) || [])
             ]);
+            if (referenceSource?.hydrateLatestResults) {
+                const readRevision = conversationRevision;
+                workflowReferenceImages = await referenceSource.hydrateLatestResults(workflowReferenceImages, {
+                    isCurrent: () => isCurrentOperation(operation) && conversationRevision === readRevision
+                });
+                if (!isCurrentOperation(operation)) return;
+                if (!workflowReferenceImages) throw new Error('读取图片期间对话已更新，请重试。');
+            }
             appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages });
             if (input.value.trim() === text) input.value = '';
             pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));

@@ -7,6 +7,60 @@ import { createPromptAgentConversationStore } from '../js/features/prompt-agent/
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', capabilities: { imageInput: true }, providerIds: ['provider-1'] };
 const provider = { id: 'provider-1', name: 'Test', endpoint: 'https://example.test/v1', apikey: 'secret' };
 
+test('continuing an edit cannot bind old input A instead of latest generated B', async () => {
+    const { result } = replyHarness({ intent: 'edit', message: '修改背景', promptPlan: {
+        prompt: '将背景改为蓝色', imageRoles: [{ imageId: 'image-1', role: 'edit-target' }]
+    } }, { message: '把背景改为蓝色', workflowReferenceImages: [
+        { referenceId: 'old', sourceNodeId: 'old', dataUrl: 'data:image/png;base64,AAAA' },
+        { referenceId: 'result:B', runId: 'B', assetKey: 'media:B', latestResult: true, resultNumber: 1, dataUrl: 'data:image/png;base64,BBBB' }
+    ] });
+    assert.equal((await result).promptPlan.referenceImages[0].assetKey, 'media:B');
+});
+
+test('latest multi-image edits require explicit selection; explicit old inputs and prompt-only remain supported', async () => {
+    const workflowReferenceImages = [
+        { referenceId: 'old', sourceNodeId: 'old', dataUrl: 'data:image/png;base64,AAAA' },
+        ...[1, 2].map(n => ({ referenceId: `result:${n}`, runId: 'new', latestResult: true,
+            resultNumber: n, assetKey: `media:new${n}`, dataUrl: `data:image/png;base64,NEW${n}` }))
+    ];
+    const payload = { intent: 'edit', promptPlan: { prompt: '修改背景', imageRoles: [{ imageId: 'image-1', role: 'edit-target' }] } };
+    const options = { message: '修改背景', workflowReferenceImages };
+    const ambiguous = await replyHarness(payload, options).result;
+    assert.equal(ambiguous.intent, 'clarify'); assert.equal(ambiguous.promptPlan, null);
+    const selected = await replyHarness({ ...payload, targetSelection: { mode: 'latest', imageId: 'image-3', evidence: '第二张' } },
+        { ...options, message: '修改第二张的背景' }).result;
+    assert.equal(selected.promptPlan.referenceImages[0].assetKey, 'media:new2');
+    const original = await replyHarness({ ...payload, targetSelection: { mode: 'explicit', imageId: 'image-1', evidence: '导入原图' } },
+        { ...options, message: '修改导入原图的背景' }).result;
+    assert.equal(original.promptPlan.referenceImages[0].sourceNodeId, 'old');
+    const prompt = await replyHarness({ ...payload, intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '只改提示词' } },
+        { ...options, message: '只改提示词' }).result;
+    assert.equal(prompt.promptPlan.referenceImages[0].sourceNodeId, 'old');
+    const invented = await replyHarness({ ...payload, targetSelection: { mode: 'explicit', imageId: 'image-1', evidence: '导入原图' } }, options).result;
+    assert.equal(invented.intent, 'clarify');
+});
+
+test('identical pixels retain latest result identity even if an imported image appeared first', async () => {
+    const dataUrl = 'data:image/png;base64,SAME';
+    const { result, request } = replyHarness({ intent: 'edit', promptPlan: {
+        prompt: '继续修改', imageRoles: [{ imageId: 'image-1', role: 'edit-target' }]
+    } }, { referenceImages: [{ referenceId: 'import', sourceNodeId: 'import', dataUrl }],
+        workflowReferenceImages: [{ referenceId: 'result', runId: 'latest', latestResult: true, assetKey: 'media:same', dataUrl }] });
+    assert.equal((await result).promptPlan.referenceImages[0].assetKey, 'media:same');
+    const catalog = JSON.parse(request().messages.at(-1).content[0].text);
+    assert.deepEqual(catalog.latestResultImageIds, ['image-1']);
+    assert.equal(catalog.images[0].runId, 'latest');
+    assert.equal(request().messages.at(-1).content.length, 2);
+});
+
+test('two identical latest outputs still require a batch position', async () => {
+    const { result } = replyHarness({ intent: 'edit', promptPlan: { prompt: '继续', imageRoles: [] } }, {
+        workflowReferenceImages: [1, 2].map(resultNumber => ({ referenceId: `result:${resultNumber}`,
+            runId: 'latest', latestResult: true, resultNumber, dataUrl: 'data:image/png;base64,SAME' }))
+    });
+    assert.match((await result).message, /2 张/);
+});
+
 test('OpenAI and Google expose actual input usage without counting generated output', async () => {
     for (const protocol of ['openai', 'google']) {
         const reply = await createPromptAgentModelReply({ model: { ...model, protocol }, providers: [provider], message: '你好',

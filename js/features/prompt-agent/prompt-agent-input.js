@@ -51,7 +51,11 @@ export function createPromptAgentInput({
     const addImage = (image, origin, connectedToNode = false, referenceNumber = null) => {
         const sources = image.dataUrl ? [image.dataUrl] : (image.images?.length ? image.images : Array(Math.max(1, image.assetKeys?.length || 0)).fill(null));
         sources.forEach((source, index) => {
-            const key = source || image.referenceId || `${image.sourceNodeId || ''}:${image.sourcePort || ''}:${image.name || ''}:${index}`;
+            let key = source || image.referenceId || `${image.sourceNodeId || ''}:${image.sourcePort || ''}:${image.name || ''}:${index}`;
+            const existing = bySource.get(key);
+            // Two equal-pixel outputs still occupy two user-visible batch slots.
+            if (image.latestResult && existing?.latestResult && existing.runId === image.runId
+                && existing.resultNumber !== image.resultNumber) key = `${key}\0${image.runId}:${image.resultNumber}`;
             let entry = bySource.get(key);
             if (!entry) {
                 entry = {
@@ -67,6 +71,17 @@ export function createPromptAgentInput({
                 };
                 images.push(entry);
                 bySource.set(key, entry);
+            }
+            if (image.runId) {
+                entry.resultSources ||= [];
+                if (!entry.resultSources.some(item => item.runId === image.runId && item.resultNumber === image.resultNumber)) {
+                    entry.resultSources.push({ runId: image.runId, resultNumber: image.resultNumber, messageNumber: image.messageNumber });
+                }
+                if (image.latestResult || !entry.runId) {
+                    Object.assign(entry, { runId: image.runId, resultNumber: image.resultNumber,
+                        messageNumber: image.messageNumber, prompt: image.prompt,
+                        latestResult: Boolean(image.latestResult), reference: { ...image, ...(source ? { dataUrl: source } : {}), sourceImageIndex: image.sourceImageIndex ?? index } });
+                }
             }
             if (!entry.origins.includes(origin)) entry.origins.push(origin);
             entry.connectedToNode ||= connectedToNode;
@@ -114,6 +129,7 @@ export function createPromptAgentInput({
         )),
         historyOmitted: omitted,
         images: imageCatalog,
+        latestResultImageIds: images.filter(image => image.latestResult).map(image => image.imageId),
         userRequest: String(message || '').trim() || '本轮只提供了图片，请结合对话确定用途；用途不明时询问。'
     };
     return {

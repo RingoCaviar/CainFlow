@@ -125,9 +125,12 @@ test('retrying a failed conversation save keeps the original result and does not
     await pending;
     assert.equal(allRuns(app.controller.snapshotWorkflow())[0].persistenceStatus, 'failed');
     assert.match(app.currentRunView().textContent, /保存失败/);
+    const completionOrder = allRuns(app.controller.snapshotWorkflow())[0].completionOrder;
+    assert.ok(Number.isSafeInteger(completionOrder) && completionOrder > 0);
     assert.equal(released.length, 0);
     await app.currentRunView().children.find((child) => child.textContent === '重试保存').dispatch('click');
     assert.equal(allRuns(app.controller.snapshotWorkflow())[0].persistenceStatus, 'saved');
+    assert.equal(allRuns(app.controller.snapshotWorkflow())[0].completionOrder, completionOrder);
     assert.deepEqual(allRuns(app.controller.snapshotWorkflow())[0].mediaAssetKeys, ['media:a']);
     assert.equal(app.executionCount(), 1);
     assert.equal(retentions, 1);

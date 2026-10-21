@@ -26,7 +26,7 @@ function parseJson(text) {
     }
 }
 
-function normalizeReply(payload, context, images = []) {
+function normalizeReply(payload, context, images = [], userMessage = '') {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('模型返回了无效的 Prompt Plan');
     // Accept older flat plans, while giving conversation-only replies an
     // explicit representation rather than forcing invented image requests.
@@ -52,12 +52,34 @@ function normalizeReply(payload, context, images = []) {
     const parameters = normalizePromptAgentParameters(plan.parameters ?? {}, context ? context.parameterSchema : {});
     const imageRoles = plan.imageRoles ?? [];
     if (!Array.isArray(imageRoles)) throw new Error('图片角色必须是数组');
-    const selectedImages = imageRoles.map((item) => {
+    let selectedImages = imageRoles.map((item) => {
         const image = images.find((candidate) => candidate.imageId === item?.imageId);
         if (!image || !['edit-target', 'reference', 'supporting'].includes(item.role)) throw new Error('模型引用了无效的图片或图片角色');
         return { ...image.reference, imageId: image.imageId, role: item.role };
     });
-    if (intent === 'edit' && !imageRoles.some((item) => item.role === 'edit-target')) {
+    const latest = images.filter(image => image.latestResult);
+    const selection = payload.targetSelection;
+    const evidence = typeof selection?.evidence === 'string' ? selection.evidence.trim() : '';
+    const explicitEvidence = evidence && userMessage.includes(evidence);
+    const clarify = message => ({ ...reply, intent: 'clarify', message, promptPlan: null });
+    if (selection && !['latest', 'explicit', 'prompt-only'].includes(selection.mode)) throw new Error('无效的编辑目标选择方式');
+    if ((intent === 'edit' || intent === 'refine') && latest.length) {
+        if (selection?.mode === 'explicit') {
+            const target = images.find(image => image.imageId === selection.imageId);
+            if (!explicitEvidence || !target) return clarify('请明确要修改哪张图片，或确认使用最新生成结果。');
+            selectedImages = [{ ...target.reference, imageId: target.imageId, role: 'edit-target' },
+                ...selectedImages.filter(image => image.role !== 'edit-target' && image.imageId !== target.imageId)];
+        } else if (selection?.mode === 'prompt-only') {
+            if (!explicitEvidence) return clarify('你希望仅修改提示词，还是继续修改最新生成的图片？');
+        } else {
+            const target = latest.length === 1 ? latest[0]
+                : explicitEvidence ? latest.find(image => image.imageId === selection?.imageId) : null;
+            if (!target) return clarify(`最新一批有 ${latest.length} 张图片，请指定要修改第几张。`);
+            selectedImages = [{ ...target.reference, imageId: target.imageId, role: 'edit-target' },
+                ...selectedImages.filter(image => image.role !== 'edit-target' && image.imageId !== target.imageId)];
+        }
+    }
+    if (intent === 'edit' && !selectedImages.some((item) => item.role === 'edit-target')) {
         throw new Error('编辑方案缺少明确的目标图片，请指定要修改的图片');
     }
     return {
@@ -89,7 +111,7 @@ export async function createPromptAgentModelReply({
     const response = await requestChatCompletion(plan, {
         fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal
     });
-    const reply = normalizeReply(parseJson(response.text), context, input.images);
+    const reply = normalizeReply(parseJson(response.text), context, input.images, message);
     const inputTokens = model.protocol === 'google'
         ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
     if (Number.isSafeInteger(inputTokens) && inputTokens > 0) {

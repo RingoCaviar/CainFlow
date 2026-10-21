@@ -1,3 +1,5 @@
+import { stampResultCompletion } from './prompt-agent-result-order.js';
+
 function clone(value) {
     if (value === undefined) return undefined;
     return JSON.parse(JSON.stringify(value));
@@ -73,6 +75,7 @@ function normalizeRun(run, { interruptRunning = false } = {}) {
         runId: run.runId.trim(),
         targetNodeId: typeof run.targetNodeId === 'string' ? run.targetNodeId : '',
         status,
+        ...(Number.isSafeInteger(run.completionOrder) && run.completionOrder > 0 ? { completionOrder: run.completionOrder } : {}),
         mediaAssetKeys: normalizeAssetKeys(run.mediaAssetKeys),
         ...(typeof run.error === 'string' && run.error ? { error: run.error } : {}),
         ...(PERSISTENCE_STATUSES.has(run.persistenceStatus) ? { persistenceStatus: run.persistenceStatus } : {}),
@@ -157,6 +160,8 @@ export function createPromptAgentConversationStore() {
         if (run.mediaAssetKeys.length && Array.isArray(outcome.mediaAssetKeys)
             && JSON.stringify(normalizeAssetKeys(outcome.mediaAssetKeys)) !== JSON.stringify(run.mediaAssetKeys)) return false;
         const next = normalizeRun({ ...run, ...outcome, runId: run.runId, targetNodeId: run.targetNodeId });
+        if (run.completionOrder) next.completionOrder = run.completionOrder;
+        stampResultCompletion({ archivedMessages, messages }, next);
         Object.keys(run).forEach((key) => { delete run[key]; });
         Object.assign(run, next);
         return true;
