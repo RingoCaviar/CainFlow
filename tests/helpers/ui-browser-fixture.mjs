@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { chromePath } from './browser-theme-fixture.mjs';
 
-export async function runUiFixture(fixturePath, { screenshotPath = null, blockedPaths = [] } = {}) {
+export async function runUiFixture(fixturePath, { screenshotPath = null, blockedPaths = [], windowSize = '1280,960' } = {}) {
     assert.ok(chromePath, 'Chrome is required for UI interaction verification');
     const root = fileURLToPath(new URL('../../', import.meta.url));
     const server = createServer(async (request, response) => {
@@ -27,7 +27,7 @@ export async function runUiFixture(fixturePath, { screenshotPath = null, blocked
     try {
         const url = `http://127.0.0.1:${server.address().port}/${fixturePath}`;
         const output = await new Promise((resolve, reject) => {
-            const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--window-size=1280,960', '--virtual-time-budget=3000', '--dump-dom',
+            const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, `--window-size=${windowSize}`, '--virtual-time-budget=3000', '--dump-dom',
                 ...(screenshotPath ? [`--screenshot=${screenshotPath}`] : []), url]);
             let stdout = '', stderr = '';
             const timeout = setTimeout(() => { browser.kill(); reject(new Error('UI fixture timed out')); }, 20000);
@@ -39,7 +39,7 @@ export async function runUiFixture(fixturePath, { screenshotPath = null, blocked
                 code === 0 ? resolve(stdout) : reject(new Error(stderr));
             });
         });
-        const result = output.match(/<pre id="surface-result">([^<]+)<\/pre>/);
+        const result = output.match(/<pre id="surface-result"[^>]*>([^<]+)<\/pre>/);
         assert.ok(result, output.slice(-3000));
         return JSON.parse(result[1].replaceAll('&quot;', '"').replaceAll('&amp;', '&'));
     } finally {

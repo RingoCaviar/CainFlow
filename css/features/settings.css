@@ -1060,3 +1060,10 @@
         display: none;
     }
 }
+.agent-search-config-help {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}

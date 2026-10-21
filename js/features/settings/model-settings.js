@@ -510,6 +510,12 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             const taskType = normalizeModelTaskType(mod.taskType, mod);
             const provider = providerSettings.getResolvedModelProvider(mod);
             const protocol = isKnownModelProtocol(mod.protocol) ? mod.protocol : '';
+            const searchValue = mod.agentSearch ?? (protocol === 'google' ? 'web' : 'none');
+            const searchChoices = [['none', '未启用搜索'],
+                ...(['openai', 'google'].includes(protocol) ? [['web', '网页搜索']] : []),
+                ...(protocol === 'openai' ? [['images', '网页及图片搜索']] : [])];
+            const searchOptions = searchChoices.map(([value, label]) => `<option value="${value}" ${searchValue === value ? 'selected' : ''}>${label}</option>`).join('')
+                + (!searchChoices.some(([value]) => value === searchValue) ? `<option value="${dialogs.escapeHtml(searchValue)}" selected disabled>已保存配置不适用于当前格式</option>` : '');
             const protocolOptions = [
                 `<option value="" ${protocol ? '' : 'selected'} disabled>请选择兼容格式（必填）</option>`,
                 ...getProtocolSelectOptions(taskType)
@@ -575,10 +581,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     </div><div class="card-field">
                         <label>Agent 搜索能力</label>
                         <select data-id="${mod.id}" data-field="agentSearch" aria-label="Agent 搜索能力">
-                            <option value="none" ${(mod.agentSearch || (protocol === 'google' ? 'web' : 'none')) === 'none' ? 'selected' : ''}>不支持</option>
-                            <option value="web" ${(mod.agentSearch || (protocol === 'google' ? 'web' : 'none')) === 'web' ? 'selected' : ''}>网页搜索${protocol === 'openai' ? '（Responses）' : ''}</option>
-                            ${protocol === 'openai' ? `<option value="images" ${mod.agentSearch === 'images' ? 'selected' : ''}>网页及图片搜索（Responses）</option>` : ''}
+                            ${searchOptions}
                         </select>
+                        <small class="agent-search-config-help">${protocol === 'openai' ? '需接口实际支持 Responses 搜索。' : protocol === 'google' ? '需接口实际支持 Google Search。' : '当前格式未接入搜索，请在 Agent 联网菜单选择专用模型。'} 此设置不会为模型增加原本不支持的能力。</small>
                     </div></div>` : ''}
                 </div>
             `;

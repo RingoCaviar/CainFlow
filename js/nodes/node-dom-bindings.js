@@ -34,6 +34,7 @@ import {
 } from './generation-input-projection.js';
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
 import { getPrimaryImageImportMediaAssetReference } from '../features/execution/execution-data-utils.js';
+import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -77,6 +78,7 @@ export function createNodeDomBindingsApi({
     onConnectionsChanged = () => {},
     documentRef = document
 }) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container';
     const ZOOM_SETTLE_GUARD_MS = 220;
     const pendingConnectedInputLayoutFrames = new Map();
@@ -785,6 +787,7 @@ export function createNodeDomBindingsApi({
     }
 
     function closeNodeSelectDropdowns(exceptWrapper = null) {
+        surfaces?.forgetPopover('node-select');
         documentRef.querySelectorAll('.node-select').forEach((wrapper) => {
             if (exceptWrapper && wrapper === exceptWrapper) return;
             wrapper.classList.remove('open');
@@ -866,6 +869,7 @@ export function createNodeDomBindingsApi({
             panel.classList.toggle('hidden', !willOpen);
             wrapper.classList.toggle('open', willOpen);
             trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) surfaces?.openPopover('node-select', { element: panel, trigger, close: closeNodeSelectDropdowns });
         });
 
         panel?.addEventListener('mousedown', (event) => {

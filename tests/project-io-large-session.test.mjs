@@ -120,6 +120,20 @@ function createHarness(nodeCount, connectionCount = 0, overrides = {}) {
     };
 }
 
+test('restart preserves explicit search settings, compaction limits and literal Responses endpoints', async () => {
+    const providers = [{ id: 'p', type: 'openai', endpoint: 'https://controlled.test/chat', autoComplete: false,
+        responsesEndpoint: 'https://controlled.test/responses' }];
+    const models = ['none', 'web', 'images'].map((agentSearch, index) => ({ id: `m${index}`, name: 'Controlled',
+        modelId: 'controlled', protocol: 'openai', taskType: 'chat', providerIds: ['p'], agentSearch, autoCompactTokenLimit: 23456 }));
+    const first = createHarness(1, 0, { providers, models });
+    assert.equal(await first.api.loadState(), true);
+    const second = createHarness(1, 0, { providers: first.state.providers, models: first.state.models });
+    assert.equal(await second.api.loadState(), true);
+    assert.deepEqual(second.state.models.map(model => model.agentSearch), ['none', 'web', 'images']);
+    assert.ok(second.state.models.every(model => model.autoCompactTokenLimit === 23456));
+    assert.equal(second.state.providers[0].responsesEndpoint, providers[0].responsesEndpoint);
+});
+
 test('加载会把已有供应商标识与地址作为普通用户配置保留', async () => {
     const provider = {
         id: 'prov_user_legacy',

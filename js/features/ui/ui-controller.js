@@ -645,6 +645,7 @@ export function createUiControllerApi({
             type: normalizeProviderType(provider?.type, provider),
             apikey: typeof provider?.apikey === 'string' ? provider.apikey : '',
             endpoint: typeof provider?.endpoint === 'string' ? provider.endpoint : '',
+            responsesEndpoint: typeof provider?.responsesEndpoint === 'string' ? provider.responsesEndpoint : '',
             autoComplete: provider?.autoComplete !== false
         }));
     }
@@ -917,11 +918,11 @@ export function createUiControllerApi({
         }
 
         documentRef.getElementById('btn-close-history')?.addEventListener('click', () => {
-            sidebar?.classList.remove('active');
+            panelManager.close?.('history');
         });
 
         documentRef.getElementById('btn-expand-history')?.addEventListener('click', () => {
-            sidebar?.classList.remove('active');
+            panelManager.close?.('history');
             historyFullscreenApi?.open();
         });
 
@@ -935,7 +936,7 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-close-logs')?.addEventListener('click', () => {
-            logDrawer?.classList.remove('active');
+            panelManager.close?.('logs');
         });
 
         documentRef.getElementById('btn-close-statistics')?.addEventListener('click', () => {

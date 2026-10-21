@@ -2,12 +2,14 @@
  * Responsible for theme normalization, DOM application, and keeping the theme
  * menu in sync with the active theme.
  */
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 export function createThemeControllerApi({
     state,
     documentRef = document,
     saveState = () => {},
     onThemeApplied = () => {}
 }) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     const THEME_ATTRIBUTE = 'data-app-theme';
     const THEME_IDS = Object.freeze({
         DARK: 'dark',
@@ -118,7 +120,10 @@ export function createThemeControllerApi({
 
         menu.classList.toggle('hidden', !isOpen);
         button.setAttribute('aria-expanded', String(isOpen));
-        if (isOpen) positionThemeMenu();
+        if (isOpen) {
+            surfaces?.openPopover('theme', { element: menu, trigger: button, close: closeThemeMenu });
+            positionThemeMenu();
+        } else surfaces?.forgetPopover('theme');
     }
 
     function closeThemeMenu() {

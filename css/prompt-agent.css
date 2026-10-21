@@ -45,7 +45,7 @@
 .prompt-agent-panel {
     position: absolute;
     container-type: inline-size;
-    z-index: var(--layer-panel, 30);
+    z-index: var(--layer-drawer);
     top: 12px;
     right: 12px;
     bottom: 0;
@@ -500,11 +500,19 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 
 /* Agent model menus use the node-select value/change contract and a body-level surface. */
 .prompt-agent-model-native { display: none; }
-.prompt-agent-search-menu { position: fixed; z-index: var(--layer-modal, 1000); box-sizing: border-box; padding: 8px; background: var(--surface-panel-strong, var(--panel-bg)); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 6px 24px #0003; overflow: auto; }
+.prompt-agent-search-menu { position: fixed; z-index: var(--layer-menu); box-sizing: border-box; padding: 8px; background: var(--surface-panel-strong, var(--panel-bg)); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 6px 24px #0003; overflow: auto; }
 .prompt-agent-search-menu[hidden] { display: none; }
+.prompt-agent-search-menu, .prompt-agent-model-menu {
+    /* Composite translucent theme colors over canvas color so underlying text
+       cannot bleed through a portaled menu. */
+    background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas);
+}
 .prompt-agent-search-menu > label { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; min-width: 0; }
 .prompt-agent-search-menu select { min-width: 0; flex: 1; background: var(--surface-control); color: var(--text-primary); }
 .prompt-agent-search-menu p, .prompt-agent-search-status { font-size: 11px; margin: 4px 0; color: var(--text-secondary); }
+.prompt-agent-search-menu p { overflow-wrap: anywhere; }
+#prompt-agent-search-availability > div { padding: 5px 0; border-top: 1px solid var(--border-color); }
+#prompt-agent-search-availability .btn { min-height: 28px; padding: 3px 6px; font-size: 12px; }
 #prompt-agent-search-button { min-height: 28px; padding: 2px 4px; flex: none; font-size: 11px; }
 .prompt-agent-search-results { min-width: 0; margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
 .prompt-agent-search-results a, .prompt-agent-message-body a { color: var(--accent-primary); text-decoration: underline; }
@@ -524,10 +532,10 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-model-trigger:disabled { opacity: .6; cursor: not-allowed; }
 .prompt-agent-model-trigger:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .prompt-agent-model-menu {
-    position: fixed; z-index: var(--layer-modal, 1000); box-sizing: border-box;
+    position: fixed; z-index: calc(var(--layer-menu) + 1); box-sizing: border-box;
     overflow-y: auto; overscroll-behavior: contain; padding: 4px;
     border: 1px solid var(--border-color); border-radius: 9px;
-    background: var(--surface-panel-strong, var(--panel-bg)); color: var(--text-primary);
+    color: var(--text-primary);
     box-shadow: 0 8px 24px rgba(0,0,0,.25);
 }
 .prompt-agent-model-option {

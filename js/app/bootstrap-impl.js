@@ -951,6 +951,9 @@ const captureAgentRequestConfig = (modelId) => {
     return JSON.parse(JSON.stringify({ models, model: models.find(item => item.id === modelId), providers: state.providers || [] }));
 };
 const promptAgentController = createPromptAgentController({
+    panelManager,
+    getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
+    getProviders: () => state.providers,
     documentRef: document,
     captureRequestConfig: captureAgentRequestConfig,
     readWebImage: readAgentWebImage,
@@ -989,7 +992,7 @@ const promptAgentController = createPromptAgentController({
     openResultPreview: (images, index) => openFullscreenPreview(images[index], null, { images, index }),
     getChatModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
     getImageModels: () => getAvailablePromptAgentImageModels(state.models || [], state.providers || []),
-    openModelSettings: () => document.getElementById('btn-settings')?.click(),
+    openModelSettings: target => settingsControllerApi?.openModelSettings?.(target),
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
     createReply: (request) => {

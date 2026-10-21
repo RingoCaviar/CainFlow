@@ -5,7 +5,7 @@ import { PROMPT_AGENT_SYSTEM_PROMPT } from './prompt-agent-instructions.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
-import { resolveAgentSearchModel, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
+import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
@@ -130,7 +130,9 @@ export async function createPromptAgentModelReply({
             if (round !== 0) return { intent: 'chat', message: '本轮已完成一次检索；结果已保留，请继续提问以进一步搜索。', promptPlan: null, search };
             const { kind, query } = payload.searchRequest;
             if (!['web', 'images'].includes(kind) || typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('模型返回的搜索请求无效。');
-            const searchModel = resolveAgentSearchModel(model, models, searchSettings, kind);
+            const availability = getAgentSearchAvailability({ model, models, providers, settings: searchSettings, kind });
+            if (!availability.available) throw new Error(`${availability.message}，请打开联网菜单完成配置。`);
+            const searchModel = availability.model;
             onSearchStatus(kind === 'images' ? '正在搜索图片…' : '正在联网查找资料…');
             search = normalizeAgentSearch(await searchRef({ model: searchModel, providers, kind, query: query.trim(), fetchRef,
                 getHeaders: typeof getHeaders === 'function' ? getHeaders : () => headers, signal }));

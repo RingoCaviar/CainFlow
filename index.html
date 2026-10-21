@@ -391,8 +391,9 @@
                     <section id="prompt-agent-search-menu" class="prompt-agent-search-menu" role="dialog" aria-label="Agent 联网设置" hidden>
                         <label>联网方式<select id="prompt-agent-search-mode" aria-label="Agent 联网方式"><option value="auto">自动判断</option><option value="off">关闭</option></select></label>
                         <label class="prompt-agent-model-label"><span>专用搜索</span><select id="prompt-agent-search-model" aria-label="Agent 专用搜索模型"></select></label>
-                        <p>对话模型不支持时使用专用模型。搜索能力可在模型设置中配置。</p>
-                        <button id="prompt-agent-search-settings" class="btn btn-ghost" type="button">配置模型</button>
+                        <div id="prompt-agent-search-availability" aria-live="polite"></div>
+                        <p>对话模型不支持时，手动选择专用搜索模型。接口需实际支持所配置的搜索能力。</p>
+                        <button id="prompt-agent-search-settings" class="btn btn-ghost" type="button">管理搜索模型</button>
                     </section>
                     <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
                     <p id="prompt-agent-reference-error" class="prompt-agent-reference-error" role="status" hidden></p>

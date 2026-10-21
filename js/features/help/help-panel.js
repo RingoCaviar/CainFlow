@@ -114,6 +114,7 @@ export function createHelpPanelApi({
     }
 
     function initHelpPanel() {
+        panelManager?.register?.('help', { close: closeHelpPanel });
         documentRef.getElementById('side-bar')?.addEventListener('click', (e) => {
             const button = e.target?.closest?.('.side-bar-btn');
             if (button && button.id !== 'btn-help') {
@@ -131,11 +132,7 @@ export function createHelpPanelApi({
             closeHelpPanel();
         });
 
-        canvasContainer?.addEventListener('mousedown', (e) => {
-            if (e.target === canvasContainer || e.target === nodesLayer) {
-                closeHelpPanel();
-            }
-        });
+        panelManager?.bindCanvasBlankClose?.();
 
         documentRef.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {

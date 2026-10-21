@@ -2,12 +2,14 @@
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="../../css/modules/00-foundation.css">
 <link rel="stylesheet" href="../../css/modules/09-toasts.css">
+<link rel="stylesheet" href="../../css/modules/14-sidebar-notices-errors.css">
 <link rel="stylesheet" href="../../css/layout/workbench.css">
 <link rel="stylesheet" href="../../css/prompt-agent.css">
 <style>#main-layout{height:100vh}#surface-result{display:none}.toast{animation:none!important}#toast-container{transition:none!important}</style>
 </head><body>
 <main id="main-layout"><aside id="prompt-agent-panel" class="prompt-agent-panel active"></aside></main>
 <div id="toast-container"><div class="toast info"><span>ⓘ</span><div class="toast-message">生成完成，图片已经保存。LongNotificationTextWithoutSpacesForOverflowChecking</div></div></div>
+<div id="floating-notices-container"><div class="floating-notice"><div class="notice-content">请及时备份工作流。LongNotificationTextWithoutSpacesForOverflowChecking</div></div></div>
 <script type="module">
 import { createPromptAgentPanelWidth } from '../../js/features/prompt-agent/prompt-agent-panel-width.js';
 const panel=document.getElementById('prompt-agent-panel');
@@ -16,7 +18,9 @@ const samples=[];
 for(const width of [300,600,960,300]) {
     createPromptAgentPanelWidth({panel,windowRef:window,read:()=>width});
     const p=panel.getBoundingClientRect(), t=container.getBoundingClientRect();
-    samples.push({width,panelLeft:p.left,toastRight:t.right,toastLeft:t.left,overflow:container.scrollWidth>container.clientWidth});
+    const notice=document.getElementById('floating-notices-container');
+    samples.push({width,panelLeft:p.left,toastRight:t.right,toastLeft:t.left,overflow:container.scrollWidth>container.clientWidth,
+        noticeRight:notice.getBoundingClientRect().right,noticeOverflow:notice.scrollWidth>notice.clientWidth});
 }
 panel.classList.remove('active');
 const closedRight=container.getBoundingClientRect().right;

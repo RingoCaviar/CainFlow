@@ -101,8 +101,8 @@
     --layer-sidebar: 7400;
     --layer-toolbar: 7500;
     --layer-notice: 7600;
-    --layer-menu: 7700;
     --layer-toast: 7800;
+    --layer-menu: 7900;
     --layer-immersive: 9000;
     --layer-modal: 10000;
     --layer-modal-popover: 10100;

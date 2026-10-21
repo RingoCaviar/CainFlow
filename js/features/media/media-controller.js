@@ -1,3 +1,4 @@
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 ﻿/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
  */
@@ -2961,6 +2962,7 @@ export function createMediaControllerApi({
         };
         overlay.querySelector('.image-compare-advanced-close').addEventListener('click', cleanup);
         documentRef.addEventListener('keydown', onKeyDown);
+        getSurfaceCoordinator(documentRef)?.registerEscape(overlay, onKeyDown);
 
         requestAnimationFrame(() => overlay.classList.add('active'));
         applyStageTransform();
@@ -3365,7 +3367,11 @@ export function createMediaControllerApi({
             if (!wasDrag && (e.target === overlay || e.target === iw)) cleanup();
         });
         const onEsc = (e) => {
+            const top = getSurfaceCoordinator(documentRef)?.topModal();
+            if (top && top !== overlay) return;
             if (e.key === 'Escape') {
+                if (cropper?.dismissMenu?.()) return;
+                if (!imageContextMenu.classList.contains('hidden')) { imageContextMenu.classList.add('hidden'); return; }
                 if (cropper?.isActive()) {
                     e.preventDefault();
                     cropper.setMode(false);
@@ -3383,6 +3389,7 @@ export function createMediaControllerApi({
             }
         };
         documentRef.addEventListener('keydown', onEsc);
+        getSurfaceCoordinator(documentRef)?.registerEscape(overlay, onEsc);
         requestAnimationFrame(() => overlay.classList.add('active'));
         overlay.focus({ preventScroll: true });
     }

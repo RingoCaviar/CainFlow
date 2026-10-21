@@ -1,3 +1,4 @@
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 const dialogState = new Map();
 
 function escapeHtml(value) {
@@ -250,6 +251,7 @@ export function openDialogStyle1({
                 resolveDialog({ id, documentRef, actionId: submitActionId });
             }
         };
+        getSurfaceCoordinator(documentRef)?.registerEscape(dialog, dialog.onkeydown);
         dialog.onclick = (event) => {
             const button = event.target.closest('[data-dialog-style-1-action]');
             if (!button) return;

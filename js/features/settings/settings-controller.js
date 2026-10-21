@@ -19,6 +19,7 @@ export function createSettingsControllerApi(options) {
     let modelSettingsApi = null;
     let proxyNetworkSettingsApi = null;
     let generalSettingsApi = null;
+    let navigateToModelSettings = () => {};
 
     const getDeps = () => ({
         getModelProviderIds,
@@ -86,6 +87,28 @@ export function createSettingsControllerApi(options) {
         });
         const requestCloseSettings = (options) => closeCoordinator.requestCloseSettings(options);
         const handleEscape = () => closeCoordinator.handleEscape();
+        navigateToModelSettings = (target = {}) => {
+            dialogs.closeAllSettingsOverlays();
+            settingsModalApi.openSettingsModal({ onClose: target.onClose });
+            activateSettingsTab('api');
+            if (target.providerId) {
+                store.providerCollapseState.set(target.providerId, false);
+                providerSettingsApi.renderProviders();
+            } else if (target.modelId) {
+                store.modelCollapseState.set(target.modelId, false);
+                modelSettingsApi.renderModels();
+            }
+            queueMicrotask(() => {
+                if (settingsModal.classList.contains('hidden')) return;
+                const attribute = target.providerId ? 'data-provider-id' : 'data-model-id';
+                const id = target.providerId || target.modelId;
+                const card = id && [...documentRef.querySelectorAll(`[${attribute}]`)].find(item => item.getAttribute(attribute) === id);
+                const field = card && [...card.querySelectorAll('[data-field]')].find(item => item.dataset.field === target.field && item.type !== 'checkbox');
+                const focus = field || card?.querySelector('.provider-multiselect-trigger, input, select, button') || documentRef.getElementById('btn-add-model');
+                (card || focus)?.scrollIntoView?.({ block: 'center' });
+                focus?.focus?.();
+            });
+        };
         windowRef.__cainflowSettingsModalApi = {
             ...settingsModalApi,
             closeSettingsModal: requestCloseSettings,
@@ -153,6 +176,7 @@ export function createSettingsControllerApi(options) {
     }
 
     return {
+        openModelSettings: target => navigateToModelSettings(target),
         initProxyPanel: proxyNetworkSettingsApi.initProxyPanel,
         checkNetworkConnectivity: proxyNetworkSettingsApi.checkNetworkConnectivity,
         checkNetworkProxyMismatch: proxyNetworkSettingsApi.checkNetworkProxyMismatch,

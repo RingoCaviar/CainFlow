@@ -12,6 +12,14 @@ An operation captures model definitions, provider order/addresses/credentials an
 
 Responses requests use their own URL/body through the existing proxy transport. Automatic URL completion derives `/v1/responses` (or the configured version base); literal endpoints require `responsesEndpoint`. Google uses the existing generateContent search tool. Search-model cumulative usage never calibrates the context ring; the conversation model's actual input usage and the full evidence supplied to it do.
 
+## Configuration recovery and guidance (2026-10-21, prompt-agent#043)
+
+Model normalization retains the explicit `agentSearch` enum and positive integer `autoCompactTokenLimit` during startup and configuration import. An absent search declaration remains absent, preserving the legacy Google default; explicit `none` is never replaced by a default. Configuration ZIP import/export also retains a Provider's independent `responsesEndpoint`.
+
+The model editor labels search declarations as “未启用搜索”, “网页搜索”, and “网页及图片搜索”, exposing only capabilities implemented for the selected compatible format. Changing format retains an incompatible stored declaration as unavailable instead of silently substituting another capability. Declaring a capability does not add server support.
+
+The Agent menu and execution share one availability resolver for each search type. It selects the current conversation model when capable, otherwise only the explicitly chosen dedicated model, and validates the resolved Provider/address without falling back to another model. Menu actions navigate to the precise model field or Provider address; returning from settings refreshes availability and reopens the menu only in the same still-visible workflow conversation. Newly added models remain unselected. Execution continues to capture its immutable configuration before awaiting any response.
+
 ## Durable evidence
 
 Each reply can store a normalized `search` record containing verified search status, query/type, retrieved text, registered source IDs, up to 12 structured image candidates, notices, and Google's suggestion HTML. Only native tool records/grounding metadata establish search status; generated prose and guessed image URLs do not. Replies use `[[source:ID]]` markers checked against registered sources. The renderer creates links from those records, and suggestion HTML is confined to a sandboxed iframe with no scripts or same-origin access.

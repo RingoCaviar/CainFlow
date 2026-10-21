@@ -1,6 +1,9 @@
-import { getAgentSearchCapability, normalizeAgentSearch } from './prompt-agent-search-data.js';
+import { getAgentSearchCapability, getAgentSearchAvailability, normalizeAgentSearch } from './prompt-agent-search-data.js';
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
-export function createAgentSearchMenu({ documentRef, getSettings, setSettings, getModels, onChange, closeModels = () => {} }) {
+export function createAgentSearchMenu({ documentRef, getSettings, setSettings, getModels, getProviders = () => [],
+    getCurrentModel = () => null, configure = () => {}, onChange, closeModels = () => {} }) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     const button = documentRef.getElementById('prompt-agent-search-button');
     const menu = documentRef.getElementById('prompt-agent-search-menu');
     const mode = documentRef.getElementById('prompt-agent-search-mode');
@@ -9,13 +12,15 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
     // The panel is a CSS containment boundary. Portal floating settings just like
     // model options so viewport positioning cannot be clipped by the transcript.
     documentRef.body.appendChild(menu);
-    const close = () => { closeModels(); menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+    const close = () => { surfaces?.forgetPopover('agent-search'); closeModels(); menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
     const position = () => {
         const rect = button.getBoundingClientRect(), view = documentRef.defaultView;
         menu.style.width = `${Math.min(280, view.innerWidth - 16)}px`;
         menu.style.left = `${Math.max(8, Math.min(rect.right - menu.offsetWidth, view.innerWidth - menu.offsetWidth - 8))}px`;
-        menu.style.top = `${Math.max(8, rect.top - menu.offsetHeight - 6)}px`;
-        menu.style.maxHeight = `${Math.max(80, rect.top - 16)}px`;
+        const above = Math.max(0, rect.top - 16), below = Math.max(0, view.innerHeight - rect.bottom - 16);
+        const up = above >= Math.min(320, menu.scrollHeight) || above >= below;
+        menu.style.maxHeight = `${up ? above : below}px`;
+        menu.style.top = `${up ? Math.max(8, rect.top - menu.offsetHeight - 6) : rect.bottom + 6}px`;
     };
     const render = () => {
         const settings = getSettings();
@@ -27,19 +32,42 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
             const option = documentRef.createElement('option');
             option.value = id; option.textContent = text; option.disabled = disabled; select.appendChild(option);
         };
-        add('', '未指定，使用对话模型的搜索能力');
+        add('', '未指定专用搜索模型');
         const models = getModels().filter(item => getAgentSearchCapability(item) !== 'none');
         if (settings.modelId && !models.some(item => item.id === settings.modelId)) add(settings.modelId, '已选搜索模型不可用', true);
         for (const model of models) add(model.id, `${model.name || model.modelId} · ${getAgentSearchCapability(model) === 'images' ? '网页及搜图' : '网页'}`);
         select.value = settings.modelId;
+        select.disabled = settings.mode === 'off';
+        const status = documentRef.getElementById('prompt-agent-search-availability');
+        if (status) {
+            status.replaceChildren();
+            for (const kind of ['web', 'images']) {
+                const availability = getAgentSearchAvailability({ model: getCurrentModel(), models: getModels(), providers: getProviders(), settings, kind });
+                const row = documentRef.createElement('div');
+                const text = documentRef.createElement('p');
+                text.textContent = `${kind === 'web' ? '网页' : '搜图'}：${availability.message}`;
+                row.appendChild(text);
+                if (!availability.available && availability.reason !== 'off') {
+                    const action = documentRef.createElement('button'); action.type = 'button'; action.className = 'btn btn-ghost';
+                    action.textContent = availability.target.providerId ? '配置 Provider 地址' : '配置搜索模型';
+                    action.addEventListener('click', () => configure(availability.target)); row.appendChild(action);
+                }
+                status.appendChild(row);
+            }
+        }
         if (!menu.hidden) position();
     };
+    const open = () => {
+        closeModels(); render(); menu.hidden = false;
+        surfaces?.openPopover('agent-search', { element: menu, trigger: button, close });
+        button.setAttribute('aria-expanded', 'true'); position(); mode.focus();
+    };
     button.addEventListener('click', () => {
-        const opening = menu.hidden;
-        closeModels(); render(); menu.hidden = !opening;
-        button.setAttribute('aria-expanded', String(opening));
-        if (opening) { position(); mode.focus(); }
+        if (menu.hidden) open(); else close();
     });
+    documentRef.getElementById('prompt-agent-search-settings')?.addEventListener('click', () => configure({
+        modelId: getSettings().modelId || undefined, field: 'agentSearch'
+    }));
     for (const element of [mode, select]) element.addEventListener('change', () => {
         setSettings({ mode: mode.value, modelId: select.value }); onChange(); render();
     });
@@ -55,7 +83,7 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
     });
     documentRef.defaultView?.addEventListener('resize', close);
     render();
-    return { close, render };
+    return { close, render, open };
 }
 
 function link(documentRef, source, label) {

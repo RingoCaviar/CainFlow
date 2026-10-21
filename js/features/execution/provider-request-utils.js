@@ -282,7 +282,11 @@ export function normalizeModelConfig(model = {}, index = 0, providers = null) {
         providerIds,
         providerId: providerIds[0] || '',
         taskType: normalizeModelTaskType(model?.taskType, model),
-        protocol: normalizeModelProtocol(model?.protocol, model, provider)
+        protocol: normalizeModelProtocol(model?.protocol, model, provider),
+        ...(['none', 'web', 'images'].includes(model?.agentSearch) ? { agentSearch: model.agentSearch }
+            : model?.agentSearch !== undefined ? { agentSearch: 'none' } : {}),
+        ...(Number.isSafeInteger(model?.autoCompactTokenLimit) && model.autoCompactTokenLimit > 0
+            ? { autoCompactTokenLimit: model.autoCompactTokenLimit } : {})
     };
 }
 

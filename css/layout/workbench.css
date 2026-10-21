@@ -274,6 +274,12 @@ body.sidebar-pinned {
 /* Keep transient overlays clear of active feature chrome before they can obscure controls. */
 body:has(#prompt-agent-panel.active) {
     --toast-right-offset: calc(var(--prompt-agent-width, 720px) + 24px);
+    --floating-notices-width-limit: min(420px, max(0px, calc(100% - var(--prompt-agent-width, 720px) - var(--floating-notices-left-offset) - 24px)));
+}
+
+body:has(#prompt-agent-panel.active) #floating-notices-container {
+    transition: none;
+    overflow: hidden;
 }
 
 body:has(#prompt-agent-panel.active) #toast-container {

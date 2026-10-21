@@ -1,9 +1,12 @@
 /** The image action menu shown inside the history preview modal. */
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 export function createHistoryImageContextMenu({ documentRef = document, windowRef = window } = {}) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     let menu = null;
     let closeHandler = null;
 
     function close() {
+        surfaces?.forgetPopover('history-image');
         if (closeHandler) documentRef.removeEventListener('pointerdown', closeHandler, true);
         closeHandler = null;
         menu?.remove();
@@ -46,6 +49,7 @@ export function createHistoryImageContextMenu({ documentRef = document, windowRe
         });
         menu.appendChild(action);
         documentRef.body.appendChild(menu);
+        surfaces?.openPopover('history-image', { element: menu, trigger: event.target, close });
 
         const rect = menu.getBoundingClientRect();
         menu.style.left = `${Math.max(8, Math.min(event.clientX, windowRef.innerWidth - rect.width - 8))}px`;

@@ -1,0 +1,151 @@
+<!doctype html><html lang="zh-CN" data-app-theme="light"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../index.css"><link rel="stylesheet" href="../../css/prompt-agent.css">
+<link rel="stylesheet" href="../../css/protocol-developer-panel.css">
+<style>#surface-result{display:none} #prompt-agent-panel { position:fixed; top:20px; right:12px; bottom:0 } #test-toolbar{position:fixed;top:0;left:0;z-index:7500} </style>
+</head><body><div id="test-toolbar"></div><div id="canvas-container" style="position:fixed;inset:0"><div id="nodes-layer"></div></div><pre id="surface-result"></pre>
+<script type="module">
+import { createPanelManager } from '../../js/features/ui/panel-manager.js';
+import { getSurfaceCoordinator } from '../../js/features/ui/surface-coordinator.js';
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import { createSettingsControllerApi } from '../../js/features/settings/settings-controller.js';
+import { createSettingsModalApi } from '../../js/features/settings/settings-modal.js';
+import { openDialogStyle1 as showDialog } from '../../js/features/ui/dialog-style-1.js';
+import { createThemeControllerApi } from '../../js/features/ui/theme-controller.js';
+import { createMediaControllerApi } from '../../js/features/media/media-controller.js';
+import { createImagePainterApi } from '../../js/features/media/image-painter.js';
+import { createProtocolDeveloperPanel } from '../../js/features/settings/protocol-developer-panel.js';
+// Deterministic frame scheduling under Chromium's virtual-time budget. The test
+// checks layout/hit targets and lifecycles, not animation timing.
+window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),0);
+window.cancelAnimationFrame=id=>clearTimeout(id);
+const result = {}, check = (ok, message) => { if (!ok) throw new Error(message); };
+const tick = () => new Promise(resolve => setTimeout(resolve, 15));
+const escape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', bubbles:true, cancelable:true }));
+try {
+    const original = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    for (const id of ['prompt-agent-panel','settings-modal','history-sidebar','workflow-sidebar','cache-sidebar','statistics-sidebar','log-drawer','help-panel']) document.body.appendChild(document.importNode(original.getElementById(id), true));
+    for (const id of ['btn-prompt-agent','btn-settings','btn-history','btn-toggle-workflow','btn-toggle-cache','btn-toggle-statistics','btn-logs','btn-help']) {
+        const button = document.createElement('button'); button.id=id; button.textContent=id; document.getElementById('test-toolbar').appendChild(button);
+    }
+    const state = { models:[{id:'chat',name:'普通对话',modelId:'chat',protocol:'openai',taskType:'chat',providerIds:['p']}],
+        providers:[{id:'p',name:'受控 Provider',type:'openai',endpoint:'https://controlled.test/chat',autoComplete:false}], nodes:new Map(), connections:[] };
+    const manager = createPanelManager(document, document.getElementById('canvas-container'));
+    const surfaces = getSurfaceCoordinator(document);
+    for (const id of ['btn-theme-toggle', 'theme-menu']) document.body.appendChild(document.importNode(original.getElementById(id), true));
+    const themeUi = createThemeControllerApi({ state, documentRef:document });themeUi.initTheme();
+    let saves=0, completeReply;
+    const settings = createSettingsControllerApi({ state, settingsModal:document.getElementById('settings-modal'),
+        modelsList:document.getElementById('models-list'),providersList:document.getElementById('providers-list'),
+        documentRef:document,windowRef:window,localStorageRef:localStorage,showToast(){},saveState(){saves++;},addLog(){}, getHandle:async()=>null,
+        diagnosticClient:{}, getActiveWorkflowId:()=> 'w' });
+    const modal = createSettingsModalApi({ settingsModal:document.getElementById('settings-modal'),onOpen:()=>{settings.renderProviders();settings.renderModels();} });
+    settings.initSettingsUI({settingsModalApi:modal,protocolDeveloperPanelApi:{openPanel(){}}});
+    const controller = createPromptAgentController({ documentRef:document,panelManager:manager,getChatModels:()=>state.models,
+        getSearchModels:()=>state.models,getProviders:()=>state.providers,getSelectedModelId:()=> 'chat',getImageModels:()=>[],
+        openModelSettings:target=>settings.openModelSettings(target),getPanelWidth:()=>300,resizeObserverFactory:()=>null,
+        createReply:()=>new Promise(resolve=>completeReply=resolve) });
+    controller.init(); manager.bindCanvasBlankClose();
+    const keys=Object.keys(manager.panels);
+    for (const key of keys) if(key!=='agent') document.getElementById(manager.panels[key].btn).addEventListener('click',()=>manager.toggle(key));
+    const open = key=>key==='agent'?controller.open():manager.toggle(key);
+    result.panelPairs=0;
+    for(const first of keys) for(const second of keys) if(first!==second) {
+        manager.closeAll();open(first);open(second);
+        check(keys.filter(key=>document.getElementById(manager.panels[key].id).classList.contains('active')).join()===second,`${first} -> ${second}`);
+        result.panelPairs++;
+    }
+    manager.closeAll();controller.open();const input=document.getElementById('prompt-agent-input');input.value='保留草稿';
+    manager.toggle('history');controller.open();check(input.value==='保留草稿','draft survives panel switch');
+    const pending=controller.submit();await tick();manager.toggle('logs');completeReply({message:'后台完成'});await pending;controller.open();
+    check(document.getElementById('prompt-agent-messages').textContent.includes('后台完成'),'background request survives panel switch');
+    const searchButton=document.getElementById('prompt-agent-search-button'), searchMenu=document.getElementById('prompt-agent-search-menu');
+    searchButton.click();await tick();check(searchMenu.textContent.includes('请选择支持'),'unavailable search has guidance');
+    const configureBounds=document.getElementById('prompt-agent-search-settings').getBoundingClientRect();
+    const toast=document.createElement('div');toast.id='toast-container';toast.innerHTML='<div class="toast"><span class="toast-message">受控通知</span></div>';
+    toast.style.cssText=`left:${configureBounds.left}px;top:${configureBounds.top}px;right:auto;bottom:auto`;document.body.append(toast);
+    check(document.getElementById('prompt-agent-search-settings').contains(document.elementFromPoint(configureBounds.left+10,configureBounds.top+10)),'notification cannot cover search configuration action');toast.remove();
+    document.getElementById('prompt-agent-search-settings').click();await tick();
+    check(searchMenu.hidden && !document.getElementById('settings-modal').classList.contains('hidden'),'settings replaces transient menu');
+    check(document.activeElement.id==='btn-add-model','empty configuration targets add model');
+    document.getElementById('settings-close').click();await tick();check(!searchMenu.hidden,'return to search menu');
+    const dedicated={...state.models[0],id:'search',name:'专用搜索长名称'.repeat(8),agentSearch:'images'};state.models.push(dedicated);
+    controller.refreshModels();await tick();const select=document.getElementById('prompt-agent-search-model');
+    check(select.value==='','new model is never auto-selected');select.value='search';select.dispatchEvent(new Event('change'));await tick();
+    check(searchMenu.textContent.includes('缺少独立 Responses 地址'),'incomplete provider diagnosed');
+    document.getElementById('prompt-agent-search-availability').querySelector('button').click();await tick();
+    check(document.activeElement.dataset.field==='responsesEndpoint','configuration focuses exact provider field');
+    document.activeElement.value='https://controlled.test/responses';document.activeElement.dispatchEvent(new Event('change',{bubbles:true}));
+    document.getElementById('settings-close').click();await tick();check(!searchMenu.hidden&&searchMenu.textContent.includes('专用模型'),'capability refreshed after configuration');
+    // Keyboard opening a sibling menu closes the reference picker, not its parent panel.
+    searchButton.click();document.getElementById('prompt-agent-add-reference').click();await tick();
+    document.getElementById('prompt-agent-model').nextElementSibling.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));await tick();
+    check(document.getElementById('prompt-agent-reference-picker').hidden,'keyboard menus are exclusive');escape();
+    searchButton.click();await tick();modal.openSettingsModal();await tick();
+    check(searchMenu.hidden,'programmatic modal opening dismisses menu');
+    // A real confirmation is above settings. One Escape must not close the parent.
+    const confirm=showDialog({documentRef:document,id:'surface-confirm',title:'确认',message:'受控确认'});await tick();
+    const dialog=document.getElementById('surface-confirm'), box=dialog.querySelector('.dialog-style-1-panel').getBoundingClientRect();
+    check(dialog.contains(document.elementFromPoint(box.left+12,box.top+12)),'child dialog receives actual pointer hit');
+    const dialogButtons=[...dialog.querySelectorAll('button')];dialogButtons[0].focus();
+    dialogButtons[0].dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true}));
+    check(document.activeElement===dialogButtons.at(-1),'Tab stays in top confirmation');
+    escape();await confirm;await tick();check(!document.getElementById('settings-modal').classList.contains('hidden'),'Escape closes only child');
+    const protocolUi=createProtocolDeveloperPanel({documentRef:document,showToast(){}});
+    await protocolUi.openPanel();await tick();
+    check(surfaces.topModal()?.id==='protocol-developer-panel','protocol editor belongs above settings');
+    escape();await tick();check(document.getElementById('protocol-developer-panel').classList.contains('hidden')&&!document.getElementById('settings-modal').classList.contains('hidden'),'protocol Escape retains settings');
+    escape();await tick();check(document.getElementById('settings-modal').classList.contains('hidden'),'second Escape closes settings');
+    controller.open();const canvas=document.getElementById('canvas-container');
+    const pointer=(type,x)=>canvas.dispatchEvent(new PointerEvent(type,{bubbles:true,button:0,pointerId:1,clientX:x,clientY:10}));
+    pointer('pointerdown',10);pointer('pointermove',30);pointer('pointermove',10);pointer('pointerup',10);canvas.click();
+    check(document.getElementById('prompt-agent-panel').classList.contains('active'),'drag back is not blank close');
+    pointer('pointerdown',10);pointer('pointerup',10);canvas.click();check(!document.getElementById('prompt-agent-panel').classList.contains('active'),'independent blank click closes');
+    controller.open();searchButton.click();await tick();
+    let backgroundClicks=0;const background=document.getElementById('btn-history');background.addEventListener('click',()=>backgroundClicks++);
+    background.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0}));
+    background.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));
+    check(searchMenu.hidden&&backgroundClicks===0,'outside dismissal never clicks a background action');
+    themeUi.openThemeMenu();escape();check(document.getElementById('theme-menu').classList.contains('hidden')&&document.getElementById('prompt-agent-panel').classList.contains('active'),'theme Escape retains main panel');
+    searchButton.click();themeUi.openThemeMenu();check(searchMenu.hidden,'theme and Agent menus are exclusive');themeUi.closeThemeMenu();
+    // Settings-owned Provider popup must stay above and interactive inside the modal.
+    settings.openModelSettings({modelId:'search',field:'agentSearch'});await tick();
+    const searchCard=()=>document.querySelector('[data-model-id="search"]');
+    check([...searchCard().querySelector('[data-field="agentSearch"]').options].map(option=>option.value).join()==='none,web,images','OpenAI configurable abilities');
+    const protocol=searchCard().querySelector('[data-field="protocol"]');protocol.value='google';protocol.dispatchEvent(new Event('change',{bubbles:true}));
+    check([...searchCard().querySelector('[data-field="agentSearch"]').options].filter(option=>!option.disabled).map(option=>option.value).join()==='none,web','Google cannot be configured to search images');
+    check(state.models[1].agentSearch==='images','protocol change does not silently change declared ability');
+    searchCard().querySelector('[data-field="protocol"]').value='openai';searchCard().querySelector('[data-field="protocol"]').dispatchEvent(new Event('change',{bubbles:true}));
+    searchCard().querySelector('.provider-multiselect-trigger').click();await new Promise(resolve=>setTimeout(resolve,50));
+    const providerMenu=document.querySelector('.provider-multiselect-panel');
+    check(providerMenu && !providerMenu.closest('[inert]'),'settings popup is interactive');
+    escape();check(!document.getElementById('settings-modal').classList.contains('hidden'),'Provider popup Escape retains settings');
+    // Shared image preview, crop mode and painter are children of the settings window.
+    const image='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="red"/></svg>');
+    const node={id:'image',type:'ImageImport',imageData:image,data:{images:[image]},imagePreviewIndex:0};state.nodes.set(node.id,node);
+    const painterApi=createImagePainterApi({state,documentRef:document,windowRef:window,dirHandles:{},showToast(){},scheduleSave(){}});
+    const media=createMediaControllerApi({state,documentRef:document,windowRef:window,getNodeById:id=>state.nodes.get(id),
+        openImagePainter:painterApi.openImagePainter,getImageResolution:async()=>({width:40,height:40}),estimateDataUrlSize:()=>100,showToast(){},addLog(){},scheduleSave(){}});
+    await media.openFullscreenPreview(image,node.id);await tick();
+    let preview=document.querySelector('.fullscreen-overlay');
+    check(surfaces.topModal()===preview && !preview.closest('[inert]'),'preview is above settings');
+    preview.querySelector('.fullscreen-crop-btn').click();escape();check(preview.isConnected,'crop Escape retains preview');
+    escape();await tick();check(!preview.isConnected&&!document.getElementById('settings-modal').classList.contains('hidden'),'preview Escape retains settings');
+    await media.openFullscreenPreview(image,node.id);await tick();preview=document.querySelector('.fullscreen-overlay');preview.querySelector('.fullscreen-paint-btn').click();await tick();
+    const painter=document.querySelector('.painter-overlay');check(painter&&surfaces.topModal()===painter,'paint entry opens above settings');escape();await new Promise(resolve=>setTimeout(resolve,350));
+    check(!painter.isConnected&&!document.getElementById('settings-modal').classList.contains('hidden'),'painter Escape retains settings');
+    escape();await tick();
+    controller.open();result.themes=0;
+    for(const theme of ['light','dark','pink','pro','paper','glass-light','glass-dark']) {
+        document.documentElement.dataset.appTheme=theme;searchButton.click();await tick();
+        const bounds=searchMenu.getBoundingClientRect();check(bounds.left>=0&&bounds.right<=innerWidth&&bounds.top>=0&&bounds.bottom<=innerHeight,'menu fits '+theme);
+        check(searchMenu.scrollWidth<=searchMenu.clientWidth,'no horizontal overflow '+theme);
+        check(searchMenu.contains(document.elementFromPoint(bounds.left+5,bounds.top+5)),'menu receives pointer '+theme);
+        select.nextElementSibling.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));await tick();
+        check(!searchMenu.hidden&&document.getElementById('prompt-agent-search-model-menu'),'parent retained for child options');
+        escape();check(!searchMenu.hidden,'child Escape retains search settings');escape();check(searchMenu.hidden,'parent Escape');result.themes++;
+    }
+    state.models.pop();controller.refreshModels();searchButton.click();await tick();check(select.value==='search'&&select.selectedOptions[0].disabled,'deleted model not silently replaced');
+    check(saves>0,'configuration was saved');result.passed=true;
+} catch(error) { result.error=error.stack; }
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

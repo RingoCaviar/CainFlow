@@ -3,6 +3,7 @@
  */
 import { hasRunningEndpoint } from '../media/utils/ui-state-helpers.js';
 import { createNodePicker } from './node-picker.js';
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 
 const IMAGE_CONTEXT_TARGET_SELECTOR = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container, .color-reset-preview, .image-resize-preview, .camera-control-node-preview';
 
@@ -72,6 +73,7 @@ export function createContextMenuControllerApi({
     showToast = null,
     documentRef = document
 }) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     const nodePicker = createNodePicker({ canvasContainer, viewportApi, addNode, showToast, documentRef });
     const referenceImageNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const imageCopyNodeTypes = new Set(['ImageImport', 'ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ColorReset', 'CameraControl']);
@@ -539,6 +541,7 @@ export function createContextMenuControllerApi({
     }
 
     function closeConnectionCreatePopup() {
+        surfaces?.forgetPopover('connection-create');
         state.connectionCreatePopup = null;
         connectionCreatePopup?.classList.add('hidden');
         if (connectionCreatePopup) {
@@ -547,6 +550,7 @@ export function createContextMenuControllerApi({
     }
 
     function closeContextMenu() {
+        surfaces?.forgetPopover('canvas-context');
         contextMenu?.classList.add('hidden');
         closeContextSubmenus();
     }
@@ -558,6 +562,7 @@ export function createContextMenuControllerApi({
     }
 
     function closeContextSubmenus() {
+        surfaces?.forgetPopover('canvas-context-child');
         cancelSubmenuClose();
         getContextSubmenus().forEach((submenu) => submenu.classList.add('hidden'));
         contextMenu?.querySelectorAll('[data-submenu-target]').forEach((trigger) => trigger.classList.remove('is-open'));
@@ -767,6 +772,7 @@ export function createContextMenuControllerApi({
         });
         trigger.classList.add('is-open');
         positionSubmenu(submenu, trigger);
+        surfaces?.openPopover('canvas-context-child', { element: submenu, trigger, parent: 'canvas-context', close: closeContextSubmenus });
     }
 
     function openConnectionCreatePopup(popupState) {
@@ -784,6 +790,8 @@ export function createContextMenuControllerApi({
             `))
         ].join('');
         connectionCreatePopup.classList.remove('hidden');
+        surfaces?.openPopover('connection-create', { element: connectionCreatePopup, trigger: canvasContainer, close: closeConnectionCreatePopup });
+        positionFloatingMenu(connectionCreatePopup, popupState.screenX, popupState.screenY);
     }
 
     function isPointInsideRect(clientX, clientY, rect) {
@@ -840,6 +848,7 @@ export function createContextMenuControllerApi({
         closeContextSubmenus();
 
         positionFloatingMenu(contextMenu, event.clientX, event.clientY);
+        surfaces?.openPopover('canvas-context', { element: contextMenu, trigger: target, close: closeContextMenu });
     }
 
     function initConnectionCreatePopup() {

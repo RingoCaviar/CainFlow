@@ -4,6 +4,7 @@ import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus } from './prompt-agent-model-menu.js';
 import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-ui.js';
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
 
@@ -77,6 +78,9 @@ export function createPromptAgentController({
     nodeAdapter = null,
     executionAdapter = null,
     getChatModels = () => [],
+    getSearchModels = getChatModels,
+    getProviders = () => [],
+    panelManager = null,
     getImageModels = () => [],
     openModelSettings = () => {},
     getSelectedModelId = () => '',
@@ -97,6 +101,7 @@ export function createPromptAgentController({
     referenceSource = null,
     resizeObserverFactory = (callback) => typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null
 } = {}) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     let initialized = false;
     let modelMenus = null;
     let searchMenu = null;
@@ -235,6 +240,7 @@ export function createPromptAgentController({
     }
 
     function closeCommandMenu() {
+        surfaces?.forgetPopover('agent-command');
         commandMenuOpen = false;
         const { commandMenu, input } = getElements();
         if (commandMenu) commandMenu.hidden = true;
@@ -348,6 +354,7 @@ export function createPromptAgentController({
         });
         commandMenuOpen = true;
         commandMenu.hidden = false;
+        surfaces?.openPopover('agent-command', { element: commandMenu, trigger: input, close: closeCommandMenu });
         input.setAttribute('aria-expanded', 'true');
         input.setAttribute('aria-activedescendant', `prompt-agent-command-${commandMatches[commandIndex].name.slice(1)}`);
     }
@@ -627,6 +634,8 @@ export function createPromptAgentController({
         if (!open) { thumbnailObservers.forEach(observer => observer.disconnect()); thumbnailObservers = []; }
         const { referencePicker, addReferenceButton, referencePickerList } = getElements();
         if (referencePicker) referencePicker.hidden = !open;
+        if (open && referencePicker) surfaces?.openPopover('agent-reference', { element: referencePicker, trigger: addReferenceButton, close: () => setReferencePickerOpen(false) });
+        else surfaces?.forgetPopover('agent-reference');
         addReferenceButton?.setAttribute('aria-expanded', String(open));
         if (open) {
             modelMenus?.close();
@@ -779,6 +788,7 @@ export function createPromptAgentController({
     }
 
     function open() {
+        panelManager?.beforeOpen?.('agent');
         // Model settings can finish loading after the controller is initialized.
         // Refresh here so the first request always sees the current chat models.
         renderModelOptions();
@@ -1390,6 +1400,7 @@ export function createPromptAgentController({
 
     function init() {
         if (initialized) return;
+        panelManager?.register?.('agent', { close });
         const { messages, scrollBottomButton } = getElements();
         messages?.addEventListener('scroll', updateScrollBottomButton, { passive: true });
         messages?.addEventListener('load', updateScrollBottomButton, true);
@@ -1533,12 +1544,20 @@ export function createPromptAgentController({
             }
         });
         setOpen(false);
-        searchMenu = createAgentSearchMenu({ documentRef, getModels: getChatModels,
+        searchMenu = createAgentSearchMenu({ documentRef, getModels: getSearchModels, getProviders,
+            getCurrentModel: () => getChatModels().find(model => model.id === getElements().modelSelect?.value),
+            configure: target => {
+                const revision = workflowRevision;
+                searchMenu.close();
+                openModelSettings({ ...target, onClose: () => {
+                    if (revision !== workflowRevision || !getElements().panel?.classList.contains('active')) return;
+                    renderModelOptions(); searchMenu.open();
+                } });
+            },
             getSettings: conversationStore.getSearchSettings, setSettings: conversationStore.setSearchSettings,
             onChange: () => { tokenObservation = null; onStateChange(); }, closeModels: () => modelMenus?.close() });
         const searchModel = documentRef.getElementById('prompt-agent-search-model');
         searchModel?.addEventListener('focus', () => searchMenu.render());
-        documentRef.getElementById('prompt-agent-search-settings')?.addEventListener('click', () => { searchMenu.close(); openModelSettings(); });
         modelMenus = createPromptAgentModelMenus({ documentRef, selects: [modelSelect, getElements().imageModelSelect, searchModel] });
         bindPromptAgentCanvasDismiss({ documentRef, close });
         const { panel } = getElements();

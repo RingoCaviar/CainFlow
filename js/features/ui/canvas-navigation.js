@@ -1,8 +1,10 @@
 import { getNodeDefinition } from '../../nodes/registry.js';
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 
 export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoomToFit, focusNode, scheduleSave, documentRef = document }) {
     const root = documentRef.getElementById('canvas-navigation');
     if (!root) return;
+    const surfaces = getSurfaceCoordinator(documentRef);
     const search = root.querySelector('input');
     const results = root.querySelector('.canvas-node-results');
     const toggle = root.querySelector('[data-nav="search"]');
@@ -13,6 +15,7 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     let resultsSignature = '';
 
     function closeSearch() {
+        surfaces?.forgetPopover('canvas-navigation');
         searchRevision += 1;
         pendingResults = false;
         resultsSignature = '';
@@ -122,6 +125,7 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     toggle.addEventListener('click', () => {
         if (root.classList.contains('search-open')) { closeSearch(); return; }
         root.classList.add('search-open');
+        surfaces?.openPopover('canvas-navigation', { element: root, trigger: toggle, close: closeSearch });
         toggle.setAttribute('aria-expanded', 'true');
         renderResults();
         search.focus();

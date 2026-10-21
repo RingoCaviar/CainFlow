@@ -1,5 +1,6 @@
 import { canUseCanvasShortcuts, isTextEditingTarget } from './shortcut-guard.js';
 import { installUiBoundaryAudit } from './ui-boundary-audit.js';
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 
 export function hasOpenImmersivePreview(documentRef = document) {
     return documentRef.querySelector('.fullscreen-overlay.active') !== null;
@@ -140,6 +141,7 @@ export function createRuntimeControllerApi({
 
     function initKeyboardShortcuts() {
         documentRef.addEventListener('keydown', (e) => {
+            if (getSurfaceCoordinator(documentRef)?.topModal()) return;
             if (documentRef.querySelector('.painter-overlay')) {
                 return;
             }

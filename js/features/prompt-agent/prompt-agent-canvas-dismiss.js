@@ -1,7 +1,7 @@
 export function bindPromptAgentCanvasDismiss({ documentRef, close }) {
     let press = null;
     let ready = false;
-    const blank = target => ['canvas-container', 'nodes-layer', 'connections-layer'].includes(target?.id);
+    const blank = target => ['canvas-container', 'nodes-layer', 'connections-layer', 'connections-svg', 'connections-group', 'origin-axes'].includes(target?.id);
     const move = event => {
         if (press?.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 5) press.dragged = true;
     };

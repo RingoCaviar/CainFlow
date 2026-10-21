@@ -1,6 +1,7 @@
 /**
  * Manages settings-owned floating panels, help overlays, and dialogs.
  */
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 export function createSettingsDialogs({ ctx, store, getDeps }) {
     const {
         state,
@@ -9,6 +10,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         documentRef,
         windowRef
     } = ctx;
+    const surfaces = getSurfaceCoordinator(documentRef);
 
     const {
         modelFetchDialogState,
@@ -34,6 +36,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
     }
 
     function closeFloatingModelProviderPanel({ preserveOpenState = false } = {}) {
+        surfaces?.forgetPopover('settings-providers');
         cleanupFloatingModelProviderPanelListeners();
         if (store.floatingModelProviderPanel) {
             store.floatingModelProviderPanel.remove();
@@ -86,7 +89,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
             ? store.floatingModelProviderPanel.scrollTop
             : 0;
         closeFloatingModelProviderPanel({ preserveOpenState: true });
-        if (!modelId) return;
+        if (!modelId || settingsModal.classList.contains('hidden')) return;
 
         const deps = getDeps();
         const model = state.models.find((candidate) => candidate.id === modelId);
@@ -121,6 +124,8 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         });
         documentRef.body.appendChild(panel);
         store.floatingModelProviderPanel = panel;
+        surfaces?.openPopover('settings-providers', { element: panel, trigger, owner: settingsModal,
+            close: () => closeFloatingModelProviderPanel() });
         syncFloatingModelProviderPanelPosition();
         if (previousScrollTop > 0) {
             const maxScrollTop = Math.max(0, panel.scrollHeight - panel.clientHeight);
@@ -249,6 +254,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
     }
 
     function closeGeneralSettingsHelpPopovers(container) {
+        surfaces?.forgetPopover('settings-help');
         store.activeGeneralSettingsHelpTrigger = null;
         syncGeneralSettingsHelpState(container, null);
         if (!store.generalSettingsHelpOverlay) return;
@@ -270,6 +276,8 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
 
         overlay.classList.remove('hidden');
         overlay.setAttribute('aria-hidden', 'false');
+        surfaces?.openPopover('settings-help', { element: overlay, trigger, owner: settingsModal,
+            close: () => closeGeneralSettingsHelpPopovers(container) });
         store.activeGeneralSettingsHelpTrigger = trigger;
         syncGeneralSettingsHelpState(container, trigger);
         positionGeneralSettingsHelpOverlay(trigger, overlay);

@@ -620,6 +620,10 @@ export function createFullscreenImageCropper({
 
     return {
         cleanup,
+        dismissMenu() {
+            if (!cropRatioMenu || cropRatioMenu.classList.contains('hidden')) return false;
+            closeRatioMenu(); return true;
+        },
         isActive: () => active,
         isSelecting: () => selecting,
         setMode,

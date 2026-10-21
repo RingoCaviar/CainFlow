@@ -1,11 +1,14 @@
 /**
  * Renders the video-only history-card action menu.
  */
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 export function createHistoryVideoContextMenu({ documentRef = document, windowRef = window }) {
+    const surfaces = getSurfaceCoordinator(documentRef);
     let menu = null;
     let closeHandler = null;
 
     function close() {
+        surfaces?.forgetPopover('history-video');
         if (closeHandler) documentRef.removeEventListener('pointerdown', closeHandler, true);
         closeHandler = null;
         menu?.remove();
@@ -47,6 +50,7 @@ export function createHistoryVideoContextMenu({ documentRef = document, windowRe
         });
         menu.appendChild(action);
         documentRef.body.appendChild(menu);
+        surfaces?.openPopover('history-video', { element: menu, trigger: event.target, close });
 
         const rect = menu.getBoundingClientRect();
         const left = Math.max(8, Math.min(event.clientX, windowRef.innerWidth - rect.width - 8));

@@ -1,11 +1,14 @@
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 // Adapt the node select contract (native value + input/change) without node bindings.
 export function createPromptAgentModelMenus({ documentRef, selects }) {
     const windowRef = documentRef.defaultView;
+    const surfaces = getSurfaceCoordinator(documentRef);
     let current = null;
     const close = (restoreFocus = false) => {
         if (!current) return;
         const { trigger, menu } = current;
         current = null;
+        surfaces?.forgetPopover(menu.id);
         menu.remove();
         trigger.setAttribute('aria-expanded', 'false');
         if (restoreFocus) trigger.focus();
@@ -80,6 +83,8 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
             }
             documentRef.body.appendChild(menu);
             current = { select, trigger, menu };
+            surfaces?.openPopover(menu.id, { element: menu, trigger, close,
+                parent: select.id === 'prompt-agent-search-model' ? 'agent-search' : null });
             trigger.setAttribute('aria-expanded', 'true');
             position();
             (menu.querySelector('[aria-selected="true"]:not(:disabled)') || menu.querySelector('button:not(:disabled)'))?.focus();

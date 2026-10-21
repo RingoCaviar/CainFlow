@@ -4,6 +4,7 @@
 import { escapeHistoryHtml, formatHistoryGenerationDuration, formatHistoryVideoSize } from './history-utils.js';
 import { startHistoryDownload } from './history-download.js';
 import { createHistoryImageContextMenu } from './history-image-context-menu.js';
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
 export function createHistoryPreviewApi({
     getHistory,
@@ -443,6 +444,8 @@ export function createHistoryPreviewApi({
     }
 
     function onPreviewKeyDown(e) {
+        const top = getSurfaceCoordinator(documentRef)?.topModal();
+        if (top && top !== documentRef.getElementById('history-preview-modal')) return;
         if (e.key === 'Escape') {
             closeHistoryPreview();
         } else if (e.key === 'ArrowLeft') {

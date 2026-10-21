@@ -1,8 +1,13 @@
 /**
  * 封装设置弹窗的开关与打开前回调，作为设置界面的轻量外层控制器。
  */
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
+
 export function createSettingsModalApi({ settingsModal, onOpen }) {
-    function openSettingsModal() {
+    let returnTo = null;
+    function openSettingsModal(options = {}) {
+        getSurfaceCoordinator(settingsModal.ownerDocument || document)?.closePopovers();
+        returnTo = typeof options.onClose === 'function' ? options.onClose : null;
         document.querySelectorAll('.modal-tab-btn').forEach((button) => {
             button.classList.toggle('active', button.dataset.tab === 'api');
         });
@@ -18,6 +23,9 @@ export function createSettingsModalApi({ settingsModal, onOpen }) {
     function closeSettingsModal(onClose) {
         settingsModal.classList.add('hidden');
         if (onClose) onClose();
+        const callback = returnTo;
+        returnTo = null;
+        if (callback) queueMicrotask(callback);
     }
 
     return {

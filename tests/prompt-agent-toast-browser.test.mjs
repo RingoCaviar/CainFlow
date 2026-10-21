@@ -8,6 +8,8 @@ test('notifications avoid the Agent during width changes and return on close', a
         assert.ok(sample.toastRight <= sample.panelLeft - 8, JSON.stringify(sample));
         assert.ok(sample.toastLeft >= 16, JSON.stringify(sample));
         assert.equal(sample.overflow, false);
+        assert.ok(sample.noticeRight <= sample.panelLeft - 8, JSON.stringify(sample));
+        assert.equal(sample.noticeOverflow, false);
     }
     assert.equal(result.closedRight, result.viewport - 20);
 });

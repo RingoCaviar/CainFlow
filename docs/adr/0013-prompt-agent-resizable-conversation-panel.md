@@ -18,6 +18,16 @@ A primary blank-canvas click closes only the panel presentation. Pointer displac
 
 Agent model triggers adapt the existing node-select structure and native select input/change contract without changing node select code. Body-level themed listboxes avoid panel clipping and support keyboard navigation, viewport-aware placement and dynamic model invalidation. Only one is open at a time; closing the Agent removes its menu. Missing image models remain explicitly unselected or invalid rather than falling back.
 
+## Shared panel and window coordination (2026-10-21, prompt-agent#043)
+
+Agent, history, workflow, cache, statistics, logs and help are mutually exclusive primary panels. The panel manager invokes each feature's existing close lifecycle, preserving conversations, selected items, width preferences and background operations. The sticky 5px blank-click guard also applies to primary-panel dismissal.
+
+Transient model, search, reference, command, theme, canvas and Provider menus register their owner and optional parent with the surface coordinator. Sibling menus are exclusive; children remain with their parent. Outside pointer dismissal consumes that gesture, while the next independent click or keyboard activation remains usable. Closing the owner removes its menus.
+
+Existing modal, confirmation, protocol editor, preview and painter lifecycles retain ownership of their own cleanup. The coordinator orders visible windows above the shared modal layer, masks unrelated content with `inert`, keeps focus inside the top window, and routes Escape to only its top menu/window. Closing returns focus to a still-valid control. Preview Escape first dismisses a ratio/context menu or exits crop mode before closing the preview. Canvas transforms do not trigger window rescans. Ordinary menus use the shared menu layer and Agent uses the drawer layer; menus no longer borrow modal priority.
+
+Ordinary menus sit above transient notifications but below immersive and modal windows. Agent menu surfaces composite the theme's surface color over the canvas color, preventing text from underlying notifications bleeding through glass themes. Both top notices and bottom notifications constrain their width to the space beside the Agent, following deliberate width changes immediately.
+
 ## Original consequences (historical)
 
 - The canvas remains visible while the assistant is used, and users can tune the panel width to their workspace.

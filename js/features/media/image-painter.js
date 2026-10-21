@@ -1,3 +1,4 @@
+import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 /**
  * 提供图片绘制与编辑器能力，负责画布绘制、结果回写与图片覆盖保存。
  */
@@ -477,6 +478,8 @@ export function createImagePainterApi({
         });
 
         function onKey(e) {
+            const top = getSurfaceCoordinator(documentRef)?.topModal();
+            if (top && top !== overlay) return;
             if (e.key === 'Escape' && !saving) cleanup();
             if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
@@ -498,6 +501,7 @@ export function createImagePainterApi({
         }
 
         documentRef.addEventListener('keydown', onKey);
+        getSurfaceCoordinator(documentRef)?.registerEscape(overlay, onKey);
         requestAnimationFrameRef(() => overlay.classList.add('active'));
     }
 
