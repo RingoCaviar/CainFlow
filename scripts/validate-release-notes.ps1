@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+& (Join-Path $PSScriptRoot 'validate-release-version.ps1') -TagName $TagName
+
 if ($TagName -notmatch '^[A-Za-z0-9._-]+$') {
   throw "Invalid release tag: $TagName"
 }
