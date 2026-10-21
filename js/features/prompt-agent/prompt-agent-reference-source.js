@@ -1,6 +1,6 @@
 import { latestResultRun } from './prompt-agent-result-order.js';
 
-export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode, loadImageData, scheduleSave = () => {} }) {
+export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode, loadImageData, readWebImage, scheduleSave = () => {} }) {
     const assetKey = node => node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
     const reusable = (node, id) => node?.type === 'ImageImport' && node.importMode !== 'url'
         && node.agentReferenceSource?.historyId === String(id)
@@ -29,7 +29,9 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
             const result = await nodeAdapter.readSceneReferenceImage(scene);
             return isCurrent() ? result : null;
         }
-        const image = candidate.resolvedImage || await (candidate.historyId ? readHistory(candidate) : read());
+        const image = candidate.resolvedImage || await (candidate.webImage
+            ? readWebImage(candidate.webImage.imageUrl).then(dataUrl => ({ name: candidate.name, dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';')) }))
+            : candidate.historyId ? readHistory(candidate) : read());
         if (!isCurrent()) return null;
         candidate.resolvedImage = image;
         if (!image?.dataUrl?.startsWith('data:image/')) throw new Error('无法读取图片。');
@@ -51,7 +53,8 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         if (!isCurrent()) return null;
         if (!saved) throw new Error('图片保存失败，点击重试。');
         candidate.savedAssetKey = assetKey(node);
-        if (candidate.historyId) node.agentReferenceSource = { historyId: String(candidate.historyId), assetKey: assetKey(node) };
+        if (candidate.historyId) node.agentReferenceSource = { historyId: String(candidate.historyId), assetKey: assetKey(node),
+            ...(candidate.webImage ? { web: { ...candidate.webImage } } : {}) };
         scheduleSave();
         const scene = nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node.id);
         if (!scene) throw new Error('导入节点尚未就绪，请重试。');

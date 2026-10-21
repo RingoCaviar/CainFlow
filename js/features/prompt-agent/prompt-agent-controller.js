@@ -4,6 +4,7 @@ import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus } from './prompt-agent-model-menu.js';
 import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
+import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-ui.js';
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
 
 const COMMANDS = [
@@ -71,6 +72,8 @@ export function createPromptAgentController({
     documentRef = document,
     createReply = async (request) => buildDefaultReply(request),
     createCompaction = async () => { throw new Error('上下文压缩服务尚未配置。'); },
+    captureRequestConfig = () => null,
+    readWebImage = async () => { throw new Error('网络图片服务未配置。'); },
     nodeAdapter = null,
     executionAdapter = null,
     getChatModels = () => [],
@@ -96,6 +99,9 @@ export function createPromptAgentController({
 } = {}) {
     let initialized = false;
     let modelMenus = null;
+    let searchMenu = null;
+    let searchViewRevision = 0;
+    let searchViewCleanups = [];
     let panelWidthController = null;
     let resizeObserver = null;
     let scrollToLatestOnOpen = false;
@@ -158,6 +164,7 @@ export function createPromptAgentController({
     }
 
     function renderModelOptions() {
+        searchMenu?.render();
         renderImageModelOptions();
         const { input, modelSelect, modelHint, sendButton } = getElements();
         const models = getChatModels().filter((model) => model?.id && model?.modelId);
@@ -241,6 +248,7 @@ export function createPromptAgentController({
         const conversation = conversationStore.getCompactionContext();
         const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
         const measurement = measurePromptAgentContext({ model, message, conversation,
+            searchAllowed: conversationStore.getSearchSettings().mode !== 'off',
             context: nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
             referenceImages: pendingReferenceImages.filter(image => !image.loading && !image.error),
             workflowReferenceImages: uniqueReferenceImages([
@@ -265,7 +273,7 @@ export function createPromptAgentController({
         operation.kind = 'compact';
         setCommandStatus('已达到 Token 阈值，正在自动压缩上下文…');
         try {
-            const result = await createCompaction({ conversation, modelId, signal: operation.controller.signal });
+            const result = await createCompaction({ conversation, modelId, config: operation.config, signal: operation.controller.signal });
             if (!isCurrentOperation(operation)) return false;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重试');
             conversationStore.compact(result?.summary);
@@ -375,7 +383,7 @@ export function createPromptAgentController({
         finishOperation(operation);
         if (silent) return;
         if (operation.kind === 'compact') setCommandStatus('已取消压缩，原上下文已保留。');
-        else appendMessage('agent', '已取消本次 Agent 请求。');
+        else { setCommandStatus(); appendMessage('agent', '已取消本次 Agent 请求。'); }
     }
 
     async function executeCommand(name) {
@@ -439,10 +447,11 @@ export function createPromptAgentController({
         const modelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
         if (input) input.value = '';
         const operation = beginOperation('compact');
+        operation.config = captureRequestConfig(modelId);
         const revision = conversationRevision;
         setCommandStatus('正在压缩上下文，整理目标、约束与最新方案…');
         try {
-            const result = await createCompaction({ conversation, modelId, signal: operation.controller.signal });
+            const result = await createCompaction({ conversation, modelId, config: operation.config, signal: operation.controller.signal });
             if (!isCurrentOperation(operation)) return;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重新压缩');
             conversationStore.compact(result?.summary);
@@ -748,6 +757,7 @@ export function createPromptAgentController({
         button?.classList.toggle('active', open);
         button?.setAttribute('aria-expanded', open ? 'true' : 'false');
         if (!open) {
+            searchMenu?.close();
             modelMenus?.close();
             setReferencePickerOpen(false);
             closeCommandMenu();
@@ -785,7 +795,7 @@ export function createPromptAgentController({
         else open();
     }
 
-    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, referenceImages = [], intent } = {}) {
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, referenceImages = [], intent, search } = {}) {
         const { messages } = getElements();
         if (!messages) return null;
         const followLatest = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
@@ -816,6 +826,16 @@ export function createPromptAgentController({
         body.className = 'prompt-agent-message-body';
         body.textContent = text;
         message.appendChild(body);
+        if (search) {
+            const revision = workflowRevision, viewRevision = searchViewRevision;
+            const isCurrent = () => revision === workflowRevision && viewRevision === searchViewRevision;
+            isCurrent.onCleanup = cleanup => searchViewCleanups.push(cleanup);
+            renderAgentSearch({ documentRef, container: message, body, text, search, isCurrent, readImage: readWebImage,
+                preview: openResultPreview, importImage: image => toggleImportedReference({
+                    referenceId: `web:${image.imageUrl}`, historyId: `web:${image.imageUrl}`, name: image.title,
+                    webImage: image
+                }, { toggle: false }) });
+        }
         if (referenceImages.length) {
             const references = documentRef.createElement('div');
             references.className = 'prompt-agent-message-references';
@@ -826,7 +846,7 @@ export function createPromptAgentController({
         if (followLatest) messages.scrollTop = messages.scrollHeight;
         updateScrollBottomButton();
         if (record) {
-            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, referenceImages, intent });
+            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, referenceImages, intent, search });
             conversationRevision += 1;
             onStateChange();
             if (commandMenuOpen) renderCommandMenu();
@@ -1275,6 +1295,9 @@ export function createPromptAgentController({
         const operation = beginOperation('reply');
         const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
         operation.model = { ...models.find(model => model.id === replyModelId) };
+        operation.config = captureRequestConfig(replyModelId);
+        operation.searchSettings = conversationStore.getSearchSettings();
+        let completedSearch = null;
         try {
             if (compressionProgress(text, operation.model).reached && !await autoCompact(operation, replyModelId, text)) return;
             if (!isCurrentOperation(operation)) return;
@@ -1318,9 +1341,13 @@ export function createPromptAgentController({
                 referenceImages,
                 workflowReferenceImages,
                 modelId: replyModelId,
+                config: operation.config,
+                searchSettings: operation.searchSettings,
+                onSearchStatus: status => { if (isCurrentOperation(operation)) setCommandStatus(status); },
                 signal: operation.controller.signal
             });
             if (!isCurrentOperation(operation)) return;
+            completedSearch = reply?.search || null;
             if (Array.isArray(reply?.promptPlan?.referenceImages)) {
                 const selected = reply.promptPlan.referenceImages;
                 const preparingNodes = new Set(selected.map(image => image.sourceNodeId).filter(Boolean));
@@ -1339,14 +1366,16 @@ export function createPromptAgentController({
             }
             tokenObservation = reply?.tokenObservation || null;
             const agentMessage = appendMessage('agent', reply?.message || '已整理本轮回复。', reply?.workSummary || [], {
-                promptPlan: reply?.promptPlan || null, intent: reply?.intent
+                promptPlan: reply?.promptPlan || null, intent: reply?.intent, search: reply?.search
             });
             appendPromptPlan(agentMessage, reply?.promptPlan);
+            setCommandStatus();
             await autoCompact(operation, replyModelId);
 
         } catch (error) {
             if (!isCurrentOperation(operation)) return;
-            appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。');
+            setCommandStatus();
+            appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。', [], { search: completedSearch });
         } finally {
             finishOperation(operation);
         }
@@ -1504,7 +1533,13 @@ export function createPromptAgentController({
             }
         });
         setOpen(false);
-        modelMenus = createPromptAgentModelMenus({ documentRef, selects: [modelSelect, getElements().imageModelSelect] });
+        searchMenu = createAgentSearchMenu({ documentRef, getModels: getChatModels,
+            getSettings: conversationStore.getSearchSettings, setSettings: conversationStore.setSearchSettings,
+            onChange: () => { tokenObservation = null; onStateChange(); }, closeModels: () => modelMenus?.close() });
+        const searchModel = documentRef.getElementById('prompt-agent-search-model');
+        searchModel?.addEventListener('focus', () => searchMenu.render());
+        documentRef.getElementById('prompt-agent-search-settings')?.addEventListener('click', () => { searchMenu.close(); openModelSettings(); });
+        modelMenus = createPromptAgentModelMenus({ documentRef, selects: [modelSelect, getElements().imageModelSelect, searchModel] });
         bindPromptAgentCanvasDismiss({ documentRef, close });
         const { panel } = getElements();
         ensurePanelWidth();
@@ -1517,6 +1552,8 @@ export function createPromptAgentController({
     }
 
     function renderConversation() {
+        searchViewRevision += 1;
+        searchViewCleanups.forEach(cleanup => cleanup()); searchViewCleanups = [];
         const { messages } = getElements();
         if (!messages) return;
         promptPlanActionStates.clear();
@@ -1535,6 +1572,7 @@ export function createPromptAgentController({
         transcript.forEach((item, index) => {
             const message = appendMessage(item.role, item.text, item.workSummary || [], {
                 record: false,
+                search: item.search,
                 referenceImages: item.referenceImages || []
             });
             if (message) message.promptAgentMessageIndex = index;

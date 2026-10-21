@@ -89,6 +89,7 @@ import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentResultPersistence } from '../features/prompt-agent/prompt-agent-result-persistence.js';
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
+import { createAgentWebImageReader } from '../features/prompt-agent/prompt-agent-web-image.js';
 import { createPromptAgentCompaction } from '../features/prompt-agent/prompt-agent-compaction.js';
 import { getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
@@ -944,10 +945,17 @@ const setPromptAgentModelId = (value) => {
 const promptAgentResultPersistence = createPromptAgentResultPersistence({
     saveWorkflowNodeMediaAssets, releaseWorkflowNodeMediaAssets, cancelWorkflowNodeMediaOperation, getImageAsset
 });
+const readAgentWebImage = createAgentWebImageReader();
+const captureAgentRequestConfig = (modelId) => {
+    const models = getAvailablePromptAgentModels(state.models || [], state.providers || []);
+    return JSON.parse(JSON.stringify({ models, model: models.find(item => item.id === modelId), providers: state.providers || [] }));
+};
 const promptAgentController = createPromptAgentController({
     documentRef: document,
+    captureRequestConfig: captureAgentRequestConfig,
+    readWebImage: readAgentWebImage,
     referenceSource: createPromptAgentReferenceSource({
-        state, nodeAdapter: promptAgentNodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset,
+        state, nodeAdapter: promptAgentNodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, readWebImage: readAgentWebImage,
         scheduleSave, loadImageData: (id, data) => mediaControllerApi.loadImageData(id, data),
         createImportNode: ({ name, slot }) => {
             const rect = canvasContainer.getBoundingClientRect();
@@ -985,27 +993,22 @@ const promptAgentController = createPromptAgentController({
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
     createReply: (request) => {
-        const chatModels = getAvailablePromptAgentModels(state.models || [], state.providers || []);
-        const model = chatModels.find((item) => item.id === request.modelId) || chatModels[0];
-        const provider = getResolvedProviderForModel(model, state.providers || []);
+        const { model, models, providers } = request.config || captureAgentRequestConfig(request.modelId);
         return createPromptAgentModelReply({
             ...request,
-            model,
-            providers: state.providers || [],
-            getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', model?.protocol === 'openai'
-                ? { Authorization: `Bearer ${provider?.apikey || ''}` } : {})
+            model, models, providers,
+            getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', plan.model?.protocol === 'openai'
+                ? { Authorization: `Bearer ${plan.provider?.apikey || ''}` } : {})
         });
     },
     createCompaction: (request) => {
-        const chatModels = getAvailablePromptAgentModels(state.models || [], state.providers || []);
-        const model = chatModels.find((item) => item.id === request.modelId) || chatModels[0];
-        const provider = getResolvedProviderForModel(model, state.providers || []);
+        const { model, providers } = request.config || captureAgentRequestConfig(request.modelId);
         return createPromptAgentCompaction({
             ...request,
             model,
-            providers: state.providers || [],
-            getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', model?.protocol === 'openai'
-                ? { Authorization: `Bearer ${provider?.apikey || ''}` } : {})
+            providers,
+            getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', plan.model?.protocol === 'openai'
+                ? { Authorization: `Bearer ${plan.provider?.apikey || ''}` } : {})
         });
     },
     onStateChange: () => {

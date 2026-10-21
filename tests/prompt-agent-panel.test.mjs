@@ -4,9 +4,45 @@ import test from 'node:test';
 import { createPromptAgentController } from '../js/features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import { measurePromptAgentContext } from '../js/features/prompt-agent/prompt-agent-token-budget.js';
+import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
 
 const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test' };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
+
+test('cancel, clear and workflow activation discard late native search without synthesizing or restoring sources', async () => {
+    for (const action of ['cancel', 'clear', 'restore']) {
+        let completeSearch, requests = 0;
+        const { controller, elements } = createHarness(request => createPromptAgentModelReply({ ...request,
+            model: { id: 'chat', modelId: 'chat', protocol: 'openai', providerIds: ['p'], agentSearch: 'images' },
+            providers: [{ id: 'p', endpoint: 'https://controlled.test' }],
+            fetchRef: async () => { requests++; return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ searchRequest: { kind: 'web', query: 'facts' } }) } }] })); },
+            searchRef: () => new Promise(resolve => { completeSearch = resolve; })
+        }));
+        enterText(elements, '查证最新资料');
+        const sending = controller.submit();
+        for (let tick = 0; !completeSearch && tick < 30; tick++) await new Promise(resolve => setImmediate(resolve));
+        assert.equal(typeof completeSearch, 'function');
+        if (action === 'cancel') controller.cancelRequest();
+        if (action === 'clear') { enterText(elements, '/clear'); await controller.submit(); }
+        if (action === 'restore') controller.restoreWorkflow({ searchSettings: { mode: 'off', modelId: 'other' }, messages: [{ role: 'user', text: '另一个工作流' }] });
+        completeSearch({ searched: true, text: 'late evidence', sources: [{ id: 'late', url: 'https://source.test', title: 'Late' }] });
+        await sending;
+        assert.equal(requests, 1, 'late search cannot start synthesis');
+        assert.doesNotMatch(JSON.stringify(controller.snapshotWorkflow()), /late evidence|source.test/);
+        assert.doesNotMatch(elements['prompt-agent-command-status'].textContent, /正在/);
+        if (action === 'restore') assert.deepEqual(controller.snapshotWorkflow().searchSettings, { mode: 'off', modelId: 'other' });
+    }
+});
+
+test('a failed search clears its transient progress while keeping the visible error', async () => {
+    const { controller, elements } = createHarness(async request => {
+        request.onSearchStatus('正在搜索图片…');
+        throw new Error('搜索接口暂不可用');
+    });
+    enterText(elements, '搜索图片'); await controller.submit();
+    assert.equal(elements['prompt-agent-command-status'].hidden, true);
+    assert.match(controller.snapshotWorkflow().messages.at(-1).text, /接口暂不可用/);
+});
 
 test('late latest-result reads cannot submit into a restored or cleared conversation', async () => {
     for (const action of ['restore', 'clear']) {

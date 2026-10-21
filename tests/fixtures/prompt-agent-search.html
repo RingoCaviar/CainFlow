@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/themes.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css">
+<style>body { background: var(--bg-canvas); padding: 20px; } #prompt-agent-panel { position: relative; inset: auto; height: 780px; } #surface-result { display: none; }</style></head>
+<body><button id="btn-prompt-agent">Agent</button><pre id="surface-result"></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentModelReply } from '../../js/features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentReferenceSource } from '../../js/features/prompt-agent/prompt-agent-reference-source.js';
+import { createMediaControllerApi } from '../../js/features/media/media-controller.js';
+import { createAgentWebImageReader } from '../../js/features/prompt-agent/prompt-agent-web-image.js';
+const result = {};
+const check = (ok, message) => { if (!ok) throw new Error(message); };
+const tick = () => new Promise(resolve => setTimeout(resolve, 20));
+const until = async predicate => { for (let i = 0; i < 40 && !predicate(); i++) await tick(); };
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    const sample = document.createElement('canvas'); sample.width = 96; sample.height = 64;
+    const paint = sample.getContext('2d'); paint.fillStyle = '#407fd4'; paint.fillRect(0, 0, 96, 64); paint.fillStyle = '#fee4a2'; paint.fillRect(24, 18, 48, 28);
+    const pixels = sample.toDataURL('image/png');
+    const blob = await (await fetch(pixels)).blob();
+    const readWebImage = createAgentWebImageReader({ fetchRef: async (url, init) => {
+        check(url === '/api/media/search-image' && init.method === 'POST', 'pixels use the restricted reader');
+        check(!init.headers.Authorization && !init.headers.Cookie, 'no provider credentials on image reads');
+        return new Response(blob);
+    } });
+    const abort = new AbortController(); abort.abort();
+    await readWebImage('https://images.test/cancel.png', { signal: abort.signal }).then(() => check(false, 'cancel must reject'), error => check(error.name === 'AbortError', 'cancelled read'));
+    for (const invalid of [new Blob(['<html>fake</html>'], {type:'text/html'}), new Blob(['fake pixels'], {type:'image/png'})]) {
+        await createAgentWebImageReader({ fetchRef: async () => new Response(invalid) })('https://images.test/invalid').then(() => check(false, 'bad content must reject'), () => {});
+    }
+    const chat = { id: 'chat', name: '普通对话模型', modelId: 'chat', protocol: 'openai', providerIds: ['p'] };
+    const dedicated = { ...chat, id: 'search', name: '支持网页及图片搜索的专用模型长名称', agentSearch: 'images' };
+    let models = [chat, dedicated];
+    const state = { nodes: new Map(), selectedNodes: new Set() };
+    let creates = 0, searches = 0, requestCount = 0;
+    const nodeAdapter = {
+        getSelectedContext: () => null,
+        getSceneReferenceImages: () => [...state.nodes.values()].map(node => ({ referenceId: `node:${node.id}`, sourceNodeId: node.id, name: node.name, dataUrl: pixels })),
+        readSceneReferenceImage: async ref => ({ ...ref, dataUrl: pixels })
+    };
+    const source = createPromptAgentReferenceSource({ state, nodeAdapter, readWebImage,
+        createImportNode: ({name}) => { const id = `import-${++creates}`; state.nodes.set(id, { id, name, type: 'ImageImport' }); return id; },
+        loadImageData: async id => { state.nodes.get(id).imageImportAssetKey = 'media:local'; return true; }
+    });
+    const media = createMediaControllerApi({ state, getNodeById: id => state.nodes.get(id), getImageResolution: async () => ({width:1,height:1}), estimateDataUrlSize: () => 100,
+        showToast() {}, addLog() {}, scheduleSave() {}, documentRef: document, windowRef: window });
+    const controller = createPromptAgentController({ getChatModels: () => models, getImageModels: () => [], nodeAdapter, referenceSource: source, resizeObserverFactory: () => null, getPanelWidth: () => 300,
+        getSelectedModelId: () => 'chat', readWebImage,
+        openResultPreview: (images, index) => media.openFullscreenPreview(images[index], null, { images, index }),
+        createReply: request => createPromptAgentModelReply({ ...request, model: chat, models: [chat, dedicated], providers: [{id:'p',endpoint:'https://controlled.test/v1'}],
+            searchRef: async ({model}) => { searches++; check(model.id === 'search', 'uses selected dedicated model'); return {
+                searched: true, kind: 'images', query: '海报参考', text: '检索资料', sources: [{ id: 's1', url: 'https://source.test/page', title: '图片来源' }],
+                images: [{id:'image1',imageUrl:'https://image.test/full.png',thumbnailUrl:'https://image.test/thumb.png',pageUrl:'https://source.test/page',title:'用于海报的参考图'}],
+                suggestionsHtml: '<script>parent.__unsafeSearchHtml = true;<\/script><b>搜索建议</b>'
+            }; },
+            fetchRef: async (_, init) => {
+                requestCount++;
+                const content = JSON.parse(init.body).messages.at(-1).content;
+                const input = JSON.parse(Array.isArray(content) ? content.find(part => part.type === 'text').text : content);
+                const payload = requestCount === 1 ? { searchRequest: { kind:'images',query:'海报参考' } }
+                    : requestCount === 2 ? { intent:'chat',message:'找到了可供选择的参考图。[[source:s1]]' }
+                    : { intent:'generate',message:'使用选中的本地参考图。',promptPlan:{prompt:'保持参考图配色的海报',imageRoles:[{imageId:input.images[0].imageId,role:'reference'}]} };
+                if (requestCount === 3) check(input.images[0].visionAvailable && JSON.stringify(init.body).includes('iVBOR'), 'imported original enters next request');
+                return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(payload)}}]}));
+            }
+        })
+    });
+    controller.init(); controller.restoreWorkflow({searchSettings:{mode:'auto',modelId:'search'}}); controller.open();
+    const panel = document.getElementById('prompt-agent-panel'), input = document.getElementById('prompt-agent-input');
+    input.value = '搜索海报参考图'; await controller.submit(); await tick();
+    check(creates === 0 && searches === 1, 'search does not import');
+    check(document.querySelector('.prompt-agent-message-body a').href === 'https://source.test/page', 'verified inline source is clickable');
+    check(!window.__unsafeSearchHtml, 'provider HTML must stay isolated');
+    const card = document.querySelector('.prompt-agent-search-image');
+    card.querySelector('button').click(); await until(() => document.querySelector('.fullscreen-overlay'));
+    check(Boolean(document.querySelector('.fullscreen-overlay')), 'uses shared fullscreen viewer: ' + document.querySelector('.prompt-agent-search-status').textContent);
+    check(creates === 0, 'preview does not import');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape' }));
+    card.querySelectorAll('button')[1].click(); await until(() => creates === 1 && !card.querySelectorAll('button')[1].disabled);
+    check(creates === 1 && document.querySelectorAll('#prompt-agent-references img').length === 1, 'one node and one staged reference');
+    card.querySelectorAll('button')[1].click(); await tick(); check(creates === 1, 'duplicate selection reuses');
+    input.value = '使用这张参考图做海报'; await controller.submit();
+    check(controller.snapshotWorkflow().messages.at(-1).promptPlan?.referenceImages[0]?.sourceNodeId === 'import-1', 'plan uses local import: ' + JSON.stringify({last:controller.snapshotWorkflow().messages.at(-1),requestCount,status:document.getElementById('prompt-agent-command-status').textContent}));
+    const saved = JSON.parse(JSON.stringify(controller.snapshotWorkflow()));
+    controller.restoreWorkflow(saved); controller.open(); await tick();
+    check(document.querySelector('.prompt-agent-search-image a').href === 'https://source.test/page', 'sources restore');
+    result.samples = [];
+    for (const theme of ['light','dark','pink']) for (const width of [300,612]) {
+        document.documentElement.dataset.appTheme = theme; panel.style.width = `${width}px`;
+        const button = document.getElementById('prompt-agent-search-button'); button.click(); await tick();
+        const menu = document.getElementById('prompt-agent-search-menu'); const box = menu.getBoundingClientRect();
+        check(!menu.hidden && box.left >= 0 && box.right <= innerWidth, `menu fits ${theme}/${width}`);
+        check(Math.abs(panel.getBoundingClientRect().width - width) <= 2, 'check the requested width');
+        check(box.bottom <= button.getBoundingClientRect().top && box.top >= 0, 'menu opens above the trigger in viewport space');
+        check(panel.scrollWidth <= panel.clientWidth, `panel fits ${theme}/${width}`);
+        check(menu.scrollWidth <= menu.clientWidth, `settings fit ${theme}/${width}`);
+        const trigger = document.getElementById('prompt-agent-search-model').parentElement.querySelector('button');
+        trigger.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown',bubbles:true}));
+        const options = document.getElementById('prompt-agent-search-model-menu'); check(options, 'search model menu opens by keyboard');
+        const option = options.querySelector('[aria-selected="true"]'); const rect = option.getBoundingClientRect();
+        check(option.contains(document.elementFromPoint(rect.left + 8, rect.top + 8)), 'search model options are not covered by settings');
+        options.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true})); check(!document.getElementById('prompt-agent-search-model-menu'), 'Escape closes options only');
+        check(!menu.hidden, 'settings remain open after closing options');
+        menu.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true})); check(menu.hidden, 'Escape closes menu');
+        result.samples.push({theme,width});
+    }
+    models = [chat]; controller.refreshModels(); await tick();
+    check(document.getElementById('prompt-agent-search-model').value === 'search' && document.getElementById('prompt-agent-search-model').selectedOptions[0].disabled, 'deleted dedicated model remains selected and unavailable');
+    models = [chat, dedicated]; controller.refreshModels(); await tick();
+    document.getElementById('prompt-agent-search-button').click();
+    const mode = document.getElementById('prompt-agent-search-mode'); mode.value = 'off'; mode.dispatchEvent(new Event('change'));
+    check(controller.snapshotWorkflow().searchSettings.mode === 'off', 'mode persists');
+    input.value = '/clear'; await controller.submit();
+    check(controller.snapshotWorkflow().searchSettings.modelId === 'search', 'clear preserves dedicated selection');
+    check(!document.querySelector('.prompt-agent-search-image'), 'clear erases search cards');
+    controller.restoreWorkflow(saved); controller.open(); panel.style.width = '300px'; await tick();
+    document.getElementById('prompt-agent-search-button').click(); await tick();
+    result.passed = true;
+} catch(error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

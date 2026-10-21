@@ -231,6 +231,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                             </form>
                         </div>
                         <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
+                        <div class="card-field"><label>独立 Responses 地址（关闭自动补全时用于 Agent 搜索）</label><input type="text" value="${String(prov.responsesEndpoint || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" placeholder="https://…/v1/responses" data-id="${prov.id}" data-field="responsesEndpoint" /></div>
                     </div>
                     <div class="provider-toggle-row">
                         <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;word-break:break-all;line-height:1.4;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
@@ -277,6 +278,11 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                 if (field === 'autoComplete') {
                     prov.autoComplete = event.target.checked;
                     updatePreview(id);
+                } else if (field === 'responsesEndpoint') {
+                    const value = event.target.value.trim();
+                    const validation = value ? validateProviderEndpoint(value) : { valid: true, sanitized: '' };
+                    if (!validation.valid) { event.target.value = prov.responsesEndpoint || ''; showToast(validation.message, 'warning'); return; }
+                    prov.responsesEndpoint = validation.sanitized;
                 } else if (field === 'endpoint') {
                     const validation = validateProviderEndpoint(event.target.value);
                     if (!validation.valid) {

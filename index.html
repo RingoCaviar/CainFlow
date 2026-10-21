@@ -388,6 +388,12 @@
                 <p id="prompt-agent-image-model-hint" class="prompt-agent-model-hint" aria-live="polite"><span id="prompt-agent-image-model-status">请选择生图模型后再应用或生成。</span><button id="prompt-agent-add-image-model" type="button" hidden>点击添加生图模型</button></p>
                 <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden>暂无可用模型，<button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
                 <form id="prompt-agent-form" class="prompt-agent-composer">
+                    <section id="prompt-agent-search-menu" class="prompt-agent-search-menu" role="dialog" aria-label="Agent 联网设置" hidden>
+                        <label>联网方式<select id="prompt-agent-search-mode" aria-label="Agent 联网方式"><option value="auto">自动判断</option><option value="off">关闭</option></select></label>
+                        <label class="prompt-agent-model-label"><span>专用搜索</span><select id="prompt-agent-search-model" aria-label="Agent 专用搜索模型"></select></label>
+                        <p>对话模型不支持时使用专用模型。搜索能力可在模型设置中配置。</p>
+                        <button id="prompt-agent-search-settings" class="btn btn-ghost" type="button">配置模型</button>
+                    </section>
                     <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
                     <p id="prompt-agent-reference-error" class="prompt-agent-reference-error" role="status" hidden></p>
                     <p id="prompt-agent-command-status" class="prompt-agent-command-status" role="status" aria-live="polite" hidden></p>
@@ -414,6 +420,7 @@
                         <button id="prompt-agent-reference-more" type="button" hidden>加载更多</button>
                     </section>
                     <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加参考图" title="从场景、历史或本地添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+                    <button id="prompt-agent-search-button" class="btn btn-ghost" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prompt-agent-search-menu">联网</button>
                     <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
                     <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
                     <button id="prompt-agent-cancel" class="btn btn-secondary" type="button" hidden>停止请求</button>

@@ -29,6 +29,25 @@ function compact(options = {}) {
     });
 }
 
+test('compaction preserves conclusions with registered source IDs and keeps unrelated archive evidence out', async () => {
+    const source = { id: 'source-one', url: 'https://source.test/article', title: '已核实资料' };
+    let records;
+    const result = await compact({ conversation: {
+        contextSummary: '此前结论 [[source:source-one]]',
+        archivedMessages: [{ role: 'agent', text: 'ARCHIVED_RAW', search: { searched: true, text: 'ARCHIVED_EVIDENCE', sources: [source] } }],
+        messages: [{ role: 'agent', text: '新结论', search: { searched: true, text: 'NEW_EVIDENCE', sources: [source] } }]
+    }, fetchRef: async (_, init) => {
+        const body = JSON.parse(init.body);
+        assert.match(body.messages[0].content, /保留对应的 \[\[source:ID\]\]/);
+        records = requestInput(body).records;
+        return response(JSON.stringify({ summary: '合并结论 [[source:source-one]]' }));
+    } });
+    assert.equal(result.summary, '合并结论 [[source:source-one]]');
+    assert.match(JSON.stringify(records), /NEW_EVIDENCE|summary-sources/);
+    assert.equal(records.find(record => record.kind === 'summary-sources').text, JSON.stringify([source]));
+    assert.doesNotMatch(JSON.stringify(records), /ARCHIVED_RAW|ARCHIVED_EVIDENCE/);
+});
+
 test('compaction summarizes only effective context and numbered image metadata without sending pixels or mutating state', async () => {
     const controller = new AbortController();
     const conversation = {

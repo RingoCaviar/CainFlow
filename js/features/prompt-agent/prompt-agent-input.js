@@ -1,3 +1,5 @@
+import { projectAgentSearch, getSummarySearchSources } from './prompt-agent-search-data.js';
+
 function isImageSource(source, protocol) {
     return typeof source === 'string' && (/^data:image\/[^;]+;base64,/i.test(source)
         || (protocol !== 'google' && /^https:\/\//i.test(source)));
@@ -16,6 +18,7 @@ function projectHistory(conversation, images) {
         const content = JSON.stringify({
             messageNumber: message.messageNumber,
             message: String(message.text || ''),
+            ...(message.search ? { search: projectAgentSearch(message.search) } : {}),
             ...(message.intent ? { intent: message.intent } : {}),
             ...(message.promptPlan ? { promptPlan: {
                 targetNodeId: message.promptPlan.targetNodeId || null,
@@ -44,7 +47,7 @@ function projectHistory(conversation, images) {
 
 export function createPromptAgentInput({
     message = '', context = null, conversation = null, workflowMemory = '',
-    referenceImages = [], workflowReferenceImages = [], model
+    referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null
 } = {}) {
     const images = [];
     const bySource = new Map();
@@ -105,6 +108,9 @@ export function createPromptAgentInput({
     });
     const { history, omitted } = projectHistory(conversation, images);
     const input = {
+        searchAllowed,
+        searchContext: projectAgentSearch(searchContext),
+        earlierSearchSources: getSummarySearchSources(conversation),
         currentNode: context ? {
             nodeId: context.nodeId,
             prompt: context.prompt || '',

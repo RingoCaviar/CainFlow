@@ -1,4 +1,5 @@
 import { stampResultCompletion } from './prompt-agent-result-order.js';
+import { normalizeAgentSearch } from './prompt-agent-search-data.js';
 
 function clone(value) {
     if (value === undefined) return undefined;
@@ -88,6 +89,7 @@ function normalizeMessage(message = {}, options = {}) {
     return {
         role: message.role === 'agent' ? 'agent' : 'user',
         text: String(message.text || ''),
+        ...(message.search ? { search: normalizeAgentSearch(message.search) } : {}),
         ...(typeof message.intent === 'string' ? { intent: message.intent } : {}),
         ...(Array.isArray(message.referenceImages) ? {
             referenceImages: normalizeReferenceImages(message.referenceImages)
@@ -105,6 +107,7 @@ export function createPromptAgentConversationStore() {
     let archivedMessages = [];
     let compactedMessageCount = 0;
     let imageModelId = '';
+    let searchSettings = { mode: 'auto', modelId: '' };
     let referenceImages = [];
     let previousPromptPlan = null;
 
@@ -196,10 +199,12 @@ export function createPromptAgentConversationStore() {
         referenceImages = restoredReferences;
         previousPromptPlan = restoredPlan;
         imageModelId = typeof value?.imageModelId === 'string' ? value.imageModelId.trim() : '';
+        setSearchSettings(value?.searchSettings);
     }
 
     function snapshot() {
         const snapshot = { version: 1, memory, messages: clone(messages) };
+        if (searchSettings.mode !== 'auto' || searchSettings.modelId) snapshot.searchSettings = { ...searchSettings };
         if (imageModelId) snapshot.imageModelId = imageModelId;
         if (contextSummary) {
             snapshot.contextSummary = contextSummary;
@@ -302,5 +307,10 @@ export function createPromptAgentConversationStore() {
         previousPromptPlan = null;
     }
 
-    return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences };
+    function setSearchSettings(value = {}) {
+        searchSettings = { mode: value?.mode === 'off' ? 'off' : 'auto', modelId: typeof value?.modelId === 'string' ? value.modelId.trim() : '' };
+    }
+
+    return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+        getSearchSettings: () => ({ ...searchSettings }), setSearchSettings };
 }

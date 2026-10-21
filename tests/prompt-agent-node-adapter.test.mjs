@@ -5,6 +5,26 @@ import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from
 import { createPromptAgentReferenceSource } from '../js/features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
 
+test('a manually imported search original replaces old connections and reaches the generation input', async () => {
+    const { state, adapter } = harness();
+    const pixels = 'data:image/png;base64,c2VhcmNoLW9yaWdpbmFs';
+    let imports = 0;
+    const source = createPromptAgentReferenceSource({ state, nodeAdapter: adapter,
+        readWebImage: async url => { assert.equal(url, 'https://images.test/original.png'); return pixels; },
+        createImportNode: () => { const id = `search-${++imports}`; state.nodes.set(id, { id, type: 'ImageImport', data: {} }); return id; },
+        loadImageData: async (id, data) => { Object.assign(state.nodes.get(id), { data: { image: data }, imageImportAssetKey: 'media:search-original' }); return true; }
+    });
+    const reference = await source.importReference({ historyId: 'web:https://images.test/original.png', name: '选中的搜索图',
+        webImage: { imageUrl: 'https://images.test/original.png', pageUrl: 'https://images.test/page' } }, { isCurrent: () => true });
+    const plan = { targetNodeId: 'image-1', prompt: '使用选中的网络参考图', parameters: {}, referenceImages: [reference] };
+    plan.referenceImages = await source.preparePlanReferences(plan, { isCurrent: () => true });
+    adapter.applyPromptPlan(plan);
+    assert.equal(imports, 1);
+    assert.deepEqual(adapter.getContext('image-1').referenceImages.map(image => image.images), [[pixels]]);
+    assert.equal(state.connections.filter(connection => connection.from.nodeId === 'source-1').length, 0);
+    assert.equal(state.nodes.get('search-1').agentReferenceSource.assetKey, 'media:search-original');
+});
+
 test('A to B to C continuation sends latest pixels and replaces the actual generation reference connection', async () => {
     const { state, adapter } = harness();
     const pixels = { 'media:B': 'data:image/png;base64,BBBB', 'media:C': 'data:image/png;base64,CCCC' };

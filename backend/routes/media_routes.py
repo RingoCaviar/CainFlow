@@ -1,7 +1,8 @@
 from urllib.parse import parse_qs, urlparse
 
 from backend.services.download_service import classify_download_error, stream_remote_download
-from backend.services.http_helpers import read_json_body, write_error, write_json
+from backend.services.http_helpers import read_json_body, write_error, write_json, write_bytes
+from backend.services.search_image_service import read_search_image
 from backend.services.media_recovery_service import recover_image_from_response_text
 
 
@@ -24,6 +25,16 @@ def handle_get(handler):
 
 def handle_post(handler):
     parsed = urlparse(handler.path)
+    if parsed.path == '/api/media/search-image':
+        try:
+            if int(handler.headers.get('content-length', 0)) > 16384:
+                raise ValueError('图片地址请求过大')
+            payload = read_json_body(handler)
+            data, mime = read_search_image(payload.get('url'))
+            write_bytes(handler, data, content_type=mime, headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+        except Exception as error:
+            write_error(handler, 422, str(error))
+        return True
     if parsed.path == '/api/media/recover-image':
         try:
             payload = read_json_body(handler)

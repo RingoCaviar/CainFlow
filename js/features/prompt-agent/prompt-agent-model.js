@@ -5,6 +5,8 @@ import { PROMPT_AGENT_SYSTEM_PROMPT } from './prompt-agent-instructions.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
+import { resolveAgentSearchModel, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
+import { searchPromptAgent } from './prompt-agent-search.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -97,27 +99,65 @@ function normalizeReply(payload, context, images = [], userMessage = '') {
 
 export async function createPromptAgentModelReply({
     message = '', context = null, conversation = null, workflowMemory = '', referenceImages = [], workflowReferenceImages = [],
-    model, providers = [], fetchRef = fetch, headers = {}, getHeaders = null, signal
+    model, models = [], providers = [], fetchRef = fetch, headers = {}, getHeaders = null, signal,
+    searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}
 } = {}) {
+    // Capture all configuration once, including provider order and endpoints.
+    [model, models, providers, searchSettings] = JSON.parse(JSON.stringify([model, models, providers, searchSettings]));
+    const assertActive = () => { if (signal?.aborted) throw new DOMException('请求已取消', 'AbortError'); };
+    assertActive();
     const provider = getResolvedProviderForModel(model, providers);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
-    const input = createPromptAgentInput({
-        message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model
-    });
-    const plan = createChatRequestPlan({
-        provider, model, protocol: model.protocol, systemPrompt: PROMPT_AGENT_SYSTEM_PROMPT,
-        messages: input.messages, media: input.media, capabilities: model.capabilities || {}
-    });
-    const response = await requestChatCompletion(plan, {
-        fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal
-    });
-    const reply = normalizeReply(parseJson(response.text), context, input.images, message);
-    const inputTokens = model.protocol === 'google'
-        ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
-    if (Number.isSafeInteger(inputTokens) && inputTokens > 0) {
-        reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext({
-            message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model
-        }) };
+    const base = { message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model };
+    let search = null;
+    for (let round = 0; round < 2; round++) {
+        assertActive();
+        const request = { ...base, searchAllowed: round === 0 && searchSettings.mode !== 'off', searchContext: search };
+        const input = createPromptAgentInput(request);
+        const plan = createChatRequestPlan({ provider, model, protocol: model.protocol, systemPrompt: PROMPT_AGENT_SYSTEM_PROMPT,
+            messages: input.messages, media: input.media, capabilities: model.capabilities || {} });
+        let response, payload;
+        try {
+            response = await requestChatCompletion(plan, { fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal });
+            assertActive();
+            payload = parseJson(response.text);
+        } catch (error) {
+            assertActive();
+            if (!search) throw error;
+            return { intent: 'chat', message: `检索结果已保留，但整理回复失败：${error.message}`, promptPlan: null, search };
+        }
+        if (payload?.searchRequest) {
+            if (round !== 0) return { intent: 'chat', message: '本轮已完成一次检索；结果已保留，请继续提问以进一步搜索。', promptPlan: null, search };
+            const { kind, query } = payload.searchRequest;
+            if (!['web', 'images'].includes(kind) || typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('模型返回的搜索请求无效。');
+            const searchModel = resolveAgentSearchModel(model, models, searchSettings, kind);
+            onSearchStatus(kind === 'images' ? '正在搜索图片…' : '正在联网查找资料…');
+            search = normalizeAgentSearch(await searchRef({ model: searchModel, providers, kind, query: query.trim(), fetchRef,
+                getHeaders: typeof getHeaders === 'function' ? getHeaders : () => headers, signal }));
+            assertActive();
+            if (!search) throw new Error('搜索接口未返回有效结果。');
+            onSearchStatus('正在整理检索结果…');
+            continue;
+        }
+        let reply;
+        try { reply = normalizeReply(payload, context, input.images, message); }
+        catch (error) {
+            if (!search) throw error;
+            return { intent: 'chat', message: `检索结果已保留，但方案无效：${error.message}`, promptPlan: null, search };
+        }
+        const sources = [...getConversationSearchSources(conversation), ...(search?.sources || [])];
+        const cited = [...reply.message.matchAll(/\[\[source:([^\]]+)\]\]/g)].map(match => match[1]);
+        if (cited.some(id => !sources.some(source => source.id === id))) {
+            if (search) return { intent: 'chat', message: '模型引用了不存在的来源，已阻止展示该回复；真实检索结果保留在下方，请重试。', promptPlan: null, search };
+            throw new Error('模型引用了不存在的搜索来源，请重试。');
+        }
+        if (search) for (const source of sources) {
+            if (cited.includes(source.id) && !search.sources.some(item => item.id === source.id)) search.sources.push(source);
+        }
+        if (search) reply.search = search;
+        else if (cited.length) reply.search = normalizeAgentSearch({ sources: sources.filter(source => cited.includes(source.id)), notice: '引用此前检索来源，本轮未重新联网。' });
+        const inputTokens = model.protocol === 'google' ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
+        if (Number.isSafeInteger(inputTokens) && inputTokens > 0) reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext(request) };
+        return reply;
     }
-    return reply;
 }
