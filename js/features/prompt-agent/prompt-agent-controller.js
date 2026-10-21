@@ -88,6 +88,7 @@ export function createPromptAgentController({
     openResultPreview = () => {},
     createRunId = () => globalThis.crypto?.randomUUID?.() || `agent-run-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     readReferenceFile = readImageFile,
+    referenceSource = null,
     resizeObserverFactory = (callback) => typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null
 } = {}) {
     let initialized = false;
@@ -105,6 +106,16 @@ export function createPromptAgentController({
     let pendingReferenceImages = [];
     let referencePickerOpen = false;
     let referencePickerError = '';
+    let referenceTab = 'scene';
+    let referenceQuery = '';
+    let referenceLimit = 60;
+    let historyReferences = [];
+    let historyLoading = false;
+    let historyError = '';
+    let historyLoadToken = 0;
+    let importQueue = Promise.resolve();
+    let importSlot = 0;
+    let thumbnailObservers = [];
     const promptPlanActionStates = new Set();
     const runViews = new Map();
     const activeRuns = new Map();
@@ -149,7 +160,7 @@ export function createPromptAgentController({
         if (modelHint) modelHint.hidden = models.length > 0;
         // Local commands remain available without a model and during requests.
         if (sendButton) sendButton.disabled = !input?.value?.trim().startsWith('/')
-            && (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading));
+            && (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error));
         if (!modelSelect) return models;
         const selected = getSelectedModelId() || models[0]?.id || '';
         modelSelect.replaceChildren?.();
@@ -301,6 +312,7 @@ export function createPromptAgentController({
                 .flatMap((message) => message.runs || []);
             cancelRequest({ silent: true });
             workflowRevision += 1;
+            importQueue = Promise.resolve();
             const clearedRevision = workflowRevision;
             conversationStore.clear();
             const prefix = `${getWorkflowId()}\0`;
@@ -388,6 +400,12 @@ export function createPromptAgentController({
                 item.setAttribute('aria-busy', 'true');
                 item.title = '正在读取原图…';
             }
+            if (reference.error && reference.retry) {
+                const retry = documentRef.createElement('button');
+                retry.type = 'button'; retry.textContent = '重试'; retry.title = reference.error;
+                retry.addEventListener('click', reference.retry);
+                item.appendChild(retry);
+            }
             if (removable) {
                 const removeButton = documentRef.createElement('button');
                 removeButton.type = 'button';
@@ -395,7 +413,8 @@ export function createPromptAgentController({
                 removeButton.textContent = '×';
                 removeButton.setAttribute('aria-label', `移除 ${image.alt}`);
                 removeButton.addEventListener('click', () => {
-                    pendingReferenceImages.splice(index, 1);
+                    const currentIndex = pendingReferenceImages.indexOf(reference);
+                    if (currentIndex >= 0) pendingReferenceImages.splice(currentIndex, 1);
                     referencePickerError = '';
                     renderPendingReferences();
                 });
@@ -423,14 +442,25 @@ export function createPromptAgentController({
     function renderReferencePicker() {
         const { referencePickerList, referencePickerStatus } = getElements();
         if (!referencePickerOpen || !referencePickerList) return;
+        thumbnailObservers.forEach(observer => observer.disconnect()); thumbnailObservers = [];
         const focusedId = documentRef.activeElement?.getAttribute?.('data-reference-id');
         clearElement(referencePickerList);
-        const candidates = nodeAdapter?.getSceneReferenceImages?.() || [];
-        if (referencePickerStatus) referencePickerStatus.textContent = candidates.length
-            ? `${candidates.length} 张图片 · 已选 ${pendingReferenceImages.length} 张，按勾选顺序编号`
-            : '当前场景还没有可用的图片导入节点。';
+        const allCandidates = referenceTab === 'history' ? historyReferences : (nodeAdapter?.getSceneReferenceImages?.() || []);
+        const filtered = allCandidates.filter(item => `${item.name} ${item.prompt || ''}`.toLowerCase().includes(referenceQuery.toLowerCase()));
+        const candidates = filtered.slice(0, referenceLimit);
+        const selected = documentRef.getElementById('prompt-agent-picker-selected');
+        if (selected) { clearElement(selected); appendReferencePreviews(selected, pendingReferenceImages, { removable: true }); }
+        const more = documentRef.getElementById('prompt-agent-reference-more');
+        if (more) more.hidden = filtered.length <= referenceLimit;
+        for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.setAttribute('aria-selected', String(referenceTab === tab));
+        if (referencePickerStatus) referencePickerStatus.textContent = referenceTab === 'history' && (historyLoading || historyError)
+            ? (historyLoading ? '正在加载历史图片…' : historyError)
+            : candidates.length
+            ? `${filtered.length} 张图片${filtered.length > candidates.length ? ` · 显示前 ${candidates.length} 张` : ''} · 已选 ${pendingReferenceImages.length} 张，按勾选顺序编号`
+            : (referenceTab === 'history' ? (historyLoading ? '正在加载历史图片…' : historyError || '没有匹配的历史图片。') : '当前场景还没有匹配的图片导入节点。');
         candidates.forEach((candidate) => {
-            const index = pendingReferenceImages.findIndex((item) => getPromptAgentReferenceKey(item) === getPromptAgentReferenceKey(candidate));
+            const candidateKey = candidate.historyId ? referenceSource?.getReferenceId?.(candidate) || candidate.referenceId : getPromptAgentReferenceKey(candidate);
+            const index = pendingReferenceImages.findIndex((item) => item.selectionKey === candidate.referenceId || getPromptAgentReferenceKey(item) === candidateKey);
             const button = documentRef.createElement('button');
             button.type = 'button';
             button.className = 'prompt-agent-reference-option';
@@ -441,9 +471,21 @@ export function createPromptAgentController({
             button.setAttribute('data-reference-id', candidate.referenceId);
             const thumbnail = documentRef.createElement('span');
             thumbnail.className = 'prompt-agent-reference-option-preview';
-            if (candidate.previewUrl) {
+            if (candidate.previewUrl || candidate.thumbAssetKey) {
                 const image = documentRef.createElement('img');
-                image.src = candidate.previewUrl;
+                if (candidate.previewUrl) image.src = candidate.previewUrl;
+                else {
+                    const load = async () => {
+                        try { const src = await referenceSource.loadThumbnail(candidate); if (image.isConnected && src) image.src = src; }
+                        catch { image.alt = '缩略图不可用'; }
+                    };
+                    const Observer = documentRef.defaultView?.IntersectionObserver;
+                    if (Observer) {
+                        const observer = new Observer(entries => { if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); void load(); } });
+                        observer.observe(image);
+                        thumbnailObservers.push(observer);
+                    } else void load();
+                }
                 image.alt = '';
                 image.loading = 'lazy';
                 image.draggable = false;
@@ -469,20 +511,38 @@ export function createPromptAgentController({
             label.textContent = candidate.name;
             label.title = candidate.name;
             button.appendChild(label);
-            button.addEventListener('click', () => toggleSceneReference(candidate));
-            referencePickerList.appendChild(button);
+            button.addEventListener('click', () => candidate.historyId ? toggleImportedReference(candidate) : toggleSceneReference(candidate));
+            const preview = documentRef.createElement('button');
+            preview.type = 'button'; preview.className = 'prompt-agent-reference-preview'; preview.textContent = '预览';
+            preview.setAttribute('aria-label', `预览 ${candidate.name}`);
+            preview.addEventListener('click', async () => {
+                const revision = workflowRevision;
+                try {
+                    const image = candidate.historyId ? await referenceSource.readHistory(candidate) : await nodeAdapter.readSceneReferenceImage(candidate);
+                    if (revision === workflowRevision && image?.dataUrl) openResultPreview([image.dataUrl], 0);
+                } catch (error) { if (revision === workflowRevision) { referencePickerError = error.message; renderPendingReferences(); } }
+            });
+            const cell = documentRef.createElement('div'); cell.className = 'prompt-agent-reference-cell';
+            referencePickerList.appendChild(cell); cell.appendChild(button); cell.appendChild(preview);
             if (candidate.referenceId === focusedId) button.focus?.();
         });
+        const { panel, form, referencePicker } = getElements();
+        if (referencePicker?.style && panel?.getBoundingClientRect && form?.getBoundingClientRect) {
+            referencePicker.style.maxHeight = `${Math.max(80, form.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12)}px`;
+        }
     }
 
     function setReferencePickerOpen(open, focusTrigger = false) {
         if (open) closeCommandMenu();
         referencePickerOpen = open;
+        if (!open) { thumbnailObservers.forEach(observer => observer.disconnect()); thumbnailObservers = []; }
         const { referencePicker, addReferenceButton, referencePickerList } = getElements();
         if (referencePicker) referencePicker.hidden = !open;
         addReferenceButton?.setAttribute('aria-expanded', String(open));
         if (open) {
+            modelMenus?.close();
             renderReferencePicker();
+            if (referenceTab === 'history') void loadHistoryReferences();
             referencePickerList?.querySelector?.('button')?.focus?.();
         } else if (focusTrigger) addReferenceButton?.focus?.();
     }
@@ -516,9 +576,63 @@ export function createPromptAgentController({
         renderPendingReferences();
     }
 
+    async function loadHistoryReferences() {
+        const revision = workflowRevision;
+        const token = ++historyLoadToken;
+        historyLoading = true; historyError = ''; renderReferencePicker();
+        try {
+            const items = await referenceSource?.listHistory();
+            if (revision === workflowRevision && token === historyLoadToken) historyReferences = items || [];
+        } catch (error) {
+            if (revision === workflowRevision && token === historyLoadToken) historyError = `历史加载失败：${error.message}，请点击刷新重试。`;
+        } finally {
+            if (revision === workflowRevision && token === historyLoadToken) { historyLoading = false; renderReferencePicker(); }
+        }
+    }
+
+    function toggleImportedReference(candidate, { toggle = true } = {}) {
+        const key = referenceSource?.getReferenceId?.(candidate) || candidate.referenceId;
+        const existing = pendingReferenceImages.findIndex(item => item.selectionKey === candidate.referenceId || item.referenceId === key);
+        if (existing >= 0) { if (toggle) { pendingReferenceImages.splice(existing, 1); renderPendingReferences(); } return Promise.resolve(); }
+        const pending = { name: candidate.name, referenceId: candidate.referenceId, selectionKey: candidate.referenceId, previewUrl: candidate.previewUrl, loading: true };
+        const revision = workflowRevision;
+        const slot = importSlot++;
+        const isCurrent = () => revision === workflowRevision && pendingReferenceImages.includes(pending);
+        const run = () => {
+            if (!isCurrent()) return Promise.resolve();
+            referencePickerError = '';
+            pending.loading = true; delete pending.error; renderPendingReferences();
+            const operation = importQueue.catch(() => {}).then(async () => {
+                if (!isCurrent()) return;
+                try {
+                    const image = await referenceSource.importReference(candidate, { isCurrent, slot, read: () => readReferenceFile(candidate.file) });
+                    if (!isCurrent()) return;
+                    if (!image?.dataUrl) throw new Error('图片导入失败，请重试。');
+                    Object.assign(pending, image);
+                    delete pending.loading; delete pending.error;
+                } catch (error) {
+                    if (!isCurrent()) return;
+                    delete pending.loading; pending.error = error.message;
+                    referencePickerError = `${pending.name}：${error.message}`;
+                }
+                if (isCurrent()) renderPendingReferences();
+            });
+            importQueue = operation;
+            return operation;
+        };
+        pending.retry = run;
+        pendingReferenceImages.push(pending);
+        return run();
+    }
+
     async function addReferenceFiles(files = []) {
         const imageFiles = Array.from(files).filter((file) => String(file?.type || '').startsWith('image/'));
         if (imageFiles.length === 0) return false;
+        if (referenceSource) {
+            const operations = imageFiles.map(file => toggleImportedReference({ referenceId: `file:${globalThis.crypto?.randomUUID?.() || Math.random()}`, name: file.name || '粘贴图片', file }));
+            await Promise.all(operations);
+            return true;
+        }
         const requestWorkflowRevision = workflowRevision;
         const results = await Promise.allSettled(imageFiles.map((file) => readReferenceFile(file)));
         if (requestWorkflowRevision !== workflowRevision) return false;
@@ -1016,7 +1130,7 @@ export function createPromptAgentController({
         // settings hydration and prevents an otherwise valid request from being
         // sent without a modelId.
         const models = renderModelOptions();
-        if (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading)) return;
+        if (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error)) return;
         const referenceImages = pendingReferenceImages.slice();
         if (!text && referenceImages.length === 0) return;
         const workflowMemory = conversationStore.getContext();
@@ -1124,6 +1238,23 @@ export function createPromptAgentController({
         });
         cancelButton?.addEventListener('click', () => cancelRequest());
         addReferenceButton?.addEventListener('click', () => setReferencePickerOpen(!referencePickerOpen));
+        for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.addEventListener('click', () => {
+            referenceTab = tab; referenceLimit = 60; renderReferencePicker();
+            if (tab === 'history') void loadHistoryReferences();
+        });
+        for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.addEventListener('keydown', event => {
+            if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+            event.preventDefault();
+            const target = documentRef.getElementById(`prompt-agent-tab-${tab === 'scene' ? 'history' : 'scene'}`);
+            target?.click(); target?.focus();
+        });
+        documentRef.getElementById('prompt-agent-reference-search')?.addEventListener('input', event => { referenceQuery = event.target.value; referenceLimit = 60; renderReferencePicker(); });
+        documentRef.getElementById('prompt-agent-reference-more')?.addEventListener('click', () => { referenceLimit += 60; renderReferencePicker(); });
+        documentRef.getElementById('prompt-agent-reference-refresh')?.addEventListener('click', () => referenceTab === 'history' ? loadHistoryReferences() : renderReferencePicker());
+        documentRef.getElementById('prompt-agent-reference-clear')?.addEventListener('click', () => { pendingReferenceImages = []; referencePickerError = ''; renderPendingReferences(); });
+        const upload = documentRef.getElementById('prompt-agent-reference-upload');
+        documentRef.getElementById('prompt-agent-reference-upload-button')?.addEventListener('click', () => upload?.click());
+        upload?.addEventListener('change', async () => { const files = [...upload.files]; upload.value = ''; await addReferenceFiles(files); });
         referencePickerClose?.addEventListener('click', () => setReferencePickerOpen(false, true));
         form?.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && commandMenuOpen) {
@@ -1139,6 +1270,7 @@ export function createPromptAgentController({
             setReferencePickerOpen(false, true);
         });
         documentRef.addEventListener?.('pointerdown', (event) => {
+            if (event.target?.closest?.('.fullscreen-overlay')) return;
             const { referencePicker, addReferenceButton, commandMenu, input } = getElements();
             if (referencePickerOpen && !referencePicker?.contains?.(event.target) && !addReferenceButton?.contains?.(event.target)) {
                 setReferencePickerOpen(false);
@@ -1146,28 +1278,39 @@ export function createPromptAgentController({
             if (commandMenuOpen && !commandMenu?.contains?.(event.target) && event.target !== input) closeCommandMenu();
         });
         renderModelOptions();
-        form?.addEventListener('paste', async (event) => {
-            const files = Array.from(event.clipboardData?.items || [])
+        const referenceDropZone = documentRef.defaultView ? getElements().panel : form;
+        referenceDropZone?.addEventListener('paste', async (event) => {
+            const itemFiles = Array.from(event.clipboardData?.items || [])
                 .map((item) => item.kind === 'file' ? item.getAsFile?.() : null)
                 .filter(Boolean);
+            const files = itemFiles.length ? itemFiles : Array.from(event.clipboardData?.files || []);
             if (files.some((file) => String(file.type || '').startsWith('image/'))) {
                 event.preventDefault();
+                event.stopPropagation?.();
                 insertPastedText(event.clipboardData?.getData?.('text/plain') || '');
                 await addReferenceFiles(files);
             }
         });
-        form?.addEventListener('dragover', (event) => {
-            if (Array.from(event.dataTransfer?.files || []).some((file) => String(file.type || '').startsWith('image/'))) {
+        referenceDropZone?.addEventListener('dragover', (event) => {
+            if (Array.from(event.dataTransfer?.types || []).some(type => ['Files', 'application/x-cainflow-history-image'].includes(type)) || Array.from(event.dataTransfer?.files || []).some((file) => String(file.type || '').startsWith('image/'))) {
                 event.preventDefault();
+                event.stopPropagation?.();
                 form.classList.add('is-dragging-reference');
             }
         });
-        form?.addEventListener('dragleave', () => form.classList.remove('is-dragging-reference'));
-        form?.addEventListener('drop', async (event) => {
+        referenceDropZone?.addEventListener('dragleave', () => form.classList.remove('is-dragging-reference'));
+        referenceDropZone?.addEventListener('drop', async (event) => {
             form.classList.remove('is-dragging-reference');
             const files = Array.from(event.dataTransfer?.files || []);
+            const historyId = event.dataTransfer?.getData?.('application/x-cainflow-history-image');
+            if (historyId && referenceSource) {
+                event.preventDefault(); event.stopPropagation?.();
+                await toggleImportedReference({ referenceId: `history:${historyId}`, historyId, name: `历史图片 ${historyId}` }, { toggle: false });
+                return;
+            }
             if (files.some((file) => String(file.type || '').startsWith('image/'))) {
                 event.preventDefault();
+                event.stopPropagation?.();
                 await addReferenceFiles(files);
             }
         });
@@ -1224,6 +1367,11 @@ export function createPromptAgentController({
     function restoreWorkflow(value) {
         cancelRequest({ silent: true });
         workflowRevision += 1;
+        importQueue = Promise.resolve();
+        historyReferences = []; historyLoading = false; historyError = '';
+        referenceTab = 'scene'; referenceQuery = ''; referenceLimit = 60;
+        const search = documentRef.getElementById('prompt-agent-reference-search');
+        if (search) search.value = '';
         pendingReferenceImages = [];
         referencePickerError = '';
         setCommandStatus();

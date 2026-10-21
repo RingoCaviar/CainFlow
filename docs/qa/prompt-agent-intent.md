@@ -6,6 +6,16 @@
 
 ## 自动回归
 
+### 图片导入与参考图来源（prompt-agent#026）
+
+- 在 Agent 面板粘贴混合文字与多张图片、拖入文件、上传图片或拖入历史卡片，每张图片建一个 ImageImport 并按输入顺序引用。面板消费事件，不能再由全局导入重复建节点；拖入已选历史项不取消选择。
+- 加号面板包含场景／历史页签、搜索、刷新、上传、已选缩略图及清空选择。历史按时间倒序，每批 60 项；列举只读取元数据和懒加载缩略图，勾选或明确点击预览才读取原图。
+- 预览按钮独立于选择按钮，使用共享全屏预览；不建节点。切换页签、搜索及关闭浮层保留选择顺序。已选项和发送消息的编号必须一致。
+- 历史原图缺失显示错误；保存失败保留单项重试入口并禁止发送未就绪引用。重试使用同一节点；历史项重新勾选复用未修改的自动导入节点，节点图像改变或删除后重新导入。
+- 移除引用只移除本次选择，保留已建节点。读取期间移除、清空或切换工作流，完成后不得再创建节点或恢复引用；新工作流不等待旧队列完成。
+- 已发送引用继续沿用独立保存的对话图像，删除节点或历史条目后恢复会话仍能查看。自动节点的历史 ID 与原资产标识随节点序列化，支持保存、重建和既有撤销生命周期。
+- 2026-10-21：227 项 Agent、导入、媒体所有权及持久化相关测试通过；七主题、300px 面板浏览器回归通过。使用受控图片、事件及存储依赖，无真实模型请求；检查 `.scratch/prompt-agent/026-reference-picker.png`。
+
 ```powershell
 node --test tests/prompt-agent-model.test.mjs tests/prompt-agent-panel.test.mjs tests/prompt-agent-conversation-store.test.mjs tests/prompt-agent-compaction.test.mjs tests/prompt-agent-node-adapter.test.mjs tests/prompt-agent-execution-adapter.test.mjs tests/prompt-agent-runtime-completion.test.mjs tests/prompt-agent-workflow-persistence.test.mjs tests/prompt-agent-browser.test.mjs tests/prompt-agent-commands-browser.test.mjs tests/prompt-agent-reference-picker.test.mjs tests/prompt-agent-layout.test.mjs tests/chat-request-plan.test.mjs tests/application-module-parse.test.mjs tests/image-generation-size.test.mjs
 ```
@@ -151,3 +161,11 @@ node --test tests/prompt-agent-cache-usage.test.mjs tests/cache-usage-media-dist
 - 测试使用受控生成与本地临时存储；浏览器覆盖窄面板及 light/dark/pink 主题。
 
 2026-10-21 验证：主回归 354 项 JavaScript 与 145 项 Python 存储测试通过；新增窄面板主题矩阵、缺失图片位置两个用例后，相关定向回归通过，本轮共覆盖 356 项 JavaScript 用例。300/612px × light/dark/pink 全部通过，并人工检查 300px 暗色截图。测试未调用真实生图接口。
+# Agent 底部贴边与导航避让（prompt-agent#027）
+
+- 通知避让（prompt-agent#028）：Agent 打开时右下角通知随面板宽度向左避让，限制通知宽度并裁剪进入／退出动画，避免动画和长消息越过面板边界；关闭后恢复默认位置。回归：`prompt-agent-toast-browser.test.mjs`。
+
+- 打开 Agent 后底部贴齐工作区；画布导航移到面板左侧，关闭后恢复右下角。
+- 拖动或键盘调整面板宽度，导航同步移动；窄窗口按钮换行且不被面板遮挡。
+- 为导航保留 124px 的横向布局空间（含面板右边距、间隔与导航外边距）。窗口缩小仅限制显示宽度，不覆盖全局宽度偏好，恢复窗口后还原。
+- 浏览器回归：`prompt-agent-layout`、`prompt-agent-compact-browser`、`prompt-agent-interactions-browser`、`prompt-agent-scroll-browser`。

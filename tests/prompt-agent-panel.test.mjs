@@ -51,6 +51,9 @@ class FakeElement {
     querySelector(selector) {
         return this.children.find((child) => child.className === selector.slice(1)) || null;
     }
+    querySelectorAll(selector) {
+        return this.children.flatMap(child => [ ...(child.className === selector.slice(1) ? [child] : []), ...child.querySelectorAll(selector)]);
+    }
     blur() {}
     getBoundingClientRect() { return { width: 480 }; }
 }
@@ -883,21 +886,21 @@ test('plus selects scene references in click order and renumbers after deselecti
     elements['prompt-agent-add-reference'].dispatch('click');
     assert.equal(picker.hidden, false);
     assert.equal(list.children.length, 2);
-    await list.children[1].dispatch('click');
-    await list.children[0].dispatch('click');
+    await list.querySelectorAll('.prompt-agent-reference-option')[1].dispatch('click');
+    await list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     assert.deepEqual(previewNumbers(pending), ['1', '2']);
     assert.equal(pending.children[0].children[0].alt, '参考图 1：风格');
-    assert.equal(list.children[0].attributes.get('aria-label'), '主体，参考图 2');
-    assert.equal(list.children[1].attributes.get('aria-checked'), 'true');
+    assert.equal(list.querySelectorAll('.prompt-agent-reference-option')[0].attributes.get('aria-label'), '主体，参考图 2');
+    assert.equal(list.querySelectorAll('.prompt-agent-reference-option')[1].attributes.get('aria-checked'), 'true');
 
-    await list.children[1].dispatch('click');
+    await list.querySelectorAll('.prompt-agent-reference-option')[1].dispatch('click');
     assert.deepEqual(previewNumbers(pending), ['1']);
-    assert.equal(list.children[0].attributes.get('aria-label'), '主体，参考图 1');
-    await list.children[1].dispatch('click');
+    assert.equal(list.querySelectorAll('.prompt-agent-reference-option')[0].attributes.get('aria-label'), '主体，参考图 1');
+    await list.querySelectorAll('.prompt-agent-reference-option')[1].dispatch('click');
     pending.children[0].querySelector('.prompt-agent-reference-remove').dispatch('click');
-    assert.equal(list.children[0].attributes.get('aria-checked'), 'false');
-    assert.equal(list.children[1].attributes.get('aria-label'), '风格，参考图 1');
-    await list.children[0].dispatch('click');
+    assert.equal(list.querySelectorAll('.prompt-agent-reference-option')[0].attributes.get('aria-checked'), 'false');
+    assert.equal(list.querySelectorAll('.prompt-agent-reference-option')[1].attributes.get('aria-label'), '风格，参考图 1');
+    await list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
 
     await elements['prompt-agent-form'].dispatch('submit');
     assert.deepEqual(request.referenceImages.map((image) => image.sourceNodeId), ['b', 'a']);
@@ -920,8 +923,8 @@ test('parallel original-image reads keep click order and prevent sending incompl
     }, sceneAdapter((reference) => new Promise((resolve) => resolvers.set(reference.referenceId, resolve))));
     elements['prompt-agent-add-reference'].dispatch('click');
     const list = elements['prompt-agent-reference-picker-list'];
-    const first = list.children[1].dispatch('click');
-    const second = list.children[0].dispatch('click');
+    const first = list.querySelectorAll('.prompt-agent-reference-option')[1].dispatch('click');
+    const second = list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     elements['prompt-agent-input'].value = '用第 2 张的主体';
     assert.equal(elements['prompt-agent-send'].disabled, true);
     await elements['prompt-agent-form'].dispatch('submit');
@@ -946,19 +949,19 @@ test('failed or cancelled selections can be retried without resurrecting a remov
     }));
     elements['prompt-agent-add-reference'].dispatch('click');
     const list = elements['prompt-agent-reference-picker-list'];
-    await list.children[0].dispatch('click');
+    await list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     assert.equal(elements['prompt-agent-references'].children.length, 0);
     assert.equal(elements['prompt-agent-reference-error'].hidden, false);
     assert.match(elements['prompt-agent-reference-error'].textContent, /原图已丢失/);
     assert.equal(elements['prompt-agent-send'].disabled, false);
     fail = false;
-    const loading = list.children[0].dispatch('click');
-    await list.children[0].dispatch('click');
+    const loading = list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
+    await list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     resolveImage();
     await loading;
     assert.equal(elements['prompt-agent-references'].children.length, 0);
     assert.equal(elements['prompt-agent-reference-error'].hidden, true);
-    const retry = list.children[0].dispatch('click');
+    const retry = list.querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     resolveImage();
     await retry;
     assert.deepEqual(previewNumbers(elements['prompt-agent-references']), ['1']);
@@ -970,7 +973,7 @@ test('scene reads finishing after a workflow switch cannot add references to the
         finish = () => resolve({ ...reference, dataUrl: reference.previewUrl });
     })));
     elements['prompt-agent-add-reference'].dispatch('click');
-    const loading = elements['prompt-agent-reference-picker-list'].children[0].dispatch('click');
+    const loading = elements['prompt-agent-reference-picker-list'].querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     controller.restoreWorkflow(null);
     finish();
     await loading;
@@ -1116,7 +1119,7 @@ test('compaction preserves transcript cards and pending references, then merges 
     ] });
     const originalCards = elements['prompt-agent-messages'].children.slice();
     elements['prompt-agent-add-reference'].dispatch('click');
-    await elements['prompt-agent-reference-picker-list'].children[0].dispatch('click');
+    await elements['prompt-agent-reference-picker-list'].querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
     enterText(elements, '/compact');
     const compacting = controller.submit();
     assert.equal(compactions[0].modelId, TEST_CHAT_MODEL.id);

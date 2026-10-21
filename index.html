@@ -394,13 +394,26 @@
                     <div id="prompt-agent-command-menu" class="prompt-agent-command-menu" role="listbox" aria-label="Agent 命令" hidden></div>
                     <section id="prompt-agent-reference-picker" class="prompt-agent-reference-picker" aria-label="选择场景参考图" hidden>
                         <div class="prompt-agent-reference-picker-header">
-                            <span>场景参考图</span>
+                            <span>添加参考图</span>
                             <button id="prompt-agent-reference-picker-close" class="btn btn-ghost" type="button" aria-label="关闭参考图选择">完成</button>
                         </div>
+                        <div class="prompt-agent-reference-tools" role="tablist" aria-label="参考图来源">
+                            <button id="prompt-agent-tab-scene" type="button" role="tab" aria-selected="true">场景</button>
+                            <button id="prompt-agent-tab-history" type="button" role="tab" aria-selected="false">历史</button>
+                            <button id="prompt-agent-reference-upload-button" type="button">上传图片</button>
+                            <input id="prompt-agent-reference-upload" type="file" accept="image/*" multiple hidden>
+                        </div>
+                        <div class="prompt-agent-reference-tools">
+                            <input id="prompt-agent-reference-search" type="search" placeholder="搜索名称或历史提示词" aria-label="搜索参考图">
+                            <button id="prompt-agent-reference-refresh" type="button">刷新</button>
+                            <button id="prompt-agent-reference-clear" type="button">清空选择</button>
+                        </div>
+                        <div id="prompt-agent-picker-selected" class="prompt-agent-references" aria-label="已选参考图"></div>
                         <p id="prompt-agent-reference-picker-status" class="prompt-agent-reference-picker-status" aria-live="polite"></p>
-                        <div id="prompt-agent-reference-picker-list" class="prompt-agent-reference-picker-list" role="group" aria-label="图片导入节点"></div>
+                        <div id="prompt-agent-reference-picker-list" class="prompt-agent-reference-picker-list" role="group" aria-label="可选参考图"></div>
+                        <button id="prompt-agent-reference-more" type="button" hidden>加载更多</button>
                     </section>
-                    <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加场景参考图" title="从当前场景添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+                    <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加参考图" title="从场景、历史或本地添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
                     <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" aria-label="Prompt Agent 输入" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
                     <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
                     <button id="prompt-agent-cancel" class="btn btn-secondary" type="button" hidden>停止请求</button>

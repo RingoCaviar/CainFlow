@@ -9,6 +9,10 @@ test('Prompt Agent panel does not force toolbar expansion or reserve hidden tool
     for (const sample of samples) {
         assert.equal(sample.panelTop, 12);
         assert.ok(sample.toolbarHidden, JSON.stringify(sample));
-        assert.ok(sample.panelBottom <= sample.viewportHeight, JSON.stringify(sample));
+        assert.equal(sample.panelBottom, sample.viewportHeight, JSON.stringify(sample));
+        assert.ok(sample.navigationLeft >= 0 && sample.navigationRight <= sample.panelLeft - 8, JSON.stringify(sample));
+        assert.ok(sample.buttonsVisible, JSON.stringify(sample));
+        assert.equal(sample.closedRight, sample.width - 16);
     }
+    assert.equal(samples[0].panelWidth, samples.at(-1).panelWidth);
 });

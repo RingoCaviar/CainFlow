@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css"><style>#prompt-agent-panel{position:relative;inset:auto;height:800px}#surface-result{display:none}</style></head><body><pre id="surface-result"></pre><script type="module">
+import {createPromptAgentController} from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import {createPromptAgentReferenceSource} from '../../js/features/prompt-agent/prompt-agent-reference-source.js';
+const result={};
+try {
+ const page=new DOMParser().parseFromString(await(await fetch('../../index.html')).text(),'text/html');document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'),true));
+ const dataUrl='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=';
+ const state={nodes:new Map()};let created=0,reads=0,previewed=0,globalDrops=0,slowResolve=null;const requests=[];
+ const nodeAdapter={getSceneReferenceImages:()=>[...state.nodes.values()].filter(n=>n.imageImportAssetKey).map(n=>({name:n.name,referenceId:`node:${n.id}`,sourceNodeId:n.id,previewUrl:dataUrl})),readSceneReferenceImage:async c=>({...c,dataUrl})};
+ const source=createPromptAgentReferenceSource({state,nodeAdapter,
+ getHistoryMetadata:async()=>Array.from({length:65},(_,i)=>({id:i+1,mediaType:'image',timestamp:i,name:`历史 ${i+1}`,prompt:`内容 ${i+1}`,thumbAssetKey:`thumb:${i+1}`,thumb:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#596ab0"/><circle cx="40" cy="40" r="22" fill="#bec8f3"/></svg>')})),
+ getHistoryEntry:async()=>{reads++;return{image:dataUrl};},getImageAsset:async()=>dataUrl,
+ createImportNode:({name})=>{const id=String(++created);state.nodes.set(id,{id,name,type:'ImageImport'});return id;},
+ loadImageData:async id=>{state.nodes.get(id).imageImportAssetKey=`media:${id}`;return true;}});
+ const controller=createPromptAgentController({documentRef:document,nodeAdapter,referenceSource:source,getPanelWidth:()=>300,getChatModels:()=>[{id:'chat',modelId:'chat'}],
+ readReferenceFile:file=>file.name==='slow.png'?new Promise(resolve=>{slowResolve=()=>resolve({name:file.name,dataUrl});}):Promise.resolve({name:file.name,dataUrl}),
+ openResultPreview:()=>{previewed++;},createReply:async request=>{requests.push(request);return{intent:'chat',message:'收到'};}});
+ controller.init();controller.open();
+ const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+ const check=(condition,name)=>{if(!condition)throw new Error(name);result[name]=true;};
+ const panel=document.getElementById('prompt-agent-panel'),input=document.getElementById('prompt-agent-input'),pending=document.getElementById('prompt-agent-references');
+ const sendFiles=async(names,type='paste')=>{const files=names.map(name=>new File(['x'],name,{type:'image/png'}));const event=new Event(type,{bubbles:true,cancelable:true});Object.defineProperty(event,type==='paste'?'clipboardData':'dataTransfer',{value:{files,items:files.map(file=>({kind:'file',getAsFile:()=>file})),getData:()=>type==='paste'?'混合文字':'',types:['Files']}});panel.dispatchEvent(event);await tick();await tick();};
+ window.addEventListener('drop',()=>{globalDrops++;});
+ await sendFiles(['a.png','b.png']);check(created===2&&pending.children.length===2&&input.value==='混合文字','paste');
+ await sendFiles(['c.png'],'drop');check(created===3&&globalDrops===0,'dropOnce');
+ document.getElementById('prompt-agent-add-reference').click();document.getElementById('prompt-agent-tab-history').click();await tick();
+ const list=document.getElementById('prompt-agent-reference-picker-list');
+ check(list.children.length===60&&reads===0,'metadataOnly');
+ document.getElementById('prompt-agent-reference-more').click();check(list.children.length===65,'more');
+ list.querySelector('.prompt-agent-reference-preview').click();await tick();check(previewed===1&&created===3,'previewNoImport');
+ list.querySelector('.prompt-agent-reference-option').click();await tick();await tick();check(created===4&&pending.children.length===4,'historyImport');
+ list.querySelector('.prompt-agent-reference-option').click();check(created===4&&pending.children.length===3,'removeKeepsNode');
+ list.querySelector('.prompt-agent-reference-option').click();await tick();await tick();check(created===4&&pending.children.length===4,'historyReuse');
+ const search=document.getElementById('prompt-agent-reference-search');search.value='内容 65';search.dispatchEvent(new Event('input'));check(list.children.length===1&&pending.children.length===4,'search');
+ document.getElementById('prompt-agent-tab-scene').click();check(list.children.length===0&&pending.children.length===4,'tabsKeepSelection');
+ search.value='';search.dispatchEvent(new Event('input'));
+ for(const theme of ['light','dark','pink','pro','paper','glass-light','glass-dark']){document.documentElement.dataset.appTheme=theme;const picker=document.getElementById('prompt-agent-reference-picker');const a=picker.getBoundingClientRect(),b=panel.getBoundingClientRect();check(a.left>=b.left&&a.right<=b.right&&a.top>=b.top&&picker.scrollWidth<=picker.clientWidth,theme);}
+ input.value='使用这些参考图';await controller.submit();check(requests[0].referenceImages.map(x=>x.sourceNodeId).join(',')==='1,2,3,4','sendOrder');
+ const saved=JSON.parse(JSON.stringify(controller.snapshotWorkflow()));state.nodes.clear();controller.restoreWorkflow(saved);controller.open();check(document.querySelectorAll('.prompt-agent-message-references img').length===4,'restoreWithoutNodes');
+ await sendFiles(['slow.png']);check(document.getElementById('prompt-agent-send').disabled,'loadingBlocksSend');
+ pending.querySelector('.prompt-agent-reference-remove').click();slowResolve();await tick();check(created===4,'removeCancels');
+ await sendFiles(['slow.png']);controller.restoreWorkflow(null);slowResolve();await tick();check(created===4&&pending.children.length===0,'workflowFence');controller.open();
+ const historyDrop=new Event('drop',{bubbles:true,cancelable:true});Object.defineProperty(historyDrop,'dataTransfer',{value:{files:[],getData:type=>type==='application/x-cainflow-history-image'?'12':'',types:['application/x-cainflow-history-image']}});panel.dispatchEvent(historyDrop);await tick();await tick();check(created===5&&pending.children.length===1&&globalDrops===0,'historyDrop');
+ const upload=document.getElementById('prompt-agent-reference-upload');Object.defineProperty(upload,'files',{value:[new File(['x'],'upload.png',{type:'image/png'})]});upload.dispatchEvent(new Event('change'));await tick();await tick();check(created===6&&pending.children.length===2,'upload');
+ await sendFiles(['slow.png']);input.value='/clear';await controller.submit();slowResolve();await tick();check(created===6&&pending.children.length===0,'clearFence');
+ if(new URLSearchParams(location.search).has('screenshot')){document.getElementById('prompt-agent-add-reference').click();document.getElementById('prompt-agent-tab-history').click();await tick();document.documentElement.dataset.appTheme='dark';}
+}catch(error){result.error=error.stack||error.message;}
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

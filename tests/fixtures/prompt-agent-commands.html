@@ -100,7 +100,7 @@ try {
 
     type('');
     document.getElementById('prompt-agent-add-reference').click();
-    document.getElementById('prompt-agent-reference-picker-list').children[0].click();
+    document.getElementById('prompt-agent-reference-picker-list').querySelector('.prompt-agent-reference-option').click();
     await tick();
     check(!references.hidden, 'fixture must have a pending attachment before clear');
     models = [];

@@ -71,19 +71,19 @@ try {
     plus.click();
     check(!picker.hidden && list.children.length === 6, 'plus must list all current import nodes');
     check(reads.length === 0, 'listing must not hydrate originals');
-    check(document.activeElement === list.children[0], 'opening must focus the first option');
-    list.children[1].click();
+    check(document.activeElement === list.querySelectorAll('.prompt-agent-reference-option')[0], 'opening must focus the first option');
+    list.querySelectorAll('.prompt-agent-reference-option')[1].click();
     await tick();
-    list.children[0].click();
+    list.querySelectorAll('.prompt-agent-reference-option')[0].click();
     await tick();
     check(JSON.stringify(numbers(pending)) === '["1","2"]', 'pending numbers must follow selection order');
-    check(list.children[1].getAttribute('aria-label').includes('参考图 1'), 'selected option must expose its number');
-    check(list.children[0].getAttribute('aria-checked') === 'true', 'selected options must be checked');
+    check(list.querySelectorAll('.prompt-agent-reference-option')[1].getAttribute('aria-label').includes('参考图 1'), 'selected option must expose its number');
+    check(list.querySelectorAll('.prompt-agent-reference-option')[0].getAttribute('aria-checked') === 'true', 'selected options must be checked');
     check(JSON.stringify(reads) === '["import-1","import-0"]', 'only selected originals may be loaded');
-    list.children[1].click();
+    list.querySelectorAll('.prompt-agent-reference-option')[1].click();
     await tick();
-    check(list.children[0].getAttribute('aria-label').includes('参考图 1'), 'deselecting must renumber');
-    list.children[1].click();
+    check(list.querySelectorAll('.prompt-agent-reference-option')[0].getAttribute('aria-label').includes('参考图 1'), 'deselecting must renumber');
+    list.querySelectorAll('.prompt-agent-reference-option')[1].click();
     await tick();
 
     document.getElementById('prompt-agent-reference-picker-close').click();
@@ -100,14 +100,14 @@ try {
     controller.open();
     check(JSON.stringify(numbers(messages)) === '["1","2"]', 'restored history must retain number badges');
     plus.click();
-    list.children[2].click();
+    list.querySelectorAll('.prompt-agent-reference-option')[2].click();
     await tick();
-    list.children[4].click();
+    list.querySelectorAll('.prompt-agent-reference-option')[4].click();
     await tick();
     pending.querySelector('.prompt-agent-reference-remove').click();
-    check(list.children[2].getAttribute('aria-checked') === 'false', 'remove must uncheck the corresponding option');
-    check(list.children[4].getAttribute('aria-label').includes('参考图 1'), 'remaining selection must be renumbered');
-    list.children[2].click();
+    check(list.querySelectorAll('.prompt-agent-reference-option')[2].getAttribute('aria-checked') === 'false', 'remove must uncheck the corresponding option');
+    check(list.querySelectorAll('.prompt-agent-reference-option')[4].getAttribute('aria-label').includes('参考图 1'), 'remaining selection must be renumbered');
+    list.querySelectorAll('.prompt-agent-reference-option')[2].click();
     await tick();
 
     const samples = [];
@@ -125,8 +125,8 @@ try {
                 composerFits: formBounds.bottom <= bounds.bottom && inputBounds.width >= 100 && formBounds.width <= bounds.width,
                 galleryFits: list.scrollWidth <= list.clientWidth + 1,
                 hiddenCancel: getComputedStyle(document.getElementById('prompt-agent-cancel')).display === 'none',
-                selectedBorder: getComputedStyle(list.children[2]).borderTopColor,
-                unselectedBorder: getComputedStyle(list.children[0]).borderTopColor
+                selectedBorder: getComputedStyle(list.querySelectorAll('.prompt-agent-reference-option')[2]).borderTopColor,
+                unselectedBorder: getComputedStyle(list.querySelectorAll('.prompt-agent-reference-option')[0]).borderTopColor
             });
         }
     }

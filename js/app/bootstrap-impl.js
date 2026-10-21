@@ -83,6 +83,7 @@ import { createWorkflowManagerApi } from '../features/workflow/workflow-manager.
 import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runtime-manager.js';
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentReferenceSource } from '../features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentResultPersistence } from '../features/prompt-agent/prompt-agent-result-persistence.js';
@@ -937,6 +938,26 @@ const promptAgentResultPersistence = createPromptAgentResultPersistence({
 });
 const promptAgentController = createPromptAgentController({
     documentRef: document,
+    referenceSource: createPromptAgentReferenceSource({
+        state, nodeAdapter: promptAgentNodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset,
+        scheduleSave, loadImageData: (id, data) => mediaControllerApi.loadImageData(id, data),
+        createImportNode: ({ name, slot }) => {
+            const rect = canvasContainer.getBoundingClientRect();
+            const panel = document.getElementById('prompt-agent-panel').getBoundingClientRect();
+            const width = NODE_CONFIGS.ImageImport.defaultWidth || 300;
+            const columns = Math.max(1, Math.floor((panel.left - rect.left - 32) / ((width + 24) * state.canvas.zoom)));
+            const origin = viewportApi.screenToCanvas(rect.left + 24, rect.top + 72);
+            const height = 320;
+            let position;
+            for (let offset = 0; offset <= state.nodes.size * columns + columns; offset++) {
+                const index = slot + offset;
+                position = { x: origin.x + (index % columns) * (width + 24), y: origin.y + Math.floor(index / columns) * (height + 24) };
+                if ([...state.nodes.values()].every(node => position.x + width + 12 <= node.x || position.x >= node.x + (node.width || width) + 12
+                    || position.y + height + 12 <= node.y || position.y >= node.y + (node.el?.offsetHeight || height) + 12)) break;
+            }
+            return addNode('ImageImport', position.x, position.y, { customTitle: name });
+        }
+    }),
     getPanelWidth: () => diskStorage.getItem('cainflow_prompt_agent_panel_width'),
     setPanelWidth: (width) => diskStorage.setItem('cainflow_prompt_agent_panel_width', String(width)),
     nodeAdapter: promptAgentNodeAdapter,

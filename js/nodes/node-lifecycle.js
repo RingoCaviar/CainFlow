@@ -1224,6 +1224,8 @@ export function createNodeLifecycleApi({
             estimatedBytes: effectiveRestoreData?.estimatedBytes || null,
             defaultTitle: config.title,
             customTitle: normalizeCustomNodeTitle(effectiveRestoreData?.customTitle || ''),
+            agentReferenceSource: normalizedType === 'ImageImport' && effectiveRestoreData?.agentReferenceSource
+                ? { historyId: String(effectiveRestoreData.agentReferenceSource.historyId || ''), assetKey: String(effectiveRestoreData.agentReferenceSource.assetKey || '') } : null,
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };

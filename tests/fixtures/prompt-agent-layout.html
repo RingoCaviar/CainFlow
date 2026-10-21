@@ -5,6 +5,7 @@
     <link rel="stylesheet" href="../../css/modules/00-foundation.css">
     <link rel="stylesheet" href="../../css/modules/01-toolbar.css">
     <link rel="stylesheet" href="../../css/prompt-agent.css">
+    <link rel="stylesheet" href="../../css/layout/workbench.css">
     <style>#toolbar { transition: none !important; } #toolbar .btn { min-width: 100px; }</style>
 </head>
 <body>
@@ -22,26 +23,45 @@
             <button class="btn">帮助</button>
         </div>
         <main id="main-layout">
+            <div id="canvas-navigation"><button>查找节点</button><button>−</button><output>100%</output><button>＋</button><button>100%</button><button>全图</button></div>
             <aside id="prompt-agent-panel" class="prompt-agent-panel active">
                 <header class="prompt-agent-header"><h2>Prompt Agent</h2></header>
             </aside>
         </main>
     </div>
-    <script>
+    <script type="module">
+        import { createPromptAgentPanelWidth } from '../../js/features/prompt-agent/prompt-agent-panel-width.js';
         const container = document.getElementById('app-container');
         const toolbar = document.getElementById('toolbar');
         const panel = document.getElementById('prompt-agent-panel');
-        const samples = [1200, 640].map((width) => {
+        const nav = document.getElementById('canvas-navigation');
+        const sizing = createPromptAgentPanelWidth({ panel, windowRef: window, read: () => 600 });
+        const samples = [1200, 640, 360, 1200].map((width) => {
             container.style.width = `${width}px`;
+            panel.classList.add('active');
+            sizing.apply();
             document.documentElement.style.setProperty('--toolbar-height', `${toolbar.offsetHeight}px`);
             const toolbarRect = toolbar.getBoundingClientRect();
             const panelRect = panel.getBoundingClientRect();
+            const navRect = nav.getBoundingClientRect();
+            const buttonsVisible = [...nav.querySelectorAll('button')].every(button => {
+                const rect = button.getBoundingClientRect();
+                return rect.left >= 0 && rect.right <= panelRect.left;
+            });
+            panel.classList.remove('active');
+            const closedRight = nav.getBoundingClientRect().right;
             return {
                 width,
                 toolbarHeight: toolbarRect.height,
                 panelTop: panelRect.top,
                 toolbarHidden: toolbarRect.top < 0,
                 panelBottom: panelRect.bottom,
+                panelWidth: panelRect.width,
+                navigationLeft: navRect.left,
+                navigationRight: navRect.right,
+                panelLeft: panelRect.left,
+                buttonsVisible,
+                closedRight,
                 viewportHeight: window.innerHeight
             };
         });

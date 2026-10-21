@@ -455,6 +455,7 @@ export function createDiskStorageApi(getState) {
     async function getHistoryMetadata(options = {}) {
         const limit = Number.isFinite(options.limit) ? options.limit : 0;
         const response = await fetch(`/api/storage/history?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
+        if (!response.ok && options.throwOnError) throw new Error(`读取历史失败：HTTP ${response.status}`);
         if (!response.ok) return [];
         const items = (await response.json()).items || [];
         return options.includeThumbs === false ? items.map(({ thumb, ...item }) => item) : items;

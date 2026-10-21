@@ -28,9 +28,11 @@ test('width preference survives a disk outage, retry and a new storage instance'
         await diskStorage.flushPromise;
         const { diskStorage: reopened } = await import('../js/services/storage-documents.js?agent-width-reopened');
         await reopened.hydrate();
-        const panel = { style: {}, parentElement: { clientWidth: 1200 } };
+        const layoutProperties = new Map();
+        const panel = { style: {}, parentElement: { clientWidth: 1200, style: { setProperty: (key, value) => layoutProperties.set(key, value) } } };
         createPromptAgentPanelWidth({ panel, read: () => reopened.getItem('cainflow_prompt_agent_panel_width') });
         assert.equal(panel.style.width, '712px');
+        assert.equal(layoutProperties.get('--prompt-agent-width'), '712px');
     } finally {
         globalThis.fetch = originalFetch;
         globalThis.setTimeout = originalTimeout;
@@ -39,7 +41,7 @@ test('width preference survives a disk outage, retry and a new storage instance'
 
 test('invalid preferences use defaults, and only the initial workflow can migrate a width', () => {
     for (const value of [null, '', 'NaN', -1, 0, 299, 961, Infinity]) {
-        const panel = { style: {}, parentElement: { clientWidth: 1200 } };
+        const panel = { style: {}, parentElement: { clientWidth: 1200, style: { setProperty() {} } } };
         const writes = [];
         const width = createPromptAgentPanelWidth({ panel, read: () => value, write: value => writes.push(value) });
         assert.equal(panel.style.width, '408px');

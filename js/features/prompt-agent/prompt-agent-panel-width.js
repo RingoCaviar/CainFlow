@@ -6,7 +6,8 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
     let gesture = null;
     const bounds = () => {
         const available = panel?.parentElement?.clientWidth || windowRef?.innerWidth || 1200;
-        const max = Math.max(1, Math.min(960, available - 24));
+        // Reserve a narrow column for canvas navigation beside the open panel.
+        const max = Math.max(1, Math.min(960, available - 124));
         return { min: Math.min(300, max), max };
     };
     const clamp = value => Math.max(bounds().min, Math.min(bounds().max, value));
@@ -14,6 +15,8 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
         if (!panel) return;
         const width = Math.round(clamp(preferred ?? Math.max(320, (windowRef?.innerWidth || 1200) * 0.34)));
         panel.style.width = `${width}px`;
+        panel.parentElement?.style.setProperty('--prompt-agent-width', `${width}px`);
+        panel.ownerDocument?.body?.style.setProperty('--prompt-agent-width', `${width}px`);
         handle?.setAttribute('aria-valuemin', String(bounds().min));
         handle?.setAttribute('aria-valuemax', String(bounds().max));
         handle?.setAttribute('aria-valuenow', String(Math.round(width)));

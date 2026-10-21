@@ -48,17 +48,16 @@
     z-index: var(--layer-panel, 30);
     top: 12px;
     right: 12px;
-    /* Keep the canvas navigation controls reachable while the drawer is open. */
-    bottom: 72px;
+    bottom: 0;
     display: none;
     width: clamp(320px, 34vw, 720px);
     min-width: 0;
-    max-width: min(960px, calc(100% - 24px));
+    max-width: min(960px, calc(100% - 124px));
     resize: none;
     overflow: hidden;
     flex-direction: column;
     border: 1px solid var(--border-color);
-    border-radius: 14px;
+    border-radius: 14px 14px 0 0;
     background: color-mix(in srgb, var(--surface-panel-strong, var(--panel-bg)) 94%, var(--text-primary));
     color: var(--text-primary);
     /* The workbench disables selection globally for canvas gestures. Agent
@@ -472,7 +471,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 
 @media (max-width: 720px) {
-    .prompt-agent-panel { right: 12px; bottom: 64px; max-width: calc(100% - 24px); }
+    .prompt-agent-panel { right: 12px; bottom: 0; max-width: calc(100% - 124px); }
 }
 
 /* Agent model menus use the node-select value/change contract and a body-level surface. */
@@ -503,3 +502,16 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-model-option[aria-selected="true"] { background: var(--accent-subtle); color: var(--accent-primary); }
 .prompt-agent-model-option[aria-selected="true"]::after { content: '✓'; position: absolute; right: 8px; top: 6px; }
 .prompt-agent-model-option:disabled { opacity: .5; cursor: not-allowed; }
+
+.prompt-agent-reference-tools { display: flex; gap: 4px; flex: none; align-items: center; }
+.prompt-agent-reference-tools input[type="search"] { flex: 1; min-width: 0; width: 60px; border: 1px solid var(--border-color); border-radius: 5px; padding: 5px; background: var(--surface-control); color: var(--text-primary); }
+.prompt-agent-reference-tools button, .prompt-agent-reference-preview, #prompt-agent-reference-more {
+    border: 1px solid var(--border-color); border-radius: 5px; padding: 4px 6px;
+    color: var(--text-primary); background: var(--surface-control); cursor: pointer; font-size: 11px; min-height: 28px;
+}
+.prompt-agent-reference-tools [aria-selected="true"] { background: var(--accent-subtle); border-color: var(--accent-primary); }
+.prompt-agent-reference-cell { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prompt-agent-reference-cell > .prompt-agent-reference-option { width: 100%; }
+#prompt-agent-picker-selected { max-height: 78px; flex: none; padding: 0; }
+#prompt-agent-reference-more[hidden] { display: none; }
+.prompt-agent-reference-picker { left: 6px; right: 6px; padding: 6px; gap: 6px; }

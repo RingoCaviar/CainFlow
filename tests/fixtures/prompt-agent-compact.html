@@ -39,7 +39,7 @@ try {
     check(saved === 712 && first.panel.style.width === '712px', 'cancel');
     pointer(first.handle,'pointerdown',600); pointer(window,'pointermove',500); pointer(window,'pointerup',500);
     host.style.width = '250px'; window.dispatchEvent(new Event('resize'));
-    check(parseFloat(first.panel.style.width) === 226 && saved === 812, 'smallWindow');
+    check(parseFloat(first.panel.style.width) === 126 && saved === 812, 'smallWindow');
     host.style.width = '1200px'; window.dispatchEvent(new Event('resize'));
     check(first.panel.style.width === '812px', 'restoreWindow');
     first.controller.close(); first.controller.open(); check(saved === 812 && first.panel.style.width === '812px', 'reopen');

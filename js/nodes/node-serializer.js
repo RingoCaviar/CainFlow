@@ -144,6 +144,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 if (imageAssetKey) serialized.imageAssetKey = imageAssetKey;
             }
             if (node.type === 'ImageImport') {
+                if (node.agentReferenceSource) serialized.agentReferenceSource = { ...node.agentReferenceSource };
                 serialized.importMode = documentRef.getElementById(`${id}-import-mode`)?.value || node.importMode || 'upload';
                 serialized.imageUrl = documentRef.getElementById(`${id}-url-input`)?.value || node.imageUrl || '';
                 if (serialized.importMode !== 'url') {

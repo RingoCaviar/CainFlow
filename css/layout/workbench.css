@@ -9,6 +9,16 @@
     background: var(--panel-control-bg); color: var(--text-primary); border: 1px solid var(--panel-control-border);
     border-radius: 6px; padding: 6px 8px; cursor: pointer; white-space: nowrap;
 }
+#main-layout:has(.prompt-agent-panel.active) #canvas-navigation {
+    right: calc(var(--prompt-agent-width, clamp(320px, 34vw, 720px)) + 24px);
+    max-width: calc(100% - var(--prompt-agent-width, clamp(320px, 34vw, 720px)) - 40px);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+#main-layout:has(.prompt-agent-panel.active) .canvas-node-search {
+    right: auto;
+    left: 0;
+}
 #canvas-navigation button:is(:hover,.is-active) { background: var(--panel-hover-bg); border-color: var(--panel-hover-border); }
 #canvas-navigation :is(button,input):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 #zoom-level { min-width: 42px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -262,6 +272,27 @@ body.sidebar-pinned {
 }
 
 /* Keep transient overlays clear of active feature chrome before they can obscure controls. */
+body:has(#prompt-agent-panel.active) {
+    --toast-right-offset: calc(var(--prompt-agent-width, 720px) + 24px);
+}
+
+body:has(#prompt-agent-panel.active) #toast-container {
+    max-width: max(0px, calc(100% - var(--toast-right-offset) - 16px));
+    /* Track resizing immediately, without sweeping across the Agent surface. */
+    transition: none;
+    overflow: hidden;
+}
+
+body:has(#prompt-agent-panel.active) #toast-container .toast {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+body:has(#prompt-agent-panel.active) #toast-container .toast-message {
+    min-width: 0;
+}
+
 body:has(#statistics-sidebar.active),
 body:has(#cache-sidebar.active) {
     --floating-notices-left-offset: var(--floating-notices-left-drawer-offset);
