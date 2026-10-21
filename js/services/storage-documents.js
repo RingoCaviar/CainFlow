@@ -37,6 +37,10 @@ class DiskStorageFacade {
         this.lastError = null;
         this.onError = null;
         this.hydrated = false;
+        this.keepaliveBytes = 0;
+        this.documentVersions = new Map();
+        this.savedVersions = new Map();
+        this.documentErrors = new Map();
     }
 
     async hydrate() {
@@ -133,6 +137,7 @@ class DiskStorageFacade {
     }
 
     queueDocument(name, value) {
+        this.documentVersions.set(name, (this.documentVersions.get(name) || 0) + 1);
         this.pending.set(name, value);
         if (!this.flushPromise) {
             this.flushPromise = this.flush().catch((error) => {
@@ -148,29 +153,60 @@ class DiskStorageFacade {
         if (shouldNotify) this.onError?.(error);
     }
 
+    async waitForKey(key) {
+        const name = DIRECT_KEY_DOCUMENTS.get(key);
+        if (!name) throw new Error(`无法确认文档保存：${key}`);
+        const version = this.documentVersions.get(name) || 0;
+        await this.flushPromise;
+        if ((this.savedVersions.get(name) || 0) < version) {
+            throw this.documentErrors.get(name) || new Error(`保存 ${name} 尚未完成，请重试`);
+        }
+    }
+
+    async writeDocument(name, value) {
+        const body = JSON.stringify({ value });
+        const bytes = new TextEncoder().encode(body).byteLength;
+        const keepalive = canUseKeepalive(body) && this.keepaliveBytes + bytes <= KEEPALIVE_BODY_LIMIT;
+        const options = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive };
+        if (keepalive) this.keepaliveBytes += bytes;
+        try {
+            let response;
+            try {
+                response = await fetch(`/api/storage/documents/${encodeURIComponent(name)}`, options);
+            } catch (error) {
+                // Other fetch consumers also share the browser quota. A PUT of
+                // this same snapshot is idempotent; retry without keepalive.
+                if (!keepalive || !(error instanceof TypeError)) throw error;
+                response = await fetch(`/api/storage/documents/${encodeURIComponent(name)}`, { ...options, keepalive: false });
+            }
+            if (!response.ok) throw new Error(`保存 ${name} 失败: HTTP ${response.status}`);
+        } finally {
+            if (keepalive) this.keepaliveBytes -= bytes;
+        }
+    }
+
     async flush() {
         try {
             while (this.pending.size > 0) {
-                const batch = Array.from(this.pending.entries());
+                const batch = Array.from(this.pending.entries()).map(([name, value]) => [name, value, this.documentVersions.get(name)]);
                 this.pending.clear();
-                try {
-                    await Promise.all(batch.map(async ([name, value]) => {
-                        const body = JSON.stringify({ value });
-                        const response = await fetch(`/api/storage/documents/${encodeURIComponent(name)}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body,
-                            keepalive: canUseKeepalive(body)
-                        });
-                        if (!response.ok) throw new Error(`保存 ${name} 失败: HTTP ${response.status}`);
-                    }));
-                    this.lastError = null;
-                } catch (error) {
-                    batch.forEach(([name, value]) => {
-                        if (!this.pending.has(name)) this.pending.set(name, value);
-                    });
-                    throw error;
-                }
+                // Settle the entire batch before retrying: an early rejection
+                // must not let an older in-flight write overwrite a newer one.
+                const results = await Promise.allSettled(batch.map(async ([name, value, version]) => {
+                    await this.writeDocument(name, value);
+                    this.savedVersions.set(name, version);
+                    this.documentErrors.delete(name);
+                }));
+                let failure;
+                results.forEach((result, index) => {
+                    if (result.status !== 'rejected') return;
+                    const [name, value] = batch[index];
+                    this.documentErrors.set(name, result.reason);
+                    if (!this.pending.has(name)) this.pending.set(name, value);
+                    failure ||= result.reason;
+                });
+                if (failure) throw failure;
+                this.lastError = null;
             }
         } finally {
             this.flushPromise = null;

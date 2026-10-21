@@ -1280,6 +1280,7 @@ export function createPromptAgentController({
         });
         input?.addEventListener('keydown', async (event) => {
             if (event.isComposing || event.keyCode === 229 || (event.key === 'Enter' && event.shiftKey)) return;
+            if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
             if (commandMenuOpen && ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
                 event.preventDefault();
                 event.stopPropagation?.();
@@ -1289,8 +1290,9 @@ export function createPromptAgentController({
                     commandIndex = (commandIndex + (event.key === 'ArrowDown' ? 1 : -1) + commandMatches.length) % commandMatches.length;
                     renderCommandMenu();
                 }
-            } else if (event.key === 'Enter' && !event.shiftKey && input.value.trim().startsWith('/')) {
+            } else if (event.key === 'Enter') {
                 event.preventDefault();
+                event.stopPropagation?.();
                 await submit();
             }
         });

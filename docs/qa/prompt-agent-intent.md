@@ -190,3 +190,10 @@ node --test tests/prompt-agent-cache-usage.test.mjs tests/cache-usage-media-dist
 - 拖入画布：按落点新建图片导入节点，不替换既有节点。生成结果记录保持不变。
 - 拖动后的点击不打开预览；下一次独立点击及键盘预览仍正常。失效拖拽和切换工作流后的旧拖拽不能导入。
 - 浏览器回归 `prompt-agent-result-drag.test.mjs` 使用原图比对并覆盖两种落点及拖拽令牌清理。
+
+## 生成结果会话保存（prompt-agent#033）
+
+- 同时写入会话和设置，累计请求超过 keepalive 配额时仍能完成持久化；单文档过大及页面退出保存行为继续回归。
+- 会话成功、其他设置失败时 Agent 不误报会话保存失败；真实 session HTTP/网络失败仍提示并保留可重试状态。
+- 会话请求尚未完成时不确认成功，不释放结果临时保护；失败重试仅保存原批次，不再次调用生图。
+- 自动化覆盖：`disk-storage-concurrent-save.test.mjs` 与 Agent 结果生命周期、磁盘保存、会话恢复相关测试。

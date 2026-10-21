@@ -1054,6 +1054,37 @@ test('clear fences late replies and image reads without unlocking a newer reques
     assert.deepEqual(controller.snapshotWorkflow().messages.map((message) => message.text), ['新任务', '新回复']);
 });
 
+test('Enter sends a message while Shift+Enter and IME confirmation retain native editing', async () => {
+    const requests = [];
+    let finishReply;
+    const { elements } = createHarness((request) => {
+        requests.push(request);
+        return new Promise(resolve => { finishReply = resolve; });
+    });
+    const input = elements['prompt-agent-input'];
+    enterText(elements, '新的画面');
+    for (const options of [{ shiftKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+        let prevented = false;
+        await input.dispatch('keydown', { key: 'Enter', ...options, preventDefault: () => { prevented = true; } });
+        assert.equal(prevented, false);
+        assert.equal(requests.length, 0);
+    }
+    let prevented = false;
+    const sending = input.dispatch('keydown', { key: 'Enter', preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(requests[0].message, '新的画面');
+    enterText(elements, '下一条');
+    await input.dispatch('keydown', { key: 'Enter' });
+    assert.equal(requests.length, 1);
+    finishReply({ intent: 'chat', message: '收到' });
+    await sending;
+    await input.dispatch('keydown', { key: 'Enter', repeat: true });
+    assert.equal(requests.length, 1);
+    enterText(elements, '   ');
+    await input.dispatch('keydown', { key: 'Enter' });
+    assert.equal(requests.length, 1);
+});
+
 test('slash menus filter and handle keyboard selection without executing an IME confirmation', async () => {
     const { controller, elements } = createHarness();
     enterText(elements, '/');

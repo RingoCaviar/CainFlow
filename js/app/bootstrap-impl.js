@@ -54,6 +54,7 @@ import { createExecutionCoreApi } from '../features/execution/execution-core.js'
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
 import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
+import { flushSessionToDisk } from '../features/persistence/flush-session-to-disk.js';
 import { installSessionPersistenceOnExit } from '../features/persistence/session-persistence-lifecycle.js';
 import { createClipboardControllerApi } from '../features/ui/clipboard-controller.js';
 import { createGlobalInteractionsApi } from '../features/ui/global-interactions.js';
@@ -973,11 +974,7 @@ const promptAgentController = createPromptAgentController({
     mutateWorkflowConversation: (workflowId, reducer) => workflowManagerApi.mutatePromptAgentByWorkflowId(workflowId, reducer),
     retainRunResults: (result) => promptAgentResultPersistence.retain(result),
     releaseRunResults: (result) => promptAgentResultPersistence.release(result),
-    saveConversation: async () => {
-        if (!getSessionManagerApi().flushSave()) throw new Error('会话保存失败，请重试保存。');
-        await diskStorage.flushPromise;
-        if (diskStorage.lastError) throw new Error('会话保存失败，请重试保存。');
-    },
+    saveConversation: () => flushSessionToDisk(getSessionManagerApi(), diskStorage),
     loadResultImages: (keys) => Promise.all(keys.map(async (key) => {
         try { return await getImageAsset(key) || null; } catch { return null; }
     })),

@@ -17,3 +17,5 @@ Prompt Agent retains each generation attempt on its originating plan message. A 
 - The `autoAddedForGeneration` marker survives serialization. Bounded runs include connected, enabled automatic save nodes through validated `includedAutoSaveNodeIds`; retries reuse them without executing unrelated downstream branches. Running-node conflicts are checked before graph mutation, and the runtime receives the completed graph from the start.
 
 Local issue: `prompt-agent#021`.
+
+For `prompt-agent#033`, Agent's durable-save barrier confirms the queued session document revision, rather than the disk facade's global error flag. An unrelated preference failure remains visible to the storage notifier but cannot mark an already committed Agent result as unsaved. Genuine session failure preserves temporary media protection and includes the document/HTTP error in the retry message. Document writes account for aggregate in-flight keepalive bytes and retry transport rejection without keepalive; batches settle completely before scheduling retries, and only failed documents are requeued so older writes cannot outlive their batch.
