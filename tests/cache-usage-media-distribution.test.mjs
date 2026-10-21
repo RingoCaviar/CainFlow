@@ -174,7 +174,7 @@ test('Agent cache updates from live context without waiting for or repeating the
         });
         const pending = api.updateCacheUsage();
         assert.equal(requests, 1);
-        assert.equal(elements.get('usage-agent-detail').textContent, '1 个场景 · 2 条消息 · 1 张参考图');
+        assert.equal(elements.get('usage-agent-detail').textContent, '1 个场景 · 2 条消息 · 1 张参考图 · 0 张生成图');
         assert.equal(elements.get('usage-agent-context').textContent, '上下文 1 条 · 归档 1 条 · 摘要 2 份');
         assert.notEqual(elements.get('usage-agent').textContent, '0 B');
 
@@ -194,7 +194,7 @@ test('Agent cache updates from live context without waiting for or repeating the
         assert.equal(elements.get('usage-agent').textContent, '0 B');
         api.updateAgentCacheUsage(true);
         assert.notEqual(elements.get('usage-agent').textContent, '0 B');
-        assert.equal(elements.get('usage-agent-detail').textContent, '1 个场景 · 1 条消息 · 0 张参考图');
+        assert.equal(elements.get('usage-agent-detail').textContent, '1 个场景 · 1 条消息 · 0 张参考图 · 0 张生成图');
         assert.equal(requests, 1);
     } finally { globalThis.fetch = originalFetch; }
 });
