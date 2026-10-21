@@ -87,7 +87,7 @@ export function createRuntimeControllerApi({
         }
 
         function isPointerOverActiveDrawer(event) {
-            const drawerIds = ['history-sidebar', 'workflow-sidebar', 'cache-sidebar', 'statistics-sidebar', 'log-drawer'];
+            const drawerIds = ['history-sidebar', 'workflow-sidebar', 'cache-sidebar', 'statistics-sidebar', 'log-drawer', 'prompt-agent-panel'];
             return drawerIds.some((id) => {
                 const drawer = documentRef.getElementById(id);
                 if (!drawer?.classList.contains('active')) return false;

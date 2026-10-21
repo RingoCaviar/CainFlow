@@ -2,10 +2,34 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    collectWorkflowMediaOwnerLists,
     createMediaOwnershipCoordinator,
     createWorkflowMediaOwnershipCommitter,
     prepareWorkflowMediaOwnershipCommit
 } from '../js/features/media/workflow-media-ownership-commit.js';
+
+test('Agent archived and current results retain ordered independent owners after source deletion', async () => {
+    const calls = [];
+    const old = { runId: 'old', mediaAssetKeys: ['media:a', 'media:a'] };
+    const latest = { runId: 'new', mediaAssetKeys: ['media:b'], mediaOwnershipTemporaryOwners: [{ ownerId: 'temp', assetKeys: ['media:b'] }] };
+    const workflow = { workflowId: 'wf', mediaOwnershipRevision: 1, nodes: [], promptAgent: {
+        archivedMessages: [{ runs: [old] }], messages: [{ runs: [latest] }]
+    } };
+    assert.deepEqual(collectWorkflowMediaOwnerLists(workflow), [
+        { ownerType: 'prompt-agent-result', ownerId: 'old', assetKeys: ['media:a', 'media:a'] },
+        { ownerType: 'prompt-agent-result', ownerId: 'new', assetKeys: ['media:b'] }
+    ]);
+    const committer = createWorkflowMediaOwnershipCommitter({
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => null,
+        replaceMediaOwnerReferenceList: async (request) => (calls.push(['commit', request.ownerId]), { status: 'committed' }),
+        removeMediaReference: async (...args) => (calls.push(['release', ...args]), true)
+    });
+    assert.equal(await committer.commitPersistedWorkflow(workflow), true);
+    assert.deepEqual(calls, [['commit', 'old'], ['commit', 'new'], ['release', 'workflow-operation', 'temp', 'media:b']]);
+    assert.equal(latest.mediaOwnershipTemporaryOwners, undefined);
+});
 import {
     createMediaOwnershipTransition,
     validateMediaOwnershipTransitionIntent

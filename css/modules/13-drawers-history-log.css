@@ -278,14 +278,14 @@ body.toolbar-pinned .drawer,
 body.toolbar-peek-active .drawer,
 body:has(#toolbar:hover) .drawer,
 body:has(#toolbar:focus-within) .drawer,
-body:has(#toolbar .btn.active) .drawer,
-body:has(#toolbar [aria-expanded="true"]) .drawer,
+body:has(#toolbar .btn.active:not(#btn-prompt-agent)) .drawer,
+body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .drawer,
 body.toolbar-pinned .help-panel,
 body.toolbar-peek-active .help-panel,
 body:has(#toolbar:hover) .help-panel,
 body:has(#toolbar:focus-within) .help-panel,
-body:has(#toolbar .btn.active) .help-panel,
-body:has(#toolbar [aria-expanded="true"]) .help-panel {
+body:has(#toolbar .btn.active:not(#btn-prompt-agent)) .help-panel,
+body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     --drawer-top-offset: calc(var(--toolbar-height, 48px) + 8px);
 }
 

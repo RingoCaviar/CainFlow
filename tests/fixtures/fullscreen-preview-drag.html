@@ -1,0 +1,70 @@
+<!doctype html><html><head><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css"></head>
+<body><pre id="surface-result"></pre><script type="module">
+import { createMediaControllerApi } from '../../js/features/media/media-controller.js';
+const result = {};
+try {
+    const images = ['red', 'blue'].map(color => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="${color}"/></svg>`)}`);
+    const source = new URLSearchParams(location.search).get('source');
+    const node = { id: 'source', type: source, data: { images }, imagePreviewIndex: 0 };
+    let copied = null;
+    const api = createMediaControllerApi({ state: { nodes: new Map([[node.id, node]]), selectedNodes: new Set() },
+        copyImageToClipboard: async (image) => { copied = image; return true; },
+        getNodeById: () => node, getImageResolution: async () => ({ width: 40, height: 40 }),
+        estimateDataUrlSize: () => 100, showToast() {}, addLog() {}, scheduleSave() {}, documentRef: document, windowRef: window });
+    const open = () => api.openFullscreenPreview(images[0], source === 'Agent' ? null : node.id, source === 'Agent' ? { images, index: 0 } : {});
+    const mouse = (target, type, x, y, buttons = type === 'mouseup' || type === 'click' ? 0 : 1) => target.dispatchEvent(new MouseEvent(type, { button: 0, buttons, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+    const check = (condition, name) => { if (!condition) throw new Error(name); result[name] = true; };
+    for (const kind of ['blank', 'image', 'return', 'cross', 'overlay', 'releaseOnly']) {
+        await open();
+        const overlay = document.querySelector('.fullscreen-overlay');
+        const wrapper = overlay.querySelector('.fullscreen-img-wrapper');
+        const start = kind === 'image' || kind === 'cross' ? wrapper.querySelector('img') : kind === 'overlay' ? overlay : wrapper;
+        mouse(start, 'mousedown', 100, 100);
+        if (kind !== 'releaseOnly') mouse(window, 'mousemove', 130, 100);
+        if (kind === 'return') mouse(window, 'mousemove', 100, 100);
+        const endX = kind === 'return' ? 100 : 130;
+        mouse(wrapper, 'mouseup', endX, 100);
+        mouse(kind === 'cross' ? overlay : wrapper, 'click', endX, 100);
+        check(overlay.isConnected, kind);
+        mouse(wrapper, 'mousedown', 100, 100);
+        mouse(wrapper, 'mouseup', 103, 104);
+        mouse(wrapper, 'click', 103, 104);
+        check(!overlay.isConnected, `${kind}NextClick`);
+    }
+    for (const kind of ['blur', 'outside', 'outsideMouseup']) {
+        await open();
+        const overlay = document.querySelector('.fullscreen-overlay');
+        const wrapper = overlay.querySelector('.fullscreen-img-wrapper');
+        const img = wrapper.querySelector('img');
+        mouse(wrapper, 'mousedown', 100, 100);
+        mouse(window, 'mousemove', 120, 100);
+        if (kind === 'blur') window.dispatchEvent(new Event('blur'));
+        else if (kind === 'outsideMouseup') mouse(window, 'mouseup', -10, -10);
+        else mouse(window, 'mousemove', 140, 100, 0);
+        const before = img.style.transform;
+        mouse(window, 'mousemove', 180, 100, 0);
+        check(img.style.transform === before, kind);
+        overlay.querySelector('.fullscreen-close').click();
+        check(!overlay.isConnected, `${kind}Close`);
+    }
+    await open();
+    const overlay = document.querySelector('.fullscreen-overlay');
+    const wrapper = overlay.querySelector('.fullscreen-img-wrapper');
+    for (let i = 0; i < 3; i++) {
+        mouse(wrapper, 'mousedown', 100, 100); mouse(window, 'mousemove', 130, 100);
+        mouse(window, 'mouseup', 130, 100); mouse(wrapper, 'click', 130, 100);
+    }
+    const img = wrapper.querySelector('img');
+    const before = img.style.transform;
+    overlay.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true }));
+    check(img.style.transform !== before, 'zoom');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    check(img.src === images[1], 'navigation');
+    overlay.querySelector('.fullscreen-copy-btn').click();
+    check(copied === images[1] && overlay.isConnected, 'copy');
+    check(Boolean(overlay.querySelector('.fullscreen-paint-btn')) === (source !== 'Agent'), 'paintEntry');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    check(!overlay.isConnected, 'escape');
+} catch (error) { result.error = error.stack || error.message; }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

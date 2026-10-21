@@ -1036,6 +1036,8 @@ export function createWorkflowRuntimeManager({
         return {
             nodeId: node.id,
             images,
+            mediaAssetKeys: includeImages && Array.isArray(node.data?.mediaAssetKeys)
+                ? node.data.mediaAssetKeys.slice() : [],
             ...(node.executionFailure?.message ? { error: node.executionFailure.message } : {})
         };
     }
@@ -1724,9 +1726,6 @@ export function createWorkflowRuntimeManager({
             getAbortMessage,
             playNotificationSound: () => getSettingsControllerApi()?.playNotificationSound?.(),
             systemNotificationApi: getSystemNotificationApi(),
-            onAutoSaveNodeInjected: () => {
-                syncRuntimeWorkflowSnapshot(context, { dirty: true, applyToCanvas: false, mergeRunResults: true });
-            },
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
                 applyVisibleNodeRunState({ workflowId, workflowName }, payload);
@@ -1779,7 +1778,7 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false } = {}) {
+    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
@@ -1875,6 +1874,13 @@ export function createWorkflowRuntimeManager({
                             node, !runError && executionResult?.outcome === 'completed'
                         )))
                     };
+                    if (typeof retainResults === 'function') {
+                        try {
+                            completionResult = await retainResults(completionResult) || completionResult;
+                        } catch (error) {
+                            completionResult.resultRetentionError = error?.message || '生成结果本地保存失败';
+                        }
+                    }
                 }
                 context.activePlanNodeIds.clear();
                 const stillRunning = getWorkflowRunContexts(workflowReference).some((entry) => entry !== context);

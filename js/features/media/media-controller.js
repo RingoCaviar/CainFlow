@@ -3072,7 +3072,11 @@ export function createMediaControllerApi({
         img.style.transformOrigin = 'center center';
     }
 
-    async function openFullscreenPreview(src, nodeId = null) {
+    async function openFullscreenPreview(src, nodeId = null, options = {}) {
+        const independentImages = Array.isArray(options.images) ? normalizeImageList(options.images) : null;
+        // A retained Agent batch is immutable and may outlive its source node.
+        // Supplying a batch must not resolve or edit that node's current output.
+        if (independentImages) nodeId = null;
         displayImageMemoryManager.beginFullscreenPreview(nodeId);
         const overlay = documentRef.createElement('div');
         overlay.className = 'fullscreen-overlay fullscreen-ignore-chrome';
@@ -3080,11 +3084,13 @@ export function createMediaControllerApi({
         documentRef.body?.classList.add('preview-active');
         const context = nodeId ? await getNodeFullscreenImageContext(nodeId, src) : {
             node: null,
-            images: normalizeImageList(src),
+            images: independentImages || normalizeImageList(src),
             index: 0
         };
         const images = context.images;
-        let currentIndex = images.findIndex((image) => image === src);
+        let currentIndex = independentImages && Number.isInteger(options.index)
+            ? Math.max(0, Math.min(images.length - 1, options.index))
+            : images.findIndex((image) => image === src);
         if (currentIndex < 0) currentIndex = context.index;
         if (currentIndex < 0) currentIndex = 0;
         const canCropImageImport = Boolean(
@@ -3263,6 +3269,28 @@ export function createMediaControllerApi({
             fsZoom = nz;
             updateFsT();
         }, { passive: false });
+        let previewPress = null;
+        let suppressBlankClick = false;
+        overlay.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            previewPress = { x: e.clientX, y: e.clientY };
+            suppressBlankClick = false;
+        }, true);
+        const trackPreviewDrag = (e) => {
+            if (previewPress && Math.hypot(e.clientX - previewPress.x, e.clientY - previewPress.y) > 5) {
+                // Latch the gesture even when the pointer returns to its starting point.
+                suppressBlankClick = true;
+            }
+        };
+        const stopPreviewDrag = () => {
+            previewPress = null;
+            isDragging = false;
+            iw.style.cursor = 'grab';
+        };
+        const onBlur = () => {
+            stopPreviewDrag();
+            suppressBlankClick = false;
+        };
         iw.addEventListener('mousedown', (e) => {
             if (cropper?.isActive()) return;
             if (e.button !== 0) return;
@@ -3272,17 +3300,25 @@ export function createMediaControllerApi({
             iw.style.cursor = 'grabbing';
         });
         const onMove = (e) => {
+            // A release outside the window may not deliver mouseup to this window.
+            if ((e.buttons & 1) === 0) {
+                stopPreviewDrag();
+                return;
+            }
+            trackPreviewDrag(e);
             if (!isDragging) return;
             fsX = e.clientX - dragStart.x;
             fsY = e.clientY - dragStart.y;
             updateFsT();
         };
-        const onUp = () => {
-            isDragging = false;
-            iw.style.cursor = 'grab';
+        const onUp = (e) => {
+            if (e.button !== 0) return;
+            trackPreviewDrag(e);
+            stopPreviewDrag();
         };
         windowRef.addEventListener('mousemove', onMove);
         windowRef.addEventListener('mouseup', onUp);
+        windowRef.addEventListener('blur', onBlur);
         const cleanup = () => {
             if (nodeId) {
                 displayImageMemoryManager.endFullscreenPreview(nodeId);
@@ -3295,6 +3331,7 @@ export function createMediaControllerApi({
             }
             windowRef.removeEventListener('mousemove', onMove);
             windowRef.removeEventListener('mouseup', onUp);
+            windowRef.removeEventListener('blur', onBlur);
             documentRef.removeEventListener('keydown', onEsc);
         };
         overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
@@ -3323,7 +3360,9 @@ export function createMediaControllerApi({
             });
         }
         overlay.addEventListener('click', (e) => {
-            if (e.target === overlay || e.target === iw) cleanup();
+            const wasDrag = suppressBlankClick;
+            suppressBlankClick = false;
+            if (!wasDrag && (e.target === overlay || e.target === iw)) cleanup();
         });
         const onEsc = (e) => {
             if (e.key === 'Escape') {

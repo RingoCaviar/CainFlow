@@ -2,8 +2,44 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createPromptAgentExecutionAdapter } from '../js/features/prompt-agent/prompt-agent-execution-adapter.js';
+import { createPromptAgentNodeAdapter } from '../js/features/prompt-agent/prompt-agent-node-adapter.js';
 
-test('applies a Prompt Plan and runs only its selected image node through the existing workflow seam', async () => {
+test('a newly created Agent target runs without any canvas selection and retries reuse the same node', async () => {
+    const state = {
+        nodes: new Map(), selectedNodes: new Set(),
+        models: [{ id: 'image-model', modelId: 'gpt-image-test', taskType: 'image', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://example.test/v1' }]
+    };
+    let creations = 0;
+    const nodeAdapter = createPromptAgentNodeAdapter({
+        state, documentRef: { getElementById: () => null },
+        createImageNode: () => {
+            creations += 1;
+            state.nodes.set('new-image', { id: 'new-image', type: 'ImageGenerate', data: {} });
+            return 'new-image';
+        }
+    });
+    const runs = [];
+    const adapter = createPromptAgentExecutionAdapter({
+        state, nodeAdapter,
+        runWorkflow: async (input) => {
+            runs.push(input);
+            return { started: true, executed: true, nodeResults: [{ nodeId: 'new-image', images: ['new-result'] }] };
+        }
+    });
+    const bound = nodeAdapter.ensureTarget({ prompt: '窗边的橘猫', parameters: {} }, { modelId: 'image-model' });
+    assert.deepEqual(await adapter.applyAndGenerate(bound), { status: 'completed', images: ['new-result'] });
+    assert.deepEqual(await adapter.applyAndGenerate(nodeAdapter.ensureTarget(bound, { modelId: 'image-model' })), { status: 'completed', images: ['new-result'] });
+    assert.deepEqual(runs, [
+        { mode: 'selected-only', selectedNodeIds: ['new-image'] },
+        { mode: 'selected-only', selectedNodeIds: ['new-image'] }
+    ]);
+    assert.equal(creations, 1);
+    assert.equal(state.selectedNodes.size, 0);
+    assert.equal(state.nodes.get('new-image').data.prompt, '窗边的橘猫');
+});
+
+test('applies a Prompt Plan and runs only its bound image node through the existing workflow seam', async () => {
     const calls = [];
     const node = { id: 'image-1', type: 'ImageGenerate', data: { images: ['data:image/png;base64,b2s='] } };
     const adapter = createPromptAgentExecutionAdapter({
@@ -32,7 +68,7 @@ test('reports rejected application and failed workflow results without switching
         nodeAdapter: { applyPromptPlan: () => false },
         runWorkflow: async () => { throw new Error('must not run'); }
     });
-    await assert.rejects(() => rejected.applyAndGenerate({ targetNodeId: 'missing' }), /不再是当前选中的生图节点/);
+    await assert.rejects(() => rejected.applyAndGenerate({ targetNodeId: 'missing' }), /目标生图节点已不存在/);
 
     const failed = createPromptAgentExecutionAdapter({
         state: { nodes: new Map([['image-1', { id: 'image-1', type: 'ImageGenerate', data: {} }]]) },

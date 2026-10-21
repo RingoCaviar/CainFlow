@@ -52,6 +52,7 @@ import { createEditedImageImport } from '../features/media/image-painter-output.
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
+import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
 import { installSessionPersistenceOnExit } from '../features/persistence/session-persistence-lifecycle.js';
 import { createClipboardControllerApi } from '../features/ui/clipboard-controller.js';
@@ -82,8 +83,9 @@ import { createWorkflowManagerApi } from '../features/workflow/workflow-manager.
 import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runtime-manager.js';
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
-import { createPromptAgentNodeAdapter } from '../features/prompt-agent/prompt-agent-node-adapter.js';
+import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
+import { createPromptAgentResultPersistence } from '../features/prompt-agent/prompt-agent-result-persistence.js';
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
 import { createPromptAgentCompaction } from '../features/prompt-agent/prompt-agent-compaction.js';
 import { getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
@@ -818,25 +820,48 @@ function waitForRunStartFrame() {
     });
 }
 
-async function runWorkflow(runInput = null, { waitForCompletion = false } = {}) {
+async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults } = {}) {
     if (state.isRunStarting) return false;
+    const requestedWorkflowId = workflowManagerApi.getActiveWorkflowId();
     state.isRunStarting = true;
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     try {
         await waitForRunStartFrame();
         if (!(await workflowManagerApi.ensureOpenWorkflow())) return false;
+        const effectiveRequestedWorkflowId = requestedWorkflowId || workflowManagerApi.getActiveWorkflowId();
         await waitForPendingImageImports();
+        if (workflowManagerApi.getActiveWorkflowId() !== effectiveRequestedWorkflowId) {
+            showToast('工作流已切换，请在目标工作流重新运行', 'warning');
+            return false;
+        }
         const workflowName = workflowManagerApi.getActiveWorkflowName();
         if (!workflowName) {
             showToast('请先打开或新建一个工作流', 'warning');
             return false;
         }
+        const preparedWorkflowId = workflowManagerApi.getActiveWorkflowId();
+        runInput = prepareGenerationSaveTargets({
+            state, runInput,
+            resolveExecutionPlan: (input) => getExecutionCoreApi().resolveExecutionPlan(input),
+            normalizeRunOptions: (input) => getExecutionCoreApi().normalizeRunOptions(input),
+            addNode, generateId, scheduleSave, addLog,
+            isWorkflowCurrent: () => workflowManagerApi.getActiveWorkflowId() === preparedWorkflowId,
+            onConnectionsChanged: (changes) => {
+                registry.connectionProjectionApi?.interactions.topologyChanged(changes);
+                updatePortStyles();
+                handleNodeGraphChanged();
+            }
+        });
         const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
             || workflowManagerApi.getActiveWorkflowSnapshot();
         const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
         // Forward the completion promise without holding the launch guard for
         // the full generation; other workflow branches can still be started.
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion });
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults });
+    } catch (error) {
+        showToast(error?.message || '无法启动工作流', 'warning');
+        if (waitForCompletion) throw error;
+        return false;
     } finally {
         state.isRunStarting = false;
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
@@ -860,6 +885,32 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
     state,
     documentRef: document,
     scheduleSave,
+    createImageNode: ({ model, provider, prompt }) => {
+        const rect = canvasContainer.getBoundingClientRect();
+        const panel = document.getElementById('prompt-agent-panel');
+        const panelWidth = panel?.classList.contains('active') ? panel.getBoundingClientRect().width : 0;
+        const width = NODE_CONFIGS.ImageGenerate.defaultWidth;
+        const origin = viewportApi.screenToCanvas(
+            rect.left + Math.max(32, (rect.width - panelWidth) / 2), rect.top + 48
+        );
+        const preferredX = origin.x - width / 2;
+        const gap = 40;
+        const occupied = Array.from(state.nodes.values()).map((node) => ({
+            left: Number(node.x) || 0,
+            right: (Number(node.x) || 0) + (Number(node.width) || node.el?.offsetWidth || width)
+        }));
+        // Reserve a free horizontal span so later content-height settlement
+        // cannot grow this new generation node into an existing canvas node.
+        const candidates = [preferredX, ...occupied.flatMap((bounds) => [bounds.right + gap, bounds.left - width - gap])];
+        const x = candidates.filter((candidate) => occupied.every((bounds) =>
+            candidate + width + gap <= bounds.left || candidate >= bounds.right + gap
+        )).sort((left, right) => Math.abs(left - preferredX) - Math.abs(right - preferredX))[0] ?? preferredX;
+        const nodeId = addNode('ImageGenerate', x, origin.y, {
+            prompt, apiConfigId: model.id, providerId: provider.id
+        });
+        if (nodeId) scheduleSave();
+        return nodeId;
+    },
     getNodeImages: async (node) => (await mediaControllerApi.getNodeFullscreenImageContext(node.id)).images,
     resolveImageSource: async (source) => {
         if (/^data:image\//i.test(source)) return source;
@@ -870,7 +921,7 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
 const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     state,
     nodeAdapter: promptAgentNodeAdapter,
-    runWorkflow: (runInput) => runWorkflow(runInput, { waitForCompletion: true }),
+    runWorkflow: (runInput, options) => runWorkflow(runInput, { ...options, waitForCompletion: true }),
     cancelRunningNode,
     focusNode: focusCanvasNode
 });
@@ -881,11 +932,30 @@ const getPromptAgentModelId = () => {
 const setPromptAgentModelId = (value) => {
     try { window.localStorage.setItem(PROMPT_AGENT_MODEL_STORAGE_KEY, String(value || '')); } catch { /* optional preference */ }
 };
+const promptAgentResultPersistence = createPromptAgentResultPersistence({
+    saveWorkflowNodeMediaAssets, releaseWorkflowNodeMediaAssets, cancelWorkflowNodeMediaOperation, getImageAsset
+});
 const promptAgentController = createPromptAgentController({
     documentRef: document,
+    getPanelWidth: () => diskStorage.getItem('cainflow_prompt_agent_panel_width'),
+    setPanelWidth: (width) => diskStorage.setItem('cainflow_prompt_agent_panel_width', String(width)),
     nodeAdapter: promptAgentNodeAdapter,
     executionAdapter: promptAgentExecutionAdapter,
+    getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
+    mutateWorkflowConversation: (workflowId, reducer) => workflowManagerApi.mutatePromptAgentByWorkflowId(workflowId, reducer),
+    retainRunResults: (result) => promptAgentResultPersistence.retain(result),
+    releaseRunResults: (result) => promptAgentResultPersistence.release(result),
+    saveConversation: async () => {
+        if (!getSessionManagerApi().flushSave()) throw new Error('会话保存失败，请重试保存。');
+        await diskStorage.flushPromise;
+        if (diskStorage.lastError) throw new Error('会话保存失败，请重试保存。');
+    },
+    loadResultImages: (keys) => Promise.all(keys.map(async (key) => {
+        try { return await getImageAsset(key) || null; } catch { return null; }
+    })),
+    openResultPreview: (images, index) => openFullscreenPreview(images[index], null, { images, index }),
     getChatModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
+    getImageModels: () => getAvailablePromptAgentImageModels(state.models || [], state.providers || []),
     openModelSettings: () => document.getElementById('btn-settings')?.click(),
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
@@ -1483,10 +1553,6 @@ function getWorkflowRunnerApi() {
             getAbortMessage: getAbortMessageService,
             playNotificationSound: () => settingsControllerApi.playNotificationSound(),
             systemNotificationApi: getSystemNotificationApi(),
-            onAutoSaveNodeInjected: () => {
-                handleNodeGraphChanged();
-                scheduleSave();
-            },
             focusCanvasNode,
             onWorkflowFailures: showWorkflowFailureSummary,
             onNodeRunStateChange: (payload) => {
@@ -1641,6 +1707,7 @@ const workflowManagerApi = createWorkflowManagerApi({
         settingsControllerApi?.updateAgentCacheUsage();
     },
     getPromptAgentState: () => promptAgentController.snapshotWorkflow(),
+    applyPromptAgentState: (value) => promptAgentController.syncWorkflowState(value),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
     beginMediaRestoreBatch,

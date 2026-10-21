@@ -1,7 +1,16 @@
-import { getEffectiveProtocol, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { getEffectiveProtocol, getModelProviders, getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
 import { normalizeImageSizeControls, usesOpenAiImageSize } from '../execution/image-generation-size.js';
 import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
+
+export function getAvailablePromptAgentImageModels(models = [], providers = []) {
+    return getModelsForTask(models, 'image').filter((model) =>
+        model?.id && String(model.modelId || '').trim()
+        && getModelProtocolConfig(model.protocol)?.defaultTaskTypes.includes('image')
+        && getModelProviders(model, providers).some((provider) => String(provider.endpoint || '').trim())
+    );
+}
 
 function readValue(documentRef, id, fallback = '') {
     const value = documentRef.getElementById(id)?.value;
@@ -59,6 +68,7 @@ export function createPromptAgentNodeAdapter({
     state,
     documentRef = document,
     scheduleSave = () => {},
+    createImageNode = () => null,
     getNodeImages = async (node) => getCanonicalImageList(node),
     resolveImageSource = async (source) => source,
     createEvent = (type) => new Event(type, { bubbles: true })
@@ -118,9 +128,9 @@ export function createPromptAgentNodeAdapter({
         return node?.type === 'ImageGenerate' ? node : null;
     }
 
-    function getSelectedContext() {
-        const node = getSelectedNode();
-        if (!node) return null;
+    function getContext(nodeId) {
+        const node = state?.nodes?.get(nodeId);
+        if (node?.type !== 'ImageGenerate') return null;
         const referenceImages = (state.connections || [])
             .filter((connection) => connection?.to?.nodeId === node.id && /^image_\d+$/.test(connection?.to?.port || ''))
             .map((connection) => getReferenceImageDescriptor(state, connection));
@@ -151,9 +161,70 @@ export function createPromptAgentNodeAdapter({
         };
     }
 
+    function getSelectedContext() {
+        return getContext(getSelectedNode()?.id);
+    }
+
+    function isRunning(node) {
+        return state?.runningNodeIds?.has(node.id) || node.el?.classList?.contains('running');
+    }
+
+    function configureTarget(node, model, provider) {
+        const modelChanged = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '') !== model.id
+            || (node.apiConfigId && node.apiConfigId !== model.id);
+        const providerChanged = readValue(documentRef, `${node.id}-provider`, node.providerId || '') !== provider.id;
+        const dataChanged = node.apiConfigId !== model.id || node.providerId !== provider.id;
+        // The normal node change handlers rebuild protocol controls before the
+        // plan is validated against the selected model's actual parameters.
+        if (modelChanged) writeValue(documentRef, `${node.id}-apiconfig`, model.id, createEvent);
+        if (modelChanged || providerChanged) writeValue(documentRef, `${node.id}-provider`, provider.id, createEvent);
+        node.apiConfigId = model.id;
+        node.providerId = provider.id;
+        node.data ||= {};
+        node.data.apiConfigId = model.id;
+        node.data.providerId = provider.id;
+        if (modelChanged || providerChanged || dataChanged) scheduleSave();
+    }
+
+    function ensureTarget(plan = {}, { modelId } = {}) {
+        if (state?.isRunStarting) throw new Error('工作流正在启动，请稍后再应用或生成。');
+        if (typeof plan.prompt !== 'string' || !plan.prompt.trim()) {
+            throw new Error('方案缺少可用的提示词，请先整理生图方案。');
+        }
+        const node = plan.targetNodeId ? state?.nodes?.get(plan.targetNodeId) : null;
+        if (plan.targetNodeId && node?.type !== 'ImageGenerate') {
+            throw new Error('目标生图节点已不存在，请重新整理生图方案。');
+        }
+        if (node && isRunning(node)) throw new Error('目标生图节点正在运行，请等待完成或停止后再应用方案。');
+        if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') {
+            throw new Error('方案的负面提示词无效，请重新整理生图方案。');
+        }
+        if (!modelId) throw new Error('请先在 Agent 面板选择生图模型，再应用或生成。');
+        const model = getAvailablePromptAgentImageModels(state?.models || [], state?.providers || [])
+            .find((candidate) => candidate.id === modelId);
+        if (!model) throw new Error('所选生图模型已不可用，请在 Agent 面板重新选择或检查模型与 Provider 配置。');
+        const providers = getModelProviders(model, state?.providers || [])
+            .filter((candidate) => String(candidate.endpoint || '').trim());
+        const currentModelId = node ? node.apiConfigId || readValue(documentRef, `${node.id}-apiconfig`, '') : '';
+        const currentProviderId = node ? readValue(documentRef, `${node.id}-provider`, node.providerId || '') : '';
+        const provider = (currentModelId === model.id && providers.find((candidate) => candidate.id === currentProviderId)) || providers[0];
+        if (node) {
+            configureTarget(node, model, provider);
+            return plan;
+        }
+        const created = createImageNode({ model, provider, prompt: plan.prompt.trim() });
+        const nodeId = typeof created === 'string' ? created : created?.id;
+        if (!nodeId || state?.nodes?.get(nodeId)?.type !== 'ImageGenerate') {
+            throw new Error('无法创建生图节点，请重试。');
+        }
+        configureTarget(state.nodes.get(nodeId), model, provider);
+        return { ...plan, targetNodeId: nodeId };
+    }
+
     function applyPromptPlan(plan = {}) {
-        const node = getSelectedNode();
-        if (!node || !plan.targetNodeId || node.id !== plan.targetNodeId) return false;
+        if (state?.isRunStarting) return false;
+        const node = state?.nodes?.get(plan.targetNodeId);
+        if (node?.type !== 'ImageGenerate' || isRunning(node)) return false;
         if (typeof plan.prompt !== 'string' || !plan.prompt.trim()) return false;
         // Validate before any writes, including plans restored from workflows
         // or created before the user changed this node's model.
@@ -213,5 +284,5 @@ export function createPromptAgentNodeAdapter({
         return true;
     }
 
-    return { getSelectedContext, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
+    return { getContext, getSelectedContext, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
 }

@@ -31,8 +31,8 @@
 
 #toolbar:hover + #main-layout #side-bar,
 #toolbar:focus-within + #main-layout #side-bar,
-#toolbar:has(.btn.active) + #main-layout #side-bar,
-#toolbar:has([aria-expanded="true"]) + #main-layout #side-bar,
+#toolbar:has(.btn.active:not(#btn-prompt-agent)) + #main-layout #side-bar,
+#toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)) + #main-layout #side-bar,
 body.toolbar-peek-active #toolbar + #main-layout #side-bar,
 body.toolbar-pinned #toolbar + #main-layout #side-bar {
     top: calc(var(--toolbar-height, 48px) + 8px);
@@ -69,8 +69,8 @@ body.toolbar-pinned #toolbar + #main-layout #side-bar {
 
 #toolbar:hover,
 #toolbar:focus-within,
-#toolbar:has(.btn.active),
-#toolbar:has([aria-expanded="true"]),
+#toolbar:has(.btn.active:not(#btn-prompt-agent)),
+#toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
 body.toolbar-peek-active #toolbar,
 body.toolbar-pinned #toolbar {
     transform: translateY(0);
@@ -105,15 +105,15 @@ body.preview-active.sidebar-pinned #side-bar {
 
 #toolbar:hover::after,
 #toolbar:focus-within::after,
-#toolbar:has(.btn.active)::after,
-#toolbar:has([aria-expanded="true"])::after,
+#toolbar:has(.btn.active:not(#btn-prompt-agent))::after,
+#toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent))::after,
 body.toolbar-peek-active #toolbar::after,
 body.toolbar-pinned #toolbar::after {
     opacity: 0;
     transform: translateX(-50%) scaleX(0.72);
 }
 
-html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active)):not(:has([aria-expanded="true"])) {
+html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active:not(#btn-prompt-agent))):not(:has([aria-expanded="true"]:not(#btn-prompt-agent))) {
     box-shadow: none;
 }
 

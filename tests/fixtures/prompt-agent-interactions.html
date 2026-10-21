@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/01-toolbar.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/layout/workbench.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css"><style>#toolbar{transition:none!important} #canvas-container{position:absolute;inset:0} #surface-result{display:none}</style></head>
+<body><div id="app-container"><div id="toolbar"><button id="btn-prompt-agent" class="btn">Agent</button><button id="other" class="btn">Other</button></div><main id="main-layout"><div id="canvas-container"><div id="nodes-layer"><div id="node" class="node">Node</div></div><svg id="connections-layer"><path id="edge"/></svg><div id="canvas-navigation">Navigation</div></div></main></div><pre id="surface-result"></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const result = {};
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(),'text/html');
+    document.getElementById('main-layout').appendChild(document.importNode(page.getElementById('prompt-agent-panel'),true));
+    let models = [{id:'first',modelId:'first',name:'第一个模型'}, {id:'second',modelId:'second',name:'第二个长名称模型用于验证浮层换行与完整显示'}];
+    const controller = createPromptAgentController({documentRef:document,getChatModels:()=>models,getImageModels:()=>models,getPanelWidth:()=>300});
+    controller.init(); controller.open();
+    const panel = document.getElementById('prompt-agent-panel');
+    const canvas = document.getElementById('canvas-container');
+    const input = document.getElementById('prompt-agent-input'); input.value='保留草稿';
+    const select = document.getElementById('prompt-agent-image-model');
+    const trigger = select.nextElementSibling;
+    const tick = () => new Promise(resolve=>setTimeout(resolve,0));
+    const check = (condition,name) => { if(!condition)throw new Error(name); result[name]=true; };
+    const pointer = (target,type,x=400,y=400) => target.dispatchEvent(new PointerEvent(type,{pointerId:1,button:0,clientX:x,clientY:y,bubbles:true}));
+    const click = target => { pointer(target,'pointerdown');pointer(target,'pointerup');target.dispatchEvent(new MouseEvent('click',{button:0,bubbles:true})); };
+    await tick();
+    check(select.value === '', 'manualSelection');
+    trigger.click(); await tick();
+    check(!!document.querySelector('.prompt-agent-model-menu') && panel.classList.contains('active'), 'menuStaysOpen');
+    let menu = document.querySelector('.prompt-agent-model-menu');
+    menu.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));
+    document.activeElement.click(); await tick();
+    check(select.value==='second' && controller.snapshotWorkflow().imageModelId==='second' && !document.querySelector('.prompt-agent-model-menu'),'keyboardSelection');
+    trigger.click(); await tick();
+    menu = document.querySelector('.prompt-agent-model-menu');
+    menu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    check(!document.querySelector('.prompt-agent-model-menu') && document.activeElement===trigger,'escape');
+    trigger.click(); await tick();
+    document.getElementById('prompt-agent-model').nextElementSibling.click(); await tick();
+    check(document.querySelectorAll('.prompt-agent-model-menu').length===1 && trigger.getAttribute('aria-expanded')==='false','oneMenu');
+    document.querySelector('.prompt-agent-model-menu').dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true}));
+    check(!document.querySelector('.prompt-agent-model-menu'),'tab');
+    trigger.click(); await tick(); pointer(input,'pointerdown');
+    check(!document.querySelector('.prompt-agent-model-menu') && panel.classList.contains('active'),'outsideMenu');
+    trigger.click(); await tick();
+    models = [models[0]]; controller.refreshModels(); await tick();
+    check(!document.querySelector('.prompt-agent-model-menu') && select.value==='second' && select.selectedOptions[0].disabled,'deletedModel');
+    models=[]; controller.refreshModels(); await tick(); check(trigger.disabled,'disabled');
+    models=Array.from({length:30},(_,i)=>({id:`m${i}`,modelId:`m${i}`,name:`模型 ${i} 长名称测试`})); controller.refreshModels(); await tick();
+    for(const theme of ['light','dark','pink','pro','paper','glass-light','glass-dark']) {
+        document.documentElement.dataset.appTheme=theme;
+        trigger.click(); await tick(); menu=document.querySelector('.prompt-agent-model-menu');
+        const rect=menu.getBoundingClientRect();
+        const plus=document.getElementById('prompt-agent-add-reference');
+        const pr=plus.getBoundingClientRect(), ir=plus.querySelector('svg').getBoundingClientRect();
+        check(rect.left>=0 && rect.right<=innerWidth && rect.top>=0 && rect.bottom<=innerHeight && menu.scrollHeight>menu.clientHeight, `${theme}-menu`);
+        check(Math.abs((pr.left+pr.right)-(ir.left+ir.right))<1 && Math.abs((pr.top+pr.bottom)-(ir.top+ir.bottom))<1,`${theme}-plus`);
+        check(getComputedStyle(panel).backgroundColor!==getComputedStyle(canvas).backgroundColor,`${theme}-surface`);
+        menu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    }
+    for(const id of ['node','edge','canvas-navigation']) { click(document.getElementById(id)); check(panel.classList.contains('active'),id); }
+    canvas.dispatchEvent(new PointerEvent('pointerdown',{pointerId:1,button:2,bubbles:true}));
+    canvas.dispatchEvent(new PointerEvent('pointerup',{pointerId:1,button:2,bubbles:true}));
+    canvas.dispatchEvent(new MouseEvent('click',{button:2,bubbles:true}));
+    check(panel.classList.contains('active'),'rightClick');
+    pointer(canvas,'pointerdown');pointer(canvas,'pointermove',450);pointer(canvas,'pointermove',400);pointer(canvas,'pointerup');canvas.click();
+    check(panel.classList.contains('active'),'dragReturn');
+    click(canvas); check(!panel.classList.contains('active') && input.value==='保留草稿','blankClose');
+    controller.open(); trigger.click();await tick(); controller.close();check(!document.querySelector('.prompt-agent-model-menu'),'closeCleanup');
+    controller.open(); panel.style.height='140px';panel.style.bottom='auto';trigger.click();await tick();
+    menu=document.querySelector('.prompt-agent-model-menu');
+    check(menu.getBoundingClientRect().top>=trigger.getBoundingClientRect().bottom,'flipDown');
+    menu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));panel.style.height='';panel.style.bottom='';
+    controller.open();input.focus();
+    check(document.getElementById('toolbar').getBoundingClientRect().top<0,'toolbarHidden');
+    document.body.classList.add('toolbar-pinned');check(document.getElementById('toolbar').getBoundingClientRect().top>=0,'toolbarPinned');document.body.classList.remove('toolbar-pinned');
+    document.body.classList.add('toolbar-peek-active');check(document.getElementById('toolbar').getBoundingClientRect().top>=0,'toolbarPeek');document.body.classList.remove('toolbar-peek-active');
+    document.getElementById('other').setAttribute('aria-expanded','true');check(document.getElementById('toolbar').getBoundingClientRect().top>=0,'otherMenu');document.getElementById('other').removeAttribute('aria-expanded');
+    if(new URLSearchParams(location.search).has('screenshot')) {document.documentElement.dataset.appTheme='dark';trigger.click();}
+} catch(error){result.error=error.stack||error.message;}
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

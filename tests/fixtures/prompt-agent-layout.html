@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="../../css/modules/00-foundation.css">
     <link rel="stylesheet" href="../../css/modules/01-toolbar.css">
     <link rel="stylesheet" href="../../css/prompt-agent.css">
-    <style>#toolbar .btn { min-width: 100px; }</style>
+    <style>#toolbar { transition: none !important; } #toolbar .btn { min-width: 100px; }</style>
 </head>
 <body>
     <div id="app-container">
@@ -39,7 +39,8 @@
             return {
                 width,
                 toolbarHeight: toolbarRect.height,
-                gap: panelRect.top - toolbarRect.bottom,
+                panelTop: panelRect.top,
+                toolbarHidden: toolbarRect.top < 0,
                 panelBottom: panelRect.bottom,
                 viewportHeight: window.innerHeight
             };

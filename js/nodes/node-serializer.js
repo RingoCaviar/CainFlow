@@ -235,6 +235,7 @@ export function createNodeSerializer({ state, documentRef }) {
             }
 
             if (node.type === 'ImageSave') {
+                if (node.autoAddedForGeneration === true) serialized.autoAddedForGeneration = true;
                 serialized.filename = documentRef.getElementById(`${id}-filename`)?.value || 'generated_image';
                 if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
                     serialized.videos = node.data.videos.map((video) => ({

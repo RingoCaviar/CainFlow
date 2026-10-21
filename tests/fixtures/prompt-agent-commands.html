@@ -23,6 +23,10 @@ import { createPromptAgentInput } from '../../js/features/prompt-agent/prompt-ag
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 const model = { id: 'chat-1', modelId: 'chat-test', name: '视觉对话模型', protocol: 'openai', capabilities: { imageInput: true } };
+const imageModels = [
+    { id: 'image-first', modelId: 'image-first', name: '生图模型一' },
+    { id: 'image-second', modelId: 'image-second', name: '生图模型二（用于工作流创作）' }
+];
 
 try {
     // Read the production markup so missing command elements cannot be hidden
@@ -35,6 +39,7 @@ try {
     const status = document.getElementById('prompt-agent-command-status');
     const messages = document.getElementById('prompt-agent-messages');
     const references = document.getElementById('prompt-agent-references');
+    const imageModelSelect = document.getElementById('prompt-agent-image-model');
     check(menu.hidden && status.hidden, 'command UI must start hidden');
     check(input.placeholder.includes('/'), 'input must advertise slash commands');
 
@@ -47,6 +52,7 @@ try {
     const image = { referenceId: 'import-1', name: '人物参考', dataUrl: imageUrl, previewUrl: imageUrl };
     const controller = createPromptAgentController({
         getChatModels: () => models,
+        getImageModels: () => imageModels,
         createReply: async (request) => {
             replies.push(createPromptAgentInput({ ...request, model }));
             return { intent: 'chat', message: '保留既定主角和风格，继续调整光线。', promptPlan: null };
@@ -73,6 +79,10 @@ try {
         messages: [{ role: 'user', text: '旧工作流需求' }, { role: 'agent', text: '旧工作流回复' }]
     });
     controller.open();
+    check(imageModelSelect.value === '', 'old workflows must not acquire a default image model');
+    imageModelSelect.value = 'image-second';
+    imageModelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    check(controller.snapshotWorkflow().imageModelId === 'image-second', 'image selection must belong to the active workflow');
     type('/');
     check(!menu.hidden && menu.children.length === 2, 'slash must list two commands');
     check(activeCommand() === '/clear', 'first command must be selected initially');
@@ -103,6 +113,7 @@ try {
     check(references.hidden && menu.hidden && input.value === '', 'clear must remove draft references and consume command text');
     check(replies.length === 0 && compactions.length === 0, 'clear must work without contacting any model');
     check(panel.classList.contains('active') && panel.style.width === '612px', 'clear must preserve open state and panel width');
+    check(cleared.imageModelId === 'image-second' && imageModelSelect.value === 'image-second', 'clear must preserve the chosen image model');
     check(!status.hidden && status.textContent.includes('清空'), 'clear must give visible feedback');
 
     models = [model];
@@ -122,12 +133,14 @@ try {
     await tick();
     await tick();
     const compacted = controller.snapshotWorkflow();
+    check(compacted.imageModelId === 'image-second', 'compaction must preserve the chosen image model');
     check(compacted.contextSummary.includes('蓝色小猫'), 'successful compact must retain a continuation summary');
     check(compacted.archivedMessages.length === beforeCompact.messages.length && compacted.messages.length === 0, 'compaction must preserve viewable history outside the active context');
     check(messages.textContent.includes('刚才的夜景改成清晨。'), 'earlier messages must stay visible after compact');
     check(!status.hidden && /压缩|整理/.test(status.textContent), 'compaction completion must be visible');
     controller.restoreWorkflow(compacted);
     controller.open();
+    check(imageModelSelect.value === 'image-second', 'restoring compacted workflow must restore its image model');
     check(messages.textContent.includes('刚才的夜景改成清晨。'), 'restored compacted history must stay visible');
     type('继续，换成黄昏。');
     await controller.submit();
@@ -154,6 +167,7 @@ try {
     key('Enter');
     await tick();
     const clearedAfterCompact = controller.snapshotWorkflow();
+    check(clearedAfterCompact.imageModelId === 'image-second', 'clear after compaction must preserve the image model');
     check(!clearedAfterCompact.contextSummary && !clearedAfterCompact.archivedMessages?.length
         && clearedAfterCompact.messages.length === 0,
         'clear must erase compacted summaries and archived history as well');
@@ -173,11 +187,20 @@ try {
             const formBounds = document.getElementById('prompt-agent-form').getBoundingClientRect();
             const active = menu.querySelector('[aria-selected="true"]');
             const inactive = menu.querySelector('[aria-selected="false"]');
+            const modelSelectors = [document.getElementById('prompt-agent-model'), imageModelSelect];
             samples.push({
                 theme, width,
                 menuFits: menuBounds.left >= bounds.left && menuBounds.right <= bounds.right && menuBounds.top > bounds.top,
                 optionsFit: menu.scrollWidth <= menu.clientWidth + 1 && [...menu.children].every((item) => item.scrollWidth <= item.clientWidth + 1),
                 composerFits: formBounds.bottom <= bounds.bottom && inputBounds.width >= 100 && formBounds.width <= bounds.width,
+                modelSelectorsFit: modelSelectors.every((select) => {
+                    const selectBounds = select.parentElement.querySelector('.prompt-agent-model-trigger').getBoundingClientRect();
+                    const labelBounds = select.parentElement.getBoundingClientRect();
+                    return selectBounds.width >= 80 && selectBounds.left >= bounds.left && selectBounds.right <= bounds.right
+                        && labelBounds.left >= bounds.left && labelBounds.right <= bounds.right
+                        && select.parentElement.scrollWidth <= select.parentElement.clientWidth + 1;
+                }),
+                modelLabels: modelSelectors.map((select) => select.parentElement.textContent),
                 selectedBorder: getComputedStyle(active).borderTopColor,
                 unselectedBorder: getComputedStyle(inactive).borderTopColor,
                 descriptionColor: getComputedStyle(active.querySelector('.prompt-agent-command-description')).color,
@@ -192,6 +215,7 @@ try {
     document.getElementById('surface-result').textContent = JSON.stringify({
         clearedWithoutModel: true, continuedFromSummary: true, historyRetained: true,
         failurePreservedContext: true, keyboardAndClick: true,
+        imageModelSurvivesCommands: true,
         compactionCount: compactions.length, samples
     });
 } catch (error) {

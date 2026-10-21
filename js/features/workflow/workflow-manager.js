@@ -36,6 +36,7 @@ import { serializeConnection } from '../../canvas/connection-snapshot.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
     createMediaOwnershipCoordinator,
+    getPromptAgentResultRuns,
     getWorkflowMediaOwnerType,
     prepareWorkflowMediaOwnershipCommit
 } from '../media/workflow-media-ownership-commit.js';
@@ -96,6 +97,7 @@ export function createWorkflowManagerApi({
     recordWorkflowDiagnostic = async () => {},
     onWorkflowViewApplied = () => {},
     getPromptAgentState = () => null,
+    applyPromptAgentState = () => {},
     refreshRecoverableMediaNodes = async () => {},
     waitForImageRestores = async () => {},
     beginMediaRestoreBatch = () => {},
@@ -312,6 +314,14 @@ export function createWorkflowManagerApi({
             const data = cloneWorkflowData(tab.data);
             data.workflowId = operation.newWorkflowId;
             data.mediaOwnershipRevision = 0;
+            for (const run of getPromptAgentResultRuns(data)) {
+                // The copy gains its own durable owner during the normal save.
+                // Its source's pending-operation protection remains source-only.
+                delete run.mediaOwnershipTemporaryOwners;
+                if (run.status === 'running' || run.status === 'pending') run.status = 'interrupted';
+                if (run.mediaAssetKeys?.length) run.persistenceStatus = 'saved';
+                delete run.persistenceError;
+            }
             const ok = typeof operation.persist === 'function'
                 ? await operation.persist({
                     workflowId: operation.newWorkflowId,
@@ -1596,6 +1606,24 @@ export function createWorkflowManagerApi({
     function markActiveWorkflowDirty() {
         const tab = snapshotActiveWorkflow({ markDirty: true });
         if (tab) refreshWorkflowCardState(tab.name);
+    }
+
+    function mutatePromptAgentByWorkflowId(workflowId, reducer) {
+        const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
+        if (!tab?.data || typeof reducer !== 'function') return false;
+        const active = getActiveWorkflowId() === workflowId;
+        const current = active ? getPromptAgentState() : tab.data.promptAgent;
+        const next = reducer(cloneWorkflowItem(current || null));
+        if (!next || typeof next !== 'object' || typeof next.then === 'function') return false;
+        const snapshot = cloneWorkflowItem(next);
+        if (active) applyPromptAgentState(cloneWorkflowItem(snapshot), workflowId);
+        // Do not replace the document captured when generation began: graph,
+        // model settings and other conversation turns may have changed since.
+        replaceWorkflowTabData(tab, { ...tab.data, promptAgent: snapshot });
+        tab.dirty = true;
+        refreshWorkflowCardState(tab.name);
+        scheduleSave({ dirty: false });
+        return true;
     }
 
     function refreshActiveWorkflowIntegrityState() {
@@ -3042,6 +3070,7 @@ export function createWorkflowManagerApi({
         clearExpectedMediaOwnerGeneration: (expectation) => mediaOwnership.clearTemporaryOwnerGeneration(expectation),
         saveAllOpenWorkflows,
         markActiveWorkflowDirty,
+        mutatePromptAgentByWorkflowId,
         refreshActiveWorkflowIntegrityState,
         snapshotActiveWorkflow,
         getActiveWorkflowName,

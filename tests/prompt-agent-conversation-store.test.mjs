@@ -3,6 +3,56 @@ import test from 'node:test';
 
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 
+test('each generation retains its ordered batch through archive, compaction and JSON restore', () => {
+    const store = createPromptAgentConversationStore({ maxContextCharacters: 64 });
+    const index = store.append({ role: 'agent', text: '方案', promptPlan: { targetNodeId: 'image', prompt: '猫' } });
+    assert.equal(store.beginRun(index, { runId: 'run-a', targetNodeId: 'image' }), true);
+    assert.equal(store.finishRun('run-a', { status: 'completed', mediaAssetKeys: ['media:b', 'media:a'], persistenceStatus: 'retained',
+        mediaOwnershipTemporaryOwners: [{ ownerId: 'operation-a', assetKeys: ['media:b', 'media:a'] }] }), true);
+    assert.equal(store.beginRun(index, { runId: 'run-b', targetNodeId: 'image' }), true);
+    assert.equal(store.finishRun('run-b', { status: 'completed', mediaAssetKeys: ['media:c'], persistenceStatus: 'saved' }), true);
+    store.append({ role: 'user', text: '追加'.repeat(40) });
+    store.compact('保留两次结果');
+    const restored = createPromptAgentConversationStore({ maxContextCharacters: 64 });
+    restored.restore(JSON.parse(JSON.stringify(store.snapshot())));
+    assert.deepEqual(restored.getRun('run-a').mediaAssetKeys, ['media:b', 'media:a']);
+    assert.deepEqual(restored.getRun('run-b').mediaAssetKeys, ['media:c']);
+    assert.equal(restored.snapshot().archivedMessages[index].runs.length, 2);
+    assert.equal(restored.getRun('run-a').mediaOwnershipTemporaryOwners[0].ownerId, 'operation-a');
+    assert.deepEqual(restored.snapshot(), store.snapshot());
+});
+
+test('generation records do not persist presentation URLs or accept stale completion after clear', () => {
+    const store = createPromptAgentConversationStore();
+    const index = store.append({ role: 'agent', text: '方案', promptPlan: { prompt: '猫' } });
+    assert.equal(store.beginRun(index, { runId: 'run-a', targetNodeId: 'image', images: ['data:image/png;base64,PRIVATE'], previewUrl: 'blob:private' }), true);
+    assert.equal(store.beginRun(index, { runId: 'run-a', targetNodeId: 'other' }), false);
+    assert.equal(store.beginRun(99, { runId: 'run-b' }), false);
+    store.finishRun('run-a', { status: 'completed', mediaAssetKeys: ['media:a'], images: ['https://remote.test/image'] });
+    assert.doesNotMatch(JSON.stringify(store.snapshot()), /PRIVATE|blob:private|remote.test/);
+    const returned = store.getRun('run-a');
+    returned.mediaAssetKeys.push('media:external');
+    assert.deepEqual(store.getRun('run-a').mediaAssetKeys, ['media:a']);
+    assert.equal(store.finishRun('run-a', { mediaAssetKeys: ['media:replacement'] }), false);
+    assert.equal(store.finishRun('run-a', { persistenceStatus: 'saved', mediaOwnershipTemporaryOwners: [] }), true);
+    store.clear();
+    assert.equal(store.finishRun('run-a', { status: 'completed', mediaAssetKeys: ['media:late'] }), false);
+    assert.equal(store.getRun('run-a'), null);
+    assert.deepEqual(store.snapshot().messages, []);
+});
+
+test('only explicit restart restoration marks unfinished generation records interrupted', () => {
+    const store = createPromptAgentConversationStore();
+    store.append({ role: 'agent', text: '方案', runs: [{ runId: 'run-a', targetNodeId: 'image', status: 'running' }] });
+    const snapshot = store.snapshot();
+    store.restore(snapshot);
+    assert.equal(store.getRun('run-a').status, 'running');
+    store.restore(snapshot, { interruptRunning: true });
+    assert.equal(store.getRun('run-a').status, 'interrupted');
+    store.restore({ messages: [{ role: 'agent', text: '旧存档' }] });
+    assert.equal(store.snapshot().messages[0].runs, undefined);
+});
+
 test('conversation and Workflow Memory round-trip as workflow-scoped data', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 500 });
     store.append({ role: 'user', text: '做一张城市夜景' });
@@ -40,7 +90,72 @@ test('restoring missing workflow Agent data clears previous conversation', () =>
     const store = createPromptAgentConversationStore();
     store.append({ role: 'user', text: '旧工作流内容' });
     store.restore(null);
-    assert.deepEqual(store.snapshot(), { version: 1, memory: '', messages: [], panelWidth: null });
+    assert.deepEqual(store.snapshot(), { version: 1, memory: '', messages: [] });
+});
+
+test('explicit image model selection round-trips as optional version-one workflow data', () => {
+    const store = createPromptAgentConversationStore();
+    assert.equal(store.getImageModelId(), '');
+    assert.equal(Object.hasOwn(store.snapshot(), 'imageModelId'), false);
+    assert.equal(store.setImageModelId(' image-model-a '), true);
+    assert.equal(store.getImageModelId(), 'image-model-a');
+    assert.equal(store.setImageModelId('image-model-a'), false);
+    store.append({ role: 'user', text: '画一只猫' });
+
+    const snapshot = store.snapshot();
+    assert.equal(snapshot.version, 1);
+    assert.equal(snapshot.imageModelId, 'image-model-a');
+    const restored = createPromptAgentConversationStore();
+    restored.restore(snapshot);
+    assert.equal(restored.getImageModelId(), 'image-model-a');
+    assert.deepEqual(restored.snapshot(), snapshot);
+    assert.equal(restored.setImageModelId(''), true);
+    assert.equal(Object.hasOwn(restored.snapshot(), 'imageModelId'), false);
+    assert.equal(restored.setImageModelId(''), false);
+});
+
+test('restoring each workflow replaces image selection without borrowing another workflow or legacy node data', () => {
+    const store = createPromptAgentConversationStore();
+    store.setImageModelId('model-a');
+    const first = store.snapshot();
+    store.restore(null);
+    assert.equal(store.getImageModelId(), '');
+    store.setImageModelId('model-b');
+    const second = store.snapshot();
+    store.restore(first);
+    assert.equal(store.getImageModelId(), 'model-a');
+    store.restore(second);
+    assert.equal(store.getImageModelId(), 'model-b');
+
+    for (const imageModelId of [undefined, null, 42, {}, [], true, '   ']) {
+        store.restore({ version: 1, imageModelId, messages: [{
+            role: 'agent', text: '旧方案', promptPlan: {
+                targetNodeId: 'node-a', modelId: 'node-model', prompt: '猫', parameters: {}
+            }
+        }] });
+        assert.equal(store.getImageModelId(), '');
+        assert.equal(Object.hasOwn(store.snapshot(), 'imageModelId'), false);
+        store.setImageModelId('model-b');
+    }
+    store.restore({ version: 1, messages: [] });
+    assert.equal(store.getImageModelId(), '');
+});
+
+test('context trimming, compaction and clearing retain the explicitly selected image model', () => {
+    const store = createPromptAgentConversationStore({ maxContextCharacters: 64 });
+    store.setImageModelId('image-model');
+    store.append({ role: 'user', text: '初始要求'.repeat(30) });
+    store.append({ role: 'agent', text: '新的方案' });
+    assert.ok(store.snapshot().archivedMessages.length > 0);
+    assert.equal(store.getImageModelId(), 'image-model');
+    store.compact('保留最新方案');
+    assert.equal(store.snapshot().imageModelId, 'image-model');
+    store.clear();
+    assert.deepEqual(store.snapshot(), {
+        version: 1, memory: '', messages: [], imageModelId: 'image-model'
+    });
+    store.restore(null);
+    assert.equal(store.getImageModelId(), '');
 });
 
 test('reference images round-trip without adding image payloads to text context', () => {
@@ -133,7 +248,7 @@ test('explicit compaction replaces effective history while preserving visible tu
     };
     store.append({ role: 'agent', text: '新版待应用', promptPlan: latestPlan });
     const originalMessages = store.snapshot().messages;
-    store.setPanelWidth(550);
+    store.restore({ ...store.snapshot(), panelWidth: 550 });
 
     store.compact(' 保留第二张主体，背景改蓝；新版方案待应用。 ');
     const snapshot = store.snapshot();
@@ -147,7 +262,7 @@ test('explicit compaction replaces effective history while preserving visible tu
     assert.equal(snapshot.previousPromptPlan.referenceImages[0].referenceId, 'second');
     assert.doesNotMatch(JSON.stringify(snapshot.previousPromptPlan), /base64|previewUrl/);
     assert.deepEqual(store.getReferenceImages(), references);
-    assert.equal(snapshot.panelWidth, 550);
+    assert.equal(snapshot.panelWidth, undefined);
     assert.match(store.getContext(), /^上下文摘要：保留第二张主体/);
     assert.doesNotMatch(store.getContext(), /第一版方案|保持第 2 张的主体/);
 });
@@ -223,9 +338,9 @@ test('restoring archive-only reference images and plans recovers usable context 
     assert.equal(store.snapshot().previousPromptPlan.prompt, '新的方案');
 });
 
-test('clear resets checkpoints, memory, archives, references and plans while retaining panel width', () => {
+test('clear resets checkpoints, memory, archives, references and plans without serializing legacy panel width', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
-    store.setPanelWidth(610);
+    store.restore({ panelWidth: 610 });
     store.append({ role: 'user', text: '请求', referenceImages: [
         { name: '图片', type: 'image/png', dataUrl: 'data:image/png;base64,SOURCE' }
     ] });
@@ -234,7 +349,7 @@ test('clear resets checkpoints, memory, archives, references and plans while ret
     store.append({ role: 'user', text: '后续要求'.repeat(30) });
     store.append({ role: 'agent', text: '后续回复'.repeat(30) });
     store.clear();
-    assert.deepEqual(store.snapshot(), { version: 1, memory: '', messages: [], panelWidth: 610 });
+    assert.deepEqual(store.snapshot(), { version: 1, memory: '', messages: [] });
     assert.equal(store.getContext(), '');
     assert.deepEqual(store.getReferenceImages(), []);
 });
@@ -309,6 +424,29 @@ test('successive checkpoints persist their boundary and include only newly archi
     assert.equal(restored.snapshot().compactedMessageCount, 5);
     assert.equal(restored.getCompactionContext().messages.length, 0);
     assert.equal(restored.getCompactionContext().archivedMessages.length, 5);
+});
+
+test('target bindings survive automatic trimming, explicit compaction and restore without rebinding other plans', () => {
+    for (const compact of ['none', 'automatic', 'explicit']) {
+        const store = createPromptAgentConversationStore({ maxContextCharacters: compact === 'automatic' ? 64 : 4000 });
+        const old = store.append({ role: 'agent', text: '旧方案', promptPlan: { targetNodeId: null, prompt: '同一提示词', parameters: {} } });
+        const latest = store.append({ role: 'agent', text: '新方案', promptPlan: { targetNodeId: null, prompt: '同一提示词', parameters: {} } });
+        if (compact === 'automatic') store.append({ role: 'user', text: '继续'.repeat(80) });
+        if (compact === 'explicit') store.compact('保留新方案');
+        assert.equal(store.bindPromptPlanTarget(latest, 'created'), true);
+        assert.equal(store.bindPromptPlanTarget(latest, 'another'), false);
+        assert.equal(store.bindPromptPlanTarget(-1, 'bad'), false);
+        const snapshot = store.snapshot();
+        const transcript = [...(snapshot.archivedMessages || []), ...snapshot.messages];
+        assert.equal(transcript[old].promptPlan.targetNodeId, null);
+        assert.equal(transcript[latest].promptPlan.targetNodeId, 'created');
+        if (compact !== 'none') assert.equal(snapshot.previousPromptPlan.targetNodeId, 'created');
+        const restored = createPromptAgentConversationStore();
+        restored.restore(snapshot);
+        assert.deepEqual(restored.snapshot(), snapshot);
+        assert.equal(restored.bindPromptPlanTarget(old, 'older-target'), true);
+        if (compact !== 'none') assert.equal(restored.snapshot().previousPromptPlan.targetNodeId, 'created');
+    }
 });
 
 test('legacy checkpoints infer archive coverage while invalid persisted coverage never replaces live state', () => {

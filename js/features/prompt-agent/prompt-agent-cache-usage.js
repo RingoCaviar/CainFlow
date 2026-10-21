@@ -8,6 +8,7 @@ function emptyUsage() {
         activeMessageCount: 0,
         archivedMessageCount: 0,
         referenceCount: 0,
+        resultCount: 0,
         summaryCount: 0
     };
 }
@@ -45,6 +46,8 @@ function measureConversation(conversation) {
     usage.referenceCount = new Set(references
         .filter((image) => typeof image.dataUrl === 'string' && image.dataUrl.startsWith('data:image/'))
         .map(getPromptAgentReferenceKey)).size;
+    usage.resultCount = allMessages.flatMap((message) => records(message.runs))
+        .reduce((count, run) => count + (Array.isArray(run.mediaAssetKeys) ? run.mediaAssetKeys.length : 0), 0);
     usage.summaryCount = [conversation.memory, conversation.contextSummary]
         .filter((summary) => typeof summary === 'string' && summary.trim()).length;
 

@@ -151,12 +151,9 @@ export function createWorkflowRunnerApi({
     executeNode,
     resumeVideoGeneration = async () => {},
     resumeAsyncImageGeneration = async () => {},
-    addNode,
-    generateId,
     showToast,
     addLog,
     scheduleSave,
-    updateAllConnections,
     connectionProjection = null,
     updatePortStyles,
     getImageAsset = async () => null,
@@ -172,7 +169,6 @@ export function createWorkflowRunnerApi({
     getAbortMessage,
     playNotificationSound,
     onNodeRunStateChange = () => {},
-    onAutoSaveNodeInjected = () => {},
     focusCanvasNode = () => {},
     onWorkflowFailures = () => {}
 }) {
@@ -2123,8 +2119,8 @@ export function createWorkflowRunnerApi({
                 showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
                 return { started: false, executed: false, reason: 'empty-canvas' };
             }
-            let runOptions = normalizeRunOptions(runInput);
-            let plan = resolveExecutionPlan(runOptions);
+            const runOptions = normalizeRunOptions(runInput);
+            const plan = resolveExecutionPlan(runOptions);
             if (!plan) {
                 return { started: false, executed: false, reason: 'no-plan' };
             }
@@ -2209,7 +2205,7 @@ export function createWorkflowRunnerApi({
 
             resetNodesForPlan(plan, { forceResetNodeIds });
 
-            let order = plan.executionOrder.slice();
+            const order = plan.executionOrder.slice();
 
         const emptyImageNodes = [];
         for (const nid of order) {
@@ -2306,69 +2302,6 @@ export function createWorkflowRunnerApi({
                 state.abortReason = null;
             }
             syncRunToolbarState();
-        }
-
-        if (plan.mode !== 'selected-only') {
-            let injected = false;
-            for (const nid of order) {
-                const node = state.nodes.get(nid);
-                if (node && node.type === 'ImageGenerate') {
-                    const hasConnection = state.connections.some((c) => c.from.nodeId === nid && c.from.port === 'image');
-                    if (!hasConnection) {
-                        const rect = node.el.getBoundingClientRect();
-                        const nodeWidth = rect.width || 240;
-                        const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
-                        if (saveId) {
-                            state.connections.push({
-                                id: 'conn_' + generateId(),
-                                from: { nodeId: nid, port: 'image', type: 'image' },
-                                to: { nodeId: saveId, port: 'image', type: 'image' },
-                                type: 'image'
-                            });
-                            injected = true;
-                            addLog('info', '自动注入节点', `为「${getNodeDisplayTitle(node)}」自动添加了保存节点`);
-                        }
-                    }
-                }
-                if (node && node.type === 'VideoGenerate') {
-                    const hasConnection = state.connections.some((c) => c.from.nodeId === nid && c.from.port === 'video');
-                    if (!hasConnection) {
-                        const rect = node.el.getBoundingClientRect();
-                        const nodeWidth = rect.width || 240;
-                        const saveId = addNode('ImageSave', node.x + nodeWidth + 80, node.y);
-                        if (saveId) {
-                            state.connections.push({
-                                id: 'conn_' + generateId(),
-                                from: { nodeId: nid, port: 'video', type: 'video' },
-                                to: { nodeId: saveId, port: 'video', type: 'video' },
-                                type: 'video'
-                            });
-                            injected = true;
-                            addLog('info', '自动注入节点', `为「${getNodeDisplayTitle(node)}」自动添加了保存节点`);
-                        }
-                    }
-                }
-            }
-            if (injected) {
-                updateAllConnections();
-                updatePortStyles();
-                onAutoSaveNodeInjected();
-                runOptions = normalizeRunOptions(runOptions);
-                plan = resolveExecutionPlan(runOptions);
-                if (!plan) {
-                    finalizeWorkflow();
-                    return { started: true, executed: false, reason: 'no-plan-after-injection' };
-                }
-                const runnableNodeIdsAfterInjection = (plan.executionOrder || plan.nodeIds || [])
-                    .filter((nid) => state.nodes.get(nid)?.enabled !== false);
-                if (runnableNodeIdsAfterInjection.length === 0) {
-                    showToast('当前运行范围内没有启用的可运行节点', 'warning');
-                    finalizeWorkflow();
-                    return { started: true, executed: false, reason: 'no-enabled-nodes-after-injection' };
-                }
-                order = plan.executionOrder.slice();
-                resetNodesForPlan(plan, { forceResetNodeIds });
-            }
         }
 
         const totalWorkflowStartTime = Date.now();

@@ -19,7 +19,7 @@ export function validateMediaOwnershipTransitionIntent(intent, { temporary = fal
     }
     if (!String(intent.storageEpoch || '').trim()) return reject('storage-epoch-required');
     if (!String(intent.reason || '').trim()) return reject('reason-required');
-    if (!temporary && !['workflow-node', 'workflow-import'].includes(intent.owner.ownerType)) return reject('persistent-owner-required');
+    if (!temporary && !['workflow-node', 'workflow-import', 'prompt-agent-result'].includes(intent.owner.ownerType)) return reject('persistent-owner-required');
     if (temporary && !['workflow-operation', 'workflow-migration'].includes(intent.owner.ownerType)) return reject('temporary-owner-required');
     if (!temporary && (!Number.isSafeInteger(intent.documentRevision) || intent.documentRevision < 1)) {
         return reject('document-revision-required');

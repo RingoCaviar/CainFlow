@@ -1210,6 +1210,7 @@ export function createNodeLifecycleApi({
             maxWidth: config.maxWidth || null,
             dirHandle: null,
             enabled: effectiveRestoreData?.enabled !== false,
+            autoAddedForGeneration: normalizedType === 'ImageSave' && effectiveRestoreData?.autoAddedForGeneration === true,
             isSucceeded: effectiveRestoreData?.isSucceeded || false,
             isFailed: false,
             lastDuration: effectiveRestoreData?.lastDuration || null,

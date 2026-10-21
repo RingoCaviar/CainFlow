@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="light">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css"><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css"><link rel="stylesheet" href="../../css/features/image-cropper.css">
+<style>body { margin: 0; padding: 20px; background: var(--bg-canvas); } #prompt-agent-panel { position: relative; inset: auto; height: 720px; } #surface-result { display: none; }</style></head>
+<body><pre id="surface-result"></pre>
+<script type="module">
+import { createMediaControllerApi } from '../../js/features/media/media-controller.js';
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const result = {};
+try {
+    const image = (color) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="${color}"/></svg>`)}`;
+    const old = [image('red'), image('blue')];
+    const node = { id: 'generation', type: 'ImageGenerate', imagePreviewIndex: 0, data: { images: [image('green')] } };
+    let saved = 0;
+    const api = createMediaControllerApi({
+        state: { nodes: new Map([[node.id, node]]), selectedNodes: new Set() },
+        getNodeById: (id) => id === node.id ? node : null,
+        getImageResolution: async () => ({ width: 40, height: 40 }),
+        estimateDataUrlSize: () => 100,
+        showToast() {}, addLog() {}, scheduleSave() { saved++; },
+        documentRef: document, windowRef: window
+    });
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    const params = new URLSearchParams(location.search);
+    document.documentElement.dataset.appTheme = params.get('theme') || 'light';
+    const controller = createPromptAgentController({
+        documentRef: document,
+        getChatModels: () => [{ id: 'chat', modelId: 'chat', name: '对话模型' }],
+        getImageModels: () => [{ id: 'image', modelId: 'image', name: '手动选择的生图模型' }],
+        loadResultImages: async (keys) => keys.map((key) => key === 'media:red' ? old[0] : old[1]),
+        openResultPreview: (images, index) => api.openFullscreenPreview(images[index], node.id, { images, index })
+    });
+    controller.init();
+    controller.restoreWorkflow({ imageModelId: 'image', panelWidth: Number(params.get('width')) || 300, messages: [{
+        role: 'agent', text: '两张生成结果已保存，点击图片查看。', promptPlan: { targetNodeId: node.id, prompt: '红色与蓝色的色彩研究' },
+        runs: [{ runId: 'historical-run', targetNodeId: node.id, status: 'completed', persistenceStatus: 'saved', mediaAssetKeys: ['media:red', 'media:blue'] }]
+    }] });
+    controller.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const panel = document.getElementById('prompt-agent-panel');
+    const thumbnails = [...panel.querySelectorAll('.prompt-agent-result-image')];
+    result.panelFits = panel.scrollWidth <= panel.clientWidth && thumbnails.every((element) => element.getBoundingClientRect().right <= panel.getBoundingClientRect().right);
+    thumbnails[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const overlay = document.querySelector('.fullscreen-overlay');
+    const displayed = overlay.querySelector('.fullscreen-img-wrapper > img');
+    result.selectedCorrectBatch = displayed.src === old[1];
+    result.hasNodeEditor = Boolean(overlay.querySelector('.fullscreen-paint-btn'));
+    result.thumbnails = overlay.querySelectorAll('.fullscreen-thumb-item').length;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    result.previousImage = displayed.src === old[0];
+    const before = displayed.style.transform;
+    overlay.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, clientX: 200, clientY: 200, cancelable: true }));
+    result.zoomed = displayed.style.transform !== before;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    result.closed = !document.querySelector('.fullscreen-overlay');
+    result.nodeUnchanged = node.imagePreviewIndex === 0 && saved === 0;
+    thumbnails[0].click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    result.clickOpens = document.querySelector('.fullscreen-img-wrapper > img')?.src === old[0];
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+} catch (error) { result.error = error.stack || error.message; }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

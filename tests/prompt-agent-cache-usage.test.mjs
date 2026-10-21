@@ -11,12 +11,21 @@ const emptyUsage = {
     activeMessageCount: 0,
     archivedMessageCount: 0,
     referenceCount: 0,
+    resultCount: 0,
     summaryCount: 0
 };
 const tab = (workflowId, promptAgent) => ({ workflowId, data: { workflowId, promptAgent } });
 const conversation = (text) => ({ version: 1, memory: '', messages: [{ role: 'user', text }], panelWidth: 400 });
 const bytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 const reference = (referenceId, dataUrl = 'data:image/png;base64,SAME') => ({ referenceId, name: '参考图', dataUrl });
+
+test('Agent cache counts retained result positions in active and archived batches without embedding images', () => {
+    const snapshot = { messages: [{ role: 'agent', text: '新结果', runs: [{ runId: 'b', mediaAssetKeys: ['media:shared'] }] }],
+        archivedMessages: [{ role: 'agent', text: '旧结果', runs: [{ runId: 'a', mediaAssetKeys: ['media:shared', 'media:missing'] }] }] };
+    const usage = getPromptAgentCacheUsage({ activeWorkflowId: 'workflow', activeConversation: snapshot });
+    assert.equal(usage.current.resultCount, 3);
+    assert.equal(usage.current.bytes, bytes(snapshot));
+});
 
 test('empty and preference-only snapshots are not reported as cached conversations', () => {
     assert.deepEqual(getPromptAgentCacheUsage(), { total: emptyUsage, current: emptyUsage });
@@ -26,6 +35,13 @@ test('empty and preference-only snapshots are not reported as cached conversatio
         activeConversation: { version: 1, panelWidth: 500, messages: [] }
     });
     assert.deepEqual(usage, { total: emptyUsage, current: emptyUsage });
+    const store = createPromptAgentConversationStore();
+    store.setImageModelId('selected-image-model');
+    assert.deepEqual(getPromptAgentCacheUsage({
+        workflows: [tab('image-preference', store.snapshot())],
+        activeWorkflowId: 'image-preference',
+        activeConversation: store.snapshot()
+    }), { total: emptyUsage, current: emptyUsage });
 });
 
 test('live state replaces the saved active snapshot, including a cleared or missing live snapshot', () => {

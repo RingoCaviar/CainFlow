@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css">
+<style>#prompt-agent-panel { position: relative; inset: auto; height: 650px; } #surface-result { display: none; }</style></head>
+<body><pre id="surface-result"></pre><script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const result = {};
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    const controller = createPromptAgentController({ documentRef: document });
+    controller.init(); controller.open();
+    const messages = document.getElementById('prompt-agent-messages');
+    const button = document.getElementById('prompt-agent-scroll-bottom');
+    const input = document.getElementById('prompt-agent-input');
+    const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+    const check = (condition, name) => { if (!condition) throw new Error(name); };
+    for (const theme of ['light', 'dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        controller.restoreWorkflow({ panelWidth: 300, messages: [] });
+        controller.open();
+        check(button.hidden, 'short conversation');
+        controller.restoreWorkflow({ panelWidth: 300, messages: Array.from({length: 30}, (_, i) => ({ role: 'agent', text: `历史消息 ${i}\n内容用于阅读及滚动验证。` })) });
+        controller.open();
+        check(button.hidden && messages.scrollTop > 0, 'starts at latest');
+        messages.scrollTop = 100;
+        messages.dispatchEvent(new Event('scroll'));
+        check(!button.hidden, 'shown above bottom');
+        const position = messages.scrollTop;
+        input.value = '/help'; await controller.submit(); await tick();
+        check(messages.scrollTop === position && !button.hidden, 'new message preserves reading');
+        const rect = button.getBoundingClientRect();
+        const area = messages.getBoundingClientRect();
+        check(rect.left >= area.left && rect.right <= area.right && rect.bottom <= area.bottom, 'button fits');
+        button.click();
+        check(button.hidden && messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 1, 'returns to latest');
+        input.value = '/help'; await controller.submit(); await tick();
+        check(button.hidden, 'follows new messages at bottom');
+        result[theme] = true;
+    }
+} catch (error) { result.error = error.stack || error.message; }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>
+

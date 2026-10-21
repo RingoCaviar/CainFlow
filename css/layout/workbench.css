@@ -90,8 +90,8 @@ body {
 
 #toolbar:hover,
 #toolbar:focus-within,
-#toolbar:has(.btn.active),
-#toolbar:has([aria-expanded="true"]),
+#toolbar:has(.btn.active:not(#btn-prompt-agent)),
+#toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
 body.toolbar-peek-active #toolbar,
 body.toolbar-pinned #toolbar {
     will-change: transform;
@@ -235,8 +235,8 @@ body:has(.painter-overlay.active) #toast-container {
 
 body:has(#toolbar:hover),
 body:has(#toolbar:focus-within),
-body:has(#toolbar .btn.active),
-body:has(#toolbar [aria-expanded="true"]),
+body:has(#toolbar .btn.active:not(#btn-prompt-agent)),
+body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)),
 body.toolbar-peek-active,
 body.toolbar-pinned {
     --floating-notices-top-offset: calc(var(--toolbar-height, 48px) + 12px);

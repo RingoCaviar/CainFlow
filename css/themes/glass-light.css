@@ -231,8 +231,8 @@ html[data-app-theme="glass-light"] #toolbar {
 
 html[data-app-theme="glass-light"] #toolbar:hover,
 html[data-app-theme="glass-light"] #toolbar:focus-within,
-html[data-app-theme="glass-light"] #toolbar:has(.btn.active),
-html[data-app-theme="glass-light"] #toolbar:has([aria-expanded="true"]),
+html[data-app-theme="glass-light"] #toolbar:has(.btn.active:not(#btn-prompt-agent)),
+html[data-app-theme="glass-light"] #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
 html[data-app-theme="glass-light"] body.toolbar-peek-active #toolbar,
 html[data-app-theme="glass-light"] body.toolbar-pinned #toolbar {
     box-shadow: 0 16px 46px rgba(44, 71, 97, 0.16);
@@ -721,8 +721,8 @@ html[data-app-theme="glass-light"] .toast {
 
 html[data-app-theme="glass-light"] #toolbar:hover,
 html[data-app-theme="glass-light"] #toolbar:focus-within,
-html[data-app-theme="glass-light"] #toolbar:has(.btn.active),
-html[data-app-theme="glass-light"] #toolbar:has([aria-expanded="true"]),
+html[data-app-theme="glass-light"] #toolbar:has(.btn.active:not(#btn-prompt-agent)),
+html[data-app-theme="glass-light"] #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
 html[data-app-theme="glass-light"] body.toolbar-peek-active #toolbar,
 html[data-app-theme="glass-light"] body.toolbar-pinned #toolbar,
 html[data-app-theme="glass-light"] .btn:hover,

@@ -12,6 +12,7 @@ test('Agent slash commands support keyboard selection, model-free clear and dura
     assert.ok(result.continuedFromSummary);
     assert.ok(result.historyRetained);
     assert.ok(result.failurePreservedContext);
+    assert.ok(result.imageModelSurvivesCommands);
     assert.equal(result.compactionCount, 2);
     assert.equal(result.samples.length, 6);
     for (const sample of result.samples) {
@@ -19,6 +20,9 @@ test('Agent slash commands support keyboard selection, model-free clear and dura
         assert.ok(sample.menuFits, `command menu must stay inside panel: ${context}`);
         assert.ok(sample.optionsFit, `command labels must fit without horizontal scrolling: ${context}`);
         assert.ok(sample.composerFits, `composer must remain usable: ${context}`);
+        assert.ok(sample.modelSelectorsFit, `both model selectors must fit without overflow: ${context}`);
+        assert.match(sample.modelLabels[0], /对话/, `chat selector must be distinguished: ${context}`);
+        assert.match(sample.modelLabels[1], /生图/, `image selector must be distinguished: ${context}`);
         assert.notEqual(sample.selectedBorder, sample.unselectedBorder, `active command must be visible: ${context}`);
         assert.notEqual(sample.descriptionColor, 'rgba(0, 0, 0, 0)', `description must be visible: ${context}`);
         assert.notEqual(sample.background, 'rgba(0, 0, 0, 0)', `menu must have an opaque surface: ${context}`);

@@ -16,13 +16,13 @@ export function createPromptAgentExecutionAdapter({
 } = {}) {
     const stopRequests = new Set();
 
-    async function applyAndGenerate(plan = {}) {
+    async function applyAndGenerate(plan = {}, { retainResults } = {}) {
         const nodeId = plan.targetNodeId;
         if (!nodeAdapter?.applyPromptPlan?.(plan)) {
-            throw new Error('目标不再是当前选中的生图节点，或方案参数已不适用，请基于当前节点重新整理方案。');
+            throw new Error('目标生图节点已不存在，或方案参数已不适用，请重新整理方案。');
         }
         stopRequests.delete(nodeId);
-        const result = await runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId] });
+        const result = await runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId] }, { retainResults });
         if (stopRequests.delete(nodeId)) return { status: 'stopped', images: [] };
         if (result?.outcome === 'stopped' || result?.outcome === 'cancelled') {
             return { status: 'stopped', images: [] };
@@ -35,7 +35,15 @@ export function createPromptAgentExecutionAdapter({
             throw new Error(nodeResult?.error || result?.error || '请检查节点配置后重试。');
         }
         if (Array.isArray(result?.nodeResults)) {
-            return { status: 'completed', images: nodeResult?.images || [] };
+            return {
+                status: 'completed',
+                ...(result.workflowId ? { workflowId: result.workflowId } : {}),
+                images: nodeResult?.images || [],
+                ...Object.fromEntries(['mediaAssetKeys', 'mediaOwnershipTemporaryOwners', 'persistenceStatus', 'persistenceError']
+                    .filter((key) => nodeResult?.[key] !== undefined).map((key) => [key, nodeResult[key]])),
+                ...(result.agentResult || {}),
+                ...(result.resultRetentionError ? { persistenceStatus: 'failed', persistenceError: result.resultRetentionError } : {})
+            };
         }
         const node = state?.nodes?.get(nodeId);
         return { status: 'completed', images: getNodeImages(node) };

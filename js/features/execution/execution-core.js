@@ -41,6 +41,7 @@ import { rememberWorkflowMediaOperation } from '../media/workflow-media-operatio
 import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
+import { getIncludedAutoSaveNodeIds } from './generation-save-targets.js';
 
 export function createExecutionCoreApi({
     state,
@@ -879,7 +880,12 @@ export function createExecutionCoreApi({
         return {
             mode,
             targetNodeId,
-            selectedNodeIds
+            selectedNodeIds,
+            ...(Array.isArray(runInput.includedAutoSaveNodeIds) ? {
+                includedAutoSaveNodeIds: [...new Set(runInput.includedAutoSaveNodeIds.filter((id) => (
+                    typeof id === 'string' && state.nodes.has(id)
+                )))]
+            } : {})
         };
     }
 
@@ -1036,6 +1042,12 @@ export function createExecutionCoreApi({
             showToast('当前没有可运行的节点', 'warning');
             return null;
         }
+
+        // Automatic saves are the only downstream work added to a bounded run.
+        // Recheck the saved marker and live connection instead of trusting IDs
+        // supplied by a caller or retained from an older workflow snapshot.
+        getIncludedAutoSaveNodeIds(state, scopeNodeSet, runOptions.includedAutoSaveNodeIds)
+            .forEach((nodeId) => scopeNodeSet.add(nodeId));
 
         const nodeIds = Array.from(scopeNodeSet);
         const {

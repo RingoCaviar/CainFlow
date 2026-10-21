@@ -251,8 +251,8 @@ html[data-app-theme="glass-dark"] #toolbar {
 
 html[data-app-theme="glass-dark"] #toolbar:hover,
 html[data-app-theme="glass-dark"] #toolbar:focus-within,
-html[data-app-theme="glass-dark"] #toolbar:has(.btn.active),
-html[data-app-theme="glass-dark"] #toolbar:has([aria-expanded="true"]),
+html[data-app-theme="glass-dark"] #toolbar:has(.btn.active:not(#btn-prompt-agent)),
+html[data-app-theme="glass-dark"] #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
 html[data-app-theme="glass-dark"] body.toolbar-peek-active #toolbar,
 html[data-app-theme="glass-dark"] body.toolbar-pinned #toolbar {
     background: rgba(18, 28, 42, 0.86);

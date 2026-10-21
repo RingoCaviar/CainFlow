@@ -828,7 +828,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
             const { total, current: active } = getPromptAgentCacheUsage(getPromptAgentCacheState() || {});
             display.textContent = formatBytes(total.bytes);
             if (current) current.textContent = formatBytes(active.bytes);
-            if (detail) detail.textContent = `${total.workflowCount} 个场景 · ${total.messageCount} 条消息 · ${total.referenceCount} 张参考图`;
+            if (detail) detail.textContent = `${total.workflowCount} 个场景 · ${total.messageCount} 条消息 · ${total.referenceCount} 张参考图 · ${total.resultCount} 张生成图`;
             if (context) context.textContent = `上下文 ${active.activeMessageCount} 条 · 归档 ${active.archivedMessageCount} 条 · 摘要 ${active.summaryCount} 份`;
         } catch {
             display.textContent = '暂时无法统计';

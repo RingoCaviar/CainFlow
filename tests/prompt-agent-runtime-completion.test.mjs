@@ -65,7 +65,7 @@ function createHarness({
     });
     const adapter = createPromptAgentExecutionAdapter({
         state, nodeAdapter: { applyPromptPlan: () => true },
-        runWorkflow: (input) => runtime.runWorkflowInContext(workflow, workflowData, input, { waitForCompletion: true })
+        runWorkflow: (input, options) => runtime.runWorkflowInContext(workflow, workflowData, input, { waitForCompletion: true, ...options })
     });
     return {
         adapter, runtime, state, workflow, workflowData, finish, context: () => context,
@@ -91,7 +91,7 @@ test('Agent stays pending while the actual background runtime generates, then re
         await harness.context().promise;
         await generating;
     }
-    assert.deepEqual(result, { status: 'completed', images: ['data:image/png;base64,NEW_RESULT'] });
+    assert.deepEqual(result, { status: 'completed', workflowId: 'workflow-a', mediaAssetKeys: [], images: ['data:image/png;base64,NEW_RESULT'] });
     assert.equal(harness.context().state.nodes.size, 0, 'completion output must survive runtime disposal');
 });
 
@@ -101,7 +101,7 @@ test('Agent completion stays bound to its run when the visible workflow changes'
     await new Promise((resolve) => setImmediate(resolve));
     harness.switchWorkflow();
     harness.finish({ started: true, executed: true, reason: 'finished', outcome: 'completed' });
-    assert.deepEqual(await generating, { status: 'completed', images: ['data:image/png;base64,NEW_RESULT'] });
+    assert.deepEqual(await generating, { status: 'completed', workflowId: 'workflow-a', mediaAssetKeys: [], images: ['data:image/png;base64,NEW_RESULT'] });
     assert.deepEqual(harness.state.nodes.get('image-1').data.imageList, ['other-workflow-image']);
 });
 
@@ -118,7 +118,8 @@ test('completed batches remain available when the runner has released the in-mem
     harness.switchWorkflow();
     harness.finish({ started: true, executed: true, reason: 'finished', outcome: 'completed' });
     assert.deepEqual(await generating, {
-        status: 'completed', images: ['data:image/png;base64,FIRST', 'data:image/png;base64,SECOND']
+        status: 'completed', workflowId: 'workflow-a', mediaAssetKeys: ['media:result-1', 'media:result-2'],
+        images: ['data:image/png;base64,FIRST', 'data:image/png;base64,SECOND']
     });
     assert.deepEqual(reads, ['media:result-1', 'media:result-2']);
 });
@@ -130,7 +131,47 @@ test('unavailable cached previews do not misreport a completed generation as fai
     });
     const generating = harness.adapter.applyAndGenerate({ targetNodeId: 'image-1' });
     harness.finish({ started: true, executed: true, reason: 'finished', outcome: 'completed' });
-    assert.deepEqual(await generating, { status: 'completed', images: [] });
+    assert.deepEqual(await generating, { status: 'completed', workflowId: 'workflow-a', mediaAssetKeys: ['media:result-1', 'media:result-2'], images: [] });
+});
+
+test('Agent retention completes before runtime disposal even after switching workflows', async () => {
+    let release;
+    let observed;
+    const retained = new Promise((resolve) => { release = resolve; });
+    const harness = createHarness();
+    const generating = harness.adapter.applyAndGenerate({ targetNodeId: 'image-1' }, {
+        retainResults: async (result) => {
+            observed = result;
+            await retained;
+            return { ...result, nodeResults: result.nodeResults.map((node) => ({
+                ...node, mediaAssetKeys: ['media:retained'], persistenceStatus: 'saved'
+            })) };
+        }
+    });
+    harness.switchWorkflow();
+    harness.finish({ started: true, executed: true, reason: 'finished', outcome: 'completed' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(observed.workflowId, 'workflow-a');
+    assert.equal(harness.context().state.nodes.size, 1, 'runtime must retain its results while storage is pending');
+    release();
+    const result = await generating;
+    assert.equal(result.persistenceStatus, 'saved');
+    assert.deepEqual(result.mediaAssetKeys, ['media:retained']);
+    assert.equal(harness.context().state.nodes.size, 0);
+});
+
+test('retention failure preserves generated output and always disposes runtime', async () => {
+    const harness = createHarness();
+    const generating = harness.adapter.applyAndGenerate({ targetNodeId: 'image-1' }, {
+        retainResults: async () => { throw new Error('disk full'); }
+    });
+    harness.finish({ started: true, executed: true, reason: 'finished', outcome: 'completed' });
+    const result = await generating;
+    assert.equal(result.status, 'completed');
+    assert.equal(result.persistenceStatus, 'failed');
+    assert.equal(result.persistenceError, 'disk full');
+    assert.equal(result.images.length, 1);
+    assert.equal(harness.context().state.nodes.size, 0);
 });
 
 test('Agent waits for result persistence before reporting completion', async () => {

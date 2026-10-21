@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css"><style>body{margin:0} #host{position:relative;width:1200px;height:850px} #prompt-agent-panel{top:12px;bottom:12px} #surface-result{display:none}</style></head>
+<body><main id="host"></main><pre id="surface-result"></pre><script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const result = {};
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    const host = document.getElementById('host');
+    let saved = null;
+    const check = (condition, name) => { if (!condition) throw new Error(name); result[name] = true; };
+    const mount = () => {
+        host.replaceChildren(document.importNode(page.getElementById('prompt-agent-panel'), true));
+        const controller = createPromptAgentController({ documentRef: document, getPanelWidth: () => saved, setPanelWidth: value => { saved = value; },
+            getChatModels: () => [{id:'chat',modelId:'chat',name:'非常长的对话模型名称用于检查布局'}], getImageModels: () => [{id:'image',modelId:'image',name:'非常长的生图模型名称用于检查布局'}] });
+        controller.init(); controller.open();
+        const panel = document.getElementById('prompt-agent-panel');
+        const handle = document.getElementById('prompt-agent-resize');
+        // Synthetic pointer events cannot establish native capture; verify its lifecycle explicitly.
+        let captured = null;
+        handle.setPointerCapture = id => { captured = id; };
+        handle.hasPointerCapture = id => captured === id;
+        handle.releasePointerCapture = () => { captured = null; };
+        return {controller,panel,handle,captured: () => captured};
+    };
+    const first = mount();
+    first.controller.restoreWorkflow({panelWidth:612,messages:[]}); first.controller.open();
+    check(saved === 612 && first.panel.style.width === '612px', 'migration');
+    first.controller.restoreWorkflow({panelWidth:350,messages:[]}); first.controller.open();
+    check(saved === 612 && first.panel.style.width === '612px', 'workflowIsolation');
+    const pointer = (target,type,x) => target.dispatchEvent(new PointerEvent(type,{pointerId:7,button:0,buttons:type==='pointerup'?0:1,clientX:x,bubbles:true,cancelable:true}));
+    let canvasDown = 0; host.addEventListener('pointerdown', () => canvasDown++);
+    const right = first.panel.getBoundingClientRect().right;
+    pointer(first.handle,'pointerdown',600); pointer(window,'pointermove',500); pointer(window,'pointerup',500);
+    check(saved === 712 && first.panel.getBoundingClientRect().right === right && canvasDown === 0 && first.captured() === null, 'drag');
+    pointer(first.handle,'pointerdown',600); pointer(window,'pointermove',500); window.dispatchEvent(new Event('blur'));
+    pointer(window,'pointermove',200);
+    check(saved === 812 && first.panel.style.width === '812px', 'blur');
+    pointer(first.handle,'pointerdown',600); pointer(window,'pointermove',700); pointer(window,'pointercancel',700);
+    pointer(window,'pointermove',800);
+    check(saved === 712 && first.panel.style.width === '712px', 'cancel');
+    pointer(first.handle,'pointerdown',600); pointer(window,'pointermove',500); pointer(window,'pointerup',500);
+    host.style.width = '250px'; window.dispatchEvent(new Event('resize'));
+    check(parseFloat(first.panel.style.width) === 226 && saved === 812, 'smallWindow');
+    host.style.width = '1200px'; window.dispatchEvent(new Event('resize'));
+    check(first.panel.style.width === '812px', 'restoreWindow');
+    first.controller.close(); first.controller.open(); check(saved === 812 && first.panel.style.width === '812px', 'reopen');
+    const next = mount(); check(next.panel.style.width === '812px', 'reconstruct');
+    for (const theme of ['light','dark','pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        for (const key of ['Home','ArrowLeft','End']) {
+            next.handle.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+            const rect = next.panel.getBoundingClientRect();
+            const settings = next.panel.querySelector('.prompt-agent-settings');
+            check([...settings.children].every(el => { const r=el.getBoundingClientRect(); return r.left>=rect.left && r.right<=rect.right; }) && next.panel.scrollWidth<=next.panel.clientWidth, `${theme}-${key}`);
+        }
+    }
+    check(saved === 960 && !('panelWidth' in next.controller.snapshotWorkflow()), 'globalOnly');
+    check(!next.panel.querySelector('.prompt-agent-header') && next.panel.querySelector('.prompt-agent-transcript').getBoundingClientRect().bottom <= next.panel.querySelector('.prompt-agent-settings').getBoundingClientRect().top, 'bottomSettings');
+    if (new URLSearchParams(location.search).has('screenshot')) {
+        document.documentElement.dataset.appTheme = 'dark';
+        next.handle.dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true}));
+    }
+} catch(error) { result.error = error.stack || error.message; }
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

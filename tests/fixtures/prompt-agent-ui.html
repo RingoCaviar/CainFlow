@@ -17,25 +17,12 @@
 <body>
     <button id="btn-prompt-agent" class="btn btn-ghost" type="button" aria-controls="prompt-agent-panel"
         aria-expanded="false">Agent</button>
-    <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-hidden="true" inert>
-        <header class="prompt-agent-header">
-            <h2>Prompt Agent</h2>
-            <label class="prompt-agent-model-label">模型<select id="prompt-agent-model"></select></label>
-            <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">×</button>
-        </header>
-        <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden>暂无可用模型，<button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
-        <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
-            <p class="prompt-agent-empty">描述你想生成的画面。</p>
-        </section>
-        <form id="prompt-agent-form" class="prompt-agent-composer">
-            <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
-            <textarea id="prompt-agent-input" rows="2" placeholder="描述你想生成的图片……" aria-label="Prompt Agent 输入"></textarea>
-            <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
-        </form>
-    </aside>
+    <div id="fixture"></div>
     <pre id="surface-result"></pre>
 <script type="module">
 import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentNodeAdapter } from '../../js/features/prompt-agent/prompt-agent-node-adapter.js';
+import { createPromptAgentExecutionAdapter } from '../../js/features/prompt-agent/prompt-agent-execution-adapter.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 async function waitFor(predicate, attempts = 40) {
@@ -47,49 +34,87 @@ async function waitFor(predicate, attempts = 40) {
 }
 
 try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.getElementById('fixture').appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
     const panel = document.getElementById('prompt-agent-panel');
     const form = document.getElementById('prompt-agent-form');
     const input = document.getElementById('prompt-agent-input');
     const messages = document.getElementById('prompt-agent-messages');
     const references = document.getElementById('prompt-agent-references');
-    let selected = false;
-    let executionMode = 'stop';
+    let executionMode = 'success';
     let pendingRunResolve = null;
     const requests = [];
     const appliedPlans = [];
     const stoppedNodes = [];
     const focusedNodes = [];
-
-    const nodeAdapter = {
-        getSelectedContext: () => selected ? {
-            nodeId: 'image-1',
-            prompt: '城市夜景',
-            negativePrompt: '低质量',
-            parameters: { aspectRatio: '16:9', count: 1 },
-            referenceImages: []
-        } : null,
-        applyPromptPlan: (plan) => {
-            if (!selected || plan?.targetNodeId !== 'image-1') return false;
-            appliedPlans.push(plan);
-            return true;
-        }
+    const runs = [];
+    const createdNodes = [];
+    const previewRequests = [];
+    const imageModels = [
+        { id: 'image-first', modelId: 'gpt-image-first', name: '生图模型一', protocol: 'openai', taskType: 'image', providerIds: ['provider-1'] },
+        { id: 'image-second', modelId: 'gpt-image-second', name: '生图模型二', protocol: 'openai', taskType: 'image', providerIds: ['provider-1'] }
+    ];
+    const state = {
+        nodes: new Map(), selectedNodes: new Set(), connections: [],
+        models: [],
+        providers: [{ id: 'provider-1', endpoint: 'https://example.test/v1', apikey: 'fixture' }]
     };
-    const executionAdapter = {
-        applyAndGenerate: async (plan) => {
+    const nodeAdapter = createPromptAgentNodeAdapter({
+        state, documentRef: document,
+        createImageNode: ({ model, provider, prompt }) => {
+            const id = `image-${createdNodes.length + 1}`;
+            const node = { id, type: 'ImageGenerate', apiConfigId: model.id, providerId: provider.id, data: { prompt } };
+            state.nodes.set(id, node);
+            createdNodes.push(id);
+            const element = document.createElement('section');
+            element.id = id;
+            element.style.cssText = 'position:absolute;left:-10000px';
+            for (const [suffix, options, value] of [
+                ['apiconfig', imageModels, model.id], ['provider', state.providers, provider.id]
+            ]) {
+                const select = document.createElement('select');
+                select.id = `${id}-${suffix}`;
+                for (const entry of options) select.add(new Option(entry.name || entry.id, entry.id));
+                select.value = value;
+                select.addEventListener('change', () => { node[suffix === 'apiconfig' ? 'apiConfigId' : 'providerId'] = select.value; });
+                element.appendChild(select);
+            }
+            for (const [suffix, value] of [['prompt', prompt || ''], ['param-negative_prompt', ''], ['aspect', '1:1'], ['resolution', '1K'], ['generation-count', '1']]) {
+                const control = document.createElement('input');
+                control.id = `${id}-${suffix}`;
+                control.value = value;
+                element.appendChild(control);
+            }
+            document.body.appendChild(element);
+            return id;
+        }
+    });
+    const applyPromptPlan = nodeAdapter.applyPromptPlan;
+    nodeAdapter.applyPromptPlan = (plan) => {
+        const applied = applyPromptPlan(plan);
+        if (applied) appliedPlans.push({ ...plan });
+        return applied;
+    };
+    const executionAdapter = createPromptAgentExecutionAdapter({
+        state, nodeAdapter,
+        runWorkflow: async (request) => {
+            runs.push(request);
             if (executionMode === 'stop') {
                 return new Promise((resolve) => { pendingRunResolve = resolve; });
             }
             if (executionMode === 'fail') throw new Error('供应商暂时不可用');
-            return { status: 'completed', images: ['data:image/png;base64,UkVTVUxU'] };
+            return { started: true, executed: true, reason: 'finished', nodeResults: [{
+                nodeId: request.selectedNodeIds[0], images: ['data:image/png;base64,UkVTVUxU'], mediaAssetKeys: ['media:fixture-result']
+            }] };
         },
-        stop: (nodeId) => {
+        cancelRunningNode: (nodeId) => {
             stoppedNodes.push(nodeId);
-            pendingRunResolve?.({ status: 'stopped', images: [] });
+            pendingRunResolve?.({ started: true, outcome: 'cancelled' });
             pendingRunResolve = null;
             return true;
         },
-        focus: (nodeId) => { focusedNodes.push(nodeId); return true; }
-    };
+        focusNode: (nodeId) => { focusedNodes.push(nodeId); return true; }
+    });
     const createReply = async (request) => {
         requests.push(request);
         if (request.message === '先讨论构图') {
@@ -97,13 +122,13 @@ try {
         }
         const hasTarget = Boolean(request.context?.nodeId);
         return {
-            message: hasTarget ? '计划已就绪。' : '先选择一个生图节点即可应用。',
+            message: hasTarget ? '计划已就绪。' : '确认方案后点击生成，自动创建生图节点。',
             workSummary: hasTarget ? ['读取当前生图节点', '整理参考图与参数'] : ['理解创作需求'],
             promptPlan: {
                 targetNodeId: hasTarget ? 'image-1' : null,
                 prompt: hasTarget ? `电影感海报：${request.message}` : request.message,
                 negativePrompt: '低质量',
-                parameters: { aspectRatio: '16:9' },
+                parameters: hasTarget ? { aspectRatio: '16:9' } : {},
                 referenceImages: request.workflowReferenceImages
             }
         };
@@ -113,15 +138,26 @@ try {
     const controller = createPromptAgentController({
         documentRef: document, createReply, nodeAdapter, executionAdapter,
         getChatModels: () => chatModels,
+        getImageModels: () => state.models,
+        loadResultImages: async (keys) => keys.map(() => 'data:image/png;base64,UkVTVUxU'),
+        openResultPreview: (images, index) => previewRequests.push({ images, index }),
         openModelSettings: () => { settingsOpens += 1; }
     });
     controller.init();
     const modelHint = document.getElementById('prompt-agent-model-hint');
+    const imageModelSelect = document.getElementById('prompt-agent-image-model');
+    const imageModelHint = document.getElementById('prompt-agent-image-model-hint');
+    const chooseImageModel = (id) => {
+        imageModelSelect.value = id;
+        imageModelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    };
     const unavailable = !modelHint.hidden && document.getElementById('prompt-agent-send').disabled;
     const hintStyle = getComputedStyle(modelHint);
     const subtleHint = hintStyle.fontSize === '12px' && hintStyle.backgroundColor === 'rgba(0, 0, 0, 0)';
     document.getElementById('prompt-agent-add-model').click();
     const addModelOpensSettings = settingsOpens === 1;
+    document.getElementById('prompt-agent-add-image-model').click();
+    const addImageModelOpensSettings = settingsOpens === 2;
     chatModels = [{ id: 'chat-1', modelId: 'chat-test', name: 'Chat test' }];
 
     const toolbar = document.getElementById('btn-prompt-agent');
@@ -133,32 +169,49 @@ try {
         && !document.getElementById('prompt-agent-send').disabled;
     const modelSelect = document.getElementById('prompt-agent-model');
     const selectIsModern = getComputedStyle(modelSelect).appearance === 'none'
-        && parseFloat(getComputedStyle(modelSelect.parentElement).borderRadius) >= 8;
+        && parseFloat(getComputedStyle(modelSelect.parentElement).borderRadius) >= 6;
     panel.style.width = '320px';
     const narrowPanelRect = panel.getBoundingClientRect();
     const narrowLabelRect = modelSelect.parentElement.getBoundingClientRect();
     const narrowCloseRect = document.getElementById('btn-close-prompt-agent').getBoundingClientRect();
-    const narrowHeaderFits = narrowLabelRect.right <= narrowPanelRect.right - 8
-        && narrowCloseRect.right <= narrowPanelRect.right - 8
-        && narrowLabelRect.width >= 200;
+    const narrowHeaderFits = narrowLabelRect.right <= narrowPanelRect.right - 6
+        && narrowCloseRect.right <= narrowPanelRect.right - 6
+        && narrowLabelRect.width >= 100;
 
     panel.style.width = '612px';
     await tick();
     const widthStyle = panel.style.width;
-    const widthSnapshot = controller.snapshotWorkflow().panelWidth;
+    const widthSnapshot = controller.snapshotWorkflow().panelWidth === undefined;
 
     input.value = '先帮我写提示词';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await waitFor(() => messages.querySelectorAll('[data-role="agent"]').length === 1);
     const noTargetAgent = messages.querySelector('[data-role="agent"]');
     const noTargetActions = noTargetAgent.querySelectorAll('.prompt-agent-actions button');
-    const noTargetDisabled = noTargetActions.length === 2 && [...noTargetActions].every((button) => button.disabled);
+    const chatWithoutImageModel = requests.length === 1 && noTargetAgent
+        && !document.getElementById('prompt-agent-send').disabled;
+    const initiallyRequiresImageModel = imageModelSelect.value === '' && !imageModelHint.hidden
+        && [...noTargetActions].every((button) => button.disabled);
+    state.models = imageModels.slice();
+    controller.refreshModels();
+    const noImplicitDefault = imageModelSelect.value === '' && imageModelSelect.options[0].textContent.includes('请选择')
+        && [...noTargetActions].every((button) => button.disabled);
+    chooseImageModel('image-second');
+    const noTargetActionsReady = noTargetActions.length === 2 && [...noTargetActions].every((button) => !button.disabled)
+        && noTargetActions[1].textContent === '创建并生成';
+    const draftDoesNotCreate = createdNodes.length === 0 && runs.length === 0;
     const summary = noTargetAgent.querySelector('.prompt-agent-work-summary');
     const summaryCollapsed = summary?.open === false;
     summary?.querySelector('summary')?.click();
     const summaryCanExpand = summary?.open === true;
 
-    selected = true;
+    noTargetActions[1].click();
+    await waitFor(() => noTargetAgent.querySelector('.prompt-agent-run-state')?.textContent.startsWith('生成完成'));
+    const createsOnGenerate = createdNodes.length === 1 && runs.length === 1
+        && state.selectedNodes.size === 0 && state.nodes.get('image-1')?.data.prompt === '先帮我写提示词';
+    const createsWithChosenModel = state.nodes.get('image-1')?.apiConfigId === 'image-second'
+        && document.getElementById('image-1-apiconfig').value === 'image-second';
+    const persistsBinding = controller.snapshotWorkflow().messages[1].promptPlan.targetNodeId === 'image-1';
     const pasteFile = new File([new Uint8Array([137, 80, 78, 71])], '构图.png', { type: 'image/png' });
     const paste = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(paste, 'clipboardData', {
@@ -185,8 +238,9 @@ try {
     const referencesInRequest = referenceRequest.referenceImages.map((image) => image.name);
     const referencesInWorkflow = referenceRequest.workflowReferenceImages.map((image) => image.name);
     validActions[0].click();
-    const applied = validActions[0].textContent === '已应用' && validActions[0].disabled && appliedPlans.length === 1;
+    const applied = validActions[0].textContent === '已应用' && validActions[0].disabled && appliedPlans.length === 2;
 
+    executionMode = 'stop';
     validActions[1].click();
     await waitFor(() => validAgent.querySelector('.prompt-agent-run-state')?.textContent.includes('正在生成'));
     const runningState = validAgent.querySelector('.prompt-agent-run-state');
@@ -206,10 +260,26 @@ try {
     const runState = recoveryAgent.querySelector('.prompt-agent-run-state');
     const failureVisible = failureState && runState.textContent.includes('生成失败');
     runState.querySelectorAll('button')[1]?.click();
+    state.models = [imageModels[0]];
+    controller.refreshModels();
+    const runCountBeforeUnavailableRetry = runs.length;
+    const retryButton = runState.querySelector('button');
+    retryButton.click();
+    const invalidModelBlocksActions = [...recoveryActions].every((button) => button.disabled) && retryButton.disabled
+        && imageModelSelect.value !== 'image-first' && !imageModelHint.hidden && runs.length === runCountBeforeUnavailableRetry;
+    state.models = imageModels.slice();
+    controller.refreshModels();
+    chooseImageModel('image-second');
     executionMode = 'success';
     runState.querySelector('button')?.click();
-    const completed = await waitFor(() => runState.querySelector('img')?.src.includes('data:image/png;base64,UkVTVUxU'));
-    const retriedWithPreview = completed && runState.textContent.startsWith('生成完成') && runState.querySelectorAll('img').length === 1;
+    const latestResult = () => [...recoveryAgent.querySelectorAll('.prompt-agent-run-state')].at(-1);
+    const completed = await waitFor(() => latestResult().querySelector('img')?.src.includes('data:image/png;base64,UkVTVUxU'));
+    const retriedWithPreview = completed && latestResult().textContent.startsWith('生成完成') && latestResult().querySelectorAll('img').length === 1;
+    latestResult().querySelector('img').click();
+    latestResult().querySelector('img').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const resultPreviewActions = previewRequests.length === 2 && previewRequests.every((entry) => entry.index === 0);
+    const retryReusesTarget = createdNodes.length === 1 && runs.slice(-2).every((run) => run.selectedNodeIds[0] === 'image-1');
+    const followsBoundContext = requests[1].context?.nodeId === 'image-1' && requests[2].context?.nodeId === 'image-1';
 
     const themeSamples = {};
     for (const theme of ['light', 'dark', 'pink']) {
@@ -225,13 +295,35 @@ try {
 
     const persisted = controller.snapshotWorkflow();
     const persistedMessageCount = persisted.messages.length;
+    const persistsImageModel = persisted.imageModelId === 'image-second';
+    const savedRunCount = persisted.messages.flatMap((message) => message.runs || []).length;
+    const savesResultBatches = savedRunCount === 4 && persisted.messages.flatMap((message) => message.runs || [])
+        .filter((run) => run.status === 'completed').every((run) => run.mediaAssetKeys[0] === 'media:fixture-result');
+    controller.restoreWorkflow(null);
+    const newWorkflowHasNoImageModel = imageModelSelect.value === '' && !controller.snapshotWorkflow().imageModelId;
     controller.restoreWorkflow(persisted);
+    const restoresImageModel = imageModelSelect.value === 'image-second';
     const restored = !panel.classList.contains('active')
-        && panel.style.width === `${persisted.panelWidth}px`
+        && persisted.panelWidth === undefined
         && messages.querySelectorAll('[data-role="agent"]').length === persistedMessageCount / 2;
+    controller.open();
+    const restoredAgent = messages.querySelector('[data-role="agent"]');
+    const restoredBatchCount = messages.querySelectorAll('.prompt-agent-result-image').length;
+    const previousRunCount = restoredAgent.querySelectorAll('.prompt-agent-run-state').length;
+    restoredAgent.querySelectorAll('.prompt-agent-actions button')[1].click();
+    await waitFor(() => restoredAgent.querySelectorAll('.prompt-agent-run-state').length > previousRunCount
+        && [...restoredAgent.querySelectorAll('.prompt-agent-run-state')].at(-1).textContent.startsWith('生成完成')
+        && !restoredAgent.querySelectorAll('.prompt-agent-actions button')[1].disabled);
+    const restoredReusesTarget = createdNodes.length === 1 && runs.at(-1).selectedNodeIds[0] === 'image-1';
+    chooseImageModel('image-first');
+    const runsBeforeModelChange = runs.length;
+    restoredAgent.querySelectorAll('.prompt-agent-actions button')[1].click();
+    await waitFor(() => runs.length > runsBeforeModelChange && restoredAgent.querySelectorAll('.prompt-agent-run-state').length === previousRunCount + 2);
+    const changedModelReusesTarget = createdNodes.length === 1 && state.nodes.get('image-1')?.apiConfigId === 'image-first'
+        && document.getElementById('image-1-apiconfig').value === 'image-first' && runs.at(-1).selectedNodeIds[0] === 'image-1';
     controller.restoreWorkflow({ version: 1, memory: '', messages: [], panelWidth: null });
     const clearedForNewWorkflow = messages.querySelector('.prompt-agent-empty')?.textContent.includes('描述你想生成')
-        && panel.style.width === ''
+        && panel.style.width !== ''
         && !panel.classList.contains('active');
     input.value = '先讨论构图';
     await controller.submit();
@@ -240,12 +332,17 @@ try {
         && discussion.querySelectorAll('.prompt-agent-actions, .prompt-agent-plan').length === 0;
 
     document.getElementById('surface-result').textContent = JSON.stringify({
-        opened, unavailable, subtleHint, addModelOpensSettings, selectIsModern, narrowHeaderFits,
-        widthStyle, widthSnapshot, noTargetDisabled, summaryCollapsed, summaryCanExpand,
+        opened, unavailable, subtleHint, addModelOpensSettings, addImageModelOpensSettings, selectIsModern, narrowHeaderFits,
+        chatWithoutImageModel, initiallyRequiresImageModel, noImplicitDefault, createsWithChosenModel, invalidModelBlocksActions,
+        persistsImageModel, restoresImageModel, newWorkflowHasNoImageModel, changedModelReusesTarget,
+        widthStyle, widthSnapshot, noTargetActionsReady, draftDoesNotCreate, createsOnGenerate, persistsBinding,
+        summaryCollapsed, summaryCanExpand, retryReusesTarget, restoredReusesTarget, followsBoundContext,
         referencePreviewCount, referencesInRequest, referencesInWorkflow,
         planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), copyableText, applied,
         progressVisible, stopped, failureVisible, retriedWithPreview,
-        focused: focusedNodes, themeSamples, persistedMessageCount, restored, clearedForNewWorkflow, discussionHasNoActions
+        resultPreviewActions, savesResultBatches, restoredBatchCount,
+        focused: focusedNodes, themeSamples, persistedMessageCount, restored, clearedForNewWorkflow, discussionHasNoActions,
+        runs, createdNodes, selectedNodeCount: state.selectedNodes.size
     });
     // Optional manual visual review uses the same exercised control and production skins.
     const preview = new URLSearchParams(location.search);

@@ -54,7 +54,34 @@ function normalizePromptPlan(plan) {
     return normalized;
 }
 
-function normalizeMessage(message = {}) {
+const RUN_STATUSES = new Set(['pending', 'running', 'completed', 'failed', 'stopped', 'interrupted']);
+const PERSISTENCE_STATUSES = new Set(['pending', 'retained', 'failed', 'saved']);
+
+function normalizeAssetKeys(keys) {
+    return Array.isArray(keys) ? keys.filter((key) => typeof key === 'string' && key.startsWith('media:')) : [];
+}
+
+function normalizeRun(run, { interruptRunning = false } = {}) {
+    if (!run || typeof run.runId !== 'string' || !run.runId.trim()) return null;
+    let status = RUN_STATUSES.has(run.status) ? run.status : 'running';
+    if (interruptRunning && (status === 'running' || status === 'pending')) status = 'interrupted';
+    const owners = Array.isArray(run.mediaOwnershipTemporaryOwners)
+        ? run.mediaOwnershipTemporaryOwners.filter((owner) => typeof owner?.ownerId === 'string' && owner.ownerId)
+            .map((owner) => ({ ownerId: owner.ownerId, assetKeys: normalizeAssetKeys(owner.assetKeys) }))
+        : [];
+    return {
+        runId: run.runId.trim(),
+        targetNodeId: typeof run.targetNodeId === 'string' ? run.targetNodeId : '',
+        status,
+        mediaAssetKeys: normalizeAssetKeys(run.mediaAssetKeys),
+        ...(typeof run.error === 'string' && run.error ? { error: run.error } : {}),
+        ...(PERSISTENCE_STATUSES.has(run.persistenceStatus) ? { persistenceStatus: run.persistenceStatus } : {}),
+        ...(typeof run.persistenceError === 'string' && run.persistenceError ? { persistenceError: run.persistenceError } : {}),
+        ...(owners.length ? { mediaOwnershipTemporaryOwners: owners } : {})
+    };
+}
+
+function normalizeMessage(message = {}, options = {}) {
     return {
         role: message.role === 'agent' ? 'agent' : 'user',
         text: String(message.text || ''),
@@ -63,7 +90,8 @@ function normalizeMessage(message = {}) {
             referenceImages: normalizeReferenceImages(message.referenceImages)
         } : {}),
         ...(Array.isArray(message.workSummary) ? { workSummary: message.workSummary.map(String) } : {}),
-        ...(message.promptPlan ? { promptPlan: normalizePromptPlan(message.promptPlan) } : {})
+        ...(message.promptPlan ? { promptPlan: normalizePromptPlan(message.promptPlan) } : {}),
+        ...(Array.isArray(message.runs) ? { runs: message.runs.map((run) => normalizeRun(run, options)).filter(Boolean) } : {})
     };
 }
 
@@ -74,7 +102,7 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
     let messages = [];
     let archivedMessages = [];
     let compactedMessageCount = 0;
-    let panelWidth = null;
+    let imageModelId = '';
     let referenceImages = [];
     let previousPromptPlan = null;
 
@@ -113,17 +141,68 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
 
     function append(message) {
         const normalized = normalizeMessage(message);
-        if (!normalized.text && !normalized.promptPlan && !normalized.referenceImages?.length) return;
+        if (!normalized.text && !normalized.promptPlan && !normalized.referenceImages?.length && !normalized.runs?.length) return;
         messages.push(normalized);
         compress();
+        return archivedMessages.length + messages.length - 1;
     }
 
-    function restore(value) {
+    function bindPromptPlanTarget(messageIndex, targetNodeId) {
+        if (!Number.isInteger(messageIndex) || messageIndex < 0 || !targetNodeId) return false;
+        const message = messageIndex < archivedMessages.length
+            ? archivedMessages[messageIndex] : messages[messageIndex - archivedMessages.length];
+        const plan = message?.promptPlan;
+        if (!plan || (plan.targetNodeId && plan.targetNodeId !== targetNodeId)) return false;
+        plan.targetNodeId = targetNodeId;
+        if (messageIndex < archivedMessages.length && latestPromptPlan(archivedMessages) === plan) {
+            previousPromptPlan = normalizePromptPlan(plan);
+        }
+        return true;
+    }
+
+    function findRun(runId) {
+        if (typeof runId !== 'string' || !runId) return null;
+        for (const message of [...archivedMessages, ...messages]) {
+            const run = message.runs?.find((candidate) => candidate.runId === runId);
+            if (run) return run;
+        }
+        return null;
+    }
+
+    function getRun(runId) {
+        return clone(findRun(runId));
+    }
+
+    function beginRun(messageIndex, run) {
+        if (!Number.isInteger(messageIndex) || messageIndex < 0) return false;
+        const normalized = normalizeRun(run);
+        if (!normalized || findRun(normalized.runId)) return false;
+        const message = messageIndex < archivedMessages.length
+            ? archivedMessages[messageIndex] : messages[messageIndex - archivedMessages.length];
+        if (!message || message.role !== 'agent') return false;
+        (message.runs ||= []).push(normalized);
+        return true;
+    }
+
+    function finishRun(runId, outcome = {}) {
+        const run = findRun(runId);
+        if (!run) return false;
+        // Once captured, a batch belongs to this attempt forever. Saving may
+        // retry, but a later generation must use a separate run identity.
+        if (run.mediaAssetKeys.length && Array.isArray(outcome.mediaAssetKeys)
+            && JSON.stringify(normalizeAssetKeys(outcome.mediaAssetKeys)) !== JSON.stringify(run.mediaAssetKeys)) return false;
+        const next = normalizeRun({ ...run, ...outcome, runId: run.runId, targetNodeId: run.targetNodeId });
+        Object.keys(run).forEach((key) => { delete run[key]; });
+        Object.assign(run, next);
+        return true;
+    }
+
+    function restore(value, { interruptRunning = false } = {}) {
         const restoredSummary = value?.contextSummary === undefined || value?.contextSummary === ''
             ? ''
             : normalizeContextSummary(value.contextSummary);
-        const restoredMessages = Array.isArray(value?.messages) ? value.messages.map(normalizeMessage) : [];
-        const restoredArchive = Array.isArray(value?.archivedMessages) ? value.archivedMessages.map(normalizeMessage) : [];
+        const restoredMessages = Array.isArray(value?.messages) ? value.messages.map((message) => normalizeMessage(message, { interruptRunning })) : [];
+        const restoredArchive = Array.isArray(value?.archivedMessages) ? value.archivedMessages.map((message) => normalizeMessage(message, { interruptRunning })) : [];
         const restoredCompactedCount = value?.compactedMessageCount === undefined
             ? (restoredSummary ? restoredArchive.length : 0)
             : value.compactedMessageCount;
@@ -146,14 +225,13 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         compactedMessageCount = restoredCompactedCount;
         referenceImages = restoredReferences;
         previousPromptPlan = restoredPlan;
-        panelWidth = Number.isFinite(Number(value?.panelWidth)) && Number(value.panelWidth) > 0
-            ? Math.round(Number(value.panelWidth))
-            : null;
+        imageModelId = typeof value?.imageModelId === 'string' ? value.imageModelId.trim() : '';
         compress();
     }
 
     function snapshot() {
-        const snapshot = { version: 1, memory, messages: clone(messages), panelWidth };
+        const snapshot = { version: 1, memory, messages: clone(messages) };
+        if (imageModelId) snapshot.imageModelId = imageModelId;
         if (contextSummary) {
             snapshot.contextSummary = contextSummary;
             snapshot.compactedMessageCount = compactedMessageCount;
@@ -199,10 +277,14 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         return context;
     }
 
-    function setPanelWidth(width) {
-        const next = Math.round(Number(width));
-        if (!Number.isFinite(next) || next <= 0 || next === panelWidth) return false;
-        panelWidth = next;
+    function getImageModelId() {
+        return imageModelId;
+    }
+
+    function setImageModelId(value) {
+        const next = typeof value === 'string' ? value.trim() : '';
+        if (next === imageModelId) return false;
+        imageModelId = next;
         return true;
     }
 
@@ -231,5 +313,5 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         previousPromptPlan = null;
     }
 
-    return { append, restore, snapshot, getContext, getReferenceImages, getCompactionContext, setPanelWidth, compact, clear };
+    return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear };
 }

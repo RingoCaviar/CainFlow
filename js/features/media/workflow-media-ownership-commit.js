@@ -16,8 +16,20 @@ function readMediaAssetKeys(node) {
         .filter((key) => typeof key === 'string' && key.startsWith('media:'));
 }
 
-function collectWorkflowMediaOwnerLists(workflow) {
-    return (workflow?.nodes || []).flatMap((node) => {
+export function getPromptAgentResultRuns(workflow) {
+    const conversation = workflow?.promptAgent;
+    const seen = new Set();
+    return [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])]
+        .flatMap((message) => Array.isArray(message?.runs) ? message.runs : [])
+        .filter((run) => {
+            if (!run?.runId || seen.has(run.runId)) return false;
+            seen.add(run.runId);
+            return true;
+        });
+}
+
+export function collectWorkflowMediaOwnerLists(workflow) {
+    const nodes = (workflow?.nodes || []).flatMap((node) => {
         const assetKeys = readMediaAssetKeys(node);
         if (!node?.id || (!MEDIA_OWNER_NODE_TYPES.has(node.type) && assetKeys.length === 0)) return [];
         return [{
@@ -26,6 +38,9 @@ function collectWorkflowMediaOwnerLists(workflow) {
             assetKeys
         }];
     });
+    return [...nodes, ...getPromptAgentResultRuns(workflow).map((run) => ({
+        ownerType: 'prompt-agent-result', ownerId: run.runId, assetKeys: readMediaAssetKeys(run)
+    }))];
 }
 
 export function getWorkflowMediaOwnerType(node) {
@@ -107,9 +122,13 @@ export function createWorkflowMediaOwnershipCommitter({
         const ownerReferenceLists = collectWorkflowMediaOwnerLists(workflow);
         const temporaryOwners = new Map((workflow.nodes || []).map((node) => [
             `${getWorkflowMediaOwnerType(node)}\0${node.id}`,
-            { node, owners: Array.isArray(node?.data?.mediaOwnershipTemporaryOwners)
+            { holder: node.data, owners: Array.isArray(node?.data?.mediaOwnershipTemporaryOwners)
                 ? node.data.mediaOwnershipTemporaryOwners : [] }
         ]));
+        getPromptAgentResultRuns(workflow).forEach((run) => temporaryOwners.set(`prompt-agent-result\0${run.runId}`, {
+            holder: run,
+            owners: Array.isArray(run.mediaOwnershipTemporaryOwners) ? run.mediaOwnershipTemporaryOwners : []
+        }));
         const identities = new Set(ownerReferenceLists.map((owner) => `${owner.ownerType}\0${owner.ownerId}`));
         const restoredOwnerIntents = new Map((Array.isArray(workflow.mediaOwnershipRestoreOwnerIds)
             ? workflow.mediaOwnershipRestoreOwnerIds : [])
@@ -187,8 +206,8 @@ export function createWorkflowMediaOwnershipCommitter({
                     });
                     return false;
                 }
-                if (temporaryOwner.node.data) {
-                    delete temporaryOwner.node.data.mediaOwnershipTemporaryOwners;
+                if (temporaryOwner.holder) {
+                    delete temporaryOwner.holder.mediaOwnershipTemporaryOwners;
                 }
             }
         }

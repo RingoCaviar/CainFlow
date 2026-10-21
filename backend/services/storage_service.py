@@ -346,19 +346,53 @@ class StorageService:
                         stack.append(child)
             elif isinstance(value, list):
                 stack.extend(value)
-        ordered = list(dict.fromkeys(keys))
+        ordered = list(node.get('data', {}).get('mediaAssetKeys') or []) if node.get('type') == 'PromptAgentResult' else list(dict.fromkeys(keys))
         if not ordered:
             return None
         return {
             'workflowId': workflow_id, 'revision': int(workflow.get('mediaOwnershipRevision') or 0),
-            'ownerType': 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node',
+            'ownerType': ('prompt-agent-result' if node.get('type') == 'PromptAgentResult'
+                          else 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node'),
             'ownerId': node_id, 'assetKeys': ordered,
         }
 
     @classmethod
     def _workflow_media_references(cls, workflows):
-        return [reference for workflow in workflows or [] for node in workflow.get('nodes') or []
+        return [reference for workflow in workflows or [] for node in cls._workflow_media_consumers(workflow)
                 if (reference := cls._workflow_node_media_reference(workflow, node))]
+
+    @staticmethod
+    def _workflow_media_consumers(workflow):
+        nodes = list(workflow.get('nodes') or []) if isinstance(workflow, dict) else []
+        conversation = workflow.get('promptAgent') or {} if isinstance(workflow, dict) else {}
+        if not isinstance(conversation, dict):
+            return nodes
+        seen = set()
+        for message in [*(conversation.get('archivedMessages') or []), *(conversation.get('messages') or [])]:
+            for run in (message.get('runs') or []) if isinstance(message, dict) else []:
+                if not isinstance(run, dict) or not run.get('runId') or run['runId'] in seen:
+                    continue
+                seen.add(run['runId'])
+                nodes.append({'id': run['runId'], 'type': 'PromptAgentResult', 'data': run})
+        return nodes
+
+    @classmethod
+    def _session_agent_references(cls, session):
+        references = []
+        for tab in (session.get('workflowTabs') or []) if isinstance(session, dict) else []:
+            workflow = tab.get('data') if isinstance(tab, dict) else None
+            if not isinstance(workflow, dict):
+                continue
+            workflow = {**workflow, 'workflowId': tab.get('workflowId') or workflow.get('workflowId')}
+            for consumer in cls._workflow_media_consumers(workflow):
+                if consumer.get('type') != 'PromptAgentResult':
+                    continue
+                reference = cls._workflow_node_media_reference(workflow, consumer)
+                if reference:
+                    reference['sessionOwnerId'] = 'session:' + json.dumps(
+                        [reference['workflowId'], reference['ownerId']], separators=(',', ':'))
+                    references.append(reference)
+        return references
 
     def _integrity_source_page(self, source, cursor, limit, workflows):
         """Read at most one bounded evidence page after a stable source cursor."""
@@ -370,7 +404,7 @@ class StorageService:
             workflow_list = workflows or []
             while inspected < limit and state['workflowIndex'] < len(workflow_list):
                 workflow = workflow_list[state['workflowIndex']]
-                nodes = workflow.get('nodes') or [] if isinstance(workflow, dict) else []
+                nodes = self._workflow_media_consumers(workflow)
                 if state['nodeIndex'] >= len(nodes):
                     state['workflowIndex'] += 1
                     state['nodeIndex'] = 0
@@ -996,6 +1030,9 @@ class StorageService:
         expected_files = {self._filesystem_relative_key(row['relative_path'])
                           for row in partitions['assets']}
         workflow_ids = {str(item.get('workflowId') or '') for item in workflows or [] if isinstance(item, dict)}
+        session_references = self._session_agent_references(self.get_document('session')['value'])
+        session_owners = {item['sessionOwnerId'] for item in session_references}
+        workflow_ids.update(item['workflowId'] for item in session_references)
         item_groups = {}
         for item in partitions['ownerItems']:
             identity = (item['workflow_id'], item['owner_type'], item['owner_id'])
@@ -1026,7 +1063,11 @@ class StorageService:
             if owner['workflow_id'] not in workflow_ids and not owner['tombstoned']:
                 add('unassociated_owner', (owner['workflow_id'], owner['owner_type'], owner['owner_id']))
         for ref in partitions['references']:
-            if ref['owner_type'] not in {'workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation'}:
+            if ref['owner_type'] == 'prompt-agent-result' and str(ref['owner_id']).startswith('session:'):
+                if ref['owner_id'] not in session_owners:
+                    add('unassociated_owner', (ref['owner_type'], ref['owner_id']))
+                continue
+            if ref['owner_type'] not in {'workflow-node', 'workflow-import', 'prompt-agent-result', 'workflow-undo', 'workflow-operation'}:
                 continue
             if ref['owner_type'] != 'workflow-operation' and str(ref['owner_id']).startswith('owner:'):
                 continue
@@ -1340,6 +1381,27 @@ class StorageService:
         serialized = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
         updated_at = int(time.time() * 1000)
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if name == 'session':
+                desired = set()
+                for reference in self._session_agent_references(value):
+                    if db.execute('SELECT 1 FROM meta WHERE key=?',
+                                  (f"media_workflow_tombstone:{reference['workflowId']}",)).fetchone():
+                        raise StorageError('Deleted workflow cannot receive Agent results')
+                    for key in reference['assetKeys']:
+                        # Keep missing identities visible in the document. Existing
+                        # media gains protection in the same transaction as the session.
+                        desired.add((reference['sessionOwnerId'], key))
+                        if not db.execute('SELECT 1 FROM assets WHERE asset_key=?', (key,)).fetchone():
+                            continue
+                        self._restore_before_reference(db, key)
+                        db.execute('''INSERT OR IGNORE INTO media_asset_refs(owner_type, owner_id, asset_key, created_at)
+                            VALUES('prompt-agent-result', ?, ?, ?)''',
+                                   (reference['sessionOwnerId'], key, updated_at))
+                for row in db.execute("SELECT owner_id, asset_key FROM media_asset_refs WHERE owner_type='prompt-agent-result' AND owner_id LIKE 'session:%'").fetchall():
+                    if (row['owner_id'], row['asset_key']) not in desired:
+                        db.execute("DELETE FROM media_asset_refs WHERE owner_type='prompt-agent-result' AND owner_id=? AND asset_key=?",
+                                   (row['owner_id'], row['asset_key']))
             db.execute('''
                 INSERT INTO documents(name, value_json, updated_at) VALUES(?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
@@ -2005,7 +2067,7 @@ class StorageService:
 
     @staticmethod
     def _assert_legacy_workflow_owner_alive(db, owner_type, owner_id):
-        if owner_type not in {'workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation'}:
+        if owner_type not in {'workflow-node', 'workflow-import', 'prompt-agent-result', 'workflow-undo', 'workflow-operation'}:
             return
         if owner_type == 'workflow-operation':
             try:
@@ -2251,21 +2313,23 @@ class StorageService:
                     continue
                 owner_lists = []
                 recoverable = []
-                for node in workflow.get('nodes') or []:
+                for node in self._workflow_media_consumers(workflow):
                     node_id = str(node.get('id') or '').strip()
                     data = node.get('data') if isinstance(node.get('data'), dict) else {}
                     keys = data.get('mediaAssetKeys') if isinstance(data.get('mediaAssetKeys'), list) else node.get('mediaAssetKeys')
                     keys = [str(key) for key in (keys or []) if str(key).startswith('media:')]
-                    if not node_id or (node.get('type') not in MEDIA_OWNER_NODE_TYPES and not keys):
+                    if not node_id or (node.get('type') not in MEDIA_OWNER_NODE_TYPES and node.get('type') != 'PromptAgentResult' and not keys):
                         continue
-                    owner_type = 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node'
+                    owner_type = ('prompt-agent-result' if node.get('type') == 'PromptAgentResult'
+                                  else 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node')
                     owner_lists.append({'ownerType': owner_type, 'ownerId': node_id, 'assetKeys': keys})
                     for temporary in data.get('mediaOwnershipTemporaryOwners') or []:
                         if not isinstance(temporary, dict) or temporary.get('assetKeys') != keys:
                             result['unresolved'] += 1
                             continue
                         identity = json.loads(str(temporary.get('ownerId') or ''))
-                        if identity[:2] != [workflow_id, node_id] or len(identity) != 3:
+                        consumer_id = f'prompt-agent-result:{node_id}' if owner_type == 'prompt-agent-result' else node_id
+                        if identity[:2] != [workflow_id, consumer_id] or len(identity) != 3:
                             result['unresolved'] += 1
                             continue
                         with self._connect() as operation_db:
@@ -2319,7 +2383,7 @@ class StorageService:
         if not isinstance(request, dict) or 'previousAssetKeys' in request:
             return {'status': 'rejected', 'reason': 'invalid-intent'}
         owner = request.get('owner')
-        if not isinstance(owner, dict) or owner.get('ownerType') not in ('workflow-node', 'workflow-import'):
+        if not isinstance(owner, dict) or owner.get('ownerType') not in ('workflow-node', 'workflow-import', 'prompt-agent-result'):
             return {'status': 'rejected', 'reason': 'persistent-owner-required'}
         required = (request.get('workflowId'), request.get('operationId'), owner.get('ownerId'), request.get('storageEpoch'))
         revision, document_revision = request.get('expectedOwnerRevision'), request.get('documentRevision')
@@ -3110,6 +3174,14 @@ class StorageService:
                     OR (owner_type='workflow-operation' AND json_extract(owner_id, '$[0]')=?) ''',
                 (workflow_id, workflow_id, workflow_id))
             references_deleted += cursor.rowcount
+            for row in db.execute("SELECT DISTINCT owner_id FROM media_asset_refs WHERE owner_type='prompt-agent-result' AND owner_id LIKE 'session:%'").fetchall():
+                try:
+                    identity = json.loads(row['owner_id'][8:])
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(identity, list) and identity and identity[0] == workflow_id:
+                    references_deleted += db.execute("DELETE FROM media_asset_refs WHERE owner_type='prompt-agent-result' AND owner_id=?",
+                                                     (row['owner_id'],)).rowcount
             db.execute("DELETE FROM media_operation_owner_items WHERE json_extract(owner_id, '$[0]')=?",
                        (workflow_id,))
             db.execute("DELETE FROM media_cancelled_operation_owners WHERE json_extract(owner_id, '$[0]')=?",
@@ -3229,10 +3301,10 @@ class StorageService:
                     SELECT a.relative_path, a.size_bytes,
                         (EXISTS (SELECT 1 FROM media_asset_refs r
                             WHERE r.asset_key=a.asset_key
-                                AND r.owner_type IN ('workflow-node', 'workflow-import'))
+                                AND r.owner_type IN ('workflow-node', 'workflow-import', 'prompt-agent-result'))
                          OR EXISTS (SELECT 1 FROM media_asset_owner_items o
                             WHERE o.asset_key=a.asset_key
-                                AND o.owner_type IN ('workflow-node', 'workflow-import'))) AS workflow_owned,
+                                AND o.owner_type IN ('workflow-node', 'workflow-import', 'prompt-agent-result'))) AS workflow_owned,
                         EXISTS (SELECT 1 FROM media_asset_refs r
                             WHERE r.asset_key=a.asset_key AND r.owner_type='workflow-undo') AS undo_owned,
                         EXISTS (SELECT 1 FROM media_asset_refs r
@@ -3240,12 +3312,12 @@ class StorageService:
                                 AND r.owner_type IN ('workflow-operation', 'media-transition')) AS operation_owned,
                         (EXISTS (SELECT 1 FROM media_asset_refs r
                             WHERE r.asset_key=a.asset_key AND r.owner_type NOT IN (
-                                'workflow-node', 'workflow-import', 'workflow-undo',
+                                'workflow-node', 'workflow-import', 'prompt-agent-result', 'workflow-undo',
                                 'workflow-operation', 'media-transition',
                                 'history', 'history-thumbnail'))
                          OR EXISTS (SELECT 1 FROM media_asset_owner_items o
                             WHERE o.asset_key=a.asset_key AND o.owner_type NOT IN (
-                                'workflow-node', 'workflow-import'))) AS other_owned,
+                                'workflow-node', 'workflow-import', 'prompt-agent-result'))) AS other_owned,
                         (EXISTS (SELECT 1 FROM media_asset_refs r WHERE r.asset_key=a.asset_key)
                          OR EXISTS (SELECT 1 FROM media_asset_owner_items o
                             WHERE o.asset_key=a.asset_key)) AS referenced
@@ -3283,18 +3355,21 @@ class StorageService:
             reference_filter = ''
             if workflow_id:
                 reference_filter = '''WHERE refs.owner_type NOT IN
-                    ('workflow-node', 'workflow-import', 'workflow-undo', 'workflow-operation')
-                    OR (refs.owner_type IN ('workflow-node', 'workflow-import') AND (
+                    ('workflow-node', 'workflow-import', 'prompt-agent-result', 'workflow-undo', 'workflow-operation')
+                    OR (refs.owner_type IN ('workflow-node', 'workflow-import', 'prompt-agent-result') AND (
                         substr(refs.owner_id, 1, length(?) + 1) = ? || ':'
                         OR EXISTS (SELECT 1 FROM media_asset_owner_items o
                             WHERE o.workflow_id=? AND o.owner_type=refs.owner_type
                                 AND o.asset_key=refs.asset_key)))
+                    OR (refs.owner_type='prompt-agent-result' AND substr(refs.owner_id, 1, 8)='session:'
+                        AND CASE WHEN json_valid(substr(refs.owner_id, 9))
+                            THEN json_extract(substr(refs.owner_id, 9), '$[0]') ELSE NULL END=?)
                     OR (refs.owner_type='workflow-undo'
                         AND substr(refs.owner_id, 1, length(?) + 1) = ? || ':')
                     OR (refs.owner_type='workflow-operation'
                         AND CASE WHEN json_valid(refs.owner_id)
                             THEN json_extract(refs.owner_id, '$[0]') ELSE NULL END=?)'''
-                reference_params.extend([workflow_id] * 6)
+                reference_params.extend([workflow_id] * 7)
             for row in db.execute(f'''
                 SELECT physical_refs.owner_type, COUNT(*) AS assets,
                     COALESCE(SUM(physical_refs.size_bytes), 0) AS bytes

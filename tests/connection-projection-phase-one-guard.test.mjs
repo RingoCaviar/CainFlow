@@ -60,8 +60,5 @@ test('phase-one migrated callers do not retain rendering strategy vocabulary', a
         read('../js/features/execution/async-media-execution.js')
     ]);
     assert.doesNotMatch(executionSources.slice(1).join('\n'), forbiddenStrategy);
-    assert.doesNotMatch(
-        executionSources[0].replace(extractBraceBlock(executionSources[0], 'if (injected)'), ''),
-        forbiddenStrategy
-    );
+    assert.doesNotMatch(executionSources[0], forbiddenStrategy);
 });

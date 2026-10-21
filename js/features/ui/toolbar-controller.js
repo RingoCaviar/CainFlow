@@ -47,7 +47,7 @@ export function createToolbarControllerApi({
         return body.classList.contains(activeClass)
             || element.matches(':hover')
             || element.matches(':focus-within')
-            || element.querySelector('.btn.active, [aria-expanded="true"]');
+            || element.querySelector('.btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)');
     }
 
     function getViewportSafeInsets() {
