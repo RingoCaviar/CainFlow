@@ -886,6 +886,13 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
     state,
     documentRef: document,
     scheduleSave,
+    commitReferenceConnections: (connections) => {
+        pushHistory();
+        state.connections = connections;
+        connectionsApi.updateAllConnections();
+        connectionsApi.updatePortStyles();
+        handleNodeGraphChanged();
+    },
     createImageNode: ({ model, provider, prompt }) => {
         const rect = canvasContainer.getBoundingClientRect();
         const panel = document.getElementById('prompt-agent-panel');
@@ -1428,6 +1435,7 @@ function getNodeLifecycleApi() {
             renderImageSavePreview: (nodeId, images, emptyMessage) => mediaControllerApi.renderImageSavePreview(nodeId, images, emptyMessage),
             renderImageComparePreview: (nodeId, imageA, imageB) => mediaControllerApi.renderImageComparePreview(nodeId, imageA, imageB),
             bindNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
+            onNodesRemoved: (ids) => registry.promptAgentController?.removeNodeReferences(ids),
             serializeOneNode,
             pushHistory,
             scheduleSave,

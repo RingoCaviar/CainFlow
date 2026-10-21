@@ -3,6 +3,7 @@ import { getModelProtocolConfig } from '../execution/model-protocol-registry.js'
 import { normalizeImageSizeControls, usesOpenAiImageSize } from '../execution/image-generation-size.js';
 import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
+import { MAX_REFERENCE_IMAGE_COUNT } from '../../nodes/reference-image-ports.js';
 
 export function getAvailablePromptAgentImageModels(models = [], providers = []) {
     return getModelsForTask(models, 'image').filter((model) =>
@@ -68,6 +69,7 @@ export function createPromptAgentNodeAdapter({
     state,
     documentRef = document,
     scheduleSave = () => {},
+    commitReferenceConnections = (connections) => { state.connections = connections; },
     createImageNode = () => null,
     getNodeImages = async (node) => getCanonicalImageList(node),
     resolveImageSource = async (source) => source,
@@ -166,7 +168,7 @@ export function createPromptAgentNodeAdapter({
     }
 
     function isRunning(node) {
-        return state?.runningNodeIds?.has(node.id) || node.el?.classList?.contains('running');
+        return Boolean(node && (state?.runningNodeIds?.has(node.id) || node.el?.classList?.contains('running')));
     }
 
     function configureTarget(node, model, provider) {
@@ -235,6 +237,51 @@ export function createPromptAgentNodeAdapter({
             return false;
         }
         if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') return false;
+        // Resolve all references before changing any graph or prompt state.
+        // An explicit reference list is authoritative; unrelated input ports survive.
+        if (Array.isArray(plan.referenceImages)) {
+            const sources = [];
+            for (const reference of plan.referenceImages) {
+                const source = state.nodes.get(reference.sourceNodeId);
+                if (!source || source.id === node.id || source.enabled === false || isRunning(source)) {
+                    throw new Error('方案参考图来源已删除、禁用或正在运行，请重新选择参考图。');
+                }
+                const port = reference.sourcePort || 'image';
+                if (port !== 'image' || (reference.sourceImageIndex || 0) !== 0) {
+                    throw new Error('此参考图不能通过原节点完整输出，请将该图片单独导入后重新选择。');
+                }
+                if (reference.referenceId && !getSceneReferenceImages().some((item) => item.referenceId === reference.referenceId)) {
+                    throw new Error('方案参考图已变化，请重新选择参考图并整理方案。');
+                }
+                const images = getCanonicalImageList(source);
+                const assets = source.type === 'ImageImport' ? getImageImportMediaAssetReferences(source) : (source.data?.mediaAssetKeys || []);
+                if (!images.length && !assets.length && !(source.importMode === 'url' && source.imageUrl)) {
+                    throw new Error('方案参考图原图不可用，请先恢复图片。');
+                }
+                if (!reference.referenceId && reference.dataUrl && images.length && source.importMode !== 'url' && reference.dataUrl !== images[0]) {
+                    throw new Error('方案参考图内容已变化，请重新选择参考图。');
+                }
+                if (reference.assetKeys?.length && reference.assetKeys.some((key) => !assets.includes(key))) {
+                    throw new Error('方案参考图资产已变化，请重新选择参考图。');
+                }
+                if (!sources.some((item) => item.nodeId === source.id && item.port === port)) sources.push({ nodeId: source.id, port });
+            }
+            if (sources.length > MAX_REFERENCE_IMAGE_COUNT) throw new Error(`参考图最多支持 ${MAX_REFERENCE_IMAGE_COUNT} 张。`);
+            const isImageInput = (connection) => connection.to.nodeId === node.id
+                && (connection.to.port === 'referenceImages' || /^image(?:_\d+)?$/.test(connection.to.port));
+            const previous = (state.connections || []).filter(isImageInput);
+            if (previous.some((connection) => isRunning(state.nodes.get(connection.from.nodeId)))) {
+                throw new Error('参考图输入节点正在运行，暂不能修改连线。');
+            }
+            const next = sources.map((from, order) => ({
+                id: previous.find((connection) => connection.from.nodeId === from.nodeId && connection.from.port === from.port)?.id
+                    || `c_agent_${globalThis.crypto.randomUUID()}`,
+                from, to: { nodeId: node.id, port: 'referenceImages' }, type: 'image', order
+            }));
+            if (JSON.stringify(previous) !== JSON.stringify(next)) {
+                commitReferenceConnections([...(state.connections || []).filter((connection) => !isImageInput(connection)), ...next]);
+            }
+        }
         plan = { ...plan, parameters };
         node.data ||= {};
         node.data.prompt = String(plan.prompt || '');

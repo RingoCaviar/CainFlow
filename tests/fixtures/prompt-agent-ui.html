@@ -22,6 +22,7 @@
 <script type="module">
 import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentNodeAdapter } from '../../js/features/prompt-agent/prompt-agent-node-adapter.js';
+import { createPromptAgentReferenceSource } from '../../js/features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentExecutionAdapter } from '../../js/features/prompt-agent/prompt-agent-execution-adapter.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -137,6 +138,15 @@ try {
     let settingsOpens = 0;
     const controller = createPromptAgentController({
         documentRef: document, createReply, nodeAdapter, executionAdapter,
+        referenceSource: createPromptAgentReferenceSource({ state, nodeAdapter,
+            getHistoryMetadata: async () => [],
+            createImportNode: ({ name }) => {
+                const id = `reference-${state.nodes.size}`;
+                state.nodes.set(id, { id, type: 'ImageImport', customTitle: name, data: {} });
+                return id;
+            },
+            loadImageData: async (id, image) => { state.nodes.get(id).data.image = image; return true; }
+        }),
         getChatModels: () => chatModels,
         getImageModels: () => state.models,
         loadResultImages: async (keys) => keys.map(() => 'data:image/png;base64,UkVTVUxU'),
@@ -218,13 +228,13 @@ try {
         value: { items: [{ kind: 'file', getAsFile: () => pasteFile }] }
     });
     form.dispatchEvent(paste);
-    await waitFor(() => references.children.length === 1);
+    await waitFor(() => references.children.length === 1 && !references.querySelector('.is-loading'));
 
     const dropFile = new File([new Uint8Array([137, 80, 78, 71])], '色彩.webp', { type: 'image/webp' });
     const drop = new Event('drop', { bubbles: true, cancelable: true });
     Object.defineProperty(drop, 'dataTransfer', { value: { files: [dropFile] } });
     form.dispatchEvent(drop);
-    await waitFor(() => references.children.length === 2);
+    await waitFor(() => references.children.length === 2 && !references.querySelector('.is-loading'));
     const referencePreviewCount = references.querySelectorAll('img').length;
 
     input.value = '沿用参考图生成电影海报';
@@ -239,6 +249,8 @@ try {
     const referencesInWorkflow = referenceRequest.workflowReferenceImages.map((image) => image.name);
     validActions[0].click();
     const applied = validActions[0].textContent === '已应用' && validActions[0].disabled && appliedPlans.length === 2;
+    const referenceConnectionsApplied = state.connections.filter((connection) => connection.to.nodeId === 'image-1'
+        && connection.to.port === 'referenceImages').map((connection) => state.nodes.get(connection.from.nodeId).customTitle);
 
     executionMode = 'stop';
     validActions[1].click();
@@ -337,7 +349,7 @@ try {
         persistsImageModel, restoresImageModel, newWorkflowHasNoImageModel, changedModelReusesTarget,
         widthStyle, widthSnapshot, noTargetActionsReady, draftDoesNotCreate, createsOnGenerate, persistsBinding,
         summaryCollapsed, summaryCanExpand, retryReusesTarget, restoredReusesTarget, followsBoundContext,
-        referencePreviewCount, referencesInRequest, referencesInWorkflow,
+        referencePreviewCount, referencesInRequest, referencesInWorkflow, referenceConnectionsApplied,
         planMentionsReferences: validPlan?.textContent.includes('参考图\n2 张'), copyableText, applied,
         progressVisible, stopped, failureVisible, retriedWithPreview,
         resultPreviewActions, savesResultBatches, restoredBatchCount,

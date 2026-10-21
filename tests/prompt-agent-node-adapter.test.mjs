@@ -65,6 +65,51 @@ test('does not guess a target when selection is missing, multiple, or not image 
     assert.equal(harness({ nodeType: 'TextChat' }).adapter.getSelectedContext(), null);
 });
 
+test('applying an Agent plan connects its references and reapplying does not duplicate them', () => {
+    const { adapter, state } = harness();
+    state.connections = [];
+    const plan = { targetNodeId: 'image-1', prompt: '参考图片生成', referenceImages: [{ sourceNodeId: 'source-1', sourcePort: 'image' }] };
+    assert.equal(adapter.applyPromptPlan(plan), true);
+    assert.equal(state.connections.length, 1);
+    assert.deepEqual(state.connections[0].from, { nodeId: 'source-1', port: 'image' });
+    assert.deepEqual(state.connections[0].to, { nodeId: 'image-1', port: 'referenceImages' });
+    const id = state.connections[0].id;
+    assert.equal(adapter.applyPromptPlan(plan), true);
+    assert.equal(state.connections.length, 1);
+    assert.equal(state.connections[0].id, id);
+});
+
+test('plan reference order replaces stale image inputs while retaining other ports', () => {
+    const { adapter, state } = harness();
+    state.nodes.set('source-2', { id: 'source-2', type: 'ImageImport', data: { image: 'data:image/png;base64,dHdv' } });
+    const promptConnection = { id: 'prompt', from: { nodeId: 'text', port: 'text' }, to: { nodeId: 'image-1', port: 'prompt' } };
+    state.connections.push(promptConnection);
+    const plan = { targetNodeId: 'image-1', prompt: '两张图', referenceImages: [
+        { sourceNodeId: 'source-2' }, { sourceNodeId: 'source-1' }, { sourceNodeId: 'source-2' }
+    ] };
+    assert.equal(adapter.applyPromptPlan(plan), true);
+    assert.deepEqual(state.connections.slice(1).map((connection) => [connection.from.nodeId, connection.order]), [['source-2', 0], ['source-1', 1]]);
+    assert.equal(state.connections[0], promptConnection);
+    adapter.applyPromptPlan({ ...plan, referenceImages: [] });
+    assert.deepEqual(state.connections, [promptConnection]);
+});
+
+test('invalid references reject application atomically instead of silently generating without images', () => {
+    for (const kind of ['missing', 'disabled', 'running', 'changed', 'empty', 'unsupported-index']) {
+        const { adapter, state, node } = harness();
+        const reference = { sourceNodeId: 'source-1' };
+        if (kind === 'missing') state.nodes.delete('source-1');
+        if (kind === 'disabled') state.nodes.get('source-1').enabled = false;
+        if (kind === 'running') state.runningNodeIds = new Set(['source-1']);
+        if (kind === 'changed') reference.referenceId = JSON.stringify(['source-1', 0, 'upload', 'old-asset']);
+        if (kind === 'empty') state.nodes.get('source-1').data = {};
+        if (kind === 'unsupported-index') reference.sourceImageIndex = 1;
+        const before = JSON.stringify({ connections: state.connections, data: node.data });
+        assert.throws(() => adapter.applyPromptPlan({ targetNodeId: node.id, prompt: '不可应用', referenceImages: [reference] }), /参考图|原图/);
+        assert.equal(JSON.stringify({ connections: state.connections, data: node.data }), before, kind);
+    }
+});
+
 test('applies a Prompt Plan to its bound image-generation node without requiring selection', () => {
     const { adapter, controls, node, getSaves } = harness({ selected: [] });
     const applied = adapter.applyPromptPlan({

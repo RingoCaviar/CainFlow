@@ -169,3 +169,24 @@ node --test tests/prompt-agent-cache-usage.test.mjs tests/cache-usage-media-dist
 - 拖动或键盘调整面板宽度，导航同步移动；窄窗口按钮换行且不被面板遮挡。
 - 为导航保留 124px 的横向布局空间（含面板右边距、间隔与导航外边距）。窗口缩小仅限制显示宽度，不覆盖全局宽度偏好，恢复窗口后还原。
 - 浏览器回归：`prompt-agent-layout`、`prompt-agent-compact-browser`、`prompt-agent-interactions-browser`、`prompt-agent-scroll-browser`。
+# 方案参考图执行回归（prompt-agent#029）
+
+- 添加两张参考图，应用方案后检查生成节点参考图连线顺序；生成请求应包含两张原图。
+- 直接生成未绑定方案、再次应用、重试均复用连接；修改方案图片清单后旧图片输入移除，其他端口保持。
+- 删除、禁用、修改参考来源及运行中的来源应明确阻止执行，不能退化成无图生成；重新选择后可继续。
+- 保存恢复后应用有稳定来源身份的方案；无参考图字段的旧方案保留原输入。独立导入不建立连线，确认应用/生成才建立。
+- 自动化：`prompt-agent-node-adapter.test.mjs`、`prompt-agent-execution-adapter.test.mjs`、`openai-reference-image-request.test.mjs` 验证原图顺序、连接幂等和失效输入阻断。
+
+## 画布删除与 Agent 引用同步（prompt-agent#030）
+
+- 单个/批量删除画布图片节点，检查待发送引用、消息附件和方案引用同步清理，包括无连线节点；重新保存恢复后不出现已删除引用。
+- Agent 待发送区移除、面板取消勾选及清空只取消引用，节点仍留在画布。
+- 导入保存期间删除来源、模型回复期间删除来源，晚到结果不恢复引用；切换工作流后不会清理其他工作流。已生成结果批次保留。
+- 回归覆盖：引用导入浏览器流程、Conversation Store 压缩/恢复、节点删除通知以及异步导入取消。
+
+## 生成结果拖拽（prompt-agent#031）
+
+- 当前及恢复后的结果原图拖入 Agent：仅创建一个导入节点并成为待发送参考图，不冒泡到画布重复导入。
+- 拖入画布：按落点新建图片导入节点，不替换既有节点。生成结果记录保持不变。
+- 拖动后的点击不打开预览；下一次独立点击及键盘预览仍正常。失效拖拽和切换工作流后的旧拖拽不能导入。
+- 浏览器回归 `prompt-agent-result-drag.test.mjs` 使用原图比对并覆盖两种落点及拖拽令牌清理。

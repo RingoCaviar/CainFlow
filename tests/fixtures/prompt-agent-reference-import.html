@@ -5,7 +5,7 @@ const result={};
 try {
  const page=new DOMParser().parseFromString(await(await fetch('../../index.html')).text(),'text/html');document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'),true));
  const dataUrl='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=';
- const state={nodes:new Map()};let created=0,reads=0,previewed=0,globalDrops=0,slowResolve=null;const requests=[];
+ const state={nodes:new Map()};let created=0,reads=0,previewed=0,globalDrops=0,slowResolve=null,replyGate=null;const requests=[];
  const nodeAdapter={getSceneReferenceImages:()=>[...state.nodes.values()].filter(n=>n.imageImportAssetKey).map(n=>({name:n.name,referenceId:`node:${n.id}`,sourceNodeId:n.id,previewUrl:dataUrl})),readSceneReferenceImage:async c=>({...c,dataUrl})};
  const source=createPromptAgentReferenceSource({state,nodeAdapter,
  getHistoryMetadata:async()=>Array.from({length:65},(_,i)=>({id:i+1,mediaType:'image',timestamp:i,name:`历史 ${i+1}`,prompt:`内容 ${i+1}`,thumbAssetKey:`thumb:${i+1}`,thumb:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#596ab0"/><circle cx="40" cy="40" r="22" fill="#bec8f3"/></svg>')})),
@@ -14,7 +14,7 @@ try {
  loadImageData:async id=>{state.nodes.get(id).imageImportAssetKey=`media:${id}`;return true;}});
  const controller=createPromptAgentController({documentRef:document,nodeAdapter,referenceSource:source,getPanelWidth:()=>300,getChatModels:()=>[{id:'chat',modelId:'chat'}],
  readReferenceFile:file=>file.name==='slow.png'?new Promise(resolve=>{slowResolve=()=>resolve({name:file.name,dataUrl});}):Promise.resolve({name:file.name,dataUrl}),
- openResultPreview:()=>{previewed++;},createReply:async request=>{requests.push(request);return{intent:'chat',message:'收到'};}});
+ openResultPreview:()=>{previewed++;},createReply:async request=>{requests.push(request);return replyGate ? replyGate(request) : {intent:'chat',message:'收到'};}});
  controller.init();controller.open();
  const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
  const check=(condition,name)=>{if(!condition)throw new Error(name);result[name]=true;};
@@ -43,6 +43,20 @@ try {
  const historyDrop=new Event('drop',{bubbles:true,cancelable:true});Object.defineProperty(historyDrop,'dataTransfer',{value:{files:[],getData:type=>type==='application/x-cainflow-history-image'?'12':'',types:['application/x-cainflow-history-image']}});panel.dispatchEvent(historyDrop);await tick();await tick();check(created===5&&pending.children.length===1&&globalDrops===0,'historyDrop');
  const upload=document.getElementById('prompt-agent-reference-upload');Object.defineProperty(upload,'files',{value:[new File(['x'],'upload.png',{type:'image/png'})]});upload.dispatchEvent(new Event('change'));await tick();await tick();check(created===6&&pending.children.length===2,'upload');
  await sendFiles(['slow.png']);input.value='/clear';await controller.submit();slowResolve();await tick();check(created===6&&pending.children.length===0,'clearFence');
+ await sendFiles(['remove-a.png','keep-b.png']);
+ state.nodes.delete('7');controller.removeNodeReferences(['7']);
+ check(pending.children.length===1&&pending.querySelector('img').alt.includes('keep-b'),'canvasDeletionRemovesPending');
+ pending.querySelector('.prompt-agent-reference-remove').click();
+ check(state.nodes.has('8')&&pending.children.length===0,'agentRemovalKeepsCanvas');
+ await sendFiles(['late.png']);
+ let resolveReply;replyGate=request=>new Promise(resolve=>{resolveReply=()=>resolve({intent:'generate',message:'方案',promptPlan:{prompt:'画图',referenceImages:request.referenceImages}});});
+ input.value='参考图生成';const submitting=controller.submit();await tick();
+ state.nodes.delete('9');controller.removeNodeReferences(['9']);resolveReply();await submitting;
+ const deletedSnapshot=controller.snapshotWorkflow();
+ check(deletedSnapshot.messages.every(message=>!message.referenceImages?.length&&!message.promptPlan?.referenceImages?.length)
+ &&!document.querySelector('.prompt-agent-message-references img'),'lateReplyCannotRestoreDeletedReference');
+ replyGate=null;await sendFiles(['batch-a.png','batch-b.png']);state.nodes.delete('10');state.nodes.delete('11');controller.removeNodeReferences(['10','11']);
+ check(pending.children.length===0,'batchDeletionRemovesPending');
  if(new URLSearchParams(location.search).has('screenshot')){document.getElementById('prompt-agent-add-reference').click();document.getElementById('prompt-agent-tab-history').click();await tick();document.documentElement.dataset.appTheme='dark';}
 }catch(error){result.error=error.stack||error.message;}
 document.getElementById('surface-result').textContent=JSON.stringify(result);

@@ -4,6 +4,18 @@ import test from 'node:test';
 import { createPromptAgentExecutionAdapter } from '../js/features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentNodeAdapter } from '../js/features/prompt-agent/prompt-agent-node-adapter.js';
 
+test('an unavailable plan reference prevents any generation request', async () => {
+    const node = { id: 'target', type: 'ImageGenerate', data: {} };
+    const state = { nodes: new Map([[node.id, node]]), connections: [] };
+    const nodeAdapter = createPromptAgentNodeAdapter({ state, documentRef: { getElementById: () => null } });
+    let requested = false;
+    const adapter = createPromptAgentExecutionAdapter({ state, nodeAdapter, runWorkflow: () => { requested = true; } });
+    await assert.rejects(adapter.applyAndGenerate({ targetNodeId: node.id, prompt: '参考图生成',
+        referenceImages: [{ sourceNodeId: 'deleted' }]
+    }), /参考图来源/);
+    assert.equal(requested, false);
+});
+
 test('a newly created Agent target runs without any canvas selection and retries reuse the same node', async () => {
     const state = {
         nodes: new Map(), selectedNodes: new Set(),

@@ -1,4 +1,5 @@
 import { canUseCanvasShortcuts, isModalOrFullscreenOpen, isTextEditingTarget } from './shortcut-guard.js';
+import { AGENT_RESULT_DRAG_TYPE, takeAgentResultDrag } from '../prompt-agent/prompt-agent-result-drag.js';
 
 /**
  * Handles global interactions such as image drag/drop, paste, and Escape.
@@ -63,6 +64,14 @@ export function createGlobalInteractionsApi({
 
         windowRef.addEventListener('drop', async (e) => {
             e.preventDefault();
+
+            if (Array.from(e.dataTransfer?.types || []).includes(AGENT_RESULT_DRAG_TYPE)) {
+                if (!e.target.closest?.('#canvas-container')) return;
+                const image = takeAgentResultDrag(e.dataTransfer);
+                if (!image) { showToast('生成图片拖拽已失效，请重新拖拽', 'warning'); return; }
+                importImageDataAtDrop(e, image.dataUrl, { create: '已从 Agent 生成结果导入原图' }, { forceCreate: true });
+                return;
+            }
 
             const historyDrag = state.draggedHistoryImage;
             if (historyDrag?.image || historyDrag?.imagePromise) {

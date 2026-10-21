@@ -388,6 +388,7 @@ test('deleting restored image batches does not give the undo snapshot disk owner
     const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), nodeDefaults: {}, canvas: { zoom: 1, x: 0, y: 0 } };
     const released = [];
     const protectedForUndo = [];
+    const removedNodeBatches = [];
     const lifecycle = createNodeLifecycleApi({
         state,
         nodeConfigs: { ImageGenerate: { title: '图片生成', cssClass: 'node-generate', defaultWidth: 410, defaultHeight: 320 } },
@@ -397,6 +398,7 @@ test('deleting restored image batches does not give the undo snapshot disk owner
         updateAllConnections: () => {}, updatePortStyles: () => {}, getCacheSidebarActive: () => false, updateCacheUsage: () => {},
         getActiveWorkflowId: () => 'workflow-1',
         referenceMediaAsset: async (...args) => { protectedForUndo.push(args); return true; },
+        onNodesRemoved: (ids) => { assert.ok(ids.every((id) => !state.nodes.has(id))); removedNodeBatches.push(ids); },
         removeMediaReference: async (...args) => { released.push(args); return true; },
         documentRef
     });
@@ -407,6 +409,7 @@ test('deleting restored image batches does not give the undo snapshot disk owner
 
     assert.deepEqual(state.nodes.get('batch-restored').data.mediaAssetKeys, ['media:first', 'media:second', 'media:first']);
     await lifecycle.removeNode('batch-restored');
+    assert.deepEqual(removedNodeBatches, [['batch-restored']]);
     assert.deepEqual(protectedForUndo, []);
     assert.deepEqual(released, []);
 });

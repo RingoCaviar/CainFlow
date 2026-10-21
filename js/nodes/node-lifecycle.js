@@ -45,6 +45,7 @@ export function createNodeLifecycleApi({
     markNodeConnectionsDirty = null,
     updatePortStyles,
     onConnectionsChanged = () => {},
+    onNodesRemoved = () => {},
     getCacheSidebarActive,
     updateCacheUsage,
     canvasContainer = null,
@@ -1882,6 +1883,7 @@ export function createNodeLifecycleApi({
             : [];
         let removedConnections = false;
         const removingIds = new Set(idsToRemove);
+        const removedIds = [];
         idsToRemove.forEach((nid) => {
             const node = state.nodes.get(nid);
             if (!node) return;
@@ -1892,6 +1894,7 @@ export function createNodeLifecycleApi({
             disconnectNodeSizeObserver(node);
             node.el.remove();
             state.nodes.delete(nid);
+            removedIds.push(nid);
             state.selectedNodes.delete(nid);
             if (node.type === 'ImageImport') {
                 const importAssetKey = getNodeImageImportAssetKey(node);
@@ -1904,6 +1907,7 @@ export function createNodeLifecycleApi({
             }
         });
         const preservedConnectionCount = appendPreservedConnections(preservedConnectionCandidates);
+        if (removedIds.length) onNodesRemoved(removedIds);
         if (preservedConnectionCount > 0) removedConnections = true;
         updateAllConnections();
         updatePortStyles();

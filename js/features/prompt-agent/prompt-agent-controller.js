@@ -2,6 +2,7 @@ import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from '
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus } from './prompt-agent-model-menu.js';
 import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
+import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
@@ -384,6 +385,7 @@ export function createPromptAgentController({
         referenceImages.forEach((reference, index) => {
             const item = documentRef.createElement('span');
             item.className = 'prompt-agent-reference';
+            if (reference.sourceNodeId) item.dataset.sourceNodeId = reference.sourceNodeId;
             const image = documentRef.createElement('img');
             image.src = reference.dataUrl || reference.previewUrl || '';
             image.alt = `参考图 ${index + 1}：${reference.name || '图片'}`;
@@ -605,7 +607,9 @@ export function createPromptAgentController({
             const operation = importQueue.catch(() => {}).then(async () => {
                 if (!isCurrent()) return;
                 try {
-                    const image = await referenceSource.importReference(candidate, { isCurrent, slot, read: () => readReferenceFile(candidate.file) });
+                    const image = await referenceSource.importReference(candidate, { isCurrent, slot, read: () => readReferenceFile(candidate.file),
+                        onSourceNode: (id) => { pending.sourceNodeId = id; }
+                    });
                     if (!isCurrent()) return;
                     if (!image?.dataUrl) throw new Error('图片导入失败，请重试。');
                     Object.assign(pending, image);
@@ -799,6 +803,15 @@ export function createPromptAgentController({
             retryButtons: new Set(),
             isCurrent: () => revision === workflowRevision,
             preparePlan,
+            removeNodeReferences(removed) {
+                if (!Array.isArray(plan.referenceImages)) return;
+                const next = plan.referenceImages.filter((image) => !removed.has(image.sourceNodeId));
+                if (next.length === plan.referenceImages.length) return;
+                plan.referenceImages = next;
+                planElement.textContent = formatPlan(plan);
+                this.appliedModelId = '';
+                this.sync();
+            },
             sync() {
                 const model = getSelectedImageModel();
                 const available = this.isCurrent() && Boolean(nodeAdapter) && Boolean(model);
@@ -849,6 +862,32 @@ export function createPromptAgentController({
     function refreshActionStates() {
         renderImageModelOptions();
         renderReferencePicker();
+    }
+
+    function removeNodeReferences(nodeIds) {
+        const removed = new Set(nodeIds);
+        if (activeOperation) {
+            activeOperation.removedReferenceNodeIds ||= new Set();
+            nodeIds.forEach((id) => activeOperation.removedReferenceNodeIds.add(id));
+        }
+        pendingReferenceImages = pendingReferenceImages.filter((image) => !removed.has(image.sourceNodeId));
+        referencePickerError = '';
+        const changed = conversationStore.removeNodeReferences(nodeIds);
+        for (const actionState of promptPlanActionStates) actionState.removeNodeReferences(removed);
+        // Update only reference strips, retaining running result views and scroll position.
+        const { messages } = getElements();
+        messages?.querySelectorAll('.prompt-agent-message-references').forEach((strip) => {
+            strip.querySelectorAll('.prompt-agent-reference').forEach((item) => {
+                if (removed.has(item.dataset.sourceNodeId)) item.remove();
+            });
+            strip.querySelectorAll('.prompt-agent-reference-number').forEach((number, index) => { number.textContent = String(index + 1); });
+            if (!strip.children.length) strip.remove();
+        });
+        renderPendingReferences();
+        if (changed) {
+            conversationRevision += 1;
+            onStateChange();
+        }
     }
 
     function clearElement(element) {
@@ -954,8 +993,24 @@ export function createPromptAgentController({
             image.tabIndex = 0;
             image.loading = 'lazy';
             image.setAttribute('role', 'button');
+            image.draggable = /^data:image\/[^;]+;base64,/i.test(source);
+            image.title = '点击预览，或拖到 Agent / 画布作为参考图';
+            let dragged = false;
+            let dragToken;
+            const revision = workflowRevision;
+            image.addEventListener('pointerdown', () => { dragged = false; });
+            image.addEventListener('dragstart', (event) => {
+                dragToken = beginAgentResultDrag(event.dataTransfer, {
+                    dataUrl: source, name: `生成结果 ${index + 1}`,
+                    isCurrent: () => revision === workflowRevision && image.isConnected
+                });
+                if (!dragToken) { event.preventDefault(); return; }
+                dragged = true;
+                event.stopPropagation?.();
+            });
+            image.addEventListener('dragend', () => endAgentResultDrag(dragToken));
             const preview = () => openResultPreview(images.filter(Boolean), images.slice(0, index).filter(Boolean).length);
-            image.addEventListener('click', preview);
+            image.addEventListener('click', () => { if (!dragged) preview(); });
             image.addEventListener('keydown', (event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
@@ -1167,6 +1222,9 @@ export function createPromptAgentController({
                 signal: operation.controller.signal
             });
             if (!isCurrentOperation(operation)) return;
+            if (Array.isArray(reply?.promptPlan?.referenceImages)) {
+                reply.promptPlan.referenceImages = reply.promptPlan.referenceImages.filter((image) => !operation.removedReferenceNodeIds?.has(image.sourceNodeId));
+            }
             const agentMessage = appendMessage('agent', reply?.message || '已整理本轮回复。', reply?.workSummary || [], {
                 promptPlan: reply?.promptPlan || null, intent: reply?.intent
             });
@@ -1292,7 +1350,7 @@ export function createPromptAgentController({
             }
         });
         referenceDropZone?.addEventListener('dragover', (event) => {
-            if (Array.from(event.dataTransfer?.types || []).some(type => ['Files', 'application/x-cainflow-history-image'].includes(type)) || Array.from(event.dataTransfer?.files || []).some((file) => String(file.type || '').startsWith('image/'))) {
+            if (Array.from(event.dataTransfer?.types || []).some(type => ['Files', 'application/x-cainflow-history-image', AGENT_RESULT_DRAG_TYPE].includes(type)) || Array.from(event.dataTransfer?.files || []).some((file) => String(file.type || '').startsWith('image/'))) {
                 event.preventDefault();
                 event.stopPropagation?.();
                 form.classList.add('is-dragging-reference');
@@ -1302,6 +1360,17 @@ export function createPromptAgentController({
         referenceDropZone?.addEventListener('drop', async (event) => {
             form.classList.remove('is-dragging-reference');
             const files = Array.from(event.dataTransfer?.files || []);
+            if (Array.from(event.dataTransfer?.types || []).includes(AGENT_RESULT_DRAG_TYPE)) {
+                event.preventDefault(); event.stopPropagation?.();
+                const image = takeAgentResultDrag(event.dataTransfer);
+                if (!image || !referenceSource) {
+                    referencePickerError = '生成图片拖拽已失效，请重新拖拽。';
+                    renderPendingReferences();
+                    return;
+                }
+                await toggleImportedReference({ referenceId: `result:${globalThis.crypto.randomUUID()}`, name: image.name, resolvedImage: image }, { toggle: false });
+                return;
+            }
             const historyId = event.dataTransfer?.getData?.('application/x-cainflow-history-image');
             if (historyId && referenceSource) {
                 event.preventDefault(); event.stopPropagation?.();
@@ -1402,7 +1471,7 @@ export function createPromptAgentController({
     }
 
     return {
-        init, open, close, toggle, submit, cancelRequest,
+        init, open, close, toggle, submit, cancelRequest, removeNodeReferences,
         restoreWorkflow, snapshotWorkflow, syncWorkflowState, refreshActionStates, refreshModels: renderModelOptions
     };
 }

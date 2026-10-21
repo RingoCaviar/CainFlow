@@ -3,6 +3,26 @@ import test from 'node:test';
 import { createPromptAgentReferenceSource } from '../js/features/prompt-agent/prompt-agent-reference-source.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 const image = { name: '图片', dataUrl: 'data:image/png;base64,AAAA' };
+
+test('import exposes its source identity before saving so canvas deletion cancels late references', async () => {
+    const state = { nodes: new Map() };
+    let pendingNodeId, finishSave;
+    let current = true;
+    const source = createPromptAgentReferenceSource({ state,
+        nodeAdapter: { getSceneReferenceImages: () => { assert.fail('deleted source must not be read'); } },
+        createImportNode: () => { state.nodes.set('created', { id: 'created', type: 'ImageImport' }); return 'created'; },
+        loadImageData: () => { assert.equal(pendingNodeId, 'created'); return new Promise(resolve => { finishSave = resolve; }); }
+    });
+    const importing = source.importReference({}, { isCurrent: () => current, read: async () => image,
+        onSourceNode: (id) => { pendingNodeId = id; }
+    });
+    await Promise.resolve();
+    state.nodes.delete(pendingNodeId);
+    current = false;
+    finishSave(true);
+    assert.equal(await importing, null);
+    assert.equal(state.nodes.size, 0);
+});
 function harness() {
     const state = { nodes: new Map() };
     let creates = 0, reads = 0, fail = false;

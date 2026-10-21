@@ -1,0 +1,45 @@
+<!doctype html><html><body><div id="canvas-container"></div><pre id="surface-result"></pre><script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentReferenceSource } from '../../js/features/prompt-agent/prompt-agent-reference-source.js';
+import { createPromptAgentNodeAdapter } from '../../js/features/prompt-agent/prompt-agent-node-adapter.js';
+import { createGlobalInteractionsApi } from '../../js/features/ui/global-interactions.js';
+const result = {};
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.body.append(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    const original = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=';
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set() };
+    const imports = [], creations = [];
+    let previews = 0;
+    const addNode = (type, x, y) => { const id = `import-${creations.length}`; creations.push({ id, x, y }); state.nodes.set(id, { id, type, data: {} }); return id; };
+    const loadImageData = async (id, data) => { imports.push(data); state.nodes.get(id).data.image = data; return true; };
+    const nodeAdapter = createPromptAgentNodeAdapter({ state, documentRef: document });
+    const referenceSource = createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata: async () => [],
+        createImportNode: () => addNode('ImageImport', 0, 0), loadImageData });
+    const controller = createPromptAgentController({ documentRef: document, nodeAdapter, referenceSource,
+        loadResultImages: async () => [original], openResultPreview: () => { previews++; } });
+    controller.init();
+    controller.restoreWorkflow({ messages: [{ role: 'agent', text: '已生成', promptPlan: { prompt: '图片' },
+        runs: [{ runId: 'restored', status: 'completed', mediaAssetKeys: ['media:original'] }] }] });
+    controller.open();
+    const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+    await tick();
+    const canvas = document.getElementById('canvas-container');
+    createGlobalInteractionsApi({ state, canvasContainer: canvas, viewportApi: { screenToCanvas: (x,y) => ({x,y}) },
+        addNode, loadImageData, showToast() {}, scheduleSave() {}, documentRef: document, windowRef: window }).initGlobalInteractions();
+    const image = document.querySelector('.prompt-agent-result-image');
+    const drag = () => { const transfer = new DataTransfer(); image.dispatchEvent(new PointerEvent('pointerdown')); image.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer })); return transfer; };
+    const drop = (target, transfer) => target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: 123, clientY: 234 }));
+    const panel = document.getElementById('prompt-agent-panel');
+    const transfer = drag(); drop(panel, transfer); await tick(); await tick();
+    result.agentImport = creations.length === 1 && imports[0] === original && document.getElementById('prompt-agent-references').children.length === 1;
+    drop(canvas, transfer); result.singleConsumption = creations.length === 1;
+    image.click(); result.dragDoesNotPreview = previews === 0;
+    image.dispatchEvent(new PointerEvent('pointerdown')); image.click(); result.clickPreview = previews === 1;
+    image.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); result.keyboardPreview = previews === 2;
+    drop(canvas, drag()); await tick(); result.canvasImport = creations.length === 2 && imports[1] === original && creations[1].x === 123 && creations[1].y === 234;
+    result.dragEnabled = image.draggable;
+    const stale = drag(); controller.restoreWorkflow(null); drop(canvas, stale); result.workflowFence = creations.length === 2;
+} catch (error) { result.error = error.stack || error.message; }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

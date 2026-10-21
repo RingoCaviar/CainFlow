@@ -17,11 +17,12 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         if (!entry?.image?.startsWith('data:image/')) throw new Error('历史原图缺失，请重新导入图片。');
         return { name: candidate.name, dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
     }
-    async function importReference(candidate, { isCurrent, read, slot = 0 } = {}) {
+    async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {} } = {}) {
         if (!isCurrent()) return null;
         let node = candidate.nodeId ? state.nodes.get(candidate.nodeId) : null;
         if (!node && candidate.historyId) node = [...state.nodes.values()].find(item => reusable(item, candidate.historyId));
         if (node && reusable(node, candidate.historyId)) {
+            onSourceNode(node.id);
             const scene = nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node.id);
             const result = await nodeAdapter.readSceneReferenceImage(scene);
             return isCurrent() ? result : null;
@@ -43,6 +44,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
             throw new Error('图片节点已修改，请移除后重新添加。');
         }
         candidate.attempted = true;
+        onSourceNode(node.id);
         const saved = await loadImageData(node.id, image.dataUrl);
         if (!isCurrent()) return null;
         if (!saved) throw new Error('图片保存失败，点击重试。');

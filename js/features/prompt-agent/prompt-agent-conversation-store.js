@@ -303,6 +303,26 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         referenceImages = preservedReferences;
     }
 
+    function removeNodeReferences(nodeIds) {
+        const removed = new Set(nodeIds);
+        let changed = false;
+        const prune = (images) => {
+            const next = images.filter((image) => !removed.has(image.sourceNodeId));
+            changed ||= next.length !== images.length;
+            return next;
+        };
+        const prunePlan = (plan) => {
+            if (Array.isArray(plan?.referenceImages)) plan.referenceImages = prune(plan.referenceImages);
+        };
+        referenceImages = prune(referenceImages);
+        for (const message of [...messages, ...archivedMessages]) {
+            if (Array.isArray(message.referenceImages)) message.referenceImages = prune(message.referenceImages);
+            prunePlan(message.promptPlan);
+        }
+        prunePlan(previousPromptPlan);
+        return changed;
+    }
+
     function clear() {
         memory = '';
         contextSummary = '';
@@ -313,5 +333,5 @@ export function createPromptAgentConversationStore({ maxContextCharacters = 4000
         previousPromptPlan = null;
     }
 
-    return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear };
+    return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences };
 }

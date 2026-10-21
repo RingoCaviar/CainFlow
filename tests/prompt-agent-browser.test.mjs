@@ -7,6 +7,7 @@ test('Prompt Agent browser flow keeps references, actions, recovery, workflow st
     const result = await runUiFixture('tests/fixtures/prompt-agent-ui.html');
 
     assert.equal(result.error, undefined);
+    assert.deepEqual(result.referenceConnectionsApplied, ['构图.png', '色彩.webp']);
     assert.ok(result.opened);
     assert.ok(result.unavailable && result.subtleHint);
     assert.ok(result.addModelOpensSettings);

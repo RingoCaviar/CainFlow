@@ -30,6 +30,7 @@ class FakeElement {
         this.value = value;
         this.classList = new ClassList(classes);
         this.attributes = new Map();
+        this.dataset = {};
         this.listeners = new Map();
         this.children = [];
         this.textContent = '';

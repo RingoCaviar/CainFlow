@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+test('canvas deletion removes references from current and compacted conversations but preserves generated runs', () => {
+    const store = createPromptAgentConversationStore();
+    const image = { sourceNodeId: 'deleted', name: '参考', dataUrl: 'data:image/png;base64,YQ==' };
+    store.append({ role: 'user', text: '参考', referenceImages: [image] });
+    store.append({ role: 'agent', text: '方案', promptPlan: { prompt: '画图', referenceImages: [image] },
+        runs: [{ runId: 'run', status: 'completed', mediaAssetKeys: ['media:result'] }] });
+    store.compact('摘要');
+    assert.equal(store.removeNodeReferences(['deleted']), true);
+    assert.deepEqual(store.getReferenceImages(), []);
+    const snapshot = store.snapshot();
+    assert.deepEqual(snapshot.previousPromptPlan.referenceImages, []);
+    assert.deepEqual(snapshot.archivedMessages[0].referenceImages, []);
+    assert.deepEqual(snapshot.archivedMessages[1].runs[0].mediaAssetKeys, ['media:result']);
+    assert.equal(store.removeNodeReferences(['deleted']), false);
+    store.restore(snapshot);
+    assert.deepEqual(store.getReferenceImages(), []);
+});
+
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 
 test('each generation retains its ordered batch through archive, compaction and JSON restore', () => {
