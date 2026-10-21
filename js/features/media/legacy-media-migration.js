@@ -1,7 +1,7 @@
 /**
  * Stages conversion of legacy image fields to content-addressed Media assets.
- * A stage intentionally owns its new assets only temporarily: callers must commit
- * it after the workflow document has reached durable storage.
+ * A stage intentionally owns its new assets only temporarily. Callers release
+ * it only after the workflow document and its formal media owners commit.
  */
 function imageValuesFromNode(node) {
     const data = node?.data || {};
@@ -21,21 +21,9 @@ export function createLegacyMediaMigrationCoordinator({
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
     putMediaAsset = async () => null,
-    transitionMediaOwner = null,
-    referenceMediaAsset = async () => false,
     removeMediaReference = async () => false,
     deleteImageAsset = async () => false
 } = {}) {
-    const transition = transitionMediaOwner || createMediaOwnershipTransition({
-        replaceOwnerReferenceList: async ({ ownerType, ownerId, assetKeys }) => {
-            const promoted = await Promise.all((assetKeys || []).map((key) => referenceMediaAsset(ownerType, ownerId, key)));
-            return { status: promoted.every(Boolean) ? 'committed' : 'retryable' };
-        },
-        releaseTemporaryOwner: async ({ owner, nextAssetKeys }) => {
-            const released = await Promise.all((nextAssetKeys || []).map((key) => removeMediaReference(owner.ownerType, owner.ownerId, key)));
-            return { status: released.every(Boolean) ? 'committed' : 'needs-reconciliation' };
-        }
-    });
     const releaseTemporaryAssets = async (assets, temporaryOwner) => Promise.all(
         assets.map((key) => removeMediaReference('workflow-migration', temporaryOwner, key))
     );
@@ -64,7 +52,7 @@ export function createLegacyMediaMigrationCoordinator({
                 // A prior save may have reached disk before its formal owner was
                 // promoted. Reusing this stable temporary owner makes that state
                 // recoverable after restart without recreating the original.
-                staged.push({ node, assets: existing, legacyKeys, temporaryOwner, snapshot: null, created: false, ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node' });
+                staged.push({ node, assets: existing, legacyKeys, temporaryOwner, snapshot: null, created: false });
                 continue;
             }
             let values = imageValuesFromNode(node);
@@ -89,7 +77,7 @@ export function createLegacyMediaMigrationCoordinator({
             const snapshot = { data: node.data ? { ...node.data } : undefined, mediaAssetKeys: node.mediaAssetKeys, imageImportAssetKey: node.imageImportAssetKey };
             if (node.data && typeof node.data === 'object') node.data.mediaAssetKeys = assets;
             else node.mediaAssetKeys = assets;
-            staged.push({ node, assets, legacyKeys, temporaryOwner, snapshot, created: true, ownerType: node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node' });
+            staged.push({ node, assets, legacyKeys, temporaryOwner, snapshot, created: true });
             }
         } catch (error) {
             await rollbackItems(staged);
@@ -100,37 +88,9 @@ export function createLegacyMediaMigrationCoordinator({
         return {
             async commit() {
                 if (done) return true;
-                const promoted = [];
-                try {
-                    for (const item of staged) {
-                        const ownerId = `${workflowId}:${item.node.id}`;
-                        const result = await transition.replaceOwnerReferenceList({
-                            operationId: `migration:${workflowId}:${item.node.id}`,
-                            workflowId,
-                            owner: { ownerType: item.ownerType, ownerId },
-                            expectedOwnerRevision: 0,
-                            documentRevision: Number(workflow.mediaOwnershipRevision || 1),
-                            storageEpoch: 'legacy-migration',
-                            nextAssetKeys: [...new Set(item.assets)],
-                            reason: 'legacy-migration'
-                        });
-                        if (!['committed', 'already-committed'].includes(result.status)) throw new Error('Unable to promote migrated media reference');
-                        promoted.push(...[...new Set(item.assets)].map((key) => ({ ownerType: item.ownerType, ownerId, key })));
-                    }
-                } catch (error) {
-                    await Promise.all(promoted.map((item) => removeMediaReference(item.ownerType, item.ownerId, item.key)));
-                    throw error;
-                }
                 for (const item of staged) {
-                    const released = await transition.releaseTemporaryOwner({
-                        operationId: item.temporaryOwner,
-                        workflowId,
-                        owner: { ownerType: 'workflow-migration', ownerId: item.temporaryOwner },
-                        storageEpoch: 'legacy-migration',
-                        nextAssetKeys: item.assets,
-                        reason: 'legacy-migration-release'
-                    });
-                    if (!['committed', 'already-committed'].includes(released.status)) throw new Error('Unable to release migrated media owner');
+                    const released = await releaseTemporaryAssets(item.assets, item.temporaryOwner);
+                    if (!released.every(Boolean)) throw new Error('Unable to release migrated media owner');
                     await Promise.all(item.legacyKeys.map((key) => deleteImageAsset(key)));
                 }
                 done = true;
@@ -145,5 +105,4 @@ export function createLegacyMediaMigrationCoordinator({
     }
     return { stageWorkflow };
 }
-import { createMediaOwnershipTransition } from './media-ownership-transition.js';
 

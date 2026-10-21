@@ -79,18 +79,18 @@ test('loading a legacy workflow stages its Media asset before a later save', asy
     }
 });
 
-test('formal owner failure retains stable temporary reference for retry after persistence', async () => {
+test('migration cleanup failure retains its retry and never creates legacy persistent owners', async () => {
     const calls = [];
     const coordinator = createLegacyMediaMigrationCoordinator({
         getImageAsset: async () => 'data:image/png;base64,YQ==',
         putMediaAsset: async () => ({ asset_key: 'media:1' }),
-        referenceMediaAsset: async () => false,
-        removeMediaReference: async (...args) => (calls.push(args), true)
+        referenceMediaAsset: async () => { throw new Error('Migration must use the formal workflow commit'); },
+        removeMediaReference: async (...args) => (calls.push(args), false)
     });
     const workflow = { workflowId: 'wf', nodes: [{ id: 'n', type: 'ImagePreview', imageAssetKey: 'old-key' }] };
     const stage = await coordinator.stageWorkflow(workflow);
-    await assert.rejects(stage.commit(), /promote/);
-    assert.equal(calls.length, 0, 'temporary reference remains while the durable document awaits retry');
+    await assert.rejects(stage.commit(), /release/);
+    assert.deepEqual(calls, [['workflow-migration', 'migration:wf:n', 'media:1']]);
 
     const retry = createLegacyMediaMigrationCoordinator({
         referenceMediaAsset: async () => true,

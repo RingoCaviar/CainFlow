@@ -2089,6 +2089,11 @@ class StorageService:
             if db.execute('SELECT 1 FROM meta WHERE key=?',
                           (f'media_workflow_tombstone:{workflow_id}',)).fetchone():
                 raise StorageError('Deleted Workflow identity cannot receive media references')
+        if owner_type in {'workflow-node', 'workflow-import'} and len(parts) == 2 and parts[0] != 'owner':
+            if db.execute('''SELECT 1 FROM media_asset_owners
+                WHERE workflow_id=? AND owner_type=? AND owner_id=? AND tombstoned=1''',
+                          (parts[0], owner_type, parts[1])).fetchone():
+                raise StorageError('Deleted node cannot receive legacy media references')
 
     def add_media_reference(self, owner_type, owner_id, asset_key):
         self.initialize()
@@ -2150,13 +2155,30 @@ class StorageService:
 
     def list_media_owner_reference_lists(self, workflow_id):
         self.initialize()
+        workflow_id = str(workflow_id)
         with self._connect() as db:
             owners = db.execute('''SELECT owner_type, owner_id FROM media_asset_owners
                 WHERE workflow_id=? ORDER BY owner_type, owner_id''',
-                (str(workflow_id),)).fetchall()
-        return [self.get_media_owner_reference_list(workflow_id, owner['owner_type'], owner['owner_id']) | {
+                (workflow_id,)).fetchall()
+            # A legacy node may be deleted before its first formal save. Include
+            # its exact, unambiguous identity so the normal save protocol can
+            # commit a tombstone instead of leaving an undiscoverable alias.
+            legacy = []
+            if workflow_id and ':' not in workflow_id and workflow_id != 'owner':
+                prefix = workflow_id + ':'
+                legacy = db.execute('''SELECT DISTINCT owner_type, substr(owner_id, ?) AS node_id
+                    FROM media_asset_refs WHERE owner_type IN ('workflow-node', 'workflow-import')
+                        AND substr(owner_id, 1, ?)=? AND length(owner_id)>?
+                        AND instr(substr(owner_id, ?), ':')=0''',
+                                    (len(prefix) + 1, len(prefix), prefix, len(prefix), len(prefix) + 1)).fetchall()
+        result = [self.get_media_owner_reference_list(workflow_id, owner['owner_type'], owner['owner_id']) | {
             'ownerType': owner['owner_type'], 'ownerId': owner['owner_id']
         } for owner in owners]
+        identities = {(owner['owner_type'], owner['owner_id']) for owner in owners}
+        result.extend({'workflowId': workflow_id, 'ownerType': owner['owner_type'], 'ownerId': owner['node_id'],
+                       'generation': 0, 'documentRevision': 0, 'tombstoned': False, 'assetKeys': []}
+                      for owner in legacy if (owner['owner_type'], owner['node_id']) not in identities)
+        return result
 
     @staticmethod
     def _reference_list_digest(asset_keys):
@@ -2220,6 +2242,57 @@ class StorageService:
         identity = json.dumps([workflow_id, owner_type, owner_id], ensure_ascii=False, separators=(',', ':'))
         return f'owner:{hashlib.sha256(identity.encode("utf-8")).hexdigest()}'
 
+    def _release_replaced_legacy_node_references(self, db, identity, cutoff=None):
+        """Retire only the unambiguous alias of a committed formal node owner.
+
+        Old migration/copy code also registered ``workflow:node``. Those rows
+        are not removed by replacing the hashed formal owner. Never use a
+        workflow prefix or an asset key alone: other consumers can share both.
+        """
+        workflow_id, owner_type, owner_id = identity
+        if (owner_type not in {'workflow-node', 'workflow-import'}
+                or workflow_id == 'owner' or ':' in workflow_id or ':' in owner_id):
+            return 0
+        alias = f'{workflow_id}:{owner_id}'
+        rows = db.execute('''SELECT asset_key FROM media_asset_refs
+            WHERE owner_type=? AND owner_id=? AND (? IS NULL OR created_at<=?)''',
+                          (owner_type, alias, cutoff, cutoff)).fetchall()
+        now = int(time.time() * 1000)
+        for row in rows:
+            db.execute('''INSERT OR IGNORE INTO media_gc_candidate_provenance(asset_key, workflow_id, observed_at)
+                SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM media_asset_owner_items
+                    WHERE workflow_id=? AND owner_type=? AND owner_id=? AND asset_key=?)''',
+                       (row['asset_key'], workflow_id, now, *identity, row['asset_key']))
+            db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=? AND asset_key=?',
+                       (owner_type, alias, row['asset_key']))
+        return len(rows)
+
+    def release_deleted_node_legacy_references(self):
+        """Repair old aliases left after an already completed node deletion.
+
+        Tombstones and the current durable manifest establish deletion; an
+        unfinished restore keeps its protection. Physical collection still
+        goes through the existing storage safety and shared-owner checks.
+        """
+        self.initialize()
+        self.assert_storage_writable()
+        with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            owners = db.execute('''SELECT o.workflow_id, o.owner_type, o.owner_id
+                FROM media_asset_owners o
+                WHERE o.tombstoned=1 AND o.owner_type IN ('workflow-node', 'workflow-import')
+                    AND EXISTS (SELECT 1 FROM media_asset_refs r WHERE r.owner_type=o.owner_type
+                        AND r.owner_id=o.workflow_id || ':' || o.owner_id)
+                    AND NOT EXISTS (SELECT 1 FROM media_asset_owner_items i WHERE i.workflow_id=o.workflow_id
+                        AND i.owner_type=o.owner_type AND i.owner_id=o.owner_id)
+                    AND NOT EXISTS (SELECT 1 FROM media_workflow_owner_lists m WHERE m.workflow_id=o.workflow_id
+                        AND m.owner_type=o.owner_type AND m.owner_id=o.owner_id AND m.target_digest<>?)
+                    AND NOT EXISTS (SELECT 1 FROM media_asset_transitions t WHERE t.workflow_id=o.workflow_id
+                        AND t.owner_type=o.owner_type AND t.owner_id=o.owner_id
+                        AND t.status NOT IN ('completed', 'superseded', 'stale', 'cancelled'))''',
+                                (self._reference_list_digest([]),)).fetchall()
+            return sum(self._release_replaced_legacy_node_references(db, tuple(owner)) for owner in owners)
+
     def _finish_promoted_media_transition(self, db, transition):
         identity = (transition['workflow_id'], transition['owner_type'], transition['owner_id'])
         owner = db.execute('''SELECT * FROM media_asset_owners
@@ -2249,6 +2322,7 @@ class StorageService:
             AND asset_key NOT IN (SELECT asset_key FROM media_asset_owner_items
                 WHERE workflow_id=? AND owner_type=? AND owner_id=?)''',
             (identity[1], reference_owner_id, *identity))
+        self._release_replaced_legacy_node_references(db, identity, transition['created_at'])
         transition_owner_id = 'transition:' + hashlib.sha256(transition['idempotency_key'].encode('utf-8')).hexdigest()
         db.execute("DELETE FROM media_asset_refs WHERE owner_type='media-transition' AND owner_id=?",
                    (transition_owner_id,))
@@ -2594,6 +2668,16 @@ class StorageService:
                        (transition_owner_id,))
             db.execute("UPDATE media_asset_transitions SET status='completed' WHERE idempotency_key=?",
                        (idempotency_key,))
+            # A concurrent save may already have promoted a newer owner. In
+            # that case its transition, not this older one, retires the alias.
+            if db.execute('''SELECT 1 FROM media_asset_owners o
+                JOIN media_workflow_revisions w ON w.workflow_id=o.workflow_id
+                WHERE o.workflow_id=? AND o.owner_type=? AND o.owner_id=?
+                    AND o.generation=? AND o.document_revision=?
+                    AND w.document_revision=o.document_revision AND w.storage_epoch=?''',
+                          (workflow_id, owner_type, owner_id, next_generation, document_revision, str(storage_epoch))).fetchone():
+                self._release_replaced_legacy_node_references(
+                    db, (workflow_id, owner_type, owner_id), now)
         return {'status': 'committed', 'generation': next_generation}
 
     def put_media_asset(self, body, mime_type, owner_type, owner_id):
@@ -2814,6 +2898,7 @@ class StorageService:
 
     def cleanup_unreferenced_media_assets(self, max_count=None, older_than_ms=None):
         self.initialize()
+        self.release_deleted_node_legacy_references()
         undo_owners_released = self.release_legacy_undo_media_references()
         with self._connect() as db:
             keys = [row[0] for row in db.execute('''

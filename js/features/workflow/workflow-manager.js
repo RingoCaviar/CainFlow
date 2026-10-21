@@ -110,7 +110,7 @@ export function createWorkflowManagerApi({
     localStorageRef = localStorage
 }) {
     const legacyMediaMigration = createLegacyMediaMigrationCoordinator({
-        getImageAsset, getImageAssetList, putMediaAsset, referenceMediaAsset, removeMediaReference, deleteImageAsset
+        getImageAsset, getImageAssetList, putMediaAsset, removeMediaReference, deleteImageAsset
     });
     const mediaOwnership = createMediaOwnershipCoordinator({
         getStorageSafetyStatus,
@@ -314,6 +314,12 @@ export function createWorkflowManagerApi({
             const data = cloneWorkflowData(tab.data);
             data.workflowId = operation.newWorkflowId;
             data.mediaOwnershipRevision = 0;
+            for (const node of data.nodes || []) {
+                // Temporary writes belong to the source workflow. The copy's
+                // formal owner keeps the shared asset without releasing them.
+                if (node.data) delete node.data.mediaOwnershipTemporaryOwners;
+                delete node.mediaOwnershipTemporaryOwners;
+            }
             for (const run of getPromptAgentResultRuns(data)) {
                 // The copy gains its own durable owner during the normal save.
                 // Its source's pending-operation protection remains source-only.
@@ -329,7 +335,10 @@ export function createWorkflowManagerApi({
                     data
                 })
                 : await saveWorkflowToFile(operation.label, data);
-            if (ok && !await referenceCopiedWorkflowMedia(data, operation.newWorkflowId)) return false;
+            // Internal copies already acquired formal owners in saveWorkflowToFile.
+            // External JSON exports still need their independent retained references.
+            if (ok && typeof operation.persist === 'function'
+                && !await referenceCopiedWorkflowMedia(data, operation.newWorkflowId)) return false;
             const createdTab = operation.registerOpen !== false ? {
                     workflowId: operation.newWorkflowId,
                     name: operation.label,
@@ -598,11 +607,11 @@ export function createWorkflowManagerApi({
                 return returnOutcome ? { ok: false, documentPersisted: false } : false;
             }
             documentPersisted = true;
-            await migration?.commit();
-            migration = null;
             if (!await mediaOwnership.commitPersistentWorkflow(preparedWorkflow)) {
                 throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
             }
+            await migration?.commit();
+            migration = null;
             delete data.mediaOwnershipRestoreOwnerIds;
             pendingLegacyMediaMigrations.delete(migrationKey);
             updateCacheUsage();
