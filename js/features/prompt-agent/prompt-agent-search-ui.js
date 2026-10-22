@@ -2,7 +2,7 @@ import { getAgentSearchCapability, getAgentSearchAvailability, normalizeAgentSea
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
 export function createAgentSearchMenu({ documentRef, getSettings, setSettings, getModels, getProviders = () => [],
-    getCurrentModel = () => null, configure = () => {}, onChange, closeModels = () => {} }) {
+    getCurrentModel = () => null, configure = () => {}, onChange, closeModels = () => {}, refreshSelects = () => {} }) {
     const surfaces = getSurfaceCoordinator(documentRef);
     const button = documentRef.getElementById('prompt-agent-search-button');
     const menu = documentRef.getElementById('prompt-agent-search-menu');
@@ -38,6 +38,7 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
         for (const model of models) add(model.id, `${model.name || model.modelId} · ${getAgentSearchCapability(model) === 'images' ? '网页及搜图' : '网页'}`);
         select.value = settings.modelId;
         select.disabled = settings.mode === 'off';
+        refreshSelects();
         const status = documentRef.getElementById('prompt-agent-search-availability');
         if (status) {
             status.replaceChildren();
@@ -60,7 +61,8 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
     const open = () => {
         closeModels(); render(); menu.hidden = false;
         surfaces?.openPopover('agent-search', { element: menu, trigger: button, close });
-        button.setAttribute('aria-expanded', 'true'); position(); mode.focus();
+        button.setAttribute('aria-expanded', 'true'); position();
+        (mode.nextElementSibling?.matches('.prompt-agent-model-trigger') ? mode.nextElementSibling : mode).focus();
     };
     button.addEventListener('click', () => {
         if (menu.hidden) open(); else close();
@@ -73,13 +75,13 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
     });
     documentRef.addEventListener?.('pointerdown', event => {
         if (!menu.hidden && !menu.contains(event.target) && !button.contains(event.target)
-            && !event.target.closest?.('#prompt-agent-search-model-menu')) close();
+            && !event.target.closest?.('[data-agent-popover-parent="agent-search"]')) close();
     });
     menu.addEventListener('keydown', event => {
         if (event.key === 'Escape') { event.stopPropagation(); closeModels(); close(); button.focus(); }
     });
     menu.addEventListener('focusout', event => {
-        if (event.relatedTarget && !menu.contains(event.relatedTarget) && !event.relatedTarget.closest?.('#prompt-agent-search-model-menu')) close();
+        if (event.relatedTarget && !menu.contains(event.relatedTarget) && !event.relatedTarget.closest?.('[data-agent-popover-parent="agent-search"]')) close();
     });
     documentRef.defaultView?.addEventListener('resize', close);
     render();

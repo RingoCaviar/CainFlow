@@ -1,10 +1,11 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 // Adapt the node select contract (native value + input/change) without node bindings.
-export function createPromptAgentModelMenus({ documentRef, selects }) {
+export function createPromptAgentModelMenus({ documentRef, selects, parent = null, placeholder = '请选择模型' }) {
     const windowRef = documentRef.defaultView;
     const surfaces = getSurfaceCoordinator(documentRef);
     let current = null;
     const cleanups = [];
+    const refreshers = [];
     const close = (restoreFocus = false) => {
         if (!current) return;
         const { trigger, menu } = current;
@@ -27,8 +28,11 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
         menu.style.left = `${Math.max(8, Math.min(rect.left, windowRef.innerWidth - width - 8))}px`;
         menu.style.top = `${up ? Math.max(8, rect.top - menu.getBoundingClientRect().height - 4) : rect.bottom + 4}px`;
     };
-    for (const select of selects.filter(Boolean)) {
-        if (!select.insertAdjacentElement) continue;
+    for (const entry of selects.filter(Boolean)) {
+        const { select, parent: parentId = parent, placeholder: emptyText = placeholder } = 'select' in entry ? entry : { select: entry };
+        if (!select?.insertAdjacentElement) continue;
+        const originalTabIndex = select.getAttribute('tabindex');
+        const originalHidden = select.getAttribute('aria-hidden');
         const trigger = documentRef.createElement('button');
         trigger.type = 'button';
         trigger.className = 'prompt-agent-model-trigger';
@@ -42,7 +46,7 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
         select.insertAdjacentElement('afterend', trigger);
         const sync = () => {
             trigger.disabled = select.disabled;
-            trigger.textContent = select.selectedOptions[0]?.textContent || '请选择模型';
+            trigger.textContent = select.selectedOptions[0]?.textContent || emptyText;
             trigger.title = trigger.textContent;
             if (current?.select === select) close();
         };
@@ -58,6 +62,7 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
             const menu = documentRef.createElement('div');
             menu.id = `${select.id}-menu`;
             menu.className = 'prompt-agent-model-menu';
+            if (parentId) menu.dataset.agentPopoverParent = parentId;
             menu.setAttribute('role', 'listbox');
             menu.setAttribute('aria-label', select.getAttribute('aria-label'));
             for (const option of select.options) {
@@ -85,7 +90,8 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
             documentRef.body.appendChild(menu);
             current = { select, trigger, menu };
             surfaces?.openPopover(menu.id, { element: menu, trigger, close,
-                parent: select.id === 'prompt-agent-search-model' ? 'agent-search' : null });
+                parent: parentId });
+            if (!current) return;
             trigger.setAttribute('aria-expanded', 'true');
             position();
             (menu.querySelector('[aria-selected="true"]:not(:disabled)') || menu.querySelector('button:not(:disabled)'))?.focus();
@@ -94,6 +100,9 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
                 const index = items.indexOf(documentRef.activeElement);
                 if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); }
                 else if (event.key === 'Tab') { close(true); }
+                else if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault(); event.stopPropagation(); items[index]?.click();
+                }
                 else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
                     event.preventDefault();
                     const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
@@ -107,9 +116,16 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); open(); }
         });
         select.addEventListener('change', sync);
+        refreshers.push(sync);
         const observer = new windowRef.MutationObserver(sync);
         observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected', 'value', 'label'] });
-        cleanups.push(() => { observer.disconnect(); select.removeEventListener('change', sync); trigger.remove(); });
+        cleanups.push(() => {
+            observer.disconnect(); select.removeEventListener('change', sync); trigger.remove();
+            select.classList.remove('prompt-agent-model-native');
+            for (const [name, value] of [['tabindex', originalTabIndex], ['aria-hidden', originalHidden]]) {
+                if (value === null) select.removeAttribute(name); else select.setAttribute(name, value);
+            }
+        });
         sync();
     }
     const outside = event => {
@@ -118,6 +134,6 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
     documentRef.addEventListener?.('pointerdown', outside, true);
     windowRef?.addEventListener('resize', position);
     windowRef?.addEventListener('scroll', position, true);
-    return { close, destroy: () => { close(); cleanups.forEach(cleanup => cleanup()); documentRef.removeEventListener?.('pointerdown', outside, true);
+    return { close, refresh: () => refreshers.forEach(sync => sync()), destroy: () => { close(); cleanups.forEach(cleanup => cleanup()); documentRef.removeEventListener?.('pointerdown', outside, true);
         windowRef?.removeEventListener('resize', position); windowRef?.removeEventListener('scroll', position, true); } };
 }

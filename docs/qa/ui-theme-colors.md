@@ -42,3 +42,24 @@ node --test tests/prompt-agent-result-preview-browser.test.mjs tests/fullscreen-
 ## 本轮结果
 
 全量 Node 回归使用 `--test-concurrency=4`：1128 项中 1126 通过、2 项原有可选跳过、0 失败；排除了依赖仓库默认模板内容的 `default-workflow-neutral`，因为本地 `Default.json` 是用户工作数据。最终截图专项 4 项通过，`git diff --check` 通过。本轮未改动本地工作流、未更新版本号、未提交或发布。
+
+## Agent 联网与选择菜单补充（theme-color-audit#002）
+
+原“联网方式”仍使用系统下拉，其展开项没有纳入上一轮自定义模型菜单验证。本轮用真实应用回归先断言该入口使用统一主题菜单；修复前在这一断言失败，修复后覆盖七主题实时切换、640px 视口与 300px Agent 面板、实际点击命中、选项文字 4.5:1 及焦点 3:1。透明菜单按面板叠加画布的实际背景计算。
+
+- 联网方式、模型、命令、节点提及及参考图菜单外壳对齐公共菜单语义色、边框、圆角和阴影；选择按钮统一箭头。
+- `tests/prompt-agent-menu-theme-browser.test.mjs` 验证 End/Enter 选择只产生一次 change、关闭联网禁用专用模型、Esc 逐层关闭并恢复焦点、程序恢复不产生 change、失效模型不回退、销毁时无残留并恢复 select 属性。
+- 既有搜索 fixture 覆盖工作流恢复、clear 保留设置、模型动态删除与恢复；菜单交互 fixture 覆盖方向键、Tab、外部点击、关闭清理和长名称。面板协调、全画布方案、共享预览回归继续运行。
+- 隔离数据和受控模型，不发起付费生成。用户本地 Default.json 不修改，不运行要求它等于仓库模板的测试。
+
+截图可用以下命令重建：
+
+```powershell
+$env:CAINFLOW_QA_SCREENSHOT_DIR = '.scratch/theme-color-audit/agent-menus-after'
+node --test tests/prompt-agent-menu-theme-browser.test.mjs
+Remove-Item Env:CAINFLOW_QA_SCREENSHOT_DIR
+```
+
+代表性截图：[Pink](../../.scratch/theme-color-audit/agent-menus-after/network-pink.png)、[Dark](../../.scratch/theme-color-audit/agent-menus-after/network-dark.png)、[Glass light](../../.scratch/theme-color-audit/agent-menus-after/network-glass-light.png)。本地截图不纳入版本控制。
+
+最终全量 Node 回归：1129 项，1127 通过、2 项原有跳过、0 失败（排除用户 Default 模板一致性测试），日志 `.scratch/theme-color-audit/agent-menus-all-node.log`。最初专项中的退出流程断言曾在并发运行失败，独立重跑及最终全量均通过，未修改退出业务或放宽断言。最终截图专项通过，`git diff --check` 通过；Default.json SHA256 保持 `8C66604BD5937A7F4A9DA03E20CCBCBBB18CED63C511CC1EFD72710DCE1BBACD`。

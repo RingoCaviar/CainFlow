@@ -1642,10 +1642,14 @@ export function createPromptAgentController({
                 } });
             },
             getSettings: conversationStore.getSearchSettings, setSettings: conversationStore.setSearchSettings,
-            onChange: () => { tokenObservation = null; onStateChange(); }, closeModels: () => modelMenus?.close() });
+            onChange: () => { tokenObservation = null; onStateChange(); }, closeModels: () => modelMenus?.close(),
+            refreshSelects: () => modelMenus?.refresh() });
         const searchModel = documentRef.getElementById('prompt-agent-search-model');
         searchModel?.addEventListener('focus', () => searchMenu.render());
-        modelMenus = createPromptAgentModelMenus({ documentRef, selects: [modelSelect, getElements().imageModelSelect, searchModel] });
+        modelMenus = createPromptAgentModelMenus({ documentRef, selects: [modelSelect, getElements().imageModelSelect,
+            { select: searchModel, parent: 'agent-search' },
+            { select: documentRef.getElementById('prompt-agent-search-mode'), parent: 'agent-search', placeholder: '选择联网方式' }
+        ] });
         bindPromptAgentCanvasDismiss({ documentRef, close });
         const { panel } = getElements();
         ensurePanelWidth();

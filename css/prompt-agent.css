@@ -114,18 +114,6 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-panel.is-resizing { user-select: none; }
 .prompt-agent-panel .btn { min-height: 28px; }
 
-.prompt-agent-model-label::after {
-    content: '';
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    width: 6px;
-    height: 6px;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: translateY(-70%) rotate(45deg);
-    pointer-events: none;
-}
 .prompt-agent-model-label:hover { border-color: var(--panel-active-border); background: var(--surface-control-hover); }
 .prompt-agent-model-label:focus-within { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-model-label:has(select:disabled) { opacity: 0.65; }
@@ -361,10 +349,6 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     max-height: min(320px, 40vh);
     overflow: auto;
     padding: 6px;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: var(--panel-bg, var(--bg-drawer));
-    box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.25));
 }
 .prompt-agent-command-option {
     display: grid;
@@ -375,14 +359,14 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     min-width: 0;
     padding: 6px;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 6px;
     background: transparent;
     color: var(--text-primary);
     font: inherit;
     text-align: left;
     cursor: pointer;
 }
-.prompt-agent-command-option:hover { background: var(--surface-control-hover); }
+.prompt-agent-command-option:hover { background: var(--menu-hover-bg, var(--panel-hover-bg)); }
 .prompt-agent-command-option.is-active,
 .prompt-agent-command-option[aria-selected="true"] {
     border-color: var(--text-link);
@@ -437,10 +421,6 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     flex-direction: column;
     max-height: min(360px, 45vh);
     padding: 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: var(--panel-bg, var(--bg-drawer));
-    box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.25));
 }
 .prompt-agent-reference-picker-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 4px; font-size: 13px; font-weight: 600; }
 .prompt-agent-reference-picker-header .btn { padding: 4px 8px; font-size: 12px; }
@@ -453,14 +433,14 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     min-width: 0;
     padding: 4px;
     border: 1px solid var(--border-color);
-    border-radius: 9px;
-    background: var(--surface-control);
+    border-radius: 6px;
+    background: var(--menu-item-surface, var(--panel-control-bg));
     color: var(--text-primary);
     font: inherit;
     text-align: left;
     cursor: pointer;
 }
-.prompt-agent-reference-option:hover { background: var(--surface-control-hover); }
+.prompt-agent-reference-option:hover { background: var(--menu-hover-bg, var(--panel-hover-bg)); }
 .prompt-agent-reference-option.is-selected { border-color: var(--text-link); background: var(--panel-active-bg); }
 .prompt-agent-reference-option:focus-visible,
 .prompt-agent-add-reference:focus-visible { outline: 2px solid var(--text-link); outline-offset: 1px; }
@@ -500,15 +480,19 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 
 /* Agent model menus use the node-select value/change contract and a body-level surface. */
 .prompt-agent-model-native { display: none; }
-.prompt-agent-search-menu { position: fixed; z-index: var(--layer-menu); box-sizing: border-box; padding: 8px; background: var(--surface-panel-strong, var(--panel-bg)); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 6px 24px #0003; overflow: auto; }
+.prompt-agent-search-menu { position: fixed; z-index: var(--layer-menu); box-sizing: border-box; padding: 8px; overflow: auto; }
 .prompt-agent-search-menu[hidden] { display: none; }
-.prompt-agent-search-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions {
+.prompt-agent-search-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions,
+.prompt-agent-command-menu, .prompt-agent-reference-picker {
     /* Composite translucent theme colors over canvas color so underlying text
        cannot bleed through a portaled menu. */
-    background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas);
+    background: linear-gradient(var(--menu-surface, var(--panel-bg-strong)), var(--menu-surface, var(--panel-bg-strong))), var(--bg-canvas);
+    color: var(--menu-text, var(--text-primary)); border: 1px solid var(--menu-border, var(--panel-border-strong)); border-radius: 8px; box-shadow: var(--menu-shadow, var(--panel-shadow-soft));
 }
-.prompt-agent-search-menu > label { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; min-width: 0; }
-.prompt-agent-search-menu select { min-width: 0; flex: 1; background: var(--surface-control); color: var(--text-primary); }
+.prompt-agent-search-menu > label { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 0; font-size: 12px; }
+.prompt-agent-search-menu > .prompt-agent-model-label { padding: 0; border: 0; background: transparent; }
+.prompt-agent-search-menu > .prompt-agent-model-label:focus-within { outline: none; }
+.prompt-agent-search-menu > label > .prompt-agent-model-trigger { border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
 .prompt-agent-search-menu p, .prompt-agent-search-status { font-size: 11px; margin: 4px 0; color: var(--text-secondary); }
 .prompt-agent-search-menu p { overflow-wrap: anywhere; }
 #prompt-agent-search-availability > div { padding: 5px 0; border-top: 1px solid var(--border-color); }
@@ -522,21 +506,22 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-search-image img { width: 100%; height: 90px; object-fit: contain; background: var(--surface-control); }
 .prompt-agent-search-image > a { display: block; max-height: 3em; overflow: auto; }
 .prompt-agent-search-image button { min-height: 28px; padding: 2px 4px; color: var(--text-primary); background: var(--surface-control); border: 1px solid var(--panel-border); border-radius: 4px; cursor: pointer; font-size: 11px; }
-.prompt-agent-model-label:has(.prompt-agent-model-trigger)::after { pointer-events: none; }
 .prompt-agent-model-trigger {
-    flex: 1; min-width: 0; border: 0; padding: 0 16px 0 0;
+    position: relative; flex: 1; min-width: 0; min-height: 28px; border: 0; padding: 4px 22px 4px 4px;
     background: transparent; color: var(--text-primary); text-align: left;
     font: inherit; font-weight: 600; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; cursor: pointer;
+}
+.prompt-agent-model-trigger::after {
+    content: ''; position: absolute; right: 7px; top: 50%; width: 6px; height: 6px;
+    border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+    transform: translateY(-70%) rotate(45deg); pointer-events: none;
 }
 .prompt-agent-model-trigger:disabled { opacity: .6; cursor: not-allowed; }
 .prompt-agent-model-trigger:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-model-menu {
     position: fixed; z-index: calc(var(--layer-menu) + 1); box-sizing: border-box;
     overflow-y: auto; overscroll-behavior: contain; padding: 4px;
-    border: 1px solid var(--border-color); border-radius: 9px;
-    color: var(--text-primary);
-    box-shadow: 0 8px 24px rgba(0,0,0,.25);
 }
 .prompt-agent-model-option {
     display: block; position: relative; width: 100%; min-height: 30px;
@@ -544,7 +529,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     background: transparent; color: inherit; text-align: left; font: inherit;
     font-size: 12px; overflow-wrap: anywhere; cursor: pointer;
 }
-.prompt-agent-model-option:hover, .prompt-agent-model-option:focus-visible { background: var(--surface-control-hover); outline: 1px solid var(--text-link); outline-offset: -1px; }
+.prompt-agent-model-option:hover, .prompt-agent-model-option:focus-visible { background: var(--menu-hover-bg, var(--panel-hover-bg)); outline: 2px solid var(--text-link); outline-offset: -2px; }
 .prompt-agent-model-option[aria-selected="true"] { background: var(--panel-active-bg); color: var(--text-link); }
 .prompt-agent-model-option[aria-selected="true"]::after { content: '✓'; position: absolute; right: 8px; top: 6px; }
 .prompt-agent-model-option:disabled { opacity: .5; cursor: not-allowed; }
@@ -567,9 +552,9 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--panel-input-bg); }
 .prompt-agent-canvas-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
-.prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 8px; margin: 4px 0; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--surface-control); }
+.prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 24px 4px 8px; margin: 4px 0; border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
 .prompt-agent-canvas-actions .btn { padding: 3px 7px; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
-.prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; background: linear-gradient(var(--panel-bg-strong), var(--panel-bg-strong)), var(--bg-canvas); box-shadow: var(--panel-shadow-soft); }
+.prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px;     }
 .prompt-agent-node-mentions button { background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
 .prompt-agent-node-mentions button:is(:hover, :focus-visible, [aria-selected="true"]) { background: var(--panel-active-bg); outline: 2px solid var(--text-link); outline-offset: -2px; }
