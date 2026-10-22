@@ -257,9 +257,7 @@ html[data-app-theme="light"] #btn-theme-toggle {
 
 html[data-app-theme="light"] .btn-run,
 html[data-app-theme="light"] .btn-primary {
-    background: linear-gradient(135deg, #0f766e, #0e7490);
     border-color: rgba(15, 118, 110, 0.4);
-    color: #ffffff;
     box-shadow:
         0 10px 20px rgba(15, 118, 110, 0.22),
         0 2px 6px rgba(15, 23, 42, 0.08);
@@ -267,7 +265,6 @@ html[data-app-theme="light"] .btn-primary {
 
 html[data-app-theme="light"] .btn-run:hover,
 html[data-app-theme="light"] .btn-primary:hover {
-    background: linear-gradient(135deg, #115e59, #0e7490);
     box-shadow:
         0 14px 24px rgba(15, 118, 110, 0.26),
         0 4px 10px rgba(15, 23, 42, 0.1);
@@ -295,9 +292,7 @@ html[data-app-theme="light"] .btn:disabled {
 
 html[data-app-theme="light"] .btn-run:disabled,
 html[data-app-theme="light"] .btn-primary:disabled {
-    background: linear-gradient(135deg, #c7d2fe, #cbd5e1);
     border-color: rgba(148, 163, 184, 0.34);
-    color: rgba(255, 255, 255, 0.94);
     box-shadow: none;
 }
 
@@ -911,17 +906,7 @@ html[data-app-theme="light"] .toast {
     border-color: rgba(148, 163, 184, 0.28);
 }
 
-html[data-app-theme="light"] .update-download-toast__cancel {
-    background: rgba(15, 118, 110, 0.08);
-    border-color: rgba(15, 118, 110, 0.18);
-    color: #0f766e;
-}
 
-html[data-app-theme="light"] .update-download-toast__cancel:hover:not(:disabled) {
-    background: rgba(15, 118, 110, 0.14);
-    border-color: rgba(15, 118, 110, 0.28);
-    color: #115e59;
-}
 
 html[data-app-theme="light"] .preview-nav-btn {
     border-color: var(--border-color);

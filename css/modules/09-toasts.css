@@ -100,10 +100,10 @@
     flex: 0 0 auto;
     min-height: 28px;
     padding: 4px 10px;
-    border: 1px solid rgba(96, 165, 250, 0.32);
+    border: 1px solid var(--text-secondary);
     border-radius: 6px;
-    background: rgba(96, 165, 250, 0.12);
-    color: #bfdbfe;
+    background: var(--panel-control-bg);
+    color: var(--text-primary);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -111,9 +111,9 @@
 }
 
 .update-download-toast__cancel:hover:not(:disabled) {
-    background: rgba(96, 165, 250, 0.2);
-    border-color: rgba(96, 165, 250, 0.48);
-    color: #eff6ff;
+    background: var(--panel-control-hover-bg);
+    border-color: var(--text-link);
+    color: var(--text-primary);
 }
 
 .update-download-toast__cancel:disabled {
@@ -152,3 +152,5 @@
         transform: translateX(20px);
     }
 }
+
+.update-download-toast__cancel:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }

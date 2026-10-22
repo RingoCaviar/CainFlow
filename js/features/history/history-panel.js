@@ -186,7 +186,7 @@ export function createHistoryPanelApi({
         if (!list) return;
 
         if (!items.length) {
-            list.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding: 40px 0; font-size:13px;">暂无历史记录</div>';
+            list.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 40px 0; font-size:13px;">暂无历史记录</div>';
             if (countBadge) countBadge.textContent = '';
             return;
         }
@@ -205,7 +205,7 @@ export function createHistoryPanelApi({
         })).join('');
 
         if (hasMore) {
-            html += `<div style="grid-column: 1/-1; color:var(--text-dim); text-align:center; padding: 20px; font-size:12px;">侧栏仅显示最近 ${SIDEBAR_LIMIT} 条记录，完整历史请使用全屏历史面板查看。</div>`;
+            html += `<div style="grid-column: 1/-1; color:var(--text-secondary); text-align:center; padding: 20px; font-size:12px;">侧栏仅显示最近 ${SIDEBAR_LIMIT} 条记录，完整历史请使用全屏历史面板查看。</div>`;
         }
 
         list.innerHTML = html;

@@ -730,7 +730,7 @@ body.workflow-sidebar-resizing * {
 
 .cache-metric-label {
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     margin-bottom: 6px;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -745,7 +745,7 @@ body.workflow-sidebar-resizing * {
 
 .cache-metric-hint {
     margin-top: 8px;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.5;
 }

@@ -38,7 +38,7 @@
 }
 
 #btn-prompt-agent:focus-visible {
-    outline: 2px solid var(--accent-primary);
+    outline: 2px solid var(--text-link);
     outline-offset: 3px;
 }
 
@@ -110,7 +110,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     cursor: ew-resize;
     touch-action: none;
 }
-.prompt-agent-resize:hover, .prompt-agent-resize:focus-visible, .is-resizing .prompt-agent-resize { background: var(--accent-subtle); outline: none; }
+.prompt-agent-resize:hover, .prompt-agent-resize:focus-visible, .is-resizing .prompt-agent-resize { background: var(--panel-active-bg); outline: none; }
 .prompt-agent-panel.is-resizing { user-select: none; }
 .prompt-agent-panel .btn { min-height: 28px; }
 
@@ -127,7 +127,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     pointer-events: none;
 }
 .prompt-agent-model-label:hover { border-color: var(--panel-active-border); background: var(--surface-control-hover); }
-.prompt-agent-model-label:focus-within { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.prompt-agent-model-label:focus-within { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-model-label:has(select:disabled) { opacity: 0.65; }
 .prompt-agent-model-label select {
     flex: 1;
@@ -160,13 +160,13 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--accent-primary);
+    color: var(--text-link);
     font: inherit;
     font-weight: 600;
     cursor: pointer;
 }
 .prompt-agent-model-hint button:hover { text-decoration: underline; }
-.prompt-agent-model-hint button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; border-radius: 2px; }
+.prompt-agent-model-hint button:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; border-radius: 2px; }
 
 .prompt-agent-transcript {
     position: relative;
@@ -193,7 +193,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 .prompt-agent-scroll-bottom[hidden] { display: none; }
 .prompt-agent-scroll-bottom:hover { background: var(--surface-control-hover); }
-.prompt-agent-scroll-bottom:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.prompt-agent-scroll-bottom:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 
 .prompt-agent-messages {
     min-width: 0;
@@ -222,10 +222,10 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 
 .prompt-agent-message-user {
     margin-left: 4%;
-    background: var(--accent-subtle, rgba(99, 102, 241, 0.12));
+    background: var(--panel-active-bg);
 }
 
-.prompt-agent-message-agent { margin-right: 0; background: var(--bg-elevated, var(--bg-dark)); }
+.prompt-agent-message-agent { margin-right: 0; background: var(--panel-bg-soft); }
 .prompt-agent-work-summary { margin-bottom: 4px; color: var(--text-secondary); font-size: 12px; }
 .prompt-agent-work-summary summary { cursor: pointer; user-select: none; }
 .prompt-agent-work-summary ol { margin: 4px 0 0; padding-left: 20px; }
@@ -262,7 +262,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 
 .prompt-agent-result-image:focus-visible {
-    outline: 2px solid var(--accent-color, #7c6ef5);
+    outline: 2px solid var(--text-link);
     outline-offset: 3px;
 }
 
@@ -275,7 +275,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 
 .prompt-agent-composer { display: flex; align-items: center; padding: 6px; gap: 4px; position: relative; flex: none; flex-wrap: wrap; border-top: 1px solid var(--border-color); border-bottom: 0; }
-.prompt-agent-composer.is-dragging-reference { outline: 2px solid var(--accent-color, var(--accent-purple)); outline-offset: -4px; }
+.prompt-agent-composer.is-dragging-reference { outline: 2px solid var(--text-link); outline-offset: -4px; }
 .prompt-agent-references,
 .prompt-agent-message-references {
     display: flex;
@@ -385,10 +385,10 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-command-option:hover { background: var(--surface-control-hover); }
 .prompt-agent-command-option.is-active,
 .prompt-agent-command-option[aria-selected="true"] {
-    border-color: var(--accent-primary);
-    background: var(--accent-subtle, var(--surface-control-hover));
+    border-color: var(--text-link);
+    background: var(--panel-active-bg);
 }
-.prompt-agent-command-option:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.prompt-agent-command-option:focus-visible { outline: 2px solid var(--text-link); outline-offset: -2px; }
 .prompt-agent-command-option:disabled { opacity: 0.6; cursor: not-allowed; }
 .prompt-agent-command-name { font-size: 13px; font-weight: 650; font-family: var(--font-mono, monospace); }
 .prompt-agent-command-title { min-width: 0; font-size: 13px; font-weight: 600; }
@@ -461,9 +461,9 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     cursor: pointer;
 }
 .prompt-agent-reference-option:hover { background: var(--surface-control-hover); }
-.prompt-agent-reference-option.is-selected { border-color: var(--accent-primary); background: var(--accent-subtle, var(--surface-control-hover)); }
+.prompt-agent-reference-option.is-selected { border-color: var(--text-link); background: var(--panel-active-bg); }
 .prompt-agent-reference-option:focus-visible,
-.prompt-agent-add-reference:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.prompt-agent-add-reference:focus-visible { outline: 2px solid var(--text-link); outline-offset: 1px; }
 .prompt-agent-reference-option-preview {
     position: relative;
     display: grid;
@@ -478,7 +478,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 .prompt-agent-reference-option-preview img { width: 100%; height: 100%; object-fit: cover; }
 .prompt-agent-reference-check { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--panel-bg, var(--bg-drawer)); font-size: 12px; }
-.prompt-agent-reference-option.is-selected .prompt-agent-reference-check { border-color: var(--accent-primary); color: var(--accent-primary); }
+.prompt-agent-reference-option.is-selected .prompt-agent-reference-check { border-color: var(--text-link); color: var(--text-link); }
 .prompt-agent-reference-option-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.5; }
 .prompt-agent-composer textarea {
     flex: 1;
@@ -502,7 +502,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-model-native { display: none; }
 .prompt-agent-search-menu { position: fixed; z-index: var(--layer-menu); box-sizing: border-box; padding: 8px; background: var(--surface-panel-strong, var(--panel-bg)); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 6px 24px #0003; overflow: auto; }
 .prompt-agent-search-menu[hidden] { display: none; }
-.prompt-agent-search-menu, .prompt-agent-model-menu {
+.prompt-agent-search-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions {
     /* Composite translucent theme colors over canvas color so underlying text
        cannot bleed through a portaled menu. */
     background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas);
@@ -515,7 +515,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 #prompt-agent-search-availability .btn { min-height: 28px; padding: 3px 6px; font-size: 12px; }
 #prompt-agent-search-button { min-height: 28px; padding: 2px 4px; flex: none; font-size: 11px; }
 .prompt-agent-search-results { min-width: 0; margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
-.prompt-agent-search-results a, .prompt-agent-message-body a { color: var(--accent-primary); text-decoration: underline; }
+.prompt-agent-search-results a, .prompt-agent-message-body a { color: var(--text-link); text-decoration: underline; }
 .prompt-agent-search-results iframe { border: 0; width: 100%; max-height: 100px; }
 .prompt-agent-search-images { display: grid; grid-template-columns: repeat(auto-fill,minmax(112px,1fr)); gap: 4px; }
 .prompt-agent-search-image { min-width: 0; padding: 4px; border: 1px solid var(--panel-border); border-radius: 6px; }
@@ -530,7 +530,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     text-overflow: ellipsis; cursor: pointer;
 }
 .prompt-agent-model-trigger:disabled { opacity: .6; cursor: not-allowed; }
-.prompt-agent-model-trigger:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.prompt-agent-model-trigger:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-model-menu {
     position: fixed; z-index: calc(var(--layer-menu) + 1); box-sizing: border-box;
     overflow-y: auto; overscroll-behavior: contain; padding: 4px;
@@ -544,8 +544,8 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     background: transparent; color: inherit; text-align: left; font: inherit;
     font-size: 12px; overflow-wrap: anywhere; cursor: pointer;
 }
-.prompt-agent-model-option:hover, .prompt-agent-model-option:focus-visible { background: var(--surface-control-hover); outline: 1px solid var(--accent-primary); outline-offset: -1px; }
-.prompt-agent-model-option[aria-selected="true"] { background: var(--accent-subtle); color: var(--accent-primary); }
+.prompt-agent-model-option:hover, .prompt-agent-model-option:focus-visible { background: var(--surface-control-hover); outline: 1px solid var(--text-link); outline-offset: -1px; }
+.prompt-agent-model-option[aria-selected="true"] { background: var(--panel-active-bg); color: var(--text-link); }
 .prompt-agent-model-option[aria-selected="true"]::after { content: '✓'; position: absolute; right: 8px; top: 6px; }
 .prompt-agent-model-option:disabled { opacity: .5; cursor: not-allowed; }
 
@@ -555,7 +555,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     border: 1px solid var(--border-color); border-radius: 5px; padding: 4px 6px;
     color: var(--text-primary); background: var(--surface-control); cursor: pointer; font-size: 11px; min-height: 28px;
 }
-.prompt-agent-reference-tools [aria-selected="true"] { background: var(--accent-subtle); border-color: var(--accent-primary); }
+.prompt-agent-reference-tools [aria-selected="true"] { background: var(--panel-active-bg); border-color: var(--text-link); }
 .prompt-agent-reference-cell { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .prompt-agent-reference-cell > .prompt-agent-reference-option { width: 100%; }
 #prompt-agent-picker-selected { max-height: 78px; flex: none; padding: 0; }
@@ -564,12 +564,12 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 6px; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan ol, .prompt-agent-canvas-plan ul { padding-left: 18px; margin: 6px 0; }
 .prompt-agent-canvas-plan li { margin: 4px 0; }
-.prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--bg-secondary); }
+.prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--panel-input-bg); }
 .prompt-agent-canvas-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
 .prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 8px; margin: 4px 0; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--surface-control); }
 .prompt-agent-canvas-actions .btn { padding: 3px 7px; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
-.prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); box-shadow: 0 8px 24px #0003; }
-.prompt-agent-node-mentions button { display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
-.prompt-agent-node-mentions button[aria-selected="true"] { outline: 2px solid var(--accent-color); }
+.prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; background: linear-gradient(var(--panel-bg-strong), var(--panel-bg-strong)), var(--bg-canvas); box-shadow: var(--panel-shadow-soft); }
+.prompt-agent-node-mentions button { background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
+.prompt-agent-node-mentions button:is(:hover, :focus-visible, [aria-selected="true"]) { background: var(--panel-active-bg); outline: 2px solid var(--text-link); outline-offset: -2px; }

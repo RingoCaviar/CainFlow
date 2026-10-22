@@ -1,3 +1,11 @@
+/* Readable semantic foregrounds for colored text, distinct from filled accents. */
+:root {
+    --text-link: color-mix(in srgb, var(--text-primary) 65%, var(--accent-primary));
+    --text-success: color-mix(in srgb, var(--text-primary) 65%, var(--accent-green));
+    --text-warning: color-mix(in srgb, var(--text-primary) 65%, var(--accent-orange));
+    --text-danger: color-mix(in srgb, var(--text-primary) 65%, var(--accent-red));
+}
+
 /* Shared theme plumbing and theme-switcher UI styles. */
 :root:not([data-app-theme]),
 :root[data-app-theme="dark"],

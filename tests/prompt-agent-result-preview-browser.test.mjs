@@ -3,7 +3,7 @@ import test from 'node:test';
 import { runUiFixture } from './helpers/ui-browser-fixture.mjs';
 
 test('restored Agent result thumbnails fit narrow and wide panels in every theme', async () => {
-    for (const theme of ['light', 'dark', 'pink']) {
+    for (const theme of ['light', 'dark', 'pink', 'paper', 'pro', 'glass-light', 'glass-dark']) {
         for (const width of [300, 612]) {
             const result = await runUiFixture(`tests/fixtures/prompt-agent-result-preview.html?theme=${theme}&width=${width}`);
             assert.equal(result.error, undefined);

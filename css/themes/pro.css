@@ -222,18 +222,12 @@ html[data-app-theme="pro"] .btn-ghost:hover {
 
 html[data-app-theme="pro"] .btn-run,
 html[data-app-theme="pro"] .btn-primary {
-    background: linear-gradient(135deg, #4b6bff, #3f8cff);
     border-color: rgba(120, 144, 255, 0.34);
-    color: #f8fbff;
     box-shadow:
         0 12px 24px rgba(63, 140, 255, 0.18),
         0 2px 8px rgba(3, 7, 18, 0.18);
 }
 
-html[data-app-theme="pro"] .btn-run:hover,
-html[data-app-theme="pro"] .btn-primary:hover {
-    background: linear-gradient(135deg, #6482ff, #54a0ff);
-}
 
 html[data-app-theme="pro"] #btn-theme-toggle {
     background: linear-gradient(180deg, rgba(31, 40, 58, 0.98), rgba(22, 28, 42, 0.98));

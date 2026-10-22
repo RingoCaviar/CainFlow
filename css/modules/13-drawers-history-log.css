@@ -166,7 +166,7 @@
 .statistics-empty {
     padding: 34px 12px;
     text-align: center;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     border: 1px dashed rgba(255, 255, 255, 0.12);
     border-radius: var(--radius-sm);
     font-size: 13px;
@@ -179,7 +179,7 @@
 .statistics-updated-note {
     margin-top: auto;
     padding-top: 8px;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -755,7 +755,7 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
 .log-empty {
     padding: 40px;
     text-align: center;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     font-size: 13px;
 }
 

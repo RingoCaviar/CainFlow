@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="dark">
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../index.css">
+<link rel="stylesheet" href="../../css/prompt-agent.css">
+<link rel="stylesheet" href="../../css/protocol-developer-panel.css">
+<style>*,*::before,*::after { transition: none !important; animation: none !important; }</style>
+<button class="btn btn-run">运行</button>
+<button class="btn btn-primary" id="prompt-agent-send">发送</button>
+<pre id="surface-result"></pre>
+<script>
+const results=[];
+for(const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
+    document.documentElement.dataset.appTheme=theme;
+    for(const button of document.querySelectorAll('button')) {
+        const s=getComputedStyle(button);
+        results.push({theme,color:s.color,background:s.backgroundColor,image:s.backgroundImage});
+    }
+}
+document.getElementById('surface-result').textContent=JSON.stringify(results);
+</script>
+</html>

@@ -183,9 +183,6 @@ html[data-app-theme="paper"] .btn-ghost:hover {
     color: #252823;
     box-shadow: none;
 }
-
-html[data-app-theme="paper"] .btn-run,
-html[data-app-theme="paper"] .btn-primary,
 html[data-app-theme="paper"] .btn-accent {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
@@ -193,12 +190,23 @@ html[data-app-theme="paper"] .btn-accent {
     box-shadow: none;
 }
 
-html[data-app-theme="paper"] .btn-run:hover,
-html[data-app-theme="paper"] .btn-primary:hover,
+
+html[data-app-theme="paper"] .btn-run,
+html[data-app-theme="paper"] .btn-primary {
+    border-color: var(--accent-primary);
+    box-shadow: none;
+}
 html[data-app-theme="paper"] .btn-accent:hover {
     background: #41675b;
     border-color: #41675b;
     color: #ffffff;
+    box-shadow: none;
+}
+
+
+html[data-app-theme="paper"] .btn-run:hover,
+html[data-app-theme="paper"] .btn-primary:hover {
+    border-color: #41675b;
     box-shadow: none;
 }
 html[data-app-theme="paper"] .history-card,

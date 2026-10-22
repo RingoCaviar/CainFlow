@@ -184,3 +184,18 @@
         box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
     }
 }
+
+/* Filled action colors have one owner. Themes supply the palette and retain
+   their existing borders/shadows; readable fills are shared with settings. */
+html:root :is(.btn-primary, .btn-run) {
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+}
+html:root :is(.btn-primary, .btn-run):hover:not(:disabled) {
+    background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
+    color: var(--panel-primary-action-text);
+}
+html:root :is(.btn-primary, .btn-run):focus-visible {
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+}

@@ -2161,7 +2161,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         } catch (error) {
             console.error('更新预览失败:', error);
-            previewContainer.innerHTML = `<pre style="color: var(--danger-color);">// 生成预览失败\n// ${error.message}</pre>`;
+            previewContainer.innerHTML = `<pre style="color: var(--text-danger);">// 生成预览失败\n// ${error.message}</pre>`;
         }
     }
 
@@ -2252,7 +2252,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             `<div style="margin-top: 4px;">结构化字段：${escapeHtmlForPreview(known)}</div>`,
             `<div style="margin-top: 4px;">继承规则：对象递归合并，数组整体替换，null 清除</div>`,
             unknownNames.length
-                ? `<div style="margin-top: 4px; color: var(--warning-color, #d97706);">未知字段（只读保留）：${escapeHtmlForPreview(unknownNames.join('、'))}</div>`
+                ? `<div style="margin-top: 4px; color: var(--text-warning);">未知字段（只读保留）：${escapeHtmlForPreview(unknownNames.join('、'))}</div>`
                 : '<div style="margin-top: 4px;">未知字段：无</div>'
         ].join('');
     }
@@ -2277,7 +2277,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
                 renderProtocolList();
             } catch (error) {
                 console.error('加载协议失败:', error);
-                listContainer.innerHTML = '<div style="text-align:center;padding:40px;color:var(--danger-color);">❌ 加载协议失败，请刷新页面重试</div>';
+                listContainer.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-danger);">❌ 加载协议失败，请刷新页面重试</div>';
                 showToast('加载协议失败', 'error');
             }
         } else {

@@ -361,19 +361,12 @@ html[data-app-theme="glass-light"] .copy-btn:hover {
 
 html[data-app-theme="glass-light"] .btn-run,
 html[data-app-theme="glass-light"] .btn-primary {
-    background: linear-gradient(135deg, #0e7490, #0284c7);
     border-color: rgba(14, 116, 144, 0.28);
-    color: #ffffff;
     box-shadow:
         0 14px 28px rgba(14, 116, 144, 0.22),
         inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-html[data-app-theme="glass-light"] .btn-run:hover,
-html[data-app-theme="glass-light"] .btn-primary:hover {
-    background: linear-gradient(135deg, #38bdf8, #3b82f6);
-    color: #ffffff;
-}
 
 html[data-app-theme="glass-light"] .btn-stop {
     background: linear-gradient(180deg, rgba(255, 241, 242, 0.86), rgba(255, 255, 255, 0.46));
@@ -565,8 +558,7 @@ html[data-app-theme="glass-light"] .update-download-status {
     color: var(--text-secondary);
 }
 
-html[data-app-theme="glass-light"] .update-download-status.info,
-html[data-app-theme="glass-light"] .update-download-toast__cancel {
+html[data-app-theme="glass-light"] .update-download-status.info {
     background: rgba(14, 116, 144, 0.08);
     border-color: rgba(14, 116, 144, 0.18);
     color: #0e7490;
@@ -777,16 +769,9 @@ html[data-app-theme="glass-light"] .copy-btn {
 
 html[data-app-theme="glass-light"] .btn-run,
 html[data-app-theme="glass-light"] .btn-primary {
-    background: linear-gradient(135deg, #0e7490, #0284c7);
     border-color: rgba(14, 116, 144, 0.28);
-    color: #ffffff;
 }
 
-html[data-app-theme="glass-light"] .btn-run:hover,
-html[data-app-theme="glass-light"] .btn-primary:hover {
-    background: linear-gradient(135deg, #38bdf8, #3b82f6);
-    color: #ffffff;
-}
 
 html[data-app-theme="glass-light"] .btn-stop {
     background: rgba(244, 63, 94, 0.12);
