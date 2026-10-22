@@ -300,6 +300,11 @@ def _shutdown_storage():
         _storage_recovery_thread.join(timeout=2)
         if _storage_recovery_thread.is_alive():
             return
+    try:
+        storage_service.recover_undo_sessions(ending=True)
+        storage_service.compact_database(background=True)
+    except Exception:
+        print('Undo cache cleanup deferred until next startup.')
     storage_service.mark_clean_shutdown()
 
 

@@ -2473,7 +2473,7 @@ export function createWorkflowManagerApi({
     }
 
     async function applyWorkflowData(data, options = {}) {
-        if (state.canvasPlanApplying) throw new Error('画布方案正在保存，请稍后切换工作流');
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) throw new Error('画布方案正在保存，请稍后切换工作流');
         const { saveSession = true, signal = null, isCurrent = () => true, restoreMode = false } = options;
         const preparedView = options.preparedView || await prepareWorkflowView(data, { signal, isCurrent });
         if (!preparedView) return false;
@@ -2535,7 +2535,7 @@ export function createWorkflowManagerApi({
     }
 
     async function openWorkflow(name, { reloadFromFile = false } = {}) {
-        if (state.canvasPlanApplying) return false;
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) return false;
         return workflowTargetActivator.activate(name, { reloadFromFile });
     }
 

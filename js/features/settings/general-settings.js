@@ -894,6 +894,11 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 if (importMediaEl) importMediaEl.textContent = formatReference('workflow-import');
                 if (allWorkflowsEl) allWorkflowsEl.textContent = formatPhysical('workflows');
                 if (undoMediaEl) undoMediaEl.textContent = formatPhysical('undo');
+                const undoPending = documentRef.getElementById('usage-undo-pending');
+                if (undoPending) {
+                    undoPending.textContent = stats.undoSession?.pendingCount ? `已释放引用 · ${stats.undoSession.pendingCount} 项待清理` : '无待清理';
+                    undoPending.title = stats.undoSession?.pendingReasons?.includes('cleanup-failed-retry') ? '文件删除失败，将在后续维护或启动时重试' : '仍须通过完整性及安全回收检查，释放引用不等于文件已删除';
+                }
                 if (undoMediaRow) undoMediaRow.style.display = Number(physical.undo?.assets || 0) > 0 ? '' : 'none';
                 if (unreferencedMediaEl) unreferencedMediaEl.textContent = formatPhysical('unreferenced');
                 if (otherMediaEl) otherMediaEl.textContent = formatPhysical('other');

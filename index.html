@@ -957,7 +957,7 @@
                     已登记媒体占用（去重估算）</div>
                 <div id="cache-size-display" class="cache-metric-value">
                     0.00 MB</div>
-                <div class="cache-metric-hint">总量包含工作流、历史记录和待回收媒体。撤销快照不保留图片文件；删除节点后，已保存的工作流仍引用的图片会保留到工作流更新。清理仅回收无引用文件。</div>
+                <div class="cache-metric-hint">总量包含工作流、历史记录和待回收媒体。有效撤销／重做记录会保护图片，记录移除或退出后释放；其他工作流及 Agent 历史仍使用的图片保留。清理仅回收无引用文件。</div>
             </div>
 
             <div class="cache-breakdown">
@@ -977,8 +977,12 @@
                     <div id="usage-all-workflows" class="cache-item-value">0 项 · 0.00 MB</div>
                 </div>
                 <div class="cache-item" id="usage-undo-row" style="display: none">
-                    <div class="cache-item-label">旧版撤销引用（待释放）</div>
+                    <div class="cache-item-label">撤销／重做保护（退出释放）</div>
                     <div id="usage-undo-media" class="cache-item-value">0 项 · 0.00 MB</div>
+                </div>
+                <div class="cache-item">
+                    <div class="cache-item-label">撤销缓存释放状态</div>
+                    <div id="usage-undo-pending" class="cache-item-value">无待清理</div>
                 </div>
                 <div class="cache-item">
                     <div class="cache-item-label">🕰 历史记录</div>

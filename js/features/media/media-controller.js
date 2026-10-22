@@ -82,6 +82,7 @@ import { saveGeneratedMediaToDirectory } from './generated-media-directory-save.
 
 export function createMediaControllerApi({
     state,
+    pushHistory = () => {},
     getNodeById,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
@@ -1900,6 +1901,8 @@ export function createMediaControllerApi({
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (!modeInput) return;
+                const previous = getNodeById(id);
+                if (previous?.imageImportAssetKey || previous?.data?.mediaAssetKeys?.length) pushHistory();
                 modeInput.value = btn.dataset.mode || 'upload';
                 urlPreviewScheduler.cancel();
                 const node = getNodeById(id);
@@ -2019,6 +2022,8 @@ export function createMediaControllerApi({
                 addLog('info', '图片自动缩小', `原始分辨率 ${result.originalRes} -> 目标分辨率 ${result.newRes}`);
             }
 
+            if (getNodeById(nodeId) !== node || isNodeRunning(nodeId)) return;
+            if (node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length) pushHistory();
             node.importMode = 'upload';
             node.imageUrl = '';
             node.imageData = data;
@@ -2036,7 +2041,7 @@ export function createMediaControllerApi({
             return false;
         }
         if (!node || node.type !== 'ImageImport' || !isInlineImageData(imageData)) return false;
-
+        if (node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length) pushHistory();
         node.importMode = 'upload';
         node.imageUrl = '';
         node.imageData = imageData;
@@ -2054,6 +2059,7 @@ export function createMediaControllerApi({
         if (!node) return;
 
         const imageUrl = String(rawUrl || '').trim();
+        if (node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length) pushHistory();
         if (!imageUrl) {
             node.importMode = 'url';
             node.imageUrl = '';

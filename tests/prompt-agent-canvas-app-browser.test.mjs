@@ -59,13 +59,18 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===0");
         assert.ok(await evaluate("Boolean(document.querySelector('.prompt-agent-result-image'))"));
         await waitFor("!document.getElementById('btn-redo').disabled");
+        assert.ok(await evaluate("fetch('/api/storage/maintenance').then(r=>r.json()).then(s=>s.undoSession.protectedCount>0)"), 'redo protects its original media');
+        await evaluate("fetch('/api/storage/maintenance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear-assets',mode:'node-orphans'})}).then(r=>r.json())");
         await evaluate("document.getElementById('btn-redo').click()");
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===3");
+        await waitFor("!document.getElementById('btn-undo').disabled");
         assert.equal(await evaluate('window.agentRequests.length'), 2);
         await send('Page.reload'); await delay(1500);
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
+        await evaluate("window.testExitCount=0; window.pywebview={api:{finish_close:async()=>{window.testExitCount++}}}; window.confirm=message=>{window.testExitError=message;return false}; window.cainflowPrepareExit()");
+        assert.equal(await evaluate('window.testExitCount'), 1, await evaluate('window.testExitError || \"desktop exit persisted\"'));
     });
 });
 

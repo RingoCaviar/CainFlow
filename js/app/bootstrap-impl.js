@@ -56,6 +56,8 @@ import { prepareGenerationSaveTargets } from '../features/execution/generation-s
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
 import { flushSessionToDisk } from '../features/persistence/flush-session-to-disk.js';
 import { installSessionPersistenceOnExit } from '../features/persistence/session-persistence-lifecycle.js';
+import { createBrowserUndoMediaProtection } from '../features/persistence/undo-media-protection.js';
+import { createDesktopExit } from '../features/persistence/desktop-exit.js';
 import { createClipboardControllerApi } from '../features/ui/clipboard-controller.js';
 import { createGlobalInteractionsApi } from '../features/ui/global-interactions.js';
 import { createContextMenuControllerApi } from '../features/ui/context-menu-controller.js';
@@ -551,6 +553,7 @@ const helpPanelApi = createHelpPanelApi({
 const settingsModal = document.getElementById('settings-modal');
 let handleMissingMediaAction = async () => {};
 const mediaControllerApi = createMediaControllerApi({
+    pushHistory,
     state,
     getNodeById: (nodeId) => state.nodes.get(nodeId),
     getImageAsset,
@@ -1080,6 +1083,7 @@ function getSessionManagerApi() {
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
             removeMediaReference,
             mediaAssetExists,
+            undoMedia: createBrowserUndoMediaProtection(error => showToast(error.message, 'error')),
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,
@@ -1990,6 +1994,28 @@ function copyToClipboard(text) {
 getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
 installSessionPersistenceOnExit({ flushSession: () => getSessionManagerApi().flushSave() });
+window.cainflowPrepareExit = createDesktopExit({
+    setBlocked: blocked => { document.body.inert = blocked; },
+    settle: async () => {
+        if (state.canvasPlanApplying || state.isRunStarting) throw new Error('画布正在提交或启动，请稍后重新关闭');
+        promptAgentController.cancelRequest({ silent: true });
+        await getSessionManagerApi().waitForHistoryTransitions();
+        await getWorkflowRuntimeManagerApi().settleForExit();
+        await mediaControllerApi.waitForPendingImageImports();
+        await getExecutionCoreApi().waitForPendingImageAssetSaves();
+    },
+    save: async () => {
+        const result = await workflowManagerApi.saveAllOpenWorkflows();
+        if (result.results.some(item => item.status !== 'committed')) throw new Error('部分工作流保存失败，请重试关闭');
+        await flushSessionToDisk(getSessionManagerApi(), diskStorage);
+        await diskStorage.flushPromise;
+        if (diskStorage.lastError) throw diskStorage.lastError;
+    },
+    release: () => getSessionManagerApi().endUndoSession(),
+    finish: () => window.pywebview.api.finish_close(),
+    report: error => showToast(`退出收尾失败：${error.message}`, 'error', 8000),
+    confirmDiscard: error => !state.canvasPlanApplying && !state.isRunStarting && confirm(`${error.message}\n取消可返回软件重试。确定将放弃未保存修改并退出，已保存数据保留。`)
+});
 renderProjectionManager.init();
 interactionPerformanceGuard.init();
 const startupPromise = getStartupControllerApi().initStartup();

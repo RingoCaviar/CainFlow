@@ -73,7 +73,7 @@ def handle_get(handler):
     if path == '/api/storage/maintenance':
         query = parse_qs(parsed.query)
         workflow_id = (query.get('workflowId') or [''])[0]
-        write_json(handler, storage_service.get_stats(workflow_id))
+        write_json(handler, {**storage_service.get_stats(workflow_id), 'undoSession': storage_service.undo_media_status()})
         return True
     if path == '/api/storage/safety-status':
         write_json(handler, {'safety': storage_service.get_storage_safety_status()})
@@ -152,6 +152,9 @@ def handle_post(handler):
         return True
     try:
         storage_service.assert_storage_writable()
+        if path == '/api/storage/undo-session':
+            write_json(handler, storage_service.undo_media_request(read_json_body(handler)))
+            return True
         if path == '/api/storage/history':
             history_id = storage_service.save_history(read_json_body(handler))
             write_json(handler, {'success': True, 'id': history_id})

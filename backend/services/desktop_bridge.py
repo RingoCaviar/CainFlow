@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import webbrowser
 from urllib.parse import urlparse
 
@@ -17,11 +18,32 @@ class DesktopBridge:
         self._app_version = app_version
         self._webview = webview_module
         self._window = None
+        self._close_allowed = False
         self._taskbar_service = taskbar_service or WindowsTaskbarService()
 
     def attach_window(self, window):
         self._window = window
         self._taskbar_service.attach_window(window)
+        closing = getattr(getattr(window, 'events', None), 'closing', None)
+        if hasattr(type(closing), '__iadd__'):
+            window.events.closing += self._request_close
+
+    def _request_close(self):
+        if self._close_allowed:
+            return True
+        def prepare():
+            try:
+                self._window.evaluate_js('window.cainflowPrepareExit ? window.cainflowPrepareExit() : window.pywebview.api.finish_close()')
+            except Exception:
+                # A broken renderer must not silently discard unsaved edits.
+                pass
+        threading.Thread(target=prepare, daemon=True).start()
+        return False
+
+    def finish_close(self):
+        self._close_allowed = True
+        self._window.destroy()
+        return True
 
     def set_taskbar_status(self, status):
         return self._taskbar_service.set_status(status)

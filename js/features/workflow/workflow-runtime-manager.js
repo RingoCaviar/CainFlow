@@ -1995,6 +1995,11 @@ export function createWorkflowRuntimeManager({
 
     return {
         abortAllWorkflowRuns,
+        async settleForExit() {
+            const pending = [...workflowRunContexts.values()].map(context => context.promise).filter(Boolean);
+            abortAllWorkflowRuns('软件正在退出');
+            await Promise.allSettled(pending);
+        },
         applyVisibleNodeRunState,
         cancelRunningNode,
         getRunConflictInfo,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSessionManagerApi } from '../js/features/persistence/session-manager.js';
 
-function harness() {
+function harness(options = {}) {
     const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), undoStack: [], redoStack: [], runningNodeIds: new Set(), workflowTabs: [], workflowOrder: [], workflowFolders: [] };
     const element = () => ({ remove() {}, querySelectorAll: () => [] });
     const add = (id, text) => state.nodes.set(id, { id, type: 'Text', text, x: 0, y: 0, data: {}, el: element() });
@@ -12,7 +12,7 @@ function harness() {
         localStorageRef: { setItem() {}, getItem: () => null, length: 0 }, documentRef: { getElementById: () => null },
         getWorkflowSnapshot: () => ({ active: { workflowId: 'w' }, open: [] }), showToast() {},
         addNode: (_type, _x, _y, node) => state.nodes.set(node.id, { ...node, el: element() }),
-        updateAllConnections() {}, updatePortStyles() {}, clearOrphanedNodeAssets: async () => true });
+        updateAllConnections() {}, updatePortStyles() {}, clearOrphanedNodeAssets: async () => true, ...options });
     return { state, manager, add, serialize };
 }
 
@@ -48,4 +48,30 @@ test('batch locks nested operations and running graphs; subsequent manual edit r
     manager.pushHistory(); state.nodes.get('new').text = 'manual';
     await manager.undo(); assert.equal(state.nodes.get('new').text, 'new');
     await manager.undo(); assert.equal(state.nodes.has('new'), false);
+});
+
+test('media protection failure blocks batch mutation and history truncation', async () => {
+    const { state, manager, add } = harness({ undoMedia: { protect() { throw Error('protection offline'); } } });
+    add('old', 'before'); state.redoStack.push('existing');
+    let mutated = false;
+    await assert.rejects(manager.applyCanvasBatch(() => { mutated = true; }, async () => true), /protection/);
+    assert.equal(mutated, false); assert.deepEqual(state.redoStack, ['existing']);
+    assert.equal(state.undoStack.length, 0);
+});
+
+test('undo protects redo before restoring and releases old history only after persistence', async () => {
+    const order = [], protectedIds = new Set();
+    const { manager, add } = harness({ undoMedia: {
+        protect(snapshot) { order.push('protect'); protectedIds.add(snapshot.historyId); },
+        async release(snapshot) { order.push('release'); protectedIds.delete(snapshot.historyId); }
+    }, persistHistoryTransition: async () => { order.push('commit'); return true; } });
+    add('original', 'one'); manager.pushHistory(); add('new', 'two');
+    order.length = 0; await manager.undo();
+    assert.deepEqual(order, ['protect', 'commit', 'release']);
+    assert.equal(protectedIds.size, 1);
+    for (let i = 0; i < 7; i++) manager.pushHistory();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(protectedIds.size, 5);
+    manager.clearUndoStack(); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(protectedIds.size, 0);
 });

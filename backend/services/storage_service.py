@@ -17,6 +17,7 @@ from urllib.parse import quote, unquote_to_bytes
 
 from backend import config
 from backend.services.database_compaction import compact_sqlite_database
+from backend.services.undo_media import UndoMediaMixin
 
 
 SCHEMA_VERSION = 10
@@ -47,7 +48,7 @@ class StorageError(Exception):
     pass
 
 
-class StorageService:
+class StorageService(UndoMediaMixin):
     def __init__(self, database_path=None, assets_dir=None, temp_dir=None, exports_dir=None,
                  fast_check_budget_seconds=FAST_CHECK_BUDGET_SECONDS,
                  transition_fault_injector=None, supported_schema_version=SCHEMA_VERSION):
@@ -66,6 +67,8 @@ class StorageService:
         self._stats_cache = {}
         self._supported_schema_version = int(supported_schema_version)
         self._database_compaction_pending = False
+        self._undo_runtime_id = str(uuid.uuid4())
+        self._undo_closing = False
 
     def initialize(self):
         with self._lock:
@@ -1925,6 +1928,7 @@ class StorageService:
     def run_cache_maintenance(self, now_ms=None):
         """Bound registered-media work, then sweep every unregistered physical file."""
         self.initialize()
+        self.recover_undo_sessions()
         now = int(time.time() * 1000) if now_ms is None else int(now_ms)
         temporary = self.clear_temporary(now_ms=now, managed_only=True, max_count=100)
         operation_owners_released = self.cleanup_superseded_operation_owners(now_ms=now)
@@ -3430,13 +3434,13 @@ class StorageService:
                             WHERE o.asset_key=a.asset_key
                                 AND o.owner_type IN ('workflow-node', 'workflow-import', 'prompt-agent-result'))) AS workflow_owned,
                         EXISTS (SELECT 1 FROM media_asset_refs r
-                            WHERE r.asset_key=a.asset_key AND r.owner_type='workflow-undo') AS undo_owned,
+                            WHERE r.asset_key=a.asset_key AND r.owner_type IN ('workflow-undo', 'session-undo')) AS undo_owned,
                         EXISTS (SELECT 1 FROM media_asset_refs r
                             WHERE r.asset_key=a.asset_key
                                 AND r.owner_type IN ('workflow-operation', 'media-transition')) AS operation_owned,
                         (EXISTS (SELECT 1 FROM media_asset_refs r
                             WHERE r.asset_key=a.asset_key AND r.owner_type NOT IN (
-                                'workflow-node', 'workflow-import', 'prompt-agent-result', 'workflow-undo',
+                                'workflow-node', 'workflow-import', 'prompt-agent-result', 'workflow-undo', 'session-undo',
                                 'workflow-operation', 'media-transition',
                                 'history', 'history-thumbnail'))
                          OR EXISTS (SELECT 1 FROM media_asset_owner_items o
