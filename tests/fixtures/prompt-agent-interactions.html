@@ -50,7 +50,14 @@ try {
         const pr=plus.getBoundingClientRect(), ir=plus.querySelector('svg').getBoundingClientRect();
         check(rect.left>=0 && rect.right<=innerWidth && rect.top>=0 && rect.bottom<=innerHeight && menu.scrollHeight>menu.clientHeight, `${theme}-menu`);
         check(Math.abs((pr.left+pr.right)-(ir.left+ir.right))<1 && Math.abs((pr.top+pr.bottom)-(ir.top+ir.bottom))<1,`${theme}-plus`);
-        check(getComputedStyle(panel).backgroundColor!==getComputedStyle(canvas).backgroundColor,`${theme}-surface`);
+        const paint = document.createElement('canvas').getContext('2d');
+        const panelStyle = getComputedStyle(panel), canvasStyle = getComputedStyle(canvas);
+        paint.fillStyle = canvasStyle.backgroundColor; paint.fillRect(0, 0, 1, 1);
+        const canvasPixel = [...paint.getImageData(0, 0, 1, 1).data].join(',');
+        paint.fillStyle = panelStyle.backgroundColor; paint.fillRect(0, 0, 1, 1);
+        const overlay = panelStyle.backgroundImage.match(/color\([^)]*\)|rgba?\([^)]*\)/)?.[0];
+        if (overlay) { paint.fillStyle = overlay; paint.fillRect(0, 0, 1, 1); }
+        check([...paint.getImageData(0, 0, 1, 1).data].join(',') !== canvasPixel,`${theme}-surface`);
         menu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
     }
     for(const id of ['node','edge','canvas-navigation']) { click(document.getElementById(id)); check(panel.classList.contains('active'),id); }
