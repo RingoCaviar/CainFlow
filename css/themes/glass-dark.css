@@ -1,5 +1,6 @@
 /* Glass Dark theme: quiet blue-black glass surfaces for low-light work. */
 :root[data-app-theme="glass-dark"] {
+    --surface-panel-underlay: transparent;
     --glass-node-opacity: 0.1;
     --glass-node-blur-radius: 6px;
     --glass-node-surface-rgb: 13, 21, 32;

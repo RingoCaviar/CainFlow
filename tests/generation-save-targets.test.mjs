@@ -122,7 +122,7 @@ test('disabled and missing downstream nodes do not block creation, and old disab
     const save = f.state.nodes.get(prepared.includedAutoSaveNodeIds[0]);
     assert.equal(save.enabled, true);
     assert.equal(f.state.nodes.get('disabled').enabled, false);
-    assert.ok(save.y >= 380, 'new save does not cover the disabled downstream node');
+    assert.ok(save.y >= 380 || save.y + 340 <= -40 || save.x >= 600, 'new save does not cover the disabled downstream node');
     assert.equal(f.state.connections.length, 3);
 });
 
@@ -234,4 +234,12 @@ test('automatic-save identity survives real node serialization and restoration',
     assert.equal(f.state.nodes.get(saveId).autoAddedForGeneration, true);
     assert.deepEqual(f.prepare({ mode: 'selected-only', selectedNodeIds: ['generate'] }).includedAutoSaveNodeIds, [saveId]);
     assert.equal(f.saved, 1);
+});
+
+test('automatic save chooses nearby space above a tall obstruction instead of walking far down', () => {
+    const f = fixture();
+    f.state.nodes.set('wall', { id: 'wall', x: 320, y: 0, width: 240, height: 5000 });
+    const result = f.prepare({ mode: 'all' });
+    const save = f.state.nodes.get(result.includedAutoSaveNodeIds[0]);
+    assert.ok(Math.abs(save.y) <= 400, `save too far away: ${save.y}`);
 });

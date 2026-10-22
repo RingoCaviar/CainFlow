@@ -968,7 +968,8 @@ const promptAgentController = createPromptAgentController({
             const panel = document.getElementById('prompt-agent-panel');
             const bounds = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
             return { ...viewportApi.screenToCanvas(rect.left + 24, rect.top + 72),
-                ...(bounds ? { blockedSpan: { x: viewportApi.screenToCanvas(bounds.left - 16, rect.top).x, width: (bounds.width + 32) / state.canvas.zoom } } : {}) };
+                ...(bounds ? { blockedSpan: { ...viewportApi.screenToCanvas(bounds.left - 16, bounds.top - 16),
+                    width: (bounds.width + 32) / state.canvas.zoom, height: (bounds.height + 32) / state.canvas.zoom } } : {}) };
         },
         getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
         cancelNode: cancelRunningNode, focusNode: focusCanvasNode

@@ -58,7 +58,8 @@
     flex-direction: column;
     border: 1px solid var(--border-color);
     border-radius: 14px 14px 0 0;
-    background: color-mix(in srgb, var(--surface-panel-strong, var(--panel-bg)) 94%, var(--text-primary));
+    --agent-panel-surface: color-mix(in srgb, var(--surface-panel-strong, var(--panel-bg)) 94%, var(--text-primary));
+    background: linear-gradient(var(--agent-panel-surface), var(--agent-panel-surface)), var(--surface-panel-underlay, var(--bg-canvas));
     color: var(--text-primary);
     /* The workbench disables selection globally for canvas gestures. Agent
        replies are normal text and must remain selectable for copy/paste. */
@@ -213,7 +214,15 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     background: var(--panel-active-bg);
 }
 
-.prompt-agent-message-agent { margin-right: 0; background: var(--panel-bg-soft); }
+.prompt-agent-message-agent { margin-right: 0; background: transparent; border-color: transparent; border-radius: 0; }
+.prompt-agent-message-body { overflow-wrap: anywhere; }
+.prompt-agent-message-agent .prompt-agent-message-body { white-space: normal; }
+.prompt-agent-message-body p { margin: 0 0 8px; }
+.prompt-agent-message-body p:last-child { margin-bottom: 0; }
+.prompt-agent-message-body ul, .prompt-agent-message-body ol { margin: 6px 0; padding-left: 20px; }
+.prompt-agent-message-body pre { overflow: auto; white-space: pre; padding: 8px; background: var(--panel-bg-soft); border-radius: 6px; }
+.prompt-agent-message-body code { white-space: pre-wrap; font-family: monospace; background: var(--panel-bg-soft); border-radius: 3px; }
+.prompt-agent-message-body pre code { white-space: pre; }
 .prompt-agent-work-summary { margin-bottom: 4px; color: var(--text-secondary); font-size: 12px; }
 .prompt-agent-work-summary summary { cursor: pointer; user-select: none; }
 .prompt-agent-work-summary ol { margin: 4px 0 0; padding-left: 20px; }
@@ -461,7 +470,9 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-reference-option.is-selected .prompt-agent-reference-check { border-color: var(--text-link); color: var(--text-link); }
 .prompt-agent-reference-option-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.5; }
 .prompt-agent-composer textarea {
-    flex: 1;
+    flex: 1 0 100%;
+    order: -1;
+    box-sizing: border-box;
     min-width: 0;
     min-height: 42px;
     max-height: 150px;
@@ -473,6 +484,19 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     color: var(--text-primary);
     font: inherit;
 }
+
+.prompt-agent-composer > .prompt-agent-references,
+.prompt-agent-composer > .prompt-agent-reference-error,
+.prompt-agent-composer > .prompt-agent-command-status { order: -2; }
+#prompt-agent-send, #prompt-agent-cancel { margin-left: auto; }
+.prompt-agent-plan-inputs { margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.prompt-agent-plan-inputs > span { flex-basis: 100%; }
+.prompt-agent-plan-reference { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--panel-bg-soft); color: var(--text-primary); text-align: left; overflow-wrap: anywhere; }
+.prompt-agent-plan-reference img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
+.prompt-agent-step-settings { font-size: 12px; margin-top: 4px; }
+.prompt-agent-step-settings summary { cursor: pointer; color: var(--text-secondary); }
+.prompt-agent-step-prompt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 6px 0; }
+.prompt-agent-canvas-plan > p:empty { display: none; }
 
 @media (max-width: 720px) {
     .prompt-agent-panel { right: 12px; bottom: 0; max-width: calc(100% - 124px); }
@@ -549,10 +573,45 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 6px; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan ol, .prompt-agent-canvas-plan ul { padding-left: 18px; margin: 6px 0; }
 .prompt-agent-canvas-plan li { margin: 4px 0; }
+.prompt-agent-change-list li { white-space: pre-wrap; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--panel-input-bg); }
 .prompt-agent-canvas-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
+.prompt-agent-canvas-plan button[hidden] { display: none; }
 .prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 24px 4px 8px; margin: 4px 0; border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
+
+/* Agent owns flat controls, including popovers portaled outside the panel.
+   Shadows belong to floating surfaces, not individual buttons. */
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker,
+    #prompt-agent-command-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions) button {
+    background-image: none;
+    box-shadow: none;
+    text-shadow: none;
+    filter: none;
+}
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn {
+    background-color: var(--surface-control);
+    border-color: var(--panel-control-border);
+    color: var(--text-primary);
+    transform: none;
+    transition: background-color var(--motion-fast, 150ms), border-color var(--motion-fast, 150ms), color var(--motion-fast, 150ms);
+}
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn:hover:not(:disabled) {
+    background-color: var(--surface-control-hover);
+    border-color: var(--panel-hover-border);
+}
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary {
+    background-color: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+}
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
+    color: var(--panel-primary-action-text);
+}
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) button:focus-visible {
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+}
 .prompt-agent-canvas-actions .btn { padding: 3px 7px; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
 .prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px;     }

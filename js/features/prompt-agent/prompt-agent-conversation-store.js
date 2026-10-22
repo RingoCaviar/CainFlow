@@ -315,6 +315,11 @@ export function createPromptAgentConversationStore() {
     }
 
     return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+        upgradePromptPlan: (index, plan) => {
+            const message = [...archivedMessages, ...messages][index];
+            if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;
+            message.canvasPlan = clone(plan); delete message.promptPlan; return true;
+        },
         updateCanvasPlan: (id, plan) => {
             const message = [...archivedMessages, ...messages].find(item => item.canvasPlan?.id === id);
             if (!message) return false;

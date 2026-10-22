@@ -1,5 +1,6 @@
 import { getAgentSearchCapability, getAgentSearchAvailability, normalizeAgentSearch } from './prompt-agent-search-data.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
+import { renderAgentBody } from './prompt-agent-body.js';
 
 export function createAgentSearchMenu({ documentRef, getSettings, setSettings, getModels, getProviders = () => [],
     getCurrentModel = () => null, configure = () => {}, onChange, closeModels = () => {}, refreshSelects = () => {} }) {
@@ -97,13 +98,7 @@ function link(documentRef, source, label) {
 export function renderAgentSearch({ documentRef, container, body, text, search, isCurrent, readImage, preview, importImage }) {
     const result = normalizeAgentSearch(search);
     if (!result) return;
-    body.textContent = '';
-    for (const part of text.split(/(\[\[source:[^\]]+\]\])/g)) {
-        const id = /^\[\[source:([^\]]+)\]\]$/.exec(part)?.[1];
-        const index = result.sources.findIndex(source => source.id === id);
-        if (index >= 0) body.appendChild(link(documentRef, result.sources[index], `[${index + 1}]`));
-        else { const span = documentRef.createElement('span'); span.textContent = id ? '' : part; body.appendChild(span); }
-    }
+    renderAgentBody({ documentRef, body, text, sources: result.sources });
     const section = documentRef.createElement('section'); section.className = 'prompt-agent-search-results';
     const status = documentRef.createElement('p'); status.className = 'prompt-agent-search-status'; status.setAttribute('aria-live', 'polite');
     status.textContent = [result.searched ? '已联网搜索' : '本轮未确认联网', result.notice].filter(Boolean).join(' · ');

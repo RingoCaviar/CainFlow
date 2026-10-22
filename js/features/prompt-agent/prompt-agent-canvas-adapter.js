@@ -3,6 +3,7 @@ import { assertCanvasPlanCurrent, describeCanvasPlan } from './prompt-agent-canv
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
 import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
+import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.js';
 
 const controlFields = { text: 'text', filename: 'filename', resizeMode: 'resize-mode', scalePercent: 'scale-percent',
     targetWidth: 'target-width', targetHeight: 'target-height', keepAspect: 'keep-aspect', quality: 'quality' };
@@ -93,22 +94,26 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         try {
             const result = await session().applyCanvasBatch(async () => {
                 const start = origin();
-                const occupied = [...state.nodes.values()].map(node => ({ x: node.x, width: node.width || node.el?.offsetWidth || 300 }));
-                if (start.blockedSpan) occupied.push(start.blockedSpan);
-                let x = start.x;
+                const occupied = [...state.nodes.values()].map(node => nodeBounds(node, state.canvas?.zoom || 1));
+                if (start.blockedSpan) occupied.push({ y: start.y, height: 340, ...start.blockedSpan });
                 for (const id of plan.order) {
                     const step = plan.steps.find(item => item.id === id);
                     let nodeId = step.nodeId || bindings[id];
                     if (!nodeId) {
                         const width = getNodeDefinition(step.type).defaultWidth || 300;
-                        while (occupied.some(node => x < node.x + node.width + 40 && x + width + 40 > node.x)) x = Math.max(...occupied.filter(node => x < node.x + node.width + 40 && x + width + 40 > node.x).map(node => node.x + node.width + 80));
+                        const parents = plan.connections.filter(link => link.to.ref === id).map(link =>
+                            state.nodes.get(bindings[link.from.ref] || plan.steps.find(item => item.id === link.from.ref)?.nodeId || link.from.ref)).filter(Boolean);
+                        const anchor = parents.sort((a, b) => b.x - a.x)[0];
+                        const bounds = anchor && nodeBounds(anchor, state.canvas?.zoom || 1);
+                        const position = findNearbyNodePosition({ x: bounds ? bounds.x + bounds.width + 80 : start.x,
+                            y: bounds ? bounds.y : start.y, width, occupied });
                         const config = selected[id];
-                        nodeId = addNode(step.type, x, start.y, { ...step.parameters, customTitle: step.title,
+                        nodeId = addNode(step.type, position.x, position.y, { ...step.parameters, customTitle: step.title,
                             ...(config ? { apiConfigId: config.model.id, providerId: config.provider.id } : {}),
                             ...(step.assetKey ? { mediaAssetKeys: [step.assetKey], imageImportAssetKey: step.assetKey, imageAssetReady: true } : {}),
                             ...(step.autoAddedForGeneration ? { autoAddedForGeneration: true } : {}) }, true);
                         if (!nodeId || !state.nodes.has(nodeId)) throw new Error('节点创建失败');
-                        occupied.push({ x, width }); x += width + 80;
+                        occupied.push(nodeBounds(state.nodes.get(nodeId), state.canvas?.zoom || 1));
                     }
                     if (!state.nodes.has(nodeId)) throw new Error('方案绑定节点已删除，请刷新方案');
                     bindings[id] = nodeId;
@@ -175,6 +180,24 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         finally { activePlan = null; executionConfigs.delete(plan.id); }
     }
     return { context, prepare, describe: plan => describeCanvasPlan(plan, context()), apply, execute, modelsFor, canUndo,
+        readImage: getImageAsset,
+        inputs: plan => {
+            const current = context();
+            const identity = ref => plan.steps.find(step => step.id === ref)?.nodeId || plan.bindings?.[ref] || ref;
+            const links = current.connections.map(link => ({ from: { ref: link.from.nodeId, port: link.from.port }, to: { ref: link.to.nodeId, port: link.to.port } }));
+            for (const item of [...(plan.disconnects || []), ...plan.connections.map(link => link.to)]) {
+                for (let i = links.length - 1; i >= 0; i--) if (links[i].to.ref === identity(item.ref) && links[i].to.port === item.port) links.splice(i, 1);
+            }
+            links.push(...plan.connections.map(link => ({ from: { ...link.from, ref: identity(link.from.ref) }, to: { ...link.to, ref: identity(link.to.ref) } })));
+            return links.filter(link => /^image_\d+$/.test(link.to.port)
+                && plan.steps.some(step => identity(step.id) === link.to.ref && step.type === 'ImageGenerate')).map(link => {
+                const step = plan.steps.find(item => identity(item.id) === link.from.ref);
+                const node = current.nodes.find(item => item.id === link.from.ref);
+                return { name: step?.title || node?.name || link.from.ref,
+                    assetKey: step?.assetKey || node?.assets?.[0], purpose: plan.steps.find(item => identity(item.id) === link.to.ref)?.title,
+                    upstream: Boolean(step && step.type !== 'ImageImport') };
+            });
+        },
         isRunning: id => activePlan?.id === id,
         executionRecord: (plan, id) => {
             const nodeId = plan.bindings[id];

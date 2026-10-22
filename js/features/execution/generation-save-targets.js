@@ -1,3 +1,4 @@
+import { nodeBounds, findNearbyNodePosition } from './node-placement.js';
 /** Prepare automatic save nodes on the editable workflow before its run snapshot. */
 export function getGenerationOutputPort(node) {
     if (node?.type === 'ImageGenerate') return 'image';
@@ -16,21 +17,9 @@ function getEnabledOutputTargets(state, sourceNode) {
 }
 
 function getSavePosition(state, node) {
-    const zoom = Number(state.canvas?.zoom) || 1;
-    const width = Number(node.width) || Number(node.el?.getBoundingClientRect?.().width) / zoom || 240;
-    const x = node.x + width + 80;
-    let y = node.y;
-    // A disabled old save often occupies the natural position. Keep it intact
-    // and place the new enabled save below it instead of covering its controls.
-    let collision;
-    do {
-        collision = [...state.nodes.values()].find((candidate) => (
-            x < candidate.x + (candidate.width || 240) && x + 240 > candidate.x
-            && y < candidate.y + (candidate.height || 340) && y + 340 > candidate.y
-        ));
-        if (collision) y = collision.y + (collision.height || 340) + 40;
-    } while (collision);
-    return { x, y };
+    const zoom = Number(state.canvas?.zoom) || 1, source = nodeBounds(node, zoom);
+    return findNearbyNodePosition({ x: source.x + source.width + 80, y: source.y,
+        occupied: [...state.nodes.values()].map(item => nodeBounds(item, zoom)) });
 }
 
 export function getIncludedAutoSaveNodeIds(state, sourceNodeIds, requestedNodeIds) {

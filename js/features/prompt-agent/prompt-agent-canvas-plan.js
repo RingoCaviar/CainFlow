@@ -1,10 +1,39 @@
 import { getNodeDefinition } from '../../nodes/registry.js';
 import { CANVAS_FIELDS, CANVAS_TYPES, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
+import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-reference-policy.js';
 
 const fail = message => { throw new Error(message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
-export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [] } = {}) {
+export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy } = {}) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !raw.steps.length || raw.steps.length > 30) fail('画布方案必须为 v1，包含 1 至 30 个步骤');
+    if (referencePolicy) {
+        const noImages = excludesReferenceImages(message, referencePolicy.selection);
+        const promptOnly = referencePolicy.selection?.mode === 'prompt-only';
+        const retained = key => Boolean(key && referencePolicy.previousAssetKeys?.includes(key));
+        for (const step of raw.steps.filter(item => item.type === 'ImageImport' && !item.nodeId)) {
+            const image = images.find(item => item.imageId === step.imageId || item.reference.assetKey === step.assetKey);
+            const used = (raw.connections || []).some(link => link.from?.ref === step.id);
+            const explicitImport = typeof step.evidence === 'string' && message.includes(step.evidence)
+                && /导入|import/i.test(step.evidence);
+            if (promptOnly && !retained(step.assetKey || image?.reference.assetKey)) fail('仅改提示词不能增加新的参考素材，请沿用上一版方案输入');
+            if ((!used && !explicitImport) || (!explicitImport && !promptOnly && (noImages || !mayUseCandidate(image, {
+                ...referencePolicy, message, evidence: step.evidence })))) fail('方案包含未确认使用的参考图，请移除多余导入步骤或明确指定素材');
+        }
+        if (noImages && (raw.connections || []).some(link => /^image_\d+$/.test(link.to?.port)
+            && raw.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate'))) fail('纯文字生成方案不能连接参考图，请重新整理方案');
+        for (const link of raw.connections || []) {
+            if (!/^image_\d+$/.test(link.to?.port) || !raw.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate')) continue;
+            if (raw.steps.some(step => step.id === link.from?.ref)) continue;
+            const node = context.nodes.find(node => node.id === link.from?.ref);
+            const image = images.find(item => item.reference.sourceNodeId === node?.id);
+            if (promptOnly && !node?.assets.some(retained)) fail('仅改提示词不能改用其他画布素材');
+            const named = node && (mentionedIds.includes(node.id) || (message.includes(node.name)
+                && context.nodes.filter(item => item.name === node.name).length === 1));
+            if (referencePolicy.intent === 'generate' && !named && !mayUseCandidate(image, { ...referencePolicy, message, evidence: link.evidence })) {
+                fail('请明确指定方案使用的画布参考图，选中节点或旧连线不能自动成为本次输入');
+            }
+        }
+    }
     const ids = new Set();
     const steps = raw.steps.map(step => {
         if (!object(step) || !/^[a-zA-Z][\w-]{0,63}$/.test(step.id) || ['constructor', 'prototype'].includes(step.id) || ids.has(step.id)) fail('步骤身份无效或重复');
@@ -76,6 +105,14 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (!ids.has(item?.ref) || !portType(item.ref, item.port, 'inputs')) fail('只能断开方案内节点的有效输入');
         return { ref: item.ref, port: item.port };
     });
+    // A new generation uses exactly its proposed inputs, never hidden old edges.
+    if (referencePolicy && (referencePolicy.intent === 'generate' || excludesReferenceImages(message, referencePolicy.selection))) {
+        for (const step of steps.filter(step => step.type === 'ImageGenerate' && step.nodeId)) {
+            for (const link of context.connections.filter(link => link.to.nodeId === step.nodeId && /^image_\d+$/.test(link.to.port))) {
+                if (!disconnects.some(item => item.ref === step.id && item.port === link.to.port)) disconnects.push({ ref: step.id, port: link.to.port });
+            }
+        }
+    }
     const order = []; const visiting = new Set(); const visited = new Set();
     const visit = id => {
         if (visiting.has(id)) fail('方案存在循环依赖');
@@ -94,12 +131,18 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
 }
 
 export function describeCanvasPlan(plan, context) {
+    const displayValue = value => value === '' || value == null ? '（空）' : typeof value === 'string' ? value : String(value);
     const label = ref => plan.steps.find(step => step.id === ref)?.title || context.nodes.find(node => node.id === ref)?.name || ref;
     const endpoint = (ref, port) => `${label(ref)} · ${port === 'image' ? '图片' : /^image_\d+$/.test(port) ? `参考图 ${port.split('_')[1]}` : port === 'prompt' ? '提示词' : port}`;
     const lines = plan.steps.flatMap(step => {
         if (!step.nodeId && !plan.bindings?.[step.id]) return [`新增 ${step.title}（${getNodeDefinition(step.type)?.title || step.type}）`];
         const before = context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]))?.parameters || {};
-        return Object.entries(step.parameters).map(([key, value]) => `${step.title} · ${key}：${JSON.stringify(before[key] ?? '')} → ${JSON.stringify(value)}`);
+        return Object.entries(step.parameters).map(([key, value]) => {
+            const previous = displayValue(before[key]), next = displayValue(value);
+            return /[\r\n]/.test(previous + next)
+                ? `${step.title} · ${key}\n修改前：\n${previous}\n修改后：\n${next}`
+                : `${step.title} · ${key}：${previous} → ${next}`;
+        });
     });
     for (const link of plan.connections) {
         const target = plan.steps.find(step => step.id === link.to.ref);
@@ -145,7 +188,7 @@ export function promptPlanToCanvas(prompt, context) {
         const source = context.nodes.find(node => node.id === image.sourceNodeId);
         const key = image.assetKey || image.assetKeys?.[image.sourceImageIndex || 0] || source?.assets?.[image.sourceImageIndex || 0];
         let ref = source?.id;
-        if (key && (image.runId || !source || source.type !== 'ImageImport' || source.assets.length > 1)) {
+        if (key && (image.runId || !source || source.type !== 'ImageImport' || source.assets.length > 1 || source.assets[0] !== key)) {
             ref = `reference_${index + 1}`;
             steps.unshift({ id: ref, type: 'ImageImport', title: image.name || `参考图 ${index + 1}`, parameters: {}, assetKey: key, execute: true });
             if (source && !image.runId) dependencies.push(source.id);

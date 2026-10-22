@@ -1,6 +1,7 @@
 ﻿/* ===== CSS Variables & Reset ===== */
 :root {
     --bg-canvas: #1a1a2e;
+    --surface-panel-underlay: var(--bg-canvas);
     --bg-grid-dot: rgba(255, 255, 255, 0.06);
     /* Canvas dot grid: adjust size and spacing here, or override per theme. */
     --canvas-bg-color: var(--bg-canvas);

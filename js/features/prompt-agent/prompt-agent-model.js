@@ -8,6 +8,7 @@ import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-reference-policy.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -29,7 +30,7 @@ function parseJson(text) {
     }
 }
 
-function normalizeReply(payload, context, images = [], userMessage = '') {
+function normalizeReply(payload, context, images = [], userMessage = '', previousReferences = []) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('模型返回了无效的 Prompt Plan');
     // Accept older flat plans, while giving conversation-only replies an
     // explicit representation rather than forcing invented image requests.
@@ -65,8 +66,17 @@ function normalizeReply(payload, context, images = [], userMessage = '') {
     const evidence = typeof selection?.evidence === 'string' ? selection.evidence.trim() : '';
     const explicitEvidence = evidence && userMessage.includes(evidence);
     const clarify = message => ({ ...reply, intent: 'clarify', message, promptPlan: null });
-    if (selection && !['latest', 'explicit', 'prompt-only'].includes(selection.mode)) throw new Error('无效的编辑目标选择方式');
-    if ((intent === 'edit' || intent === 'refine') && latest.length) {
+    if (selection && !['latest', 'explicit', 'prompt-only', 'none'].includes(selection.mode)) throw new Error('无效的编辑目标选择方式');
+    const noImages = excludesReferenceImages(userMessage, selection);
+    if (noImages) selectedImages = [];
+    else if (selection?.mode === 'prompt-only') {
+        if (!explicitEvidence) return clarify('请确认是否仅调整提示词。');
+        selectedImages = previousReferences.map(image => ({ ...image }));
+    }
+    else if (intent === 'generate') selectedImages = selectedImages.filter(image => mayUseCandidate(
+        images.find(candidate => candidate.imageId === image.imageId), { message: userMessage, selection, intent,
+            evidence: imageRoles.find(item => item.imageId === image.imageId)?.evidence }));
+    if (!noImages && (intent === 'edit' || intent === 'refine') && latest.length) {
         if (selection?.mode === 'explicit') {
             const target = images.find(image => image.imageId === selection.imageId);
             if (!explicitEvidence || !target) return clarify('请明确要修改哪张图片，或确认使用最新生成结果。');
@@ -82,7 +92,7 @@ function normalizeReply(payload, context, images = [], userMessage = '') {
                 ...selectedImages.filter(image => image.role !== 'edit-target' && image.imageId !== target.imageId)];
         }
     }
-    if (intent === 'edit' && !selectedImages.some((item) => item.role === 'edit-target')) {
+    if (!noImages && intent === 'edit' && !selectedImages.some((item) => item.role === 'edit-target')) {
         throw new Error('编辑方案缺少明确的目标图片，请指定要修改的图片');
     }
     return {
@@ -111,6 +121,22 @@ export async function createPromptAgentModelReply({
     const provider = getResolvedProviderForModel(model, providers);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
     const base = { message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model, canvasContext };
+    const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
+    let previousReferences = previousTurn?.promptPlan?.referenceImages || conversation?.previousPromptPlan?.referenceImages || [];
+    const previousCanvas = previousTurn?.canvasPlan;
+    if (previousCanvas) {
+        previousReferences = (previousCanvas.connections || []).filter(link => /^image_\d+$/.test(link.to.port)
+            && previousCanvas.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate')).map(link => {
+            const step = previousCanvas.steps.find(step => step.id === link.from.ref);
+            const nodeId = step?.nodeId || previousCanvas.bindings?.[link.from.ref] || (!step ? link.from.ref : null);
+            const source = canvasContext?.nodes.find(node => node.id === nodeId);
+            const assetKey = step?.assetKey || source?.assets?.[0];
+            return { referenceId: `plan:${previousCanvas.id}:${link.from.ref}`, sourceNodeId: nodeId || undefined,
+                assetKey, name: step?.title || source?.name, role: 'reference' };
+        });
+    }
+    const previousAssetKeys = [...new Set([...previousReferences.flatMap(image => [image.assetKey, ...(image.assetKeys || [])]),
+        ...(previousCanvas?.steps || []).map(step => step.assetKey)].filter(Boolean))];
     const canvasReads = [];
     let search = null;
     let searchUsed = false;
@@ -175,11 +201,11 @@ export async function createPromptAgentModelReply({
         }
         let reply;
         try {
-            if (payload.canvasPlan && ['edit', 'refine'].includes(payload.intent)) {
+            if (payload.canvasPlan && ['edit', 'refine'].includes(payload.intent) && payload.targetSelection?.mode !== 'prompt-only') {
                 // Reuse the established latest-result selection gate before accepting a graph.
                 const targetReply = normalizeReply({ ...payload, canvasPlan: undefined, promptPlan: {
                     prompt: '画布续改目标检查', imageRoles: (payload.canvasPlan.steps || []).filter(step => step.imageId).map(step => ({ imageId: step.imageId, role: 'edit-target' }))
-                } }, null, input.images, message);
+                } }, null, input.images, message, previousReferences);
                 if (targetReply.intent === 'clarify') return targetReply;
                 const selected = targetReply.promptPlan.referenceImages.find(image => image.role === 'edit-target');
                 if (selected && !(payload.canvasPlan.steps || []).some(step => step.imageId === selected.imageId)) {
@@ -188,8 +214,9 @@ export async function createPromptAgentModelReply({
             }
             reply = payload.canvasPlan && canvasContext ? {
                 intent: 'generate', message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
-                canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images })
-            } : normalizeReply(payload, context, input.images, message);
+                canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
+                    referencePolicy: { intent: payload.intent, selection: payload.targetSelection, previousAssetKeys } })
+            } : normalizeReply(payload, context, input.images, message, previousReferences);
         }
         catch (error) {
             if (!search) throw error;

@@ -1,5 +1,6 @@
 /* Glass Light theme: soft translucent light surfaces. */
 :root[data-app-theme="glass-light"] {
+    --surface-panel-underlay: transparent;
     --glass-node-opacity: 0.1;
     --glass-node-blur-radius: 6px;
     --glass-node-surface-rgb: 255, 255, 255;

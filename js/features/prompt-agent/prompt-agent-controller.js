@@ -9,6 +9,7 @@ import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
 import { renderCanvasPlan, attachCanvasMentions } from './prompt-agent-canvas-ui.js';
 import { promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
+import { renderAgentBody } from './prompt-agent-body.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
@@ -842,7 +843,8 @@ export function createPromptAgentController({
 
         const body = documentRef.createElement('div');
         body.className = 'prompt-agent-message-body';
-        body.textContent = text;
+        if (role === 'agent') renderAgentBody({ documentRef, body, text, sources: search?.sources || [] });
+        else body.textContent = text;
         message.appendChild(body);
         if (search) {
             const revision = workflowRevision, viewRevision = searchViewRevision;
@@ -890,6 +892,16 @@ export function createPromptAgentController({
 
     function appendPromptPlan(message, plan, runs = []) {
         if (!message || !plan) return;
+        if (canvasAdapter && !runs.some(run => run.status === 'running')) {
+            try {
+                const graph = promptPlanToCanvas(plan, canvasAdapter.context());
+                canvasAdapter.prepare(graph);
+                if (conversationStore.upgradePromptPlan(message.promptAgentMessageIndex, graph)) {
+                    onStateChange(); appendCanvasPlan(message, graph);
+                    return { isCurrent: () => false, running: false, retryButtons: new Set(), sync() {} };
+                }
+            } catch { /* Missing legacy inputs remain visible and are validated by the existing action. */ }
+        }
         const revision = workflowRevision;
         // Target creation is an explicit action, never a side effect of rendering
         // or canvas selection. Persist the binding before a potentially failed run.
@@ -1316,7 +1328,7 @@ export function createPromptAgentController({
             const view = { element, workflowId, revision, canvasPlan: plan, plan: { targetNodeId: run.targetNodeId } };
             runViews.set(run.runId, view); renderRunView(view, run);
         };
-        const view = renderCanvasPlan({ documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels,
+        const view = renderCanvasPlan({ documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, preview: openResultPreview,
             getModelId: () => conversationStore.getImageModelId(), changed, isCurrent,
             run: async (plan, retry) => {
                 if (!retry) plan.completedSteps = [];
@@ -1436,27 +1448,15 @@ export function createPromptAgentController({
             });
             if (!isCurrentOperation(operation)) return;
             completedSearch = reply?.search || null;
+            if (reply?.promptPlan?.referenceImages?.some(image => operation.removedReferenceNodeIds?.has(image.sourceNodeId))
+                || reply?.canvasPlan?.dependencies?.some(id => operation.removedReferenceNodeIds?.has(id))) {
+                throw new Error('所选参考图已删除，请重新提出方案。');
+            }
             if (canvasAdapter && reply?.promptPlan && !reply.canvasPlan) {
                 const target = canvasContext.nodes.find(node => node.id === reply.promptPlan.targetNodeId);
                 const explicitlyNamed = target && (nodeMentions.some(item => item.id === target.id) || (text.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
                 reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext);
                 reply.promptPlan = null;
-            }
-            if (Array.isArray(reply?.promptPlan?.referenceImages)) {
-                const selected = reply.promptPlan.referenceImages;
-                const preparingNodes = new Set(selected.map(image => image.sourceNodeId).filter(Boolean));
-                const sourcesExist = () => isCurrentOperation(operation)
-                    && ![...preparingNodes].some(id => operation.removedReferenceNodeIds?.has(id));
-                if (!sourcesExist()) throw new Error('所选参考图已删除，请重新提出方案。');
-                if (referenceSource?.preparePlanReferences) {
-                    const prepared = await referenceSource.preparePlanReferences(reply.promptPlan, {
-                        isCurrent: sourcesExist,
-                        onSourceNode: id => preparingNodes.add(id)
-                    });
-                    if (!isCurrentOperation(operation)) return;
-                    if (!prepared) throw new Error('参考图已变化，请重新提出方案。');
-                    reply.promptPlan.referenceImages = prepared;
-                }
             }
             tokenObservation = reply?.tokenObservation || null;
             if (reply?.canvasPlan) canvasAdapter.prepare(reply.canvasPlan);

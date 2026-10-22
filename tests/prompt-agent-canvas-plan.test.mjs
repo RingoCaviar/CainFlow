@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
-import { normalizeCanvasPlan, assertCanvasPlanCurrent, promptPlanToCanvas } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
+import { normalizeCanvasPlan, assertCanvasPlanCurrent, promptPlanToCanvas, describeCanvasPlan } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
@@ -20,6 +20,20 @@ const draft = () => ({ version: 1, steps: [
     { from: { ref: 'hero', port: 'image' }, to: { ref: 'resize', port: 'image' } },
     { from: { ref: 'resize', port: 'image' }, to: { ref: 'save', port: 'image' } }
 ] });
+
+test('change list preserves real line breaks and quotes instead of displaying JSON escapes', () => {
+    const before = '第一行\n保留"主体"\nC:\\notes\\image.png';
+    const after = '新的第一行\n新的第二行';
+    const context = { nodes: [{ id: 'target', parameters: { prompt: before } }], connections: [] };
+    const plan = { steps: [{ id: 'edit', nodeId: 'target', title: '编辑图片', parameters: { prompt: after } }], connections: [] };
+    const snapshot = JSON.stringify({ context, plan });
+    const [description] = describeCanvasPlan(plan, context);
+    assert.ok(description.includes(before));
+    assert.ok(description.includes(after));
+    assert.ok(description.includes('修改前：\n'));
+    assert.ok(description.includes('修改后：\n'));
+    assert.equal(JSON.stringify({ context, plan }), snapshot);
+});
 
 test('canvas context projects public fields and pages large mixed graphs with explicit omission', () => {
     const context = graph(); const json = JSON.stringify(context.summary);
@@ -133,4 +147,23 @@ test('canvas vision reads only requested local originals and stops on missing me
     const controller = new AbortController();
     await assert.rejects(run(async () => { controller.abort(); return pixels; }, controller.signal), /取消/);
     assert.equal(requests.length, 1);
+});
+
+test('model graphs reject unused imports and forbidden reference input before materializing assets', () => {
+    const context = graph();
+    const raw = { version: 1, steps: [{ id: 'input', type: 'ImageImport', imageId: 'image-1' }, { id: 'generate', type: 'ImageGenerate', parameters: { prompt: '雪山' } }], connections: [] };
+    const options = { message: '不要参考图，画雪山', images: [{ imageId: 'image-1', reference: { assetKey: 'media:source' } }], referencePolicy: { intent: 'generate' } };
+    assert.throws(() => normalizeCanvasPlan(raw, context, options), /未确认/);
+    raw.connections.push({ from: { ref: 'input', port: 'image' }, to: { ref: 'generate', port: 'image_1' } });
+    assert.throws(() => normalizeCanvasPlan(raw, context, options), /未确认/);
+    raw.steps[0].evidence = '导入产品图';
+    raw.connections = [];
+    assert.equal(normalizeCanvasPlan(raw, context, { ...options, message: '导入产品图' }).steps[0].type, 'ImageImport');
+});
+
+test('independent generation removes stale image inputs from an explicitly named target', () => {
+    const context = graph({ connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'image_1' }, type: 'image' }] });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'generation', nodeId: 'target', type: 'ImageGenerate', parameters: { prompt: '一座雪山' } }], connections: [] }, context,
+        { message: '不要参考图', mentionedIds: ['target'], referencePolicy: { intent: 'generate' } });
+    assert.deepEqual(plan.disconnects, [{ ref: 'generation', port: 'image_1' }]);
 });

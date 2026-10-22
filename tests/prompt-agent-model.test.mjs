@@ -35,7 +35,7 @@ test('latest multi-image edits require explicit selection; explicit old inputs a
     assert.equal(original.promptPlan.referenceImages[0].sourceNodeId, 'old');
     const prompt = await replyHarness({ ...payload, intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '只改提示词' } },
         { ...options, message: '只改提示词' }).result;
-    assert.equal(prompt.promptPlan.referenceImages[0].sourceNodeId, 'old');
+    assert.deepEqual(prompt.promptPlan.referenceImages, [], 'prompt-only cannot invent material from candidates when no prior plan exists');
     const invented = await replyHarness({ ...payload, targetSelection: { mode: 'explicit', imageId: 'image-1', evidence: '导入原图' } }, options).result;
     assert.equal(invented.intent, 'clarify');
 });
@@ -390,4 +390,44 @@ test('current node output batch resolves each selected image to its own pixels a
     const ref = (await result).promptPlan.referenceImages[0];
     assert.equal(ref.dataUrl, 'data:image/png;base64,SECOND');
     assert.equal(ref.sourceImageIndex, 1);
+});
+
+test('independent generation must not adopt a historical candidate without explicit selection', async () => {
+    const result = await replyHarness({ intent: 'generate', message: '新画面', promptPlan: {
+        prompt: '一座雪山', imageRoles: [{ imageId: 'image-1', role: 'reference' }]
+    } }, { message: '画一座雪山，不使用参考图', workflowReferenceImages: [
+        { referenceId: 'old', runId: 'old', assetKey: 'media:old', dataUrl: 'data:image/png;base64,AAAA' }
+    ] }).result;
+    assert.equal(result.promptPlan.referenceImages.length, 0);
+});
+
+test('pure text result converts to a graph without an import step', async () => {
+    const { promptPlanToCanvas } = await import('../js/features/prompt-agent/prompt-agent-canvas-plan.js');
+    const { createCanvasContext } = await import('../js/features/prompt-agent/prompt-agent-canvas-context.js');
+    const reply = await replyHarness({ intent: 'generate', promptPlan: { prompt: '雪山', imageRoles: [{ imageId: 'image-1', role: 'reference' }] } }, {
+        message: '画一座全新的雪山', workflowReferenceImages: [{ runId: 'old', assetKey: 'media:old', dataUrl: 'data:image/png;base64,AAAA' }]
+    }).result;
+    const graph = promptPlanToCanvas(reply.promptPlan, createCanvasContext({ workflowId: 'w', nodes: [], connections: [] }));
+    assert.deepEqual(graph.steps.map(step => step.type), ['ImageGenerate']);
+    assert.deepEqual(graph.connections, []);
+});
+
+test('prompt-only retains previous draft inputs instead of adopting latest candidates', async () => {
+    const old = { sourceNodeId: 'original', assetKey: 'media:original', role: 'reference' };
+    const reply = await replyHarness({ intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '只改提示词' },
+        promptPlan: { prompt: '新的提示词', imageRoles: [{ imageId: 'image-1', role: 'edit-target' }] } }, {
+        message: '只改提示词', conversation: { messages: [{ role: 'agent', promptPlan: { prompt: '原提示词', referenceImages: [old] } }] },
+        workflowReferenceImages: [{ latestResult: true, runId: 'new', assetKey: 'media:new', dataUrl: 'data:image/png;base64,AAAA' }]
+    }).result;
+    assert.deepEqual(reply.promptPlan.referenceImages, [old]);
+});
+
+test('prompt-only uses the most recent canvas plan inputs after single-step upgrade', async () => {
+    const reply = await replyHarness({ intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '只改提示词' }, promptPlan: { prompt: '调整光照', imageRoles: [] } }, {
+        message: '只改提示词', conversation: { messages: [{ role: 'agent', canvasPlan: { id: 'saved-plan',
+            steps: [{ id: 'input', type: 'ImageImport', assetKey: 'media:original', title: '原素材' }, { id: 'generate', type: 'ImageGenerate' }],
+            connections: [{ from: { ref: 'input', port: 'image' }, to: { ref: 'generate', port: 'image_1' } }], bindings: { input: 'imported' } } }] },
+        workflowReferenceImages: [{ latestResult: true, runId: 'latest', assetKey: 'media:latest', dataUrl: 'data:image/png;base64,AAAA' }]
+    }).result;
+    assert.equal(reply.promptPlan.referenceImages[0].assetKey, 'media:original');
 });
