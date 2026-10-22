@@ -470,7 +470,7 @@
 .parameter-row textarea {
     width: 100%;
     padding: 11px 14px;
-    background: linear-gradient(var(--panel-input-bg), var(--panel-input-bg));
+    background: var(--panel-input-bg);
     border: 2px solid var(--border-color, #2a2a2a);
     border-radius: 9px;
     color: var(--text-primary, #fff);
@@ -505,7 +505,7 @@
 .parameter-row input[type="number"]:hover,
 .parameter-row textarea:hover {
     border-color: var(--text-link);
-    background: linear-gradient(var(--panel-input-bg), var(--panel-input-bg));
+    background: var(--panel-input-bg);
 }
 
 .parameter-row input[type="text"]:focus,
@@ -513,7 +513,7 @@
 .parameter-row textarea:focus {
     outline: none;
     border-color: var(--text-link);
-    background: linear-gradient(var(--panel-input-bg), var(--panel-input-bg));
+    background: var(--panel-input-bg);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-link) 12%, transparent), inset 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
@@ -944,7 +944,7 @@
 .param-field-group select {
     width: 100%;
     padding: 11px 14px;
-    background: linear-gradient(var(--panel-input-bg), var(--panel-input-bg));
+    background: var(--panel-input-bg);
     border: 2px solid var(--border-color, #2a2a2a);
     border-radius: 9px;
     color: var(--text-primary, #fff);
@@ -967,7 +967,7 @@
 .param-field-group textarea:hover,
 .param-field-group select:hover {
     border-color: var(--text-link);
-    background: linear-gradient(var(--panel-input-bg), var(--panel-input-bg));
+    background: var(--panel-input-bg);
 }
 
 .param-field-group input[type="text"]:focus,
@@ -976,7 +976,7 @@
 .param-field-group select:focus {
     outline: none;
     border-color: var(--text-link);
-    background: linear-gradient(var(--panel-input-bg), var(--panel-input-bg));
+    background: var(--panel-input-bg);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-link) 12%, transparent), inset 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 

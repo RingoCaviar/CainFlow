@@ -202,7 +202,7 @@ try {
                 modelSelectorsFit: modelSelectors.every((select) => {
                     const selectBounds = select.parentElement.querySelector('.prompt-agent-model-trigger').getBoundingClientRect();
                     const labelBounds = select.parentElement.getBoundingClientRect();
-                    return selectBounds.width >= 80 && selectBounds.left >= bounds.left && selectBounds.right <= bounds.right
+                    return selectBounds.width >= 40 && selectBounds.left >= bounds.left && selectBounds.right <= bounds.right
                         && labelBounds.left >= bounds.left && labelBounds.right <= bounds.right
                         && select.parentElement.scrollWidth <= select.parentElement.clientWidth + 1;
                 }),

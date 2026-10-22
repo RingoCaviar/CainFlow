@@ -1,3 +1,4 @@
+import { normalizeThinkingConfig } from './thinking-config.js';
 /**
  * 统一封装供应商请求协议、模型能力与图片响应解析逻辑。
  */
@@ -280,6 +281,7 @@ export function normalizeModelConfig(model = {}, index = 0, providers = null) {
         name: typeof model?.name === 'string' && model.name.trim() ? model.name.trim() : `导入模型 ${index + 1}`,
         modelId: typeof model?.modelId === 'string' ? model.modelId : '',
         providerIds,
+        ...(normalizeThinkingConfig(model?.thinking) ? { thinking: normalizeThinkingConfig(model.thinking) } : {}),
         providerId: providerIds[0] || '',
         taskType: normalizeModelTaskType(model?.taskType, model),
         protocol: normalizeModelProtocol(model?.protocol, model, provider),
@@ -1076,6 +1078,7 @@ export function extractImageResult(apiCfg, result, modelCfg = null) {
         const candidate = result?.candidates?.[0];
         const parts = candidate?.content?.parts || [];
         for (const part of parts) {
+            if (part?.thought === true) continue;
             const inlineData = part?.inlineData || part?.inline_data;
             if (inlineData?.data) {
                 return {

@@ -1,3 +1,4 @@
+import { mountThinkingModelSettings } from '../execution/thinking-control.js';
 /**
  * Handles model rendering, fetched model workflows, request previews, and node model dropdown refresh.
  */
@@ -492,7 +493,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         updateAllNodeModelDropdowns();
     }
 
+    let thinkingControls = [];
     function renderModels() {
+        thinkingControls.forEach(control => control.destroy()); thinkingControls = [];
         modelsList.innerHTML = '';
         if (state.models.length === 0) {
             modelsList.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:20px;font-size:12px;">暂无模型配置</div>';
@@ -588,6 +591,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 </div>
             `;
             modelsList.appendChild(el);
+            if (documentRef.defaultView && ['chat', 'image'].includes(taskType)) thinkingControls.push(mountThinkingModelSettings({ documentRef, parent: el.querySelector('.model-config-body') || el.lastElementChild, model: mod,
+                providers: (mod.providerIds || [mod.providerId]).map(id => state.providers.find(provider => provider.id === id)).filter(Boolean),
+                changed: () => { saveState(); renderModels(); updateAllNodeModelDropdowns(); } }));
         });
 
         modelsList.querySelectorAll('input:not([data-field="providerIds"]), select').forEach((input) => {

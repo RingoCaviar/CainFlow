@@ -617,3 +617,23 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px;     }
 .prompt-agent-node-mentions button { background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
 .prompt-agent-node-mentions button:is(:hover, :focus-visible, [aria-selected="true"]) { background: var(--panel-active-bg); outline: 2px solid var(--text-link); outline-offset: -2px; }
+
+/* Shared thinking controls use flat semantic surfaces in settings, nodes and Agent. */
+.thinking-control { min-width: 0; margin: 4px 0; color: var(--text-main); font-size: 12px; }
+.thinking-control > summary { cursor: pointer; padding: 4px; border-radius: 4px; }
+.thinking-control > summary:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
+.thinking-control-content { display: grid; gap: 4px; min-width: 0; padding: 4px; background: var(--surface-panel-strong); border: 1px solid var(--border-color); border-radius: 6px; }
+.thinking-control-content small, .thinking-model-settings small { color: var(--text-secondary); overflow-wrap: anywhere; }
+.thinking-control-content input { width: 100%; min-width: 0; box-sizing: border-box; background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); }
+.thinking-control-content input[hidden] { display: none; }
+.thinking-model-settings { display: grid; gap: 6px; margin-top: 6px; }
+.thinking-model-settings label { display: grid; gap: 4px; min-width: 0; }
+.thinking-model-settings select { max-width: 100%; }
+.prompt-agent-model-label { position: relative; }
+.prompt-agent-model-label > .thinking-control { margin: 0; }
+.thinking-control-compact { flex: 0 0 28px; }
+.thinking-control-compact > summary { display: flex; align-items: center; justify-content: center; width: 28px; min-height: 28px; box-sizing: border-box; padding: 4px; list-style: none; }
+.thinking-control-compact > summary::-webkit-details-marker { display: none; }
+.thinking-control-content input, .thinking-model-settings select { min-height: 28px; }
+
+.prompt-agent-thinking-menu { position: fixed; z-index: var(--layer-menu); overflow-y: auto; box-sizing: border-box; background: var(--surface-panel-strong); color: var(--text-primary); }

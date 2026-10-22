@@ -204,6 +204,7 @@ export function serializeRuntimeNode(node, doc) {
         isFailed: node.isFailed === true || node.el?.classList?.contains('error') === true,
         lastDuration: node.lastDuration || null
     };
+    if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
     if (node.isClone === true && node.cloneSourceId) {
         serialized.isClone = true;
         serialized.cloneSourceId = node.cloneSourceId;

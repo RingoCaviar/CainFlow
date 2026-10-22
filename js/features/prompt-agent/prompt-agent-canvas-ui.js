@@ -1,7 +1,9 @@
+import { createThinkingControl } from '../execution/thinking-control.js';
+import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
-import { createPromptAgentModelMenus } from './prompt-agent-model-menu.js';
+import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
 
-export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels, getModelId, changed, run, isCurrent, preview = () => {} }) {
+export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels, getProviders = () => [], getThinking = () => undefined, getModelId, changed, run, isCurrent, preview = () => {} }) {
     const card = documentRef.createElement('section'); card.className = 'prompt-agent-canvas-plan';
     parent.appendChild(card);
     let busy = false;
@@ -26,6 +28,7 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
     const list = element('ol', '');
     const stepStates = new Map();
     const refreshSelectors = [];
+    const thinkingControls = [];
     const focusButtons = new Map();
     for (const id of plan.order) {
         const step = plan.steps.find(item => item.id === id);
@@ -42,24 +45,29 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
             parameters.className = 'prompt-agent-step-prompt';
             select.id = `agent-step-model-${plan.id}-${id}`;
             const inherit = element('option', '使用面板手动选择的模型', select); inherit.value = '';
-            for (const model of getModels()) { const option = element('option', model.name || model.modelId || model.id, select); option.value = model.id; }
+            for (const model of getModels()) { const option = element('option', getAgentModelLabel(model, getProviders()), select); option.value = model.id; }
             const selected = plan.modelOverrides?.[id] || '';
             if (selected && !getModels().some(model => model.id === selected)) { const unavailable = element('option', '原模型已不可用，请重新选择', select); unavailable.value = selected; unavailable.disabled = true; }
             select.value = selected;
             let modelSignature = '';
             const refreshModels = () => {
                 const models = getModels(), value = plan.modelOverrides?.[id] || '';
-                const signature = JSON.stringify([models.map(model => [model.id, model.name, model.modelId]), value, getModelId()]);
+                const signature = JSON.stringify([models.map(model => [model.id, getAgentModelLabel(model, getProviders())]), value, getModelId()]);
                 if (signature === modelSignature) return;
                 modelSignature = signature; select.replaceChildren();
                 const inherited = models.find(model => model.id === getModelId());
-                const option = element('option', inherited ? `面板模型：${inherited.name || inherited.modelId}` : '请先选择面板模型', select); option.value = '';
-                for (const model of models) { const option = element('option', model.name || model.modelId || model.id, select); option.value = model.id; }
+                const option = element('option', inherited ? `面板模型：${getAgentModelLabel(inherited, getProviders())}` : '请先选择面板模型', select); option.value = '';
+                for (const model of models) { const option = element('option', getAgentModelLabel(model, getProviders()), select); option.value = model.id; }
                 if (value && !models.some(model => model.id === value)) { const option = element('option', '原模型已不可用，请重新选择', select); option.value = value; option.disabled = true; }
                 select.value = value;
                 const chosen = models.find(model => model.id === (value || getModelId()));
-                modelLabel.textContent = `模型：${chosen?.name || chosen?.modelId || '未选择'} · 参数`;
+                modelLabel.textContent = `模型：${chosen ? getAgentModelLabel(chosen, getProviders()) : '未选择'} · 参数`;
             };
+            thinkingControls.push(createThinkingControl({ documentRef, parent: settings, title: `${step.title}的思考设置`,
+                getOptions: () => { const model = getModels().find(item => item.id === (plan.modelOverrides?.[id] || getModelId())) || {};
+                    return { model: { ...model, thinking: { ...model.thinking, default: getThinking(model.id) || model.thinking?.default } }, provider: getResolvedProviderForModel(model, getProviders()) || {}, protocol: model.protocol, task: 'image' }; },
+                getValue: () => plan.thinkingOverrides?.[id]?.[plan.modelOverrides?.[id] || getModelId()],
+                onChange: value => { ((plan.thinkingOverrides ||= {})[id] ||= {})[plan.modelOverrides?.[id] || getModelId()] = value; changed(plan); sync(); } }));
             refreshSelectors.push(refreshModels); select.addEventListener('focus', refreshModels);
             select.addEventListener('change', () => { (plan.modelOverrides ||= {})[id] = select.value; changed(plan); sync(); });
         }
@@ -69,7 +77,7 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
     element('summary', '变更清单', details);
     const changes = element('ul', '', details);
     changes.className = 'prompt-agent-change-list';
-    adapter.describe(plan).forEach(line => element('li', line, changes));
+    adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
     const status = element('p', ''); status.setAttribute('role', 'status');
     const actions = element('div', ''); actions.className = 'prompt-agent-canvas-actions';
     const refresh = element('button', '刷新变更清单', details); refresh.type = 'button';
@@ -78,8 +86,11 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
     const retry = element('button', '重试未完成步骤', actions), undo = element('button', '撤销本次画布操作', actions), stop = element('button', '停止', actions);
     const buttons = [apply, execute, retry, undo, stop]; buttons.forEach(button => { button.type = 'button'; });
     function sync() {
+        if (!busy) plan.agentThinking = Object.fromEntries(getModels().map(model => [model.id, getThinking(model.id)]).filter(([, value]) => value));
+        thinkingControls.forEach(control => control.refresh());
         focusButtons.forEach((button, id) => { button.disabled = !plan.bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
         refreshSelectors.forEach(refresh => refresh());
+        changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
         for (const [id, label] of stepStates) label.textContent = ` · ${{ draft: '待确认', applied: '待执行', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[adapter.stepStatus(plan, id)] || '未执行'}`;
         let unavailable = '';
         try { adapter.modelsFor(plan, getModelId()); } catch (error) { unavailable = error.message; }
@@ -90,7 +101,7 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
         undo.disabled = busy || Boolean(adapter.canUndo(plan)); undo.title = adapter.canUndo(plan);
         stop.hidden = !busy;
         refresh.disabled = busy || !isCurrent();
-        for (const select of list.querySelectorAll('select')) select.disabled = busy;
+        for (const select of list.querySelectorAll('select, .thinking-control input, .thinking-control button')) select.disabled = busy;
         if (unavailable) status.textContent = unavailable;
     }
     async function act(generate, retryOnly = false) {
@@ -108,12 +119,12 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
     apply.addEventListener('click', () => act(false)); execute.addEventListener('click', () => act(true)); retry.addEventListener('click', () => act(true, true));
     stop.addEventListener('click', () => adapter.stop(plan));
     refresh.addEventListener('click', () => { try {
-        adapter.refresh(plan); changes.replaceChildren(); adapter.describe(plan).forEach(line => element('li', line, changes));
+        adapter.refresh(plan); changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
         changed(plan); status.textContent = '已按当前画布更新清单，请重新检查后应用';
     } catch (error) { status.textContent = error.message; } sync(); });
     undo.addEventListener('click', async () => { try { await adapter.undo(plan); status.textContent = '已按撤销栈处理；历史图片仍保留'; } catch (error) { status.textContent = error.message; } sync(); });
     sync();
-    return { sync, close: () => modelMenus.close(), destroy: () => { destroyed = true; modelMenus.destroy(); } };
+    return { sync, close: () => { modelMenus.close(); thinkingControls.forEach(control => control.close()); }, destroy: () => { destroyed = true; thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); } };
 }
 
 export function attachCanvasMentions({ documentRef, input, adapter }) {

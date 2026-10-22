@@ -1,3 +1,4 @@
+import { resolveThinking } from '../execution/thinking-config.js';
 import { createCanvasContext, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
 import { assertCanvasPlanCurrent, describeCanvasPlan } from './prompt-agent-canvas-plan.js';
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
@@ -39,7 +40,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             if (!model) throw new Error(`请为「${step.title}」手动选择可用的生图模型`);
             const provider = getResolvedProviderForModel(model, state.providers);
             if (!provider?.endpoint) throw new Error(`「${step.title}」的 Provider 不可用`);
-            return [step.id, { model, provider }];
+            const thinking = resolveThinking({ model, provider, task: 'image', protocol: model.protocol }, plan.thinkingOverrides?.[step.id]?.[id], plan.agentThinking?.[id]).setting;
+            return [step.id, { model, provider, thinking }];
         }));
     }
     function validateGraph(plan) {
@@ -76,7 +78,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         executionConfigs.set(plan.id, cloneCanvasValue({ models: state.models, providers: state.providers }));
         validateGraph(plan);
         const signature = JSON.stringify({ steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [],
-            models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id }])) });
+            models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id, thinking: config.thinking }])) });
         if (plan.appliedSignature === signature && plan.steps.every(step => state.nodes.has(plan.bindings?.[step.id]))) {
             if (await save() === false) throw new Error('方案保存失败，请重试');
             return plan;
@@ -122,6 +124,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const patch = { targetNodeId: nodeId, prompt, ...(typeof step.negativePrompt === 'string' ? { negativePrompt: step.negativePrompt } : {}),
                             parameters: step.generationPatch || Object.fromEntries(Object.entries(step.parameters).filter(([key]) => generationFields[key]).map(([key, value]) => [generationFields[key], value])) };
                         nodeAdapter.ensureTarget(patch, { modelId: selected[id].model.id });
+                        state.nodes.get(nodeId).data.thinking = cloneCanvasValue(selected[id].thinking);
+                        state.nodes.get(nodeId).el?._thinkingControl?.refresh();
                         if (!nodeAdapter.applyPromptPlan(patch)) throw new Error('生图参数不兼容');
                     } else for (const [field, value] of Object.entries(step.parameters)) {
                         if (field === 'inputCount') {
@@ -179,7 +183,18 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         try { return await runWorkflow({ mode: 'selected-only', selectedNodeIds, agentSequential: true }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: () => assertCanvasPlanCurrent(plan, context()) }); }
         finally { activePlan = null; executionConfigs.delete(plan.id); }
     }
-    return { context, prepare, describe: plan => describeCanvasPlan(plan, context()), apply, execute, modelsFor, canUndo,
+    return { context, prepare, describe: (plan, defaultModelId) => {
+            const lines = describeCanvasPlan(plan, context());
+            if (defaultModelId) try {
+                const selected = modelsFor(plan, defaultModelId);
+                const label = value => !value || value.mode === 'default' ? '接口默认' : String(value.value ?? value.mode);
+                for (const step of plan.steps.filter(item => item.type === 'ImageGenerate')) {
+                    const before = state.nodes.get(step.nodeId || plan.bindings?.[step.id])?.data?.thinking;
+                    lines.push(`${step.title} · 思考设置：${label(before)} → ${label(selected[step.id].thinking)}`);
+                }
+            } catch (error) { lines.push(error.message); }
+            return lines;
+        }, apply, execute, modelsFor, canUndo,
         readImage: getImageAsset,
         inputs: plan => {
             const current = context();
@@ -201,7 +216,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         isRunning: id => activePlan?.id === id,
         executionRecord: (plan, id) => {
             const nodeId = plan.bindings[id];
-            return { modelId: documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '', providerId: documentRef.getElementById(`${nodeId}-provider`)?.value || '' };
+            return { thinking: cloneCanvasValue(state.nodes.get(nodeId)?.data?.thinking || { mode: 'default' }), modelId: documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '', providerId: documentRef.getElementById(`${nodeId}-provider`)?.value || '' };
         },
         stepStatus: (plan, id) => {
             const node = state.nodes.get(plan.bindings?.[id]);

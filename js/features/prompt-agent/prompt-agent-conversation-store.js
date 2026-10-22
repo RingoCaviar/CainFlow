@@ -110,6 +110,7 @@ export function createPromptAgentConversationStore() {
     let archivedMessages = [];
     let compactedMessageCount = 0;
     let imageModelId = '';
+    let thinkingSettings = { chat: {}, image: {} };
     let searchSettings = { mode: 'auto', modelId: '' };
     let referenceImages = [];
     let previousPromptPlan = null;
@@ -202,11 +203,13 @@ export function createPromptAgentConversationStore() {
         referenceImages = restoredReferences;
         previousPromptPlan = restoredPlan;
         imageModelId = typeof value?.imageModelId === 'string' ? value.imageModelId.trim() : '';
+        thinkingSettings = { chat: clone(value?.thinkingSettings?.chat || {}), image: clone(value?.thinkingSettings?.image || {}) };
         setSearchSettings(value?.searchSettings);
     }
 
     function snapshot() {
         const snapshot = { version: 1, memory, messages: clone(messages) };
+        if (Object.keys(thinkingSettings.chat).length || Object.keys(thinkingSettings.image).length) snapshot.thinkingSettings = clone(thinkingSettings);
         if (searchSettings.mode !== 'auto' || searchSettings.modelId) snapshot.searchSettings = { ...searchSettings };
         if (imageModelId) snapshot.imageModelId = imageModelId;
         if (contextSummary) {
@@ -314,7 +317,9 @@ export function createPromptAgentConversationStore() {
         searchSettings = { mode: value?.mode === 'off' ? 'off' : 'auto', modelId: typeof value?.modelId === 'string' ? value.modelId.trim() : '' };
     }
 
-    return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    const getThinking = (purpose, modelId) => clone(thinkingSettings[purpose]?.[modelId] || null) || undefined;
+    const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
+    return { getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;

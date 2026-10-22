@@ -1,4 +1,9 @@
+import { getModelOptionLabel } from '../execution/provider-request-utils.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
+export function getAgentModelLabel(model, providers = []) {
+    return getModelOptionLabel({ ...model, name: model.name || model.modelId || model.id }, providers);
+}
+
 // Adapt the node select contract (native value + input/change) without node bindings.
 export function createPromptAgentModelMenus({ documentRef, selects, parent = null, placeholder = '请选择模型' }) {
     const windowRef = documentRef.defaultView;

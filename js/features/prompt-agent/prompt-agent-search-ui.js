@@ -1,3 +1,4 @@
+import { getAgentModelLabel } from './prompt-agent-model-menu.js';
 import { getAgentSearchCapability, getAgentSearchAvailability, normalizeAgentSearch } from './prompt-agent-search-data.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { renderAgentBody } from './prompt-agent-body.js';
@@ -36,7 +37,7 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
         add('', '未指定专用搜索模型');
         const models = getModels().filter(item => getAgentSearchCapability(item) !== 'none');
         if (settings.modelId && !models.some(item => item.id === settings.modelId)) add(settings.modelId, '已选搜索模型不可用', true);
-        for (const model of models) add(model.id, `${model.name || model.modelId} · ${getAgentSearchCapability(model) === 'images' ? '网页及搜图' : '网页'}`);
+        for (const model of models) add(model.id, `${getAgentModelLabel(model, getProviders())} · ${getAgentSearchCapability(model) === 'images' ? '网页及搜图' : '网页'}`);
         select.value = settings.modelId;
         select.disabled = settings.mode === 'off';
         refreshSelects();

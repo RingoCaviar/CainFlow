@@ -1,3 +1,4 @@
+import { applyThinking, resolveThinking } from './thinking-config.js';
 /**
  * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
  */
@@ -1337,6 +1338,7 @@ export function createExecutionCoreApi({
                     mask: isOpenAiImageEdit ? mask : null,
                     inputs
                 }))));
+        applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
         return {
             nodeId: id,
             nodeType: node.type,
@@ -1461,6 +1463,7 @@ export function createExecutionCoreApi({
             messages: [{ role: 'user', content: prompt }],
             media: getOpenAiImageContents(inputs).map((item) => ({ type: 'image', url: item.image_url.url })),
             searchEnabled: documentRef.getElementById(`${id}-search`)?.checked === true,
+            thinking: node.data?.thinking,
             customParams: inputs.params
         });
     }
@@ -1780,6 +1783,7 @@ export function createExecutionCoreApi({
                 if (!prompt) throw new Error('请输入提示词');
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
+                resolveThinking({ model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
                 const { aspect, resolution } = readImageGenerateRequestSize(id, protocol);
                 const isGoogle = protocol === 'google';
                 const isTtapi = protocol === 'ttapi';
@@ -1842,6 +1846,7 @@ export function createExecutionCoreApi({
                                     : (isGoogle
                                         ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                                         : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
+                            applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
                             showToast(
                                 generationCount > 1
                                     ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
@@ -2017,6 +2022,7 @@ export function createExecutionCoreApi({
                             : (isGoogle
                                 ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
                                 : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
+                    applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
                     showToast(
                         generationCount > 1
                             ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
@@ -2242,6 +2248,7 @@ export function createExecutionCoreApi({
                     messages: [{ role: 'user', content: getPrimaryTextInput(prompt) }],
                     media: getOpenAiImageContents(inputs).map((item) => ({ type: 'image', url: item.image_url.url })),
                     searchEnabled: documentRef.getElementById(`${id}-search`)?.checked || false,
+                    thinking: node.data?.thinking,
                     customParams: inputs.params
                 });
                 const { protocol, url, requestBody } = chatPlan;
@@ -2278,7 +2285,7 @@ export function createExecutionCoreApi({
                             requestBody: body
                         });
 
-                        let resultText = jsonResponse.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        let resultText = jsonResponse.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('') || '';
                         if (jsonResponse.candidates?.[0]?.groundingMetadata?.searchEntryPoint?.html) {
                             resultText += `\n\n<div class="search-chips">${jsonResponse.candidates[0].groundingMetadata.searchEntryPoint.html}</div>`;
                         }

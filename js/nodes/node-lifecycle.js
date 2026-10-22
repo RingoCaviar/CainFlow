@@ -1180,7 +1180,7 @@ export function createNodeLifecycleApi({
             x,
             y,
             el,
-            data: {},
+            data: effectiveRestoreData?.thinking ? { thinking: clonePlainValue(effectiveRestoreData.thinking) } : {},
             imageData: null,
             compareImageA: null,
             compareImageB: null,

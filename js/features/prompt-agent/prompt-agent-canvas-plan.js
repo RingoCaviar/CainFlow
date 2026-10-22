@@ -174,7 +174,7 @@ export function restoreCanvasPlan(value) {
 export function projectCanvasPlan(plan) {
     if (!plan) return null;
     return { version: plan.version, id: plan.id, steps: plan.steps, connections: plan.connections,
-        disconnects: plan.disconnects || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {},
+        disconnects: plan.disconnects || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {}, thinkingOverrides: plan.thinkingOverrides || {}, agentThinking: plan.agentThinking || {},
         completedSteps: plan.completedSteps || [], latestAttempt: plan.runs?.at(-1) || null };
 }
 

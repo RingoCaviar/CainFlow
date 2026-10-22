@@ -559,10 +559,15 @@ export function createWorkflowRunnerApi({
             };
         }
 
+        if (node.type === 'TextChat') {
+            return node.data.thinking ? { thinking: { ...node.data.thinking } } : {};
+        }
+
         if (node.type === 'ImageGenerate') {
             return {
                 referenceImageCount: node.data.referenceImageCount,
-                generationCount: node.data.generationCount
+                generationCount: node.data.generationCount,
+                ...(node.data.thinking ? { thinking: { ...node.data.thinking } } : {})
             };
         }
 

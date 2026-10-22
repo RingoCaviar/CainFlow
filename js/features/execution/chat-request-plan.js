@@ -1,3 +1,4 @@
+import { applyThinking } from './thinking-config.js';
 import { resolveProviderUrl } from './provider-request-utils.js';
 
 export class ChatRequestPlanError extends Error {
@@ -82,7 +83,8 @@ export function createChatRequestPlan({
     media = [],
     capabilities = {},
     searchEnabled = false,
-    customParams = {}
+    customParams = {},
+    thinking
 }) {
     if (!provider || !model) throw new ChatRequestPlanError('invalid_configuration', '缺少对话模型或 Provider 配置');
     const effectiveProtocol = protocol === 'google' ? 'google' : 'openai';
@@ -94,6 +96,7 @@ export function createChatRequestPlan({
         ? buildGoogleBody({ messages: normalizedMessages, systemPrompt, media: normalizedMedia, searchEnabled })
         : buildOpenAiBody({ model, messages: normalizedMessages, systemPrompt, media: normalizedMedia });
     const requestBody = { ...baseBody, ...(customParams && typeof customParams === 'object' ? customParams : {}) };
+    applyThinking(requestBody, { model, provider, task: 'chat', protocol }, thinking);
     const url = resolveProviderUrl(provider, model, 'chat');
     const plan = {
         protocol: effectiveProtocol,
@@ -131,7 +134,8 @@ export async function requestChatCompletion(plan, { fetchRef = fetch, headers = 
     const response = await executeChatRequestPlan(plan, { fetchRef, headers, signal });
     if (!response.ok) {
         const body = await response.text();
-        const error = new ChatRequestPlanError('provider_request_failed', `对话请求失败（HTTP ${response.status}）`, {
+        const thinkingError = /reasoning|thinking/i.test(body) ? '思考参数被接口拒绝，请检查兼容方式与档位。' : '';
+        const error = new ChatRequestPlanError('provider_request_failed', `${plan.model?.name || plan.model?.modelId || '对话模型'} / ${plan.provider?.name || plan.provider?.id || 'Provider'}：对话请求失败（HTTP ${response.status}）${thinkingError}`,  {
             status: response.status,
             body: body.slice(0, 2000)
         });
@@ -139,7 +143,7 @@ export async function requestChatCompletion(plan, { fetchRef = fetch, headers = 
     }
     const payload = await response.json();
     const rawText = plan.protocol === 'google'
-        ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
+        ? payload.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map((part) => part.text || '').join('')
         : payload.choices?.[0]?.message?.content;
     const text = Array.isArray(rawText)
         ? rawText.map((part) => typeof part === 'string' ? part : String(part?.text || '')).join('')

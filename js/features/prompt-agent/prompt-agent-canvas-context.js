@@ -19,6 +19,7 @@ export function projectCanvasNode(node, running = false) {
         enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type), parameters,
         inputs: definition?.inputs || [], outputs: definition?.outputs || [],
         assets: node.mediaAssetKeys?.length ? node.mediaAssetKeys.filter(key => typeof key === 'string' && key.startsWith('media:')) : [...new Set([node.imageImportAssetKey, node.imageAssetKey].filter(key => typeof key === 'string' && key.startsWith('media:')))],
+        thinking: node.thinking ? cloneCanvasValue(node.thinking) : null,
         missing: node.mediaIntegrity?.state === 'missing', modelId: node.apiConfigId || null
     };
 }

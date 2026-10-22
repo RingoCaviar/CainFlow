@@ -1,3 +1,4 @@
+import { createThinkingControl } from '../features/execution/thinking-control.js';
 /**
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
  */
@@ -2497,6 +2498,23 @@ export function createNodeDomBindingsApi({
             enforceNodeContentMinimum(id, { save: false, updateConnections: true });
         }));
 
+        if (documentRef.defaultView && ['ImageGenerate', 'TextChat'].includes(type) && !el.querySelector('.thinking-control')) {
+            const node = state.nodes.get(id);
+            const control = createThinkingControl({ documentRef, parent: el.querySelector('.node-body') || el,
+                getOptions: () => { const model = state.models.find(item => item.id === documentRef.getElementById(`${id}-apiconfig`)?.value) || {};
+                    return { model, provider: getResolvedProviderForModel(model, state.providers, documentRef.getElementById(`${id}-provider`)?.value) || {}, task: type === 'TextChat' ? 'chat' : 'image', protocol: model.protocol }; },
+                getValue: () => node.data?.thinking,
+                onChange: value => {
+                    if (isNodeRunning(id)) throw new Error('节点正在运行，暂不能修改思考设置');
+                    if (value) node.data.thinking = value; else delete node.data.thinking;
+                    scheduleSave();
+                } });
+            el.addEventListener('change', event => { if (event.target.id === `${id}-apiconfig` || event.target.id === `${id}-provider`) queueMicrotask(control.refresh); });
+            el._thinkingControl = control;
+            const promptField = documentRef.getElementById(`${id}-prompt`)?.closest('.node-field') || documentRef.getElementById(`${id}-sysprompt`)?.closest('.node-field');
+            if (promptField) promptField.before(el.querySelector('.thinking-control'));
+            (el._cleanupFns ||= []).push(control.destroy);
+        }
         bindNodeRunCancelButton(id, el);
         bindNodePorts(el);
         bindZoomSettleGuard(el);

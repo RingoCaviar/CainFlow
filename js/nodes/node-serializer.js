@@ -89,6 +89,7 @@ export function createNodeSerializer({ state, documentRef }) {
             if (node.collapsed === true && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
                 serialized.collapsedExpandedHeight = Math.round(node.collapsedExpandedHeight);
             }
+            if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
             if (node.isClone === true && typeof node.cloneSourceId === 'string' && node.cloneSourceId) {
                 serialized.isClone = true;
                 serialized.cloneSourceId = node.cloneSourceId;
