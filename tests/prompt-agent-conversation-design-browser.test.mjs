@@ -15,6 +15,7 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
             if(String(url)==='/proxy')return new Response(JSON.stringify({choices:[{message:{content:${JSON.stringify(JSON.stringify(payload))}}}]}));
             return window.originalFetch(url,options);
         };document.getElementById('btn-prompt-agent').click();document.getElementById('prompt-agent-panel').style.width='300px';
+        document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id="chat"][data-provider-id="p"]').click();
         document.getElementById('prompt-agent-input').value='画一张全新的雪山海报，不使用参考图';
         document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");

@@ -4,7 +4,7 @@ import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { renderAgentBody } from './prompt-agent-body.js';
 
 export function createAgentSearchMenu({ documentRef, getSettings, setSettings, getModels, getProviders = () => [],
-    getCurrentModel = () => null, configure = () => {}, onChange, closeModels = () => {}, refreshSelects = () => {} }) {
+    getCurrentModel = () => null, getProviderId = () => '', configure = () => {}, onChange, closeModels = () => {}, refreshSelects = () => {} }) {
     const surfaces = getSurfaceCoordinator(documentRef);
     const button = documentRef.getElementById('prompt-agent-search-button');
     const menu = documentRef.getElementById('prompt-agent-search-menu');
@@ -45,7 +45,7 @@ export function createAgentSearchMenu({ documentRef, getSettings, setSettings, g
         if (status) {
             status.replaceChildren();
             for (const kind of ['web', 'images']) {
-                const availability = getAgentSearchAvailability({ model: getCurrentModel(), models: getModels(), providers: getProviders(), settings, kind });
+                const availability = getAgentSearchAvailability({ model: getCurrentModel(), models: getModels(), providers: getProviders(), providerId: getProviderId('chat', getCurrentModel()?.id), settings: { ...settings, providerId: getProviderId('search', settings.modelId) }, kind });
                 const row = documentRef.createElement('div');
                 const text = documentRef.createElement('p');
                 text.textContent = `${kind === 'web' ? '网页' : '搜图'}：${availability.message}`;

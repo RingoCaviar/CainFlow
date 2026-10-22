@@ -12,7 +12,7 @@ const provider = { id: 'p', endpoint: 'https://api.example.test/v1', apikey: 'te
 const chat = { id: 'chat', modelId: 'gpt-4o', protocol: 'openai', providerIds: ['p'] };
 const searchModel = { ...chat, id: 'search', agentSearch: 'images' };
 const google = { ...chat, id: 'google', modelId: 'gemini', protocol: 'google' };
-const options = { model: chat, models: [chat, searchModel], providers: [provider], message: '找一些图片', searchSettings: { mode: 'auto', modelId: 'search' } };
+const options = { model: chat, models: [chat, searchModel], providers: [provider], providerId: 'p', message: '找一些图片', searchSettings: { mode: 'auto', modelId: 'search', providerId: 'p' } };
 const searchRequest = { searchRequest: { kind: 'images', query: 'recent bridge photos' } };
 const raw = {
     output: [{ type: 'web_search_call', status: 'completed', action: { sources: [{ url: 'https://source.test/page', title: 'Source' }] },
@@ -74,7 +74,7 @@ test('normal chat makes one request with no search', async () => {
 test('full native search round uses dedicated provider credentials then synthesizes with the original model', async () => {
     const dedicated = { ...searchModel, providerIds: ['sp'] };
     const requests = [];
-    const reply = await createPromptAgentModelReply({ ...options, models: [chat, dedicated], providers: [provider, { id: 'sp', endpoint: 'https://search.test/v1', apikey: 'search-key' }],
+    const reply = await createPromptAgentModelReply({ ...options, searchSettings: { ...options.searchSettings, providerId: 'sp' }, models: [chat, dedicated], providers: [provider, { id: 'sp', endpoint: 'https://search.test/v1', apikey: 'search-key' }],
         getHeaders: plan => ({ Authorization: plan.provider.apikey, target: plan.url }),
         fetchRef: async (url, init) => {
             const body = JSON.parse(init.body); requests.push({ body, headers: init.headers });
@@ -126,7 +126,7 @@ test('configuration is captured and abort-resistant late search cannot synthesiz
 });
 
 test('search HTTP failure and cancellation retain truthful status', async () => {
-    await assert.rejects(searchPromptAgent({ model: searchModel, providers: [provider], kind: 'web', query: 'facts', fetchRef: async () => new Response('{}', { status: 400 }) }), /HTTP 400/);
+    await assert.rejects(searchPromptAgent({ model: searchModel, providers: [provider], providerId: 'p', kind: 'web', query: 'facts', fetchRef: async () => new Response('{}', { status: 400 }) }), /HTTP 400/);
     const stop = new AbortController(); stop.abort();
     await assert.rejects(searchPromptAgent({ model: searchModel, signal: stop.signal, fetchRef: () => assert.fail() }), { name: 'AbortError' });
 });

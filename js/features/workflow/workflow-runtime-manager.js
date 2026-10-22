@@ -1629,7 +1629,8 @@ export function createWorkflowRuntimeManager({
             fetchRef,
             showToast,
             addLog,
-            recordNodeRequest,
+            recordNodeRequest: record => recordNodeRequest({ ...record, workflowId: runtimeState.activeWorkflowId,
+                source: runtimeState.requestSource || 'canvas', purpose: runtimeState.requestSource === 'agent' ? 'generate' : 'node' }),
             getProxyHeaders: (url, method = 'POST', extraHeaders = {}) => createProxyHeadersGetter(() => runtimeState)(url, method, extraHeaders),
             classifyProviderError,
             logRequestToPanel,
@@ -1786,6 +1787,7 @@ export function createWorkflowRuntimeManager({
             ? createRunContext({ workflowName, workflowId }, workflowData)
             : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData, { configurationSnapshot });
         context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
+        context.state.requestSource = runInput?.requestSource === 'agent' || runInput?.agentSequential ? 'agent' : 'canvas';
         if (runInput?.agentSequential) context.state.autoRetry = false;
         if (typeof createRunContext === 'function') {
             const dispose = context.dispose?.bind(context) || (() => {});

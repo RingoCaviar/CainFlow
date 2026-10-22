@@ -84,9 +84,10 @@ test('automatic saves are previewed exactly once; disabled downstreams do not su
 test('multi-step models require explicit user choices and never fall back after deletion', () => {
     const first = { id: 'first', modelId: 'image-one', taskType: 'image', protocol: 'openai', providerIds: ['p'] };
     const second = { ...first, id: 'second', modelId: 'image-two' };
-    const state = { models: [first, second], providers: [{ id: 'p', endpoint: 'https://example.test' }] };
+    const state = { models: [first, second], providers: [{ id: 'p', endpoint: 'https://example.test', apikey: 'controlled-key' }] };
     const adapter = createPromptAgentCanvasAdapter({ state }); const plan = normalizeCanvasPlan(draft(), graph());
     assert.throws(() => adapter.modelsFor(plan, ''), /手动/);
+    plan.agentProviders = {first:'p',second:'p'};
     assert.equal(adapter.modelsFor(plan, 'second').hero.model.id, 'second');
     plan.modelOverrides.hero = 'first'; assert.equal(adapter.modelsFor(plan, 'second').hero.model.id, 'first');
     state.models = [second]; assert.throws(() => adapter.modelsFor(plan, 'second'), /手动/);
@@ -118,7 +119,7 @@ test('controlled model can read canvas details then return a validated plan with
     const requests = []; const payloads = [{ canvasRead: { nodeIds: ['source'] } }, { canvasPlan: draft(), message: '检查方案' }];
     const model = { id: 'chat', modelId: 'test', protocol: 'openai', providerIds: ['provider'] };
     const reply = await createPromptAgentModelReply({ message: '做商品海报', model, models: [model], canvasContext: graph(),
-        providers: [{ id: 'provider', endpoint: 'https://example.test/v1', apikey: 'secret' }],
+        providerId: 'provider', providers: [{ id: 'provider', endpoint: 'https://example.test/v1', apikey: 'secret' }],
         fetchRef: async (_url, options) => { requests.push(JSON.parse(options.body)); return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payloads.shift()) } }] })); } });
     assert.equal(requests.length, 2); assert.equal(reply.canvasPlan.steps.length, 3);
     assert.ok(JSON.stringify(requests[1]).includes('canvasReads')); assert.ok(!JSON.stringify(requests).includes('secret'));
@@ -129,7 +130,7 @@ test('canvas vision reads only requested local originals and stops on missing me
     const pixels = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
     const requests = [], assets = [];
     const run = (getCanvasImage, signal) => createPromptAgentModelReply({ model, canvasContext: graph(), signal, getCanvasImage,
-        providers: [{ id: 'p', endpoint: 'https://example.test/v1' }],
+        providerId: 'p', providers: [{ id: 'p', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }],
         fetchRef: async (_url, options) => {
             requests.push(JSON.parse(options.body));
             const payload = requests.length === 1 ? { canvasRead: { nodeIds: ['source'], images: [{ nodeId: 'source', index: 0 }] } }

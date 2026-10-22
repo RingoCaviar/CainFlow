@@ -48,7 +48,7 @@ function projectHistory(conversation, images) {
 }
 
 export function createPromptAgentInput({
-    message = '', context = null, conversation = null, workflowMemory = '',
+    message = '', context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
     referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
 } = {}) {
     const images = [];
@@ -126,6 +126,8 @@ export function createPromptAgentInput({
         } : null,
         contextSummary: String(conversation?.contextSummary || ''),
         workflowMemory: String(conversation?.memory ?? workflowMemory),
+        ...(imageSizeCapabilities ? { imageSizeCapabilities } : {}),
+        ...(Object.keys(sizeSettings).length ? { imageSizeDefaults: sizeSettings } : {}),
         // Keep the user's per-message image numbering without resending any
         // archived dialogue. Pixel attachments are resolved by the catalog.
         earlierReferenceTurns: (conversation?.archivedMessages || []).flatMap((turn, index) => (

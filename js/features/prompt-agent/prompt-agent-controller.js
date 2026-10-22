@@ -1,5 +1,8 @@
+import { sizeCapabilities, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
+import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
+import { createAgentSizeMenu } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
-import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
@@ -113,6 +116,7 @@ export function createPromptAgentController({
     let initialized = false;
     let modelMenus = null;
     let searchMenu = null;
+    let sizeMenu = null;
     let searchViewRevision = 0;
     let searchViewCleanups = [];
     let panelWidthController = null;
@@ -176,17 +180,35 @@ export function createPromptAgentController({
         };
     }
 
+    const providerRoute = (purpose, getModels) => ({ getModels, getProviders,
+        getProviderId: modelId => conversationStore.getProvider(purpose, modelId),
+        setProviderId: (modelId, providerId) => conversationStore.setProvider(purpose, modelId, providerId) });
+    function providerError(purpose, model) {
+        if (!model) return null;
+        try { resolveAgentProvider(model, getProviders(), conversationStore.getProvider(purpose, model.id)); return null; }
+        catch (error) { return error; }
+    }
+    function configureProvider(purpose, model) {
+        openModelSettings(providerError(purpose, model)?.configurationTarget || { modelId: model?.id, field: 'providerIds' });
+    }
+    function selectedProvider(model, purpose) {
+        try { return resolveAgentProvider(model, getProviders(), conversationStore.getProvider(purpose, model.id)); }
+        catch { return {}; }
+    }
     const thinkingControls = [];
     function captureThinkingConfig(modelId) {
         const config = captureRequestConfig(modelId);
         const thinking = conversationStore.getThinking('chat', modelId);
-        if (!config || !thinking) return config;
+        if (!config) return config;
         const snapshot = JSON.parse(JSON.stringify(config));
-        for (const model of [snapshot.model, ...(snapshot.models || [])]) if (model?.id === modelId) model.thinking = { ...model.thinking, default: thinking };
+        snapshot.providerId = conversationStore.getProvider('chat', modelId);
+        snapshot.searchProviders = conversationStore.snapshot().providerSettings?.search || {};
+        for (const model of [snapshot.model, ...(snapshot.models || [])]) if (thinking && model?.id === modelId) model.thinking = { ...model.thinking, default: thinking };
         return snapshot;
     }
     function renderModelOptions() {
         searchMenu?.render();
+        sizeMenu?.render();
         renderImageModelOptions();
         const { input, modelSelect, modelHint, sendButton } = getElements();
         const models = getChatModels().filter((model) => model?.id && model?.modelId);
@@ -203,7 +225,17 @@ export function createPromptAgentController({
             option.textContent = getAgentModelLabel(model, getProviders());
             modelSelect.appendChild(option);
         });
-        modelSelect.value = models.some((model) => model.id === selected) ? selected : (models[0]?.id || '');
+        if (selected && !models.some(model => model.id === selected)) {
+            const missing = documentRef.createElement('option'); missing.value = selected;
+            missing.textContent = '已选对话模型不可用，请检查配置'; missing.disabled = true; modelSelect.appendChild(missing);
+        }
+        modelSelect.value = selected;
+        const error = providerError('chat', models.find(model => model.id === selected));
+        const status = documentRef.getElementById('prompt-agent-model-status');
+        if (status) status.textContent = error?.message || '已选对话模型不可用，请检查配置。';
+        if (modelHint) modelHint.hidden = !error && models.some(model => model.id === selected);
+        const configure = documentRef.getElementById('prompt-agent-add-model');
+        if (configure) configure.textContent = '配置模型与供应商';
         modelSelect.disabled = models.length === 0;
         thinkingControls.forEach(control => control.refresh());
         return models;
@@ -242,13 +274,16 @@ export function createPromptAgentController({
             imageModelSelect.value = selectedId;
             imageModelSelect.disabled = models.length === 0;
         }
-        if (imageModelHint) imageModelHint.hidden = valid;
+        const error = providerError('image', models.find(model => model.id === selectedId));
+        if (imageModelHint) imageModelHint.hidden = valid && !error;
         if (imageModelStatus) imageModelStatus.textContent = selectedId && !valid
             ? '已选生图模型不可用，请重新选择。'
             : (models.length ? '请选择生图模型后再应用或生成。' : '暂无可用生图模型，');
-        if (addImageModelButton) addImageModelButton.hidden = models.length > 0;
+        if (imageModelStatus && error) imageModelStatus.textContent = error.message;
+        if (addImageModelButton) { addImageModelButton.hidden = valid && !error; addImageModelButton.textContent = '配置模型与供应商'; }
         promptPlanActionStates.forEach((actionState) => actionState.sync());
         canvasViews.forEach(view => view.sync());
+        sizeMenu?.render();
         thinkingControls.forEach(control => control.refresh());
     }
 
@@ -268,12 +303,16 @@ export function createPromptAgentController({
         input?.removeAttribute('aria-activedescendant');
     }
 
+    function imageSizeCapabilities() {
+        const model = getSelectedImageModel();
+        return model ? sizeCapabilities(getEffectiveProtocol(model, selectedProvider(model, 'image'))) : null;
+    }
     function compressionProgress(message = '', fixedModel = null) {
         const models = getChatModels();
         const model = fixedModel || models.find(item => item.id === (getElements().modelSelect?.value || getSelectedModelId())) || models[0];
         const conversation = conversationStore.getCompactionContext();
         const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
-        const measurement = measurePromptAgentContext({ model, message, conversation,
+        const measurement = measurePromptAgentContext({ model, message, conversation, sizeSettings: conversationStore.getSize(conversationStore.getImageModelId()), imageSizeCapabilities: imageSizeCapabilities(),
             canvasContext: canvasAdapter?.context(canvasMentions?.read().map(item => item.id) || []) || null,
             searchAllowed: conversationStore.getSearchSettings().mode !== 'off',
             context: nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
@@ -790,6 +829,7 @@ export function createPromptAgentController({
         button?.setAttribute('aria-expanded', open ? 'true' : 'false');
         if (!open) {
             searchMenu?.close();
+            sizeMenu?.close();
             modelMenus?.close();
             setReferencePickerOpen(false);
             closeCommandMenu();
@@ -923,7 +963,9 @@ export function createPromptAgentController({
             if (revision !== workflowRevision) throw new Error('工作流或上下文已变化，请使用当前方案。');
             const model = getSelectedImageModel();
             if (!model) throw new Error('请先选择一个可用的生图模型。');
-            const prepared = nodeAdapter?.ensureTarget ? nodeAdapter.ensureTarget(plan, { modelId: model.id }) : plan;
+            const size = resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), current: nodeAdapter?.getContext?.(plan.targetNodeId)?.parameters, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
+            const sizedPlan = { ...plan, parameters: { ...plan.parameters, ...size.patch } };
+            const prepared = nodeAdapter?.ensureTarget ? nodeAdapter.ensureTarget(sizedPlan, { modelId: model.id, providerId: conversationStore.getProvider('image', model.id) }) : sizedPlan;
             if (!prepared?.targetNodeId) throw new Error('无法创建生图节点，请检查生图模型配置。');
             if (!conversationStore.bindPromptPlanTarget(message.promptAgentMessageIndex, prepared.targetNodeId)) {
                 throw new Error('方案已变化，请重新整理方案。');
@@ -938,10 +980,22 @@ export function createPromptAgentController({
         planElement.textContent = formatPlan(plan);
         message.appendChild(planElement);
 
+        const sizeStatus = documentRef.createElement('div'); sizeStatus.className = 'prompt-agent-size-clarification';
         const actions = documentRef.createElement('div');
         actions.className = 'prompt-agent-actions';
+        const selectionKey = () => { const model = getSelectedImageModel();
+            return model ? JSON.stringify([model.id, conversationStore.getProvider('image', model.id), selectedProvider(model, 'image').id, conversationStore.getSize(model.id)]) : ''; };
         const actionState = {
-            appliedModelId: '',
+            appliedSelection: '',
+            sizeIssue: null,
+            answerSize(answer) {
+                if (!this.isCurrent() || this.running || !this.sizeIssue) return false;
+                const patch = typeof answer === 'string' ? parseSizeAnswer(answer) : answer; if (!patch) return false;
+                if (patch.resolution && patch.resolution !== 'custom') { delete plan.parameters?.customWidth; delete plan.parameters?.customHeight; }
+                plan.parameters = { ...plan.parameters, ...patch };
+                conversationStore.updatePromptPlan(message.promptAgentMessageIndex, plan);
+                this.appliedSelection = ''; planElement.textContent = formatPlan(plan); planElement.appendChild(sizeStatus); this.sync(); onStateChange(); return true;
+            },
             running: runs.some((run) => run.status === 'running'),
             retryButtons: new Set(),
             isCurrent: () => revision === workflowRevision,
@@ -951,16 +1005,29 @@ export function createPromptAgentController({
                 const next = plan.referenceImages.filter((image) => !removed.has(image.sourceNodeId));
                 if (next.length === plan.referenceImages.length) return;
                 plan.referenceImages = next;
-                planElement.textContent = formatPlan(plan);
-                this.appliedModelId = '';
+                planElement.textContent = formatPlan(plan); planElement.appendChild(sizeStatus);
+                this.appliedSelection = '';
                 this.sync();
             },
             sync() {
                 const model = getSelectedImageModel();
                 const available = this.isCurrent() && Boolean(nodeAdapter) && Boolean(model);
-                const applied = Boolean(model && this.appliedModelId === model.id);
-                applyButton.disabled = applied || this.running || !available;
-                generateButton.disabled = this.running || !available || !executionAdapter;
+                let sizeError = null;
+                this.sizeIssue = null; clearElement(sizeStatus);
+                if (model) try {
+                    const size = resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), current: nodeAdapter?.getContext?.(plan.targetNodeId)?.parameters, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
+                    sizeStatus.textContent = size.summary;
+                } catch (error) {
+                    sizeError = error; this.sizeIssue = error.sizeClarification ? error : null;
+                    const text = documentRef.createElement('p'); text.textContent = error.message; sizeStatus.appendChild(text);
+                    for (const choice of error.sizeClarification?.choices || []) {
+                        const button = documentRef.createElement('button'); button.type = 'button'; button.className = 'btn btn-secondary'; button.textContent = choice.label; button.disabled = this.running;
+                        button.addEventListener('click', () => this.answerSize({ resolution: choice.value })); sizeStatus.appendChild(button);
+                    }
+                }
+                const applied = Boolean(model && this.appliedSelection === selectionKey());
+                applyButton.disabled = applied || this.running || !available || Boolean(sizeError);
+                generateButton.disabled = this.running || !available || !executionAdapter || Boolean(sizeError);
                 applyButton.textContent = applied ? '已应用' : (plan.targetNodeId ? '应用到节点' : '创建并应用');
                 generateButton.textContent = plan.targetNodeId ? '应用并生成' : '创建并生成';
                 this.retryButtons.forEach((button) => { button.disabled = this.running || !available; });
@@ -973,12 +1040,12 @@ export function createPromptAgentController({
         applyButton.textContent = '应用到节点';
         applyButton.addEventListener('click', () => {
             if (!actionState.isCurrent() || actionState.running
-                || (actionState.appliedModelId && actionState.appliedModelId === getSelectedImageModel()?.id)) return;
+                || (actionState.appliedSelection && actionState.appliedSelection === selectionKey())) return;
             try {
                 if (!nodeAdapter?.applyPromptPlan?.(preparePlan())) {
                     throw new Error('目标节点或可用参数已变化，请基于当前节点重新整理方案。');
                 }
-                actionState.appliedModelId = getSelectedImageModel().id;
+                actionState.appliedSelection = selectionKey();
                 applyButton.textContent = '已应用';
             } catch (error) {
                 appendMessage('agent', `方案未应用：${error.message}`);
@@ -996,6 +1063,7 @@ export function createPromptAgentController({
         });
         actions.appendChild(generateButton);
         message.appendChild(actions);
+        planElement.appendChild(sizeStatus);
         actionState.applyButton = applyButton;
         actionState.generateButton = generateButton;
         actionState.sync();
@@ -1272,7 +1340,7 @@ export function createPromptAgentController({
         if (actionState) {
             // A generation may switch this target to another model even if
             // execution later fails. An earlier apply badge is no longer valid.
-            actionState.appliedModelId = '';
+            actionState.appliedSelection = '';
             actionState.running = true;
             actionState.sync();
         }
@@ -1342,8 +1410,8 @@ export function createPromptAgentController({
             const view = { element, workflowId, revision, canvasPlan: plan, plan: { targetNodeId: run.targetNodeId } };
             runViews.set(run.runId, view); renderRunView(view, run);
         };
-        const view = renderCanvasPlan({ documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, getProviders, getThinking: modelId => conversationStore.getThinking('image', modelId), preview: openResultPreview,
-            getModelId: () => conversationStore.getImageModelId(), changed, isCurrent,
+        const view = renderCanvasPlan({ documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, getProviders, getProviderId: modelId => conversationStore.getProvider('image', modelId), getThinking: modelId => conversationStore.getThinking('image', modelId), getSize: modelId => conversationStore.getSize(modelId), preview: openResultPreview,
+            getModelId: () => conversationStore.getImageModelId(), changed, isCurrent, configure: openModelSettings,
             run: async (plan, retry) => {
                 if (!retry) plan.completedSteps = [];
                 const attempt = { id: createRunId(), status: 'running', steps: [] };
@@ -1399,6 +1467,14 @@ export function createPromptAgentController({
         // Do this immediately before reading the select value. This covers late
         // settings hydration and prevents an otherwise valid request from being
         // sent without a modelId.
+        if (!requestPending && !pendingReferenceImages.length && text) {
+            const latest = [...canvasViews].at(-1) || [...promptPlanActionStates].at(-1);
+            if (latest?.answerSize?.(text)) {
+                appendMessage('user', text);
+                appendMessage('agent', '已更新待确认方案的尺寸，请检查方案后点击应用或生成。');
+                input.value = ''; return;
+            }
+        }
         const models = renderModelOptions();
         if (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error)) return;
         if (!text && pendingReferenceImages.length === 0) return;
@@ -1408,12 +1484,15 @@ export function createPromptAgentController({
         operation.model = { ...models.find(model => model.id === replyModelId) };
         operation.config = captureThinkingConfig(replyModelId);
         operation.searchSettings = conversationStore.getSearchSettings();
+        operation.sizeSettings = conversationStore.getSize(conversationStore.getImageModelId());
+        operation.imageSizeCapabilities = imageSizeCapabilities();
         let completedSearch = null;
         try {
             if (compressionProgress(text, operation.model).reached && !await autoCompact(operation, replyModelId, text)) return;
             if (!isCurrentOperation(operation)) return;
             const referenceImages = stagedReferences.filter(image => pendingReferenceImages.includes(image));
             if (!text && !referenceImages.length) return;
+            const sizeDefaults = operation.sizeSettings;
             const workflowMemory = conversationStore.getContext();
             // Snapshot before appending the current turn: preserve assistant drafts
             // and role boundaries without duplicating the new user request.
@@ -1451,6 +1530,8 @@ export function createPromptAgentController({
                 message: text,
                 context,
                 workflowMemory,
+                sizeSettings: sizeDefaults,
+                imageSizeCapabilities: operation.imageSizeCapabilities,
                 conversation,
                 referenceImages,
                 workflowReferenceImages,
@@ -1519,20 +1600,23 @@ export function createPromptAgentController({
         });
         modelSelect?.addEventListener('change', () => {
             setSelectedModelId(modelSelect.value);
+            onStateChange();
+            renderModelOptions();
             thinkingControls.forEach(control => control.refresh());
             if (commandMenuOpen) renderCommandMenu();
         });
         modelSelect?.addEventListener('focus', renderModelOptions);
-        addModelButton?.addEventListener('click', openModelSettings);
+        addModelButton?.addEventListener('click', () => configureProvider('chat', getSearchModels().find(model => model.id === modelSelect?.value)));
         const { imageModelSelect, addImageModelButton } = getElements();
         imageModelSelect?.addEventListener('change', () => {
             const modelId = imageModelSelect.value;
             if (modelId && !getImageModels().some((model) => model.id === modelId)) return;
-            if (conversationStore.setImageModelId(modelId)) onStateChange();
+            conversationStore.setImageModelId(modelId);
+            onStateChange();
             renderImageModelOptions();
         });
         imageModelSelect?.addEventListener('focus', renderImageModelOptions);
-        addImageModelButton?.addEventListener('click', openModelSettings);
+        addImageModelButton?.addEventListener('click', () => configureProvider('image', getSelectedImageModel()));
         input?.addEventListener('focus', renderModelOptions);
         input?.addEventListener('input', () => {
             renderCommandMenu({ resetSelection: true });
@@ -1648,13 +1732,24 @@ export function createPromptAgentController({
         for (const [purpose, select, models] of [['chat', modelSelect, getChatModels], ['image', imageModelSelect, getImageModels]]) {
             if (!select?.parentElement?.appendChild) continue;
             thinkingControls.push(createThinkingControl({ documentRef, parent: select.parentElement, compact: true, title: purpose === 'chat' ? '对话思考设置' : '生图思考设置',
-                getOptions: () => { const model = models().find(item => item.id === select.value) || {}; return { model, provider: getResolvedProviderForModel(model, getProviders()) || {}, task: purpose, protocol: model.protocol }; },
+                getOptions: () => { const model = models().find(item => item.id === select.value) || {}; return { model, provider: selectedProvider(model, purpose), task: purpose, protocol: model.protocol }; },
                 getValue: () => conversationStore.getThinking(purpose, select.value),
                 onChange: value => { conversationStore.setThinking(purpose, select.value, value); canvasViews.forEach(view => view.sync()); onStateChange(); } }));
         }
         setOpen(false);
+        sizeMenu = createAgentSizeMenu({ documentRef,
+            getModel: () => getImageModels().find(model => model.id === conversationStore.getImageModelId()),
+            getProvider: model => model ? selectedProvider(model, 'image') : null,
+            getValue: id => conversationStore.getSize(id),
+            onChange: (id, value) => { conversationStore.setSize(id, value); canvasViews.forEach(view => view.sync()); onStateChange(); }
+        });
         searchMenu = createAgentSearchMenu({ documentRef, getModels: getSearchModels, getProviders,
-            getCurrentModel: () => getChatModels().find(model => model.id === getElements().modelSelect?.value),
+            getProviderId: (purpose, modelId) => conversationStore.getProvider(purpose, modelId),
+            getCurrentModel: () => {
+                const model = getChatModels().find(model => model.id === getElements().modelSelect?.value);
+                if (!model) return null;
+                return { ...model, thinking: { ...model.thinking, default: conversationStore.getThinking('chat', model.id) || model.thinking?.default } };
+            },
             configure: target => {
                 const revision = workflowRevision;
                 searchMenu.close();
@@ -1668,8 +1763,9 @@ export function createPromptAgentController({
             refreshSelects: () => modelMenus?.refresh() });
         const searchModel = documentRef.getElementById('prompt-agent-search-model');
         searchModel?.addEventListener('focus', () => searchMenu.render());
-        modelMenus = createPromptAgentModelMenus({ documentRef, selects: [modelSelect, getElements().imageModelSelect,
-            { select: searchModel, parent: 'agent-search' },
+        modelMenus = createPromptAgentModelMenus({ documentRef, selects: [{ select: modelSelect, route: providerRoute('chat', getChatModels) },
+            { select: getElements().imageModelSelect, route: providerRoute('image', getImageModels) },
+            { select: searchModel, parent: 'agent-search', route: providerRoute('search', getSearchModels) },
             { select: documentRef.getElementById('prompt-agent-search-mode'), parent: 'agent-search', placeholder: '选择联网方式' }
         ] });
         bindPromptAgentCanvasDismiss({ documentRef, close });
@@ -1726,6 +1822,7 @@ export function createPromptAgentController({
     }
 
     function restoreWorkflow(value) {
+        sizeMenu?.close();
         thinkingControls.forEach(control => control.close());
         canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
         cancelRequest({ silent: true });

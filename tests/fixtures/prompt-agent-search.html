@@ -47,9 +47,9 @@ try {
     const media = createMediaControllerApi({ state, getNodeById: id => state.nodes.get(id), getImageResolution: async () => ({width:1,height:1}), estimateDataUrlSize: () => 100,
         showToast() {}, addLog() {}, scheduleSave() {}, documentRef: document, windowRef: window });
     const controller = createPromptAgentController({ getChatModels: () => models, getImageModels: () => [], nodeAdapter, referenceSource: source, resizeObserverFactory: () => null, getPanelWidth: () => 300,
-        getSelectedModelId: () => 'chat', readWebImage,
+        getSelectedModelId: () => 'chat', captureRequestConfig: () => ({}), readWebImage,
         openResultPreview: (images, index) => media.openFullscreenPreview(images[index], null, { images, index }),
-        createReply: request => createPromptAgentModelReply({ ...request, model: chat, models: [chat, dedicated], providers: [{id:'p',endpoint:'https://controlled.test/v1'}],
+        createReply: request => createPromptAgentModelReply({ ...request, providerId: request.config.providerId, searchSettings: { ...request.searchSettings, providerId: request.config.searchProviders.search }, model: chat, models: [chat, dedicated], providers: [{id:'p',endpoint:'https://controlled.test/v1',apikey:'controlled-key'}],
             searchRef: async ({model}) => { searches++; check(model.id === 'search', 'uses selected dedicated model'); return {
                 searched: true, kind: 'images', query: '海报参考', text: '检索资料', sources: [{ id: 's1', url: 'https://source.test/page', title: '图片来源' }],
                 images: [{id:'image1',imageUrl:'https://image.test/full.png',thumbnailUrl:'https://image.test/thumb.png',pageUrl:'https://source.test/page',title:'用于海报的参考图'}],
@@ -67,7 +67,7 @@ try {
             }
         })
     });
-    controller.init(); controller.restoreWorkflow({searchSettings:{mode:'auto',modelId:'search'}}); controller.open();
+    controller.init(); controller.restoreWorkflow({providerSettings:{chat:{chat:'p'},search:{search:'p'}},searchSettings:{mode:'auto',modelId:'search'}}); controller.open();
     const panel = document.getElementById('prompt-agent-panel'), input = document.getElementById('prompt-agent-input');
     input.value = '搜索海报参考图'; await controller.submit(); await tick();
     check(creates === 0 && searches === 1, 'search does not import');

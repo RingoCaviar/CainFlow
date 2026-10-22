@@ -11,9 +11,9 @@ const models = [
 ];
 
 test('Agent model labels follow configured Provider order without exposing connection credentials', () => {
-    assert.equal(getAgentModelLabel(models[0], providers), '同名模型 - 供应商甲');
-    assert.equal(getAgentModelLabel(models[1], providers), '同名模型 - 供应商乙 等2个供应商');
-    assert.equal(getAgentModelLabel({ modelId: 'fallback', providerIds: ['missing'] }, providers), 'fallback');
+    assert.equal(getAgentModelLabel(models[0], providers), '同名模型 · 请选择供应商');
+    assert.equal(getAgentModelLabel(models[1], providers), '同名模型 · 请选择供应商');
+    assert.equal(getAgentModelLabel({ modelId: 'fallback', providerIds: ['missing'] }, providers), 'fallback · 请选择供应商');
 });
 
 test('Agent chat, image, search and step menus expose Provider names and keep manual selections', { timeout: 60000 }, async () => {
@@ -35,7 +35,7 @@ test('Agent chat, image, search and step menus expose Provider names and keep ma
             const view = renderCanvasPlan({ documentRef: document, parent: host,
                 plan: { id: 'provider-test', order: ['image'], steps: [{ id: 'image', type: 'ImageGenerate', title: '生成' }] },
                 adapter: { describe: () => [], stepStatus: () => 'draft', modelsFor: () => [], canUndo: () => '' },
-                getModels: () => [models[1]], getProviders: () => providers, getModelId: () => 'image', changed: () => {}, isCurrent: () => true });
+                getModels: () => [models[1]], getProviders: () => providers, getModelId: () => 'image', getProviderId: () => 'b', changed: () => {}, isCurrent: () => true });
             const select = host.querySelector('select');
             const before = [...select.options].map(o => o.textContent);
             providers[1].name = '更名供应商'; view.sync();

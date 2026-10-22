@@ -149,6 +149,7 @@ try {
             loadImageData: async (id, image) => { state.nodes.get(id).data.image = image; return true; }
         }),
         getChatModels: () => chatModels,
+        getProviders: () => state.providers,
         getImageModels: () => state.models,
         loadResultImages: async (keys) => keys.map(() => 'data:image/png;base64,UkVTVUxU'),
         openResultPreview: (images, index) => previewRequests.push({ images, index }),
@@ -159,8 +160,8 @@ try {
     const imageModelSelect = document.getElementById('prompt-agent-image-model');
     const imageModelHint = document.getElementById('prompt-agent-image-model-hint');
     const chooseImageModel = (id) => {
-        imageModelSelect.value = id;
-        imageModelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        imageModelSelect.nextElementSibling.click();
+        document.querySelector(`#prompt-agent-image-model-menu [data-model-id="${id}"][data-provider-id="provider-1"]`).click();
     };
     const unavailable = !modelHint.hidden && document.getElementById('prompt-agent-send').disabled;
     const hintStyle = getComputedStyle(modelHint);
@@ -169,10 +170,12 @@ try {
     const addModelOpensSettings = settingsOpens === 1;
     document.getElementById('prompt-agent-add-image-model').click();
     const addImageModelOpensSettings = settingsOpens === 2;
-    chatModels = [{ id: 'chat-1', modelId: 'chat-test', name: 'Chat test' }];
+    chatModels = [{ id: 'chat-1', modelId: 'chat-test', name: 'Chat test', autoCompactTokenLimit: 100000, providerIds: ['provider-1'] }];
 
     const toolbar = document.getElementById('btn-prompt-agent');
-    toolbar.click();
+    toolbar.click(); await tick();
+    document.querySelector('#prompt-agent-model + button').click();
+    document.querySelector('#prompt-agent-model-menu [data-model-id="chat-1"][data-provider-id="provider-1"]').click();
     const opened = panel.classList.contains('active')
         && panel.getAttribute('aria-hidden') === 'false'
         && !panel.hasAttribute('inert')
@@ -207,7 +210,7 @@ try {
     controller.refreshModels();
     const noImplicitDefault = imageModelSelect.value === '' && imageModelSelect.options[0].textContent.includes('请选择')
         && [...noTargetActions].every((button) => button.disabled);
-    chooseImageModel('image-second');
+    await tick(); chooseImageModel('image-second');
     const noTargetActionsReady = noTargetActions.length === 2 && [...noTargetActions].every((button) => !button.disabled)
         && noTargetActions[1].textContent === '创建并生成';
     const draftDoesNotCreate = createdNodes.length === 0 && runs.length === 0;
@@ -246,6 +249,7 @@ try {
     const copyableText = getComputedStyle(validAgent.querySelector('.prompt-agent-message-body')).userSelect;
     const validActions = validAgent.querySelectorAll('.prompt-agent-actions button');
     const referenceRequest = requests[1];
+    if (!referenceRequest) throw new Error(panel.innerText);
     const referencesInRequest = referenceRequest.referenceImages.map((image) => image.name);
     const referencesInWorkflow = referenceRequest.workflowReferenceImages.filter(image => image.dataUrl && !image.runId).map((image) => image.name);
     if (!referenceRequest.workflowReferenceImages.some(image => image.latestResult && image.dataUrl === 'data:image/png;base64,UkVTVUxU')) throw new Error('Latest result pixels missing');
@@ -274,6 +278,7 @@ try {
     const failureState = await waitFor(() => recoveryAgent.querySelector('.prompt-agent-run-state')?.textContent.includes('供应商暂时不可用'));
     const runState = recoveryAgent.querySelector('.prompt-agent-run-state');
     const failureVisible = failureState && runState.textContent.includes('生成失败');
+    await waitFor(() => runState.querySelectorAll('button').length === 2 && !recoveryActions[1].disabled);
     runState.querySelectorAll('button')[1]?.click();
     state.models = [imageModels[0]];
     controller.refreshModels();
@@ -284,7 +289,7 @@ try {
         && imageModelSelect.value !== 'image-first' && !imageModelHint.hidden && runs.length === runCountBeforeUnavailableRetry;
     state.models = imageModels.slice();
     controller.refreshModels();
-    chooseImageModel('image-second');
+    await tick(); chooseImageModel('image-second');
     executionMode = 'success';
     runState.querySelector('button')?.click();
     const latestResult = () => [...recoveryAgent.querySelectorAll('.prompt-agent-run-state')].at(-1);
@@ -330,7 +335,7 @@ try {
         && [...restoredAgent.querySelectorAll('.prompt-agent-run-state')].at(-1).textContent.startsWith('生成完成')
         && !restoredAgent.querySelectorAll('.prompt-agent-actions button')[1].disabled);
     const restoredReusesTarget = createdNodes.length === 1 && runs.at(-1).selectedNodeIds[0] === 'image-1';
-    chooseImageModel('image-first');
+    await tick(); chooseImageModel('image-first');
     const runsBeforeModelChange = runs.length;
     restoredAgent.querySelectorAll('.prompt-agent-actions button')[1].click();
     await waitFor(() => runs.length > runsBeforeModelChange && restoredAgent.querySelectorAll('.prompt-agent-run-state').length === previousRunCount + 2);

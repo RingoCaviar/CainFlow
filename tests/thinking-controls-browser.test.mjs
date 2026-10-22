@@ -21,7 +21,9 @@ test('thinking controls persist Agent choices, apply to nodes and reach actual c
         await send('Page.reload'); await delay(1000); await waitFor("document.getElementById('prompt-agent-model')?.options.length>0");
         await waitFor("document.querySelectorAll('.prompt-agent-settings .thinking-control').length===2");
         await evaluate(`document.getElementById('btn-prompt-agent').click(); document.getElementById('prompt-agent-panel').style.width='300px';
-            const image=document.getElementById('prompt-agent-image-model');image.value='image';image.dispatchEvent(new Event('change',{bubbles:true}));`);
+            for(const [id,model] of [['prompt-agent-model','chat'],['prompt-agent-image-model','image']]) {
+                document.querySelector('#'+id+' + button').click();document.querySelector('#'+id+'-menu [data-model-id="'+model+'"][data-provider-id="p"]').click();
+            }`);
         for (const id of ['prompt-agent-model', 'prompt-agent-image-model']) {
             await evaluate(`document.getElementById('${id}').parentElement.querySelector('.thinking-control').open=true`);
             await waitFor("Boolean(document.querySelector('.prompt-agent-thinking-menu select'))");

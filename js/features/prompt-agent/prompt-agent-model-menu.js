@@ -1,7 +1,8 @@
-import { getModelOptionLabel } from '../execution/provider-request-utils.js';
+import { getModelProviders } from '../execution/provider-request-utils.js';
+import { getAgentProviderLabel } from './prompt-agent-provider.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
-export function getAgentModelLabel(model, providers = []) {
-    return getModelOptionLabel({ ...model, name: model.name || model.modelId || model.id }, providers);
+export function getAgentModelLabel(model, providers = [], providerId = '') {
+    return getAgentProviderLabel(model, providers, providerId);
 }
 
 // Adapt the node select contract (native value + input/change) without node bindings.
@@ -34,7 +35,7 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
         menu.style.top = `${up ? Math.max(8, rect.top - menu.getBoundingClientRect().height - 4) : rect.bottom + 4}px`;
     };
     for (const entry of selects.filter(Boolean)) {
-        const { select, parent: parentId = parent, placeholder: emptyText = placeholder } = 'select' in entry ? entry : { select: entry };
+        const { select, route, parent: parentId = parent, placeholder: emptyText = placeholder } = 'select' in entry ? entry : { select: entry };
         if (!select?.insertAdjacentElement) continue;
         const originalTabIndex = select.getAttribute('tabindex');
         const originalHidden = select.getAttribute('aria-hidden');
@@ -52,6 +53,8 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
         const sync = () => {
             trigger.disabled = select.disabled;
             trigger.textContent = select.selectedOptions[0]?.textContent || emptyText;
+            const model = route?.getModels().find(item => item.id === select.value);
+            if (model) trigger.textContent = getAgentModelLabel(model, route.getProviders(), route.getProviderId(model.id));
             trigger.title = trigger.textContent;
             if (current?.select === select) close();
         };
@@ -70,7 +73,20 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             if (parentId) menu.dataset.agentPopoverParent = parentId;
             menu.setAttribute('role', 'listbox');
             menu.setAttribute('aria-label', select.getAttribute('aria-label'));
-            for (const option of select.options) {
+            const options = [...select.options].flatMap(option => {
+                const model = route?.getModels().find(item => item.id === option.value);
+                if (!model) return [{ value: option.value, textContent: option.textContent, disabled: option.disabled, selected: option.selected }];
+                const selectedProvider = route.getProviderId(model.id);
+                const bound = getModelProviders(model, route.getProviders());
+                const ids = bound.map(provider => provider.id);
+                if (!ids.length && !selectedProvider) ids.push('');
+                if (selectedProvider && !ids.includes(selectedProvider)) ids.push(selectedProvider);
+                return ids.map(providerId => ({ value: model.id, providerId,
+                    textContent: getAgentModelLabel(model, route.getProviders(), providerId),
+                    disabled: option.disabled || !providerId || !bound.some(provider => provider.id === providerId),
+                    selected: option.selected && selectedProvider === providerId }));
+            });
+            for (const option of options) {
                 const item = documentRef.createElement('button');
                 item.type = 'button';
                 item.className = 'prompt-agent-model-option';
@@ -79,12 +95,15 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
                 item.setAttribute('role', 'option');
                 item.setAttribute('aria-selected', String(option.selected));
                 item.tabIndex = -1;
+                item.dataset.modelId = option.value;
+                if (option.providerId !== undefined) item.dataset.providerId = option.providerId;
                 item.addEventListener('click', event => {
                     event.stopPropagation();
                     if (item.disabled || select.disabled) return;
                     close(true);
-                    if (select.value !== option.value) {
+                    if (select.value !== option.value || (route && option.providerId !== undefined && route.getProviderId(option.value) !== option.providerId)) {
                         select.value = option.value;
+                        if (route && option.providerId !== undefined) route.setProviderId(option.value, option.providerId);
                         select.dispatchEvent(new Event('input', { bubbles: true }));
                         select.dispatchEvent(new Event('change', { bubbles: true }));
                     }

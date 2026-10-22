@@ -386,7 +386,7 @@
                     <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">&times;</button>
                 </div>
                 <p id="prompt-agent-image-model-hint" class="prompt-agent-model-hint" aria-live="polite"><span id="prompt-agent-image-model-status">请选择生图模型后再应用或生成。</span><button id="prompt-agent-add-image-model" type="button" hidden>点击添加生图模型</button></p>
-                <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden>暂无可用模型，<button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
+                <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden><span id="prompt-agent-model-status">暂无可用模型，</span><button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
                 <form id="prompt-agent-form" class="prompt-agent-composer">
                     <section id="prompt-agent-search-menu" class="prompt-agent-search-menu" role="dialog" aria-label="Agent 联网设置" hidden>
                         <label>联网方式<select id="prompt-agent-search-mode" aria-label="Agent 联网方式"><option value="auto">自动判断</option><option value="off">关闭</option></select></label>
@@ -421,6 +421,7 @@
                         <button id="prompt-agent-reference-more" type="button" hidden>加载更多</button>
                     </section>
                     <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加参考图" title="从场景、历史或本地添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+                    <button id="prompt-agent-size-button" class="btn btn-ghost" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prompt-agent-size-menu">尺寸</button>
                     <button id="prompt-agent-search-button" class="btn btn-ghost" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="prompt-agent-search-menu">联网</button>
                     <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
                     <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
@@ -843,8 +844,9 @@
         <div class="drawer-content statistics-drawer-content">
             <section class="statistics-summary-grid">
                 <div class="statistics-metric">
-                    <span class="statistics-metric-label">节点请求总数</span>
+                    <span class="statistics-metric-label">请求总数</span>
                     <strong id="statistics-total-requests" class="statistics-metric-value">0</strong>
+                    <span id="statistics-source-counts" class="statistics-metric-label">画布 0 · Agent 0</span>
                 </div>
                 <div class="statistics-metric">
                     <span class="statistics-metric-label">成功率</span>
@@ -860,7 +862,7 @@
                     </select>
                 </div>
                 <div id="statistics-provider-ranking" class="statistics-provider-ranking"></div>
-                <div id="statistics-empty" class="statistics-empty">今天还没有节点请求记录</div>
+                <div id="statistics-empty" class="statistics-empty">今天还没有请求记录</div>
             </section>
             <div class="statistics-updated-note">更新时间 <span id="statistics-updated-time">--:--:--</span></div>
             <div class="statistics-day-nav">
@@ -1172,7 +1174,13 @@
             <div class="context-menu-divider" id="context-menu-node-divider"></div>
         </div>
         <div class="context-menu-header">添加节点</div>
-        <button type="button" class="context-menu-item" id="context-menu-search-nodes">搜索节点…</button>
+        <button type="button" class="context-menu-item" id="context-menu-search-nodes">
+            <svg class="icon-sm" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5"></circle>
+                <path d="m16 16 4.5 4.5"></path>
+            </svg>
+            <span>搜索节点…</span>
+        </button>
         <div class="context-menu-item context-menu-item-submenu" data-submenu-target="context-menu-image-nodes">
             <span class="context-menu-item-main">
                 <svg class="icon-sm">

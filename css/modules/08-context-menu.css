@@ -95,3 +95,17 @@
     height: 1px;
     margin: 4px 8px;
 }
+
+/* Native menu buttons share the same flat row geometry as other menu items. */
+button.context-menu-item {
+    appearance: none;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    border: 0;
+    font-family: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    text-align: left;
+    box-shadow: none;
+}

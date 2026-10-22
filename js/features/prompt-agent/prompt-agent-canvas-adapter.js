@@ -1,8 +1,10 @@
+import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
+import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
 import { createCanvasContext, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
 import { assertCanvasPlanCurrent, describeCanvasPlan } from './prompt-agent-canvas-plan.js';
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
-import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
 import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.js';
 
@@ -38,10 +40,24 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             const id = plan.modelOverrides?.[step.id] || defaultModelId;
             const model = models.find(item => item.id === id);
             if (!model) throw new Error(`请为「${step.title}」手动选择可用的生图模型`);
-            const provider = getResolvedProviderForModel(model, state.providers);
+            const provider = resolveAgentProvider(model, state.providers, plan.providerOverrides?.[step.id]?.[id] ?? plan.agentProviders?.[id]);
             if (!provider?.endpoint) throw new Error(`「${step.title}」的 Provider 不可用`);
             const thinking = resolveThinking({ model, provider, task: 'image', protocol: model.protocol }, plan.thinkingOverrides?.[step.id]?.[id], plan.agentThinking?.[id]).setting;
             return [step.id, { model, provider, thinking }];
+        }));
+    }
+    function sizesFor(plan, defaultModelId, selected = modelsFor(plan, defaultModelId)) {
+        return Object.fromEntries(plan.steps.filter(step => step.type === 'ImageGenerate').map(step => {
+            const config = selected[step.id];
+            const targetId = step.nodeId || plan.bindings?.[step.id];
+            const targetModel = documentRef?.getElementById(`${targetId}-apiconfig`)?.value || state.nodes?.get(targetId)?.apiConfigId;
+            const current = targetModel === config.model.id ? nodeAdapter.getContext(targetId)?.parameters || {} : {};
+            try {
+                const size = resolveAgentSize({ protocol: getEffectiveProtocol(config.model, config.provider), current,
+                    defaults: plan.agentSizes?.[config.model.id],
+                    parameters: { ...sizeFields(step.parameters), ...sizeFields(step.generationPatch), ...sizeFields(step.sizeAnswer) } });
+                return [step.id, size];
+            } catch (error) { error.stepId = step.id; error.message = `「${step.title}」${error.message}`; throw error; }
         }));
     }
     function validateGraph(plan) {
@@ -75,9 +91,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         if (activePlan) throw new Error('另一个画布方案正在执行');
         assertCanvasPlanCurrent(plan, context());
         const selected = modelsFor(plan, defaultModelId);
+        const sizes = sizesFor(plan, defaultModelId, selected);
         executionConfigs.set(plan.id, cloneCanvasValue({ models: state.models, providers: state.providers }));
         validateGraph(plan);
-        const signature = JSON.stringify({ steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [],
+        const signature = JSON.stringify({ sizes, steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [],
             models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id, thinking: config.thinking }])) });
         if (plan.appliedSignature === signature && plan.steps.every(step => state.nodes.has(plan.bindings?.[step.id]))) {
             if (await save() === false) throw new Error('方案保存失败，请重试');
@@ -123,7 +140,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const prompt = step.parameters.prompt ?? nodeAdapter.getContext(nodeId)?.prompt;
                         const patch = { targetNodeId: nodeId, prompt, ...(typeof step.negativePrompt === 'string' ? { negativePrompt: step.negativePrompt } : {}),
                             parameters: step.generationPatch || Object.fromEntries(Object.entries(step.parameters).filter(([key]) => generationFields[key]).map(([key, value]) => [generationFields[key], value])) };
-                        nodeAdapter.ensureTarget(patch, { modelId: selected[id].model.id });
+                        patch.parameters = { ...patch.parameters, ...sizes[id].patch };
+                        nodeAdapter.ensureTarget(patch, { modelId: selected[id].model.id, providerId: selected[id].provider.id });
                         state.nodes.get(nodeId).data.thinking = cloneCanvasValue(selected[id].thinking);
                         state.nodes.get(nodeId).el?._thinkingControl?.refresh();
                         if (!nodeAdapter.applyPromptPlan(patch)) throw new Error('生图参数不兼容');
@@ -154,7 +172,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         from: { nodeId: from, port: link.from.port, type: link.type }, to: { nodeId: to, port: link.to.port, type: link.type } });
                 }
                 graphChanged();
-                plan.bindings = bindings; plan.appliedSignature = signature;
+                plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
                 plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
                 plan.baseline = canvasBaseline(context(), plan.dependencies, Object.values(bindings));
                 onPlanChange();
@@ -190,11 +208,16 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 const label = value => !value || value.mode === 'default' ? '接口默认' : String(value.value ?? value.mode);
                 for (const step of plan.steps.filter(item => item.type === 'ImageGenerate')) {
                     const before = state.nodes.get(step.nodeId || plan.bindings?.[step.id])?.data?.thinking;
+                    const node = state.nodes.get(step.nodeId || plan.bindings?.[step.id]);
+                    const oldProvider = state.providers.find(provider => provider.id === node?.data?.providerId);
+                    lines.push(`${step.title} · 供应商：${oldProvider?.name || node?.data?.providerId || '未设置'} → ${selected[step.id].provider.name || selected[step.id].provider.id}`);
                     lines.push(`${step.title} · 思考设置：${label(before)} → ${label(selected[step.id].thinking)}`);
                 }
             } catch (error) { lines.push(error.message); }
+            try { for (const [id, size] of Object.entries(sizesFor(plan, defaultModelId))) lines.push(`${plan.steps.find(step => step.id === id).title} · 尺寸：${size.summary}`); }
+            catch (error) { lines.push(error.message); }
             return lines;
-        }, apply, execute, modelsFor, canUndo,
+        }, apply, execute, modelsFor, sizesFor, canUndo,
         readImage: getImageAsset,
         inputs: plan => {
             const current = context();
@@ -216,7 +239,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         isRunning: id => activePlan?.id === id,
         executionRecord: (plan, id) => {
             const nodeId = plan.bindings[id];
-            return { thinking: cloneCanvasValue(state.nodes.get(nodeId)?.data?.thinking || { mode: 'default' }), modelId: documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '', providerId: documentRef.getElementById(`${nodeId}-provider`)?.value || '' };
+            return { size: cloneCanvasValue(plan.appliedSizes?.[id]?.effective || null), thinking: cloneCanvasValue(state.nodes.get(nodeId)?.data?.thinking || { mode: 'default' }), modelId: documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '', providerId: documentRef.getElementById(`${nodeId}-provider`)?.value || '' };
         },
         stepStatus: (plan, id) => {
             const node = state.nodes.get(plan.bindings?.[id]);

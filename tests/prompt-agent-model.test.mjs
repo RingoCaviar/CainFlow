@@ -63,7 +63,7 @@ test('two identical latest outputs still require a batch position', async () => 
 
 test('OpenAI and Google expose actual input usage without counting generated output', async () => {
     for (const protocol of ['openai', 'google']) {
-        const reply = await createPromptAgentModelReply({ model: { ...model, protocol }, providers: [provider], message: '你好',
+        const reply = await createPromptAgentModelReply({ model: { ...model, protocol }, providers: [provider], providerId: provider.id, message: '你好',
             fetchRef: async () => ({ ok: true, json: async () => protocol === 'google' ? {
                 candidates: [{ content: { parts: [{ text: JSON.stringify({ intent: 'chat', message: '你好' }) }] } }],
                 usageMetadata: { promptTokenCount: 1234, totalTokenCount: 8888 }
@@ -149,7 +149,7 @@ test('Agent offers only configured chat models with a usable Provider', () => {
 test('Prompt Agent sends a real structured chat request and converts the response to a target-bound plan', async () => {
     let request;
     const reply = await createPromptAgentModelReply({
-        model, providers: [provider], message: '改成电影感夜景', context: { nodeId: 'node-1', prompt: '城市街道', parameters: {} },
+        model, providers: [provider], providerId: provider.id, message: '改成电影感夜景', context: { nodeId: 'node-1', prompt: '城市街道', parameters: {} },
         fetchRef: async (url, options) => {
             request = { url, options };
             return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({
@@ -167,7 +167,7 @@ test('Prompt Agent sends a real structured chat request and converts the respons
 
 test('Prompt Agent rejects missing configuration and malformed model plans', async () => {
     await assert.rejects(createPromptAgentModelReply({ message: '你好' }), /配置/);
-    await assert.rejects(createPromptAgentModelReply({ model, providers: [provider], message: '你好', fetchRef: async () => ({
+    await assert.rejects(createPromptAgentModelReply({ model, providers: [provider], providerId: provider.id, message: '你好', fetchRef: async () => ({
         ok: true, json: async () => ({ choices: [{ message: { content: '不是 JSON' } }] })
     }) }), /有效 JSON/);
 });
@@ -175,7 +175,7 @@ test('Prompt Agent rejects missing configuration and malformed model plans', asy
 function replyHarness(payload, options = {}) {
     let request;
     const result = createPromptAgentModelReply({
-        model, providers: [provider], message: '再暖一点', ...options,
+        model, providers: [provider], providerId: provider.id, message: '再暖一点', ...options,
         fetchRef: async (url, init) => {
             request = JSON.parse(init.body);
             const text = typeof payload === 'string' ? payload : JSON.stringify(payload);

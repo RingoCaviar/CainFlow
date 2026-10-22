@@ -4,6 +4,20 @@ import test from 'node:test';
 import { createPromptAgentExecutionAdapter } from '../js/features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentNodeAdapter } from '../js/features/prompt-agent/prompt-agent-node-adapter.js';
 
+test('legacy generation captures providers before async startup and blocks dropdown fallback before snapshot', async () => {
+    const state = { models: [{ id: 'image', providerIds: ['a', 'b'] }], providers: [{ id: 'b', endpoint: 'https://second.test', apikey: 'fixed' }] };
+    let selected = { modelId: 'image', providerId: 'b' };
+    let settings;
+    const adapter = createPromptAgentExecutionAdapter({ state, nodeAdapter: {
+        applyPromptPlan: () => true, getTargetConfiguration: () => ({ ...selected })
+    }, runWorkflow: async (_, options) => { settings = options; state.providers[0].apikey = 'changed';
+        options.validateBeforeRun(); return { started: true, executed: true, nodeResults: [{ nodeId: 'node', images: [] }] }; } });
+    await adapter.applyAndGenerate({ targetNodeId: 'node' });
+    assert.equal(settings.configurationSnapshot.providers[0].apikey, 'fixed');
+    selected = { ...selected, providerId: 'a' };
+    assert.throws(settings.validateBeforeRun, /供应商已变化/);
+});
+
 test('an unavailable plan reference prevents any generation request', async () => {
     const node = { id: 'target', type: 'ImageGenerate', data: {} };
     const state = { nodes: new Map([[node.id, node]]), connections: [] };
@@ -20,7 +34,7 @@ test('a newly created Agent target runs without any canvas selection and retries
     const state = {
         nodes: new Map(), selectedNodes: new Set(),
         models: [{ id: 'image-model', modelId: 'gpt-image-test', taskType: 'image', protocol: 'openai', providerIds: ['provider'] }],
-        providers: [{ id: 'provider', endpoint: 'https://example.test/v1' }]
+        providers: [{ id: 'provider', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }]
     };
     let creations = 0;
     const nodeAdapter = createPromptAgentNodeAdapter({
@@ -39,12 +53,12 @@ test('a newly created Agent target runs without any canvas selection and retries
             return { started: true, executed: true, nodeResults: [{ nodeId: 'new-image', images: ['new-result'] }] };
         }
     });
-    const bound = nodeAdapter.ensureTarget({ prompt: '窗边的橘猫', parameters: {} }, { modelId: 'image-model' });
+    const bound = nodeAdapter.ensureTarget({ prompt: '窗边的橘猫', parameters: {} }, { modelId: 'image-model', providerId: 'provider' });
     assert.deepEqual(await adapter.applyAndGenerate(bound), { status: 'completed', images: ['new-result'] });
-    assert.deepEqual(await adapter.applyAndGenerate(nodeAdapter.ensureTarget(bound, { modelId: 'image-model' })), { status: 'completed', images: ['new-result'] });
+    assert.deepEqual(await adapter.applyAndGenerate(nodeAdapter.ensureTarget(bound, { modelId: 'image-model', providerId: 'provider' })), { status: 'completed', images: ['new-result'] });
     assert.deepEqual(runs, [
-        { mode: 'selected-only', selectedNodeIds: ['new-image'] },
-        { mode: 'selected-only', selectedNodeIds: ['new-image'] }
+        { mode: 'selected-only', selectedNodeIds: ['new-image'], requestSource: 'agent' },
+        { mode: 'selected-only', selectedNodeIds: ['new-image'], requestSource: 'agent' }
     ]);
     assert.equal(creations, 1);
     assert.equal(state.selectedNodes.size, 0);
@@ -67,7 +81,7 @@ test('applies a Prompt Plan and runs only its bound image node through the exist
 
     assert.deepEqual(calls.slice(0, 2), [
         ['apply', plan],
-        ['run', { mode: 'selected-only', selectedNodeIds: ['image-1'] }]
+        ['run', { mode: 'selected-only', selectedNodeIds: ['image-1'], requestSource: 'agent' }]
     ]);
     assert.deepEqual(result, { status: 'completed', images: ['data:image/png;base64,b2s='] });
     assert.equal(adapter.stop('image-1'), true);

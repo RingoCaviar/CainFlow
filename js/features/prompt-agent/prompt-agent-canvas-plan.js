@@ -57,7 +57,11 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             if (!evidence || !message.includes(evidence) || !evidence.includes(existing.name)
                 || context.nodes.filter(node => node.name === existing.name).length !== 1) fail('修改已有节点前请使用 @节点 明确指定目标');
         }
-        const parameters = step.parameters || {};
+        let parameters = step.parameters || {};
+        if (step.type === 'ImageGenerate' && Object.hasOwn(parameters, 'aspectRatio')) {
+            if (Object.hasOwn(parameters, 'aspect') && parameters.aspect !== parameters.aspectRatio) fail('方案中的比例设置冲突');
+            const { aspectRatio, ...rest } = parameters; parameters = { ...rest, aspect: aspectRatio };
+        }
         if (!object(parameters)) fail('节点参数必须是对象');
         for (const [key, value] of Object.entries(parameters)) {
             if (!CANVAS_FIELDS[step.type].includes(key) || !['string', 'number', 'boolean'].includes(typeof value)) fail(`不支持参数 ${step.type}.${key}`);
@@ -174,7 +178,7 @@ export function restoreCanvasPlan(value) {
 export function projectCanvasPlan(plan) {
     if (!plan) return null;
     return { version: plan.version, id: plan.id, steps: plan.steps, connections: plan.connections,
-        disconnects: plan.disconnects || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {}, thinkingOverrides: plan.thinkingOverrides || {}, agentThinking: plan.agentThinking || {},
+        disconnects: plan.disconnects || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {}, providerOverrides: plan.providerOverrides || {}, agentProviders: plan.agentProviders || {}, thinkingOverrides: plan.thinkingOverrides || {}, agentThinking: plan.agentThinking || {}, agentSizes: plan.agentSizes || {},
         completedSteps: plan.completedSteps || [], latestAttempt: plan.runs?.at(-1) || null };
 }
 

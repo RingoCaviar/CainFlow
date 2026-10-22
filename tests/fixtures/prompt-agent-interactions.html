@@ -7,7 +7,7 @@ try {
     const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(),'text/html');
     document.getElementById('main-layout').appendChild(document.importNode(page.getElementById('prompt-agent-panel'),true));
     let models = [{id:'first',modelId:'first',name:'第一个模型'}, {id:'second',modelId:'second',name:'第二个长名称模型用于验证浮层换行与完整显示'}];
-    const controller = createPromptAgentController({documentRef:document,getChatModels:()=>models,getImageModels:()=>models,getPanelWidth:()=>300});
+    const controller = createPromptAgentController({documentRef:document,getChatModels:()=>models.map(m=>({...m,providerIds:['p']})),getImageModels:()=>models.map(m=>({...m,providerIds:['p']})),getProviders:()=>[{id:'p',name:'测试渠道',endpoint:'https://controlled.test',apikey:'test'}],getPanelWidth:()=>300});
     controller.init(); controller.open();
     const panel = document.getElementById('prompt-agent-panel');
     const canvas = document.getElementById('canvas-container');

@@ -1,5 +1,5 @@
 /**
- * Tracks node-originated provider requests and renders today's request statistics.
+ * Tracks canvas and Agent provider requests and renders today's request statistics.
  */
 const DEFAULT_STORAGE_KEY = 'cainflow_request_statistics';
 const DEFAULT_RETENTION_DAYS = 7;
@@ -76,7 +76,11 @@ function normalizeRecord(raw = {}) {
         timestamp,
         dayKey: safeText(raw.dayKey, getLocalDayKey(timestamp)),
         success: raw.success === true,
-        status: Number.isFinite(Number(raw.status)) ? Number(raw.status) : null,
+        status: raw.status != null && Number.isFinite(Number(raw.status)) ? Number(raw.status) : null,
+        source: raw.source === 'agent' ? 'agent' : 'canvas',
+        purpose: safeText(raw.purpose, 'node'),
+        modelId: safeText(raw.modelId),
+        workflowId: safeText(raw.workflowId),
         nodeId: safeText(raw.nodeId),
         nodeType: safeText(raw.nodeType),
         providerId,
@@ -175,7 +179,8 @@ export function createRequestStatisticsApi({
         return true;
     }
 
-    function recordNodeRequest({
+    function recordRequest({
+        id = '', source = 'canvas', purpose = 'node', modelId = '', workflowId = '',
         nodeId = '',
         nodeType = '',
         providerId = '',
@@ -189,7 +194,8 @@ export function createRequestStatisticsApi({
         const timestamp = Date.now();
         const normalizedProviderId = safeText(providerId, safeText(providerName, 'unknown'));
         const record = normalizeRecord({
-            id: `req_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+            id: id || `req_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+            source, purpose, modelId, workflowId,
             timestamp,
             dayKey: getLocalDayKey(timestamp),
             success: success === true,
@@ -202,6 +208,8 @@ export function createRequestStatisticsApi({
             url
         });
         if (!record) return null;
+        const existing = getRecords().find(item => item.id === record.id);
+        if (existing) return existing;
         getRecords().unshift(record);
         prune();
         pruneExpiredRecords();
@@ -244,6 +252,7 @@ export function createRequestStatisticsApi({
 
         return {
             total,
+            sources: { agent: records.filter(record => record.source === 'agent').length, canvas: records.filter(record => record.source !== 'agent').length },
             success,
             failed,
             successRate: calculateSuccessRate(success, total),
@@ -271,6 +280,8 @@ export function createRequestStatisticsApi({
         if (sortSelect) sortSelect.value = sortBy;
         if (titleEl) titleEl.textContent = `${summary.dayLabel}请求统计`;
         if (totalEl) totalEl.textContent = String(summary.total);
+        const sourcesEl = documentRef.getElementById('statistics-source-counts');
+        if (sourcesEl) sourcesEl.textContent = `画布 ${summary.sources.canvas} · Agent ${summary.sources.agent}`;
         if (rateEl) {
             rateEl.textContent = summary.total ? `${summary.successRate}%` : '0%';
             rateEl.title = `成功 ${summary.success} 次，失败 ${summary.failed} 次`;
@@ -295,7 +306,7 @@ export function createRequestStatisticsApi({
             nextDayBtn.title = disabled ? '已经是今天' : '查看下一天';
         }
         if (emptyEl) emptyEl.classList.toggle('hidden', summary.total > 0);
-        if (emptyEl) emptyEl.textContent = `${summary.dayLabel}还没有节点请求记录`;
+        if (emptyEl) emptyEl.textContent = `${summary.dayLabel}还没有请求记录`;
         if (!listEl) return;
 
         if (summary.providers.length === 0) {
@@ -354,7 +365,8 @@ export function createRequestStatisticsApi({
 
     return {
         initialize,
-        recordNodeRequest,
+        recordRequest,
+        recordNodeRequest: recordRequest,
         render,
         setSortBy,
         getTodaySummary: () => getDaySummary(getLocalDayKey()),

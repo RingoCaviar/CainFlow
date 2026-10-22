@@ -1,6 +1,8 @@
+import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
+import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
-import { normalizeImageSizeControls, usesOpenAiImageSize } from '../execution/image-generation-size.js';
+import { normalizeImageSizeControls } from '../execution/image-generation-size.js';
 import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
 import { MAX_REFERENCE_IMAGE_COUNT } from '../../nodes/reference-image-ports.js';
@@ -188,7 +190,7 @@ export function createPromptAgentNodeAdapter({
         if (modelChanged || providerChanged || dataChanged) scheduleSave();
     }
 
-    function ensureTarget(plan = {}, { modelId } = {}) {
+    function ensureTarget(plan = {}, { modelId, providerId } = {}) {
         if (state?.isRunStarting) throw new Error('工作流正在启动，请稍后再应用或生成。');
         if (typeof plan.prompt !== 'string' || !plan.prompt.trim()) {
             throw new Error('方案缺少可用的提示词，请先整理生图方案。');
@@ -205,11 +207,8 @@ export function createPromptAgentNodeAdapter({
         const model = getAvailablePromptAgentImageModels(state?.models || [], state?.providers || [])
             .find((candidate) => candidate.id === modelId);
         if (!model) throw new Error('所选生图模型已不可用，请在 Agent 面板重新选择或检查模型与 Provider 配置。');
-        const providers = getModelProviders(model, state?.providers || [])
-            .filter((candidate) => String(candidate.endpoint || '').trim());
-        const currentModelId = node ? node.apiConfigId || readValue(documentRef, `${node.id}-apiconfig`, '') : '';
-        const currentProviderId = node ? readValue(documentRef, `${node.id}-provider`, node.providerId || '') : '';
-        const provider = (currentModelId === model.id && providers.find((candidate) => candidate.id === currentProviderId)) || providers[0];
+        const provider = resolveAgentProvider(model, state?.providers || [], providerId);
+        if (Object.keys(sizeFields(plan.parameters)).length) resolveAgentSize({ protocol: getEffectiveProtocol(model, provider), current: node && readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '') === model.id ? getContext(node.id)?.parameters : {}, parameters: plan.parameters });
         if (node) {
             configureTarget(node, model, provider);
             return plan;
@@ -237,6 +236,10 @@ export function createPromptAgentNodeAdapter({
             return false;
         }
         if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') return false;
+        const sizeContext = getContext(node.id);
+        const sizeModel = state.models?.find(model => model.id === (node.apiConfigId || node.data?.apiConfigId));
+        const sizeProtocol = getEffectiveProtocol(sizeModel, getResolvedProviderForModel(sizeModel, state.providers, node.providerId));
+        if (Object.keys(sizeFields(parameters)).length) resolveAgentSize({ protocol: sizeProtocol, current: sizeContext?.parameters, parameters });
         // Resolve all references before changing any graph or prompt state.
         // An explicit reference list is authoritative; unrelated input ports survive.
         if (Array.isArray(plan.referenceImages)) {
@@ -304,9 +307,7 @@ export function createPromptAgentNodeAdapter({
             const provider = getResolvedProviderForModel(model, state.providers, providerId);
             const protocol = getEffectiveProtocol(model, provider);
             const currentResolution = readValue(documentRef, `${node.id}-resolution`, node.data?.resolution || '');
-            const requestedResolution = sizePlan.resolution ?? (
-                usesOpenAiImageSize(protocol) && sizePlan.aspectRatio && !currentResolution ? '1K' : currentResolution
-            );
+            const requestedResolution = sizePlan.resolution ?? currentResolution;
             const controls = normalizeImageSizeControls({
                 resolution: requestedResolution,
                 aspect: sizePlan.aspectRatio ?? readValue(documentRef, `${node.id}-aspect`, node.data?.aspect || ''),
@@ -331,5 +332,11 @@ export function createPromptAgentNodeAdapter({
         return true;
     }
 
-    return { getContext, getSelectedContext, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
+    function getTargetConfiguration(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node) return null;
+        return { modelId: readValue(documentRef, `${nodeId}-apiconfig`, node.apiConfigId || ''),
+            providerId: readValue(documentRef, `${nodeId}-provider`, node.providerId || '') };
+    }
+    return { getContext, getSelectedContext, getTargetConfiguration, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
 }

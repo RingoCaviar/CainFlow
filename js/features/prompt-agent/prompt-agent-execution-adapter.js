@@ -22,7 +22,14 @@ export function createPromptAgentExecutionAdapter({
             throw new Error('目标生图节点已不存在，或方案参数已不适用，请重新整理方案。');
         }
         stopRequests.delete(nodeId);
-        const result = await runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId] }, { retainResults });
+        const selected = nodeAdapter.getTargetConfiguration?.(nodeId);
+        const configurationSnapshot = JSON.parse(JSON.stringify({ models: state.models || [], providers: state.providers || [] }));
+        const result = await runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId], requestSource: 'agent' }, { retainResults,
+            configurationSnapshot, validateBeforeRun: () => {
+                if (selected && JSON.stringify(nodeAdapter.getTargetConfiguration(nodeId)) !== JSON.stringify(selected)) {
+                    throw new Error('目标节点的模型或供应商已变化，请重新确认后生成。');
+                }
+            } });
         if (stopRequests.delete(nodeId)) return { status: 'stopped', images: [] };
         if (result?.outcome === 'stopped' || result?.outcome === 'cancelled') {
             return { status: 'stopped', images: [] };

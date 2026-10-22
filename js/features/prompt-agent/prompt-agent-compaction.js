@@ -1,6 +1,7 @@
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { projectAgentSearch, getSummarySearchSources } from './prompt-agent-search-data.js';
-import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { resolveAgentProvider } from './prompt-agent-provider.js';
+import { trackAgentRequest } from './prompt-agent-request.js';
 import { projectCanvasPlan } from './prompt-agent-canvas-plan.js';
 
 const SUMMARY_CHARACTER_LIMIT = 3000;
@@ -130,10 +131,11 @@ function parseSummary(responseText) {
 }
 
 export async function createPromptAgentCompaction({
-    conversation, model, providers = [], fetchRef = fetch, headers = {}, getHeaders = null, signal
+    conversation, model, providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal
 } = {}) {
     assertNotAborted(signal);
-    const provider = model ? getResolvedProviderForModel(model, providers) : null;
+    [model, providers] = JSON.parse(JSON.stringify([model, providers]));
+    const provider = model ? resolveAgentProvider(model, providers, providerId) : null;
     if (!model?.modelId || !provider || !String(provider.endpoint || '').trim()) {
         throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
     }
@@ -149,9 +151,9 @@ export async function createPromptAgentCompaction({
             }) }],
             media: [], capabilities: model.capabilities || {}
         });
-        const response = await requestChatCompletion(plan, {
-            fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal
-        });
+        const requestHeaders = typeof getHeaders === 'function' ? getHeaders(plan) : headers;
+        const response = await trackAgentRequest(plan, () => requestChatCompletion(plan, { fetchRef, headers: requestHeaders, signal }),
+            { recordRequest, workflowId, signal, purpose: 'compact' });
         assertNotAborted(signal);
         summary = parseSummary(response.text);
     }

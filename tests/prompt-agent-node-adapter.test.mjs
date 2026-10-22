@@ -44,7 +44,7 @@ test('A to B to C continuation sends latest pixels and replaces the actual gener
         const reply = await createPromptAgentModelReply({ message: '继续修改背景', conversation,
             context: adapter.getSelectedContext(), workflowReferenceImages: refs,
             model: { id: 'chat', modelId: 'chat', protocol: 'openai', providerIds: ['provider'] },
-            providers: [{ id: 'provider', endpoint: 'https://example.test' }],
+            providerId: 'provider', providers: [{ id: 'provider', endpoint: 'https://example.test', apikey: 'controlled-key' }],
             fetchRef: async (_, init) => { request = JSON.parse(init.body); return { ok: true, json: async () => ({
                 choices: [{ message: { content: JSON.stringify({ intent: 'edit', promptPlan: {
                     prompt: '背景变蓝', imageRoles: [{ imageId: 'image-1', role: 'edit-target' }]
@@ -195,18 +195,18 @@ test('selection changes do not retarget bound plans or hide their context', () =
     state.nodes.set(other.id, other);
     state.selectedNodes = new Set([other.id]);
     state.models = [{ id: 'image-model', modelId: 'image-test', taskType: 'image', protocol: 'openai', providerIds: ['provider'] }];
-    state.providers = [{ id: 'provider', endpoint: 'https://example.test' }];
+    state.providers = [{ id: 'provider', endpoint: 'https://example.test', apikey: 'controlled-key' }];
     const plan = { targetNodeId: node.id, prompt: '修改原目标', parameters: {} };
     assert.equal(adapter.getContext(node.id).nodeId, node.id);
     assert.equal(adapter.getSelectedContext().nodeId, other.id);
-    assert.deepEqual(adapter.ensureTarget(plan, { modelId: 'image-model' }), plan);
+    assert.deepEqual(adapter.ensureTarget(plan, { modelId: 'image-model', providerId: 'provider' }), plan);
     assert.equal(adapter.applyPromptPlan(plan), true);
     assert.equal(node.data.prompt, plan.prompt);
     assert.equal(other.data.prompt, '保持不变');
 });
 
 function creationHarness({ models, providers, selected = [] } = {}) {
-    const provider = { id: 'provider-1', endpoint: 'https://example.test/v1' };
+    const provider = { id: 'provider-1', endpoint: 'https://example.test/v1', apikey: 'controlled-key' };
     const model = { id: 'image-model', modelId: 'gpt-image-test', taskType: 'image', protocol: 'openai', providerIds: [provider.id] };
     const state = {
         nodes: new Map(), selectedNodes: new Set(selected), connections: [],
@@ -228,12 +228,12 @@ function creationHarness({ models, providers, selected = [] } = {}) {
 test('unassigned plans create one configured image node and bound retries reuse it', () => {
     const { adapter, creations, state, model, provider } = creationHarness();
     const draft = { targetNodeId: null, prompt: '橘猫晒太阳', parameters: {} };
-    const bound = adapter.ensureTarget(draft, { modelId: model.id });
+    const bound = adapter.ensureTarget(draft, { modelId: model.id, providerId: provider.id });
     assert.equal(bound.targetNodeId, 'created-1');
     assert.equal(draft.targetNodeId, null);
     assert.deepEqual(creations, [{ model, provider, prompt: draft.prompt }]);
     assert.equal(state.selectedNodes.size, 0);
-    assert.deepEqual(adapter.ensureTarget(bound, { modelId: model.id }), bound);
+    assert.deepEqual(adapter.ensureTarget(bound, { modelId: model.id, providerId: provider.id }), bound);
     assert.equal(creations.length, 1);
     assert.equal(adapter.applyPromptPlan(bound), true);
 });
@@ -241,7 +241,7 @@ test('unassigned plans create one configured image node and bound retries reuse 
 test('unassigned plans create their own node even if another node was selected after drafting', () => {
     const { adapter, state, creations } = creationHarness({ selected: ['existing'] });
     state.nodes.set('existing', { id: 'existing', type: 'ImageGenerate', data: { prompt: '原提示词' } });
-    const bound = adapter.ensureTarget({ prompt: '新草稿', parameters: {} }, { modelId: 'image-model' });
+    const bound = adapter.ensureTarget({ prompt: '新草稿', parameters: {} }, { modelId: 'image-model', providerId: 'provider-1' });
     assert.equal(bound.targetNodeId, 'created-1');
     assert.equal(creations.length, 1);
     assert.equal(state.nodes.get('existing').data.prompt, '原提示词');
@@ -249,7 +249,7 @@ test('unassigned plans create their own node even if another node was selected a
 
 test('removed or replaced targets are rejected without creating or retargeting a node', () => {
     const { adapter, state, creations } = creationHarness();
-    const bound = adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'image-model' });
+    const bound = adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'image-model', providerId: 'provider-1' });
     state.nodes.delete(bound.targetNodeId);
     assert.throws(() => adapter.ensureTarget(bound), /目标生图节点已不存在/);
     assert.equal(adapter.getContext(bound.targetNodeId), null);
@@ -262,8 +262,8 @@ test('removed or replaced targets are rejected without creating or retargeting a
 
 test('image-model choices filter unusable configurations and creation uses the exact explicit model', () => {
     const providers = [
-        { id: 'blank', endpoint: '   ' }, { id: 'second', endpoint: 'https://second.test' },
-        { id: 'preferred', endpoint: 'https://preferred.test' }
+        { id: 'blank', endpoint: '   ', apikey: 'controlled-key' }, { id: 'second', endpoint: 'https://second.test', apikey: 'controlled-key' },
+        { id: 'preferred', endpoint: 'https://preferred.test', apikey: 'controlled-key' }
     ];
     const base = { modelId: 'image-test', taskType: 'image', protocol: 'openai', providerIds: ['blank', 'preferred', 'second'] };
     const models = [
@@ -274,15 +274,16 @@ test('image-model choices filter unusable configurations and creation uses the e
     ];
     const { adapter, creations } = creationHarness({ models, providers });
     assert.deepEqual(getAvailablePromptAgentImageModels(models, providers).map((model) => model.id), ['valid', 'later']);
-    adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'later' });
+    assert.throws(() => adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'later', providerId: 'blank' }), /地址/);
+    adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'later', providerId: 'preferred' });
     assert.equal(creations[0].model.id, 'later');
     assert.equal(creations[0].provider.id, 'preferred');
 });
 
 test('missing image configuration or an empty draft never creates a node', () => {
-    for (const options of [{ models: [] }, { providers: [] }, { providers: [{ id: 'provider-1', endpoint: ' ' }] }]) {
+    for (const options of [{ models: [] }, { providers: [] }, { providers: [{ id: 'provider-1', endpoint: ' ', apikey: 'controlled-key' }] }]) {
         const { adapter, creations } = creationHarness(options);
-        assert.throws(() => adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'image-model' }), /生图模型已不可用/);
+        assert.throws(() => adapter.ensureTarget({ prompt: '草稿', parameters: {} }, { modelId: 'image-model', providerId: 'provider-1' }), /生图模型已不可用/);
         assert.equal(creations.length, 0);
     }
     const { adapter, creations } = creationHarness();
@@ -297,7 +298,7 @@ test('empty, unknown and removed model choices never fall back or create a node'
     assert.throws(() => adapter.ensureTarget(plan, { modelId: '' }), /选择生图模型/);
     assert.throws(() => adapter.ensureTarget(plan, { modelId: 'removed' }), /生图模型已不可用/);
     state.models = [];
-    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'image-model' }), /生图模型已不可用/);
+    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'image-model', providerId: 'provider-1' }), /生图模型已不可用/);
     assert.equal(creations.length, 0);
 });
 
@@ -307,7 +308,7 @@ function configuredNodeHarness() {
         { id: 'first', modelId: 'first-image', taskType: 'image', protocol: 'openai', providerIds: ['provider-1', 'provider-2'] },
         { id: 'second', modelId: 'second-image', taskType: 'image', protocol: 'google', providerIds: ['provider-3', 'provider-2'] }
     ];
-    result.state.providers = [1, 2, 3].map((index) => ({ id: `provider-${index}`, endpoint: `https://provider${index}.test` }));
+    result.state.providers = [1, 2, 3].map((index) => ({ id: `provider-${index}`, endpoint: `https://provider${index}.test`, apikey: 'controlled-key' }));
     result.controls['image-1-apiconfig'] = control('first');
     result.controls['image-1-provider'] = control('provider-2');
     result.node.apiConfigId = 'first';
@@ -322,7 +323,7 @@ test('bound nodes require a valid explicit choice even when their DOM has fallen
     assert.throws(() => adapter.ensureTarget(plan, { modelId: 'missing' }), /生图模型已不可用/);
     node.apiConfigId = 'second';
     state.models = state.models.filter((model) => model.id !== 'second');
-    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'second' }), /生图模型已不可用/);
+    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'second', providerId: 'provider-3' }), /生图模型已不可用/);
     assert.equal(node.apiConfigId, 'second');
     assert.equal(controls['image-1-apiconfig'].value, 'first');
     assert.equal(node.data.prompt, '数据提示词');
@@ -337,7 +338,7 @@ test('an explicit choice switches the bound node through model and provider chan
         input.dispatchEvent = (event) => { if (event.type === 'change') changes.push([suffix, input.value]); };
     }
     const plan = { targetNodeId: node.id, prompt: '新方案', parameters: {} };
-    assert.equal(adapter.ensureTarget(plan, { modelId: 'second' }), plan);
+    assert.equal(adapter.ensureTarget(plan, { modelId: 'second', providerId: 'provider-3' }), plan);
     assert.deepEqual(changes, [['apiconfig', 'second'], ['provider', 'provider-3']]);
     assert.equal(node.apiConfigId, 'second');
     assert.equal(node.data.apiConfigId, 'second');
@@ -347,28 +348,31 @@ test('an explicit choice switches the bound node through model and provider chan
     assert.equal(getSaves(), 1);
 });
 
-test('an explicit valid model overrides a stale dropdown fallback and follows the new model provider priority', () => {
+test('an explicit valid model overrides a stale dropdown fallback and uses the explicitly chosen provider', () => {
     const { adapter, node, controls } = configuredNodeHarness();
     node.apiConfigId = 'second';
     // The model settings refresh has implicitly moved the DOM to "first".
     // Explicitly choosing it in Agent must still configure that exact model.
     const plan = { targetNodeId: node.id, prompt: '新方案', parameters: {} };
-    adapter.ensureTarget(plan, { modelId: 'first' });
+    adapter.ensureTarget(plan, { modelId: 'first', providerId: 'provider-1' });
     assert.equal(node.apiConfigId, 'first');
     assert.equal(node.providerId, 'provider-1');
     assert.equal(controls['image-1-provider'].value, 'provider-1');
     assert.deepEqual(controls['image-1-apiconfig'].dispatches, ['input', 'change']);
 });
 
-test('the same model retains its usable provider and replaces an unavailable provider by priority', () => {
+test('explicit provider remains selected and an unavailable provider never falls back; missing provider is rejected', () => {
     const { adapter, node, state, controls } = configuredNodeHarness();
     const plan = { targetNodeId: node.id, prompt: '新方案', parameters: {} };
-    adapter.ensureTarget(plan, { modelId: 'first' });
+    adapter.ensureTarget(plan, { modelId: 'first', providerId: 'provider-2' });
     assert.equal(node.providerId, 'provider-2');
     assert.deepEqual(controls['image-1-apiconfig'].dispatches, []);
     assert.deepEqual(controls['image-1-provider'].dispatches, []);
     state.providers.find((provider) => provider.id === 'provider-2').endpoint = '';
-    adapter.ensureTarget(plan, { modelId: 'first' });
+    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'first', providerId: 'provider-2' }), /地址/);
+    assert.equal(node.providerId, 'provider-2');
+    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'first' }), /请选择供应商/);
+    adapter.ensureTarget(plan, { modelId: 'first', providerId: 'provider-1' });
     assert.equal(node.providerId, 'provider-1');
     assert.equal(controls['image-1-provider'].value, 'provider-1');
 });
@@ -380,7 +384,7 @@ test('model changes rebuild parameter controls before application and incompatib
         if (event.type === 'change') controls['image-1-aspect'].options = [{ value: '1:1' }];
     };
     const plan = { targetNodeId: node.id, prompt: '不得部分应用', parameters: { aspectRatio: '16:9' } };
-    const bound = adapter.ensureTarget(plan, { modelId: 'second' });
+    const bound = adapter.ensureTarget(plan, { modelId: 'second', providerId: 'provider-3' });
     assert.equal(bound.targetNodeId, node.id);
     assert.equal(adapter.applyPromptPlan(bound), false);
     assert.equal(node.data.prompt, '数据提示词');
@@ -388,10 +392,10 @@ test('model changes rebuild parameter controls before application and incompatib
     assert.equal(node.apiConfigId, 'second');
 
     const created = creationHarness();
-    const newBound = created.adapter.ensureTarget({ prompt: '新图', parameters: { unsupported: true } }, { modelId: 'image-model' });
+    const newBound = created.adapter.ensureTarget({ prompt: '新图', parameters: { unsupported: true } }, { modelId: 'image-model', providerId: 'provider-1' });
     assert.equal(newBound.targetNodeId, 'created-1');
     assert.equal(created.adapter.applyPromptPlan(newBound), false);
-    assert.equal(created.adapter.ensureTarget(newBound, { modelId: 'image-model' }).targetNodeId, 'created-1');
+    assert.equal(created.adapter.ensureTarget(newBound, { modelId: 'image-model', providerId: 'provider-1' }).targetNodeId, 'created-1');
     assert.equal(created.creations.length, 1);
 });
 
@@ -401,7 +405,7 @@ test('running targets reject preparation and application without changing model,
         if (marker === 'state') state.runningNodeIds = new Set([node.id]);
         else node.el = { classList: { contains: (name) => name === 'running' } };
         const plan = { targetNodeId: node.id, prompt: '不得修改', parameters: {} };
-        assert.throws(() => adapter.ensureTarget(plan, { modelId: 'second' }), /节点正在运行/);
+        assert.throws(() => adapter.ensureTarget(plan, { modelId: 'second', providerId: 'provider-3' }), /节点正在运行/);
         assert.equal(adapter.applyPromptPlan(plan), false);
         assert.equal(node.apiConfigId, 'first');
         assert.equal(node.providerId, 'provider-2');
@@ -415,7 +419,7 @@ test('workflow startup blocks new targets and bound mutations until the executio
     const { adapter, node, state, controls, getSaves } = configuredNodeHarness();
     const plan = { targetNodeId: node.id, prompt: '启动后才应用', parameters: {} };
     state.isRunStarting = true;
-    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'second' }), /工作流正在启动/);
+    assert.throws(() => adapter.ensureTarget(plan, { modelId: 'second', providerId: 'provider-3' }), /工作流正在启动/);
     assert.equal(adapter.applyPromptPlan(plan), false);
     assert.equal(node.apiConfigId, 'first');
     assert.equal(node.providerId, 'provider-2');
@@ -424,7 +428,7 @@ test('workflow startup blocks new targets and bound mutations until the executio
     assert.deepEqual(controls['image-1-provider'].dispatches, []);
     assert.equal(getSaves(), 0);
     state.isRunStarting = false;
-    assert.equal(adapter.ensureTarget(plan, { modelId: 'second' }), plan);
+    assert.equal(adapter.ensureTarget(plan, { modelId: 'second', providerId: 'provider-3' }), plan);
     assert.equal(adapter.applyPromptPlan(plan), true);
     assert.equal(node.apiConfigId, 'second');
     assert.equal(node.data.prompt, plan.prompt);
@@ -432,24 +436,24 @@ test('workflow startup blocks new targets and bound mutations until the executio
     const created = creationHarness();
     const draft = { prompt: '等启动完成后创建', parameters: {} };
     created.state.isRunStarting = true;
-    assert.throws(() => created.adapter.ensureTarget(draft, { modelId: 'image-model' }), /工作流正在启动/);
+    assert.throws(() => created.adapter.ensureTarget(draft, { modelId: 'image-model', providerId: 'provider-1' }), /工作流正在启动/);
     assert.equal(created.adapter.applyPromptPlan(draft), false);
     assert.equal(created.creations.length, 0);
     assert.equal(created.state.nodes.size, 0);
     created.state.isRunStarting = false;
-    const bound = created.adapter.ensureTarget(draft, { modelId: 'image-model' });
+    const bound = created.adapter.ensureTarget(draft, { modelId: 'image-model', providerId: 'provider-1' });
     assert.equal(created.creations.length, 1);
     assert.equal(created.adapter.applyPromptPlan(bound), true);
 });
 
-test('a ratio-only Prompt Plan selects a resolution tier so the ratio reaches OpenAI', () => {
+test('a ratio-only Prompt Plan asks for resolution instead of choosing 1K', () => {
     const { adapter, controls } = harness();
     controls['image-1-resolution'].value = '';
-    assert.equal(adapter.applyPromptPlan({
+    assert.throws(() => adapter.applyPromptPlan({
         targetNodeId: 'image-1', prompt: '横幅', parameters: { aspectRatio: '16:9' }
-    }), true);
-    assert.equal(controls['image-1-resolution'].value, '1K');
-    assert.equal(controls['image-1-aspect'].value, '16:9');
+    }), /请选择需要的分辨率/);
+    assert.equal(controls['image-1-resolution'].value, '');
+    assert.equal(controls['image-1-prompt'].value, '原始提示词');
 });
 
 test('text-only refinement preserves the existing negative prompt and node parameters', () => {
@@ -593,4 +597,18 @@ test('scene-image reads reject sources replaced or removed during asynchronous r
         finish();
         await assert.rejects(reading, /已变化/);
     }
+});
+
+test('size clarification happens before target creation; valid destination enables the ratio', () => {
+ const created = creationHarness();
+ assert.throws(()=>created.adapter.ensureTarget({prompt:'poster',parameters:{aspectRatio:'16:9'}},{modelId:'image-model',providerId:'provider-1'}), /请选择需要的分辨率/);
+ assert.equal(created.creations.length,0);
+ const { adapter, controls }=harness();
+ controls['image-1-resolution'].value='';controls['image-1-resolution'].options=[{value:''},{value:'2K'}];
+ controls['image-1-aspect'].disabled=true;controls['image-1-aspect'].options=[{value:'',disabled:true},{value:'1:1'},{value:'16:9'}];
+ const writes=[];
+ controls['image-1-resolution'].dispatchEvent=e=>{if(e.type==='change'){writes.push('resolution');controls['image-1-aspect'].disabled=false;}};
+ controls['image-1-aspect'].dispatchEvent=e=>{if(e.type==='change'){assert.equal(controls['image-1-aspect'].disabled,false);writes.push('aspect');}};
+ assert.equal(adapter.applyPromptPlan({targetNodeId:'image-1',prompt:'poster',parameters:{resolution:'2K',aspect:'16:9'}}),true);
+ assert.deepEqual(writes,['resolution','aspect']);assert.equal(controls['image-1-aspect'].value,'16:9');
 });

@@ -883,6 +883,7 @@ export function createExecutionCoreApi({
             targetNodeId,
             selectedNodeIds,
             ...(runInput.agentSequential === true ? { agentSequential: true } : {}),
+            ...(runInput.requestSource === 'agent' ? { requestSource: 'agent' } : {}),
             ...(Array.isArray(runInput.includedAutoSaveNodeIds) ? {
                 includedAutoSaveNodeIds: [...new Set(runInput.includedAutoSaveNodeIds.filter((id) => (
                     typeof id === 'string' && state.nodes.has(id)
@@ -1266,6 +1267,7 @@ export function createExecutionCoreApi({
             providerId: apiCfg?.id || '',
             providerName: apiCfg?.name || apiCfg?.id || '',
             modelName: modelCfg?.name || modelCfg?.modelId || '',
+            modelId: modelCfg?.id || '',
             url,
             status: response ? response.status : finalOptions?.status,
             success: response ? response.ok : finalOptions?.success === true

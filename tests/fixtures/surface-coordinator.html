@@ -28,7 +28,7 @@ try {
         const button = document.createElement('button'); button.id=id; button.textContent=id; document.getElementById('test-toolbar').appendChild(button);
     }
     const state = { models:[{id:'chat',name:'普通对话',modelId:'chat',protocol:'openai',taskType:'chat',providerIds:['p']}],
-        providers:[{id:'p',name:'受控 Provider',type:'openai',endpoint:'https://controlled.test/chat',autoComplete:false}], nodes:new Map(), connections:[] };
+        providers:[{id:'p',name:'受控 Provider',type:'openai',endpoint:'https://controlled.test/chat',apikey:'controlled-key',autoComplete:false}], nodes:new Map(), connections:[] };
     const manager = createPanelManager(document, document.getElementById('canvas-container'));
     const surfaces = getSurfaceCoordinator(document);
     for (const id of ['btn-theme-toggle', 'theme-menu']) document.body.appendChild(document.importNode(original.getElementById(id), true));
@@ -70,7 +70,7 @@ try {
     document.getElementById('settings-close').click();await tick();check(!searchMenu.hidden,'return to search menu');
     const dedicated={...state.models[0],id:'search',name:'专用搜索长名称'.repeat(8),agentSearch:'images'};state.models.push(dedicated);
     controller.refreshModels();await tick();const select=document.getElementById('prompt-agent-search-model');
-    check(select.value==='','new model is never auto-selected');select.value='search';select.dispatchEvent(new Event('change'));await tick();
+    check(select.value==='','new model is never auto-selected');select.nextElementSibling.click();document.querySelector('#prompt-agent-search-model-menu [data-model-id="search"][data-provider-id="p"]').click();await tick();
     check(searchMenu.textContent.includes('缺少独立 Responses 地址'),'incomplete provider diagnosed');
     document.getElementById('prompt-agent-search-availability').querySelector('button').click();await tick();
     check(document.activeElement.dataset.field==='responsesEndpoint','configuration focuses exact provider field');

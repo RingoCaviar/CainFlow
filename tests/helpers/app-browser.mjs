@@ -46,6 +46,6 @@ export async function withAppBrowser(session, task) {
         socket?.close(); browser.kill();
         await new Promise(resolve => browser.exitCode !== null ? resolve() : browser.once('exit', resolve));
         assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
-        await rm(profile, { recursive: true, force: true }); await server.stop();
+        try { await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } finally { await server.stop(); }
     }
 }

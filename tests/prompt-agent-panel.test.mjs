@@ -6,7 +6,7 @@ import { createPromptAgentConversationStore } from '../js/features/prompt-agent/
 import { measurePromptAgentContext } from '../js/features/prompt-agent/prompt-agent-token-budget.js';
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
 
-const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test' };
+const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test', providerIds: ['fixture'] };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
 
 test('cancel, clear and workflow activation discard late native search without synthesizing or restoring sources', async () => {
@@ -14,7 +14,7 @@ test('cancel, clear and workflow activation discard late native search without s
         let completeSearch, requests = 0;
         const { controller, elements } = createHarness(request => createPromptAgentModelReply({ ...request,
             model: { id: 'chat', modelId: 'chat', protocol: 'openai', providerIds: ['p'], agentSearch: 'images' },
-            providers: [{ id: 'p', endpoint: 'https://controlled.test' }],
+            providerId: 'p', providers: [{ id: 'p', endpoint: 'https://controlled.test', apikey: 'controlled-key' }],
             fetchRef: async () => { requests++; return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ searchRequest: { kind: 'web', query: 'facts' } }) } }] })); },
             searchRef: () => new Promise(resolve => { completeSearch = resolve; })
         }));
@@ -141,7 +141,7 @@ function createHarness(createReply = async () => ({
         targetNodeId: 'image-1',
         prompt: '低饱和电影感海报',
         negativePrompt: '过度饱和',
-        parameters: { aspectRatio: '16:9', count: 1 }
+        parameters: { aspectRatio: '16:9', resolution: '1K', count: 1 }
     }
 }), nodeAdapter = {
     getSelectedContext: () => ({ nodeId: 'image-1', prompt: '旧提示词', negativePrompt: '', parameters: {}, referenceImages: [] }),
@@ -325,6 +325,21 @@ test('late models and ordering changes never choose or replace an explicit image
     assert.equal(elements['prompt-agent-image-model'].value, '');
 });
 
+test('legacy applied plans become actionable when only the provider preference changes', async () => {
+    const store = selectedImageStore(), configurations = [];
+    const { controller, elements } = createHarness(undefined, {
+        getSelectedContext: () => ({ nodeId: 'image-1' }),
+        ensureTarget: (plan, options) => { configurations.push(options); return plan; }, applyPromptPlan: () => true
+    }, null, { conversationStore: store });
+    elements['prompt-agent-input'].value = '生图'; await controller.submit();
+    const actions = elements['prompt-agent-messages'].children[1].querySelector('.prompt-agent-actions');
+    await actions.children[0].dispatch('click'); assert.equal(actions.children[0].disabled, true);
+    store.setProvider('image', TEST_IMAGE_MODEL.id, 'second');
+    controller.refreshModels(); assert.equal(actions.children[0].disabled, false);
+    await actions.children[0].dispatch('click');
+    assert.deepEqual(configurations.map(config => config.providerId), ['', 'second']);
+});
+
 test('explicit model changes affect the next action and never mutate an in-flight generation', async () => {
     const second = { id: 'image-model-2', modelId: 'another-image' };
     const configurations = [];
@@ -456,6 +471,7 @@ test('unavailable chat models show a quiet hint and keep the draft until a model
         return { message: '已就绪', workSummary: [], promptPlan: null };
     }, undefined, undefined, {
         getChatModels: () => models,
+        getProviders: () => [{ id: 'fixture', endpoint: 'https://controlled.test', apikey: 'test-key' }],
         openModelSettings: () => { settingsOpens += 1; }
     });
 
@@ -471,7 +487,7 @@ test('unavailable chat models show a quiet hint and keep the draft until a model
 
     models = [TEST_CHAT_MODEL];
     elements['prompt-agent-input'].dispatch('focus');
-    assert.equal(elements['prompt-agent-model-hint'].hidden, true);
+    assert.equal(elements['prompt-agent-model-hint'].hidden, false, 'new model requires an explicit provider selection');
     assert.equal(elements['prompt-agent-send'].disabled, false);
     await elements['prompt-agent-form'].dispatch('submit');
     assert.equal(requests, 1);
@@ -1189,7 +1205,8 @@ test('unknown commands and unavailable or empty compaction stay local', async ()
     let calls = 0;
     let models = [];
     const { controller, elements } = createHarness(async () => { calls++; }, undefined, null, {
-        getChatModels: () => models, createCompaction: async () => { calls++; }
+        getChatModels: () => models,
+        getProviders: () => [{ id: 'fixture', endpoint: 'https://controlled.test', apikey: 'test-key' }], createCompaction: async () => { calls++; }
     });
     enterText(elements, '/unknown');
     await controller.submit();
@@ -1474,4 +1491,18 @@ test('typing the next draft during automatic compaction does not erase it when t
     await pending;
     assert.deepEqual(sent, ['本次请求']);
     assert.equal(elements['prompt-agent-input'].value, '下一次草稿');
+});
+
+test('legacy ratio clarification retains the draft, accepts a resolution answer and does not execute automatically', async()=>{
+ let requests=0,applies=0;
+ const {controller,elements}=createHarness(async()=>{requests++;return {intent:'generate',message:'横幅',promptPlan:{targetNodeId:'image-1',prompt:'poster',parameters:{aspectRatio:'16:9'}}};},
+ {getSelectedContext:()=>null,applyPromptPlan:()=>{applies++;return true;}});
+ enterText(elements,'生成横幅');await controller.submit();
+ assert.equal(applies,0);
+ enterText(elements,'用2K');await controller.submit();
+ assert.equal(requests,1);assert.equal(applies,0);
+ const saved=controller.snapshotWorkflow().messages.find(item=>item.promptPlan).promptPlan;
+ assert.equal(saved.parameters.aspectRatio,'16:9');assert.equal(saved.parameters.resolution,'2K');
+ controller.restoreWorkflow({messages:[]});enterText(elements,'用4K');await controller.submit();
+ assert.equal(requests,2,'a resolution after workflow activation is not applied to the old draft');
 });

@@ -20,6 +20,7 @@ export function projectCanvasNode(node, running = false) {
         inputs: definition?.inputs || [], outputs: definition?.outputs || [],
         assets: node.mediaAssetKeys?.length ? node.mediaAssetKeys.filter(key => typeof key === 'string' && key.startsWith('media:')) : [...new Set([node.imageImportAssetKey, node.imageAssetKey].filter(key => typeof key === 'string' && key.startsWith('media:')))],
         thinking: node.thinking ? cloneCanvasValue(node.thinking) : null,
+        providerId: node.providerId || null,
         missing: node.mediaIntegrity?.state === 'missing', modelId: node.apiConfigId || null
     };
 }

@@ -78,7 +78,7 @@ function normalizeObject(parameters, schema, prefix = '') {
     if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) throw new Error('生成参数必须是对象');
     return Object.fromEntries(Object.entries(parameters).map(([key, value]) => {
         const name = prefix ? `${prefix}.${key}` : key;
-        if (!Object.hasOwn(schema, key)) throw new Error(`当前节点不支持参数 ${name}`);
+        if (!Object.hasOwn(schema, key)) throw new Error(`当前节点不支持参数 ${{ aspectRatio: '比例', aspect: '比例', resolution: '分辨率', customWidth: '宽度', customHeight: '高度' }[name] || name}`);
         return [key, normalizeValue(value, schema[key], name)];
     }));
 }
@@ -87,5 +87,10 @@ export function normalizePromptAgentParameters(parameters = {}, schema) {
     const fallback = Object.fromEntries(Object.entries(PARAMETER_TYPES).map(([key, type]) => [
         key, { type, ...(type === 'integer' ? { minimum: 1 } : {}) }
     ]));
+    if (parameters && Object.hasOwn(parameters, 'aspect')) {
+        if (Object.hasOwn(parameters, 'aspectRatio') && parameters.aspectRatio !== parameters.aspect) throw new Error('方案中的比例设置冲突，请明确需要的比例。');
+        const { aspect, ...rest } = parameters;
+        parameters = { ...rest, aspectRatio: aspect };
+    }
     return normalizeObject(parameters, schema ?? fallback);
 }

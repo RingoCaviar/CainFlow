@@ -63,6 +63,11 @@ html:root :is(.context-menu-header, .theme-menu-item-check) {
     color: var(--menu-muted-text);
 }
 
+html:root button.context-menu-item {
+    background: transparent;
+    color: var(--menu-text);
+}
+
 html:root .theme-menu-item {
     background: var(--menu-item-surface);
     border-color: var(--menu-item-border);

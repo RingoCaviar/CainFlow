@@ -1,4 +1,5 @@
-import { getResolvedProviderForModel, normalizeProviderEndpointUrl } from '../execution/provider-request-utils.js';
+import { resolveThinking } from '../execution/thinking-config.js';
+import { resolveAgentProvider } from './prompt-agent-provider.js';
 
 // Search configuration and durable metadata; never treat model-authored URLs as results.
 export function getAgentSearchCapability(model) {
@@ -12,7 +13,7 @@ export function getAgentSearchCapability(model) {
 
 // The menu and execution must agree, including the selected Provider's address.
 // Configuration describes declared support; it never probes or infers model support.
-export function getAgentSearchAvailability({ model, models = [], providers = [], settings = {}, kind = 'web' }) {
+export function getAgentSearchAvailability({ model, models = [], providers = [], providerId = '', settings = {}, kind = 'web' }) {
     const fail = (reason, message, target = {}) => ({ available: false, reason, message, target });
     if (settings.mode === 'off') return fail('off', '联网已关闭');
     const current = canAgentSearch(model, kind);
@@ -21,17 +22,17 @@ export function getAgentSearchAvailability({ model, models = [], providers = [],
         return fail('model', `请选择支持${kind === 'images' ? '搜图' : '网页搜索'}的专用搜索模型`,
             { modelId: selected?.id, field: 'agentSearch' });
     }
-    const provider = getResolvedProviderForModel(selected, providers);
+    let provider;
+    try { provider = resolveAgentProvider(selected, providers, current ? providerId : settings.providerId); }
+    catch (error) { return fail('provider', error.message, error.configurationTarget); }
     if (!String(selected.modelId || '').trim()) return fail('model', '搜索模型缺少模型 ID', { modelId: selected.id, field: 'modelId' });
-    if (!provider || !safeSearchUrl(normalizeProviderEndpointUrl(provider.endpoint))) {
-        return fail('provider', '搜索模型或 Provider 配置不完整', provider
-            ? { providerId: provider.id, field: 'endpoint' } : { modelId: selected.id, field: 'providerIds' });
-    }
     if (selected.protocol === 'openai' && provider.autoComplete === false && !safeSearchUrl(provider.responsesEndpoint)) {
         return fail('responses-endpoint', 'Provider 缺少独立 Responses 地址', { providerId: provider.id, field: 'responsesEndpoint' });
     }
+    try { resolveThinking({ model: selected, provider, task: 'chat', protocol: selected.protocol === 'openai' ? 'responses' : selected.protocol }); }
+    catch (error) { return fail('thinking', error.message, { modelId: selected.id, field: 'thinking' }); }
     return { available: true, model: selected, provider, source: current ? 'conversation' : 'dedicated',
-        message: `${selected.name || selected.modelId}（${current ? '对话模型' : '专用模型'}）`, target: { modelId: selected.id, field: 'agentSearch' } };
+        message: `${selected.name || selected.modelId} · ${provider.name || provider.id}（${current ? '对话模型' : '专用模型'}）`, target: { modelId: selected.id, field: 'agentSearch' } };
 }
 
 export function canAgentSearch(model, kind = 'web') {

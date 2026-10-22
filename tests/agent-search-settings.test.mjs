@@ -5,8 +5,8 @@ import { getAgentSearchAvailability, getAgentSearchCapability } from '../js/feat
 
 const chat = { id: 'chat', name: 'Chat', modelId: 'chat', protocol: 'openai', providerIds: ['p'], taskType: 'chat' };
 const search = { ...chat, id: 'search', agentSearch: 'images' };
-const provider = { id: 'p', endpoint: 'https://controlled.test/v1' };
-const evaluate = (overrides = {}) => getAgentSearchAvailability({ model: chat, models: [chat, search], providers: [provider], settings: { modelId: 'search' }, ...overrides });
+const provider = { id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'controlled-key' };
+const evaluate = (overrides = {}) => getAgentSearchAvailability({ model: chat, models: [chat, search], providers: [provider], providerId: 'p', settings: { modelId: 'search', providerId: 'p' }, ...overrides });
 
 test('old configuration defaults and explicit search opt-out survive repeated normalization', () => {
     for (const protocol of ['google', 'openai', 'async-video-api']) for (const agentSearch of [undefined, 'none', 'web', 'images', 'invalid']) {

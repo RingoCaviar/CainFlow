@@ -1,5 +1,7 @@
+import { resolveAgentProvider } from './prompt-agent-provider.js';
+import { trackAgentRequest } from './prompt-agent-request.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
-import { getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { getModelsForTask, getModelProviders } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
@@ -13,8 +15,7 @@ import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-referen
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
         if (!model?.id || !model?.modelId || !getModelProtocolConfig(model.protocol)?.defaultTaskTypes.includes('chat')) return false;
-        const provider = getResolvedProviderForModel(model, providers);
-        return Boolean(String(provider?.endpoint || '').trim());
+        return getModelProviders(model, providers).some(provider => String(provider.endpoint || '').trim());
     });
 }
 
@@ -53,7 +54,10 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
         throw new Error('模型没有返回可用的 Prompt');
     }
     if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') throw new Error('负面提示词必须是文本');
-    const parameters = normalizePromptAgentParameters(plan.parameters ?? {}, context ? context.parameterSchema : {});
+    const parameters = normalizePromptAgentParameters(plan.parameters ?? {}, {
+        aspectRatio: { type: 'string' }, resolution: { type: 'string' }, customWidth: { type: 'integer', minimum: 1 }, customHeight: { type: 'integer', minimum: 1 },
+        ...(context?.parameterSchema || {})
+    });
     const imageRoles = plan.imageRoles ?? [];
     if (!Array.isArray(imageRoles)) throw new Error('图片角色必须是数组');
     let selectedImages = imageRoles.map((item) => {
@@ -109,8 +113,8 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
 }
 
 export async function createPromptAgentModelReply({
-    message = '', context = null, conversation = null, workflowMemory = '', referenceImages = [], workflowReferenceImages = [],
-    model, models = [], providers = [], fetchRef = fetch, headers = {}, getHeaders = null, signal,
+    message = '', context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null, referenceImages = [], workflowReferenceImages = [],
+    model, models = [], providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal,
     searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}, canvasContext = null,
     getCanvasImage = async () => null
 } = {}) {
@@ -118,9 +122,10 @@ export async function createPromptAgentModelReply({
     [model, models, providers, searchSettings] = JSON.parse(JSON.stringify([model, models, providers, searchSettings]));
     const assertActive = () => { if (signal?.aborted) throw new DOMException('请求已取消', 'AbortError'); };
     assertActive();
-    const provider = getResolvedProviderForModel(model, providers);
+    if (!model) throw new Error('请先配置对话模型和供应商。');
+    const provider = resolveAgentProvider(model, providers, providerId);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
-    const base = { message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model, canvasContext };
+    const base = { message, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext };
     const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
     let previousReferences = previousTurn?.promptPlan?.referenceImages || conversation?.previousPromptPlan?.referenceImages || [];
     const previousCanvas = previousTurn?.canvasPlan;
@@ -149,7 +154,9 @@ export async function createPromptAgentModelReply({
             messages: input.messages, media: input.media, capabilities: model.capabilities || {} });
         let response, payload;
         try {
-            response = await requestChatCompletion(plan, { fetchRef, headers: typeof getHeaders === 'function' ? getHeaders(plan) : headers, signal });
+            const requestHeaders = typeof getHeaders === 'function' ? getHeaders(plan) : headers;
+            response = await trackAgentRequest(plan, () => requestChatCompletion(plan, { fetchRef, headers: requestHeaders, signal }),
+                { recordRequest, workflowId, signal, purpose: search ? 'search-summary' : canvasReads.length ? 'canvas-followup' : 'chat' });
             assertActive();
             payload = parseJson(response.text);
         } catch (error) {
@@ -188,11 +195,11 @@ export async function createPromptAgentModelReply({
             searchUsed = true;
             const { kind, query } = payload.searchRequest;
             if (!['web', 'images'].includes(kind) || typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('模型返回的搜索请求无效。');
-            const availability = getAgentSearchAvailability({ model, models, providers, settings: searchSettings, kind });
+            const availability = getAgentSearchAvailability({ model, models, providers, providerId: provider.id, settings: searchSettings, kind });
             if (!availability.available) throw new Error(`${availability.message}，请打开联网菜单完成配置。`);
             const searchModel = availability.model;
             onSearchStatus(kind === 'images' ? '正在搜索图片…' : '正在联网查找资料…');
-            search = normalizeAgentSearch(await searchRef({ model: searchModel, providers, kind, query: query.trim(), fetchRef,
+            search = normalizeAgentSearch(await searchRef({ model: searchModel, providers, providerId: availability.provider.id, recordRequest, workflowId, kind, query: query.trim(), fetchRef,
                 getHeaders: typeof getHeaders === 'function' ? getHeaders : () => headers, signal }));
             assertActive();
             if (!search) throw new Error('搜索接口未返回有效结果。');

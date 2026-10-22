@@ -125,6 +125,7 @@ export function createAsyncMediaExecutionApi({
             providerId: apiCfg?.id || '',
             providerName: apiCfg?.name || apiCfg?.id || '',
             modelName: modelCfg?.name || modelCfg?.modelId || '',
+            modelId: modelCfg?.id || '',
             url,
             status: response ? response.status : finalOptions?.status,
             success: response ? response.ok : finalOptions?.success === true

@@ -954,7 +954,7 @@ const promptAgentResultPersistence = createPromptAgentResultPersistence({
 const readAgentWebImage = createAgentWebImageReader();
 const captureAgentRequestConfig = (modelId) => {
     const models = getAvailablePromptAgentModels(state.models || [], state.providers || []);
-    return JSON.parse(JSON.stringify({ models, model: models.find(item => item.id === modelId), providers: state.providers || [] }));
+    return JSON.parse(JSON.stringify({ workflowId: workflowManagerApi.getActiveWorkflowId(), models, model: models.find(item => item.id === modelId), providers: state.providers || [] }));
 };
 const promptAgentController = createPromptAgentController({
     canvasAdapter: createPromptAgentCanvasAdapter({
@@ -1019,21 +1019,24 @@ const promptAgentController = createPromptAgentController({
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
     createReply: (request) => {
-        const { model, models, providers } = request.config || captureAgentRequestConfig(request.modelId);
+        const { model, models, providers, providerId, workflowId, searchProviders = {} } = request.config || captureAgentRequestConfig(request.modelId);
         return createPromptAgentModelReply({
             ...request,
-            model, models, providers,
+            model, models, providers, providerId, workflowId,
+            searchSettings: { ...request.searchSettings, providerId: searchProviders[request.searchSettings?.modelId] || '' },
+            recordRequest: record => getRequestStatisticsApi().recordRequest(record),
             getCanvasImage: getImageAsset,
             getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', plan.model?.protocol === 'openai'
                 ? { Authorization: `Bearer ${plan.provider?.apikey || ''}` } : {})
         });
     },
     createCompaction: (request) => {
-        const { model, providers } = request.config || captureAgentRequestConfig(request.modelId);
+        const { model, providers, providerId, workflowId } = request.config || captureAgentRequestConfig(request.modelId);
         return createPromptAgentCompaction({
             ...request,
             model,
-            providers,
+            providers, providerId, workflowId,
+            recordRequest: record => getRequestStatisticsApi().recordRequest(record),
             getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', plan.model?.protocol === 'openai'
                 ? { Authorization: `Bearer ${plan.provider?.apikey || ''}` } : {})
         });

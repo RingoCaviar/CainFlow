@@ -86,7 +86,7 @@ test('supplier parameter refusal makes one request and never retries without set
 test('compaction uses the captured chat thinking configuration without modifying its budget threshold', async () => {
     const configured = model('openai-basic'); configured.thinking.default = level('high'); configured.autoCompactTokenLimit = 64000;
     let body;
-    await createPromptAgentCompaction({ model: configured, providers: [provider], conversation: { messages: [{role:'user', text:'保留海报设计'}] },
+    await createPromptAgentCompaction({ model: configured, providers: [provider], providerId: provider.id, conversation: { messages: [{role:'user', text:'保留海报设计'}] },
         fetchRef: async (_, init) => { body = JSON.parse(init.body); return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({summary:'保留海报设计'})}}]})); } });
     assert.equal(body.reasoning_effort, 'high');
     assert.equal(configured.autoCompactTokenLimit, 64000);

@@ -5,7 +5,7 @@ import { createPromptAgentCompaction } from '../js/features/prompt-agent/prompt-
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', providerIds: ['provider-1'] };
-const provider = { id: 'provider-1', name: 'Test', endpoint: 'https://example.test/v1' };
+const provider = { id: 'provider-1', name: 'Test', endpoint: 'https://example.test/v1', apikey: 'controlled-key' };
 
 function response(text, protocol = 'openai') {
     return {
@@ -22,7 +22,7 @@ function requestInput(body, protocol = 'openai') {
 
 function compact(options = {}) {
     return createPromptAgentCompaction({
-        model, providers: [provider],
+        model, providers: [provider], providerId: provider.id,
         conversation: { messages: [{ role: 'user', text: '保留红色主体，只更换背景。' }] },
         fetchRef: async () => response(JSON.stringify({ summary: '保留红色主体，仅更换背景。' })),
         ...options
@@ -132,7 +132,7 @@ test('compaction rejects absent configuration and empty effective context withou
     let calls = 0;
     const fetchRef = async () => { calls++; return response('{"summary":"摘要"}'); };
     await assert.rejects(compact({ model: null, fetchRef }), /配置/);
-    await assert.rejects(compact({ providers: [], fetchRef }), /配置/);
+    await assert.rejects(compact({ providers: [], fetchRef }), /供应商/);
     await assert.rejects(compact({ conversation: { memory: ' ', messages: [], archivedMessages: [{ text: '仅归档' }] }, fetchRef }), /没有.*上下文/);
     assert.equal(calls, 0);
 });

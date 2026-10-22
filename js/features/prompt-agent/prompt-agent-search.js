@@ -1,6 +1,8 @@
+import { resolveAgentProvider } from './prompt-agent-provider.js';
+import { trackAgentRequest } from './prompt-agent-request.js';
 import { applyThinking } from '../execution/thinking-config.js';
 import { createChatRequestPlan, executeChatRequestPlan } from '../execution/chat-request-plan.js';
-import { normalizeAutoCompleteBase, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { normalizeAutoCompleteBase } from '../execution/provider-request-utils.js';
 import { canAgentSearch, normalizeAgentSearch, safeSearchUrl } from './prompt-agent-search-data.js';
 
 function assertActive(signal) {
@@ -70,14 +72,20 @@ export function parseAgentSearchResponse(payload, { protocol, kind, query, id = 
     return normalizeAgentSearch({ searched, kind, query, text, sources, images, suggestionsHtml, notice });
 }
 
-export async function searchPromptAgent({ model, providers, kind, query, fetchRef = fetch, getHeaders = () => ({}), signal }) {
+export async function searchPromptAgent({ model, providers, providerId = '', recordRequest, workflowId, kind, query, fetchRef = fetch, getHeaders = () => ({}), signal }) {
     assertActive(signal);
-    const provider = getResolvedProviderForModel(model, providers);
+    [model, providers] = JSON.parse(JSON.stringify([model, providers]));
+    const provider = resolveAgentProvider(model, providers, providerId);
     const plan = createAgentSearchRequest({ model, provider, kind, query });
-    const response = await executeChatRequestPlan(plan, { fetchRef, headers: getHeaders(plan), signal });
-    assertActive(signal);
-    if (!response.ok) throw new Error(`联网搜索失败（HTTP ${response.status}），请检查搜索能力与接口配置。`);
-    const payload = await response.json();
+    const headers = getHeaders(plan);
+    const payload = await trackAgentRequest(plan, async () => {
+        const response = await executeChatRequestPlan(plan, { fetchRef, headers, signal });
+        if (!response.ok) {
+            const error = new Error(`联网搜索失败（HTTP ${response.status}），请检查搜索能力与接口配置。`);
+            error.serverResponse = { status: response.status }; throw error;
+        }
+        return response.json();
+    }, { recordRequest, workflowId, signal, purpose: kind === 'images' ? 'image-search' : 'web-search' });
     assertActive(signal);
     return parseAgentSearchResponse(payload, { protocol: plan.protocol, kind, query });
 }

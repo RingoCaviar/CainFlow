@@ -1,3 +1,4 @@
+import { sizeFields } from './prompt-agent-size.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { normalizeAgentSearch } from './prompt-agent-search-data.js';
 import { restoreCanvasPlan } from './prompt-agent-canvas-plan.js';
@@ -110,7 +111,9 @@ export function createPromptAgentConversationStore() {
     let archivedMessages = [];
     let compactedMessageCount = 0;
     let imageModelId = '';
+    let sizeSettings = {};
     let thinkingSettings = { chat: {}, image: {} };
+    let providerSettings = { chat: {}, image: {}, search: {} };
     let searchSettings = { mode: 'auto', modelId: '' };
     let referenceImages = [];
     let previousPromptPlan = null;
@@ -202,16 +205,21 @@ export function createPromptAgentConversationStore() {
         compactedMessageCount = restoredCompactedCount;
         referenceImages = restoredReferences;
         previousPromptPlan = restoredPlan;
+        sizeSettings = Object.fromEntries(Object.entries(value?.sizeSettings || {}).filter(([id, settings]) => id && settings && typeof settings === 'object' && !Array.isArray(settings)).map(([id, settings]) => [id, sizeFields(settings)]));
         imageModelId = typeof value?.imageModelId === 'string' ? value.imageModelId.trim() : '';
         thinkingSettings = { chat: clone(value?.thinkingSettings?.chat || {}), image: clone(value?.thinkingSettings?.image || {}) };
+        providerSettings = Object.fromEntries(['chat', 'image', 'search'].map(purpose => [purpose,
+            Object.fromEntries(Object.entries(value?.providerSettings?.[purpose] || {}).filter(([id, provider]) => id && typeof provider === 'string'))]));
         setSearchSettings(value?.searchSettings);
     }
 
     function snapshot() {
         const snapshot = { version: 1, memory, messages: clone(messages) };
+        if (Object.values(providerSettings).some(settings => Object.keys(settings).length)) snapshot.providerSettings = clone(providerSettings);
         if (Object.keys(thinkingSettings.chat).length || Object.keys(thinkingSettings.image).length) snapshot.thinkingSettings = clone(thinkingSettings);
         if (searchSettings.mode !== 'auto' || searchSettings.modelId) snapshot.searchSettings = { ...searchSettings };
         if (imageModelId) snapshot.imageModelId = imageModelId;
+        if (Object.keys(sizeSettings).length) snapshot.sizeSettings = clone(sizeSettings);
         if (contextSummary) {
             snapshot.contextSummary = contextSummary;
             snapshot.compactedMessageCount = compactedMessageCount;
@@ -318,12 +326,24 @@ export function createPromptAgentConversationStore() {
     }
 
     const getThinking = (purpose, modelId) => clone(thinkingSettings[purpose]?.[modelId] || null) || undefined;
+    const getProvider = (purpose, modelId) => providerSettings[purpose]?.[modelId] || '';
+    const setProvider = (purpose, modelId, value) => {
+        if (!modelId || !providerSettings[purpose] || typeof value !== 'string') return;
+        if (value) providerSettings[purpose][modelId] = value; else delete providerSettings[purpose][modelId];
+    };
     const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
-    return { getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    const getSize = modelId => clone(sizeSettings[modelId] || {});
+    const setSize = (modelId, value) => { if (!modelId) return; const next = sizeFields(value); if (Object.keys(next).length) sizeSettings[modelId] = next; else delete sizeSettings[modelId]; };
+    return { getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;
             message.canvasPlan = clone(plan); delete message.promptPlan; return true;
+        },
+        updatePromptPlan: (index, plan) => {
+            const message = [...archivedMessages, ...messages][index];
+            if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;
+            message.promptPlan = clone(plan); return true;
         },
         updateCanvasPlan: (id, plan) => {
             const message = [...archivedMessages, ...messages].find(item => item.canvasPlan?.id === id);

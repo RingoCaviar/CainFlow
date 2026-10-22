@@ -582,33 +582,33 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 
 /* Agent owns flat controls, including popovers portaled outside the panel.
    Shadows belong to floating surfaces, not individual buttons. */
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker,
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker,
     #prompt-agent-command-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions) button {
     background-image: none;
     box-shadow: none;
     text-shadow: none;
     filter: none;
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn {
     background-color: var(--surface-control);
     border-color: var(--panel-control-border);
     color: var(--text-primary);
     transform: none;
     transition: background-color var(--motion-fast, 150ms), border-color var(--motion-fast, 150ms), color var(--motion-fast, 150ms);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn:hover:not(:disabled) {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn:hover:not(:disabled) {
     background-color: var(--surface-control-hover);
     border-color: var(--panel-hover-border);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn-primary {
     background-color: var(--panel-primary-action-bg);
     color: var(--panel-primary-action-text);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary:hover:not(:disabled) {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn-primary:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
     color: var(--panel-primary-action-text);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) button:focus-visible {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) button:focus-visible {
     outline: 2px solid var(--text-link);
     outline-offset: 2px;
 }
@@ -637,3 +637,16 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .thinking-control-content input, .thinking-model-settings select { min-height: 28px; }
 
 .prompt-agent-thinking-menu { position: fixed; z-index: var(--layer-menu); overflow-y: auto; box-sizing: border-box; background: var(--surface-panel-strong); color: var(--text-primary); }
+
+/* Size settings reuse the Agent menu surface and flat controls. */
+#prompt-agent-size-button { min-height: 28px; padding: 2px 4px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.prompt-agent-size-menu > strong { display: block; margin-bottom: 8px; font-size: 13px; }
+.prompt-agent-size-menu .prompt-agent-model-trigger { min-width: 0; flex: 1; }
+.prompt-agent-size-dimensions { display: flex; gap: 6px; }
+.prompt-agent-size-dimensions[hidden] { display: none; }
+.prompt-agent-size-dimensions label { flex: 1; min-width: 0; font-size: 12px; }
+.prompt-agent-size-dimensions input { box-sizing: border-box; width: 100%; min-height: 28px; border: 1px solid var(--panel-input-border); border-radius: 6px; color: var(--text-primary); background: var(--panel-input-bg); padding: 4px 6px; }
+.prompt-agent-size-dimensions input:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
+.prompt-agent-size-clarification { display: flex; flex-wrap: wrap; gap: 4px; }
+.prompt-agent-size-clarification p { flex-basis: 100%; margin: 4px 0; }
+.prompt-agent-size-summary p { margin: 4px 0; color: var(--text-secondary); font-size: 12px; }
