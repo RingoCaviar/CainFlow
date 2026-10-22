@@ -1,12 +1,13 @@
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
-import { PROMPT_AGENT_SYSTEM_PROMPT } from './prompt-agent-instructions.js';
+import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
+import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -100,7 +101,8 @@ function normalizeReply(payload, context, images = [], userMessage = '') {
 export async function createPromptAgentModelReply({
     message = '', context = null, conversation = null, workflowMemory = '', referenceImages = [], workflowReferenceImages = [],
     model, models = [], providers = [], fetchRef = fetch, headers = {}, getHeaders = null, signal,
-    searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}
+    searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}, canvasContext = null,
+    getCanvasImage = async () => null
 } = {}) {
     // Capture all configuration once, including provider order and endpoints.
     [model, models, providers, searchSettings] = JSON.parse(JSON.stringify([model, models, providers, searchSettings]));
@@ -108,13 +110,16 @@ export async function createPromptAgentModelReply({
     assertActive();
     const provider = getResolvedProviderForModel(model, providers);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
-    const base = { message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model };
+    const base = { message, context, conversation, workflowMemory, referenceImages, workflowReferenceImages, model, canvasContext };
+    const canvasReads = [];
     let search = null;
-    for (let round = 0; round < 2; round++) {
+    let searchUsed = false;
+    for (let round = 0; round < 10; round++) {
         assertActive();
-        const request = { ...base, searchAllowed: round === 0 && searchSettings.mode !== 'off', searchContext: search };
+        const request = { ...base, canvasReads, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search };
+        if (canvasReads.length && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
         const input = createPromptAgentInput(request);
-        const plan = createChatRequestPlan({ provider, model, protocol: model.protocol, systemPrompt: PROMPT_AGENT_SYSTEM_PROMPT,
+        const plan = createChatRequestPlan({ provider, model, protocol: model.protocol, systemPrompt: getPromptAgentInstructions(canvasContext),
             messages: input.messages, media: input.media, capabilities: model.capabilities || {} });
         let response, payload;
         try {
@@ -126,8 +131,35 @@ export async function createPromptAgentModelReply({
             if (!search) throw error;
             return { intent: 'chat', message: `检索结果已保留，但整理回复失败：${error.message}`, promptPlan: null, search };
         }
+        if (payload?.canvasRead) {
+            if (!canvasContext || canvasReads.length >= 6) throw new Error('本轮画布读取已达预算，请缩小节点范围后继续；未读取内容不能确认。');
+            const detail = canvasContext.read(payload.canvasRead);
+            const requestedImages = payload.canvasRead.images || [];
+            if (!Array.isArray(requestedImages) || requestedImages.length > 4) throw new Error('每次画布读取最多查看四张指定原图');
+            detail.imageReads = [];
+            for (const item of requestedImages) {
+                const node = canvasContext.nodes.find(node => node.id === item?.nodeId);
+                const index = item?.index ?? 0;
+                if (!node || !Number.isInteger(index) || index < 0 || !node.assets[index]) throw new Error('指定画布图片不存在或原图资产缺失');
+                const assetKey = node.assets[index];
+                const dataUrl = await getCanvasImage(assetKey);
+                assertActive();
+                if (typeof dataUrl !== 'string' || !/^data:image\/[^;]+;base64,/i.test(dataUrl)) throw new Error(`「${node.name}」原图读取失败，不能确认图片内容`);
+                const referenceId = `canvas:${node.id}:${index}:${assetKey}`;
+                if (!base.workflowReferenceImages.some(image => image.referenceId === referenceId)) {
+                    base.workflowReferenceImages = [...base.workflowReferenceImages, { referenceId, sourceNodeId: node.id,
+                        sourcePort: 'image', sourceImageIndex: index, assetKey, dataUrl,
+                        name: `${node.name} [${node.id}] 第 ${index + 1} 张`, contextOrigin: '按需读取的画布原图' }];
+                }
+                detail.imageReads.push({ nodeId: node.id, index, assetKey, pixelsAvailable: model.capabilities?.imageInput !== false });
+            }
+            canvasReads.push(detail);
+            onSearchStatus(`正在读取画布详情（${canvasReads.length}/6）…`);
+            continue;
+        }
         if (payload?.searchRequest) {
-            if (round !== 0) return { intent: 'chat', message: '本轮已完成一次检索；结果已保留，请继续提问以进一步搜索。', promptPlan: null, search };
+            if (searchUsed) return { intent: 'chat', message: '本轮已完成一次检索；结果已保留，请继续提问以进一步搜索。', promptPlan: null, search };
+            searchUsed = true;
             const { kind, query } = payload.searchRequest;
             if (!['web', 'images'].includes(kind) || typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('模型返回的搜索请求无效。');
             const availability = getAgentSearchAvailability({ model, models, providers, settings: searchSettings, kind });
@@ -142,7 +174,23 @@ export async function createPromptAgentModelReply({
             continue;
         }
         let reply;
-        try { reply = normalizeReply(payload, context, input.images, message); }
+        try {
+            if (payload.canvasPlan && ['edit', 'refine'].includes(payload.intent)) {
+                // Reuse the established latest-result selection gate before accepting a graph.
+                const targetReply = normalizeReply({ ...payload, canvasPlan: undefined, promptPlan: {
+                    prompt: '画布续改目标检查', imageRoles: (payload.canvasPlan.steps || []).filter(step => step.imageId).map(step => ({ imageId: step.imageId, role: 'edit-target' }))
+                } }, null, input.images, message);
+                if (targetReply.intent === 'clarify') return targetReply;
+                const selected = targetReply.promptPlan.referenceImages.find(image => image.role === 'edit-target');
+                if (selected && !(payload.canvasPlan.steps || []).some(step => step.imageId === selected.imageId)) {
+                    throw new Error('多步骤续改未引用正确的最新结果，请指定要编辑的图片后重新整理方案');
+                }
+            }
+            reply = payload.canvasPlan && canvasContext ? {
+                intent: 'generate', message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
+                canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images })
+            } : normalizeReply(payload, context, input.images, message);
+        }
         catch (error) {
             if (!search) throw error;
             return { intent: 'chat', message: `检索结果已保留，但方案无效：${error.message}`, promptPlan: null, search };

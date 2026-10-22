@@ -881,6 +881,7 @@ export function createExecutionCoreApi({
             mode,
             targetNodeId,
             selectedNodeIds,
+            ...(runInput.agentSequential === true ? { agentSequential: true } : {}),
             ...(Array.isArray(runInput.includedAutoSaveNodeIds) ? {
                 includedAutoSaveNodeIds: [...new Set(runInput.includedAutoSaveNodeIds.filter((id) => (
                     typeof id === 'string' && state.nodes.has(id)

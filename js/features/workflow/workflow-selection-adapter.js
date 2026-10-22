@@ -95,6 +95,7 @@ export function createWorkflowSelectionAdapter({
     const isWorkflowRunning = (workflowId) => workflowDesk.snapshot().open
         .some((record) => record.workflowId === workflowId && record.running === true);
     async function activate(name, { reloadFromFile = false, closeToken = null } = {}) {
+        if (state.canvasPlanApplying) return false;
         if (!name) return false;
         const existingTab = getWorkflowTab(name);
         if (reloadFromFile && isWorkflowRunning(existingTab?.workflowId)) {
@@ -157,6 +158,7 @@ export function createWorkflowSelectionAdapter({
                 const prepared = { tab, createdTab, reloadedData, targetRevision, preparedView, editorView };
                 const transactionalView = {
                     async commit() {
+                        if (state.canvasPlanApplying) return false;
                         const currentTab = (state.workflowTabs || [])
                             .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
                         if ((reloadedData && isWorkflowRunning(currentTab?.workflowId)) || !targetRevision.isCurrent()) return false;

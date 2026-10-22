@@ -1035,6 +1035,7 @@ export function createWorkflowRuntimeManager({
         }
         return {
             nodeId: node.id,
+            succeeded: node.isSucceeded === true,
             images,
             mediaAssetKeys: includeImages && Array.isArray(node.data?.mediaAssetKeys)
                 ? node.data.mediaAssetKeys.slice() : [],
@@ -1468,7 +1469,7 @@ export function createWorkflowRuntimeManager({
         });
     }
 
-    function createWorkflowRuntimeContext(workflow, workflowData, { editorPreparation = false } = {}) {
+    function createWorkflowRuntimeContext(workflow, workflowData, { editorPreparation = false, configurationSnapshot } = {}) {
         const { workflowName, workflowId } = normalizeWorkflowReference(workflow);
         if (!workflowId) throw new TypeError('A workflow reference with a stable workflowId is required');
         const contextId = `${workflowId}::${Date.now()}::${workflowRunContextSeq += 1}`;
@@ -1486,8 +1487,8 @@ export function createWorkflowRuntimeManager({
         WORKFLOW_RUNTIME_STATE_KEYS.forEach((key) => {
             runtimeState[key] = state[key];
         });
-        runtimeState.providers = state.providers.map((provider) => ({ ...provider }));
-        runtimeState.models = state.models.map((model) => ({ ...model }));
+        runtimeState.providers = JSON.parse(JSON.stringify(configurationSnapshot?.providers || state.providers));
+        runtimeState.models = JSON.parse(JSON.stringify(configurationSnapshot?.models || state.models));
         runtimeState.nodeDefaults = clonePlainValue(state.nodeDefaults);
         runtimeState.activeWorkflowName = workflowName;
         runtimeState.activeWorkflowId = workflowId;
@@ -1778,12 +1779,13 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults } = {}) {
+    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
-            : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData);
+            : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData, { configurationSnapshot });
         context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
+        if (runInput?.agentSequential) context.state.autoRetry = false;
         if (typeof createRunContext === 'function') {
             const dispose = context.dispose?.bind(context) || (() => {});
             context.dispose = () => {
@@ -1871,7 +1873,7 @@ export function createWorkflowRuntimeManager({
                         workflowId,
                         ...(runError ? { reason: 'error', outcome: 'failed', error: runError.message || String(runError) } : {}),
                         nodeResults: await Promise.all(getWorkflowRunResultNodes(context).map((node) => captureWorkflowNodeResult(
-                            node, !runError && executionResult?.outcome === 'completed'
+                            node, runInput?.agentSequential ? node.isSucceeded === true : !runError && executionResult?.outcome === 'completed'
                         )))
                     };
                     if (typeof retainResults === 'function') {

@@ -1069,6 +1069,9 @@ export function createWorkflowRunnerApi({
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 const toNode = state.nodes.get(nodeId);
                 const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+                if (plan.agentSequential && (outputValue === undefined || outputValue === null || outputValue === '' || (Array.isArray(outputValue) && outputValue.length === 0))) {
+                    throw new Error('方案引用的外部节点没有可用输出，请先生成或导入素材');
+                }
                 if (outputValue === undefined) continue;
 
                 if (!externalInputsByNode[nodeId]) {
@@ -2377,7 +2380,7 @@ export function createWorkflowRunnerApi({
                     if (readyNodes.length === 0 && runningNodes.size === 0) break;
 
                     if (readyNodes.length > 0) {
-                        readyNodes.forEach((nid) => {
+                        (runInput?.agentSequential ? (runningNodes.size ? [] : readyNodes.slice(0, 1)) : readyNodes).forEach((nid) => {
                             if (session.canceledBranchNodeIds.has(nid) || runningNodes.has(nid) || completedNodes.has(nid)) return;
                             runningNodes.add(nid);
                             const node = state.nodes.get(nid);
@@ -2441,6 +2444,7 @@ export function createWorkflowRunnerApi({
                                 } catch (caughtError) {
                                     const err = normalizeNodeRunError(caughtError, nodeTimeout, node);
                                     if (isAbortLikeError(err)) {
+                                        if (runInput?.agentSequential) session.stopped = true;
                                         node.runStartedAt = null;
                                         clearNodeRunning(nid, node, { status: 'aborted' });
                                         clearAbortedNodeFeedback(nid);
@@ -2465,7 +2469,7 @@ export function createWorkflowRunnerApi({
 
                                     failedNodes.add(nid);
 
-                                    if (!state.autoRetry) {
+                                    if (!state.autoRetry || runInput?.agentSequential) {
                                         showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
                                         terminatedByError = true;
                                         session.stopped = true;
@@ -2503,7 +2507,7 @@ export function createWorkflowRunnerApi({
                     break;
                 }
 
-                if (!state.autoRetry) break;
+                if (!state.autoRetry || runInput?.agentSequential) break;
 
                 retryAttempt++;
                 if (retryAttempt > maxRetries) {

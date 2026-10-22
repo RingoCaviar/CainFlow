@@ -1,6 +1,7 @@
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { projectAgentSearch, getSummarySearchSources } from './prompt-agent-search-data.js';
 import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { projectCanvasPlan } from './prompt-agent-canvas-plan.js';
 
 const SUMMARY_CHARACTER_LIMIT = 3000;
 const BATCH_CHARACTER_LIMIT = 12000;
@@ -70,6 +71,7 @@ function projectConversation(conversation) {
         if (Array.isArray(message?.workSummary)) add('work-summary', JSON.stringify(message.workSummary), location);
         addReferences(message?.referenceImages, 'reference-image', location);
         addPlan(message?.promptPlan, location);
+        if (message?.canvasPlan) add('canvas-plan', JSON.stringify(projectCanvasPlan(message.canvasPlan)), location);
     });
     addReferences(conversation?.referenceImages, 'historical-reference-image');
     return records;

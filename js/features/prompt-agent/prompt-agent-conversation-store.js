@@ -1,5 +1,6 @@
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { normalizeAgentSearch } from './prompt-agent-search-data.js';
+import { restoreCanvasPlan } from './prompt-agent-canvas-plan.js';
 
 function clone(value) {
     if (value === undefined) return undefined;
@@ -96,6 +97,8 @@ function normalizeMessage(message = {}, options = {}) {
         } : {}),
         ...(Array.isArray(message.workSummary) ? { workSummary: message.workSummary.map(String) } : {}),
         ...(message.promptPlan ? { promptPlan: normalizePromptPlan(message.promptPlan) } : {}),
+        ...(message.canvasPlan ? { canvasPlan: options.interruptRunning ? restoreCanvasPlan(message.canvasPlan) : clone(message.canvasPlan) } : {}),
+        ...(message.nodeMentions ? { nodeMentions: clone(message.nodeMentions) } : {}),
         ...(Array.isArray(message.runs) ? { runs: message.runs.map((run) => normalizeRun(run, options)).filter(Boolean) } : {})
     };
 }
@@ -113,7 +116,7 @@ export function createPromptAgentConversationStore() {
 
     function append(message) {
         const normalized = normalizeMessage(message);
-        if (!normalized.text && !normalized.promptPlan && !normalized.referenceImages?.length && !normalized.runs?.length) return;
+        if (!normalized.text && !normalized.promptPlan && !normalized.canvasPlan && !normalized.referenceImages?.length && !normalized.runs?.length) return;
         messages.push(normalized);
         return archivedMessages.length + messages.length - 1;
     }
@@ -312,5 +315,10 @@ export function createPromptAgentConversationStore() {
     }
 
     return { append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+        updateCanvasPlan: (id, plan) => {
+            const message = [...archivedMessages, ...messages].find(item => item.canvasPlan?.id === id);
+            if (!message) return false;
+            message.canvasPlan = clone(plan); return true;
+        },
         getSearchSettings: () => ({ ...searchSettings }), setSearchSettings };
 }

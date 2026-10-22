@@ -1,5 +1,5 @@
 import { createPromptAgentInput } from './prompt-agent-input.js';
-import { PROMPT_AGENT_SYSTEM_PROMPT } from './prompt-agent-instructions.js';
+import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { countO200k, countCl100k } from '../../vendor/tokenizer.js';
 import { measureImageTokens } from './prompt-agent-image-tokens.js';
 
@@ -26,7 +26,7 @@ export function measurePromptAgentContext(request, observation = null) {
     const known = request.model?.protocol !== 'google' && (legacy || /^(?:gpt-4o|gpt-4\.1|gpt-5|o[134])(?:[.-]|$)/.test(modelId));
     const encoding = legacy ? 'cl100k_base' : 'o200k_base';
     // Count actual message strings, not an extra serialization of the envelope.
-    const messages = [{ role: 'system', content: PROMPT_AGENT_SYSTEM_PROMPT }, ...input.messages];
+    const messages = [{ role: 'system', content: getPromptAgentInstructions(request.canvasContext) }, ...input.messages];
     const textTokens = 3 + messages.reduce((sum, message) => sum + 3
         + countPromptText(message.role, encoding) + countPromptText(message.content, encoding), 0);
     const images = input.media.map(item => item.url);

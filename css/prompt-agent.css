@@ -561,3 +561,15 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 #prompt-agent-picker-selected { max-height: 78px; flex: none; padding: 0; }
 #prompt-agent-reference-more[hidden] { display: none; }
 .prompt-agent-reference-picker { left: 6px; right: 6px; padding: 6px; gap: 6px; }
+.prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 6px; overflow-wrap: anywhere; }
+.prompt-agent-canvas-plan ol, .prompt-agent-canvas-plan ul { padding-left: 18px; margin: 6px 0; }
+.prompt-agent-canvas-plan li { margin: 4px 0; }
+.prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--bg-secondary); }
+.prompt-agent-canvas-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
+.prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 8px; margin: 4px 0; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--surface-control); }
+.prompt-agent-canvas-actions .btn { padding: 3px 7px; }
+.prompt-agent-canvas-actions [hidden] { display: none; }
+.prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); box-shadow: 0 8px 24px #0003; }
+.prompt-agent-node-mentions button { display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
+.prompt-agent-node-mentions button[aria-selected="true"] { outline: 2px solid var(--accent-color); }

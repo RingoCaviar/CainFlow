@@ -84,6 +84,7 @@ import { createWorkflowManagerApi } from '../features/workflow/workflow-manager.
 import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runtime-manager.js';
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
+import { createPromptAgentCanvasAdapter } from '../features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { createPromptAgentReferenceSource } from '../features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
@@ -823,7 +824,8 @@ function waitForRunStartFrame() {
     });
 }
 
-async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults } = {}) {
+async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun } = {}) {
+    if (state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后运行');
     if (state.isRunStarting) return false;
     const requestedWorkflowId = workflowManagerApi.getActiveWorkflowId();
     state.isRunStarting = true;
@@ -843,6 +845,7 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
             return false;
         }
         const preparedWorkflowId = workflowManagerApi.getActiveWorkflowId();
+        validateBeforeRun?.();
         runInput = prepareGenerationSaveTargets({
             state, runInput,
             resolveExecutionPlan: (input) => getExecutionCoreApi().resolveExecutionPlan(input),
@@ -860,7 +863,7 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
         const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
         // Forward the completion promise without holding the launch guard for
         // the full generation; other workflow branches can still be started.
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults });
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot });
     } catch (error) {
         showToast(error?.message || '无法启动工作流', 'warning');
         if (waitForCompletion) throw error;
@@ -951,6 +954,22 @@ const captureAgentRequestConfig = (modelId) => {
     return JSON.parse(JSON.stringify({ models, model: models.find(item => item.id === modelId), providers: state.providers || [] }));
 };
 const promptAgentController = createPromptAgentController({
+    canvasAdapter: createPromptAgentCanvasAdapter({
+        state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
+        getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode,
+        nodeAdapter: promptAgentNodeAdapter, session: getSessionManagerApi,
+        save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
+        graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
+        origin: () => {
+            const rect = canvasContainer.getBoundingClientRect();
+            const panel = document.getElementById('prompt-agent-panel');
+            const bounds = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
+            return { ...viewportApi.screenToCanvas(rect.left + 24, rect.top + 72),
+                ...(bounds ? { blockedSpan: { x: viewportApi.screenToCanvas(bounds.left - 16, rect.top).x, width: (bounds.width + 32) / state.canvas.zoom } } : {}) };
+        },
+        getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
+        cancelNode: cancelRunningNode, focusNode: focusCanvasNode
+    }),
     panelManager,
     getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
     getProviders: () => state.providers,
@@ -1000,6 +1019,7 @@ const promptAgentController = createPromptAgentController({
         return createPromptAgentModelReply({
             ...request,
             model, models, providers,
+            getCanvasImage: getImageAsset,
             getHeaders: (plan) => getProxyHeaders(plan.url, 'POST', plan.model?.protocol === 'openai'
                 ? { Authorization: `Bearer ${plan.provider?.apikey || ''}` } : {})
         });
@@ -1016,6 +1036,7 @@ const promptAgentController = createPromptAgentController({
     },
     onStateChange: () => {
         workflowManagerApi.markActiveWorkflowDirty();
+        scheduleSave({ dirty: false });
         settingsControllerApi?.updateAgentCacheUsage();
     }
 });

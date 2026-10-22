@@ -317,6 +317,7 @@ export function createSessionManagerApi({
     }
 
     function saveState() {
+        if (state.canvasPlanApplying) return false;
         let serializedData = '';
         try {
             onBeforeSave({ dirty: false });
@@ -399,6 +400,7 @@ export function createSessionManagerApi({
     }
 
     function scheduleSave(options = {}) {
+        if (state.canvasPlanApplying) return;
         if (state.dragging || state.resizing) return;
         if (options.dirty !== false) {
             onBeforeSave({ dirty: true });
@@ -484,6 +486,7 @@ export function createSessionManagerApi({
     }
 
     function pushHistory() {
+        if (state.canvasPlanApplying) return null;
         const snapshot = captureHistorySnapshot();
         const discardedRedoSnapshots = getRedoStack().splice(0).flatMap((raw) => {
             try { return [JSON.parse(raw)]; } catch { return []; }
@@ -591,14 +594,41 @@ export function createSessionManagerApi({
     }
 
     async function undo() {
+        if (state.canvasPlanApplying) return;
         return applyHistorySnapshot(state.undoStack, getRedoStack(), { intent: 'undo', label: '撤回' });
     }
 
     async function redo() {
+        if (state.canvasPlanApplying) return;
         return applyHistorySnapshot(getRedoStack(), state.undoStack, { intent: 'redo', label: '重做' });
     }
 
+    async function applyCanvasBatch(mutate, persist) {
+        if (state.canvasPlanApplying || state.runningNodeIds?.size || state.isRunStarting) throw new Error('画布正在修改或运行，请稍后再应用');
+        clearTimeout(saveTimer);
+        const before = captureHistorySnapshot();
+        state.canvasPlanApplying = true;
+        try {
+            const result = await mutate();
+            onBeforeSave({ dirty: true });
+            const saved = await persist();
+            if (saved === false || saved?.committed === false) throw new Error('方案保存失败，请重试应用');
+            const redo = getRedoStack().splice(0);
+            void releaseLegacySnapshotMediaOwners(redo.flatMap(raw => { try { return [JSON.parse(raw)]; } catch { return []; } }));
+            pushSnapshot(state.undoStack, before);
+            updateHistoryButtons();
+            return { ...result, historyId: before.historyId };
+        } catch (error) {
+            await applySnapshotGraph(before);
+            onBeforeSave({ dirty: true });
+            throw error;
+        } finally {
+            state.canvasPlanApplying = false;
+        }
+    }
+
     return {
+        applyCanvasBatch,
         scheduleSave,
         saveState,
         flushSave,

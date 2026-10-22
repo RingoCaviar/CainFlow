@@ -7,6 +7,8 @@ import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-ui.js';
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
+import { renderCanvasPlan, attachCanvasMentions } from './prompt-agent-canvas-ui.js';
+import { promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
@@ -70,6 +72,7 @@ function readImageFile(file) {
 }
 
 export function createPromptAgentController({
+    canvasAdapter = null,
     documentRef = document,
     createReply = async (request) => buildDefaultReply(request),
     createCompaction = async () => { throw new Error('上下文压缩服务尚未配置。'); },
@@ -102,6 +105,8 @@ export function createPromptAgentController({
     resizeObserverFactory = (callback) => typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null
 } = {}) {
     const surfaces = getSurfaceCoordinator(documentRef);
+    let canvasMentions = null;
+    const canvasViews = new Set();
     let initialized = false;
     let modelMenus = null;
     let searchMenu = null;
@@ -230,6 +235,7 @@ export function createPromptAgentController({
             : (models.length ? '请选择生图模型后再应用或生成。' : '暂无可用生图模型，');
         if (addImageModelButton) addImageModelButton.hidden = models.length > 0;
         promptPlanActionStates.forEach((actionState) => actionState.sync());
+        canvasViews.forEach(view => view.sync());
     }
 
     function setCommandStatus(text = '') {
@@ -254,6 +260,7 @@ export function createPromptAgentController({
         const conversation = conversationStore.getCompactionContext();
         const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
         const measurement = measurePromptAgentContext({ model, message, conversation,
+            canvasContext: canvasAdapter?.context(canvasMentions?.read().map(item => item.id) || []) || null,
             searchAllowed: conversationStore.getSearchSettings().mode !== 'off',
             context: nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
             referenceImages: pendingReferenceImages.filter(image => !image.loading && !image.error),
@@ -405,6 +412,7 @@ export function createPromptAgentController({
             workflowRevision += 1;
             importQueue = Promise.resolve();
             const clearedRevision = workflowRevision;
+            canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
             conversationStore.clear();
             tokenObservation = null;
             const prefix = `${getWorkflowId()}\0`;
@@ -798,14 +806,14 @@ export function createPromptAgentController({
         if (scrollToLatestOnOpen) scrollToLatest();
         updateScrollBottomButton();
     }
-    function close() { setOpen(false); }
+    function close() { canvasMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false); }
     function toggle() {
         const { panel } = getElements();
         if (panel?.classList.contains('active')) close();
         else open();
     }
 
-    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, referenceImages = [], intent, search } = {}) {
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], intent, search } = {}) {
         const { messages } = getElements();
         if (!messages) return null;
         const followLatest = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
@@ -856,7 +864,7 @@ export function createPromptAgentController({
         if (followLatest) messages.scrollTop = messages.scrollHeight;
         updateScrollBottomButton();
         if (record) {
-            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, referenceImages, intent, search });
+            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, intent, search });
             conversationRevision += 1;
             onStateChange();
             if (commandMenuOpen) renderCommandMenu();
@@ -1165,6 +1173,8 @@ export function createPromptAgentController({
                     renderImages(slots);
                 }).catch(() => renderImages(run.mediaAssetKeys.map(() => null)));
             } else renderImages([]);
+        } else if (run.status === 'failed' && view.canvasPlan) {
+            clearElement(element); element.textContent = `步骤失败：${run.error || '请使用方案中的重试按钮'}`;
         } else if (run.status === 'failed') {
             renderFailedRun(element, view.plan, run.error || '未知错误', view.actionState);
         } else {
@@ -1288,6 +1298,71 @@ export function createPromptAgentController({
         }
     }
 
+    function appendCanvasPlan(message, plan, runs = []) {
+        if (!canvasAdapter || !message) return;
+        const revision = workflowRevision, workflowId = getWorkflowId();
+        const isCurrent = () => revision === workflowRevision && getWorkflowId() === workflowId && message.isConnected !== false
+            && [...(conversationStore.snapshot().archivedMessages || []), ...conversationStore.snapshot().messages].some(item => item.canvasPlan?.id === plan.id);
+        const changed = () => {
+            if (isCurrent()) { if (conversationStore.updateCanvasPlan(plan.id, plan)) onStateChange(); }
+            else mutateWorkflowConversation?.(workflowId, snapshot => {
+                const message = [...(snapshot.archivedMessages || []), ...(snapshot.messages || [])].find(item => item.canvasPlan?.id === plan.id);
+                if (!message) return false;
+                message.canvasPlan = JSON.parse(JSON.stringify(plan)); return snapshot;
+            });
+        };
+        const addRunView = run => {
+            const element = documentRef.createElement('section'); element.className = 'prompt-agent-run-state'; message.appendChild(element);
+            const view = { element, workflowId, revision, canvasPlan: plan, plan: { targetNodeId: run.targetNodeId } };
+            runViews.set(run.runId, view); renderRunView(view, run);
+        };
+        const view = renderCanvasPlan({ documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels,
+            getModelId: () => conversationStore.getImageModelId(), changed, isCurrent,
+            run: async (plan, retry) => {
+                if (!retry) plan.completedSteps = [];
+                const attempt = { id: createRunId(), status: 'running', steps: [] };
+                const resultRuns = new Map();
+                for (const step of plan.steps.filter(step => step.execute !== false && (!retry || !plan.completedSteps?.includes(step.id)))) {
+                    attempt.steps.push({ id: step.id, status: 'pending', ...canvasAdapter.executionRecord(plan, step.id) });
+                    if (!['ImageGenerate', 'ImageResize', 'ImageMerge', 'ImageCompare'].includes(step.type)) continue;
+                    const record = { runId: createRunId(), targetNodeId: plan.bindings[step.id], status: 'running', mediaAssetKeys: [] };
+                    if (!conversationStore.beginRun(message.promptAgentMessageIndex, record)) throw new Error('会话已变化');
+                    resultRuns.set(record.targetNodeId, record); activeRuns.set(runKey(workflowId, record.runId), true); addRunView(record);
+                }
+                plan.runs.push(attempt); changed();
+                try {
+                    const completion = await canvasAdapter.execute(plan, { retry, retainResults: async result => {
+                        for (const entry of result.nodeResults || []) {
+                            const record = resultRuns.get(entry.nodeId);
+                            if (record && !entry.error && (entry.images?.length || entry.mediaAssetKeys?.length)) await persistRun(workflowId, record.runId, entry, revision);
+                        }
+                        return result;
+                    } });
+                    plan.completedSteps ||= [];
+                    for (const step of attempt.steps) {
+                        const entry = completion?.nodeResults?.find(item => item.nodeId === plan.bindings[step.id]);
+                        step.status = entry?.succeeded ? 'completed' : entry?.error ? 'failed' : 'interrupted';
+                        if (step.status === 'completed' && !plan.completedSteps.includes(step.id)) plan.completedSteps.push(step.id);
+                        const record = resultRuns.get(plan.bindings[step.id]);
+                        if (record && !readRun(workflowId, record.runId, revision)?.mediaAssetKeys?.length) mutateRun(workflowId, record.runId, run => Object.assign(run, { status: entry?.error ? 'failed' : 'stopped', error: entry?.error || '' }), revision);
+                    }
+                    attempt.status = completion?.outcome === 'completed' ? 'completed' : 'failed';
+                    if (attempt.status === 'failed') throw new Error(completion?.error || '部分步骤未完成，已保留成功结果，可重试未完成步骤');
+                } catch (error) {
+                    attempt.status = 'failed';
+                    for (const record of resultRuns.values()) mutateRun(workflowId, record.runId, run => {
+                        if (run.status !== 'running') return false; Object.assign(run, { status: 'failed', error: error.message });
+                    }, revision);
+                    throw error;
+                } finally {
+                    for (const record of resultRuns.values()) activeRuns.delete(runKey(workflowId, record.runId));
+                    changed(); if (isCurrent()) refreshRunViews();
+                }
+            }
+        });
+        canvasViews.add(view); runs.forEach(addRunView);
+    }
+
     async function submit() {
         const { input } = getElements();
         const text = input?.value?.trim();
@@ -1330,7 +1405,9 @@ export function createPromptAgentController({
                 if (!isCurrentOperation(operation)) return;
                 if (!workflowReferenceImages) throw new Error('读取图片期间对话已更新，请重试。');
             }
-            appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages });
+            const nodeMentions = canvasMentions?.read() || [];
+            const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
+            appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
             if (input.value.trim() === text) input.value = '';
             pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
             referencePickerError = '';
@@ -1344,6 +1421,7 @@ export function createPromptAgentController({
                 || (previousPlan?.targetNodeId ? nodeAdapter?.getContext?.(previousPlan.targetNodeId) : null)
                 || null;
             const reply = await createReply({
+                canvasContext,
                 message: text,
                 context,
                 workflowMemory,
@@ -1358,6 +1436,12 @@ export function createPromptAgentController({
             });
             if (!isCurrentOperation(operation)) return;
             completedSearch = reply?.search || null;
+            if (canvasAdapter && reply?.promptPlan && !reply.canvasPlan) {
+                const target = canvasContext.nodes.find(node => node.id === reply.promptPlan.targetNodeId);
+                const explicitlyNamed = target && (nodeMentions.some(item => item.id === target.id) || (text.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
+                reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext);
+                reply.promptPlan = null;
+            }
             if (Array.isArray(reply?.promptPlan?.referenceImages)) {
                 const selected = reply.promptPlan.referenceImages;
                 const preparingNodes = new Set(selected.map(image => image.sourceNodeId).filter(Boolean));
@@ -1375,9 +1459,11 @@ export function createPromptAgentController({
                 }
             }
             tokenObservation = reply?.tokenObservation || null;
+            if (reply?.canvasPlan) canvasAdapter.prepare(reply.canvasPlan);
             const agentMessage = appendMessage('agent', reply?.message || '已整理本轮回复。', reply?.workSummary || [], {
-                promptPlan: reply?.promptPlan || null, intent: reply?.intent, search: reply?.search
+                promptPlan: reply?.promptPlan || null, canvasPlan: reply?.canvasPlan, intent: reply?.intent, search: reply?.search
             });
+            if (reply?.canvasPlan) appendCanvasPlan(agentMessage, reply.canvasPlan);
             appendPromptPlan(agentMessage, reply?.promptPlan);
             setCommandStatus();
             await autoCompact(operation, replyModelId);
@@ -1410,6 +1496,7 @@ export function createPromptAgentController({
             new MutationObserverClass(updateScrollBottomButton).observe(messages, { childList: true, subtree: true, characterData: true });
         }
         const { button, closeButton, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
+        if (input && canvasAdapter) canvasMentions = attachCanvasMentions({ documentRef, input, adapter: canvasAdapter });
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);
         form?.addEventListener('submit', async (event) => {
@@ -1571,6 +1658,7 @@ export function createPromptAgentController({
     }
 
     function renderConversation() {
+        canvasViews.forEach(view => view.destroy()); canvasViews.clear();
         searchViewRevision += 1;
         searchViewCleanups.forEach(cleanup => cleanup()); searchViewCleanups = [];
         const { messages } = getElements();
@@ -1595,6 +1683,7 @@ export function createPromptAgentController({
                 referenceImages: item.referenceImages || []
             });
             if (message) message.promptAgentMessageIndex = index;
+            if (item.canvasPlan) appendCanvasPlan(message, item.canvasPlan, item.runs || []);
             if (item.role === 'agent' && item.promptPlan) {
                 const actionState = appendPromptPlan(message, item.promptPlan, item.runs || []);
                 for (const run of item.runs || []) {
@@ -1611,6 +1700,7 @@ export function createPromptAgentController({
     }
 
     function restoreWorkflow(value) {
+        canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
         cancelRequest({ silent: true });
         workflowRevision += 1;
         importQueue = Promise.resolve();
@@ -1624,6 +1714,14 @@ export function createPromptAgentController({
         conversationStore.restore(value);
         tokenObservation = null;
         for (const message of [...(value?.archivedMessages || []), ...(value?.messages || [])]) {
+            if (message.canvasPlan && !canvasAdapter?.isRunning(message.canvasPlan.id)) {
+                const plan = JSON.parse(JSON.stringify(message.canvasPlan)); delete plan.historyId;
+                for (const attempt of plan.runs || []) if (attempt.status === 'running') {
+                    attempt.status = 'interrupted';
+                    for (const step of attempt.steps || []) if (['pending', 'running'].includes(step.status)) step.status = 'interrupted';
+                }
+                conversationStore.updateCanvasPlan(plan.id, plan);
+            }
             for (const run of message.runs || []) {
                 if (['running', 'pending'].includes(run.status) && !activeRuns.has(runKey(getWorkflowId(), run.runId))) {
                     conversationStore.finishRun(run.runId, { status: 'interrupted' });

@@ -4,6 +4,7 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
     const windowRef = documentRef.defaultView;
     const surfaces = getSurfaceCoordinator(documentRef);
     let current = null;
+    const cleanups = [];
     const close = (restoreFocus = false) => {
         if (!current) return;
         const { trigger, menu } = current;
@@ -108,12 +109,15 @@ export function createPromptAgentModelMenus({ documentRef, selects }) {
         select.addEventListener('change', sync);
         const observer = new windowRef.MutationObserver(sync);
         observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected', 'value', 'label'] });
+        cleanups.push(() => { observer.disconnect(); select.removeEventListener('change', sync); trigger.remove(); });
         sync();
     }
-    documentRef.addEventListener?.('pointerdown', event => {
+    const outside = event => {
         if (current && !current.menu.contains(event.target) && !current.trigger.contains(event.target)) close();
-    }, true);
+    };
+    documentRef.addEventListener?.('pointerdown', outside, true);
     windowRef?.addEventListener('resize', position);
     windowRef?.addEventListener('scroll', position, true);
-    return { close };
+    return { close, destroy: () => { close(); cleanups.forEach(cleanup => cleanup()); documentRef.removeEventListener?.('pointerdown', outside, true);
+        windowRef?.removeEventListener('resize', position); windowRef?.removeEventListener('scroll', position, true); } };
 }

@@ -40,8 +40,10 @@ export async function startCainflowServer({ session = null } = {}) {
             CAINFLOW_WORKFLOWS_DIR: workflowsDir,
             CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1'
         },
-        stdio: 'ignore'
+        stdio: ['ignore', 'pipe', 'pipe']
     });
+    let startupLog = '';
+    for (const output of [child.stdout, child.stderr]) output.on('data', chunk => { startupLog = (startupLog + chunk).slice(-4000); });
     const baseUrl = `http://127.0.0.1:${port}`;
     try {
         for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -50,7 +52,7 @@ export async function startCainflowServer({ session = null } = {}) {
                 if (response.ok) break;
             } catch {}
             await new Promise((resolve) => setTimeout(resolve, 50));
-            if (child.exitCode !== null) throw new Error(`CainFlow server exited with code ${child.exitCode}`);
+            if (child.exitCode !== null) throw new Error(`CainFlow server exited with code ${child.exitCode}: ${startupLog}`);
             if (attempt === 119) throw new Error('CainFlow server did not become ready');
         }
         if (session) {

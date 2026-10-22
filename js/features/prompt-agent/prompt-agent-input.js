@@ -1,4 +1,5 @@
 import { projectAgentSearch, getSummarySearchSources } from './prompt-agent-search-data.js';
+import { projectCanvasPlan } from './prompt-agent-canvas-plan.js';
 
 function isImageSource(source, protocol) {
     return typeof source === 'string' && (/^data:image\/[^;]+;base64,/i.test(source)
@@ -20,6 +21,7 @@ function projectHistory(conversation, images) {
             message: String(message.text || ''),
             ...(message.search ? { search: projectAgentSearch(message.search) } : {}),
             ...(message.intent ? { intent: message.intent } : {}),
+            ...(message.canvasPlan ? { canvasPlan: projectCanvasPlan(message.canvasPlan) } : {}),
             ...(message.promptPlan ? { promptPlan: {
                 targetNodeId: message.promptPlan.targetNodeId || null,
                 prompt: message.promptPlan.prompt,
@@ -47,7 +49,7 @@ function projectHistory(conversation, images) {
 
 export function createPromptAgentInput({
     message = '', context = null, conversation = null, workflowMemory = '',
-    referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null
+    referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
 } = {}) {
     const images = [];
     const bySource = new Map();
@@ -108,6 +110,9 @@ export function createPromptAgentInput({
     });
     const { history, omitted } = projectHistory(conversation, images);
     const input = {
+        canvas: canvasContext?.summary || null,
+        canvasReads,
+        previousCanvasPlan: conversation?.messages?.some(turn => turn.canvasPlan) ? null : projectCanvasPlan((conversation?.archivedMessages || []).findLast(turn => turn.canvasPlan)?.canvasPlan),
         searchAllowed,
         searchContext: projectAgentSearch(searchContext),
         earlierSearchSources: getSummarySearchSources(conversation),
