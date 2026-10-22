@@ -1,4 +1,4 @@
-import { getNodeDefinition } from '../../nodes/registry.js';
+import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs } from './prompt-agent-reference-inputs.js';
 import { CANVAS_FIELDS, CANVAS_TYPES, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
 import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-reference-policy.js';
 
@@ -19,10 +19,10 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             if ((!used && !explicitImport) || (!explicitImport && !promptOnly && (noImages || !mayUseCandidate(image, {
                 ...referencePolicy, message, evidence: step.evidence })))) fail('方案包含未确认使用的参考图，请移除多余导入步骤或明确指定素材');
         }
-        if (noImages && (raw.connections || []).some(link => /^image_\d+$/.test(link.to?.port)
+        if (noImages && (raw.connections || []).some(link => isReferencePort(link.to?.port)
             && raw.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate'))) fail('纯文字生成方案不能连接参考图，请重新整理方案');
         for (const link of raw.connections || []) {
-            if (!/^image_\d+$/.test(link.to?.port) || !raw.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate')) continue;
+            if (!isReferencePort(link.to?.port) || !raw.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate')) continue;
             if (raw.steps.some(step => step.id === link.from?.ref)) continue;
             const node = context.nodes.find(node => node.id === link.from?.ref);
             const image = images.find(item => item.reference.sourceNodeId === node?.id);
@@ -84,6 +84,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
     const lookup = ref => steps.find(step => step.id === ref)?.type || context.nodes.find(node => node.id === ref)?.type;
     const portType = (ref, port, direction) => {
         const type = lookup(ref);
+        if (type === 'ImageGenerate' && direction === 'inputs' && isReferencePort(port)) return 'image';
         if (direction === 'inputs' && type === 'ImageMerge' && /^image_\d+$/.test(port)) {
             const count = steps.find(step => step.id === ref)?.parameters.inputCount || context.nodes.find(node => node.id === ref)?.parameters.inputCount || 1;
             return Number(port.slice(6)) >= 1 && Number(port.slice(6)) <= count ? 'image' : null;
@@ -100,9 +101,9 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (external && (!external.enabled || external.missing || external.running)) fail('引用的外部节点已禁用、原图缺失或正在运行');
         if (!type || type !== portType(link.to.ref, link.to.port, 'inputs')) fail('连线端口不存在或类型不匹配');
         const key = `${link.to.ref}:${link.to.port}`;
-        if (ports.has(key)) fail('同一输入端口不能重复连接');
+        if (ports.has(key) && link.to.port !== 'referenceImages') fail('同一输入端口不能重复连接');
         ports.add(key);
-        return { from: { ref: link.from.ref, port: link.from.port }, to: { ref: link.to.ref, port: link.to.port }, type };
+        return { from: { ref: link.from.ref, port: link.from.port }, to: { ref: link.to.ref, port: link.to.port }, type, ...(Number.isInteger(link.order) ? {order:link.order} : {}) };
     });
     if (!Array.isArray(raw.disconnects || [])) fail('断开输入必须是数组');
     const disconnects = (raw.disconnects || []).map(item => {
@@ -112,7 +113,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
     // A new generation uses exactly its proposed inputs, never hidden old edges.
     if (referencePolicy && (referencePolicy.intent === 'generate' || excludesReferenceImages(message, referencePolicy.selection))) {
         for (const step of steps.filter(step => step.type === 'ImageGenerate' && step.nodeId)) {
-            for (const link of context.connections.filter(link => link.to.nodeId === step.nodeId && /^image_\d+$/.test(link.to.port))) {
+            for (const link of context.connections.filter(link => link.to.nodeId === step.nodeId && isReferencePort(link.to.port))) {
                 if (!disconnects.some(item => item.ref === step.id && item.port === link.to.port)) disconnects.push({ ref: step.id, port: link.to.port });
             }
         }
@@ -130,8 +131,8 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.to.nodeId)).map(link => link.from.nodeId),
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.from.nodeId && step.type === 'ImageGenerate')).map(link => link.to.nodeId),
         ...connections.map(link => ids.has(link.from.ref) ? null : link.from.ref)].filter(Boolean))];
-    return { version: 1, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
-        steps, connections, disconnects, order, dependencies, baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] };
+    return normalizePlanInputs({ version: 1, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
+        steps, connections, disconnects, order, dependencies, baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
 }
 
 export function describeCanvasPlan(plan, context) {
@@ -198,10 +199,10 @@ export function promptPlanToCanvas(prompt, context) {
             if (source && !image.runId) dependencies.push(source.id);
         } else if (source) dependencies.push(source.id);
         else throw new Error('方案参考图已失效，请重新选择原图');
-        connections.push({ from: { ref, port: image.sourcePort || 'image' }, to: { ref: 'generate', port: `image_${index + 1}` }, type: 'image' });
+        connections.push({ from: { ref, port: image.sourcePort || 'image' }, to: { ref: 'generate', port: 'referenceImages' }, type: 'image', order: index });
     }
-    return { version: 1, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}`, workflowId: context.workflowId,
-        steps, connections, disconnects: target ? context.connections.filter(link => link.to.nodeId === target.id && /^image_\d+$/.test(link.to.port)).map(link => ({ ref: 'generate', port: link.to.port })) : [],
+    return normalizePlanInputs({ version: 1, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}`, workflowId: context.workflowId,
+        steps, connections, disconnects: target ? context.connections.filter(link => link.to.nodeId === target.id && isReferencePort(link.to.port)).map(link => ({ ref: 'generate', port: link.to.port })) : [],
         order: steps.map(step => step.id), dependencies: [...new Set(dependencies)],
-        baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] };
+        baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
 }

@@ -4,7 +4,7 @@ import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
 
-export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels, getProviders = () => [], getThinking = () => undefined, getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, preview = () => {}, configure = () => {} }) {
+export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, parent, plan, adapter, getModels, getProviders = () => [], getThinking = () => undefined, getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, preview = () => {}, configure = () => {} }) {
     const card = documentRef.createElement('section'); card.className = 'prompt-agent-canvas-plan';
     parent.appendChild(card);
     let busy = false;
@@ -45,6 +45,7 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
             const parameters = element('pre', Object.entries({ ...step.parameters, ...step.generationPatch,
                 ...(step.negativePrompt ? { negativePrompt: step.negativePrompt } : {}) }).map(([key, value]) => `${key}：${value}`).join('\n'), settings);
             parameters.className = 'prompt-agent-step-prompt';
+            if (step.parameterSources) element('small', Object.entries(step.parameterSources).map(([key,source])=>`${key}：${source}`).join(' · '), settings);
             select.id = `agent-step-model-${plan.id}-${id}`;
             const providerIdFor = modelId => plan.providerOverrides?.[id]?.[modelId] ?? getProviderId(modelId);
             const inherit = element('option', '使用面板手动选择的模型', select); inherit.value = '';
@@ -114,7 +115,7 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
         if (!unavailable) try {
             const validated = adapter.sizesFor?.(plan, getModelId()) || {};
             const sizes = plan.runs?.length && plan.appliedSizes ? plan.appliedSizes : validated;
-            for (const [id, size] of Object.entries(sizes)) element('p', `${plan.steps.find(step => step.id === id).title} · ${size.summary}`, sizeSummaries);
+            for (const [id, size] of Object.entries(sizes)) element('p', `${plan.steps.find(step => step.id === id).title} · ${size.summary}${size.sources ? "（" + [...new Set(Object.values(size.sources))].join("、") + "）" : ""}`, sizeSummaries);
         } catch (error) {
             unavailable = error.message;
             if (error.sizeClarification && !plan.runs?.length) {
@@ -149,6 +150,7 @@ export function renderCanvasPlan({ documentRef, parent, plan, adapter, getModels
             for (const value of [step.parameters, step.generationPatch, step.sizeAnswer]) if (value) { delete value.customWidth; delete value.customHeight; }
         }
         step.sizeAnswer = { ...step.sizeAnswer, ...patch };
+        confirmedParameters(plan, patch, step.id);
         delete plan.appliedSignature; sync(); changed(plan); return true;
     }
     async function act(generate, retryOnly = false) {

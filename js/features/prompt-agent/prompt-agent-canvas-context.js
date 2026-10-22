@@ -1,4 +1,4 @@
-import { getNodeDefinition } from '../../nodes/registry.js';
+import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-reference-inputs.js';
 
 export const CANVAS_FIELDS = Object.freeze({
     ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount'],
@@ -27,7 +27,7 @@ export function projectCanvasNode(node, running = false) {
 
 export function createCanvasContext({ workflowId, nodes, connections, selectedIds = [], mentionedIds = [], runningIds = [] }) {
     const projected = nodes.map(node => projectCanvasNode(node, runningIds.includes(node.id)));
-    const links = connections.map(link => ({ id: link.id, from: { nodeId: link.from?.nodeId, port: link.from?.port }, to: { nodeId: link.to?.nodeId, port: link.to?.port } }));
+    const links = connections.map(link => ({ id: link.id, ...(Number.isInteger(link.order)?{order:link.order}:{}), from: { nodeId: link.from?.nodeId, port: link.from?.port }, to: { nodeId: link.to?.nodeId, port: link.to?.port } }));
     const read = ({ offset = 0, nodeIds = [], connectionOffset = 0, textOffset = 0, assetOffset = 0 } = {}) => {
         if (![offset, connectionOffset, textOffset, assetOffset].every(value => Number.isInteger(value) && value >= 0) || !Array.isArray(nodeIds)) throw new Error('画布读取参数无效');
         const candidates = nodeIds.length ? projected.filter(node => nodeIds.includes(node.id)) : projected;

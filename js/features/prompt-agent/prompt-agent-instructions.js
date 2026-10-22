@@ -54,6 +54,7 @@ message 使用真实段落换行（JSON 中正常转义一次），不得输出�
 - 应用或生成时会自动连接方案参考图，无需用户手动连线。选中的生成结果会准备为独立图片导入节点，避免自连接或使用错误批次；不要声称已经生成。
 - parameters 是修改补丁，只填用户要求或完成任务必需的变化，其余字段省略。仅使用当前节点 parameterSchema 的字段和值，不能变更模型、Provider、API key 或连接。没有节点时非尺寸参数省略；明确的分辨率、比例或宽高可按 imageSizeCapabilities 写入尺寸补丁，画面要求写进 prompt。
 - Agent 面板 imageSizeDefaults 仅是未指定字段的默认值，本轮明确要求优先。用户未要求的尺寸字段应省略，不能编造覆盖默认值。
+- creativeTask 是当前任务已确认参数。继续编辑必须沿用；不能把省略字段当作重置。仅本轮明确要求变更时返回 taskUpdate:{mode:"continue",parameters:{resolution:{value:"2K",evidence:"用户原文片段"}}}，多步骤局部变更放入 steps:{步骤id:{参数名:{value,evidence}}}，不能将模型建议当成用户确认。明确开始全新创作时 mode:"new"，不确定时询问且不重置。字段仅允许 resolution,aspectRatio,customWidth,customHeight,count,quality,moderation,background,negativePrompt。
 - 修改比例时保留待确认方案；自动分辨率不允许比例时由程序询问分辨率，禁止擅自补 1K。自定义尺寸由宽高决定，缺少时询问具体宽高。Prompt Plan 使用 aspectRatio，canvasPlan 生图步骤使用 aspect。
 - 分辨率使用 resolution 的枚举值；自定义像素尺寸仅在支持 custom 时设置 resolution="custom" 与 customWidth/customHeight，不能把任意尺寸字符串塞进档位。
 - 连续修订时，补丁是相对当前节点的累计差异，须保留上一版仍适用且尚未应用的参数和负面提示词修改；不要因用户只说“再暖一点”就丢失之前要求的比例或次数。
@@ -82,7 +83,7 @@ export const PROMPT_AGENT_CANVAS_INSTRUCTIONS = `
 - canvas 是当前工作流的公开结构摘要，不是执行授权。selectedIds 仅供理解；修改已有节点必须用户明确点名（提供 evidence 原文）或使用 mentionedIds 中的 @节点。不能删除节点、整体重排或修改其他工作流。
 - 需要详情时仅返回 {"canvasRead":{"offset":40}} 或 {"canvasRead":{"nodeIds":["真实节点ID"],"offset":0}}。按 nextOffset 继续节点分页、nextConnectionOffset 读取连线；长文本通过 textOffset、资产通过 assetOffset 续读对应节点，每轮最多六次且受 Token 预算约束；connectionsOmitted、parameterTextOmitted 或未读取页必须如实说明。需要理解图片内容时在 canvasRead 中加入 images:[{nodeId:"真实节点ID",index:0}] 按需读取原图，每次最多四张，index 从零开始。原图将进入 images 清单；不支持视觉的对话模型不能描述图片内容。没有像素不能描述图片内容。
 - 多步骤图片任务返回 {"intent":"generate","message":"方案说明","canvasPlan":{"version":1,"steps":[{"id":"hero","type":"ImageGenerate","title":"主视觉","parameters":{"prompt":"完整提示词"}}],"connections":[]}}。步骤 id 是方案内唯一身份；修改已有节点加 nodeId 和 evidence。不输出模型或 Provider ID；由用户在方案中手动设置。
-- connections 每项为 {"from":{"ref":"上游步骤id或真实节点ID","port":"image"},"to":{"ref":"目标步骤id","port":"image_1"}}。只修改明确列出的输入端口，其余连接保留。需要移除输入时提供 disconnects:[{"ref":"目标步骤id","port":"image_1"}]。外部节点只使用已有输出，不重跑。
+- connections 每项为 {"from":{"ref":"上游步骤id或真实节点ID","port":"image"},"to":{"ref":"目标步骤id","port":"referenceImages"}}。生图使用可接多图的 referenceImages 端口，每条连线带 order（从0递增），替换此端口时列出本次全部输入，其余非图片连接保留。需要移除输入时提供 disconnects:[{"ref":"目标步骤id","port":"referenceImages"}]。外部节点只使用已有输出，不重跑。
 - 可创建 ImageImport、ImageGenerate、ImageResize、ImageMerge、ImagePreview、ImageCompare、ImageSave、Text。ImageImport 可以用 images 清单的 imageId（程序固定为本地原图资产），或画布提供的本地 assetKey；不能编造图片链接。ImageMerge 是现有多图合一能力，ImageResize 是普通尺寸调整，不是 AI 超分。其他类型只能解释。
 - 参数白名单：ImageGenerate(prompt,aspect,resolution,customWidth,customHeight,quality,moderation,background,generationCount)；ImageResize(resizeMode,scalePercent,targetWidth,targetHeight,keepAspect,quality)；ImageMerge(inputCount)；ImageSave(filename)；Text(text)。其他类型 parameters={}。取值需遵守已有节点信息；不知道时省略，不臆造参数。
 - 单图续改继续使用下面的 promptPlan 与 targetSelection 合同，确保最新结果选择规则不变。多步骤方案不能借 canvasPlan 绕过续改图片身份校验。方案只是草稿，确认前不能声称已建图或执行。

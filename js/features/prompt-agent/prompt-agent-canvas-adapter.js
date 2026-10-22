@@ -1,3 +1,4 @@
+import { normalizePlanInputs, projectPlanConnections, referenceManifest, isReferencePort } from './prompt-agent-reference-inputs.js';
 import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
@@ -19,6 +20,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     const context = (mentionedIds = []) => createCanvasContext({ workflowId: getWorkflowId(), nodes: serializeNodes(), connections: state.connections,
         selectedIds: [...state.selectedNodes], mentionedIds, runningIds: [...(state.runningNodeIds || [])] });
     function prepare(plan) {
+        normalizePlanInputs(plan);
         // Automatically required saves are part of the preview, never a hidden execution mutation.
         for (const step of [...plan.steps]) {
             if (step.type !== 'ImageGenerate') continue;
@@ -51,26 +53,23 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             const config = selected[step.id];
             const targetId = step.nodeId || plan.bindings?.[step.id];
             const targetModel = documentRef?.getElementById(`${targetId}-apiconfig`)?.value || state.nodes?.get(targetId)?.apiConfigId;
-            const current = targetModel === config.model.id ? nodeAdapter.getContext(targetId)?.parameters || {} : {};
+            const current = !plan.newCreativeTask && targetModel === config.model.id ? nodeAdapter.getContext(targetId)?.parameters || {} : {};
             try {
+                const parameters = { ...sizeFields(step.parameters), ...sizeFields(step.generationPatch), ...sizeFields(step.sizeAnswer) };
+                const sources = { ...step.parameterSources };
+                for (const [key, value] of Object.entries(sizeFields(plan.agentSizes?.[config.model.id]))) {
+                    if (sources[key] === '方案建议' && !Object.hasOwn(step.sizeAnswer || {}, key)) { parameters[key] = value; sources[key] = '面板默认'; }
+                }
                 const size = resolveAgentSize({ protocol: getEffectiveProtocol(config.model, config.provider), current,
                     defaults: plan.agentSizes?.[config.model.id],
-                    parameters: { ...sizeFields(step.parameters), ...sizeFields(step.generationPatch), ...sizeFields(step.sizeAnswer) } });
-                return [step.id, size];
+                    parameters });
+                return [step.id, {...size, sources: Object.fromEntries(Object.keys(sizeFields(size.effective)).filter(key=>size.effective[key]!=='' ).map(key=>[key,sources[key] || (Object.hasOwn(plan.agentSizes?.[config.model.id]||{},key)?'面板默认':'节点或接口默认')]))}];
             } catch (error) { error.stepId = step.id; error.message = `「${step.title}」${error.message}`; throw error; }
         }));
     }
     function validateGraph(plan) {
         const ids = new Map(plan.steps.map(step => [step.id, step.nodeId || plan.bindings?.[step.id] || `new:${step.id}`]));
-        const links = state.connections.map(link => ({ from: { ...link.from }, to: { ...link.to } }));
-        for (const item of plan.disconnects || []) for (let i = links.length - 1; i >= 0; i--) {
-            if (links[i].to.nodeId === ids.get(item.ref) && links[i].to.port === item.port) links.splice(i, 1);
-        }
-        for (const link of plan.connections) {
-            const to = { nodeId: ids.get(link.to.ref), port: link.to.port };
-            for (let i = links.length - 1; i >= 0; i--) if (links[i].to.nodeId === to.nodeId && links[i].to.port === to.port) links.splice(i, 1);
-            links.push({ from: { nodeId: ids.get(link.from.ref) || link.from.ref, port: link.from.port }, to });
-        }
+        const links = projectPlanConnections(plan, state.connections, ref => ids.get(ref) || ref);
         const visited = new Set(), visiting = new Set();
         const visit = id => {
             if (visiting.has(id)) throw new Error('方案与已有画布形成循环依赖');
@@ -164,15 +163,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         control.dispatchEvent(new documentRef.defaultView.Event('change', { bubbles: true }));
                     }
                 }
-                for (const item of plan.disconnects || []) state.connections = state.connections.filter(link => !(link.to.nodeId === bindings[item.ref] && link.to.port === item.port));
-                for (const link of plan.connections) {
-                    const from = bindings[link.from.ref] || link.from.ref, to = bindings[link.to.ref];
-                    state.connections = state.connections.filter(old => !(old.to.nodeId === to && old.to.port === link.to.port));
-                    state.connections.push({ id: `conn_${crypto.randomUUID()}`, type: link.type,
-                        from: { nodeId: from, port: link.from.port, type: link.type }, to: { nodeId: to, port: link.to.port, type: link.type } });
-                }
+                state.connections = projectPlanConnections(plan, state.connections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
                 graphChanged();
                 plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
+                plan.referenceManifest = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>bindings[s.id]),Object.values(bindings));
                 plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
                 plan.baseline = canvasBaseline(context(), plan.dependencies, Object.values(bindings));
                 onPlanChange();
@@ -194,11 +188,17 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     async function execute(plan, { retainResults, retry = false } = {}) {
         if (activePlan) throw new Error('另一个方案正在运行');
         assertCanvasPlanCurrent(plan, context());
+        const validateInputs = () => {
+            assertCanvasPlanCurrent(plan, context());
+            const actual = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>plan.bindings[s.id]),Object.values(plan.bindings));
+            if (!plan.referenceManifest || JSON.stringify(actual)!==JSON.stringify(plan.referenceManifest)) throw new Error('参考图输入与已确认方案不一致，请重新应用方案。');
+        };
+        validateInputs();
         const selectedNodeIds = plan.order.filter(id => plan.steps.find(step => step.id === id)?.execute !== false
             && (!retry || !plan.completedSteps?.includes(id))).map(id => plan.bindings[id]);
         if (!selectedNodeIds.length) throw new Error('没有待执行步骤');
         activePlan = plan;
-        try { return await runWorkflow({ mode: 'selected-only', selectedNodeIds, agentSequential: true }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: () => assertCanvasPlanCurrent(plan, context()) }); }
+        try { return await runWorkflow({ mode: 'selected-only', selectedNodeIds, agentSequential: true }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: validateInputs }); }
         finally { activePlan = null; executionConfigs.delete(plan.id); }
     }
     return { context, prepare, describe: (plan, defaultModelId) => {
@@ -222,12 +222,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         inputs: plan => {
             const current = context();
             const identity = ref => plan.steps.find(step => step.id === ref)?.nodeId || plan.bindings?.[ref] || ref;
-            const links = current.connections.map(link => ({ from: { ref: link.from.nodeId, port: link.from.port }, to: { ref: link.to.nodeId, port: link.to.port } }));
-            for (const item of [...(plan.disconnects || []), ...plan.connections.map(link => link.to)]) {
-                for (let i = links.length - 1; i >= 0; i--) if (links[i].to.ref === identity(item.ref) && links[i].to.port === item.port) links.splice(i, 1);
-            }
-            links.push(...plan.connections.map(link => ({ from: { ...link.from, ref: identity(link.from.ref) }, to: { ...link.to, ref: identity(link.to.ref) } })));
-            return links.filter(link => /^image_\d+$/.test(link.to.port)
+            const links = projectPlanConnections(plan,current.connections,identity).map(link=>({...link,from:{ref:link.from.nodeId,port:link.from.port},to:{ref:link.to.nodeId,port:link.to.port}}));
+            return links.filter(link => isReferencePort(link.to.port)
                 && plan.steps.some(step => identity(step.id) === link.to.ref && step.type === 'ImageGenerate')).map(link => {
                 const step = plan.steps.find(item => identity(item.id) === link.from.ref);
                 const node = current.nodes.find(item => item.id === link.from.ref);
@@ -239,7 +235,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         isRunning: id => activePlan?.id === id,
         executionRecord: (plan, id) => {
             const nodeId = plan.bindings[id];
-            return { size: cloneCanvasValue(plan.appliedSizes?.[id]?.effective || null), thinking: cloneCanvasValue(state.nodes.get(nodeId)?.data?.thinking || { mode: 'default' }), modelId: documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '', providerId: documentRef.getElementById(`${nodeId}-provider`)?.value || '' };
+            return { referenceInputs: cloneCanvasValue(plan.referenceManifest?.find(item=>item.nodeId===nodeId)?.inputs || []), size: cloneCanvasValue(plan.appliedSizes?.[id]?.effective || null), thinking: cloneCanvasValue(state.nodes.get(nodeId)?.data?.thinking || { mode: 'default' }), modelId: documentRef.getElementById(`${nodeId}-apiconfig`)?.value || '', providerId: documentRef.getElementById(`${nodeId}-provider`)?.value || '' };
         },
         stepStatus: (plan, id) => {
             const node = state.nodes.get(plan.bindings?.[id]);

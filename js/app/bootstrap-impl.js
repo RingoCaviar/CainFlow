@@ -1,3 +1,4 @@
+import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
 /**
  * CainFlow 前端总装配入口，负责组合全局状态、核心服务、画布、节点、执行链路与各类 UI 控制器。
  */
@@ -941,13 +942,10 @@ const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     cancelRunningNode,
     focusNode: focusCanvasNode
 });
-const PROMPT_AGENT_MODEL_STORAGE_KEY = 'cainflow_prompt_agent_model';
-const getPromptAgentModelId = () => {
-    try { return String(window.localStorage.getItem(PROMPT_AGENT_MODEL_STORAGE_KEY) || ''); } catch { return ''; }
-};
-const setPromptAgentModelId = (value) => {
-    try { window.localStorage.setItem(PROMPT_AGENT_MODEL_STORAGE_KEY, String(value || '')); } catch { /* optional preference */ }
-};
+const promptAgentModelPreference = createAgentChatModelPreference({ storage: diskStorage,
+    legacyStorage: { getItem: key => window.localStorage.getItem(key) } });
+const getPromptAgentModelId = promptAgentModelPreference.get;
+const setPromptAgentModelId = promptAgentModelPreference.set;
 const promptAgentResultPersistence = createPromptAgentResultPersistence({
     saveWorkflowNodeMediaAssets, releaseWorkflowNodeMediaAssets, cancelWorkflowNodeMediaOperation, getImageAsset
 });

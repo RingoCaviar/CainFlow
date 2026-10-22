@@ -1506,3 +1506,77 @@ test('legacy ratio clarification retains the draft, accepts a resolution answer 
  controller.restoreWorkflow({messages:[]});enterText(elements,'用4K');await controller.submit();
  assert.equal(requests,2,'a resolution after workflow activation is not applied to the old draft');
 });
+
+
+test('automatic compaction settles a stalled service and preserves the unsent draft', async () => {
+    let finish, replies = 0;
+    const { controller, elements } = createHarness(async () => { replies++; return {message:'完成'}; }, undefined, null, {
+        compactionTimeoutMs: 20,
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        createCompaction: () => new Promise(resolve => { finish = resolve; })
+    });
+    controller.restoreWorkflow({ messages: [{role:'user',text:'旧'.repeat(12000)}] });
+    enterText(elements,'继续');
+    const pending = controller.submit();
+    const settled = await Promise.race([pending.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),80))]);
+    if (!settled) { controller.cancelRequest(); finish({summary:'迟到结果'}); await pending; }
+    assert.equal(settled,true,'stalled compression must release pending UI');
+    assert.match(elements['prompt-agent-command-status'].textContent,/超时.*原上下文已保留/);
+    assert.equal(elements['prompt-agent-input'].value,'继续');
+    assert.equal(replies,0);
+    finish({summary:'迟到结果'}); await Promise.resolve();
+    assert.equal(controller.snapshotWorkflow().contextSummary,undefined);
+});
+
+test('retained oversized plan does not trigger a second compression within one turn', async()=>{
+    let calls=0;
+    const {controller,elements}=createHarness(async()=>({message:'继续'}),undefined,null,{
+        getChatModels:()=>[{...TEST_CHAT_MODEL,autoCompactTokenLimit:4000}],
+        createCompaction:async()=>{calls++;return {summary:'保留最新方案'};}
+    });
+    controller.restoreWorkflow({messages:[{role:'user',text:'旧'.repeat(12000)},{role:'agent',text:'方案',promptPlan:{prompt:'海报'.repeat(7000),parameters:{}}}]});
+    enterText(elements,'继续');await controller.submit();
+    assert.equal(calls,1);
+    assert.match(elements['prompt-agent-command-status'].textContent,/压缩/);
+});
+
+
+test('a retained oversized plan with only a short new turn is not repeatedly summarized', async()=>{
+    let calls=0;
+    const {controller,elements}=createHarness(async()=>({message:'继续'}),undefined,null,{
+        getChatModels:()=>[{...TEST_CHAT_MODEL,autoCompactTokenLimit:4000}],
+        createCompaction:async()=>{calls++;return {summary:'摘要'};}
+    });
+    controller.restoreWorkflow({contextSummary:'保留设计',previousPromptPlan:{prompt:'海报'.repeat(7000),parameters:{}},messages:[]});
+    enterText(elements,'加一点蓝色');await controller.submit();
+    assert.equal(calls,0);
+    assert.match(elements['prompt-agent-command-status'].textContent,/暂不重复压缩/);
+    assert.equal(controller.snapshotWorkflow().previousPromptPlan.prompt.length,14000);
+});
+
+test('manual compression shows batch progress, times out and keeps original context',async()=>{
+    let finish;
+    const {controller,elements}=createHarness(undefined,undefined,null,{
+        compactionTimeoutMs:20,
+        createCompaction:({onProgress})=>{onProgress({batch:2,total:3});return new Promise(resolve=>{finish=resolve;});}
+    });
+    controller.restoreWorkflow({messages:[{role:'user',text:'保留这段上下文'}]});
+    const before=controller.snapshotWorkflow();
+    enterText(elements,'/compact');const pending=controller.submit();
+    assert.match(elements['prompt-agent-command-status'].textContent,/第 2\/3 批/);
+    await pending;
+    assert.match(elements['prompt-agent-command-status'].textContent,/超时.*原上下文已保留/);
+    assert.deepEqual(controller.snapshotWorkflow(),before);
+    finish({summary:'迟到'});await Promise.resolve();
+    assert.deepEqual(controller.snapshotWorkflow(),before);
+});
+
+
+test('sending from history scrolls immediately before waiting for the reply',async()=>{
+ let finish;
+ const {controller,elements}=createHarness(()=>new Promise(resolve=>{finish=resolve;}));
+ const messages=elements['prompt-agent-messages'];messages.scrollHeight=2000;messages.clientHeight=300;messages.scrollTop=10;
+ enterText(elements,'继续');const pending=controller.submit();
+ assert.equal(messages.scrollTop,messages.scrollHeight);
+ finish({message:'完成'});await pending;
+});

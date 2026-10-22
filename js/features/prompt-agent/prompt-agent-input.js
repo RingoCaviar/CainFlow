@@ -111,6 +111,7 @@ export function createPromptAgentInput({
     const { history, omitted } = projectHistory(conversation, images);
     const input = {
         canvas: canvasContext?.summary || null,
+        creativeTask: conversation?.creativeTask || null,
         canvasReads,
         previousCanvasPlan: conversation?.messages?.some(turn => turn.canvasPlan) ? null : projectCanvasPlan((conversation?.archivedMessages || []).findLast(turn => turn.canvasPlan)?.canvasPlan),
         searchAllowed,

@@ -23,9 +23,11 @@ export function createPromptAgentExecutionAdapter({
         }
         stopRequests.delete(nodeId);
         const selected = nodeAdapter.getTargetConfiguration?.(nodeId);
+        const referenceSnapshot = JSON.stringify(nodeAdapter.getReferenceSnapshot?.(nodeId));
         const configurationSnapshot = JSON.parse(JSON.stringify({ models: state.models || [], providers: state.providers || [] }));
         const result = await runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId], requestSource: 'agent' }, { retainResults,
             configurationSnapshot, validateBeforeRun: () => {
+                if(referenceSnapshot !== JSON.stringify(nodeAdapter.getReferenceSnapshot?.(nodeId))) throw new Error('参考图输入已变化，请重新应用方案。');
                 if (selected && JSON.stringify(nodeAdapter.getTargetConfiguration(nodeId)) !== JSON.stringify(selected)) {
                     throw new Error('目标节点的模型或供应商已变化，请重新确认后生成。');
                 }

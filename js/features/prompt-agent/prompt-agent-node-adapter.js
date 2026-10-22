@@ -338,5 +338,13 @@ export function createPromptAgentNodeAdapter({
         return { modelId: readValue(documentRef, `${nodeId}-apiconfig`, node.apiConfigId || ''),
             providerId: readValue(documentRef, `${nodeId}-provider`, node.providerId || '') };
     }
-    return { getContext, getSelectedContext, getTargetConfiguration, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
+    function getReferenceSnapshot(id) {
+        const references = getContext(id)?.referenceImages || [];
+        for (const ref of references) {
+            const source=state.nodes.get(ref.sourceNodeId);
+            if(!source || source.enabled===false || isRunning(source)) throw new Error('参考图来源已删除、禁用或正在运行。');
+        }
+        return references;
+    }
+    return { getReferenceSnapshot, getContext, getSelectedContext, getTargetConfiguration, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
 }

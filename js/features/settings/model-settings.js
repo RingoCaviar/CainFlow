@@ -581,6 +581,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     ${taskType === 'chat' ? `<div class="card-row"><div class="card-field">
                         <label>自动压缩阈值（Token）</label>
                         <input type="number" min="1" step="1" value="${Number.isSafeInteger(mod.autoCompactTokenLimit) && mod.autoCompactTokenLimit > 0 ? mod.autoCompactTokenLimit : ''}" placeholder="默认 12000；按本地 Token 估算触发" aria-label="自动压缩阈值 Token" data-id="${mod.id}" data-field="autoCompactTokenLimit" />
+                        <small class="agent-search-config-help">这是自动压缩触发值，不是模型最大上下文。包含系统指令、对话及图片估算；请按实际模型容量设置并预留输出空间。</small>
                     </div><div class="card-field">
                         <label>Agent 搜索能力</label>
                         <select data-id="${mod.id}" data-field="agentSearch" aria-label="Agent 搜索能力">

@@ -263,3 +263,17 @@ test('compaction includes uncheckpointed original constraints after automatic tr
     assert.match(messages[0].text, /新增硬约束/);
     assert.deepEqual(messages.map((record) => record.messageNumber), [2, 3, 4]);
 });
+
+
+test('compaction reports bounded batch progress before each actual model request', async()=>{
+    const events=[];
+    await compact({conversation:{messages:[{role:'user',text:'细节'.repeat(14000)}]},
+        onProgress: progress=>events.push(progress),fetchRef:async()=>{
+            events.push('request');return response(JSON.stringify({summary:'保留细节'}));
+        }});
+    const batches=events.filter(item=>typeof item==='object');
+    assert.ok(batches.length>1);
+    assert.deepEqual(batches.map(item=>item.batch),batches.map((_,i)=>i+1));
+    assert.ok(batches.every(item=>item.total===batches.length));
+    assert.ok(events.every((item,i)=>i%2===0?typeof item==='object':item==='request'));
+});

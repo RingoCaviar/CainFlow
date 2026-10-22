@@ -166,5 +166,16 @@ test('independent generation removes stale image inputs from an explicitly named
     const context = graph({ connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'image_1' }, type: 'image' }] });
     const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'generation', nodeId: 'target', type: 'ImageGenerate', parameters: { prompt: '一座雪山' } }], connections: [] }, context,
         { message: '不要参考图', mentionedIds: ['target'], referencePolicy: { intent: 'generate' } });
-    assert.deepEqual(plan.disconnects, [{ ref: 'generation', port: 'image_1' }]);
+    assert.deepEqual(plan.disconnects, [{ ref: 'generation', port: 'referenceImages' }]);
+});
+
+
+test('Agent references use the actual visible multi-image port rather than invisible legacy sockets',()=>{
+ const context=graph();
+ const plan=promptPlanToCanvas({prompt:'poster',referenceImages:[{sourceNodeId:'source'}]},context);
+ assert.equal(plan.connections[0].to.port,'referenceImages');
+ assert.ok(context.nodes.find(n=>n.id==='target').inputs.some(p=>p.name===plan.connections[0].to.port));
+ const raw=draft();raw.connections.push({from:{ref:'target',port:'image'},to:{ref:'hero',port:'image_2'}});
+ const normalized=normalizeCanvasPlan(raw,context);
+ assert.deepEqual(normalized.connections.filter(c=>c.to.ref==='hero').map(c=>[c.to.port,c.order]),[['referenceImages',0],['referenceImages',1]]);
 });

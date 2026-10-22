@@ -131,7 +131,7 @@ function parseSummary(responseText) {
 }
 
 export async function createPromptAgentCompaction({
-    conversation, model, providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal
+    conversation, model, providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal, onProgress = () => {}
 } = {}) {
     assertNotAborted(signal);
     [model, providers] = JSON.parse(JSON.stringify([model, providers]));
@@ -144,6 +144,7 @@ export async function createPromptAgentCompaction({
     let summary = '';
     for (const [index, records] of batches.entries()) {
         assertNotAborted(signal);
+        onProgress({ batch: index + 1, total: batches.length });
         const plan = createChatRequestPlan({
             provider, model, protocol: model.protocol, systemPrompt: COMPACTION_INSTRUCTIONS,
             messages: [{ role: 'user', content: JSON.stringify({

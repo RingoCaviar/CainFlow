@@ -1,3 +1,4 @@
+import { restoreCreativeTask } from './prompt-agent-task.js';
 import { sizeFields } from './prompt-agent-size.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { normalizeAgentSearch } from './prompt-agent-search-data.js';
@@ -106,6 +107,7 @@ function normalizeMessage(message = {}, options = {}) {
 
 export function createPromptAgentConversationStore() {
     let memory = '';
+    let creativeTask = null;
     let contextSummary = '';
     let messages = [];
     let archivedMessages = [];
@@ -198,6 +200,7 @@ export function createPromptAgentConversationStore() {
         const restoredPlan = value?.previousPromptPlan
             ? normalizePromptPlan(value.previousPromptPlan)
             : normalizePromptPlan(latestPromptPlan(restoredArchive));
+        creativeTask = restoreCreativeTask(value?.creativeTask);
         memory = typeof value?.memory === 'string' ? value.memory : '';
         contextSummary = restoredSummary;
         messages = restoredMessages;
@@ -215,6 +218,7 @@ export function createPromptAgentConversationStore() {
 
     function snapshot() {
         const snapshot = { version: 1, memory, messages: clone(messages) };
+        if (creativeTask) snapshot.creativeTask = clone(creativeTask);
         if (Object.values(providerSettings).some(settings => Object.keys(settings).length)) snapshot.providerSettings = clone(providerSettings);
         if (Object.keys(thinkingSettings.chat).length || Object.keys(thinkingSettings.image).length) snapshot.thinkingSettings = clone(thinkingSettings);
         if (searchSettings.mode !== 'auto' || searchSettings.modelId) snapshot.searchSettings = { ...searchSettings };
@@ -312,6 +316,7 @@ export function createPromptAgentConversationStore() {
     }
 
     function clear() {
+        creativeTask = null;
         memory = '';
         contextSummary = '';
         messages = [];
@@ -334,7 +339,7 @@ export function createPromptAgentConversationStore() {
     const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
     const getSize = modelId => clone(sizeSettings[modelId] || {});
     const setSize = (modelId, value) => { if (!modelId) return; const next = sizeFields(value); if (Object.keys(next).length) sizeSettings[modelId] = next; else delete sizeSettings[modelId]; };
-    return { getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;

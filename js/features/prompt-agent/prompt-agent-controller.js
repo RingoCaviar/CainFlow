@@ -1,10 +1,11 @@
+import { bindTaskToReply, confirmTaskParameters } from './prompt-agent-task.js';
 import { sizeCapabilities, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { createAgentSizeMenu } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
-import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
+import { measurePromptAgentContext, countPromptText } from './prompt-agent-token-budget.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
@@ -14,6 +15,7 @@ import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
 import { renderCanvasPlan, attachCanvasMentions } from './prompt-agent-canvas-ui.js';
 import { promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
+import { createPromptAgentInput } from './prompt-agent-input.js';
 import { renderAgentBody } from './prompt-agent-body.js';
 
 const COMMANDS = [
@@ -82,6 +84,7 @@ export function createPromptAgentController({
     documentRef = document,
     createReply = async (request) => buildDefaultReply(request),
     createCompaction = async () => { throw new Error('上下文压缩服务尚未配置。'); },
+    compactionTimeoutMs = 120000,
     captureRequestConfig = () => null,
     readWebImage = async () => { throw new Error('网络图片服务未配置。'); },
     nodeAdapter = null,
@@ -122,6 +125,7 @@ export function createPromptAgentController({
     let panelWidthController = null;
     let resizeObserver = null;
     let scrollToLatestOnOpen = false;
+    let followLatestContent = false, lastScrollTop = 0, contentObserver = null;
     let workflowRevision = 0;
     let conversationRevision = 0;
     let tokenObservation = null;
@@ -331,15 +335,54 @@ export function createPromptAgentController({
         return { ...measurement, emptyConversation };
     }
 
+    async function compactWithProgress(operation, conversation, modelId) {
+        const child = new AbortController();
+        let timeout, timer, rejectWait, progress = '';
+        const waiting = new Promise((_, reject) => { rejectWait = reject; });
+        const cancel = () => { child.abort(); rejectWait(new DOMException('上下文压缩已取消', 'AbortError')); };
+        const started = Date.now();
+        const show = () => {
+            if (isCurrentOperation(operation)) setCommandStatus(`正在压缩上下文${progress}，已等待 ${Math.floor((Date.now() - started) / 1000)} 秒；可点击停止取消。`);
+        };
+        const resetTimeout = () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                rejectWait(new Error(`压缩请求超时（${Math.round(compactionTimeoutMs / 1000)} 秒未完成当前批次），请检查供应商连接后重试`));
+                child.abort();
+            }, compactionTimeoutMs);
+        };
+        operation.controller.signal.addEventListener('abort', cancel, { once: true });
+        resetTimeout(); timer = setInterval(show, 1000);
+        try {
+            if (operation.controller.signal.aborted) cancel();
+            return await Promise.race([waiting, createCompaction({ conversation, modelId, config: operation.config,
+                signal: child.signal, onProgress: ({ batch, total }) => {
+                    if (child.signal.aborted || !isCurrentOperation(operation)) return;
+                    progress = `（第 ${batch}/${total} 批）`; resetTimeout(); show();
+                } })]);
+        } finally {
+            clearTimeout(timeout); clearInterval(timer);
+            operation.controller.signal.removeEventListener('abort', cancel);
+        }
+    }
+
     async function autoCompact(operation, modelId, message = '') {
+        if (operation.compactionStatus) { setCommandStatus(operation.compactionStatus); return true; }
         if (!compressionProgress(message, operation.model).reached) return true;
         const conversation = conversationStore.getCompactionContext();
         if (!conversation.messages.length && !conversation.memory) return true;
+        // A large retained plan/image batch cannot be shrunk by re-summarizing a few new words.
+        const newText = createPromptAgentInput({ conversation: { messages: conversation.messages }, model: operation.model })
+            .messages.slice(0, -1).map(turn => turn.content).join('\n') + (conversation.memory || '');
+        if (conversation.contextSummary && countPromptText(newText) < Math.min(2000, compressionProgress(message, operation.model).threshold * 0.2)) {
+            setCommandStatus('保留的方案、图片或系统指令仍占用较多上下文；新增对话较少，暂不重复压缩。可在模型设置调整自动压缩阈值。');
+            return true;
+        }
         const revision = conversationRevision;
         operation.kind = 'compact';
         setCommandStatus('已达到 Token 阈值，正在自动压缩上下文…');
         try {
-            const result = await createCompaction({ conversation, modelId, config: operation.config, signal: operation.controller.signal });
+            const result = await compactWithProgress(operation, conversation, modelId);
             if (!isCurrentOperation(operation)) return false;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重试');
             conversationStore.compact(result?.summary);
@@ -347,9 +390,10 @@ export function createPromptAgentController({
             conversationRevision += 1;
             onStateChange();
             if (commandMenuOpen) renderCommandMenu();
-            setCommandStatus(compressionProgress(message, operation.model).reached
+            operation.compactionStatus = compressionProgress(message, operation.model).reached
                 ? '已自动压缩；保留的方案或素材仍超过阈值，不会继续循环压缩或截断。'
-                : '已自动压缩上下文，历史记录、参考图和最新方案已保留。');
+                : '已自动压缩上下文，历史记录、参考图和最新方案已保留。';
+            setCommandStatus(operation.compactionStatus);
             return true;
         } catch (error) {
             if (isCurrentOperation(operation)) setCommandStatus(`自动压缩失败：${error?.message || '请重试'}。原上下文已保留，请重试发送或使用 /compact。`);
@@ -400,7 +444,7 @@ export function createPromptAgentController({
                 meter.setAttribute('aria-valuenow', String(displayedPercent));
                 const detail = usage.emptyConversation
                     ? `暂无对话上下文。下次请求的系统指令和画布候选预计占用约 ${usage.used} / ${usage.threshold} Token，并非残留聊天；发送时按完整请求检查自动压缩阈值。`
-                    : `自动压缩阈值进度：约 ${usage.used} / ${usage.threshold} Token（含系统指令及画布候选）；${usage.source}。发送前及回复后达到阈值时调用模型压缩，与圆环共用计数。`;
+                    : `自动压缩阈值进度：约 ${usage.used} / ${usage.threshold} Token（文本约 ${usage.textTokens}，图片约 ${usage.imageTokens}，含系统指令及画布候选）；此阈值是自动压缩设置，并非模型最大容量；${usage.source}。发送前及回复后达到阈值时调用模型压缩，与圆环共用计数。`;
                 meter.setAttribute('aria-valuetext', `${displayedPercent}%，${detail}`);
                 meter.title = detail;
                 const value = documentRef.createElement('span');
@@ -420,7 +464,7 @@ export function createPromptAgentController({
     }
 
     function beginOperation(kind) {
-        const operation = { kind, controller: new AbortController(), revision: workflowRevision };
+        const operation = { kind, controller: new AbortController(), revision: workflowRevision, creativeTask: conversationStore.getCreativeTask() };
         activeOperation = operation;
         requestPending = true;
         const { cancelButton } = getElements();
@@ -519,7 +563,7 @@ export function createPromptAgentController({
         const revision = conversationRevision;
         setCommandStatus('正在压缩上下文，整理目标、约束与最新方案…');
         try {
-            const result = await createCompaction({ conversation, modelId, config: operation.config, signal: operation.controller.signal });
+            const result = await compactWithProgress(operation, conversation, modelId);
             if (!isCurrentOperation(operation)) return;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重新压缩');
             conversationStore.compact(result?.summary);
@@ -844,9 +888,10 @@ export function createPromptAgentController({
     }
 
     function scrollToLatest() {
+        followLatestContent = true;
         const { messages } = getElements();
         scrollToLatestOnOpen = messages?.clientHeight === 0;
-        if (messages) messages.scrollTop = messages.scrollHeight;
+        if (messages) { messages.scrollTop = messages.scrollHeight; lastScrollTop = messages.scrollTop; }
         updateScrollBottomButton();
     }
 
@@ -917,7 +962,8 @@ export function createPromptAgentController({
             message.appendChild(references);
         }
         messages.appendChild(message);
-        if (followLatest) messages.scrollTop = messages.scrollHeight;
+        contentObserver?.observe?.(message);
+        if (followLatest || followLatestContent) scrollToLatest();
         updateScrollBottomButton();
         if (record) {
             message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, intent, search });
@@ -935,6 +981,7 @@ export function createPromptAgentController({
             .filter(([, value]) => value !== '' && value !== undefined && value !== null)
             .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`);
         if (parameters.length) parts.push(`参数\n${parameters.join(' · ')}`);
+        if (plan.parameterSources) parts.push(Object.entries(plan.parameterSources).map(([key, source]) => `${key}：${source}`).join(' · '));
         if (plan.referenceImages?.length) {
             const roleNames = { 'edit-target': '编辑目标', reference: '参考', supporting: '合成素材' };
             const roles = plan.referenceImages.filter((image) => roleNames[image.role])
@@ -993,6 +1040,7 @@ export function createPromptAgentController({
                 const patch = typeof answer === 'string' ? parseSizeAnswer(answer) : answer; if (!patch) return false;
                 if (patch.resolution && patch.resolution !== 'custom') { delete plan.parameters?.customWidth; delete plan.parameters?.customHeight; }
                 plan.parameters = { ...plan.parameters, ...patch };
+                conversationStore.setCreativeTask(confirmTaskParameters(conversationStore.getCreativeTask(), plan, patch));
                 conversationStore.updatePromptPlan(message.promptAgentMessageIndex, plan);
                 this.appliedSelection = ''; planElement.textContent = formatPlan(plan); planElement.appendChild(sizeStatus); this.sync(); onStateChange(); return true;
             },
@@ -1410,7 +1458,7 @@ export function createPromptAgentController({
             const view = { element, workflowId, revision, canvasPlan: plan, plan: { targetNodeId: run.targetNodeId } };
             runViews.set(run.runId, view); renderRunView(view, run);
         };
-        const view = renderCanvasPlan({ documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, getProviders, getProviderId: modelId => conversationStore.getProvider('image', modelId), getThinking: modelId => conversationStore.getThinking('image', modelId), getSize: modelId => conversationStore.getSize(modelId), preview: openResultPreview,
+        const view = renderCanvasPlan({ confirmedParameters: (plan,values,id) => { conversationStore.setCreativeTask(confirmTaskParameters(conversationStore.getCreativeTask(),plan,values,id)); onStateChange(); }, documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, getProviders, getProviderId: modelId => conversationStore.getProvider('image', modelId), getThinking: modelId => conversationStore.getThinking('image', modelId), getSize: modelId => conversationStore.getSize(modelId), preview: openResultPreview,
             getModelId: () => conversationStore.getImageModelId(), changed, isCurrent, configure: openModelSettings,
             run: async (plan, retry) => {
                 if (!retry) plan.completedSteps = [];
@@ -1470,6 +1518,7 @@ export function createPromptAgentController({
         if (!requestPending && !pendingReferenceImages.length && text) {
             const latest = [...canvasViews].at(-1) || [...promptPlanActionStates].at(-1);
             if (latest?.answerSize?.(text)) {
+                scrollToLatest();
                 appendMessage('user', text);
                 appendMessage('agent', '已更新待确认方案的尺寸，请检查方案后点击应用或生成。');
                 input.value = ''; return;
@@ -1478,6 +1527,7 @@ export function createPromptAgentController({
         const models = renderModelOptions();
         if (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error)) return;
         if (!text && pendingReferenceImages.length === 0) return;
+        scrollToLatest();
         const stagedReferences = pendingReferenceImages.slice();
         const operation = beginOperation('reply');
         const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
@@ -1513,6 +1563,7 @@ export function createPromptAgentController({
             const nodeMentions = canvasMentions?.read() || [];
             const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
             appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
+            scrollToLatest();
             if (input.value.trim() === text) input.value = '';
             pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
             referencePickerError = '';
@@ -1553,6 +1604,8 @@ export function createPromptAgentController({
                 reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext);
                 reply.promptPlan = null;
             }
+            const nextTask = bindTaskToReply(reply, operation.creativeTask, text);
+            conversationStore.setCreativeTask(nextTask);
             tokenObservation = reply?.tokenObservation || null;
             if (reply?.canvasPlan) canvasAdapter.prepare(reply.canvasPlan);
             const agentMessage = appendMessage('agent', reply?.message || '已整理本轮回复。', reply?.workSummary || [], {
@@ -1583,7 +1636,17 @@ export function createPromptAgentController({
         if (initialized) return;
         panelManager?.register?.('agent', { close });
         const { messages, scrollBottomButton } = getElements();
-        messages?.addEventListener('scroll', updateScrollBottomButton, { passive: true });
+        messages?.addEventListener('scroll', () => {
+            if (messages.scrollTop < lastScrollTop - 1) followLatestContent = false;
+            else if (messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32) followLatestContent = true;
+            lastScrollTop = messages.scrollTop; updateScrollBottomButton();
+        }, { passive: true });
+        messages?.addEventListener('wheel', event => { if(event.deltaY < 0) followLatestContent = false; }, {passive:true});
+        messages?.addEventListener('keydown', event => { if(['ArrowUp','PageUp','Home'].includes(event.key)) followLatestContent = false; });
+        contentObserver = resizeObserverFactory?.(() => {
+            if (followLatestContent && messages?.clientHeight > 0) scrollToLatest();
+            else updateScrollBottomButton();
+        });
         messages?.addEventListener('load', updateScrollBottomButton, true);
         scrollBottomButton?.addEventListener('click', scrollToLatest);
         const MutationObserverClass = documentRef.defaultView?.MutationObserver;
@@ -1775,7 +1838,7 @@ export function createPromptAgentController({
             updateScrollBottomButton();
         }) || null;
         if (panel) resizeObserver?.observe?.(panel);
-        if (messages) resizeObserverFactory?.(updateScrollBottomButton)?.observe?.(messages);
+        if (messages) contentObserver?.observe?.(messages);
         initialized = true;
     }
 
