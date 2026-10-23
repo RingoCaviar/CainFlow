@@ -1128,6 +1128,13 @@ export function createNodeLifecycleApi({
             const { textareaHeights, ...restoredChatData } = effectiveRestoreData;
             effectiveRestoreData = restoredChatData;
         }
+        // A content-sized generation card has no user-selected text area height.
+        // Older saves captured the flex-grown rendered height, which then became
+        // the card's minimum height on every subsequent restore.
+        if (normalizedType === 'ImageGenerate' && effectiveRestoreData && effectiveRestoreData.userResized !== true) {
+            const { height, textareaHeights, collapsedExpandedHeight, ...restoredGenerationData } = effectiveRestoreData;
+            effectiveRestoreData = restoredGenerationData;
+        }
         const restoredUserResized = effectiveRestoreData?.userResized === true;
         const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         const el = documentRef.createElement('div');

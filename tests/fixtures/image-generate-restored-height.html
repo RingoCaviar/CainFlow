@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/04-node-core.css">
+<link rel="stylesheet" href="../../css/modules/05-node-media.css">
+<link rel="stylesheet" href="../../css/modules/07-node-controls.css">
+<style>.node{position:relative;left:auto!important;top:auto!important;margin:16px}</style>
+</head><body><div id="nodes-layer"></div><pre id="surface-result"></pre>
+<script type="module">
+import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+import { createNodeLifecycleApi } from '../../js/nodes/node-lifecycle.js';
+import { createNodeSerializer } from '../../js/nodes/node-serializer.js';
+try {
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(),
+        nodeDefaults: {}, models: [], providers: [], canvas: { zoom: 1, x: 0, y: 0 } };
+    const nodesLayer = document.getElementById('nodes-layer');
+    const noop = () => {};
+    const lifecycle = createNodeLifecycleApi({ state, nodeConfigs: NODE_CONFIGS, createNodeMarkup,
+        nodesLayer, generateId: () => 'unused', getImageAsset: async () => null,
+        bindNodeInteractions: noop, pushHistory: noop, scheduleSave: noop, showToast: noop,
+        updateAllConnections: noop, updatePortStyles: noop, getCacheSidebarActive: () => false,
+        updateCacheUsage: noop });
+    lifecycle.addNode('ImageGenerate', 0, 0, { id: 'legacy', height: 2309, width: 410,
+        userResized: false, prompt: '雪景列车。'.repeat(45),
+        textareaHeights: { prompt: 1593, 'param-systemPrompt': 60 }, imageResultPersistence: 'transient' }, true);
+    lifecycle.addNode('ImageGenerate', 0, 0, { id: 'manual', height: 1200, width: 410,
+        userResized: true, prompt: '雪景列车。', textareaHeights: { prompt: 484 } }, true);
+    lifecycle.addNode('ImageGenerate', 0, 0, { id: 'collapsed', height: 64, width: 410,
+        userResized: false, collapsed: true, collapsedExpandedHeight: 2309,
+        prompt: '雪景列车。', textareaHeights: { prompt: 1593 } }, true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const serializer = createNodeSerializer({ state, documentRef: document });
+    const saved = Object.fromEntries(serializer.serializeNodes().map(node => [node.id, node]));
+    document.getElementById('surface-result').textContent = JSON.stringify({
+        legacy: { height: state.nodes.get('legacy').height,
+            promptHeight: document.getElementById('legacy-prompt').offsetHeight,
+            savedPromptHeight: saved.legacy.textareaHeights?.prompt,
+            savedHeight: saved.legacy.height },
+        manual: { height: state.nodes.get('manual').height,
+            promptHeight: document.getElementById('manual-prompt').offsetHeight,
+            savedPromptHeight: saved.manual.textareaHeights?.prompt,
+            savedHeight: saved.manual.height },
+        collapsed: { expandedHeight: state.nodes.get('collapsed').collapsedExpandedHeight,
+            savedExpandedHeight: saved.collapsed.collapsedExpandedHeight,
+            savedHeight: saved.collapsed.height }
+    });
+} catch (error) {
+    document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack });
+}
+</script></body></html>

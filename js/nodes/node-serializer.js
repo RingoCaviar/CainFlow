@@ -74,19 +74,21 @@ export function createNodeSerializer({ state, documentRef }) {
     function serializeNodes() {
         const nodes = [];
         for (const [id, node] of getOrderedNodes()) {
+            const isAutoSizedImageGenerate = node.type === 'ImageGenerate' && node.userResized !== true;
             const serialized = {
                 id,
                 type: node.type,
                 x: node.x,
                 y: node.y,
                 width: node.width || null,
-                height: node.height || null,
+                height: isAutoSizedImageGenerate ? null : (node.height || null),
                 userResized: node.userResized === true,
                 collapsed: node.collapsed === true,
                 enabled: node.enabled,
                 lastDuration: node.lastDuration || null
             };
-            if (node.collapsed === true && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
+            if (node.collapsed === true && !isAutoSizedImageGenerate
+                && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
                 serialized.collapsedExpandedHeight = Math.round(node.collapsedExpandedHeight);
             }
             if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
@@ -97,7 +99,9 @@ export function createNodeSerializer({ state, documentRef }) {
             if (typeof node.customTitle === 'string' && node.customTitle.trim()) {
                 serialized.customTitle = node.customTitle.trim();
             }
-            const textareaHeights = getNodeTextareaHeights(id);
+            const textareaHeights = isAutoSizedImageGenerate
+                ? null
+                : getNodeTextareaHeights(id);
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
             if (node.type === 'TextChat') serialized.chatLayoutVersion = 3;
 
