@@ -696,7 +696,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-thinking-menu .thinking-budget-apply { min-width: 48px; min-height: 30px; padding: 4px 8px; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--surface-control); color: var(--text-primary); font-size: 12px; cursor: pointer; }
 .prompt-agent-thinking-menu .thinking-budget-range,
 .prompt-agent-thinking-menu .thinking-control-status { display: block; margin: 2px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
-.prompt-agent-thinking-menu .thinking-control-status.is-error { color: var(--danger-color, var(--text-primary)); font-size: 12px; }
+.prompt-agent-thinking-menu .thinking-control-status.is-error { color: var(--text-danger, var(--text-primary)); font-size: 12px; }
 .prompt-agent-thinking-menu .prompt-agent-settings-footer { display: block; min-width: 0; margin: 0; padding: 6px 1px 0; border-top: 1px solid var(--menu-border, var(--panel-border-strong)); color: var(--text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .prompt-agent-thinking-menu .prompt-agent-settings-footer:empty { display: none; }
 

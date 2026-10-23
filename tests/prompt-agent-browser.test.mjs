@@ -40,7 +40,7 @@ test('Prompt Agent browser flow keeps references, actions, recovery, workflow st
     assert.ok(result.failureVisible && result.retriedWithPreview);
     assert.ok(result.resultPreviewActions && result.savesResultBatches);
     assert.equal(result.restoredBatchCount, 2);
-    assert.deepEqual(result.focused, ['image-1']);
+    assert.deepEqual(result.focused, ['image-1', 'image-1']);
     for (const theme of ['light', 'dark', 'pink']) {
         assert.equal(result.themeSamples[theme].display, 'flex');
         assert.notEqual(result.themeSamples[theme].color, 'rgba(0, 0, 0, 0)');

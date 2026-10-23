@@ -519,7 +519,8 @@ export function createPromptAgentController({
         dot.setAttribute('aria-hidden', 'true');
         const label = documentRef.createElement('span');
         label.textContent = '正在处理…';
-        indicator.append(dot, label);
+        indicator.appendChild(dot);
+        indicator.appendChild(label);
         messages.appendChild(indicator);
         operation.processingElement = indicator;
         operation.processingLabel = label;

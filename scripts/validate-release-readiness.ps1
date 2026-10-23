@@ -134,7 +134,7 @@ function Invoke-NodeTests {
   if ($testFiles.Count -eq 0) {
     throw "No Node test files were found."
   }
-  & $NodeCommand --test @testFiles
+  & $NodeCommand --test --test-concurrency=1 @testFiles
   if ($LASTEXITCODE -ne 0) {
     throw "Node test suite failed."
   }

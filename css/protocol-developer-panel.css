@@ -985,10 +985,14 @@
 .param-field-group textarea:disabled,
 .param-field-group select:disabled {
     background: var(--panel-bg-strong);
-    color: var(--text-secondary);
+    color: var(--text-primary);
     cursor: not-allowed;
     border-color: var(--border-color, #222);
-    opacity: 0.6;
+    opacity: 1;
+}
+
+html[data-app-theme="dark"] .param-field-group :is(input, textarea, select):disabled {
+    color: #fff;
 }
 
 .param-field-group textarea {

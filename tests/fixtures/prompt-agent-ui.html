@@ -138,6 +138,7 @@ try {
     let settingsOpens = 0;
     const controller = createPromptAgentController({
         documentRef: document, createReply, nodeAdapter, executionAdapter,
+        getAutoCompactTokenLimit: () => 1000000000,
         referenceSource: createPromptAgentReferenceSource({ state, nodeAdapter,
             getImageAsset: async key => key === 'media:fixture-result' ? 'data:image/png;base64,UkVTVUxU' : null,
             getHistoryMetadata: async () => [],

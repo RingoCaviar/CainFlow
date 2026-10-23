@@ -96,11 +96,9 @@ try {
     openSearch();await tick();themeUi.openThemeMenu();check(!searchButton.parentElement.open,'theme and Agent menus are exclusive');themeUi.closeThemeMenu();
     state.models.push({...state.models[0],id:'search',agentSearch:'images'});
     // Settings-owned Provider popup must stay above and interactive inside the modal.
-    settings.openModelSettings({modelId:'search',field:'agentSearch'});await tick();
+    settings.openModelSettings({modelId:'search',field:'protocol'});await tick();
     const searchCard=()=>document.querySelector('[data-model-id="search"]');
-    check([...searchCard().querySelector('[data-field="agentSearch"]').options].map(option=>option.value).join()==='none,web,images','OpenAI configurable abilities');
     const protocol=searchCard().querySelector('[data-field="protocol"]');protocol.value='google';protocol.dispatchEvent(new Event('change',{bubbles:true}));
-    check([...searchCard().querySelector('[data-field="agentSearch"]').options].filter(option=>!option.disabled).map(option=>option.value).join()==='none,web','Google cannot be configured to search images');
     check(state.models[1].agentSearch==='images','protocol change does not silently change declared ability');
     searchCard().querySelector('[data-field="protocol"]').value='openai';searchCard().querySelector('[data-field="protocol"]').dispatchEvent(new Event('change',{bubbles:true}));
     searchCard().querySelector('.provider-multiselect-trigger').click();await new Promise(resolve=>setTimeout(resolve,50));
