@@ -35,3 +35,13 @@ test('cleanup failure after successful save defers to backend instead of losing 
         finish: async () => order.push('closed'), confirmDiscard: () => assert.fail('save succeeded'), setBlocked() {} });
     await exit(); assert.deepEqual(order, ['saved', 'deferred', 'closed']);
 });
+
+test('exit unblocks the page while asking whether to discard unsaved changes', async () => {
+    const order = [];
+    const exit = createDesktopExit({ settle: async () => {}, save: async () => { throw Error('disk'); },
+        release: async () => assert.fail('release must wait for save'), finish: async () => order.push('closed'),
+        report() {}, setBlocked: value => order.push(value),
+        confirmDiscard: async () => { assert.deepEqual(order, [true, false]); return false; } });
+    await exit();
+    assert.deepEqual(order, [true, false]);
+});

@@ -104,6 +104,26 @@ test('failed document save never replaces the previously saved media owner', asy
     assert.equal(events.some((event) => event.type === 'formal' || event.type === 'release'), false);
 });
 
+test('exit save does not rewrite a workflow already saved without further edits', async (t) => {
+    const { manager, events, settings } = await fixture(t);
+    assert.equal(await manager.saveActiveWorkflow({ silent: true }), true);
+    events.length = 0;
+    settings.failWrite = true;
+    const result = await manager.saveAllOpenWorkflows({ dirtyOnly: true });
+    assert.deepEqual(result.results, []);
+    assert.equal(events.some((event) => event.type === 'document'), false);
+});
+
+test('exit save still writes a workflow with unsaved edits', async (t) => {
+    const { manager, state, events } = await fixture(t);
+    assert.equal(await manager.saveActiveWorkflow({ silent: true }), true);
+    events.length = 0;
+    state.workflowTabs[0].dirty = true;
+    const result = await manager.saveAllOpenWorkflows({ dirtyOnly: true });
+    assert.equal(result.results[0].status, 'committed');
+    assert.equal(events.filter((event) => event.type === 'document').length, 1);
+});
+
 test('internal copies get independent formal owners without redundant aliases or releasing source operations', async (t) => {
     const { manager, state, events, owners } = await fixture(t);
     state.nodes.get('node').data.mediaOwnershipTemporaryOwners = [

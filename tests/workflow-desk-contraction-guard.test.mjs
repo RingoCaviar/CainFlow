@@ -30,7 +30,7 @@ test('Workflow persistence adapters cannot write pending identity state', () => 
 
 test('save-all cannot reconstruct identity-bound saves from mutable Workflow tabs', () => {
     const manager = readFileSync(`${root}/js/features/workflow/workflow-manager.js`, 'utf8');
-    const saveAll = manager.match(/async function saveAllOpenWorkflows\(\)[\s\S]*?\n    }/)?.[0] || '';
+    const saveAll = manager.match(/async function saveAllOpenWorkflows\([^\n]*\) \{[\s\S]*?\n    }/)?.[0] || '';
     assert.match(saveAll, /workflowDesk\.snapshot\(\)\.open/);
     assert.match(saveAll, /workflowDesk\.workflows\(workflowIds\)\.save\(\)/);
     assert.doesNotMatch(saveAll, /workflowDesk\.workflow\(|ensureWorkflowIdentity/);

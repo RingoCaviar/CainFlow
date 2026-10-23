@@ -3,6 +3,7 @@ export function createDesktopExit({ settle, save, release, finish, confirmDiscar
     return () => {
         if (pending) return pending;
         pending = (async () => {
+            let blocked = true;
             setBlocked(true);
             try {
                 await settle();
@@ -11,12 +12,14 @@ export function createDesktopExit({ settle, save, release, finish, confirmDiscar
                 await finish();
             } catch (error) {
                 report(error);
+                setBlocked(false);
+                blocked = false;
                 if (await confirmDiscard(error)) {
                     // The backend releases this process's temporary protection;
                     // durable workflow and Agent references remain untouched.
                     await finish();
                 }
-            } finally { setBlocked(false); pending = null; }
+            } finally { if (blocked) setBlocked(false); pending = null; }
         })();
         return pending;
     };

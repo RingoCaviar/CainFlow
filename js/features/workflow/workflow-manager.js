@@ -2566,11 +2566,18 @@ export function createWorkflowManagerApi({
         return { committed: false };
     }
 
-    async function saveAllOpenWorkflows() {
+    async function saveAllOpenWorkflows({ workflowIds: requestedIds, dirtyOnly = false } = {}) {
         snapshotActiveWorkflow();
-        const workflowIds = workflowDesk.snapshot().open.map(({ workflowId }) => workflowId);
+        const requested = requestedIds ? new Set(requestedIds) : null;
+        const dirtyIds = dirtyOnly
+            ? new Set((state.workflowTabs || []).filter(tab => tab.dirty === true).map(getWorkflowIdentity))
+            : null;
+        const workflowIds = workflowDesk.snapshot().open
+            .filter(({ workflowId, pendingExplicitSave }) => (!requested || requested.has(workflowId))
+                && (!dirtyIds || dirtyIds.has(workflowId) || pendingExplicitSave === true))
+            .map(({ workflowId }) => workflowId);
         if (workflowIds.length === 0) {
-            showToast('没有可保存的已打开工作流', 'info');
+            if (!dirtyOnly) showToast('没有可保存的已打开工作流', 'info');
             return Object.freeze({ status: 'completed', results: Object.freeze([]) });
         }
 

@@ -65,6 +65,7 @@ import { createClipboardControllerApi } from '../features/ui/clipboard-controlle
 import { createGlobalInteractionsApi } from '../features/ui/global-interactions.js';
 import { createContextMenuControllerApi } from '../features/ui/context-menu-controller.js';
 import { createErrorModalControllerApi } from '../features/ui/error-modal-controller.js';
+import { openDialogStyle1 } from '../features/ui/dialog-style-1.js';
 import { createRuntimeControllerApi } from '../features/ui/runtime-controller.js';
 import { createThemeControllerApi } from '../features/ui/theme-controller.js';
 import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } from '../features/ui/animation-controller.js';
@@ -2003,8 +2004,18 @@ window.cainflowPrepareExit = createDesktopExit({
         await getExecutionCoreApi().waitForPendingImageAssetSaves();
     },
     save: async () => {
-        const result = await workflowManagerApi.saveAllOpenWorkflows();
-        if (result.results.some(item => item.status !== 'committed')) throw new Error('部分工作流保存失败，请重试关闭');
+        let result = await workflowManagerApi.saveAllOpenWorkflows({ dirtyOnly: true });
+        const failedIds = result.results.filter(item => item.status !== 'committed').map(item => item.workflowId);
+        if (failedIds.length) {
+            result = await workflowManagerApi.saveAllOpenWorkflows({ workflowIds: failedIds });
+        }
+        const failures = result.results.filter(item => item.status !== 'committed');
+        if (failures.length) {
+            const first = failures[0];
+            const label = result.snapshot?.open?.find(item => item.workflowId === first.workflowId)?.label || first.workflowId;
+            const suffix = failures.length > 1 ? `等 ${failures.length} 个工作流` : '';
+            throw new Error(`工作流「${label}」${suffix}保存失败${first.error?.message ? `：${first.error.message}` : '，请返回软件后重试'}`);
+        }
         await flushSessionToDisk(getSessionManagerApi(), diskStorage);
         await diskStorage.flushPromise;
         if (diskStorage.lastError) throw diskStorage.lastError;
@@ -2012,7 +2023,20 @@ window.cainflowPrepareExit = createDesktopExit({
     release: () => getSessionManagerApi().endUndoSession(),
     finish: () => window.pywebview.api.finish_close(),
     report: error => showToast(`退出收尾失败：${error.message}`, 'error', 8000),
-    confirmDiscard: error => !state.canvasPlanApplying && !state.isRunStarting && confirm(`${error.message}\n取消可返回软件重试。确定将放弃未保存修改并退出，已保存数据保留。`)
+    confirmDiscard: async error => {
+        if (state.canvasPlanApplying || state.isRunStarting) return false;
+        const action = await openDialogStyle1({
+            id: 'desktop-exit-save-failed',
+            title: '关闭前保存失败',
+            message: error.message,
+            note: '返回软件可检查问题并重试关闭。强制退出会丢失未保存的修改，已保存的数据保留。',
+            actions: [
+                { id: 'cancel', label: '返回软件', variant: 'secondary', autofocus: true },
+                { id: 'discard', label: '放弃修改并退出', variant: 'danger' }
+            ]
+        });
+        return action === 'discard';
+    }
 });
 renderProjectionManager.init();
 interactionPerformanceGuard.init();
