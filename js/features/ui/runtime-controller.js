@@ -28,7 +28,6 @@ export function createRuntimeControllerApi({
     zoomToFit,
     scheduleSave,
     scheduleConnectionRefresh = null,
-    realignConnections = null,
     closeModal,
     documentRef = document,
     windowRef = window
@@ -302,10 +301,6 @@ export function createRuntimeControllerApi({
         initModalBindings();
         initCanvasChromePeek();
         documentRef.getElementById('btn-hard-reload')?.addEventListener('click', () => { void hardReload(); });
-        documentRef.getElementById('btn-realign-connections')?.addEventListener('click', () => {
-            const corrected = realignConnections?.() || 0;
-            showToast(corrected > 0 ? `已重新对齐 ${corrected} 条连线` : '连线已重新对齐', 'success');
-        });
         windowRef.addEventListener('resize', () => scheduleConnectionRefresh?.({ force: true, settle: true, reason: 'window-resize' }));
     }
 

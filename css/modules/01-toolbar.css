@@ -123,6 +123,81 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     display: contents;
 }
 
+/* Canvas actions move between rows as complete, visually distinct groups. */
+#toolbar .toolbar-brand {
+    display: flex;
+    align-items: center;
+    min-height: 38px;
+    margin-right: 4px;
+}
+
+#toolbar .toolbar-action-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-height: 46px;
+    padding: 4px;
+    border: 1px solid color-mix(in srgb, var(--text-primary) 15%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--text-primary) 5%, var(--bg-toolbar));
+}
+
+body.workspace-mode-conversation #toolbar .toolbar-action-group {
+    display: none;
+}
+
+#toolbar .toolbar-run-group {
+    border-color: color-mix(in srgb, var(--accent-purple) 25%, var(--panel-border));
+}
+
+#toolbar .toolbar-workflow-group {
+    border-color: color-mix(in srgb, var(--accent-cyan) 22%, var(--panel-border));
+}
+
+.toolbar-more-shell {
+    position: relative;
+}
+
+.toolbar-more-shell summary {
+    list-style: none;
+}
+
+.toolbar-more-shell summary::-webkit-details-marker {
+    display: none;
+}
+
+.toolbar-more-shell[open] summary > span {
+    transform: rotate(180deg);
+}
+
+.toolbar-more-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: var(--layer-menu);
+    min-width: 148px;
+    padding: 6px;
+    border: 1px solid var(--panel-border);
+    border-radius: 9px;
+    background: var(--panel-bg);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+#toolbar .toolbar-more-menu .btn {
+    justify-content: flex-start;
+    width: 100%;
+    color: var(--text-danger);
+}
+
+@media (max-width: 520px) {
+    #toolbar .toolbar-action-group {
+        flex-wrap: wrap;
+    }
+}
+
 .toolbar-toggle-group {
     display: flex;
     align-items: center;

@@ -138,6 +138,20 @@ test('settings surfaces render from the semantic palette in every supported them
     }
 });
 
+test('settings action edges stay visible against their card in every theme', () => {
+    for (const measurement of renderFixture()) {
+        const page = opaquePageBackground(measurement);
+        const overlay = composite(parseColor(measurement.actual.overlayBackground), page);
+        const panel = composite(parseColor(measurement.actual.panelBackground), overlay);
+        const card = composite(parseColor(measurement.actual.cardBackground), panel);
+        for (const action of measurement.actionStates.filter(({ state }) => state === 'normal' || state === 'hover')) {
+            const edge = composite(parseColor(action.actual.border), card);
+            const ratio = contrastRatio(edge, card);
+            assert.ok(ratio >= 1.5, `${measurement.themeId} ${action.kind} ${action.state} edge contrast ${ratio.toFixed(2)} must remain visible`);
+        }
+    }
+});
+
 test('native controls use the system color scheme that matches every supported theme', () => {
     const expectedColorSchemes = {
         dark: 'dark',

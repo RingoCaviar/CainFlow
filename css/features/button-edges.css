@@ -1,0 +1,137 @@
+/* Keep controls distinct from their surrounding surface in every theme. */
+html:root {
+    --button-edge: color-mix(in srgb, var(--text-primary) 42%, transparent);
+    --button-edge-hover: color-mix(in srgb, var(--text-primary) 62%, transparent);
+    --button-filled-edge: color-mix(in srgb, var(--panel-primary-action-bg) 45%, var(--text-primary));
+    --button-danger-edge: color-mix(in srgb, var(--accent-red) 68%, var(--text-primary));
+    --toolbar-button-edge: color-mix(in srgb, var(--text-primary) 58%, transparent);
+}
+
+html:root[data-app-theme="paper"] {
+    --toolbar-button-edge: color-mix(in srgb, var(--text-primary) 72%, transparent);
+}
+
+html:root :is(.btn, .icon-btn, .workflow-action-btn, .prompt-card-btn, .prompt-card-icon-btn, .prompt-import-btn, .node-picker-result, .node-picker-close, .theme-menu-item) {
+    border: 1px solid var(--button-edge);
+}
+
+html:root :is(.btn, .icon-btn, .workflow-action-btn, .prompt-card-btn, .prompt-card-icon-btn, .prompt-import-btn, .node-picker-result, .node-picker-close, .theme-menu-item):hover:not(:disabled) {
+    border-color: var(--button-edge-hover);
+}
+
+html:root :is(.btn-primary, .btn-run, .btn-accent) {
+    border-color: var(--button-filled-edge);
+}
+
+html:root :is(.btn-primary, .btn-run, .btn-accent):hover:not(:disabled) {
+    border-color: var(--button-filled-edge);
+}
+
+html:root :is(.btn-danger, .btn-stop) {
+    border-color: var(--button-danger-edge);
+}
+
+html:root :is(.btn-danger, .btn-stop):hover:not(:disabled) {
+    border-color: var(--button-danger-edge);
+}
+
+html:root .conversation-mode-switch .btn {
+    border-color: var(--button-edge);
+}
+
+html:root .conversation-mode-switch .btn.is-selected {
+    border-color: var(--button-edge-hover);
+}
+
+html:root .btn:disabled {
+    opacity: 0.58;
+}
+
+/* Toolbar buttons sit directly on chrome; a two-pixel edge stays legible there. */
+html:root #toolbar {
+    gap: 8px;
+}
+
+html:root #toolbar .toolbar-divider {
+    display: none;
+}
+
+html:root #toolbar .btn,
+html:root #toolbar .toolbar-toggle-group {
+    box-sizing: border-box;
+    height: 38px;
+    min-height: 38px;
+    flex-shrink: 0;
+    border: 2px solid var(--toolbar-button-edge);
+}
+
+html:root #toolbar .btn {
+    padding-block: 0;
+    padding-inline: 12px;
+}
+
+html:root #toolbar .toolbar-toggle-group {
+    padding-inline: 10px;
+}
+
+html:root #toolbar .btn:hover:not(:disabled),
+html:root #toolbar .toolbar-toggle-group:hover,
+html:root #toolbar .toolbar-toggle-group:focus-within {
+    border-color: var(--button-edge-hover);
+}
+
+html:root #toolbar :is(.btn-primary, .btn-run, .btn-accent),
+html:root #toolbar :is(.btn-primary, .btn-run, .btn-accent):hover:not(:disabled) {
+    border-color: var(--button-filled-edge);
+}
+
+html:root #toolbar :is(.btn-danger, .btn-stop),
+html:root #toolbar :is(.btn-danger, .btn-stop):hover:not(:disabled) {
+    border-color: var(--button-danger-edge);
+}
+
+/* Group surfaces provide separation; secondary actions should read quieter. */
+html:root #toolbar .toolbar-action-group :is(.btn-ghost, .btn-icon, .toolbar-toggle-group) {
+    border-width: 1px;
+    border-color: color-mix(in srgb, var(--text-primary) 28%, transparent);
+    background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+html:root #toolbar .toolbar-action-group :is(.btn-ghost, .btn-icon, .toolbar-toggle-group):hover:not(:disabled) {
+    border-color: var(--button-edge-hover);
+}
+
+html:root #toolbar .toolbar-action-group .btn-stop {
+    border-width: 1px;
+}
+
+html:root #toolbar .toolbar-action-group :is(.btn-run, .btn-primary) {
+    border-width: 2px;
+}
+
+html:root #toolbar .toolbar-more-menu .btn {
+    border: 0;
+    background: transparent;
+}
+
+html:root #toolbar #btn-hard-reload {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+    flex: 0 0 38px;
+}
+
+html:root #toolbar #btn-hard-reload .icon-sm {
+    width: 20px;
+    height: 20px;
+    flex: none;
+}
+
+html:root #settings-modal {
+    --settings-action-secondary-border: var(--button-edge);
+    --settings-action-secondary-hover-border: var(--button-edge-hover);
+    --settings-action-primary-border: var(--button-filled-edge);
+    --settings-action-primary-hover-border: var(--button-filled-edge);
+    --settings-action-danger-border: var(--button-danger-edge);
+    --settings-action-danger-hover-border: var(--button-danger-edge);
+}

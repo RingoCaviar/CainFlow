@@ -20,7 +20,6 @@ export function createToolbarControllerApi({
     scheduleSave,
     updateAllConnections,
     autoArrangeNodes = null,
-    zoomToFitTarget = null,
     focusNode = null,
     saveViewportState = null,
     cleanupNodeElement = (node) => node?.el?.remove(),
@@ -29,18 +28,6 @@ export function createToolbarControllerApi({
     clearWorkflowAssets = null,
     updateCacheUsage = () => {}
 }) {
-    function withZoomInteraction(callback) {
-        documentRef.body.classList.add('is-interacting');
-        canvasContainer.classList.add('is-zooming');
-        callback();
-        setTimeout(() => {
-            canvasContainer.classList.remove('is-zooming');
-            documentRef.body.classList.remove('is-interacting');
-            viewportApi.refreshNodeTextRendering();
-            scheduleSave();
-        }, 120);
-    }
-
     function isChromeActive(element, activeClass) {
         if (!element) return false;
         const body = documentRef.body;
@@ -114,6 +101,16 @@ export function createToolbarControllerApi({
     }
 
     function initToolbarControls() {
+        const workflowMore = documentRef.getElementById('toolbar-workflow-more');
+        documentRef.addEventListener('click', (event) => {
+            if (workflowMore?.open && !workflowMore.contains(event.target)) workflowMore.open = false;
+        });
+        documentRef.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && workflowMore?.open) {
+                workflowMore.open = false;
+                workflowMore.querySelector('summary')?.focus();
+            }
+        });
         initCanvasNavigation({ state, canvasContainer, viewportApi, zoomToFit, focusNode,
             scheduleSave: () => saveViewportState ? saveViewportState() : scheduleSave({ dirty: false }), documentRef });
         documentRef.getElementById('btn-run')?.addEventListener('click', () => runWorkflow());
@@ -147,13 +144,6 @@ export function createToolbarControllerApi({
             if (e.target.files[0]) importWorkflow(e.target.files[0]);
         });
 
-        documentRef.getElementById('btn-focus-selection')?.addEventListener('click', () => {
-            withZoomInteraction(() => {
-                if (zoomToFitTarget) zoomToFitTarget();
-                else zoomToFit();
-            });
-        });
-
         documentRef.getElementById('btn-auto-arrange')?.addEventListener('click', () => {
             if (typeof autoArrangeNodes === 'function') {
                 autoArrangeNodes();
@@ -161,6 +151,7 @@ export function createToolbarControllerApi({
         });
 
         documentRef.getElementById('btn-clear')?.addEventListener('click', async () => {
+            if (workflowMore) workflowMore.open = false;
             if (state.nodes.size === 0) return showToast('画布已经是空的', 'info');
             if (confirmRef('确定要清除所有节点和连接吗？')) {
                 if (state.runningNodeIds?.size > 0) {

@@ -711,7 +711,6 @@ const {
     beginConnectionRestoration,
     updateDirtyConnections,
     detectMisalignedConnections,
-    realignConnections,
     clearConnectionInsertPreview,
     commitConnectionInsertPreview,
     getCompatibleNodeTypeCandidates,
@@ -1200,7 +1199,6 @@ function getToolbarControllerApi() {
             scheduleSave,
             updateAllConnections,
             autoArrangeNodes,
-            zoomToFitTarget: () => zoomToFit(),
             focusNode: (nodeId) => {
                 selectNode(nodeId, false);
                 return focusCanvasNode(nodeId);
@@ -1515,7 +1513,6 @@ function getRuntimeControllerApi() {
             zoomToFit,
             scheduleSave,
             scheduleConnectionRefresh,
-            realignConnections,
             closeModal
         });
     }

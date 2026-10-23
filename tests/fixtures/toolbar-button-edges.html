@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="paper">
+<head>
+    <meta charset="utf-8">
+    <!-- application styles -->
+    <style>*, *::before, *::after { animation: none !important; transition: none !important; }</style>
+</head>
+<body class="toolbar-pinned">
+    <div id="toolbar">
+        <button class="btn btn-ghost" data-kind="ghost">节点</button>
+        <button class="btn btn-icon" data-kind="icon">＋</button>
+        <!-- actual reload button -->
+        <span class="toolbar-divider"></span>
+        <button class="btn btn-primary" data-kind="primary">保存</button>
+        <button class="btn btn-run" data-kind="run">运行</button>
+        <button class="btn btn-stop" data-kind="stop" disabled>停止</button>
+        <button class="btn btn-ghost" data-kind="undo" disabled>撤回</button>
+        <button id="btn-theme-toggle" class="btn btn-ghost" data-kind="theme">主题</button>
+        <div class="toolbar-toggle-group" data-kind="toggle">通知</div>
+    </div>
+    <pre id="surface-result"></pre>
+    <script>
+        window.addEventListener('load', () => {
+            const themes = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+            const result = themes.map((themeId) => {
+                document.documentElement.dataset.appTheme = themeId;
+                const toolbar = getComputedStyle(document.querySelector('#toolbar'));
+                return {
+                    themeId,
+                    rootBackground: getComputedStyle(document.documentElement).backgroundColor,
+                    pageBackground: getComputedStyle(document.body).backgroundColor,
+                    toolbarBackground: toolbar.backgroundColor,
+                    toolbarGap: toolbar.columnGap,
+                    dividerDisplay: getComputedStyle(document.querySelector('.toolbar-divider')).display,
+                    controls: [...document.querySelectorAll('#toolbar [data-kind]')].map((element) => {
+                        const style = getComputedStyle(element);
+                        const svg = element.querySelector('svg');
+                        const buttonRect = element.getBoundingClientRect();
+                        const svgRect = svg?.getBoundingClientRect();
+                        const pathBounds = svg?.getBBox();
+                        const icon = svg && {
+                            buttonWidth: buttonRect.width,
+                            buttonHeight: buttonRect.height,
+                            svgWidth: svgRect.width,
+                            svgHeight: svgRect.height,
+                            centerOffsetX: svgRect.left + svgRect.width / 2 - buttonRect.left - buttonRect.width / 2,
+                            centerOffsetY: svgRect.top + svgRect.height / 2 - buttonRect.top - buttonRect.height / 2,
+                            pathBounds: { x: pathBounds.x, y: pathBounds.y, width: pathBounds.width, height: pathBounds.height },
+                        };
+                        return { kind: element.dataset.kind, borderWidth: style.borderTopWidth, borderStyle: style.borderTopStyle, borderColor: style.borderTopColor, opacity: style.opacity,
+                            left: buttonRect.left, right: buttonRect.right, top: buttonRect.top, height: buttonRect.height, icon };
+                    }),
+                };
+            });
+            document.querySelector('#surface-result').textContent = JSON.stringify(result);
+        });
+    </script>
+</body>
+</html>

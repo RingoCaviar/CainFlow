@@ -868,10 +868,6 @@ export function createContextMenuControllerApi({
     }
 
     function initContextMenu() {
-        documentRef.getElementById('btn-add-node')?.addEventListener('click', () => {
-            closeContextMenu();
-            nodePicker.open();
-        });
         documentRef.querySelectorAll('#toolbar, #side-bar').forEach((chromeElement) => {
             chromeElement.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
