@@ -776,7 +776,10 @@ export function createPromptAgentController({
                             referenceSource?.saveDescription?.(candidate, value);
                             if (candidate.sourceNodeId) nodeAdapter?.setSceneReferenceDescription?.(candidate, value);
                             if (candidate.nodeId) nodeAdapter?.setSceneReferenceDescription?.({ sourceNodeId: candidate.nodeId, sourceImageIndex: 0 }, value);
-                            pendingReferenceImages.filter(item => item.referenceId === candidate.referenceId || item.sourceNodeId === candidate.sourceNodeId)
+                            pendingReferenceImages.filter(item => item.selectionKey === candidate.referenceId
+                                || item.referenceId === candidate.referenceId
+                                || (candidate.sourceNodeId && item.sourceNodeId === candidate.sourceNodeId)
+                                || (candidate.nodeId && item.sourceNodeId === candidate.nodeId))
                                 .forEach(item => { item.description = value; });
                             renderPendingReferences();
                         }
