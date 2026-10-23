@@ -22,6 +22,7 @@ import {
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
 import { mapPreviewPointToImage } from './media-utils.js';
+import { getImageDescription, setImageDescription } from '../execution/reference-image-description.js';
 import {
     readColorResetConfig as readColorResetNodeConfig,
     resolveWhiteBalanceSampleSelection
@@ -3105,6 +3106,7 @@ export function createMediaControllerApi({
             context.node?.type === 'ImageImport'
             && context.node.importMode !== 'url'
         );
+        const canDescribe = Boolean(context.node || typeof options.onDescriptionChange === 'function');
         overlay.classList.toggle('has-paint-action', Boolean(nodeId));
         overlay.classList.toggle('has-crop-action', canCropImageImport);
         overlay.innerHTML = `
@@ -3114,6 +3116,15 @@ export function createMediaControllerApi({
             <button type="button" class="fullscreen-copy-btn" title="复制图片到剪贴板" aria-label="复制图片到剪贴板">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
+            ${canDescribe ? '<button type="button" class="fullscreen-description-btn" title="添加图片介绍" aria-label="添加图片介绍">介绍</button>' : ''}
+            ${canDescribe ? `<div class="fullscreen-description-dialog hidden" role="dialog" aria-modal="true" aria-label="添加图片介绍">
+                <label for="fullscreen-description-input">图片介绍</label>
+                <textarea id="fullscreen-description-input" maxlength="2000" placeholder="描述图片中的主体、风格或用途"></textarea>
+                <div class="fullscreen-description-actions">
+                    <button type="button" class="fullscreen-description-cancel">取消</button>
+                    <button type="button" class="fullscreen-description-confirm">确认</button>
+                </div>
+            </div>` : ''}
             <div class="fullscreen-image-context-menu hidden">
                 <button type="button" class="fullscreen-image-copy-menu-item">复制图片</button>
             </div>
@@ -3136,6 +3147,9 @@ export function createMediaControllerApi({
         const img = overlay.querySelector('img');
         const iw = overlay.querySelector('.fullscreen-img-wrapper');
         const imageContextMenu = overlay.querySelector('.fullscreen-image-context-menu');
+        const descriptionButton = overlay.querySelector('.fullscreen-description-btn');
+        const descriptionDialog = overlay.querySelector('.fullscreen-description-dialog');
+        const descriptionInput = overlay.querySelector('#fullscreen-description-input');
         const thumbTrack = overlay.querySelector('.fullscreen-thumb-track');
         const thumbButtons = [];
         let fsZoom = 1;
@@ -3343,6 +3357,35 @@ export function createMediaControllerApi({
             documentRef.removeEventListener('keydown', onEsc);
         };
         overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
+        if (descriptionButton) {
+            const readDescription = () => context.node ? getImageDescription(context.node) : String(options.description || '');
+            const closeDescription = () => {
+                descriptionDialog.classList.add('hidden');
+                descriptionButton.focus();
+            };
+            descriptionButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                descriptionInput.value = readDescription();
+                descriptionDialog.classList.remove('hidden');
+                descriptionInput.focus();
+            });
+            descriptionDialog.addEventListener('click', event => event.stopPropagation());
+            descriptionDialog.querySelector('.fullscreen-description-cancel').addEventListener('click', closeDescription);
+            descriptionDialog.querySelector('.fullscreen-description-confirm').addEventListener('click', () => {
+                const value = descriptionInput.value.trim();
+                if (context.node) {
+                    if (getImageDescription(context.node) !== value) {
+                        pushHistory();
+                        setImageDescription(context.node, value);
+                        scheduleSave();
+                    }
+                } else {
+                    options.description = value;
+                }
+                options.onDescriptionChange?.(value);
+                closeDescription();
+            });
+        }
         overlay.querySelector('.fullscreen-copy-btn').addEventListener('click', (event) => {
             event.stopPropagation();
             void copyImageToClipboard(getCurrentFullscreenImage(images, currentIndex, src));
@@ -3376,6 +3419,12 @@ export function createMediaControllerApi({
             const top = getSurfaceCoordinator(documentRef)?.topModal();
             if (top && top !== overlay) return;
             if (e.key === 'Escape') {
+                if (descriptionDialog && !descriptionDialog.classList.contains('hidden')) {
+                    e.preventDefault();
+                    descriptionDialog.classList.add('hidden');
+                    descriptionButton.focus();
+                    return;
+                }
                 if (cropper?.dismissMenu?.()) return;
                 if (!imageContextMenu.classList.contains('hidden')) { imageContextMenu.classList.add('hidden'); return; }
                 if (cropper?.isActive()) {

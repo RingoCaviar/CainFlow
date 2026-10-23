@@ -17,6 +17,7 @@ export function projectCanvasNode(node, running = false) {
         id: node.id, type: node.type, name: node.customTitle || definition?.title || node.type,
         position: { x: Number(node.x) || 0, y: Number(node.y) || 0, width: Number(node.width) || definition?.defaultWidth || 0, height: Number(node.height) || definition?.defaultHeight || 0 },
         enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type), parameters,
+        ...(node.type === 'ImageImport' && node.data?.imageDescription ? { imageDescription: String(node.data.imageDescription).slice(0, 2000) } : {}),
         inputs: definition?.inputs || [], outputs: definition?.outputs || [],
         assets: node.mediaAssetKeys?.length ? node.mediaAssetKeys.filter(key => typeof key === 'string' && key.startsWith('media:')) : [...new Set([node.imageImportAssetKey, node.imageAssetKey].filter(key => typeof key === 'string' && key.startsWith('media:')))],
         thinking: node.thinking ? cloneCanvasValue(node.thinking) : null,

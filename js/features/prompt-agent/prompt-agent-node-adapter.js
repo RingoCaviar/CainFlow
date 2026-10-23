@@ -6,6 +6,7 @@ import { normalizeImageSizeControls } from '../execution/image-generation-size.j
 import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
 import { MAX_REFERENCE_IMAGE_COUNT } from '../../nodes/reference-image-ports.js';
+import { getImageDescription, setImageDescription } from '../execution/reference-image-description.js';
 
 export function getAvailablePromptAgentImageModels(models = [], providers = []) {
     return getModelsForTask(models, 'image').filter((model) =>
@@ -63,7 +64,8 @@ function getReferenceImageDescriptor(state, connection) {
         sourcePort: connection.from?.port || '',
         targetPort: connection.to.port,
         assetKeys,
-        images
+        images,
+        ...(getImageDescription(sourceNode) ? { description: getImageDescription(sourceNode) } : {})
     };
 }
 
@@ -95,6 +97,7 @@ export function createPromptAgentNodeAdapter({
                     sourceNodeId: node.id,
                     sourceImageIndex: index,
                     name: `${node.customTitle || `图片导入 ${importIndex}`}${count > 1 ? ` · ${index + 1}` : ''}`,
+                    description: getImageDescription(node),
                     previewUrl: images[index] || (index === 0 ? node.data?.imagePreviewThumbnail || '' : '')
                 });
             }
@@ -121,8 +124,16 @@ export function createPromptAgentNodeAdapter({
         if (!/^data:image\/[^;]+;base64,/i.test(String(dataUrl || ''))) throw new Error('无法读取此参考图，请检查图片来源。');
         return {
             referenceId: reference.referenceId, sourceNodeId: node.id, sourceImageIndex: reference.sourceImageIndex,
-            name: reference.name, dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';'))
+            name: reference.name, description: getImageDescription(node), dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';'))
         };
+    }
+
+    function setSceneReferenceDescription(reference, description) {
+        const node = state?.nodes?.get(reference?.sourceNodeId);
+        if (node?.type !== 'ImageImport') return false;
+        setImageDescription(node, description);
+        scheduleSave();
+        return true;
     }
 
     function getSelectedNode() {
@@ -346,5 +357,5 @@ export function createPromptAgentNodeAdapter({
         }
         return references;
     }
-    return { getReferenceSnapshot, getContext, getSelectedContext, getTargetConfiguration, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage };
+    return { getReferenceSnapshot, getContext, getSelectedContext, getTargetConfiguration, ensureTarget, applyPromptPlan, getSceneReferenceImages, readSceneReferenceImage, setSceneReferenceDescription };
 }

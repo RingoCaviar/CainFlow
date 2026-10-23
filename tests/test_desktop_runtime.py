@@ -14,6 +14,7 @@ from backend import native_dialogs
 from backend import webview2_runtime
 from backend import browser_status_window
 from backend.desktop import SingleInstanceLock
+from backend.window_geometry import load_window_bounds, save_window_bounds
 from backend.handler import ProxyHTTPRequestHandler
 from backend.native_dialogs import (
     BROWSER_STATUS_REOPEN,
@@ -165,6 +166,24 @@ class SingleInstanceTests(unittest.TestCase):
             first.release()
             self.assertTrue(second.acquire())
             second.release()
+
+
+class WindowGeometryTests(unittest.TestCase):
+    def test_saved_window_bounds_restore_and_offscreen_position_is_reset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'window-bounds.json')
+            save_window_bounds(path, types.SimpleNamespace(x=1600, y=120, width=1200, height=800))
+            screens = [types.SimpleNamespace(x=0, y=0, width=2560, height=1440)]
+            self.assertEqual(load_window_bounds(path, screens), {'x': 1600, 'y': 120, 'width': 1200, 'height': 800})
+            smaller_screen = [types.SimpleNamespace(x=0, y=0, width=1280, height=800)]
+            self.assertEqual(load_window_bounds(path, smaller_screen), {'width': 1200, 'height': 800})
+
+    def test_invalid_window_bounds_use_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'window-bounds.json')
+            with open(path, 'w', encoding='utf-8') as stream:
+                stream.write('{"x": 1, "y": 1, "width": 10, "height": 20}')
+            self.assertEqual(load_window_bounds(path), {'width': 1440, 'height': 900})
 
 
 class BrowserFallbackTests(unittest.TestCase):

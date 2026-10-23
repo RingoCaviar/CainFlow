@@ -28,13 +28,14 @@ function projectHistory(conversation, images) {
                 negativePrompt: message.promptPlan.negativePrompt,
                 parameters: message.promptPlan.parameters || {},
                 referenceImages: (message.promptPlan.referenceImages || []).map((image) => ({
-                    name: image.name, role: image.role, purpose: image.purpose, sourceNodeId: image.sourceNodeId,
+                    name: image.name, description: image.description, role: image.role, purpose: image.purpose, sourceNodeId: image.sourceNodeId,
                     imageId: images.find((entry) => entry.source === image.dataUrl || (image.referenceId && entry.reference.referenceId === image.referenceId))?.imageId || null
                 }))
             } } : {}),
             ...(message.referenceImages?.length ? { referenceImages: message.referenceImages.map((image, index) => ({
                 referenceNumber: index + 1,
                 name: image.name,
+                ...(image.description ? { description: image.description } : {}),
                 imageId: images.find((entry) => entry.source === image.dataUrl)?.imageId || null
             })) } : {})
         });
@@ -66,6 +67,7 @@ export function createPromptAgentInput({
                 entry = {
                     imageId: `image-${images.length + 1}`,
                     name: image.name || `${origin} ${images.length + 1}`,
+                    ...(image.description ? { description: image.description } : {}),
                     origins: [],
                     ...(image.selectedOnCanvas ? { selectedOnCanvas: true } : {}),
                     ...(image.runId ? { runId: image.runId, resultNumber: image.resultNumber, messageNumber: image.messageNumber, prompt: image.prompt } : {}),
@@ -89,6 +91,7 @@ export function createPromptAgentInput({
                 }
             }
             if (!entry.origins.includes(origin)) entry.origins.push(origin);
+            if (!entry.description && image.description) entry.description = image.description;
             entry.connectedToNode ||= connectedToNode;
             if (referenceNumber !== null) {
                 entry.referenceNumbers ||= [];
@@ -137,6 +140,7 @@ export function createPromptAgentInput({
                 referenceImages: turn.referenceImages.map((image, referenceIndex) => ({
                     referenceNumber: referenceIndex + 1,
                     name: image.name,
+                    ...(image.description ? { description: image.description } : {}),
                     imageId: images.find((entry) => entry.source === image.dataUrl)?.imageId || null
                 }))
             }] : []

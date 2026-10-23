@@ -26,6 +26,7 @@ from backend.webview2_runtime import (
     detect_webview2_runtime,
     install_webview2_initialization_hook,
 )
+from backend.window_geometry import load_window_bounds, save_window_bounds
 
 
 WEBVIEW2_DOWNLOAD_URL = 'https://developer.microsoft.com/microsoft-edge/webview2/'
@@ -276,14 +277,26 @@ def run_desktop():
         version = get_app_version_tag()
         bridge = DesktopBridge(version, webview)
         url = f'http://{config.LOCAL_HOST}:{port}{desktop_security.BOOTSTRAP_PATH}?token={urllib.parse.quote(token)}'
+        bounds_path = os.path.join(config.DATA_DIR, 'window-bounds.json')
+        try:
+            screens = webview.screens
+            if not isinstance(screens, (list, tuple)):
+                screens = ()
+        except Exception:
+            screens = ()
+        bounds = load_window_bounds(bounds_path, screens)
         window = webview.create_window(
             f'CainFlow {version}',
             url=url,
             js_api=bridge,
-            width=1440,
-            height=900,
+            **bounds,
             min_size=(1024, 700),
         )
+        try:
+            window.events.closing += lambda: save_window_bounds(bounds_path, window)
+        except TypeError:
+            # Test doubles and older event implementations may not expose +=.
+            pass
         bridge.attach_window(window)
         smoke_marker = os.environ.get('CAINFLOW_DESKTOP_SMOKE_MARKER')
         smoke_worker = None

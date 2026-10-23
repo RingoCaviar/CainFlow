@@ -10,17 +10,19 @@
     <div class="fullscreen-overlay has-paint-action" id="save-preview">
         <div class="fullscreen-close"></div>
         <button class="fullscreen-copy-btn"></button>
+        <button class="fullscreen-description-btn">介绍</button>
         <div class="fullscreen-paint-btn"></div>
     </div>
     <div class="fullscreen-overlay has-paint-action has-crop-action" id="import-preview" style="top: 80px;">
         <div class="fullscreen-close"></div>
         <button class="fullscreen-copy-btn"></button>
+        <button class="fullscreen-description-btn">介绍</button>
         <button class="fullscreen-crop-btn"></button>
         <div class="fullscreen-paint-btn"></div>
     </div>
     <pre id="surface-result"></pre>
     <script>
-        const selectors = ['.fullscreen-close', '.fullscreen-copy-btn', '.fullscreen-crop-btn', '.fullscreen-paint-btn'];
+        const selectors = ['.fullscreen-close', '.fullscreen-copy-btn', '.fullscreen-description-btn', '.fullscreen-crop-btn', '.fullscreen-paint-btn'];
         const result = ['save-preview', 'import-preview'].map((id) => {
             const overlay = document.getElementById(id);
             return Object.fromEntries(selectors.map((selector) => {

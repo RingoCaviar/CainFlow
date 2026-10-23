@@ -24,13 +24,14 @@ const COMMANDS = [
 ];
 
 function uniqueReferenceImages(images = []) {
-    const seen = new Set();
-    return images.filter((image) => {
+    const unique = new Map();
+    for (const image of images) {
         const key = getPromptAgentReferenceKey(image);
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
+        if (!key) continue;
+        if (!unique.has(key)) unique.set(key, { ...image });
+        else if (Object.hasOwn(image, 'description')) unique.get(key).description = image.description;
+    }
+    return [...unique.values()];
 }
 
 function buildDefaultReply({ message, context, workflowMemory = '', referenceImages = [], workflowReferenceImages = [] }) {
@@ -622,6 +623,17 @@ export function createPromptAgentController({
             image.alt = `参考图 ${index + 1}：${reference.name || '图片'}`;
             image.title = image.alt;
             image.draggable = false;
+            if (removable && !reference.loading) {
+                image.style.cursor = 'pointer';
+                image.addEventListener('click', () => openResultPreview([reference.dataUrl || reference.previewUrl], 0, {
+                    description: reference.description || '',
+                    onDescriptionChange: value => {
+                        reference.description = value;
+                        if (reference.sourceNodeId) nodeAdapter?.setSceneReferenceDescription?.(reference, value);
+                        renderPendingReferences();
+                    }
+                }));
+            }
             item.appendChild(image);
             const number = documentRef.createElement('span');
             number.className = 'prompt-agent-reference-number';
@@ -752,7 +764,17 @@ export function createPromptAgentController({
                 const revision = workflowRevision;
                 try {
                     const image = candidate.historyId ? await referenceSource.readHistory(candidate) : await nodeAdapter.readSceneReferenceImage(candidate);
-                    if (revision === workflowRevision && image?.dataUrl) openResultPreview([image.dataUrl], 0);
+                    if (revision === workflowRevision && image?.dataUrl) openResultPreview([image.dataUrl], 0, {
+                        description: candidate.description || image.description || '',
+                        onDescriptionChange: value => {
+                            candidate.description = value;
+                            if (candidate.sourceNodeId) nodeAdapter?.setSceneReferenceDescription?.(candidate, value);
+                            if (candidate.nodeId) nodeAdapter?.setSceneReferenceDescription?.({ sourceNodeId: candidate.nodeId }, value);
+                            pendingReferenceImages.filter(item => item.referenceId === candidate.referenceId || item.sourceNodeId === candidate.sourceNodeId)
+                                .forEach(item => { item.description = value; });
+                            renderPendingReferences();
+                        }
+                    });
                 } catch (error) { if (revision === workflowRevision) { referencePickerError = error.message; renderPendingReferences(); } }
             });
             const cell = documentRef.createElement('div'); cell.className = 'prompt-agent-reference-cell';
@@ -829,7 +851,7 @@ export function createPromptAgentController({
         const key = referenceSource?.getReferenceId?.(candidate) || candidate.referenceId;
         const existing = pendingReferenceImages.findIndex(item => item.selectionKey === candidate.referenceId || item.referenceId === key);
         if (existing >= 0) { if (toggle) { pendingReferenceImages.splice(existing, 1); renderPendingReferences(); } return Promise.resolve(); }
-        const pending = { name: candidate.name, referenceId: candidate.referenceId, selectionKey: candidate.referenceId, previewUrl: candidate.previewUrl, loading: true };
+        const pending = { name: candidate.name, description: candidate.description || '', referenceId: candidate.referenceId, selectionKey: candidate.referenceId, previewUrl: candidate.previewUrl, loading: true };
         const revision = workflowRevision;
         const slot = importSlot++;
         const isCurrent = () => revision === workflowRevision && pendingReferenceImages.includes(pending);
@@ -1575,7 +1597,11 @@ export function createPromptAgentController({
         try {
             if (compressionProgress(text, operation.model).reached && !await autoCompact(operation, replyModelId, text)) return;
             if (!isCurrentOperation(operation)) return;
-            const referenceImages = stagedReferences.filter(image => pendingReferenceImages.includes(image));
+            const sceneDescriptions = new Map((nodeAdapter?.getSceneReferenceImages?.() || [])
+                .map(image => [image.sourceNodeId, image.description || '']));
+            const referenceImages = stagedReferences.filter(image => pendingReferenceImages.includes(image))
+                .map(image => image.sourceNodeId && sceneDescriptions.has(image.sourceNodeId)
+                    ? { ...image, description: sceneDescriptions.get(image.sourceNodeId) } : image);
             if (!text && !referenceImages.length) return;
             const sizeDefaults = operation.sizeSettings;
             const workflowMemory = conversationStore.getContext();

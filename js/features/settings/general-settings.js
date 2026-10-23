@@ -728,8 +728,23 @@ export function createGeneralSettings({ ctx, dialogs }) {
             if (hint) hint.textContent = modelId ? '仅压缩上下文使用此模型，对话模型保持不变。' : '压缩时使用 Agent 当前对话模型。';
         });
         const compactionSelect = documentRef.getElementById('setting-agent-compaction-model');
-        if (compactionSelect) compactionModelMenu = createPromptAgentModelMenus({ documentRef,
-            selects: [{ select: compactionSelect, searchLabel: '压缩模型' }] });
+        if (compactionSelect) {
+            // The model menu sends focus immediately before it reads native options.
+            // Rebuild here so edits in the API tab are visible without reopening settings.
+            compactionSelect.addEventListener('focus', () => {
+                const selectedId = readCompactionModelId(localStorageRef);
+                const available = getAvailablePromptAgentModels(state.models || [], state.providers || []);
+                compactionSelect.innerHTML = [
+                    '<option value="">跟随 Agent 对话模型（默认）</option>',
+                    ...available.map(model => `<option value="${dialogs.escapeHtml(model.id)}">${dialogs.escapeHtml(model.name && model.name !== model.modelId ? `${model.name} · ${model.modelId}` : model.modelId)}</option>`),
+                    ...(selectedId && !available.some(model => model.id === selectedId)
+                        ? [`<option value="${dialogs.escapeHtml(selectedId)}" disabled>已选压缩模型不可用，请重新选择</option>`] : [])
+                ].join('');
+                compactionSelect.value = selectedId;
+            });
+            compactionModelMenu = createPromptAgentModelMenus({ documentRef,
+                selects: [{ select: compactionSelect, searchLabel: '压缩模型' }] });
+        }
 
         documentRef.querySelectorAll('.btn-retry-step').forEach((btn) => {
             btn.onclick = () => {

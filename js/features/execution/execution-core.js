@@ -33,6 +33,7 @@ import {
     setCanonicalImageOutput
 } from './execution-data-utils.js';
 import { isMultiConnectionInput, MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
+import { appendReferenceDescriptions } from './reference-image-description.js';
 import { escapeHtml, splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { generateCameraPrompt } from '../camera/camera-prompt-utils.js';
 import { createAsyncMediaExecutionApi } from './async-media-execution.js';
@@ -1373,7 +1374,7 @@ export function createExecutionCoreApi({
             || documentRef.getElementById(`${id}-prompt`)?.value
             || '').trim();
         const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
-        const prompt = systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt;
+        const prompt = appendReferenceDescriptions(systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt, state, id);
         const protocolParams = node.data?.protocolParams || {};
         const declaredProtocol = getProtocolSnapshot(protocol);
         const declaredPlan = Object.keys(declaredProtocol?.variants || {}).length > 0
@@ -1456,7 +1457,7 @@ export function createExecutionCoreApi({
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'chat');
         const sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
-        const prompt = getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const prompt = appendReferenceDescriptions(getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '', state, id);
         return createChatRequestPlan({
             provider: apiCfg,
             model: modelCfg,
@@ -1582,7 +1583,7 @@ export function createExecutionCoreApi({
         if (cameraPrompt) {
             promptSections.push(cameraPrompt);
         }
-        const combinedPrompt = promptSections.join('\n\n');
+        const combinedPrompt = appendReferenceDescriptions(promptSections.join('\n\n'), state, id);
 
         if (systemPrompt) {
             return systemPrompt + '\n' + combinedPrompt;
@@ -2202,7 +2203,11 @@ export function createExecutionCoreApi({
                 throw err;
             }
         },
-        VideoGenerate: async (node, inputs, signal, executionContext = {}) => asyncMediaExecution.runVideoGenerateNode(node, inputs, signal, executionContext.videoExecutionInput),
+        VideoGenerate: async (node, inputs, signal, executionContext = {}) => asyncMediaExecution.runVideoGenerateNode(node, inputs, signal,
+            executionContext.videoExecutionInput && {
+                ...executionContext.videoExecutionInput,
+                prompt: appendReferenceDescriptions(executionContext.videoExecutionInput.prompt, state, node.id)
+            }),
         TextChat: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
             const fixedToggle = documentRef.getElementById(`${id}-fixed`);
@@ -2229,7 +2234,7 @@ export function createExecutionCoreApi({
             node.providerId = resolvedProviderId;
 
             const sysprompt = documentRef.getElementById(`${id}-sysprompt`).value;
-            const prompt = inputs.prompt || documentRef.getElementById(`${id}-prompt`).value;
+            const prompt = appendReferenceDescriptions(getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`).value, state, id);
             const responseArea = documentRef.getElementById(`${id}-response`);
 
             if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');

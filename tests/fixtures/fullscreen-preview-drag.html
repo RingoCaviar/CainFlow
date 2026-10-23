@@ -6,12 +6,13 @@ try {
     const images = ['red', 'blue'].map(color => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="${color}"/></svg>`)}`);
     const source = new URLSearchParams(location.search).get('source');
     const node = { id: 'source', type: source, data: { images }, imagePreviewIndex: 0 };
-    let copied = null;
+    let copied = null, described = null;
     const api = createMediaControllerApi({ state: { nodes: new Map([[node.id, node]]), selectedNodes: new Set() },
         copyImageToClipboard: async (image) => { copied = image; return true; },
         getNodeById: () => node, getImageResolution: async () => ({ width: 40, height: 40 }),
         estimateDataUrlSize: () => 100, showToast() {}, addLog() {}, scheduleSave() {}, documentRef: document, windowRef: window });
-    const open = () => api.openFullscreenPreview(images[0], source === 'Agent' ? null : node.id, source === 'Agent' ? { images, index: 0 } : {});
+    const open = () => api.openFullscreenPreview(images[0], source === 'Agent' ? null : node.id, source === 'Agent'
+        ? { images, index: 0, description: '', onDescriptionChange: value => { described = value; } } : {});
     const mouse = (target, type, x, y, buttons = type === 'mouseup' || type === 'click' ? 0 : 1) => target.dispatchEvent(new MouseEvent(type, { button: 0, buttons, clientX: x, clientY: y, bubbles: true, cancelable: true }));
     const check = (condition, name) => { if (!condition) throw new Error(name); result[name] = true; };
     for (const kind of ['blank', 'image', 'return', 'cross', 'overlay', 'releaseOnly']) {
@@ -63,6 +64,21 @@ try {
     overlay.querySelector('.fullscreen-copy-btn').click();
     check(copied === images[1] && overlay.isConnected, 'copy');
     check(Boolean(overlay.querySelector('.fullscreen-paint-btn')) === (source !== 'Agent'), 'paintEntry');
+    overlay.querySelector('.fullscreen-description-btn').click();
+    const descriptionDialog = overlay.querySelector('.fullscreen-description-dialog');
+    const descriptionInput = descriptionDialog.querySelector('textarea');
+    check(!descriptionDialog.classList.contains('hidden'), 'descriptionOpen');
+    descriptionInput.value = '取消的介绍';
+    descriptionDialog.querySelector('.fullscreen-description-cancel').click();
+    check(descriptionDialog.classList.contains('hidden') && !node.data.imageDescription && described === null, 'descriptionCancel');
+    overlay.querySelector('.fullscreen-description-btn').click();
+    descriptionInput.value = '保留主体轮廓';
+    descriptionDialog.querySelector('.fullscreen-description-confirm').click();
+    check(descriptionDialog.classList.contains('hidden') && (source === 'Agent'
+        ? described === '保留主体轮廓' : node.data.imageDescription === '保留主体轮廓'), 'descriptionConfirm');
+    overlay.querySelector('.fullscreen-description-btn').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    check(overlay.isConnected && descriptionDialog.classList.contains('hidden'), 'descriptionEscape');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     check(!overlay.isConnected, 'escape');
 } catch (error) { result.error = error.stack || error.message; }

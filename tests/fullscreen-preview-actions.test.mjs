@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { renderComputedFixture } from './helpers/browser-theme-fixture.mjs';
 
-test('fullscreen preview actions do not overlap for saved and imported images', () => {
+test('fullscreen preview actions and description button do not overlap for saved and imported images', () => {
     const layouts = renderComputedFixture(new URL('./fixtures/fullscreen-preview-actions.html', import.meta.url), 'cainflow-fullscreen-actions-', '800,600');
     for (const [index, layout] of layouts.entries()) {
         const visible = Object.entries(layout).filter(([, rect]) => rect);

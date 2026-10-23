@@ -1008,7 +1008,7 @@ const promptAgentController = createPromptAgentController({
     loadResultImages: (keys) => Promise.all(keys.map(async (key) => {
         try { return await getImageAsset(key) || null; } catch { return null; }
     })),
-    openResultPreview: (images, index) => openFullscreenPreview(images[index], null, { images, index }),
+    openResultPreview: (images, index, options = {}) => openFullscreenPreview(images[index], null, { images, index, ...options }),
     getChatModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
     getImageModels: () => getAvailablePromptAgentImageModels(state.models || [], state.providers || []),
     openModelSettings: target => settingsControllerApi?.openModelSettings?.(target),

@@ -99,6 +99,9 @@ export function createNodeSerializer({ state, documentRef }) {
             if (typeof node.customTitle === 'string' && node.customTitle.trim()) {
                 serialized.customTitle = node.customTitle.trim();
             }
+            if (typeof node.data?.imageDescription === 'string' && node.data.imageDescription.trim()) {
+                serialized.imageDescription = node.data.imageDescription.trim().slice(0, 2000);
+            }
             const textareaHeights = isAutoSizedImageGenerate
                 ? null
                 : getNodeTextareaHeights(id);

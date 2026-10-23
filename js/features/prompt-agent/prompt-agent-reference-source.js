@@ -1,4 +1,5 @@
 import { latestResultRun } from './prompt-agent-result-order.js';
+import { setImageDescription } from '../execution/reference-image-description.js';
 
 export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode, loadImageData, readWebImage, scheduleSave = () => {} }) {
     const assetKey = node => node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
@@ -17,7 +18,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
     async function readHistory(candidate) {
         const entry = await getHistoryEntry(candidate.historyId);
         if (!entry?.image?.startsWith('data:image/')) throw new Error('历史原图缺失，请重新导入图片。');
-        return { name: candidate.name, dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
+        return { name: candidate.name, description: candidate.description || '', dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
     }
     async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {} } = {}) {
         if (!isCurrent()) return null;
@@ -52,6 +53,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         const saved = await loadImageData(node.id, image.dataUrl);
         if (!isCurrent()) return null;
         if (!saved) throw new Error('图片保存失败，点击重试。');
+        if (candidate.description) setImageDescription(node, candidate.description);
         candidate.savedAssetKey = assetKey(node);
         if (candidate.historyId) node.agentReferenceSource = { historyId: String(candidate.historyId), assetKey: assetKey(node),
             ...(candidate.webImage ? { web: { ...candidate.webImage } } : {}) };
