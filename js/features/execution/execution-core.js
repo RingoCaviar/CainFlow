@@ -2204,10 +2204,7 @@ export function createExecutionCoreApi({
             }
         },
         VideoGenerate: async (node, inputs, signal, executionContext = {}) => asyncMediaExecution.runVideoGenerateNode(node, inputs, signal,
-            executionContext.videoExecutionInput && {
-                ...executionContext.videoExecutionInput,
-                prompt: appendReferenceDescriptions(executionContext.videoExecutionInput.prompt, state, node.id)
-            }),
+            executionContext.videoExecutionInput),
         TextChat: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
             const fixedToggle = documentRef.getElementById(`${id}-fixed`);

@@ -27,7 +27,7 @@ function hasValue(value) {
  * Builds the DOM-free, immutable execution input record for a video node.
  * Connection order must already be the explicit workflow order.
  */
-export function resolveVideoExecutionInputRecord({ protocol, modelId, taskType = 'video', inputs = {}, connections = [], prompt = '', controls = {}, selection = {} } = {}) {
+export function resolveVideoExecutionInputRecord({ protocol, modelId, taskType = 'video', inputs = {}, connections = [], prompt = '', promptSuffix = '', controls = {}, selection = {} } = {}) {
     const currentProjection = resolveGenerationInputProjection({ protocol, modelId, taskType });
     const diagnostics = [];
     if (currentProjection?.blockedReason) {
@@ -56,7 +56,8 @@ export function resolveVideoExecutionInputRecord({ protocol, modelId, taskType =
             ports: [...new Set(unloadedPorts)]
         }));
     }
-    const resolvedPrompt = connectedPrompt ? String(Array.isArray(connectedPromptValue) ? connectedPromptValue[0] : connectedPromptValue).trim() : normalizedPrompt;
+    const basePrompt = connectedPrompt ? String(Array.isArray(connectedPromptValue) ? connectedPromptValue[0] : connectedPromptValue).trim() : normalizedPrompt;
+    const resolvedPrompt = [basePrompt, String(promptSuffix || '').trim()].filter(Boolean).join('\n\n');
     const executionInputs = { ...inputs, prompt: resolvedPrompt };
     const immutableInputs = Object.fromEntries(Object.entries(executionInputs).map(([key, value]) => [
         key,

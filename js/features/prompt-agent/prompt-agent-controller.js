@@ -623,14 +623,19 @@ export function createPromptAgentController({
             image.alt = `参考图 ${index + 1}：${reference.name || '图片'}`;
             image.title = image.alt;
             image.draggable = false;
-            if (removable && !reference.loading) {
+            if (!reference.loading && (reference.dataUrl || reference.previewUrl)) {
                 image.style.cursor = 'pointer';
                 image.addEventListener('click', () => openResultPreview([reference.dataUrl || reference.previewUrl], 0, {
                     description: reference.description || '',
                     onDescriptionChange: value => {
                         reference.description = value;
                         if (reference.sourceNodeId) nodeAdapter?.setSceneReferenceDescription?.(reference, value);
-                        renderPendingReferences();
+                        const messageIndex = container.parentElement?.promptAgentMessageIndex;
+                        if (Number.isInteger(messageIndex) && conversationStore.updateReferenceDescription(messageIndex, index, value)) {
+                            conversationRevision += 1;
+                            onStateChange();
+                        }
+                        if (removable) renderPendingReferences();
                     }
                 }));
             }
@@ -768,8 +773,9 @@ export function createPromptAgentController({
                         description: candidate.description || image.description || '',
                         onDescriptionChange: value => {
                             candidate.description = value;
+                            referenceSource?.saveDescription?.(candidate, value);
                             if (candidate.sourceNodeId) nodeAdapter?.setSceneReferenceDescription?.(candidate, value);
-                            if (candidate.nodeId) nodeAdapter?.setSceneReferenceDescription?.({ sourceNodeId: candidate.nodeId }, value);
+                            if (candidate.nodeId) nodeAdapter?.setSceneReferenceDescription?.({ sourceNodeId: candidate.nodeId, sourceImageIndex: 0 }, value);
                             pendingReferenceImages.filter(item => item.referenceId === candidate.referenceId || item.sourceNodeId === candidate.sourceNodeId)
                                 .forEach(item => { item.description = value; });
                             renderPendingReferences();

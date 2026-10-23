@@ -1240,6 +1240,9 @@ export function createNodeLifecycleApi({
         if (typeof effectiveRestoreData?.imageDescription === 'string') {
             nodeData.data.imageDescription = effectiveRestoreData.imageDescription.trim().slice(0, 2000);
         }
+        if (Array.isArray(effectiveRestoreData?.imageDescriptions)) {
+            nodeData.data.imageDescriptions = effectiveRestoreData.imageDescriptions.map(value => String(value || '').trim().slice(0, 2000));
+        }
         // Persisted workflow documents keep the complete Media asset sequence at
         // the node level.  Keep it on the live node as well: `imageAssetKey` is
         // only a compatibility pointer to the first asset and cannot represent

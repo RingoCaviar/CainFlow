@@ -539,6 +539,18 @@ test('scene references include every imported image, cached originals and active
     assert.equal(adapter.getSelectedContext(), null);
 });
 
+test('different images in one import retain separate descriptions', async () => {
+    const originals = ['data:image/png;base64,FIRST', 'data:image/png;base64,SECOND'];
+    const node = { id: 'multiple', type: 'ImageImport', data: { imageList: originals } };
+    const state = { nodes: new Map([[node.id, node]]) };
+    const adapter = createPromptAgentNodeAdapter({ state, documentRef: { getElementById: () => null } });
+    const references = adapter.getSceneReferenceImages();
+    adapter.setSceneReferenceDescription(references[0], '正面');
+    adapter.setSceneReferenceDescription(references[1], '背面');
+    assert.deepEqual(adapter.getSceneReferenceImages().map(ref => ref.description), ['正面', '背面']);
+    assert.equal((await adapter.readSceneReferenceImage(references[1])).description, '背面');
+});
+
 test('selecting a cached scene image hydrates its original lazily instead of sending its thumbnail', async () => {
     const node = { id: 'cached', type: 'ImageImport', data: {
         mediaAssetKeys: ['asset:original'], imagePreviewThumbnail: 'data:image/webp;base64,THUMB'

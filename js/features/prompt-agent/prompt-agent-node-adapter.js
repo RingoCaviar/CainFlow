@@ -45,27 +45,21 @@ function writeBoolean(documentRef, id, value, createEvent) {
 
 function getReferenceImageDescriptor(state, connection) {
     const sourceNode = state.nodes?.get(connection.from?.nodeId);
-    const images = [
-        ...(Array.isArray(sourceNode?.data?.images) ? sourceNode.data.images : []),
-        ...(Array.isArray(sourceNode?.data?.imageList) ? sourceNode.data.imageList : []),
-        ...(Array.isArray(sourceNode?.imageDataList) ? sourceNode.imageDataList : []),
-        ...(Array.isArray(sourceNode?.generatedImages) ? sourceNode.generatedImages : []),
-        sourceNode?.data?.image,
-        sourceNode?.imageData,
-        sourceNode?.resizePreviewData
-    ].filter((value, index, values) => typeof value === 'string' && value && values.indexOf(value) === index);
+    const images = getCanonicalImageList(sourceNode);
     const assetKeys = [
         ...(Array.isArray(sourceNode?.data?.mediaAssetKeys) ? sourceNode.data.mediaAssetKeys : []),
         sourceNode?.data?.imageImportAssetKey,
         sourceNode?.data?.imageAssetKey
     ].filter((value, index, values) => typeof value === 'string' && value && values.indexOf(value) === index);
+    const descriptions = Array.from({ length: Math.max(images.length, assetKeys.length) }, (_, index) => getImageDescription(sourceNode, index));
     return {
         sourceNodeId: connection.from?.nodeId || '',
         sourcePort: connection.from?.port || '',
         targetPort: connection.to.port,
         assetKeys,
         images,
-        ...(getImageDescription(sourceNode) ? { description: getImageDescription(sourceNode) } : {})
+        ...(getImageDescription(sourceNode) ? { description: getImageDescription(sourceNode) } : {}),
+        ...(descriptions.some(Boolean) ? { descriptions } : {})
     };
 }
 
@@ -97,7 +91,7 @@ export function createPromptAgentNodeAdapter({
                     sourceNodeId: node.id,
                     sourceImageIndex: index,
                     name: `${node.customTitle || `图片导入 ${importIndex}`}${count > 1 ? ` · ${index + 1}` : ''}`,
-                    description: getImageDescription(node),
+                    description: getImageDescription(node, index),
                     previewUrl: images[index] || (index === 0 ? node.data?.imagePreviewThumbnail || '' : '')
                 });
             }
@@ -124,14 +118,14 @@ export function createPromptAgentNodeAdapter({
         if (!/^data:image\/[^;]+;base64,/i.test(String(dataUrl || ''))) throw new Error('无法读取此参考图，请检查图片来源。');
         return {
             referenceId: reference.referenceId, sourceNodeId: node.id, sourceImageIndex: reference.sourceImageIndex,
-            name: reference.name, description: getImageDescription(node), dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';'))
+            name: reference.name, description: getImageDescription(node, reference.sourceImageIndex), dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';'))
         };
     }
 
     function setSceneReferenceDescription(reference, description) {
         const node = state?.nodes?.get(reference?.sourceNodeId);
         if (node?.type !== 'ImageImport') return false;
-        setImageDescription(node, description);
+        setImageDescription(node, description, reference.sourceImageIndex || 0);
         scheduleSave();
         return true;
     }

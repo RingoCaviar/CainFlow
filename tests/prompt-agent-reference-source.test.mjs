@@ -124,7 +124,7 @@ test('selected result uses its exact original asset, imports once and never conn
         createImportNode: () => { const id = `import-${++creates}`; state.nodes.set(id, { id, type: 'ImageImport' }); return id; },
         loadImageData: async (id, data) => { saved.push(data); state.nodes.get(id).imageImportAssetKey = 'asset:second'; return true; }
     });
-    const plan = { referenceImages: [{ runId: 'batch', assetKey: 'asset:second', role: 'edit-target' }] };
+    const plan = { referenceImages: [{ runId: 'batch', assetKey: 'asset:second', role: 'edit-target', description: '保留主体' }] };
     const first = await source.preparePlanReferences(plan, { isCurrent: () => true });
     const second = await source.preparePlanReferences(plan, { isCurrent: () => true });
     assert.equal(creates, 1);
@@ -134,6 +134,49 @@ test('selected result uses its exact original asset, imports once and never conn
     assert.equal(second[0].sourceNodeId, 'import-1');
     assert.equal(first[0].role, 'edit-target');
     assert.equal(first[0].sourceImageIndex, 0);
+    assert.equal(first[0].description, '保留主体');
+    assert.equal(state.nodes.get('import-1').data.imageDescription, '保留主体');
+});
+
+test('history reference descriptions survive catalog refresh before importing', async () => {
+    const values = new Map();
+    const previous = globalThis.localStorage;
+    globalThis.localStorage = {
+        getItem: key => values.get(key) || null,
+        setItem: (key, value) => values.set(key, value)
+    };
+    try {
+        const source = createPromptAgentReferenceSource({ state: { nodes: new Map() }, nodeAdapter: {},
+            getHistoryMetadata: async () => [{ id: 9, mediaType: 'image', timestamp: 1 }],
+            getHistoryEntry: async () => ({ image: image.dataUrl }) });
+        source.saveDescription({ historyId: '9' }, '保留蓝色背景');
+        const [candidate] = await source.listHistory();
+        assert.equal(candidate.description, '保留蓝色背景');
+        assert.equal((await source.readHistory(candidate)).description, '保留蓝色背景');
+    } finally {
+        if (previous === undefined) delete globalThis.localStorage;
+        else globalThis.localStorage = previous;
+    }
+});
+
+test('one selected image from a batch is imported alone with its description', async () => {
+    const originals = ['data:image/png;base64,FIRST', 'data:image/png;base64,SECOND'];
+    const state = { nodes: new Map([['batch', { id: 'batch', type: 'ImageImport' }]]) };
+    let created = 0;
+    const source = createPromptAgentReferenceSource({ state,
+        nodeAdapter: {
+            getSceneReferenceImages: () => originals.map((_, index) => ({ referenceId: `batch:${index}`, sourceNodeId: 'batch', sourceImageIndex: index }))
+                .concat([...state.nodes.values()].filter(node => node.id !== 'batch').map(node => ({ referenceId: node.id, sourceNodeId: node.id, sourceImageIndex: 0 }))),
+            readSceneReferenceImage: async ref => ({ ...ref, name: '图', dataUrl: originals[ref.sourceImageIndex] })
+        },
+        createImportNode: () => { const id = `single-${++created}`; state.nodes.set(id, { id, type: 'ImageImport' }); return id; },
+        loadImageData: async id => { state.nodes.get(id).imageImportAssetKey = `media:${id}`; return true; }
+    });
+    const [selected] = await source.preparePlanReferences({ referenceImages: [{ referenceId: 'batch:1', description: '仅用第二张' }] },
+        { isCurrent: () => true });
+    assert.equal(selected.sourceNodeId, 'single-1');
+    assert.equal(selected.description, '仅用第二张');
+    assert.equal(state.nodes.get('single-1').data.imageDescription, '仅用第二张');
 });
 
 test('missing result originals and cancelled resolution never create replacement nodes', async () => {

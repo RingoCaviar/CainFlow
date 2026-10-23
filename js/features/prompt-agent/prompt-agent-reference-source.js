@@ -2,6 +2,20 @@ import { latestResultRun } from './prompt-agent-result-order.js';
 import { setImageDescription } from '../execution/reference-image-description.js';
 
 export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode, loadImageData, readWebImage, scheduleSave = () => {} }) {
+    const descriptionStorageKey = 'cainflow.agent-history-image-descriptions';
+    const readDescriptions = () => {
+        try { return JSON.parse(globalThis.localStorage?.getItem(descriptionStorageKey) || '{}') || {}; }
+        catch { return {}; }
+    };
+    const saveDescription = (candidate, description) => {
+        if (!candidate?.historyId) return;
+        const descriptions = readDescriptions();
+        const value = String(description || '').trim().slice(0, 2000);
+        if (value) descriptions[candidate.historyId] = value;
+        else delete descriptions[candidate.historyId];
+        try { globalThis.localStorage?.setItem(descriptionStorageKey, JSON.stringify(descriptions)); }
+        catch { /* Browser storage can be unavailable; the current candidate still keeps the edit. */ }
+    };
     const assetKey = node => node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
     const reusable = (node, id) => node?.type === 'ImageImport' && node.importMode !== 'url'
         && node.agentReferenceSource?.historyId === String(id)
@@ -9,16 +23,18 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
     async function listHistory() {
         // History metadata exposes local thumbnail URLs, never hydrated originals.
         const entries = await getHistoryMetadata({ includeThumbs: true, throwOnError: true });
+        const descriptions = readDescriptions();
         return entries.filter(item => item.mediaType !== 'video').sort((a, b) => Number(b.timestamp) - Number(a.timestamp)).map(item => ({
             referenceId: `history:${item.id}`, historyId: String(item.id),
             name: item.name || item.title || `历史图片 ${item.id}`, prompt: item.prompt || '',
-            timestamp: item.timestamp, thumbAssetKey: item.thumbAssetKey, previewUrl: item.thumb || ''
+            timestamp: item.timestamp, thumbAssetKey: item.thumbAssetKey, previewUrl: item.thumb || '',
+            description: descriptions[item.id] || ''
         }));
     }
     async function readHistory(candidate) {
         const entry = await getHistoryEntry(candidate.historyId);
         if (!entry?.image?.startsWith('data:image/')) throw new Error('历史原图缺失，请重新导入图片。');
-        return { name: candidate.name, description: candidate.description || '', dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
+        return { name: candidate.name, description: candidate.description ?? readDescriptions()[candidate.historyId] ?? '', dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
     }
     async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {} } = {}) {
         if (!isCurrent()) return null;
@@ -103,12 +119,17 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
             let image;
             if (scene) {
                 image = await nodeAdapter.readSceneReferenceImage(scene);
+                if (nodeAdapter.getSceneReferenceImages().filter(item => item.sourceNodeId === scene.sourceNodeId).length > 1) {
+                    const candidate = { name: image.name, description: reference.description ?? image.description ?? '', resolvedImage: image };
+                    image = await importReference(candidate, { isCurrent, onSourceNode, slot: references.length,
+                        read: async () => candidate.resolvedImage });
+                }
             } else if (reference.runId || (reference.sourceNodeId && state.nodes.get(reference.sourceNodeId)?.type !== 'ImageImport')) {
                 // Freeze one result in an ordinary import: never connect a generator
                 // to itself, or accidentally send its entire current batch.
                 if (reference.sourceNodeId && !state.nodes.has(reference.sourceNodeId)) throw new Error('参考图来源已删除，请重新选择。');
                 const key = reference.assetKey || reference.assetKeys?.[reference.sourceImageIndex || 0];
-                const candidate = { name: reference.name, ...(key ? { historyId: `agent-asset:${key}` } : {}) };
+                const candidate = { name: reference.name, description: reference.description || '', ...(key ? { historyId: `agent-asset:${key}` } : {}) };
                 const dataUrl = key ? await getImageAsset(key) : reference.dataUrl;
                 if (!isCurrent()) return null;
                 if (!dataUrl?.startsWith('data:image/')) throw new Error('参考原图缺失，请恢复图片后重试。');
@@ -121,12 +142,12 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
                 image = reference;
             }
             if (!isCurrent() || !image) return null;
-            references.push({ ...image, role: reference.role, imageId: reference.imageId });
+            references.push({ ...image, description: reference.description ?? image.description ?? '', role: reference.role, imageId: reference.imageId });
         }
         return references;
     }
 
-    return { listHistory, readHistory, importReference, getContextReferences, hydrateLatestResults, preparePlanReferences,
+    return { listHistory, readHistory, saveDescription, importReference, getContextReferences, hydrateLatestResults, preparePlanReferences,
         getReferenceId: candidate => {
             if (!candidate.historyId) return candidate.referenceId;
             const node = candidate.historyId && [...state.nodes.values()].find(item => reusable(item, candidate.historyId));

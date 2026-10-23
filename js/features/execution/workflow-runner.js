@@ -21,6 +21,7 @@ import { getProtocolSnapshot } from './protocols/index.js';
 import { getGenerationInputProtocolId } from './provider-request-utils.js';
 import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-input-record.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
+import { appendReferenceDescriptions } from './reference-image-description.js';
 
 export function clearNodeExecutionFailure(node) {
     if (!node) return;
@@ -1145,6 +1146,7 @@ export function createWorkflowRunnerApi({
             inputs,
             connections,
             prompt: getNodePromptValue(node, documentRef),
+            promptSuffix: appendReferenceDescriptions('', state, node.id, connections),
             controls: getCurrentVideoControls(node),
             selection: {
                 modelConfigId: model?.id || '',

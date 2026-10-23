@@ -260,6 +260,22 @@ export function createPromptAgentConversationStore() {
         ]));
     }
 
+    function updateReferenceDescription(messageIndex, imageIndex, description) {
+        const message = [...archivedMessages, ...messages][messageIndex];
+        const image = message?.referenceImages?.[imageIndex];
+        if (!image) return false;
+        const key = getPromptAgentReferenceKey(image);
+        const value = String(description || '').trim().slice(0, 2000);
+        for (const item of [
+            ...referenceImages,
+            ...archivedMessages.flatMap(entry => entry.referenceImages || []),
+            ...messages.flatMap(entry => entry.referenceImages || [])
+        ]) {
+            if (getPromptAgentReferenceKey(item) === key) item.description = value;
+        }
+        return true;
+    }
+
     function getCompactionContext() {
         const context = snapshot();
         const archive = context.archivedMessages || [];
@@ -340,7 +356,7 @@ export function createPromptAgentConversationStore() {
     const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
     const getSize = modelId => clone(sizeSettings[modelId] || {});
     const setSize = (modelId, value) => { if (!modelId) return; const next = sizeFields(value); if (Object.keys(next).length) sizeSettings[modelId] = next; else delete sizeSettings[modelId]; };
-    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;

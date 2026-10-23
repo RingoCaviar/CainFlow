@@ -3358,7 +3358,7 @@ export function createMediaControllerApi({
         };
         overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
         if (descriptionButton) {
-            const readDescription = () => context.node ? getImageDescription(context.node) : String(options.description || '');
+            const readDescription = () => context.node ? getImageDescription(context.node, currentIndex) : String(options.description || '');
             const closeDescription = () => {
                 descriptionDialog.classList.add('hidden');
                 descriptionButton.focus();
@@ -3374,9 +3374,9 @@ export function createMediaControllerApi({
             descriptionDialog.querySelector('.fullscreen-description-confirm').addEventListener('click', () => {
                 const value = descriptionInput.value.trim();
                 if (context.node) {
-                    if (getImageDescription(context.node) !== value) {
+                    if (getImageDescription(context.node, currentIndex) !== value) {
                         pushHistory();
-                        setImageDescription(context.node, value);
+                        setImageDescription(context.node, value, currentIndex);
                         scheduleSave();
                     }
                 } else {

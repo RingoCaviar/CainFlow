@@ -4,6 +4,7 @@ import { appendReferenceDescriptions, getImageDescription, setImageDescription }
 import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
+import { resolveVideoExecutionInputRecord } from '../js/nodes/video-execution-input-record.js';
 
 test('connected image descriptions follow request image order without changing the saved prompt', () => {
     const first = { data: {} };
@@ -45,4 +46,37 @@ test('workflow serialization saves image descriptions beside image import nodes'
     const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
     const [saved] = createNodeSerializer({ state, documentRef }).serializeNodes();
     assert.equal(saved.imageDescription, '保留人物脸部');
+});
+
+test('batch source descriptions follow each image in request order', () => {
+    const source = { data: { imageList: ['first', 'second'] } };
+    setImageDescription(source, '正面', 0);
+    setImageDescription(source, '侧面', 1);
+    setImageDescription(source, '正面新描述', 0);
+    const state = { nodes: new Map([['source', source]]), connections: [
+        { from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' } }
+    ] };
+    assert.equal(appendReferenceDescriptions('生成肖像', state, 'target'), '生成肖像\n\n参考图 1：正面新描述\n参考图 2：侧面');
+    const [saved] = createNodeSerializer({ state: { ...state, nodes: new Map([['source', { ...source, id: 'source', type: 'ImageImport', x: 0, y: 0 }]]) },
+        documentRef: { getElementById: () => null, querySelectorAll: () => [] } }).serializeNodes();
+    assert.deepEqual(saved.imageDescriptions, ['正面新描述', '侧面']);
+});
+
+test('video execution record includes reference descriptions with a connected prompt', () => {
+    const record = resolveVideoExecutionInputRecord({
+        inputs: { prompt: '运动中的人物' },
+        prompt: '节点中的提示词',
+        promptSuffix: '参考图 1：保留蓝色外套'
+    });
+    assert.equal(record.prompt, '运动中的人物\n\n参考图 1：保留蓝色外套');
+    assert.equal(record.inputs.prompt, record.prompt);
+    assert.equal(Object.isFrozen(record), true);
+});
+
+test('editing a sent Agent reference updates the persisted conversation', () => {
+    const store = createPromptAgentConversationStore();
+    store.append({ role: 'user', text: '参考', referenceImages: [{ name: '图', dataUrl: 'data:image/png;base64,AAAA' }] });
+    assert.equal(store.updateReferenceDescription(0, 0, '保留构图'), true);
+    assert.equal(store.snapshot().messages[0].referenceImages[0].description, '保留构图');
+    assert.equal(store.getReferenceImages()[0].description, '保留构图');
 });

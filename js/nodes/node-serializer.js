@@ -102,6 +102,9 @@ export function createNodeSerializer({ state, documentRef }) {
             if (typeof node.data?.imageDescription === 'string' && node.data.imageDescription.trim()) {
                 serialized.imageDescription = node.data.imageDescription.trim().slice(0, 2000);
             }
+            if (Array.isArray(node.data?.imageDescriptions) && node.data.imageDescriptions.some(Boolean)) {
+                serialized.imageDescriptions = Array.from(node.data.imageDescriptions, value => String(value || '').trim().slice(0, 2000));
+            }
             const textareaHeights = isAutoSizedImageGenerate
                 ? null
                 : getNodeTextareaHeights(id);

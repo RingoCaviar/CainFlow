@@ -67,7 +67,8 @@ export function createPromptAgentInput({
                 entry = {
                     imageId: `image-${images.length + 1}`,
                     name: image.name || `${origin} ${images.length + 1}`,
-                    ...(image.description ? { description: image.description } : {}),
+                    ...((image.descriptions?.[index] || (index === 0 ? image.description : ''))
+                        ? { description: image.descriptions?.[index] || (index === 0 ? image.description : '') } : {}),
                     origins: [],
                     ...(image.selectedOnCanvas ? { selectedOnCanvas: true } : {}),
                     ...(image.runId ? { runId: image.runId, resultNumber: image.resultNumber, messageNumber: image.messageNumber, prompt: image.prompt } : {}),
@@ -91,7 +92,8 @@ export function createPromptAgentInput({
                 }
             }
             if (!entry.origins.includes(origin)) entry.origins.push(origin);
-            if (!entry.description && image.description) entry.description = image.description;
+            const description = image.descriptions?.[index] || (index === 0 ? image.description : '');
+            if (!entry.description && description) entry.description = description;
             entry.connectedToNode ||= connectedToNode;
             if (referenceNumber !== null) {
                 entry.referenceNumbers ||= [];

@@ -55,12 +55,14 @@ try {
     const model = { id: 'chat-1', modelId: 'chat-test', name: '视觉对话模型', protocol: 'openai', capabilities: { imageInput: true } };
     const reads = [];
     const requests = [];
+    let lastPreview = null;
     const nodeAdapter = createPromptAgentNodeAdapter({
         state,
         getNodeImages: async (node) => { reads.push(node.id); return [fixtureImage(Number(node.id.split('-')[1]))]; }
     });
     const controller = createPromptAgentController({
         nodeAdapter, getChatModels: () => [model],
+        openResultPreview: (...args) => { lastPreview = args; },
         createReply: async (request) => {
             requests.push(createPromptAgentInput({ ...request, model }));
             return { intent: 'chat', message: '已收到参考图 1 和参考图 2，可以继续描述需要参考的内容。', promptPlan: null };
@@ -95,10 +97,16 @@ try {
     check(catalog[0].name === '主体原图' && catalog[1].name === '配色参考', 'media and displayed order must agree');
     check(JSON.stringify(catalog.map((image) => image.referenceNumbers)) === '[[1],[2]]', 'visible numbers must reach the model');
     check(JSON.stringify(numbers(messages)) === '["1","2"]', 'sent message must retain number badges');
+    messages.querySelector('.prompt-agent-message-references img').click();
+    check(lastPreview?.[2]?.onDescriptionChange, 'sent message reference must open an editable preview');
+    lastPreview[2].onDescriptionChange('保留主体轮廓');
+    check(controller.snapshotWorkflow().messages[0].referenceImages[0].description === '保留主体轮廓', 'sent description must be saved');
     const snapshot = controller.snapshotWorkflow();
     controller.restoreWorkflow(snapshot);
     controller.open();
     check(JSON.stringify(numbers(messages)) === '["1","2"]', 'restored history must retain number badges');
+    messages.querySelector('.prompt-agent-message-references img').click();
+    check(lastPreview[2].description === '保留主体轮廓', 'restored message preview must show its saved description');
     plus.click();
     list.querySelectorAll('.prompt-agent-reference-option')[2].click();
     await tick();

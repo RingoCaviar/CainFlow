@@ -75,7 +75,8 @@ try {
     descriptionInput.value = '保留主体轮廓';
     descriptionDialog.querySelector('.fullscreen-description-confirm').click();
     check(descriptionDialog.classList.contains('hidden') && (source === 'Agent'
-        ? described === '保留主体轮廓' : node.data.imageDescription === '保留主体轮廓'), 'descriptionConfirm');
+        ? described === '保留主体轮廓'
+        : node.data.imageDescriptions?.[1] === '保留主体轮廓' && !node.data.imageDescription), 'descriptionConfirm');
     overlay.querySelector('.fullscreen-description-btn').click();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     check(overlay.isConnected && descriptionDialog.classList.contains('hidden'), 'descriptionEscape');
