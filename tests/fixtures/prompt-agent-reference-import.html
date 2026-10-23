@@ -22,6 +22,7 @@ try {
  const sendFiles=async(names,type='paste')=>{const files=names.map(name=>new File(['x'],name,{type:'image/png'}));const event=new Event(type,{bubbles:true,cancelable:true});Object.defineProperty(event,type==='paste'?'clipboardData':'dataTransfer',{value:{files,items:files.map(file=>({kind:'file',getAsFile:()=>file})),getData:()=>type==='paste'?'混合文字':'',types:['Files']}});panel.dispatchEvent(event);await tick();await tick();};
  window.addEventListener('drop',()=>{globalDrops++;});
  await sendFiles(['a.png','b.png']);check(created===2&&pending.children.length===2&&input.value==='混合文字','paste');
+ const inputBox=input.getBoundingClientRect(),panelBox=panel.getBoundingClientRect();check(inputBox.bottom<=panelBox.bottom&&inputBox.top>=panelBox.top,'inputVisibleAfterReference');
  await sendFiles(['c.png'],'drop');check(created===3&&globalDrops===0,'dropOnce');
  document.getElementById('prompt-agent-add-reference').click();document.getElementById('prompt-agent-tab-history').click();await tick();
  const list=document.getElementById('prompt-agent-reference-picker-list');
@@ -51,7 +52,9 @@ try {
  await sendFiles(['late.png']);
  let resolveReply;replyGate=request=>new Promise(resolve=>{resolveReply=()=>resolve({intent:'generate',message:'方案',promptPlan:{prompt:'画图',referenceImages:request.referenceImages}});});
  input.value='参考图生成';const submitting=controller.submit();await tick();
+ check(document.querySelector('.prompt-agent-processing')?.textContent.includes('正在处理')&&document.getElementById('prompt-agent-cancel').hidden===false,'processingVisible');
  state.nodes.delete('9');controller.removeNodeReferences(['9']);resolveReply();await submitting;
+ check(!document.querySelector('.prompt-agent-processing'),'processingCleared');
  const deletedSnapshot=controller.snapshotWorkflow();
  check(deletedSnapshot.messages.every(message=>!message.referenceImages?.length&&!message.promptPlan?.referenceImages?.length)
  &&!document.querySelector('.prompt-agent-message-references img'),'lateReplyCannotRestoreDeletedReference');

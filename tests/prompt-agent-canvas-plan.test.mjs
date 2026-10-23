@@ -64,7 +64,7 @@ test('only relevant graph edits invalidate preview and workflow identity is fixe
     context.nodes.find(node => node.id === 'target').parameters.prompt = 'unrelated';
     assert.doesNotThrow(() => assertCanvasPlanCurrent(plan, context));
     context.nodes.find(node => node.id === 'source').assets = ['media:new'];
-    assert.throws(() => assertCanvasPlanCurrent(plan, context), /已变化/);
+    assert.throws(() => assertCanvasPlanCurrent(plan, context), /下方 Agent 输入框发送“根据当前画布重新生成方案”/);
     assert.throws(() => assertCanvasPlanCurrent(plan, graph({ workflowId: 'other' })), /已变化/);
 });
 

@@ -478,6 +478,7 @@ export function createPromptAgentController({
         const { cancelButton } = getElements();
         if (cancelButton) cancelButton.hidden = false;
         renderModelOptions();
+        if (kind === 'reply') showProcessing(operation);
         return operation;
     }
 
@@ -488,6 +489,7 @@ export function createPromptAgentController({
     function finishOperation(operation) {
         // A late finally must never reset another workflow's newer request.
         if (activeOperation !== operation) return;
+        operation.processingElement?.remove();
         activeOperation = null;
         requestPending = false;
         const { cancelButton } = getElements();
@@ -503,6 +505,25 @@ export function createPromptAgentController({
         if (silent) return;
         if (operation.kind === 'compact') setCommandStatus('已取消压缩，原上下文已保留。');
         else { setCommandStatus(); appendMessage('agent', '已取消本次 Agent 请求。'); }
+    }
+
+    function showProcessing(operation) {
+        const { messages } = getElements();
+        if (!messages) return;
+        const indicator = documentRef.createElement('div');
+        indicator.className = 'prompt-agent-processing';
+        indicator.setAttribute('role', 'status');
+        indicator.setAttribute('aria-live', 'polite');
+        const dot = documentRef.createElement('span');
+        dot.className = 'prompt-agent-processing-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        const label = documentRef.createElement('span');
+        label.textContent = '正在处理…';
+        indicator.append(dot, label);
+        messages.appendChild(indicator);
+        operation.processingElement = indicator;
+        operation.processingLabel = label;
+        scrollToLatest();
     }
 
     async function executeCommand(name) {
@@ -1577,6 +1598,8 @@ export function createPromptAgentController({
             const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
             appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
             scrollToLatest();
+            if (operation.processingElement) getElements().messages?.appendChild(operation.processingElement);
+            scrollToLatest();
             if (input.value.trim() === text) input.value = '';
             pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
             referencePickerError = '';
@@ -1602,7 +1625,7 @@ export function createPromptAgentController({
                 modelId: replyModelId,
                 config: operation.config,
                 searchSettings: operation.searchSettings,
-                onSearchStatus: status => { if (isCurrentOperation(operation)) setCommandStatus(status); },
+                onSearchStatus: status => { if (isCurrentOperation(operation)) { setCommandStatus(status); if (operation.processingLabel) operation.processingLabel.textContent = status || '正在处理…'; } },
                 signal: operation.controller.signal
             });
             if (!isCurrentOperation(operation)) return;
@@ -1618,6 +1641,7 @@ export function createPromptAgentController({
                 reply.promptPlan = null;
             }
             const nextTask = bindTaskToReply(reply, operation.creativeTask, text);
+            operation.processingElement?.remove();
             conversationStore.setCreativeTask(nextTask);
             tokenObservation = reply?.tokenObservation || null;
             if (reply?.canvasPlan) canvasAdapter.prepare(reply.canvasPlan);
@@ -1631,6 +1655,7 @@ export function createPromptAgentController({
 
         } catch (error) {
             if (!isCurrentOperation(operation)) return;
+            operation.processingElement?.remove();
             setCommandStatus();
             appendMessage('agent', error?.message || 'Agent 暂时无法回复，请稍后重试。', [], { search: completedSearch });
         } finally {

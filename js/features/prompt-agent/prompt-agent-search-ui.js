@@ -53,7 +53,15 @@ export function renderAgentSearch({ documentRef, container, body, text, search, 
         // All remote pixels use the bounded public-image reader, including thumbnails.
         const load = async () => {
             if (!isCurrent()) return;
-            try { const data = await readImage(image.thumbnailUrl || image.imageUrl); if (isCurrent()) thumb.src = data; }
+            try {
+                let data;
+                try { data = await readImage(image.thumbnailUrl || image.imageUrl); }
+                catch (error) {
+                    if (!image.thumbnailUrl || image.thumbnailUrl === image.imageUrl || !isCurrent()) throw error;
+                    data = await readImage(image.imageUrl);
+                }
+                if (isCurrent()) thumb.src = data;
+            }
             catch { if (isCurrent()) { thumb.alt = '图片暂不可用'; card.classList.add('is-missing'); } }
         };
         const Observer = documentRef.defaultView?.IntersectionObserver;

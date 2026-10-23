@@ -14,6 +14,7 @@ const check = (ok, message) => { if (!ok) throw new Error(message); };
 const tick = () => new Promise(resolve => setTimeout(resolve, 20));
 const until = async predicate => { for (let i = 0; i < 40 && !predicate(); i++) await tick(); };
 try {
+    window.IntersectionObserver = undefined;
     const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
     document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
     const sample = document.createElement('canvas'); sample.width = 96; sample.height = 64;
@@ -23,6 +24,8 @@ try {
     const readWebImage = createAgentWebImageReader({ fetchRef: async (url, init) => {
         check(url === '/api/media/search-image' && init.method === 'POST', 'pixels use the restricted reader');
         check(!init.headers.Authorization && !init.headers.Cookie, 'no provider credentials on image reads');
+        if (JSON.parse(init.body).url.endsWith('/thumb.png')) return new Response(JSON.stringify({error:'缩略图地址已失效'}), {status:404, headers:{'Content-Type':'application/json'}});
+        if (JSON.parse(init.body).url.endsWith('/denied.png')) return new Response(JSON.stringify({error:'不允许读取本机、私有网络或保留地址'}), {status:403, headers:{'Content-Type':'application/json'}});
         return new Response(blob);
     } });
     const abort = new AbortController(); abort.abort();
@@ -52,7 +55,8 @@ try {
         createReply: request => createPromptAgentModelReply({ ...request, providerId: request.config.providerId, searchSettings: { ...request.searchSettings, providerId: request.config.searchProviders.search }, model: chat, models: [chat, dedicated], providers: [{id:'p',endpoint:'https://controlled.test/v1',apikey:'controlled-key'}],
             searchRef: async ({model}) => { searches++; check(model.id === 'chat', 'uses current conversation model'); return {
                 searched: true, kind: 'images', query: '海报参考', text: '检索资料', sources: [{ id: 's1', url: 'https://source.test/page', title: '图片来源' }],
-                images: [{id:'image1',imageUrl:'https://image.test/full.png',thumbnailUrl:'https://image.test/thumb.png',pageUrl:'https://source.test/page',title:'用于海报的参考图'}],
+                images: [{id:'image1',imageUrl:'https://image.test/full.png',thumbnailUrl:'https://image.test/thumb.png',pageUrl:'https://source.test/page',title:'用于海报的参考图'},
+                    {id:'image2',imageUrl:'https://image.test/denied.png',thumbnailUrl:'https://image.test/thumb.png',pageUrl:'https://source.test/page',title:'无法导入的参考图'}],
                 suggestionsHtml: '<script>parent.__unsafeSearchHtml = true;<\/script><b>搜索建议</b>'
             }; },
             fetchRef: async (_, init) => {
@@ -74,12 +78,19 @@ try {
     check(document.querySelector('.prompt-agent-message-body a').href === 'https://source.test/page', 'verified inline source is clickable');
     check(!window.__unsafeSearchHtml, 'provider HTML must stay isolated');
     const card = document.querySelector('.prompt-agent-search-image');
+    await until(() => card.querySelector('img').src.startsWith('data:') || card.classList.contains('is-missing'));
+    check(card.querySelector('img').src.startsWith('data:') && !card.classList.contains('is-missing'), 'failed thumbnail falls back to original pixels: ' + JSON.stringify({src:card.querySelector('img').src.slice(0,50),missing:card.classList.contains('is-missing')}));
     card.querySelector('button').click(); await until(() => document.querySelector('.fullscreen-overlay'));
     check(Boolean(document.querySelector('.fullscreen-overlay')), 'uses shared fullscreen viewer: ' + document.querySelector('.prompt-agent-search-status').textContent);
     check(creates === 0, 'preview does not import');
     document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape' }));
     card.querySelectorAll('button')[1].click(); await until(() => creates === 1 && !card.querySelectorAll('button')[1].disabled);
     check(creates === 1 && document.querySelectorAll('#prompt-agent-references img').length === 1, 'one node and one staged reference');
+    const denied = document.querySelectorAll('.prompt-agent-search-image')[1];
+    denied.querySelectorAll('button')[1].click(); await until(() => !denied.querySelectorAll('button')[1].disabled);
+    const inputBox = input.getBoundingClientRect(), panelBox = panel.getBoundingClientRect();
+    check(!document.getElementById('prompt-agent-reference-error').hidden && inputBox.top >= panelBox.top && inputBox.bottom <= panelBox.bottom, 'failed search import keeps input visible');
+    document.querySelectorAll('#prompt-agent-references .prompt-agent-reference-remove')[1].click();
     card.querySelectorAll('button')[1].click(); await tick(); check(creates === 1, 'duplicate selection reuses');
     input.value = '使用这张参考图做海报'; await controller.submit();
     check(controller.snapshotWorkflow().messages.at(-1).promptPlan?.referenceImages[0]?.sourceNodeId === 'import-1', 'plan uses local import: ' + JSON.stringify({last:controller.snapshotWorkflow().messages.at(-1),requestCount,status:document.getElementById('prompt-agent-command-status').textContent}));

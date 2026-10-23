@@ -165,7 +165,7 @@ export function describeCanvasPlan(plan, context) {
 }
 
 export function assertCanvasPlanCurrent(plan, context) {
-    if (plan.workflowId !== context.workflowId || plan.baseline !== canvasBaseline(context, plan.dependencies, Object.values(plan.bindings || {}))) fail('相关画布内容已变化，请刷新方案并重新确认');
+    if (plan.workflowId !== context.workflowId || plan.baseline !== canvasBaseline(context, plan.dependencies, Object.values(plan.bindings || {}))) fail('相关画布内容已变化。请在下方 Agent 输入框发送“根据当前画布重新生成方案”，确认新方案后再点击“应用并执行”。');
 }
 
 export function restoreCanvasPlan(value) {

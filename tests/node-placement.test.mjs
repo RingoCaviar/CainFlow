@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nodeBounds, findNearbyNodePosition } from '../js/features/execution/node-placement.js';
+import { nodeBounds, findNearbyNodePosition, findAgentImageNodePosition } from '../js/features/execution/node-placement.js';
+
+test('Agent image generation stays near the visible origin when other nodes occupy distant rows', () => {
+    const position = findAgentImageNodePosition({ centerX: 500, y: 100, width: 410, occupiedNodes: [
+        { x: 300, y: 2000, width: 410, height: 340 },
+        { x: 800, y: -2000, width: 410, height: 340 }
+    ] });
+    assert.deepEqual(position, { x: 295, y: 100 });
+    const nearby = findAgentImageNodePosition({ centerX: 500, y: 100, width: 410, occupiedNodes: [
+        { x: 295, y: 100, width: 410, height: 340 }
+    ] });
+    assert.ok(Math.hypot(nearby.x - 295, nearby.y - 100) <= 500);
+    assert.ok(nearby.x >= 745 || nearby.y >= 480 || nearby.y + 340 <= 100);
+});
 
 test('placement ignores distant rows and keeps the preferred right-side anchor at every zoom', () => {
     for (const zoom of [0.25, 0.5, 1, 2]) {

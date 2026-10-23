@@ -20,3 +20,8 @@ export function findNearbyNodePosition({ x, y, width = 300, height = 340, occupi
     }
     return best || { x, y };
 }
+
+export function findAgentImageNodePosition({ centerX, y, width, occupiedNodes, zoom = 1 }) {
+    return findNearbyNodePosition({ x: centerX - width / 2, y, width, height: 340,
+        occupied: occupiedNodes.map(node => nodeBounds(node, zoom)) });
+}

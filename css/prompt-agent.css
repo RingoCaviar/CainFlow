@@ -218,6 +218,9 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 
 .prompt-agent-message-agent { margin-right: 0; background: transparent; border-color: transparent; border-radius: 0; }
+.prompt-agent-processing { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 10px 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.prompt-agent-processing-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--text-link); animation: prompt-agent-processing-pulse 1.2s ease-in-out infinite; }
+@keyframes prompt-agent-processing-pulse { 50% { opacity: 0.35; transform: scale(0.75); } }
 .prompt-agent-message-body { overflow-wrap: anywhere; }
 .prompt-agent-message-agent .prompt-agent-message-body { white-space: normal; }
 .prompt-agent-message-body p { margin: 0 0 5px; }
@@ -287,10 +290,10 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-references,
 .prompt-agent-message-references {
     display: flex;
-    flex: 0 0 100%;
     flex-wrap: wrap;
     gap: 4px;
 }
+.prompt-agent-message-references { flex: 0 0 100%; }
 .prompt-agent-references[hidden] { display: none; }
 .prompt-agent-references { max-height: 136px; overflow: auto; padding: 6px; }
 .prompt-agent-reference { position: relative; display: inline-flex; }
@@ -343,14 +346,13 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     cursor: pointer;
 }
 .prompt-agent-message-references { margin-top: 6px; }
-.prompt-agent-reference-error { flex: 0 0 100%; margin: 0; color: var(--text-primary); font-size: 12px; overflow-wrap: anywhere; }
+.prompt-agent-reference-error { margin: 0; color: var(--text-primary); font-size: 12px; overflow-wrap: anywhere; }
 .prompt-agent-reference-error[hidden],
 .prompt-agent-reference-picker[hidden],
 .prompt-agent-command-menu[hidden],
 .prompt-agent-command-status[hidden],
 .prompt-agent-composer .btn[hidden] { display: none; }
 .prompt-agent-command-status {
-    flex: 0 0 100%;
     margin: 0;
     color: var(--text-secondary);
     font-size: 12px;
@@ -733,5 +735,6 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-search-toggle input:focus-visible + .toggle-slider { outline: 2px solid var(--menu-focus-ring); outline-offset: 2px; }
 .prompt-agent-search-toggle input:disabled + .toggle-slider { opacity: .5; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
+    .prompt-agent-processing-dot { animation: none; }
     .prompt-agent-search-toggle .toggle-slider, .prompt-agent-search-toggle .toggle-slider::before { transition-duration: 300ms; }
 }

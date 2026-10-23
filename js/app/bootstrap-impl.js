@@ -55,6 +55,7 @@ import { createCameraControlNodeApi } from '../features/camera/camera-control-no
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
 import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
+import { findAgentImageNodePosition } from '../features/execution/node-placement.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
 import { flushSessionToDisk } from '../features/persistence/flush-session-to-disk.js';
 import { installSessionPersistenceOnExit } from '../features/persistence/session-persistence-lifecycle.js';
@@ -914,19 +915,9 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
         const origin = viewportApi.screenToCanvas(
             rect.left + Math.max(32, (rect.width - panelWidth) / 2), rect.top + 48
         );
-        const preferredX = origin.x - width / 2;
-        const gap = 40;
-        const occupied = Array.from(state.nodes.values()).map((node) => ({
-            left: Number(node.x) || 0,
-            right: (Number(node.x) || 0) + (Number(node.width) || node.el?.offsetWidth || width)
-        }));
-        // Reserve a free horizontal span so later content-height settlement
-        // cannot grow this new generation node into an existing canvas node.
-        const candidates = [preferredX, ...occupied.flatMap((bounds) => [bounds.right + gap, bounds.left - width - gap])];
-        const x = candidates.filter((candidate) => occupied.every((bounds) =>
-            candidate + width + gap <= bounds.left || candidate >= bounds.right + gap
-        )).sort((left, right) => Math.abs(left - preferredX) - Math.abs(right - preferredX))[0] ?? preferredX;
-        const nodeId = addNode('ImageGenerate', x, origin.y, {
+        const position = findAgentImageNodePosition({ centerX: origin.x, y: origin.y, width,
+            occupiedNodes: [...state.nodes.values()], zoom: state.canvas.zoom });
+        const nodeId = addNode('ImageGenerate', position.x, position.y, {
             prompt, apiConfigId: model.id, providerId: provider.id
         });
         if (nodeId) scheduleSave();
