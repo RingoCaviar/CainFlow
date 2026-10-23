@@ -3,14 +3,14 @@ import { trackAgentRequest } from './prompt-agent-request.js';
 import { applyThinking } from '../execution/thinking-config.js';
 import { createChatRequestPlan, executeChatRequestPlan } from '../execution/chat-request-plan.js';
 import { normalizeAutoCompleteBase } from '../execution/provider-request-utils.js';
-import { canAgentSearch, normalizeAgentSearch, safeSearchUrl } from './prompt-agent-search-data.js';
+import { normalizeAgentSearch, safeSearchUrl } from './prompt-agent-search-data.js';
 
 function assertActive(signal) {
     if (signal?.aborted) throw new DOMException('搜索已取消', 'AbortError');
 }
 
 export function createAgentSearchRequest({ model, provider, kind, query }) {
-    if (!canAgentSearch(model, kind)) throw new Error('所选搜索模型不支持本次搜索类型。');
+    if (!['google', 'openai'].includes(model?.protocol)) throw new Error('当前接口协议尚未接入联网请求，请使用已接入的对话接口协议。');
     if (!provider?.endpoint) throw new Error('搜索模型的 Provider 不可用。');
     if (model.protocol === 'google') {
         return createChatRequestPlan({ model, provider, protocol: 'google', searchEnabled: true,
@@ -66,7 +66,7 @@ export function parseAgentSearchResponse(payload, { protocol, kind, query, id = 
         }
     }
     // Tool enablement and plain text claims alone never prove a search happened.
-    if (!searched) return normalizeAgentSearch({ kind, query, notice: '接口未返回实际搜索记录，不能确认已联网。' });
+    if (!searched) return normalizeAgentSearch({ kind, query, text, sources, notice: '接口未返回搜索引用。' });
     const notice = kind === 'images' && !images.length ? '本次搜索未返回可导入的图片，请调整关键词或搜索模型。'
         : !sources.length ? '本次搜索没有返回可核实的来源。' : '';
     return normalizeAgentSearch({ searched, kind, query, text, sources, images, suggestionsHtml, notice });
@@ -81,7 +81,13 @@ export async function searchPromptAgent({ model, providers, providerId = '', rec
     const payload = await trackAgentRequest(plan, async () => {
         const response = await executeChatRequestPlan(plan, { fetchRef, headers, signal });
         if (!response.ok) {
-            const error = new Error(`联网搜索失败（HTTP ${response.status}），请检查搜索能力与接口配置。`);
+            let detail = '';
+            try {
+                const body = await response.json();
+                detail = typeof body.error?.message === 'string' ? body.error.message : typeof body.message === 'string' ? body.message : '';
+            } catch { /* HTTP status still describes an unreadable upstream response. */ }
+            const unsupported = /not supported|unsupported|does not support|不支持/i.test(detail);
+            const error = new Error(`${unsupported ? '当前对话模型或供应商不支持联网搜索，请关闭联网开关或更换模型' : '联网搜索失败'}（HTTP ${response.status}）${detail ? `：${detail.slice(0, 500)}` : ''}`);
             error.serverResponse = { status: response.status }; throw error;
         }
         return response.json();

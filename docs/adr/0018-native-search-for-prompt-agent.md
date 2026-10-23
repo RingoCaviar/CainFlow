@@ -33,3 +33,13 @@ Search image candidates remain metadata until preview or manual selection. Previ
 The public-image reader is separate from the general model proxy, which intentionally permits user-configured private servers. It accepts only public HTTP(S) addresses, validates every DNS answer and redirect, pins the validated IP while preserving Host/TLS identity, forwards no provider/browser credentials, and bounds redirects, time, bytes and raster dimensions. Browser decoding must succeed before import. Missing originals never fall back to thumbnails. Clearing, removing a loading reference or changing workflows invalidates pending imports; removing an Agent reference retains its canvas node, while deleting that node removes its Agent references.
 
 Provider contracts: [Gemini Google Search](https://ai.google.dev/gemini-api/docs/generate-content/google-search), [OpenAI Responses web/image search](https://developers.openai.com/api/docs/guides/tools-web-search). Tests use controlled responses and images; native support still depends on the selected model and provider actually implementing the configured capability.
+
+
+## Current-model search switch (2026-10-23, prompt-agent#055)
+
+This supersedes the dedicated-model fallback and search-menu guidance above. Agent presents one search switch in the conversation model settings. Declared unsupported models show an unchecked disabled switch; supported models permit toggling. Legacy dedicated model IDs remain readable but are never used for routing. Requests use the captured conversation model and Provider. No capability probing request is sent; upstream rejection is surfaced with its reason and no fallback. Responses without tool metadata retain their text, but do not claim verified search or invent sources. Existing workflow on/off preferences remain durable.
+
+
+### User-controlled search (2026-10-23)
+
+The switch is always editable and reads only the workflow on/off preference. Agent request permission and request construction ignore `agentSearch`, including absent or `none` values. No Google/OpenAI capability default controls Agent requests. Existing transport encoding still selects Google Search or OpenAI Responses by protocol; this is request formatting, not a model-support assertion. Upstream errors report unsupported search without probing or fallback. Legacy capability declarations remain stored for compatibility.

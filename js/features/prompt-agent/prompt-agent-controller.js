@@ -1,7 +1,7 @@
 import { bindTaskToReply, confirmTaskParameters } from './prompt-agent-task.js';
 import { sizeCapabilities, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
-import { createAgentSizeMenu } from './prompt-agent-size-ui.js';
+import { createAgentSizeSettings } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
@@ -119,7 +119,7 @@ export function createPromptAgentController({
     let initialized = false;
     let modelMenus = null;
     let searchMenu = null;
-    let sizeMenu = null;
+    let chatSettingsControl = null;
     let searchViewRevision = 0;
     let searchViewCleanups = [];
     let panelWidthController = null;
@@ -212,7 +212,6 @@ export function createPromptAgentController({
     }
     function renderModelOptions() {
         searchMenu?.render();
-        sizeMenu?.render();
         renderImageModelOptions();
         const { input, modelSelect, modelHint, sendButton } = getElements();
         const models = getChatModels().filter((model) => model?.id && model?.modelId);
@@ -287,7 +286,6 @@ export function createPromptAgentController({
         if (addImageModelButton) { addImageModelButton.hidden = valid && !error; addImageModelButton.textContent = '配置模型与供应商'; }
         promptPlanActionStates.forEach((actionState) => actionState.sync());
         canvasViews.forEach(view => view.sync());
-        sizeMenu?.render();
         thinkingControls.forEach(control => control.refresh());
     }
 
@@ -873,7 +871,6 @@ export function createPromptAgentController({
         button?.setAttribute('aria-expanded', open ? 'true' : 'false');
         if (!open) {
             searchMenu?.close();
-            sizeMenu?.close();
             modelMenus?.close();
             setReferencePickerOpen(false);
             closeCommandMenu();
@@ -1458,7 +1455,7 @@ export function createPromptAgentController({
             const view = { element, workflowId, revision, canvasPlan: plan, plan: { targetNodeId: run.targetNodeId } };
             runViews.set(run.runId, view); renderRunView(view, run);
         };
-        const view = renderCanvasPlan({ confirmedParameters: (plan,values,id) => { conversationStore.setCreativeTask(confirmTaskParameters(conversationStore.getCreativeTask(),plan,values,id)); onStateChange(); }, documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, getProviders, getProviderId: modelId => conversationStore.getProvider('image', modelId), getThinking: modelId => conversationStore.getThinking('image', modelId), getSize: modelId => conversationStore.getSize(modelId), preview: openResultPreview,
+        const view = renderCanvasPlan({ confirmedParameters: (plan,values,id) => { conversationStore.setCreativeTask(confirmTaskParameters(conversationStore.getCreativeTask(),plan,values,id)); onStateChange(); }, documentRef, parent: message, plan, adapter: canvasAdapter, getModels: getImageModels, getProviders, getProviderId: modelId => conversationStore.getProvider('image', modelId), getSize: modelId => conversationStore.getSize(modelId), preview: openResultPreview,
             getModelId: () => conversationStore.getImageModelId(), changed, isCurrent, configure: openModelSettings,
             run: async (plan, retry) => {
                 if (!retry) plan.completedSteps = [];
@@ -1792,44 +1789,47 @@ export function createPromptAgentController({
                 await addReferenceFiles(files);
             }
         });
+        const searchSection = documentRef.getElementById('prompt-agent-search-menu');
         for (const [purpose, select, models] of [['chat', modelSelect, getChatModels], ['image', imageModelSelect, getImageModels]]) {
             if (!select?.parentElement?.appendChild) continue;
-            thinkingControls.push(createThinkingControl({ documentRef, parent: select.parentElement, compact: true, title: purpose === 'chat' ? '对话思考设置' : '生图思考设置',
+            const isImage = purpose === 'image';
+            let sizeSettings = null;
+            const control = createThinkingControl({ documentRef, parent: select.parentElement, compact: true, showThinking: !isImage,
+                title: isImage ? '生图模型生成尺寸设置' : '对话模型高级设置',
+                summaryLabel: purpose === 'chat' ? '对话模型高级设置' : '生图模型生成尺寸设置',
                 getOptions: () => { const model = models().find(item => item.id === select.value) || {}; return { model, provider: selectedProvider(model, purpose), task: purpose, protocol: model.protocol }; },
-                getValue: () => conversationStore.getThinking(purpose, select.value),
-                onChange: value => { conversationStore.setThinking(purpose, select.value, value); canvasViews.forEach(view => view.sync()); onStateChange(); } }));
+                getValue: () => isImage ? undefined : conversationStore.getThinking(purpose, select.value),
+                onChange: value => { if (!isImage) conversationStore.setThinking(purpose, select.value, value); canvasViews.forEach(view => view.sync()); onStateChange(); },
+                ...(!isImage ? {
+                    onClose: () => searchMenu?.close(),
+                    getExtraSummary: () => conversationStore.getSearchSettings().mode === 'off' ? '联网已关闭' : '联网已开启',
+                    renderExtra: (content, popoverId) => {
+                        if (searchSection) content.appendChild(searchSection);
+                    }
+                } : {}),
+                ...(isImage ? {
+                    getExtraSummary: () => sizeSettings?.getSummary?.() || '尺寸：跟随方案',
+                    renderExtra: (content, popoverId) => {
+                        sizeSettings?.destroy();
+                        sizeSettings = createAgentSizeSettings({ documentRef, parent: content, popoverId,
+                            getModel: () => getImageModels().find(model => model.id === conversationStore.getImageModelId()),
+                            getProvider: model => model ? selectedProvider(model, 'image') : null,
+                            getValue: id => conversationStore.getSize(id),
+                            onChange: (id, value) => { conversationStore.setSize(id, value); thinkingControls.forEach(control => control.refresh()); canvasViews.forEach(view => view.sync()); onStateChange(); }
+                        });
+                    }
+                } : {}) });
+            thinkingControls.push(control);
+            if (!isImage) chatSettingsControl = control;
         }
         setOpen(false);
-        sizeMenu = createAgentSizeMenu({ documentRef,
-            getModel: () => getImageModels().find(model => model.id === conversationStore.getImageModelId()),
-            getProvider: model => model ? selectedProvider(model, 'image') : null,
-            getValue: id => conversationStore.getSize(id),
-            onChange: (id, value) => { conversationStore.setSize(id, value); canvasViews.forEach(view => view.sync()); onStateChange(); }
-        });
-        searchMenu = createAgentSearchMenu({ documentRef, getModels: getSearchModels, getProviders,
-            getProviderId: (purpose, modelId) => conversationStore.getProvider(purpose, modelId),
-            getCurrentModel: () => {
-                const model = getChatModels().find(model => model.id === getElements().modelSelect?.value);
-                if (!model) return null;
-                return { ...model, thinking: { ...model.thinking, default: conversationStore.getThinking('chat', model.id) || model.thinking?.default } };
-            },
-            configure: target => {
-                const revision = workflowRevision;
-                searchMenu.close();
-                openModelSettings({ ...target, onClose: () => {
-                    if (revision !== workflowRevision || !getElements().panel?.classList.contains('active')) return;
-                    renderModelOptions(); searchMenu.open();
-                } });
-            },
+        searchMenu = createAgentSearchMenu({ documentRef,
+            getCurrentModel: () => getChatModels().find(model => model.id === getElements().modelSelect?.value),
             getSettings: conversationStore.getSearchSettings, setSettings: conversationStore.setSearchSettings,
-            onChange: () => { tokenObservation = null; onStateChange(); }, closeModels: () => modelMenus?.close(),
-            refreshSelects: () => modelMenus?.refresh() });
-        const searchModel = documentRef.getElementById('prompt-agent-search-model');
-        searchModel?.addEventListener('focus', () => searchMenu.render());
+            onChange: () => { tokenObservation = null; chatSettingsControl?.refresh(); onStateChange(); }
+        });
         modelMenus = createPromptAgentModelMenus({ documentRef, selects: [{ select: modelSelect, route: providerRoute('chat', getChatModels) },
-            { select: getElements().imageModelSelect, route: providerRoute('image', getImageModels) },
-            { select: searchModel, parent: 'agent-search', route: providerRoute('search', getSearchModels) },
-            { select: documentRef.getElementById('prompt-agent-search-mode'), parent: 'agent-search', placeholder: '选择联网方式' }
+            { select: getElements().imageModelSelect, route: providerRoute('image', getImageModels) }
         ] });
         bindPromptAgentCanvasDismiss({ documentRef, close });
         const { panel } = getElements();
@@ -1885,7 +1885,6 @@ export function createPromptAgentController({
     }
 
     function restoreWorkflow(value) {
-        sizeMenu?.close();
         thinkingControls.forEach(control => control.close());
         canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
         cancelRequest({ silent: true });

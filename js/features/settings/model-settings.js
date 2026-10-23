@@ -587,7 +587,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                         <select data-id="${mod.id}" data-field="agentSearch" aria-label="Agent 搜索能力">
                             ${searchOptions}
                         </select>
-                        <small class="agent-search-config-help">${protocol === 'openai' ? '需接口实际支持 Responses 搜索。' : protocol === 'google' ? '需接口实际支持 Google Search。' : '当前格式未接入搜索，请在 Agent 联网菜单选择专用模型。'} 此设置不会为模型增加原本不支持的能力。</small>
+                        <small class="agent-search-config-help">${protocol === 'openai' ? '需接口实际支持 Responses 搜索。' : protocol === 'google' ? '需接口实际支持 Google Search。' : '当前格式未接入搜索，请在 Agent 对话模型设置中选择专用搜索模型。'} 此设置不会为模型增加原本不支持的能力。</small>
                     </div></div>` : ''}
                 </div>
             `;

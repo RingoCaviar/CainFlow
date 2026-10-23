@@ -94,6 +94,18 @@ test('multi-step models require explicit user choices and never fall back after 
     delete plan.modelOverrides.hero; state.providers = []; assert.throws(() => adapter.modelsFor(plan, 'second'));
 });
 
+test('retired Agent image thinking preferences are ignored while model defaults and step overrides remain', () => {
+    const image = { id: 'gem', modelId: 'gemini-3.1-flash-image-preview', taskType: 'image', protocol: 'google', providerIds: ['p'],
+        thinking: { profile: 'google-image', default: { mode: 'level', value: 'minimal' } } };
+    const state = { models: [image], providers: [{ id: 'p', endpoint: 'https://generativelanguage.googleapis.com', apikey: 'test-key' }] };
+    const adapter = createPromptAgentCanvasAdapter({ state });
+    const plan = { steps: [{ id: 'generate', type: 'ImageGenerate', title: '生成', parameters: {} }], agentProviders: { gem: 'p' },
+        agentThinking: { gem: { mode: 'level', value: 'high' } } };
+    assert.deepEqual(adapter.modelsFor(plan, 'gem').generate.thinking, { mode: 'level', value: 'minimal' });
+    plan.thinkingOverrides = { generate: { gem: { mode: 'level', value: 'high' } } };
+    assert.deepEqual(adapter.modelsFor(plan, 'gem').generate.thinking, { mode: 'level', value: 'high' });
+});
+
 test('historical pixels become fixed import assets and legacy plans retain generation patches', () => {
     const context = graph();
     const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'input', type: 'ImageImport', imageId: 'image-2' }] }, context,

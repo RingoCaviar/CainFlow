@@ -61,6 +61,7 @@
     --agent-panel-surface: color-mix(in srgb, var(--surface-panel-strong, var(--panel-bg)) 94%, var(--text-primary));
     background: linear-gradient(var(--agent-panel-surface), var(--agent-panel-surface)), var(--surface-panel-underlay, var(--bg-canvas));
     color: var(--text-primary);
+    font-size: 14px;
     /* The workbench disables selection globally for canvas gestures. Agent
        replies are normal text and must remain selectable for copy/paste. */
     user-select: text;
@@ -130,7 +131,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     background: transparent;
     color: var(--text-primary);
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     text-overflow: ellipsis;
     cursor: pointer;
@@ -198,6 +199,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     color: var(--text-secondary);
     text-align: center;
     line-height: 1.6;
+    font-size: 13px;
 }
 
 .prompt-agent-message {
@@ -205,7 +207,8 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 12px;
-    line-height: 1.55;
+    font-size: 14px;
+    line-height: 1.5;
     white-space: pre-wrap;
 }
 
@@ -217,9 +220,9 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-message-agent { margin-right: 0; background: transparent; border-color: transparent; border-radius: 0; }
 .prompt-agent-message-body { overflow-wrap: anywhere; }
 .prompt-agent-message-agent .prompt-agent-message-body { white-space: normal; }
-.prompt-agent-message-body p { margin: 0 0 8px; }
+.prompt-agent-message-body p { margin: 0 0 5px; }
 .prompt-agent-message-body p:last-child { margin-bottom: 0; }
-.prompt-agent-message-body ul, .prompt-agent-message-body ol { margin: 6px 0; padding-left: 20px; }
+.prompt-agent-message-body ul, .prompt-agent-message-body ol { margin: 4px 0; padding-left: 20px; }
 .prompt-agent-message-body pre { overflow: auto; white-space: pre; padding: 8px; background: var(--panel-bg-soft); border-radius: 6px; }
 .prompt-agent-message-body code { white-space: pre-wrap; font-family: monospace; background: var(--panel-bg-soft); border-radius: 3px; }
 .prompt-agent-message-body pre code { white-space: pre; }
@@ -234,6 +237,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     border-radius: 9px;
     background: var(--bg-input, var(--bg-dark));
     font-size: 12px;
+    line-height: 1.45;
     white-space: pre-wrap;
 }
 
@@ -246,6 +250,8 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     gap: 4px;
     margin-top: 4px;
     color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 .prompt-agent-result-image {
@@ -271,7 +277,12 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     border-radius: 8px;
 }
 
-.prompt-agent-composer { display: flex; align-items: center; padding: 6px; gap: 4px; position: relative; flex: none; flex-wrap: wrap; border-top: 1px solid var(--border-color); border-bottom: 0; }
+.prompt-agent-composer { display: flex; flex-direction: column; align-items: stretch; padding: 6px; gap: 4px; position: relative; flex: none; border-top: 1px solid var(--border-color); border-bottom: 0; }
+.prompt-agent-input-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: end; gap: 4px; min-width: 0; }
+.prompt-agent-input-row > #prompt-agent-add-reference { grid-column: 1; }
+.prompt-agent-input-row > #prompt-agent-input { grid-column: 2; }
+.prompt-agent-input-row > :is(#prompt-agent-send, #prompt-agent-cancel) { grid-column: 3; grid-row: 1; min-height: 28px; }
+.prompt-agent-input-row:has(#prompt-agent-cancel:not([hidden])) #prompt-agent-send { display: none; }
 .prompt-agent-composer.is-dragging-reference { outline: 2px solid var(--text-link); outline-offset: -4px; }
 .prompt-agent-references,
 .prompt-agent-message-references {
@@ -331,7 +342,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     color: var(--text-primary);
     cursor: pointer;
 }
-.prompt-agent-message-references { margin-top: 9px; }
+.prompt-agent-message-references { margin-top: 6px; }
 .prompt-agent-reference-error { flex: 0 0 100%; margin: 0; color: var(--text-primary); font-size: 12px; overflow-wrap: anywhere; }
 .prompt-agent-reference-error[hidden],
 .prompt-agent-reference-picker[hidden],
@@ -414,8 +425,8 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     display: grid;
     place-items: center;
     flex: none;
-    width: 32px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     font-size: 24px;
     line-height: 1;
@@ -470,8 +481,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-reference-option.is-selected .prompt-agent-reference-check { border-color: var(--text-link); color: var(--text-link); }
 .prompt-agent-reference-option-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.5; }
 .prompt-agent-composer textarea {
-    flex: 1 0 100%;
-    order: -1;
+    width: 100%;
     box-sizing: border-box;
     min-width: 0;
     min-height: 42px;
@@ -483,19 +493,17 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     background: var(--bg-input, var(--bg-dark));
     color: var(--text-primary);
     font: inherit;
+    font-size: 14px;
+    line-height: 1.5;
 }
 
-.prompt-agent-composer > .prompt-agent-references,
-.prompt-agent-composer > .prompt-agent-reference-error,
-.prompt-agent-composer > .prompt-agent-command-status { order: -2; }
-#prompt-agent-send, #prompt-agent-cancel { margin-left: auto; }
-.prompt-agent-plan-inputs { margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.prompt-agent-plan-inputs { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
 .prompt-agent-plan-inputs > span { flex-basis: 100%; }
 .prompt-agent-plan-reference { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--panel-bg-soft); color: var(--text-primary); text-align: left; overflow-wrap: anywhere; }
 .prompt-agent-plan-reference img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
 .prompt-agent-step-settings { font-size: 12px; margin-top: 4px; }
-.prompt-agent-step-settings summary { cursor: pointer; color: var(--text-secondary); }
-.prompt-agent-step-prompt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 6px 0; }
+.prompt-agent-step-settings summary { cursor: pointer; color: var(--text-secondary); overflow-wrap: anywhere; }
+.prompt-agent-step-prompt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 4px 0; }
 .prompt-agent-canvas-plan > p:empty { display: none; }
 
 @media (max-width: 720px) {
@@ -504,24 +512,26 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 
 /* Agent model menus use the node-select value/change contract and a body-level surface. */
 .prompt-agent-model-native { display: none; }
-.prompt-agent-search-menu { position: fixed; z-index: var(--layer-menu); box-sizing: border-box; padding: 8px; overflow: auto; }
-.prompt-agent-search-menu[hidden] { display: none; }
-.prompt-agent-search-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions,
+.prompt-agent-composer > #prompt-agent-search-menu { display: none; }
+.prompt-agent-search-menu { min-width: 0; border-top: 1px solid var(--menu-border, var(--panel-border-strong)); padding-top: 5px; }
+.prompt-agent-search-menu > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 2px; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.prompt-agent-search-menu > summary:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
+.prompt-agent-search-menu > summary span { font-size: 11px; white-space: nowrap; }
+.prompt-agent-search-content { display: grid; gap: 6px; padding-top: 6px; min-width: 0; }
+.prompt-agent-model-menu, .prompt-agent-node-mentions,
 .prompt-agent-command-menu, .prompt-agent-reference-picker {
     /* Composite translucent theme colors over canvas color so underlying text
        cannot bleed through a portaled menu. */
     background: linear-gradient(var(--menu-surface, var(--panel-bg-strong)), var(--menu-surface, var(--panel-bg-strong))), var(--bg-canvas);
     color: var(--menu-text, var(--text-primary)); border: 1px solid var(--menu-border, var(--panel-border-strong)); border-radius: 8px; box-shadow: var(--menu-shadow, var(--panel-shadow-soft));
 }
-.prompt-agent-search-menu > label { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; min-width: 0; font-size: 12px; }
-.prompt-agent-search-menu > .prompt-agent-model-label { padding: 0; border: 0; background: transparent; }
-.prompt-agent-search-menu > .prompt-agent-model-label:focus-within { outline: none; }
-.prompt-agent-search-menu > label > .prompt-agent-model-trigger { border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
-.prompt-agent-search-menu p, .prompt-agent-search-status { font-size: 11px; margin: 4px 0; color: var(--text-secondary); }
-.prompt-agent-search-menu p { overflow-wrap: anywhere; }
-#prompt-agent-search-availability > div { padding: 5px 0; border-top: 1px solid var(--border-color); }
-#prompt-agent-search-availability .btn { min-height: 28px; padding: 3px 6px; font-size: 12px; }
-#prompt-agent-search-button { min-height: 28px; padding: 2px 4px; flex: none; font-size: 11px; }
+.prompt-agent-search-content > label { display: grid; gap: 4px; min-width: 0; font-size: 11px; }
+.prompt-agent-search-content > .prompt-agent-model-label { padding: 0; border: 0; background: transparent; }
+.prompt-agent-search-content > .prompt-agent-model-label:focus-within { outline: none; }
+.prompt-agent-search-content > label > .prompt-agent-model-trigger { border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
+.prompt-agent-search-content p, .prompt-agent-search-status { font-size: 11px; margin: 0; color: var(--text-secondary); }
+.prompt-agent-search-status { font-size: 12px; }
+.prompt-agent-search-content p { overflow-wrap: anywhere; }
 .prompt-agent-search-results { min-width: 0; margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
 .prompt-agent-search-results a, .prompt-agent-message-body a { color: var(--text-link); text-decoration: underline; }
 .prompt-agent-search-results iframe { border: 0; width: 100%; max-height: 100px; }
@@ -533,7 +543,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-model-trigger {
     position: relative; flex: 1; min-width: 0; min-height: 28px; border: 0; padding: 4px 22px 4px 4px;
     background: transparent; color: var(--text-primary); text-align: left;
-    font: inherit; font-weight: 600; white-space: nowrap; overflow: hidden;
+    font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; cursor: pointer;
 }
 .prompt-agent-model-trigger::after {
@@ -545,14 +555,28 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-model-trigger:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-model-menu {
     position: fixed; z-index: calc(var(--layer-menu) + 1); box-sizing: border-box;
-    overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+    display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; padding: 6px; gap: 4px;
+    max-width: calc(100vw - 16px);
 }
+.prompt-agent-model-search {
+    box-sizing: border-box; flex: none; width: 100%; min-width: 0; min-height: 32px; padding: 6px 8px;
+    border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg);
+    color: var(--text-primary); font: inherit; font-size: 12px;
+}
+.prompt-agent-model-search:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
+.prompt-agent-model-search-status { flex: none; min-height: 14px; color: var(--text-secondary); font-size: 11px; }
+.prompt-agent-model-search-status[hidden] { display: none; }
+.prompt-agent-model-options { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.prompt-agent-model-options:empty { display: none; }
+.prompt-agent-model-option[hidden] { display: none; }
+.prompt-agent-model-menu:has(.prompt-agent-model-options:empty) { min-height: 40px; }
 .prompt-agent-model-option {
     display: block; position: relative; width: 100%; min-height: 30px;
     padding: 6px 26px 6px 8px; border: 0; border-radius: 5px;
     background: transparent; color: inherit; text-align: left; font: inherit;
     font-size: 12px; overflow-wrap: anywhere; cursor: pointer;
 }
+.prompt-agent-model-option + .prompt-agent-model-option { border-top: 1px solid var(--menu-border, var(--panel-border-strong)); }
 .prompt-agent-model-option:hover, .prompt-agent-model-option:focus-visible { background: var(--menu-hover-bg, var(--panel-hover-bg)); outline: 2px solid var(--text-link); outline-offset: -2px; }
 .prompt-agent-model-option[aria-selected="true"] { background: var(--panel-active-bg); color: var(--text-link); }
 .prompt-agent-model-option[aria-selected="true"]::after { content: '✓'; position: absolute; right: 8px; top: 6px; }
@@ -570,49 +594,55 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 #prompt-agent-picker-selected { max-height: 78px; flex: none; padding: 0; }
 #prompt-agent-reference-more[hidden] { display: none; }
 .prompt-agent-reference-picker { left: 6px; right: 6px; padding: 6px; gap: 6px; }
-.prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 6px; overflow-wrap: anywhere; }
-.prompt-agent-canvas-plan ol, .prompt-agent-canvas-plan ul { padding-left: 18px; margin: 6px 0; }
-.prompt-agent-canvas-plan li { margin: 4px 0; }
+.prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 4px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.prompt-agent-canvas-plan > strong { font-size: 13px; line-height: 1.4; }
+.prompt-agent-canvas-plan ol, .prompt-agent-canvas-plan ul { padding-left: 18px; margin: 4px 0; }
+.prompt-agent-canvas-plan li { margin: 2px 0; }
+.prompt-agent-canvas-plan details > summary { font-size: 12px; }
+.prompt-agent-canvas-plan small { font-size: 11px; line-height: 1.4; }
+.prompt-agent-canvas-plan > p { margin: 4px 0; }
 .prompt-agent-change-list li { white-space: pre-wrap; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--panel-input-bg); }
 .prompt-agent-canvas-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
+.prompt-agent-canvas-actions .btn { font-size: 13px; }
 .prompt-agent-canvas-plan button[hidden] { display: none; }
-.prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 24px 4px 8px; margin: 4px 0; border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
+.prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 24px 4px 8px; margin: 4px 0; border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); font-size: 13px; }
 
 /* Agent owns flat controls, including popovers portaled outside the panel.
    Shadows belong to floating surfaces, not individual buttons. */
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker,
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker,
     #prompt-agent-command-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions) button {
     background-image: none;
     box-shadow: none;
     text-shadow: none;
     filter: none;
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn {
     background-color: var(--surface-control);
     border-color: var(--panel-control-border);
     color: var(--text-primary);
     transform: none;
     transition: background-color var(--motion-fast, 150ms), border-color var(--motion-fast, 150ms), color var(--motion-fast, 150ms);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn:hover:not(:disabled) {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn:hover:not(:disabled) {
     background-color: var(--surface-control-hover);
     border-color: var(--panel-hover-border);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn-primary {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary {
     background-color: var(--panel-primary-action-bg);
     color: var(--panel-primary-action-text);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) .btn-primary:hover:not(:disabled) {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary:hover:not(:disabled) {
     background-color: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
     color: var(--panel-primary-action-text);
 }
-:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-size-menu, #prompt-agent-reference-picker) button:focus-visible {
+:is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) button:focus-visible {
     outline: 2px solid var(--text-link);
     outline-offset: 2px;
 }
 .prompt-agent-canvas-actions .btn { padding: 3px 7px; }
+#prompt-agent-send, #prompt-agent-cancel { font-size: 13px; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
 .prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px;     }
 .prompt-agent-node-mentions button { background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
@@ -632,21 +662,75 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-model-label { position: relative; }
 .prompt-agent-model-label > .thinking-control { margin: 0; }
 .thinking-control-compact { flex: 0 0 28px; }
+.thinking-control-compact > .thinking-control-content { display: none; }
 .thinking-control-compact > summary { display: flex; align-items: center; justify-content: center; width: 28px; min-height: 28px; box-sizing: border-box; padding: 4px; list-style: none; }
 .thinking-control-compact > summary::-webkit-details-marker { display: none; }
-.thinking-control-content input, .thinking-model-settings select { min-height: 28px; }
+.thinking-control-content input:not([type="checkbox"]), .thinking-model-settings select { min-height: 28px; }
 
-.prompt-agent-thinking-menu { position: fixed; z-index: var(--layer-menu); overflow-y: auto; box-sizing: border-box; background: var(--surface-panel-strong); color: var(--text-primary); }
+.prompt-agent-thinking-menu {
+    position: fixed; z-index: var(--layer-menu); display: grid; align-content: start; gap: 6px; box-sizing: border-box;
+    overflow-y: auto; overscroll-behavior: contain; padding: 8px; border: 1px solid var(--menu-border, var(--panel-border-strong));
+    border-radius: 8px; background: var(--menu-surface, var(--surface-panel-strong)); color: var(--text-primary);
+    box-shadow: var(--menu-shadow, var(--panel-shadow-soft));
+}
+.prompt-agent-thinking-menu .thinking-control-group { display: grid; gap: 3px; min-width: 0; }
+.prompt-agent-thinking-menu .thinking-control-group > strong { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.prompt-agent-thinking-menu .thinking-control-choices { display: grid; gap: 2px; min-width: 0; }
+.prompt-agent-thinking-menu .thinking-choice {
+    display: block; position: relative; width: 100%; min-width: 0; min-height: 28px; box-sizing: border-box; padding: 5px 28px 5px 8px;
+    border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-primary); text-align: left;
+    font: inherit; font-size: 12px; overflow-wrap: anywhere; cursor: pointer;
+}
+.prompt-agent-thinking-menu .thinking-choice:hover,
+.prompt-agent-thinking-menu .thinking-choice:focus-visible { background: var(--menu-hover-bg, var(--panel-hover-bg)); outline: 2px solid var(--menu-focus-ring); outline-offset: -2px; }
+.prompt-agent-thinking-menu .thinking-choice[aria-checked="true"] { background: var(--panel-active-bg); color: var(--text-link); }
+.prompt-agent-thinking-menu .thinking-choice[aria-checked="true"]::after { content: '✓'; position: absolute; right: 9px; top: 5px; }
+.prompt-agent-thinking-menu .thinking-choice:disabled { opacity: .6; cursor: not-allowed; }
+.prompt-agent-thinking-menu .thinking-control-advanced { min-width: 0; border-top: 1px solid var(--menu-border, var(--panel-border-strong)); padding-top: 5px; }
+.prompt-agent-thinking-menu .thinking-control-advanced > summary { padding: 3px 2px; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.prompt-agent-thinking-menu .thinking-control-advanced-group { margin-top: 4px; }
+.prompt-agent-thinking-menu .thinking-budget-row { display: flex; gap: 4px; margin-top: 5px; }
+.prompt-agent-thinking-menu .thinking-budget-row input { flex: 1; width: 0; min-width: 0; min-height: 30px; box-sizing: border-box; padding: 4px 6px; font-size: 12px; }
+.prompt-agent-thinking-menu .thinking-budget-apply { min-width: 48px; min-height: 30px; padding: 4px 8px; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--surface-control); color: var(--text-primary); font-size: 12px; cursor: pointer; }
+.prompt-agent-thinking-menu .thinking-budget-range,
+.prompt-agent-thinking-menu .thinking-control-status { display: block; margin: 2px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.prompt-agent-thinking-menu .thinking-control-status.is-error { color: var(--danger-color, var(--text-primary)); font-size: 12px; }
+.prompt-agent-thinking-menu .prompt-agent-settings-footer { display: block; min-width: 0; margin: 0; padding: 6px 1px 0; border-top: 1px solid var(--menu-border, var(--panel-border-strong)); color: var(--text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.prompt-agent-thinking-menu .prompt-agent-settings-footer:empty { display: none; }
 
 /* Size settings reuse the Agent menu surface and flat controls. */
-#prompt-agent-size-button { min-height: 28px; padding: 2px 4px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.prompt-agent-size-menu > strong { display: block; margin-bottom: 8px; font-size: 13px; }
-.prompt-agent-size-menu .prompt-agent-model-trigger { min-width: 0; flex: 1; }
-.prompt-agent-size-dimensions { display: flex; gap: 6px; }
+.prompt-agent-size-settings { display: grid; gap: 5px; min-width: 0; }
+.prompt-agent-size-fields { display: grid; min-width: 0; }
+.prompt-agent-size-fields label,
+.prompt-agent-size-dimensions label { display: grid; gap: 3px; min-width: 0; color: var(--text-secondary); font-size: 11px; }
+.prompt-agent-size-fields > label { grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 6px; min-height: 34px; padding: 5px 0; }
+.prompt-agent-size-fields > label + label { border-top: 1px solid var(--menu-border, var(--panel-border-strong)); }
+.prompt-agent-size-fields > label > span { overflow-wrap: anywhere; }
+.prompt-agent-size-fields .prompt-agent-model-trigger { width: 100%; border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); padding-left: 7px; font-size: 12px; font-weight: 500; }
+.prompt-agent-size-aspect-hint { color: var(--text-secondary); font-size: 11px; line-height: 1.3; }
+.prompt-agent-size-aspect-hint:empty { display: none; }
+.prompt-agent-size-fields .prompt-agent-size-aspect-hint { grid-column: 1 / -1; }
+.prompt-agent-size-settings select,
+.prompt-agent-size-settings input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 28px; border: 1px solid var(--panel-input-border); border-radius: 6px; color: var(--text-primary); background: var(--panel-input-bg); padding: 4px 6px; font: inherit; }
+.prompt-agent-size-settings select:focus-visible,
+.prompt-agent-size-settings input:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
+.prompt-agent-size-dimensions { display: flex; gap: 6px; padding-top: 6px; border-top: 1px solid var(--menu-border, var(--panel-border-strong)); }
 .prompt-agent-size-dimensions[hidden] { display: none; }
-.prompt-agent-size-dimensions label { flex: 1; min-width: 0; font-size: 12px; }
-.prompt-agent-size-dimensions input { box-sizing: border-box; width: 100%; min-height: 28px; border: 1px solid var(--panel-input-border); border-radius: 6px; color: var(--text-primary); background: var(--panel-input-bg); padding: 4px 6px; }
-.prompt-agent-size-dimensions input:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
+.prompt-agent-size-dimensions > label { flex: 1; }
+.prompt-agent-size-dimensions > label + label { padding-left: 6px; border-left: 1px solid var(--menu-border, var(--panel-border-strong)); }
+.prompt-agent-size-hint { color: var(--text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.prompt-agent-size-hint:empty { display: none; }
 .prompt-agent-size-clarification { display: flex; flex-wrap: wrap; gap: 4px; }
 .prompt-agent-size-clarification p { flex-basis: 100%; margin: 4px 0; }
 .prompt-agent-size-summary p { margin: 4px 0; color: var(--text-secondary); font-size: 12px; }
+
+.prompt-agent-search-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; font-size: 12px; }
+/* Reuse the toolbar's checkbox + slider animation instead of painting the track on the input. */
+.prompt-agent-search-toggle .prompt-agent-search-switch { width: 30px; height: 18px; flex: none; }
+.prompt-agent-search-toggle .toggle-slider::before { width: 12px; height: 12px; left: 3px; top: 3px; transform: none; }
+.prompt-agent-search-toggle .prompt-agent-search-switch input:checked + .toggle-slider::before { transform: translateX(12px); }
+.prompt-agent-search-toggle input:focus-visible + .toggle-slider { outline: 2px solid var(--menu-focus-ring); outline-offset: 2px; }
+.prompt-agent-search-toggle input:disabled + .toggle-slider { opacity: .5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+    .prompt-agent-search-toggle .toggle-slider, .prompt-agent-search-toggle .toggle-slider::before { transition: none; }
+}

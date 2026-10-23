@@ -48,7 +48,8 @@ try {
         const rect=menu.getBoundingClientRect();
         const plus=document.getElementById('prompt-agent-add-reference');
         const pr=plus.getBoundingClientRect(), ir=plus.querySelector('svg').getBoundingClientRect();
-        check(rect.left>=0 && rect.right<=innerWidth && rect.top>=0 && rect.bottom<=innerHeight && menu.scrollHeight>menu.clientHeight, `${theme}-menu`);
+        const options=menu.querySelector('.prompt-agent-model-options');
+        check(rect.left>=0 && rect.right<=innerWidth && rect.top>=0 && rect.bottom<=innerHeight && options.scrollHeight>options.clientHeight, `${theme}-menu`);
         check(Math.abs((pr.left+pr.right)-(ir.left+ir.right))<1 && Math.abs((pr.top+pr.bottom)-(ir.top+ir.bottom))<1,`${theme}-plus`);
         const paint = document.createElement('canvas').getContext('2d');
         const panelStyle = getComputedStyle(panel), canvasStyle = getComputedStyle(canvas);

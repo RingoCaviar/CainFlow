@@ -19,23 +19,12 @@ test('old configuration defaults and explicit search opt-out survive repeated no
     for (const invalid of [0, -1, 1.5, '12000', null, Infinity]) assert.equal(normalizeModelConfig({ ...chat, autoCompactTokenLimit: invalid }).autoCompactTokenLimit, undefined);
 });
 
-test('search menu and execution resolve the same model, capability and configuration action', () => {
-    assert.equal(evaluate().model.id, 'search');
-    assert.equal(evaluate({ settings: {} }).reason, 'model');
-    assert.equal(evaluate({ settings: { modelId: 'deleted' } }).reason, 'model');
-    assert.equal(evaluate({ model: { ...chat, protocol: 'google' } }).source, 'conversation');
-    assert.equal(evaluate({ model: { ...chat, protocol: 'google' }, kind: 'images' }).source, 'dedicated');
-    assert.equal(evaluate({ providers: [] }).target.modelId, 'search');
-    const missingAddress = evaluate({ providers: [{ ...provider, autoComplete: false }] });
-    assert.equal(missingAddress.reason, 'responses-endpoint');
-    assert.deepEqual(missingAddress.target, { providerId: 'p', field: 'responsesEndpoint' });
-    assert.equal(evaluate({ providers: [{ ...provider, autoComplete: false, responsesEndpoint: 'https://controlled.test/responses' }] }).available, true);
-    assert.equal(evaluate({ settings: { mode: 'off' } }).reason, 'off');
-    assert.equal(evaluate({ providers: [{ ...provider, endpoint: 'localhost:5000/v1' }] }).available, true);
-    assert.deepEqual(evaluate({ models: [{ ...search, modelId: '' }] }).target, { modelId: 'search', field: 'modelId' });
-    assert.equal(evaluate({ models: [{ ...search, protocol: 'google' }], kind: 'images' }).available, false);
-    // A configured current model with a broken Provider must not silently use the dedicated one.
-    assert.equal(evaluate({ model: { ...chat, agentSearch: 'web', providerIds: ['removed'] } }).reason, 'provider');
+test('search uses only the current model and ignores legacy dedicated selection', () => {
+    assert.equal(evaluate().model.id, 'chat');
+    assert.equal(evaluate({ model: search }).model.id, 'search');
+    assert.equal(evaluate({ model: { ...chat, protocol: 'google' }, kind: 'images' }).available, true);
+    assert.equal(evaluate({ model: search, settings: { mode: 'off' } }).reason, 'off');
+    assert.equal(evaluate({ model: { ...search, providerIds: ['removed'] } }).reason, 'provider');
 });
 
 test('failed settings writes retain the exact search configuration for retry and disk rehydration', async () => {

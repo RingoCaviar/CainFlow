@@ -4,7 +4,7 @@ import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
 
-export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, parent, plan, adapter, getModels, getProviders = () => [], getThinking = () => undefined, getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, preview = () => {}, configure = () => {} }) {
+export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, parent, plan, adapter, getModels, getProviders = () => [], getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, preview = () => {}, configure = () => {} }) {
     const card = documentRef.createElement('section'); card.className = 'prompt-agent-canvas-plan';
     parent.appendChild(card);
     let busy = false;
@@ -68,11 +68,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
                 if (value && !models.some(model => model.id === value)) { const option = element('option', '原模型已不可用，请重新选择', select); option.value = value; option.disabled = true; }
                 select.value = value;
                 const chosen = models.find(model => model.id === (value || getModelId()));
-                modelLabel.textContent = `模型：${chosen ? getAgentModelLabel(chosen, getProviders(), value ? providerIdFor(chosen.id) : getProviderId(chosen.id)) : '未选择'} · 参数`;
+                modelLabel.textContent = `生图模型与参数：${chosen ? getAgentModelLabel(chosen, getProviders(), value ? providerIdFor(chosen.id) : getProviderId(chosen.id)) : '未选择'}`;
             };
             thinkingControls.push(createThinkingControl({ documentRef, parent: settings, title: `${step.title}的思考设置`,
                 getOptions: () => { const model = getModels().find(item => item.id === (plan.modelOverrides?.[id] || getModelId())) || {};
-                    return { model: { ...model, thinking: { ...model.thinking, default: getThinking(model.id) || model.thinking?.default } }, provider: (() => { try { return resolveAgentProvider(model, getProviders(), plan.modelOverrides?.[id] ? providerIdFor(model.id) : getProviderId(model.id)); } catch { return {}; } })(), protocol: model.protocol, task: 'image' }; },
+                    return { model, provider: (() => { try { return resolveAgentProvider(model, getProviders(), plan.modelOverrides?.[id] ? providerIdFor(model.id) : getProviderId(model.id)); } catch { return {}; } })(), protocol: model.protocol, task: 'image' }; },
                 getValue: () => plan.thinkingOverrides?.[id]?.[plan.modelOverrides?.[id] || getModelId()],
                 onChange: value => { ((plan.thinkingOverrides ||= {})[id] ||= {})[plan.modelOverrides?.[id] || getModelId()] = value; changed(plan); sync(); } }));
             refreshSelectors.push(refreshModels); select.addEventListener('focus', refreshModels);
@@ -102,7 +102,6 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     function sync() {
         if (!busy && !plan.runs?.length) plan.agentSizes = Object.fromEntries(getModels().map(model => [model.id, getSize(model.id)]));
         if (!busy) plan.agentProviders = Object.fromEntries(getModels().map(model => [model.id, getProviderId(model.id)]));
-        if (!busy) plan.agentThinking = Object.fromEntries(getModels().map(model => [model.id, getThinking(model.id)]).filter(([, value]) => value));
         thinkingControls.forEach(control => control.refresh());
         focusButtons.forEach((button, id) => { button.disabled = !plan.bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
         refreshSelectors.forEach(refresh => refresh());

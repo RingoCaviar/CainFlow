@@ -16,14 +16,9 @@ export function getAgentSearchCapability(model) {
 export function getAgentSearchAvailability({ model, models = [], providers = [], providerId = '', settings = {}, kind = 'web' }) {
     const fail = (reason, message, target = {}) => ({ available: false, reason, message, target });
     if (settings.mode === 'off') return fail('off', '联网已关闭');
-    const current = canAgentSearch(model, kind);
-    const selected = current ? model : models.find(item => item.id === settings.modelId);
-    if (!selected || !canAgentSearch(selected, kind)) {
-        return fail('model', `请选择支持${kind === 'images' ? '搜图' : '网页搜索'}的专用搜索模型`,
-            { modelId: selected?.id, field: 'agentSearch' });
-    }
+    const selected = model;
     let provider;
-    try { provider = resolveAgentProvider(selected, providers, current ? providerId : settings.providerId); }
+    try { provider = resolveAgentProvider(selected, providers, providerId); }
     catch (error) { return fail('provider', error.message, error.configurationTarget); }
     if (!String(selected.modelId || '').trim()) return fail('model', '搜索模型缺少模型 ID', { modelId: selected.id, field: 'modelId' });
     if (selected.protocol === 'openai' && provider.autoComplete === false && !safeSearchUrl(provider.responsesEndpoint)) {
@@ -31,8 +26,8 @@ export function getAgentSearchAvailability({ model, models = [], providers = [],
     }
     try { resolveThinking({ model: selected, provider, task: 'chat', protocol: selected.protocol === 'openai' ? 'responses' : selected.protocol }); }
     catch (error) { return fail('thinking', error.message, { modelId: selected.id, field: 'thinking' }); }
-    return { available: true, model: selected, provider, source: current ? 'conversation' : 'dedicated',
-        message: `${selected.name || selected.modelId} · ${provider.name || provider.id}（${current ? '对话模型' : '专用模型'}）`, target: { modelId: selected.id, field: 'agentSearch' } };
+    return { available: true, model: selected, provider, source: 'conversation',
+        message: `${selected.name || selected.modelId} · ${provider.name || provider.id}（对话模型）`, target: { modelId: selected.id, field: 'agentSearch' } };
 }
 
 export function canAgentSearch(model, kind = 'web') {
@@ -41,13 +36,8 @@ export function canAgentSearch(model, kind = 'web') {
 }
 
 export function resolveAgentSearchModel(model, models, settings, kind) {
-    if (settings?.mode === 'off') throw new Error('联网已关闭，请在联网菜单中开启自动搜索。');
-    if (canAgentSearch(model, kind)) return model;
-    const dedicated = models.find(item => item.id === settings?.modelId);
-    if (!dedicated || !canAgentSearch(dedicated, kind)) {
-        throw new Error(`当前模型不支持${kind === 'images' ? '搜图' : '网页搜索'}，请在联网菜单中配置具备该能力的专用搜索模型。`);
-    }
-    return dedicated;
+    if (settings?.mode === 'off') throw new Error('联网已关闭，请在对话模型设置中开启按需搜索。');
+    return model;
 }
 
 export function safeSearchUrl(value) {

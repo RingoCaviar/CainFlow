@@ -196,7 +196,7 @@ export async function createPromptAgentModelReply({
             const { kind, query } = payload.searchRequest;
             if (!['web', 'images'].includes(kind) || typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('模型返回的搜索请求无效。');
             const availability = getAgentSearchAvailability({ model, models, providers, providerId: provider.id, settings: searchSettings, kind });
-            if (!availability.available) throw new Error(`${availability.message}，请打开联网菜单完成配置。`);
+            if (!availability.available) throw new Error(`${availability.message}，请在对话模型设置中配置联网搜索。`);
             const searchModel = availability.model;
             onSearchStatus(kind === 'images' ? '正在搜索图片…' : '正在联网查找资料…');
             search = normalizeAgentSearch(await searchRef({ model: searchModel, providers, providerId: availability.provider.id, recordRequest, workflowId, kind, query: query.trim(), fetchRef,

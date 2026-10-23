@@ -12,7 +12,7 @@ const provider = { id: 'p', endpoint: 'https://api.example.test/v1', apikey: 'te
 const chat = { id: 'chat', modelId: 'gpt-4o', protocol: 'openai', providerIds: ['p'] };
 const searchModel = { ...chat, id: 'search', agentSearch: 'images' };
 const google = { ...chat, id: 'google', modelId: 'gemini', protocol: 'google' };
-const options = { model: chat, models: [chat, searchModel], providers: [provider], providerId: 'p', message: '找一些图片', searchSettings: { mode: 'auto', modelId: 'search', providerId: 'p' } };
+const options = { model: searchModel, models: [chat, searchModel], providers: [provider], providerId: 'p', message: '找一些图片', searchSettings: { mode: 'auto', modelId: 'search', providerId: 'p' } };
 const searchRequest = { searchRequest: { kind: 'images', query: 'recent bridge photos' } };
 const raw = {
     output: [{ type: 'web_search_call', status: 'completed', action: { sources: [{ url: 'https://source.test/page', title: 'Source' }] },
@@ -29,8 +29,8 @@ test('search capabilities are explicit, current model wins and missing dedicated
     assert.equal(canAgentSearch(google, 'images'), false);
     assert.equal(canAgentSearch({ ...google, agentSearch: 'none' }), false);
     assert.equal(resolveAgentSearchModel(google, [searchModel], { mode: 'auto', modelId: 'search' }, 'web'), google);
-    assert.equal(resolveAgentSearchModel(google, [searchModel], { mode: 'auto', modelId: 'search' }, 'images'), searchModel);
-    assert.throws(() => resolveAgentSearchModel(chat, [searchModel], { modelId: 'deleted' }, 'web'), /配置/);
+    assert.equal(resolveAgentSearchModel(google, [searchModel], { mode: 'auto', modelId: 'search' }, 'images'), google);
+    assert.equal(resolveAgentSearchModel(chat, [searchModel], { modelId: 'deleted' }, 'web'), chat);
     assert.throws(() => resolveAgentSearchModel(google, [], { mode: 'off' }, 'web'), /关闭/);
 });
 
@@ -53,7 +53,7 @@ test('parsers require real tool evidence and preserve only structured, safe sour
     assert.equal(result().sources.length, 1);
     assert.equal(result().images[0].imageUrl, 'https://image.test/full.png');
     const fake = parseAgentSearchResponse({ output: [{ type: 'message', content: [{ type: 'output_text', text: '我已经联网 https://fake.test/p.png' }] }] }, { protocol: 'openai-responses', id: 'a' });
-    assert.equal(fake.searched, false); assert.equal(fake.images.length, 0); assert.equal(fake.text, '');
+    assert.equal(fake.searched, false); assert.equal(fake.images.length, 0); assert.equal(fake.text, '我已经联网 https://fake.test/p.png');
     const mixed = structuredClone(raw);
     mixed.output[0].results.push({ type: 'image_result', image_url: 'javascript:bad', source_website_url: 'https://source.test' });
     assert.equal(parseAgentSearchResponse(mixed, { protocol: 'openai-responses', id: 'x' }).images.length, 1);
@@ -71,7 +71,7 @@ test('normal chat makes one request with no search', async () => {
     assert.equal(calls, 1); assert.equal(reply.message, '你好'); assert.equal(reply.search, undefined);
 });
 
-test('full native search round uses dedicated provider credentials then synthesizes with the original model', async () => {
+test('native search uses the current model and ignores legacy dedicated credentials', async () => {
     const dedicated = { ...searchModel, providerIds: ['sp'] };
     const requests = [];
     const reply = await createPromptAgentModelReply({ ...options, searchSettings: { ...options.searchSettings, providerId: 'sp' }, models: [chat, dedicated], providers: [provider, { id: 'sp', endpoint: 'https://search.test/v1', apikey: 'search-key' }],
@@ -87,7 +87,7 @@ test('full native search round uses dedicated provider credentials then synthesi
         }
     });
     assert.equal(requests.length, 3);
-    assert.equal(requests[1].headers.Authorization, 'search-key');
+    assert.equal(requests[1].headers.Authorization, 'test-key');
     assert.equal(requests[2].headers.Authorization, 'test-key');
     assert.equal(reply.search.images.length, 1);
     assert.equal(reply.tokenObservation.inputTokens, 3210, 'search-model usage is not the conversation usage');
@@ -185,4 +185,26 @@ test('web originals that finish after removal or workflow activation never creat
     assert.equal(await operation, null);
     assert.equal(calls, 1);
     assert.equal(candidate.resolvedImage, undefined, 'late original is not retained for replay');
+});
+
+
+test('upstream unsupported search is reported without probe or fallback', async () => {
+    let calls = 0;
+    await assert.rejects(searchPromptAgent({ model: searchModel, providers: [provider], providerId: 'p', kind: 'web', query: 'facts',
+        fetchRef: async () => { calls++; return new Response(JSON.stringify({error:{message:'web_search is not supported by this model'}}), {status:400}); }
+    }), /不支持联网搜索.*web_search is not supported/);
+    assert.equal(calls, 1);
+});
+
+
+test('search ignores local capability declarations for both native protocols', async () => {
+    for (const protocol of ['google', 'openai']) for (const agentSearch of [undefined, 'none', 'web']) {
+        const model = {...chat, protocol, agentSearch};
+        const plan = createAgentSearchRequest({model, provider, kind:'web', query:'facts'});
+        assert.ok(plan.requestBody.tools.length);
+        let searches = 0;
+        await createPromptAgentModelReply({...options, model:{...chat,agentSearch},
+            fetchRef:async()=>response(searchRequest), searchRef:async({model: used})=>{searches++;assert.equal(used.id,chat.id);return result();}});
+        assert.equal(searches,1);
+    }
 });

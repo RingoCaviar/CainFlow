@@ -25,9 +25,8 @@ test('Agent chat, image, search and step menus expose Provider names and keep ma
             await evaluate(`document.querySelector('#${id} + button').click()`);
         }
         assert.equal(await evaluate(`document.getElementById('prompt-agent-image-model').value`), '');
-        await evaluate(`document.getElementById('prompt-agent-search-button').click(); document.querySelector('#prompt-agent-search-model + button').click()`);
-        assert.ok(await evaluate(`document.getElementById('prompt-agent-search-model-menu').textContent.includes('供应商甲')`));
-        assert.equal(await evaluate(`document.getElementById('prompt-agent-search-model').value`), '');
+        await evaluate(`document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary').click()`);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-search-enabled').disabled"), false);
         const step = await evaluate(`(async () => {
             const { renderCanvasPlan } = await import('/js/features/prompt-agent/prompt-agent-canvas-ui.js');
             const host = document.createElement('div'); document.body.appendChild(host);

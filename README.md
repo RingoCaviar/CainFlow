@@ -84,3 +84,7 @@ CainFlow 主项目使用 [GNU GPL v3.0](LICENSE)。
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=RingoCaviar/CainFlow&type=date&legend=top-left&sealed_token=ErPREOiLPf_MgRHRjFBFOm6yZ_2VgGZ6llwmO7R2ajhyoPMmiICEqY5HjvTWvzCoPHfNPQWqJElimP95_jQv7g2iWaTfy5vGm_kTV-hc1udk3dtfeWJFbIcuvafqcqAQVIK3GjfzKozPwJ95gWJtAeEwd11U5L8ZSuH90OXHsylHvas5rjC4cAd7G3JH" />
  </picture>
 </a>
+
+### UI 设计规范
+
+界面控件样式与交互约定见 [UI 设计手册](docs/ui-handbook.md)。

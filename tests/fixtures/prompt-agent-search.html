@@ -30,7 +30,7 @@ try {
     for (const invalid of [new Blob(['<html>fake</html>'], {type:'text/html'}), new Blob(['fake pixels'], {type:'image/png'})]) {
         await createAgentWebImageReader({ fetchRef: async () => new Response(invalid) })('https://images.test/invalid').then(() => check(false, 'bad content must reject'), () => {});
     }
-    const chat = { id: 'chat', name: '普通对话模型', modelId: 'chat', protocol: 'openai', providerIds: ['p'] };
+    const chat = { agentSearch: 'images', id: 'chat', name: '普通对话模型', modelId: 'chat', protocol: 'openai', providerIds: ['p'] };
     const dedicated = { ...chat, id: 'search', name: '支持网页及图片搜索的专用模型长名称', agentSearch: 'images' };
     let models = [chat, dedicated];
     const state = { nodes: new Map(), selectedNodes: new Set() };
@@ -50,7 +50,7 @@ try {
         getSelectedModelId: () => 'chat', captureRequestConfig: () => ({}), readWebImage,
         openResultPreview: (images, index) => media.openFullscreenPreview(images[index], null, { images, index }),
         createReply: request => createPromptAgentModelReply({ ...request, providerId: request.config.providerId, searchSettings: { ...request.searchSettings, providerId: request.config.searchProviders.search }, model: chat, models: [chat, dedicated], providers: [{id:'p',endpoint:'https://controlled.test/v1',apikey:'controlled-key'}],
-            searchRef: async ({model}) => { searches++; check(model.id === 'search', 'uses selected dedicated model'); return {
+            searchRef: async ({model}) => { searches++; check(model.id === 'chat', 'uses current conversation model'); return {
                 searched: true, kind: 'images', query: '海报参考', text: '检索资料', sources: [{ id: 's1', url: 'https://source.test/page', title: '图片来源' }],
                 images: [{id:'image1',imageUrl:'https://image.test/full.png',thumbnailUrl:'https://image.test/thumb.png',pageUrl:'https://source.test/page',title:'用于海报的参考图'}],
                 suggestionsHtml: '<script>parent.__unsafeSearchHtml = true;<\/script><b>搜索建议</b>'
@@ -89,34 +89,30 @@ try {
     result.samples = [];
     for (const theme of ['light','dark','pink']) for (const width of [300,612]) {
         document.documentElement.dataset.appTheme = theme; panel.style.width = `${width}px`;
-        const button = document.getElementById('prompt-agent-search-button'); button.click(); await tick();
-        const menu = document.getElementById('prompt-agent-search-menu'); const box = menu.getBoundingClientRect();
-        check(!menu.hidden && box.left >= 0 && box.right <= innerWidth, `menu fits ${theme}/${width}`);
+        const button = document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary'); button.click(); await tick();
+        document.getElementById('prompt-agent-search-menu').open = true; await new Promise(resolve => setTimeout(resolve, 30));
+        const menu = document.getElementById('prompt-agent-search-menu'); const box = document.querySelector('.prompt-agent-thinking-menu').getBoundingClientRect();
+        check(menu.open && box.left >= 0 && box.right <= innerWidth, `menu fits ${theme}/${width}`);
         check(Math.abs(panel.getBoundingClientRect().width - width) <= 2, 'check the requested width');
-        check(box.bottom <= button.getBoundingClientRect().top && box.top >= 0, 'menu opens above the trigger in viewport space');
+        check(box.top >= 0 && box.bottom <= innerHeight, 'settings stay inside viewport '+JSON.stringify({box:box.toJSON(),height:innerHeight}));
         check(panel.scrollWidth <= panel.clientWidth, `panel fits ${theme}/${width}`);
         check(menu.scrollWidth <= menu.clientWidth, `settings fit ${theme}/${width}`);
-        const trigger = document.getElementById('prompt-agent-search-model').parentElement.querySelector('button');
-        trigger.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown',bubbles:true}));
-        const options = document.getElementById('prompt-agent-search-model-menu'); check(options, 'search model menu opens by keyboard');
-        const option = options.querySelector('[aria-selected="true"]'); const rect = option.getBoundingClientRect();
-        check(option.contains(document.elementFromPoint(rect.left + 8, rect.top + 8)), 'search model options are not covered by settings');
-        options.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true})); check(!document.getElementById('prompt-agent-search-model-menu'), 'Escape closes options only');
-        check(!menu.hidden, 'settings remain open after closing options');
-        menu.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true})); check(menu.hidden, 'Escape closes menu');
+        menu.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true})); check(!document.querySelector('.prompt-agent-thinking-menu'), 'Escape closes settings');
         result.samples.push({theme,width});
     }
     models = [chat]; controller.refreshModels(); await tick();
-    check(document.getElementById('prompt-agent-search-model').value === 'search' && document.getElementById('prompt-agent-search-model').selectedOptions[0].disabled, 'deleted dedicated model remains selected and unavailable');
+    check(!document.getElementById('prompt-agent-search-enabled').disabled, 'current model remains usable without dedicated model');
     models = [chat, dedicated]; controller.refreshModels(); await tick();
-    document.getElementById('prompt-agent-search-button').click();
-    const mode = document.getElementById('prompt-agent-search-mode'); mode.value = 'off'; mode.dispatchEvent(new Event('change'));
+    document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary').click();
+    document.getElementById('prompt-agent-search-menu').open = true;
+    const mode = document.getElementById('prompt-agent-search-enabled'); mode.checked = false; mode.dispatchEvent(new Event('change'));
     check(controller.snapshotWorkflow().searchSettings.mode === 'off', 'mode persists');
     input.value = '/clear'; await controller.submit();
     check(controller.snapshotWorkflow().searchSettings.modelId === 'search', 'clear preserves dedicated selection');
     check(!document.querySelector('.prompt-agent-search-image'), 'clear erases search cards');
     controller.restoreWorkflow(saved); controller.open(); panel.style.width = '300px'; await tick();
-    document.getElementById('prompt-agent-search-button').click(); await tick();
+    document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary').click(); await tick();
+    document.getElementById('prompt-agent-search-menu').open = true;
     result.passed = true;
 } catch(error) { result.error = error.stack || String(error); }
 document.getElementById('surface-result').textContent = JSON.stringify(result);

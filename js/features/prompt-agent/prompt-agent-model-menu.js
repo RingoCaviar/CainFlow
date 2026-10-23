@@ -35,7 +35,7 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
         menu.style.top = `${up ? Math.max(8, rect.top - menu.getBoundingClientRect().height - 4) : rect.bottom + 4}px`;
     };
     for (const entry of selects.filter(Boolean)) {
-        const { select, route, parent: parentId = parent, placeholder: emptyText = placeholder } = 'select' in entry ? entry : { select: entry };
+        const { select, route, parent: parentId = parent, placeholder: emptyText = placeholder, searchLabel = route ? '模型或供应商' : '选项' } = 'select' in entry ? entry : { select: entry };
         if (!select?.insertAdjacentElement) continue;
         const originalTabIndex = select.getAttribute('tabindex');
         const originalHidden = select.getAttribute('aria-hidden');
@@ -71,8 +71,28 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             menu.id = `${select.id}-menu`;
             menu.className = 'prompt-agent-model-menu';
             if (parentId) menu.dataset.agentPopoverParent = parentId;
-            menu.setAttribute('role', 'listbox');
+            menu.setAttribute('role', 'group');
             menu.setAttribute('aria-label', select.getAttribute('aria-label'));
+            const search = documentRef.createElement('input');
+            search.type = 'search';
+            search.className = 'prompt-agent-model-search';
+            search.placeholder = `搜索${searchLabel}`;
+            search.setAttribute('aria-label', `搜索${searchLabel}`);
+            search.autocomplete = 'off';
+            search.spellcheck = false;
+            menu.appendChild(search);
+            const status = documentRef.createElement('div');
+            status.className = 'prompt-agent-model-search-status';
+            status.setAttribute('role', 'status');
+            status.setAttribute('aria-live', 'polite');
+            menu.appendChild(status);
+            const list = documentRef.createElement('div');
+            list.id = `${select.id}-options`;
+            list.className = 'prompt-agent-model-options';
+            list.setAttribute('role', 'listbox');
+            list.setAttribute('aria-label', select.getAttribute('aria-label'));
+            menu.appendChild(list);
+            search.setAttribute('aria-controls', list.id);
             const options = [...select.options].flatMap(option => {
                 const model = route?.getModels().find(item => item.id === option.value);
                 if (!model) return [{ value: option.value, textContent: option.textContent, disabled: option.disabled, selected: option.selected }];
@@ -109,8 +129,22 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
                     }
                     sync();
                 });
-                menu.appendChild(item);
+                list.appendChild(item);
             }
+            const visibleItems = () => [...list.querySelectorAll('button:not([hidden])')];
+            const filterOptions = () => {
+                const query = search.value.trim().toLocaleLowerCase();
+                let count = 0;
+                for (const item of list.querySelectorAll('button')) {
+                    const matches = !query || item.textContent.toLocaleLowerCase().includes(query);
+                    item.hidden = !matches;
+                    if (matches) count++;
+                }
+                status.textContent = count === 0 ? `没有匹配的${searchLabel}` : query ? `${count} 个匹配项` : `${list.children.length} 个选项`;
+                status.hidden = !list.children.length;
+            };
+            search.addEventListener('input', filterOptions);
+            filterOptions();
             documentRef.body.appendChild(menu);
             current = { select, trigger, menu };
             surfaces?.openPopover(menu.id, { element: menu, trigger, close,
@@ -118,18 +152,24 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             if (!current) return;
             trigger.setAttribute('aria-expanded', 'true');
             position();
-            (menu.querySelector('[aria-selected="true"]:not(:disabled)') || menu.querySelector('button:not(:disabled)'))?.focus();
+            search.focus();
             menu.addEventListener('keydown', event => {
-                const items = [...menu.querySelectorAll('button:not(:disabled)')];
+                const items = visibleItems().filter(item => !item.disabled);
                 const index = items.indexOf(documentRef.activeElement);
                 if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); }
                 else if (event.key === 'Tab') { close(true); }
-                else if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault(); event.stopPropagation(); items[index]?.click();
+                else if (event.key === 'Enter' || (event.key === ' ' && documentRef.activeElement !== search)) {
+                    if (documentRef.activeElement === search) {
+                        if (items.length === 1) { event.preventDefault(); event.stopPropagation(); items[0].click(); }
+                    } else { event.preventDefault(); event.stopPropagation(); items[index]?.click(); }
                 }
                 else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                    if (event.target === search && (event.key === 'Home' || event.key === 'End')) return;
                     event.preventDefault();
-                    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                    if (!items.length) return;
+                    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : documentRef.activeElement === search
+                        ? (event.key === 'ArrowDown' ? 0 : items.length - 1)
+                        : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
                     items[next]?.focus();
                 }
             });

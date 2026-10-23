@@ -36,10 +36,10 @@ test('four combined menus preserve model/provider identities; real requests and 
         await waitFor("document.querySelector('#prompt-agent-model + button')?.textContent.includes('供应商乙')");
         assert.match(await evaluate("document.querySelector('#prompt-agent-model + button').textContent"),/供应商乙/);
         await choose('prompt-agent-image-model','image','b');
-        await evaluate("document.getElementById('prompt-agent-search-button').click()");
-        await choose('prompt-agent-search-model','chat','b');
-        assert.equal(await evaluate("document.getElementById('prompt-agent-search-menu').hidden"),false);
-        await evaluate("document.getElementById('prompt-agent-search-button').click()");
+        await evaluate("document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary').click();document.getElementById('prompt-agent-search-menu').open=true");
+        assert.equal(await evaluate("document.getElementById('prompt-agent-search-enabled').disabled"),false);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-search-menu').open"),true);
+        await evaluate("document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary').click()");
         for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}';document.getElementById('prompt-agent-panel').style.width='300px';document.querySelector('#prompt-agent-model + button').click()`);
             assert.ok(await evaluate(`(()=>{const menu=document.getElementById('prompt-agent-model-menu'),r=menu.getBoundingClientRect(); const b=menu.querySelector('[data-provider-id="b"]'),p=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&b.contains(document.elementFromPoint(p.x+p.width/2,p.y+p.height/2))})()`));
@@ -79,8 +79,8 @@ test('four combined menus preserve model/provider identities; real requests and 
         await waitFor("document.querySelector('#prompt-agent-model + button')?.textContent.includes('供应商乙')");
         assert.match(await evaluate("document.querySelector('#prompt-agent-model + button').textContent"),/供应商乙/);
         assert.match(await evaluate("document.querySelector('#prompt-agent-image-model + button').textContent"),/供应商乙/);
-        await evaluate("document.getElementById('prompt-agent-search-button').click()");
-        assert.match(await evaluate("document.querySelector('#prompt-agent-search-model + button').textContent"),/供应商乙/);
+        await evaluate("document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary').click();document.getElementById('prompt-agent-search-menu').open=true");
+        assert.equal(await evaluate("document.getElementById('prompt-agent-search-enabled').disabled"),false);
         await evaluate("document.getElementById('btn-toggle-statistics').click()");
         assert.equal(await evaluate("document.getElementById('statistics-total-requests').textContent"),'2');
         await evaluate("document.getElementById('btn-settings').click();const key=document.querySelector('#providers-list input[data-id=b][data-field=apikey]');key.value='';key.dispatchEvent(new Event('change',{bubbles:true}));window.__cainflowSettingsModalApi.closeSettingsModal();document.getElementById('btn-prompt-agent').click()");

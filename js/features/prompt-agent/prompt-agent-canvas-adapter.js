@@ -44,7 +44,9 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             if (!model) throw new Error(`请为「${step.title}」手动选择可用的生图模型`);
             const provider = resolveAgentProvider(model, state.providers, plan.providerOverrides?.[step.id]?.[id] ?? plan.agentProviders?.[id]);
             if (!provider?.endpoint) throw new Error(`「${step.title}」的 Provider 不可用`);
-            const thinking = resolveThinking({ model, provider, task: 'image', protocol: model.protocol }, plan.thinkingOverrides?.[step.id]?.[id], plan.agentThinking?.[id]).setting;
+            // Agent-level image thinking preferences are retired; only explicit per-step
+            // overrides and the model/Provider defaults remain applicable.
+            const thinking = resolveThinking({ model, provider, task: 'image', protocol: model.protocol }, plan.thinkingOverrides?.[step.id]?.[id]).setting;
             return [step.id, { model, provider, thinking }];
         }));
     }
