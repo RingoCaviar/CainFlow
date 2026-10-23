@@ -12,6 +12,8 @@ The canvas context projects registered node types, stable identities, names, pos
 
 New replies using the legacy `promptPlan` contract are adapted into a single generation step plus required inputs and saves. Historical legacy cards retain their existing actions. Image imports can reference an application-provided image identity; the application resolves it to the fixed original Media asset. Existing latest-result edit-target checks also gate multi-step edit replies. Sources missing their original assets cannot be substituted by previews or remote downloads.
 
+For image editing, the Agent describes requested changes, invariants and each selected image's role instead of narrating pixels already attached to the generation request. Multi-image Prompt Plans carry an ordered, concise role guide in the actual prompt. Its numbering follows the same selected-image sequence used for canvas connections and Provider media input; optional per-image purposes survive workflow conversation persistence. Prompt-only revisions of a saved canvas plan read both canonical `referenceImages` and legacy `image_N` ports in connection order.
+
 ## Preview, apply and execution
 
 The card displays steps, models, field changes and connection changes before any graph mutation. Automatic generation-save nodes are included in that preview. The user manually chooses the panel image model, optionally overriding individual generation steps. Capability, Provider and parameter failures stop application; there is no model fallback. Invalidated dependencies require a refreshed preview or a new plan. Unrelated graph edits and automatic node size settlement do not invalidate the plan.

@@ -51,7 +51,7 @@ function normalizePromptPlan(plan) {
         .filter((image) => image && typeof image === 'object')
         .map((image) => {
             const safe = {};
-            ['name', 'type', 'referenceId', 'sourceNodeId', 'sourceImageIndex', 'sourcePort', 'targetPort', 'assetKeys', 'imageId', 'role', 'imageCount'].forEach((key) => {
+            ['name', 'type', 'referenceId', 'sourceNodeId', 'sourceImageIndex', 'sourcePort', 'targetPort', 'assetKeys', 'imageId', 'role', 'purpose', 'imageCount'].forEach((key) => {
                 if (image[key] !== undefined && image[key] !== null) safe[key] = clone(image[key]);
             });
             if (Array.isArray(image.images)) safe.imageCount = image.images.length;

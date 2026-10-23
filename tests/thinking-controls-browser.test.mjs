@@ -103,17 +103,12 @@ test('thinking controls persist Agent choices, apply to nodes and reach actual c
     });
 });
 
-test('model and Provider thinking templates persist through settings edits and application reconstruction', { timeout: 30000 }, async () => {
-    await withAppBrowser({ models, providers, autoCheckUpdatesOnLoad: false }, async ({ evaluate, send, waitFor }) => {
-        await waitFor("document.querySelectorAll('.thinking-model-settings').length===2");
-        await evaluate(`var profile=document.querySelector('.thinking-model-settings > label > select');profile.value='openai-max';profile.dispatchEvent(new Event('change',{bubbles:true}));`);
-        await evaluate(`var override=document.querySelectorAll('.thinking-model-settings > label > select')[1];override.value='openai-basic';override.dispatchEvent(new Event('change',{bubbles:true}));`);
-        await evaluate(`var choice=document.querySelector('.thinking-model-settings .thinking-control select');choice.value='level:high';choice.dispatchEvent(new Event('change',{bubbles:true}));`);
-        await delay(1000);
-        await send('Page.reload'); await delay(1000);
-        await waitFor("document.querySelectorAll('.thinking-model-settings').length===2");
-        assert.deepEqual(await evaluate(`[...document.querySelector('.thinking-model-settings').querySelectorAll('select')].map(s=>s.value)`), ['openai-max','openai-basic','level:high']);
-        assert.ok(await evaluate(`[...document.querySelector('.thinking-model-settings > label > select').options].every(o=>!o.value.startsWith('google'))`));
+test('model editor omits compatibility templates while Agent thinking controls remain', { timeout: 30000 }, async () => {
+    await withAppBrowser({ models, providers, autoCheckUpdatesOnLoad: false }, async ({ evaluate, waitFor }) => {
+        await evaluate("document.getElementById('btn-settings').click();document.querySelector('.model-config-card .card-header').click()");
+        assert.equal(await evaluate("document.querySelectorAll('.thinking-model-settings').length"), 0);
+        await evaluate("window.__cainflowSettingsModalApi.closeSettingsModal();document.getElementById('btn-prompt-agent').click()");
+        await waitFor("document.querySelectorAll('.prompt-agent-settings .thinking-control').length===2");
     });
 });
 

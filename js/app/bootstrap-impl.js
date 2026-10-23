@@ -25,6 +25,7 @@ import {
 } from '../services/api-client.js';
 import { createSystemNotificationService } from '../services/system-notification-service.js';
 import { diskStorage } from '../services/storage-documents.js';
+import { migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId } from '../features/prompt-agent/auto-compact-preference.js';
 import {
     createBezierPath as createBezierPathService,
     checkLineIntersection as checkLineIntersectionService,
@@ -327,14 +328,18 @@ const renderProjectionManager = createRenderProjectionManager({
     windowRef: window,
     performanceMonitor: canvasPerformanceMonitor
 });
-function focusCanvasNode(nodeId) {
+function focusCanvasNode(nodeId, { avoidAgentPanel = false } = {}) {
     const node = state.nodes.get(nodeId);
     const rect = canvasContainer?.getBoundingClientRect?.();
     if (!node || !rect) return false;
     const zoom = Number(state.canvas.zoom) || 1;
     const width = Number(node.width) || node.el?.offsetWidth || 220;
     const height = Number(node.height) || node.el?.offsetHeight || 140;
-    state.canvas.x = rect.width / 2 - (Number(node.x) + width / 2) * zoom;
+    const panel = avoidAgentPanel ? document.getElementById('prompt-agent-panel') : null;
+    const panelRect = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
+    const visibleWidth = panelRect ? Math.min(rect.width, panelRect.left - rect.left - 12) : rect.width;
+    const centerX = visibleWidth > 0 ? visibleWidth / 2 : rect.width / 2;
+    state.canvas.x = centerX - (Number(node.x) + width / 2) * zoom;
     state.canvas.y = rect.height / 2 - (Number(node.y) + height / 2) * zoom;
     viewportApi.updateCanvasTransform({ connectionRefreshReason: 'node-failure-focus' });
     renderProjectionManager.focusNode(nodeId);
@@ -940,12 +945,13 @@ const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     nodeAdapter: promptAgentNodeAdapter,
     runWorkflow: (runInput, options) => runWorkflow(runInput, { ...options, waitForCompletion: true }),
     cancelRunningNode,
-    focusNode: focusCanvasNode
+    focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true })
 });
 const promptAgentModelPreference = createAgentChatModelPreference({ storage: diskStorage,
     legacyStorage: { getItem: key => window.localStorage.getItem(key) } });
 const getPromptAgentModelId = promptAgentModelPreference.get;
 const setPromptAgentModelId = promptAgentModelPreference.set;
+migrateAutoCompactTokens(diskStorage, state.models, getPromptAgentModelId());
 const promptAgentResultPersistence = createPromptAgentResultPersistence({
     saveWorkflowNodeMediaAssets, releaseWorkflowNodeMediaAssets, cancelWorkflowNodeMediaOperation, getImageAsset
 });
@@ -970,7 +976,7 @@ const promptAgentController = createPromptAgentController({
                     width: (bounds.width + 32) / state.canvas.zoom, height: (bounds.height + 32) / state.canvas.zoom } } : {}) };
         },
         getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
-        cancelNode: cancelRunningNode, focusNode: focusCanvasNode
+        cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true })
     }),
     panelManager,
     getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
@@ -1000,6 +1006,7 @@ const promptAgentController = createPromptAgentController({
     }),
     getPanelWidth: () => diskStorage.getItem('cainflow_prompt_agent_panel_width'),
     setPanelWidth: (width) => diskStorage.setItem('cainflow_prompt_agent_panel_width', String(width)),
+    getAutoCompactTokenLimit: () => readAutoCompactTokens(diskStorage),
     nodeAdapter: promptAgentNodeAdapter,
     executionAdapter: promptAgentExecutionAdapter,
     getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
@@ -1016,6 +1023,7 @@ const promptAgentController = createPromptAgentController({
     openModelSettings: target => settingsControllerApi?.openModelSettings?.(target),
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
+    getSelectedCompactionModelId: () => readCompactionModelId(diskStorage),
     createReply: (request) => {
         const { model, models, providers, providerId, workflowId, searchProviders = {} } = request.config || captureAgentRequestConfig(request.modelId);
         return createPromptAgentModelReply({

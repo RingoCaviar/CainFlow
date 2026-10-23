@@ -28,7 +28,7 @@ function projectHistory(conversation, images) {
                 negativePrompt: message.promptPlan.negativePrompt,
                 parameters: message.promptPlan.parameters || {},
                 referenceImages: (message.promptPlan.referenceImages || []).map((image) => ({
-                    name: image.name, role: image.role, sourceNodeId: image.sourceNodeId,
+                    name: image.name, role: image.role, purpose: image.purpose, sourceNodeId: image.sourceNodeId,
                     imageId: images.find((entry) => entry.source === image.dataUrl || (image.referenceId && entry.reference.referenceId === image.referenceId))?.imageId || null
                 }))
             } } : {}),

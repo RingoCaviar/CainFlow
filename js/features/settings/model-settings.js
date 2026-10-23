@@ -1,4 +1,3 @@
-import { mountThinkingModelSettings } from '../execution/thinking-control.js';
 /**
  * Handles model rendering, fetched model workflows, request previews, and node model dropdown refresh.
  */
@@ -493,9 +492,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         updateAllNodeModelDropdowns();
     }
 
-    let thinkingControls = [];
     function renderModels() {
-        thinkingControls.forEach(control => control.destroy()); thinkingControls = [];
         modelsList.innerHTML = '';
         if (state.models.length === 0) {
             modelsList.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:20px;font-size:12px;">暂无模型配置</div>';
@@ -513,12 +510,6 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             const taskType = normalizeModelTaskType(mod.taskType, mod);
             const provider = providerSettings.getResolvedModelProvider(mod);
             const protocol = isKnownModelProtocol(mod.protocol) ? mod.protocol : '';
-            const searchValue = mod.agentSearch ?? (protocol === 'google' ? 'web' : 'none');
-            const searchChoices = [['none', '未启用搜索'],
-                ...(['openai', 'google'].includes(protocol) ? [['web', '网页搜索']] : []),
-                ...(protocol === 'openai' ? [['images', '网页及图片搜索']] : [])];
-            const searchOptions = searchChoices.map(([value, label]) => `<option value="${value}" ${searchValue === value ? 'selected' : ''}>${label}</option>`).join('')
-                + (!searchChoices.some(([value]) => value === searchValue) ? `<option value="${dialogs.escapeHtml(searchValue)}" selected disabled>已保存配置不适用于当前格式</option>` : '');
             const protocolOptions = [
                 `<option value="" ${protocol ? '' : 'selected'} disabled>请选择兼容格式（必填）</option>`,
                 ...getProtocolSelectOptions(taskType)
@@ -578,23 +569,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                             <div style="font-size:11px;color:var(--text-dim);line-height:1.45;padding-top:8px;">${getModelProtocolHelp(mod)}</div>
                         </div>
                     </div>
-                    ${taskType === 'chat' ? `<div class="card-row"><div class="card-field">
-                        <label>自动压缩阈值（Token）</label>
-                        <input type="number" min="1" step="1" value="${Number.isSafeInteger(mod.autoCompactTokenLimit) && mod.autoCompactTokenLimit > 0 ? mod.autoCompactTokenLimit : ''}" placeholder="默认 12000；按本地 Token 估算触发" aria-label="自动压缩阈值 Token" data-id="${mod.id}" data-field="autoCompactTokenLimit" />
-                        <small class="agent-search-config-help">这是自动压缩触发值，不是模型最大上下文。包含系统指令、对话及图片估算；请按实际模型容量设置并预留输出空间。</small>
-                    </div><div class="card-field">
-                        <label>Agent 搜索能力</label>
-                        <select data-id="${mod.id}" data-field="agentSearch" aria-label="Agent 搜索能力">
-                            ${searchOptions}
-                        </select>
-                        <small class="agent-search-config-help">${protocol === 'openai' ? '需接口实际支持 Responses 搜索。' : protocol === 'google' ? '需接口实际支持 Google Search。' : '当前格式未接入搜索，请在 Agent 对话模型设置中选择专用搜索模型。'} 此设置不会为模型增加原本不支持的能力。</small>
-                    </div></div>` : ''}
                 </div>
             `;
             modelsList.appendChild(el);
-            if (documentRef.defaultView && ['chat', 'image'].includes(taskType)) thinkingControls.push(mountThinkingModelSettings({ documentRef, parent: el.querySelector('.model-config-body') || el.lastElementChild, model: mod,
-                providers: (mod.providerIds || [mod.providerId]).map(id => state.providers.find(provider => provider.id === id)).filter(Boolean),
-                changed: () => { saveState(); renderModels(); updateAllNodeModelDropdowns(); } }));
         });
 
         modelsList.querySelectorAll('input:not([data-field="providerIds"]), select').forEach((input) => {
@@ -603,18 +580,6 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 const field = event.target.dataset.field;
                 const mod = state.models.find((candidate) => candidate.id === id);
                 if (!mod) return;
-                if (field === 'autoCompactTokenLimit') {
-                    const value = Number(event.target.value);
-                    if (event.target.value.trim() && (!Number.isSafeInteger(value) || value <= 0)) {
-                        showToast('自动压缩阈值必须是正整数 Token 数', 'warning');
-                        event.target.value = mod.autoCompactTokenLimit || '';
-                        return;
-                    }
-                    if (event.target.value.trim()) mod.autoCompactTokenLimit = value;
-                    else delete mod.autoCompactTokenLimit;
-                    saveState();
-                    return;
-                }
                 const provider = providerSettings.getResolvedModelProvider(mod);
                 mod[field] = field === 'taskType'
                     ? normalizeModelTaskType(event.target.value, mod)

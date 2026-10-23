@@ -2,8 +2,9 @@ import { createPromptAgentInput } from './prompt-agent-input.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { countO200k, countCl100k } from '../../vendor/tokenizer.js';
 import { measureImageTokens } from './prompt-agent-image-tokens.js';
+import { DEFAULT_AUTO_COMPACT_TOKENS, parseAutoCompactTokens } from './auto-compact-preference.js';
 
-export const DEFAULT_AUTO_COMPACT_TOKENS = 12000;
+export { DEFAULT_AUTO_COMPACT_TOKENS };
 
 const textCache = new Map();
 const literalOptions = { disallowedSpecial: new Set() };
@@ -43,8 +44,7 @@ export function measurePromptAgentContext(request, observation = null) {
         used = Math.max(0, observation.inputTokens + textTokens - anchor.textTokens);
         source = '接口实际输入用量校准 + 当前文本分词增量（估算）';
     }
-    const configured = request.model?.autoCompactTokenLimit;
-    const threshold = Number.isSafeInteger(configured) && configured > 0 ? configured : DEFAULT_AUTO_COMPACT_TOKENS;
+    const threshold = parseAutoCompactTokens(request.autoCompactTokenLimit) || DEFAULT_AUTO_COMPACT_TOKENS;
     return { used, threshold, percent: Math.min(100, Math.floor(used / threshold * 100)), reached: used >= threshold,
         source, textTokens, imageTokens, modelKey, images };
 }

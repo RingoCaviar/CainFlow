@@ -7,6 +7,7 @@ import { measurePromptAgentContext } from '../js/features/prompt-agent/prompt-ag
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
 
 const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test', providerIds: ['fixture'] };
+const TEST_COMPACTION_MODEL = { id: 'compact-1', modelId: 'compact-test', name: 'Compact test', providerIds: ['fixture'] };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
 
 test('cancel, clear and workflow activation discard late native search without synthesizing or restoring sources', async () => {
@@ -592,6 +593,7 @@ test('creates a target for an unassigned draft instead of retargeting to a later
 test('generation creates once and preserves its target across failure, retry, restore and follow-up', async () => {
     let creations = 0;
     const runs = [];
+    const focused = [];
     const requests = [];
     const context = { nodeId: 'created', prompt: '草稿', parameters: {} };
     const nodeAdapter = {
@@ -607,6 +609,7 @@ test('generation creates once and preserves its target across failure, retry, re
         requests.push(request);
         return { message: '草稿已就绪', promptPlan: { targetNodeId: request.context?.nodeId || null, prompt: '草稿', parameters: {} } };
     }, nodeAdapter, {
+        focus: (nodeId) => focused.push(nodeId),
         applyAndGenerate: async (plan) => {
             runs.push(plan.targetNodeId);
             if (runs.length === 1) throw new Error('暂时不可用');
@@ -622,6 +625,7 @@ test('generation creates once and preserves its target across failure, retry, re
     assert.equal(runs.length, 0);
     await generate.dispatch('click');
     assert.equal(creations, 1);
+    assert.deepEqual(focused, ['created']);
     assert.equal(controller.snapshotWorkflow().messages[1].promptPlan.targetNodeId, 'created');
     const runState = message.children[3];
     assert.match(runState.textContent, /暂时不可用/);
@@ -632,6 +636,7 @@ test('generation creates once and preserves its target across failure, retry, re
     const restoredMessage = elements['prompt-agent-messages'].children[1];
     await restoredMessage.children[2].children[1].dispatch('click');
     assert.equal(creations, 1);
+    assert.deepEqual(focused, ['created']);
     assert.deepEqual(runs, ['created', 'created', 'created']);
     elements['prompt-agent-input'].value = '再暖一点';
     await controller.submit();
@@ -1272,6 +1277,40 @@ test('compaction preserves transcript cards and pending references, then merges 
     assert.equal(controller.snapshotWorkflow().archivedMessages.length, 4);
 });
 
+test('manual compaction uses the selected cheaper model while replies keep the chat model', async () => {
+    const compactions = [], replies = [];
+    const { controller, elements } = createHarness(async request => {
+        replies.push(request); return { message: '继续', intent: 'chat' };
+    }, undefined, null, {
+        getChatModels: () => [TEST_CHAT_MODEL, TEST_COMPACTION_MODEL],
+        getSelectedCompactionModelId: () => TEST_COMPACTION_MODEL.id,
+        captureRequestConfig: modelId => ({ model: modelId === TEST_COMPACTION_MODEL.id ? TEST_COMPACTION_MODEL : TEST_CHAT_MODEL }),
+        createCompaction: async request => { compactions.push(request); return { summary: '保留关键要求' }; }
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '画一只蓝猫' }] });
+    enterText(elements, '/compact');
+    await controller.submit();
+    assert.equal(compactions[0].modelId, TEST_COMPACTION_MODEL.id);
+    assert.equal(compactions[0].config.model.id, TEST_COMPACTION_MODEL.id);
+    enterText(elements, '继续调整');
+    await controller.submit();
+    assert.equal(replies[0].modelId, TEST_CHAT_MODEL.id);
+});
+
+test('unavailable selected compaction model does not silently use the chat model', async () => {
+    let requests = 0;
+    const { controller, elements } = createHarness(undefined, undefined, null, {
+        getSelectedCompactionModelId: () => 'removed-model',
+        createCompaction: async () => { requests++; return { summary: 'unexpected' }; }
+    });
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '请保留这条要求' }] });
+    enterText(elements, '/compact');
+    await controller.submit();
+    assert.equal(requests, 0);
+    assert.match(elements['prompt-agent-command-status'].textContent, /所选压缩模型不可用/);
+    assert.equal(controller.snapshotWorkflow().messages[0].text, '请保留这条要求');
+});
+
 test('failed or invalid compaction leaves the entire saved context unchanged', async () => {
     for (const createCompaction of [
         async () => { throw new Error('网络中断'); },
@@ -1383,6 +1422,17 @@ test('compression ring shows real threshold progress without a model and follows
     assert.equal(meter().attributes.get('aria-valuenow'), '0');
 });
 
+test('Agent context ring reads the shared threshold instead of a legacy model setting', () => {
+    const { elements } = createHarness(undefined, undefined, null, {
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 1 }],
+        getAutoCompactTokenLimit: () => 24000
+    });
+    enterText(elements, '/compact');
+    const meter = elements['prompt-agent-command-menu'].children[0].querySelector('.prompt-agent-context-usage');
+    assert.match(meter.title, /24000 Token/);
+    assert.doesNotMatch(meter.title, /\/ 1 Token/);
+});
+
 
 test('automatic compaction runs before send, preserves original turns and supplies the summary to reply', async () => {
     const events = [], requests = [];
@@ -1390,9 +1440,13 @@ test('automatic compaction runs before send, preserves original turns and suppli
         events.push('reply'); requests.push(request); return { message: '继续', intent: 'chat' };
     }, undefined, null, {
         // Leaves room for the unknown-model image reserve after compaction.
-        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 8000 }],
+        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 8000 }, TEST_COMPACTION_MODEL],
+        getSelectedCompactionModelId: () => TEST_COMPACTION_MODEL.id,
+        captureRequestConfig: modelId => ({ model: modelId === TEST_COMPACTION_MODEL.id ? TEST_COMPACTION_MODEL : TEST_CHAT_MODEL }),
         createCompaction: async request => {
             events.push('compact');
+            assert.equal(request.modelId, TEST_COMPACTION_MODEL.id);
+            assert.equal(request.config.model.id, TEST_COMPACTION_MODEL.id);
             assert.equal(request.conversation.messages[0].text.length, 12000);
             return { summary: '保留猫与蓝色背景' };
         }
@@ -1412,7 +1466,7 @@ test('automatic compaction runs before send, preserves original turns and suppli
 test('automatic compaction after reply preserves the reply and never loops when retained plan stays over budget', async () => {
     let calls = 0;
     const { controller, elements } = createHarness(async () => ({ message: '大方案', promptPlan: { prompt: '方案'.repeat(7000), parameters: {} } }), undefined, null, {
-        getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 4000 }],
+        getAutoCompactTokenLimit: () => 4000,
         createCompaction: async () => { calls++; return { summary: '保留方案' }; }
     });
     enterText(elements, '画猫');

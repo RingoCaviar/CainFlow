@@ -1,5 +1,5 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
-import { getThinkingCapability, resolveThinking, THINKING_PROFILES } from './thinking-config.js';
+import { getThinkingCapability, resolveThinking } from './thinking-config.js';
 let sequence = 0;
 // DOM-only shared control. Callers own persistence and undo; refresh never writes.
 export function createThinkingControl({ documentRef, parent, getOptions, getValue, onChange, inherit = true, title = '思考设置', summaryLabel = title, compact = false, showThinking = true, renderExtra, getExtraSummary, onClose }) {
@@ -208,27 +208,4 @@ export function createThinkingControl({ documentRef, parent, getOptions, getValu
     refresh();
     return { refresh, close, open: () => { host.open = true; }, position,
         destroy: () => { close(); documentRef.removeEventListener('focusin', focusOutside); documentRef.defaultView?.removeEventListener('resize', position); documentRef.defaultView?.removeEventListener('scroll', position, true); host.remove(); } };
-}
-export function mountThinkingModelSettings({ documentRef, parent, model, providers, changed }) {
-    const host = documentRef.createElement('div'); host.className = 'thinking-model-settings'; parent.appendChild(host);
-    const profileSelect = (provider) => {
-        const label = documentRef.createElement('label'); label.textContent = provider ? `${provider.name || provider.id}：思考兼容方式` : '思考参数兼容方式';
-        const select = documentRef.createElement('select'); select.setAttribute('aria-label', label.textContent);
-        const choices = { ...(provider ? { inherit: '继承模型兼容方式' } : {}), auto: '自动识别官方模型', none: '不发送思考参数',
-            ...Object.entries(THINKING_PROFILES).reduce((choices, [id, profile]) => {
-                const supported = getThinkingCapability({ model: { ...model, thinking: { profile: id } }, provider: provider || {}, protocol: model.protocol, task: model.taskType }).supported;
-                if (supported) choices[id] = profile.label;
-                return choices;
-            }, {}) };
-        const value = provider ? model.thinking?.providers?.[provider.id] || 'inherit' : model.thinking?.profile || 'auto';
-        if (!choices[value]) choices[value] = '原兼容方式已不可用';
-        for (const [id, name] of Object.entries(choices)) { const option = documentRef.createElement('option'); option.value = id; option.textContent = name; select.appendChild(option); }
-        select.value = value; label.appendChild(select); host.appendChild(label);
-        select.addEventListener('change', () => { model.thinking ||= { profile: 'auto' }; if (provider) { model.thinking.providers ||= {}; if (select.value === 'inherit') delete model.thinking.providers[provider.id]; else model.thinking.providers[provider.id] = select.value; } else model.thinking.profile = select.value; changed(); });
-    };
-    profileSelect(); providers.forEach(profileSelect);
-    const help = documentRef.createElement('small'); help.textContent = '兼容模板仅声明接口能力，不会让模型获得思考能力。中转接口请按其文档选择。'; host.appendChild(help);
-    return createThinkingControl({ documentRef, parent: host, title: '默认思考设置', inherit: false,
-        getOptions: () => ({ model, provider: providers[0] || {}, protocol: model.protocol, task: model.taskType }), getValue: () => model.thinking?.default,
-        onChange: value => { model.thinking ||= { profile: 'auto' }; model.thinking.default = value; changed(); } });
 }

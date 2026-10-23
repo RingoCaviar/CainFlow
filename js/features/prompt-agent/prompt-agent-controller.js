@@ -20,7 +20,7 @@ import { renderAgentBody } from './prompt-agent-body.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
-    { name: '/compact', title: '压缩上下文', description: '用当前对话模型整理摘要，保留关键要求和最新方案。' }
+    { name: '/compact', title: '压缩上下文', description: '用常规设置指定的模型整理摘要；未指定时跟随对话模型。' }
 ];
 
 function uniqueReferenceImages(images = []) {
@@ -97,8 +97,10 @@ export function createPromptAgentController({
     openModelSettings = () => {},
     getSelectedModelId = () => '',
     setSelectedModelId = () => {},
+    getSelectedCompactionModelId = () => '',
     getPanelWidth = () => null,
     setPanelWidth = () => {},
+    getAutoCompactTokenLimit = () => 12000,
     conversationStore = createPromptAgentConversationStore(),
     onStateChange = () => {},
     getWorkflowId = () => '',
@@ -210,6 +212,14 @@ export function createPromptAgentController({
         for (const model of [snapshot.model, ...(snapshot.models || [])]) if (thinking && model?.id === modelId) model.thinking = { ...model.thinking, default: thinking };
         return snapshot;
     }
+    function compactionSelection(fallbackModelId) {
+        const preferredId = getSelectedCompactionModelId();
+        const modelId = preferredId || fallbackModelId;
+        if (!getChatModels().some(model => model.id === modelId && model.modelId)) {
+            throw new Error('所选压缩模型不可用，请在常规设置重新选择');
+        }
+        return { modelId, config: captureThinkingConfig(modelId) };
+    }
     function renderModelOptions() {
         searchMenu?.render();
         renderImageModelOptions();
@@ -314,7 +324,7 @@ export function createPromptAgentController({
         const model = fixedModel || models.find(item => item.id === (getElements().modelSelect?.value || getSelectedModelId())) || models[0];
         const conversation = conversationStore.getCompactionContext();
         const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
-        const measurement = measurePromptAgentContext({ model, message, conversation, sizeSettings: conversationStore.getSize(conversationStore.getImageModelId()), imageSizeCapabilities: imageSizeCapabilities(),
+        const measurement = measurePromptAgentContext({ model, message, conversation, autoCompactTokenLimit: getAutoCompactTokenLimit(), sizeSettings: conversationStore.getSize(conversationStore.getImageModelId()), imageSizeCapabilities: imageSizeCapabilities(),
             canvasContext: canvasAdapter?.context(canvasMentions?.read().map(item => item.id) || []) || null,
             searchAllowed: conversationStore.getSearchSettings().mode !== 'off',
             context: nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
@@ -333,7 +343,7 @@ export function createPromptAgentController({
         return { ...measurement, emptyConversation };
     }
 
-    async function compactWithProgress(operation, conversation, modelId) {
+    async function compactWithProgress(operation, conversation, { modelId, config }) {
         const child = new AbortController();
         let timeout, timer, rejectWait, progress = '';
         const waiting = new Promise((_, reject) => { rejectWait = reject; });
@@ -353,7 +363,7 @@ export function createPromptAgentController({
         resetTimeout(); timer = setInterval(show, 1000);
         try {
             if (operation.controller.signal.aborted) cancel();
-            return await Promise.race([waiting, createCompaction({ conversation, modelId, config: operation.config,
+            return await Promise.race([waiting, createCompaction({ conversation, modelId, config,
                 signal: child.signal, onProgress: ({ batch, total }) => {
                     if (child.signal.aborted || !isCurrentOperation(operation)) return;
                     progress = `（第 ${batch}/${total} 批）`; resetTimeout(); show();
@@ -373,14 +383,14 @@ export function createPromptAgentController({
         const newText = createPromptAgentInput({ conversation: { messages: conversation.messages }, model: operation.model })
             .messages.slice(0, -1).map(turn => turn.content).join('\n') + (conversation.memory || '');
         if (conversation.contextSummary && countPromptText(newText) < Math.min(2000, compressionProgress(message, operation.model).threshold * 0.2)) {
-            setCommandStatus('保留的方案、图片或系统指令仍占用较多上下文；新增对话较少，暂不重复压缩。可在模型设置调整自动压缩阈值。');
+            setCommandStatus('保留的方案、图片或系统指令仍占用较多上下文；新增对话较少，暂不重复压缩。可在常规设置调整自动压缩阈值。');
             return true;
         }
         const revision = conversationRevision;
         operation.kind = 'compact';
         setCommandStatus('已达到 Token 阈值，正在自动压缩上下文…');
         try {
-            const result = await compactWithProgress(operation, conversation, modelId);
+            const result = await compactWithProgress(operation, conversation, compactionSelection(modelId));
             if (!isCurrentOperation(operation)) return false;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重试');
             conversationStore.compact(result?.summary);
@@ -554,14 +564,16 @@ export function createPromptAgentController({
             setCommandStatus('请先配置一个可用的对话模型，再压缩上下文。');
             return;
         }
-        const modelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
+        const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
+        let selection;
+        try { selection = compactionSelection(replyModelId); }
+        catch (error) { setCommandStatus(error.message); return; }
         if (input) input.value = '';
         const operation = beginOperation('compact');
-        operation.config = captureThinkingConfig(modelId);
         const revision = conversationRevision;
         setCommandStatus('正在压缩上下文，整理目标、约束与最新方案…');
         try {
-            const result = await compactWithProgress(operation, conversation, modelId);
+            const result = await compactWithProgress(operation, conversation, selection);
             if (!isCurrentOperation(operation)) return;
             if (revision !== conversationRevision) throw new Error('压缩期间对话已更新，请重新压缩');
             conversationStore.compact(result?.summary);
@@ -982,7 +994,7 @@ export function createPromptAgentController({
         if (plan.referenceImages?.length) {
             const roleNames = { 'edit-target': '编辑目标', reference: '参考', supporting: '合成素材' };
             const roles = plan.referenceImages.filter((image) => roleNames[image.role])
-                .map((image, index) => `${image.name || `图片 ${index + 1}`}：${roleNames[image.role]}`);
+                .map((image, index) => `图 ${index + 1} · ${image.name || `图片 ${index + 1}`}：${roleNames[image.role]}${image.purpose ? `（${image.purpose}）` : ''}`);
             parts.push([`参考图\n${plan.referenceImages.length} 张`, ...roles].join('\n'));
         }
         return parts.join('\n\n');
@@ -1009,6 +1021,7 @@ export function createPromptAgentController({
             if (!model) throw new Error('请先选择一个可用的生图模型。');
             const size = resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), current: nodeAdapter?.getContext?.(plan.targetNodeId)?.parameters, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
             const sizedPlan = { ...plan, parameters: { ...plan.parameters, ...size.patch } };
+            const creatingTarget = !plan.targetNodeId;
             const prepared = nodeAdapter?.ensureTarget ? nodeAdapter.ensureTarget(sizedPlan, { modelId: model.id, providerId: conversationStore.getProvider('image', model.id) }) : sizedPlan;
             if (!prepared?.targetNodeId) throw new Error('无法创建生图节点，请检查生图模型配置。');
             if (!conversationStore.bindPromptPlanTarget(message.promptAgentMessageIndex, prepared.targetNodeId)) {
@@ -1017,6 +1030,9 @@ export function createPromptAgentController({
             Object.assign(plan, prepared);
             conversationRevision += 1;
             onStateChange();
+            if (creatingTarget) {
+                try { executionAdapter?.focus?.(prepared.targetNodeId); } catch (error) { console.warn('无法定位新建节点', error); }
+            }
             return plan;
         };
         const planElement = documentRef.createElement('section');

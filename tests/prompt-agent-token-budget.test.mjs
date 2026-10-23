@@ -7,9 +7,9 @@ test('token meter and trigger share the same boundary, with a usable default', (
     const baseline = measurePromptAgentContext({});
     assert.equal(baseline.threshold, 12000);
     assert.ok(baseline.used > 0);
-    assert.equal(measurePromptAgentContext({ model: { autoCompactTokenLimit: baseline.used } }).reached, true);
-    assert.equal(measurePromptAgentContext({ model: { autoCompactTokenLimit: baseline.used + 1 } }).reached, false);
-    assert.equal(measurePromptAgentContext({ model: { autoCompactTokenLimit: NaN } }).threshold, 12000);
+    assert.equal(measurePromptAgentContext({ autoCompactTokenLimit: baseline.used }).reached, true);
+    assert.equal(measurePromptAgentContext({ autoCompactTokenLimit: baseline.used + 1 }).reached, false);
+    assert.equal(measurePromptAgentContext({ autoCompactTokenLimit: NaN, model: { autoCompactTokenLimit: 1 } }).threshold, 12000);
 });
 
 test('real BPE goldens distinguish Chinese, English, Japanese and emoji encodings', () => {

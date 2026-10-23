@@ -66,7 +66,7 @@ function createHarness(models = [], inputs = []) {
         providerSettings,
         getDeps: () => ({})
     });
-    return { api, state, provider, events, collapseState };
+    return { api, state, provider, events, collapseState, renderedCards };
 }
 
 test('adding an unrecognized fetched model closes the list and reveals manual format selection', () => {
@@ -110,16 +110,11 @@ test('a fetched MiniMax H3 model is classified as video', () => {
 });
 
 
-test('automatic compaction Token threshold saves as a number, rejects invalid values and allows default', () => {
-    const input = { dataset: { id: 'chat', field: 'autoCompactTokenLimit' }, value: '',
-        addEventListener(type, handler) { if (type === 'change') this.change = handler; } };
-    const h = createHarness([{ id: 'chat', name: 'Chat', modelId: 'custom', taskType: 'chat', protocol: 'openai' }], [input]);
+test('model editor omits Agent-wide compaction and request-level search controls', () => {
+    const h = createHarness([{ id: 'chat', name: 'Chat', modelId: 'custom', taskType: 'chat', protocol: 'openai', agentSearch: 'web', autoCompactTokenLimit: 16000 }]);
+    h.collapseState.set('chat', false);
     h.api.renderModels();
-    input.value = '16000'; input.change({ target: input });
-    assert.equal(JSON.parse(JSON.stringify(h.state.models))[0].autoCompactTokenLimit, 16000);
-    assert.ok(h.events.includes('saved'));
-    input.value = '-1'; input.change({ target: input });
-    assert.equal(h.state.models[0].autoCompactTokenLimit, 16000);
-    input.value = ''; input.change({ target: input });
-    assert.equal(h.state.models[0].autoCompactTokenLimit, undefined);
+    const card = h.renderedCards.get('chat');
+    assert.doesNotMatch(card.innerHTML, /data-field="(?:agentSearch|autoCompactTokenLimit)"/);
+    assert.doesNotMatch(card.innerHTML, /思考兼容方式|默认思考设置/);
 });

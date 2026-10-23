@@ -109,6 +109,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         assertCanvasPlanCurrent(plan, context());
         const bindings = { ...(plan.bindings || {}) };
         const originalPlan = cloneCanvasValue(plan);
+        const createdNodes = [];
         const locked = [...documentRef.body.children].map(element => [element, element.inert]);
         locked.forEach(([element]) => { element.inert = true; });
         try {
@@ -133,6 +134,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                             ...(step.assetKey ? { mediaAssetKeys: [step.assetKey], imageImportAssetKey: step.assetKey, imageAssetReady: true } : {}),
                             ...(step.autoAddedForGeneration ? { autoAddedForGeneration: true } : {}) }, true);
                         if (!nodeId || !state.nodes.has(nodeId)) throw new Error('节点创建失败');
+                        createdNodes.push({ nodeId, type: step.type, autoAdded: step.autoAddedForGeneration });
                         occupied.push(nodeBounds(state.nodes.get(nodeId), state.canvas?.zoom || 1));
                     }
                     if (!state.nodes.has(nodeId)) throw new Error('方案绑定节点已删除，请刷新方案');
@@ -177,10 +179,16 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             plan.bindings = bindings; plan.historyId = result.historyId; plan.appliedSignature = signature;
             plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
             plan.baseline = canvasBaseline(context(), plan.dependencies, Object.values(bindings));
-            return plan;
         } catch (error) {
             Object.keys(plan).forEach(key => delete plan[key]); Object.assign(plan, originalPlan); onPlanChange(); throw error;
         } finally { locked.forEach(([element, inert]) => { element.inert = inert; }); }
+        const target = createdNodes.find(node => node.type === 'ImageGenerate')
+            || createdNodes.find(node => !node.autoAdded && node.type !== 'ImageImport')
+            || createdNodes[0];
+        if (target) {
+            try { focusNode(target.nodeId); } catch (error) { console.warn('无法定位新建节点', error); }
+        }
+        return plan;
     }
     function canUndo(plan) {
         if (activePlan || state.runningNodeIds?.size || state.canvasPlanApplying) return '有节点正在运行或应用';

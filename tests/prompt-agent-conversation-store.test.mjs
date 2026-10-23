@@ -217,11 +217,14 @@ test('reference images round-trip without adding image payloads to text context'
     store.append({
         role: 'agent',
         text: '已整理方案',
-        promptPlan: { prompt: '主体', parameters: {}, referenceImages: [{ name: '构图.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA' }] }
+        promptPlan: { prompt: '主体', parameters: {}, referenceImages: [{ name: '构图.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA', role: 'reference', purpose: '仅取构图' }] }
     });
     const plan = store.snapshot().messages.at(-1).promptPlan;
     assert.equal(plan.referenceImages[0].dataUrl, undefined);
+    assert.equal(plan.referenceImages[0].purpose, '仅取构图');
     assert.equal(JSON.stringify(plan).includes('AAAA'), false);
+    restored.restore(store.snapshot());
+    assert.equal(restored.snapshot().messages.at(-1).promptPlan.referenceImages[0].purpose, '仅取构图');
 });
 
 test('reference images remain available after older turns are compressed', () => {
@@ -260,7 +263,7 @@ test('compression preserves the complete latest draft, image roles and workflow 
     const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     const draft = {
         targetNodeId: 'image-1', prompt: '详细画面'.repeat(40), parameters: { count: 2 },
-        referenceImages: [{ name: '照片', imageId: 'image-1', role: 'edit-target', dataUrl: 'data:image/png;base64,IMAGE' }]
+        referenceImages: [{ name: '照片', imageId: 'image-1', role: 'edit-target', purpose: '保留主体', dataUrl: 'data:image/png;base64,IMAGE' }]
     };
     store.append({ role: 'agent', intent: 'edit', text: '上版方案', promptPlan: draft });
     store.append({ role: 'user', text: '新的讨论'.repeat(40) });
@@ -268,10 +271,12 @@ test('compression preserves the complete latest draft, image roles and workflow 
     const snapshot = store.snapshot();
     assert.equal(snapshot.previousPromptPlan.prompt, draft.prompt);
     assert.equal(snapshot.previousPromptPlan.referenceImages[0].role, 'edit-target');
+    assert.equal(snapshot.previousPromptPlan.referenceImages[0].purpose, '保留主体');
     assert.doesNotMatch(JSON.stringify(snapshot.previousPromptPlan), /base64/);
     const restored = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     restored.restore(snapshot);
     assert.equal(restored.snapshot().previousPromptPlan.prompt, draft.prompt);
+    assert.equal(restored.snapshot().previousPromptPlan.referenceImages[0].purpose, '保留主体');
     restored.restore(null);
     assert.equal(restored.snapshot().previousPromptPlan, undefined);
 });

@@ -9,7 +9,7 @@ test('Agent imported references have visible connections and reach the actual im
    if(String(url)==='/proxy'){
     const body=JSON.parse(options.body);calls.push(body);
     if(body.messages){const content=body.messages.at(-1).content;const input=JSON.parse(Array.isArray(content)?content.find(p=>p.type==='text').text:content);
-     return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'方案',promptPlan:{prompt:'poster',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference'}))}})}}]}));}
+     return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'方案',promptPlan:{prompt:'poster',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map((i,index)=>({imageId:i.imageId,role:'reference',purpose:index===0?'主体':'只取配色'}))}})}}]}));}
     return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:window.originals[0].split(',')[1]}}]}}]}));
    }return originalFetch(url,options);};`});
   await send('Page.reload');await delay(1000);
@@ -32,6 +32,7 @@ test('Agent imported references have visible connections and reach the actual im
   await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
   const used=await evaluate("calls.find(c=>c.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
   assert.deepEqual(used,await evaluate("originals.map(u=>u.split(',')[1])"));
+  assert.match(await evaluate("calls.find(c=>c.contents).contents.flatMap(c=>c.parts).find(p=>p.text)?.text"),/输入图片顺序：图1·参考（主体）；图2·参考（只取配色）。/);
   assert.equal(await evaluate("calls.find(c=>c.contents).generationConfig.imageConfig.aspectRatio"),'16:9');
   assert.equal(await evaluate("calls.find(c=>c.contents).generationConfig.imageConfig.imageSize"),'2K');
  });

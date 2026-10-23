@@ -43,3 +43,7 @@ This supersedes the dedicated-model fallback and search-menu guidance above. Age
 ### User-controlled search (2026-10-23)
 
 The switch is always editable and reads only the workflow on/off preference. Agent request permission and request construction ignore `agentSearch`, including absent or `none` values. No Google/OpenAI capability default controls Agent requests. Existing transport encoding still selects Google Search or OpenAI Responses by protocol; this is request formatting, not a model-support assertion. Upstream errors report unsupported search without probing or fallback. Legacy capability declarations remain stored for compatibility.
+
+### Model editor simplification (2026-10-23, model-settings#003)
+
+The model editor no longer exposes `agentSearch`, per-model `autoCompactTokenLimit`, or thinking compatibility/default controls. Agent and canvas nodes own their search switches; upstream responses determine whether the selected request supports search. The Agent compaction threshold is a single disk-backed application preference under General Settings, shared across models and workflows. On first upgrade, a valid threshold from the selected conversation model seeds that preference once; subsequent model changes cannot change it. Old model records retain their fields for archive compatibility, but their compaction threshold no longer drives the meter. Existing thinking selections and legacy saved model defaults remain readable; removing the editor controls does not rewrite prior request behavior.

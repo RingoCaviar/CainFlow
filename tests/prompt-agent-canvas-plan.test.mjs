@@ -81,6 +81,38 @@ test('automatic saves are previewed exactly once; disabled downstreams do not su
     adapter.prepare(connected); assert.equal(connected.steps.length, 1);
 });
 
+test('applying new canvas nodes focuses one after save and does not refocus on repeat', async () => {
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), canvas: { zoom: 1 }, models: [], providers: [] };
+    const events = [];
+    let nextId = 0;
+    const documentRef = { body: { children: [] }, defaultView: { Event: class {} }, getElementById: () => ({
+        value: '', dispatchEvent() {}
+    }) };
+    const adapter = createPromptAgentCanvasAdapter({ state, documentRef,
+        serializeNodes: () => [...state.nodes.values()], getWorkflowId: () => 'workflow-a',
+        addNode: (type, x, y, data) => {
+            const id = `new-${++nextId}`;
+            state.nodes.set(id, { id, type, x, y, width: 260, height: 190, data, text: data.text, customTitle: data.customTitle });
+            return id;
+        },
+        session: () => ({ applyCanvasBatch: async (mutate, persist) => {
+            const result = await mutate();
+            await persist();
+            return { ...result, historyId: 'history-a' };
+        } }),
+        save: async () => { events.push('save'); return true; }, graphChanged: () => {},
+        origin: () => ({ x: 100, y: 100 }), focusNode: id => events.push(`focus:${id}`)
+    });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [
+        { id: 'first', type: 'Text', parameters: { text: 'first' } },
+        { id: 'second', type: 'Text', parameters: { text: 'second' } }
+    ] }, createCanvasContext({ workflowId: 'workflow-a', nodes: [], connections: [] }));
+    await adapter.apply(plan, '');
+    assert.deepEqual(events, ['save', 'focus:new-1']);
+    await adapter.apply(plan, '');
+    assert.deepEqual(events, ['save', 'focus:new-1', 'save']);
+});
+
 test('multi-step models require explicit user choices and never fall back after deletion', () => {
     const first = { id: 'first', modelId: 'image-one', taskType: 'image', protocol: 'openai', providerIds: ['p'] };
     const second = { ...first, id: 'second', modelId: 'image-two' };

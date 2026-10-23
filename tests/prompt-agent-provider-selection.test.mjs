@@ -73,7 +73,7 @@ test('prevalidation/pre-cancel sends/counts nothing; dispatched failure/cancel a
     assert.equal(api.getTodaySummary().total, 3); assert.equal(api.getTodaySummary().failed, 2);
 });
 
-test('search uses explicit dedicated route, synthesis retains conversation snapshot and per-call purposes', async () => {
+test('search uses the current conversation Provider and preserves its snapshot for synthesis', async () => {
     const config = structuredClone({ model, providers }); const records = [], calls = [];
     const search = { ...model, id: 'search', agentSearch: 'web' };
     await createPromptAgentModelReply({ ...config, models: [config.model, search], providerId: 'b', message: 'search',
@@ -85,8 +85,8 @@ test('search uses explicit dedicated route, synthesis retains conversation snaps
             if (calls.length === 2) return new Response(JSON.stringify({ output: [{ type: 'web_search_call', status: 'completed', action: { sources: [{ url: 'https://source.test', title: 'source' }] } }] }));
             return response({ intent: 'chat', message: 'done' });
         } });
-    assert.deepEqual(calls.map(call => call.Authorization), ['second-key', 'first-key', 'second-key']);
-    assert.deepEqual(records.map(record => [record.purpose, record.providerId]), [['chat', 'b'], ['web-search', 'a'], ['search-summary', 'b']]);
+    assert.deepEqual(calls.map(call => call.Authorization), ['second-key', 'second-key', 'second-key']);
+    assert.deepEqual(records.map(record => [record.purpose, record.providerId]), [['chat', 'b'], ['web-search', 'b'], ['search-summary', 'b']]);
 });
 
 test('compaction snapshots provider and counts every actual batch even when summary validation fails', async () => {
@@ -112,7 +112,7 @@ test('canvas detail followups keep the selected provider and count independent r
     assert.deepEqual(records.map(record => record.purpose), ['chat', 'canvas-followup']);
 });
 
-test('provider thinking incompatibility and missing dedicated credentials block without fallback or counting', async () => {
+test('provider thinking incompatibility and missing current credentials block without fallback or counting', async () => {
     const thinkingModel = { ...model, agentSearch: 'web', thinking: { profile: 'openai-basic', providers: { b: 'none' }, default: { mode: 'level', value: 'high' } } };
     const records = [];
     await assert.rejects(createPromptAgentModelReply({ model: thinkingModel, providers, providerId: 'b', message: 'hello',
@@ -122,5 +122,5 @@ test('provider thinking incompatibility and missing dedicated credentials block 
     assert.equal(getAgentSearchAvailability({ model: thinkingModel, providers, providerId: 'a' }).provider.id, 'a');
     const selected = { ...model, id: 'search', agentSearch: 'web' };
     const availability = getAgentSearchAvailability({ model, models: [selected], providers: [providers[0]], settings: { modelId: 'search', providerId: 'b' } });
-    assert.equal(availability.available, false); assert.equal(availability.target.modelId, 'search');
+    assert.equal(availability.available, false); assert.equal(availability.target.modelId, model.id);
 });

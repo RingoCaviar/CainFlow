@@ -171,6 +171,15 @@ node --test tests/prompt-agent-cache-usage.test.mjs tests/cache-usage-media-dist
 - 浏览器回归：`prompt-agent-layout`、`prompt-agent-compact-browser`、`prompt-agent-interactions-browser`、`prompt-agent-scroll-browser`。
 # 方案参考图执行回归（prompt-agent#029）
 
+## 图生图提示词与多图顺序（prompt-agent#056）
+
+- Agent 应把已传入原图视为视觉输入，方案提示词集中说明改变、保留和每张图的用途，不重复罗列整张图的可见内容；精确文字、主体身份、数量等硬约束仍需保留。
+- 多图按方案的 `imageRoles` 顺序形成简短“图1／图2”用途行。相同顺序应体现在预览、`referenceImages` 连线和实际生图请求的原图数组中；纯文字和单图方案不增加多图用途行。
+- 标准 `referenceImages` 端口的多图方案在“只改提示词”后仍按 `order` 保留所有素材；归档、压缩和重启后保留每张图的用途。
+- `prompt-agent-model.test.mjs` 覆盖受控回复、标准多图端口续改；`prompt-agent-reference-graph-browser.test.mjs` 检查两张原图顺序与实际请求提示词一致；`prompt-agent-conversation-store.test.mjs` 检查用途存档。
+
+## 既有参考图执行验证
+
 - 添加两张参考图，应用方案后检查生成节点参考图连线顺序；生成请求应包含两张原图。
 - 直接生成未绑定方案、再次应用、重试均复用连接；修改方案图片清单后旧图片输入移除，其他端口保持。
 - 删除、禁用、修改参考来源及运行中的来源应明确阻止执行，不能退化成无图生成；重新选择后可继续。
@@ -280,3 +289,4 @@ node --test tests/prompt-agent-cache-usage.test.mjs tests/cache-usage-media-dist
 - 浏览器检查七个主题、300px Agent 面板与 640px 窗口，验证清单无横向溢出、节点引用浮层在视口内及 Enter 选择引用不会发送消息。逐步骤模型使用共享菜单与浮层管理。
 - 既有单图方案卡兼容；新单图回复转换成画布方案。真实供应商选图、超大图性能和线上接口能力不由受控测试证明。测试不修改用户的本地 `Default.json`，不调用付费模型。
 - 2026-10-22 最终验证：Node 回归 1117 通过、0 失败，2 项既有可选浏览器请求测试跳过；保留用户已修改的默认工作流，因此未运行依赖其原始内容的默认模板测试。完整应用及原图读取专项 14 项通过，截图检查 light/dark/pink，全部七主题自动检查布局。
+- 2026-10-23（model-settings#003）：模型卡片不再显示 Agent 搜索能力、单模型压缩阈值或思考兼容模板。Agent 联网开关与画布节点开关分别控制实际请求；旧模型声明不阻断 Agent 联网。自动压缩阈值位于常规设置，由全部工作流共用并独立持久化；旧模型阈值仅保留在存档中，不参与计算。思考选项仍由 Agent 和节点控制，旧模型思考字段保留以兼容既有请求。

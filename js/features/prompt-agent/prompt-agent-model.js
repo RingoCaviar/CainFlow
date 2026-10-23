@@ -11,6 +11,7 @@ import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearch
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
 import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-reference-policy.js';
+import { isReferencePort } from './prompt-agent-reference-inputs.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -29,6 +30,14 @@ function parseJson(text) {
         }
         throw new Error('模型返回的 Prompt Plan 不是有效 JSON');
     }
+}
+
+function withOrderedImageGuide(prompt, images) {
+    if (images.length < 2) return prompt;
+    const roles = { 'edit-target': '编辑目标', reference: '参考', supporting: '合成素材' };
+    const guide = images.map((image, index) => `图${index + 1}·${roles[image.role] || '参考'}${image.purpose ? `（${image.purpose}）` : ''}`).join('；');
+    const heading = `输入图片顺序：${guide}。`;
+    return prompt.startsWith(heading) ? prompt : `${heading}\n${prompt}`;
 }
 
 function normalizeReply(payload, context, images = [], userMessage = '', previousReferences = []) {
@@ -63,13 +72,19 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
     let selectedImages = imageRoles.map((item) => {
         const image = images.find((candidate) => candidate.imageId === item?.imageId);
         if (!image || !['edit-target', 'reference', 'supporting'].includes(item.role)) throw new Error('模型引用了无效的图片或图片角色');
-        return { ...image.reference, imageId: image.imageId, role: item.role };
+        if (item.purpose != null && typeof item.purpose !== 'string') throw new Error('参考图用途必须是文本');
+        return { ...image.reference, imageId: image.imageId, role: item.role,
+            ...(item.purpose?.trim() ? { purpose: item.purpose.trim().replace(/\s+/g, ' ') } : {}) };
     });
     const latest = images.filter(image => image.latestResult);
     const selection = payload.targetSelection;
     const evidence = typeof selection?.evidence === 'string' ? selection.evidence.trim() : '';
     const explicitEvidence = evidence && userMessage.includes(evidence);
     const clarify = message => ({ ...reply, intent: 'clarify', message, promptPlan: null });
+    const editTarget = target => {
+        const purpose = selectedImages.find(image => image.imageId === target.imageId)?.purpose;
+        return { ...target.reference, imageId: target.imageId, role: 'edit-target', ...(purpose ? { purpose } : {}) };
+    };
     if (selection && !['latest', 'explicit', 'prompt-only', 'none'].includes(selection.mode)) throw new Error('无效的编辑目标选择方式');
     const noImages = excludesReferenceImages(userMessage, selection);
     if (noImages) selectedImages = [];
@@ -84,7 +99,7 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
         if (selection?.mode === 'explicit') {
             const target = images.find(image => image.imageId === selection.imageId);
             if (!explicitEvidence || !target) return clarify('请明确要修改哪张图片，或确认使用最新生成结果。');
-            selectedImages = [{ ...target.reference, imageId: target.imageId, role: 'edit-target' },
+            selectedImages = [editTarget(target),
                 ...selectedImages.filter(image => image.role !== 'edit-target' && image.imageId !== target.imageId)];
         } else if (selection?.mode === 'prompt-only') {
             if (!explicitEvidence) return clarify('你希望仅修改提示词，还是继续修改最新生成的图片？');
@@ -92,7 +107,7 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
             const target = latest.length === 1 ? latest[0]
                 : explicitEvidence ? latest.find(image => image.imageId === selection?.imageId) : null;
             if (!target) return clarify(`最新一批有 ${latest.length} 张图片，请指定要修改第几张。`);
-            selectedImages = [{ ...target.reference, imageId: target.imageId, role: 'edit-target' },
+            selectedImages = [editTarget(target),
                 ...selectedImages.filter(image => image.role !== 'edit-target' && image.imageId !== target.imageId)];
         }
     }
@@ -104,7 +119,7 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
         message: reply.message || '已整理 Prompt Plan。',
         promptPlan: {
             targetNodeId: context?.nodeId || null,
-            prompt: plan.prompt.trim(),
+            prompt: withOrderedImageGuide(plan.prompt.trim(), selectedImages),
             ...(typeof plan.negativePrompt === 'string' ? { negativePrompt: plan.negativePrompt.trim() } : {}),
             parameters,
             referenceImages: selectedImages
@@ -130,8 +145,14 @@ export async function createPromptAgentModelReply({
     let previousReferences = previousTurn?.promptPlan?.referenceImages || conversation?.previousPromptPlan?.referenceImages || [];
     const previousCanvas = previousTurn?.canvasPlan;
     if (previousCanvas) {
-        previousReferences = (previousCanvas.connections || []).filter(link => /^image_\d+$/.test(link.to.port)
-            && previousCanvas.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate')).map(link => {
+        previousReferences = (previousCanvas.connections || []).filter(link => isReferencePort(link.to?.port)
+            && previousCanvas.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate'))
+            .map((link, index) => ({ link, index }))
+            .sort((a, b) => {
+                const rank = ({ link, index }) => Number.isInteger(link.order) ? link.order
+                    : /^image_\d+$/.test(link.to.port) ? Number(link.to.port.slice(6)) - 1 : index;
+                return rank(a) - rank(b) || a.index - b.index;
+            }).map(({ link }) => {
             const step = previousCanvas.steps.find(step => step.id === link.from.ref);
             const nodeId = step?.nodeId || previousCanvas.bindings?.[link.from.ref] || (!step ? link.from.ref : null);
             const source = canvasContext?.nodes.find(node => node.id === nodeId);

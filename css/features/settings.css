@@ -751,6 +751,92 @@
     padding: 9px 12px;
 }
 
+#general-settings .general-settings-compaction-control {
+    min-width: 0;
+    width: 100%;
+}
+
+#general-settings .general-settings-compaction-control .prompt-agent-model-trigger {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 40px 10px 14px;
+    border: 1px solid var(--settings-input-border);
+    border-radius: 9px;
+    background: var(--settings-input-bg);
+    color: var(--text-primary);
+    box-shadow: var(--settings-input-shadow);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+#general-settings .general-settings-compaction-control .prompt-agent-model-trigger::after {
+    right: 16px;
+    width: 8px;
+    height: 8px;
+}
+
+#general-settings .general-settings-compaction-control .prompt-agent-model-trigger:is(:hover, [aria-expanded="true"]) {
+    background: var(--settings-input-hover-bg);
+    border-color: var(--settings-input-hover-border);
+}
+
+#general-settings .general-settings-compaction-control .prompt-agent-model-trigger:focus-visible {
+    border-color: var(--settings-input-focus-border);
+    box-shadow: 0 0 0 3px var(--settings-input-focus-ring);
+    outline: none;
+}
+
+#general-settings .general-settings-compaction-hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+#setting-agent-compaction-model-menu.prompt-agent-model-menu {
+    min-width: 280px;
+    padding: 8px;
+    gap: 6px;
+    border-color: var(--settings-dialog-panel-border);
+    border-radius: 10px;
+    background: var(--settings-dialog-panel-bg);
+    box-shadow: var(--settings-dialog-panel-shadow);
+}
+
+#setting-agent-compaction-model-menu .prompt-agent-model-search {
+    min-height: 38px;
+    padding: 8px 10px;
+    border-color: var(--settings-input-border);
+    border-radius: 7px;
+    background: var(--settings-input-bg);
+    color: var(--text-primary);
+}
+
+#setting-agent-compaction-model-menu .prompt-agent-model-search:focus-visible {
+    border-color: var(--settings-input-focus-border);
+    box-shadow: 0 0 0 3px var(--settings-input-focus-ring);
+    outline: none;
+}
+
+#setting-agent-compaction-model-menu .prompt-agent-model-option {
+    min-height: 40px;
+    padding: 9px 32px 9px 11px;
+    border-radius: 7px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+#setting-agent-compaction-model-menu .prompt-agent-model-option:is(:hover, :focus-visible) {
+    background: var(--settings-input-hover-bg);
+}
+
+#setting-agent-compaction-model-menu .prompt-agent-model-option[aria-selected="true"] {
+    background: color-mix(in srgb, var(--settings-input-focus-border) 14%, var(--settings-dialog-panel-bg));
+    color: var(--text-primary);
+}
+
 #general-settings .general-settings-inline-input,
 #general-settings .general-settings-dir-row,
 #general-settings .general-settings-volume-row {

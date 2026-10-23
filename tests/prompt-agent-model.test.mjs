@@ -431,3 +431,35 @@ test('prompt-only uses the most recent canvas plan inputs after single-step upgr
     }).result;
     assert.equal(reply.promptPlan.referenceImages[0].assetKey, 'media:original');
 });
+
+test('prompt-only keeps every ordered reference from a canonical multi-input canvas plan', async () => {
+    const reply = await replyHarness({ intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '只改提示词' },
+        promptPlan: { prompt: '调整光照', imageRoles: [] } }, {
+        message: '只改提示词', conversation: { messages: [{ role: 'agent', canvasPlan: { id: 'saved-plan',
+            steps: [
+                { id: 'first', type: 'ImageImport', assetKey: 'media:first', title: '人物' },
+                { id: 'second', type: 'ImageImport', assetKey: 'media:second', title: '配色' },
+                { id: 'generate', type: 'ImageGenerate' }
+            ], connections: [
+                { from: { ref: 'second', port: 'image' }, to: { ref: 'generate', port: 'referenceImages' }, order: 1 },
+                { from: { ref: 'first', port: 'image' }, to: { ref: 'generate', port: 'referenceImages' }, order: 0 }
+            ], bindings: { first: 'first-node', second: 'second-node' } } }] }
+    }).result;
+    assert.deepEqual(reply.promptPlan.referenceImages.map(image => image.assetKey), ['media:first', 'media:second']);
+});
+
+test('multiple reference roles produce a concise ordered image guide for the actual generation prompt', async () => {
+    const references = [
+        { name: '人物', referenceId: 'person', sourceNodeId: 'person', assetKey: 'media:person', dataUrl: 'data:image/png;base64,PERSON' },
+        { name: '色彩', referenceId: 'palette', sourceNodeId: 'palette', assetKey: 'media:palette', dataUrl: 'data:image/png;base64,PALETTE' }
+    ];
+    const reply = await replyHarness({ intent: 'generate', promptPlan: { prompt: '画一张海报，保留人物身份，使用暖色调。',
+        imageRoles: [
+            { imageId: 'image-1', role: 'edit-target', purpose: '保留人物身份' },
+            { imageId: 'image-2', role: 'reference', purpose: '仅参考配色' }
+        ] } }, { message: '用这两张图画海报', referenceImages: references }).result;
+    assert.deepEqual(reply.promptPlan.referenceImages.map(image => image.assetKey), ['media:person', 'media:palette']);
+    assert.deepEqual(reply.promptPlan.referenceImages.map(image => image.purpose), ['保留人物身份', '仅参考配色']);
+    assert.match(reply.promptPlan.prompt, /^输入图片顺序：图1·编辑目标（保留人物身份）；图2·参考（仅参考配色）。\n/);
+    assert.match(reply.promptPlan.prompt, /画一张海报，保留人物身份，使用暖色调。$/);
+});
