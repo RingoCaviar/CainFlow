@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/09-toasts.css">
+<link rel="stylesheet" href="../../css/layout/workbench.css">
+<link rel="stylesheet" href="../../css/prompt-agent.css">
+<style>#app-container,#main-layout{height:100vh}#surface-result{display:none}.toast{animation:none!important}</style>
+</head><body><div id="app-container"><main id="main-layout">
+<div id="canvas-navigation">
+  <div class="canvas-node-search"><input type="search" aria-label="搜索当前工作流节点"><div class="canvas-node-results"><button>节点一</button><button>节点二</button><button>节点三</button><button>节点四</button><button>节点五</button><button>节点六</button></div></div>
+  <button>查找节点</button><button>−</button><output>100%</output><button>＋</button><button>100%</button><button>全图</button>
+</div><aside id="prompt-agent-panel" class="prompt-agent-panel"></aside>
+</main></div>
+<div id="toast-container"><div class="toast info"><span>[i]</span><span class="toast-message">生成完成，图片已经保存。</span></div></div>
+<div id="settings-modal" class="hidden"></div>
+<script type="module">
+import { createToastControllerApi } from '../../js/features/ui/toast-controller.js';
+createToastControllerApi({ container: document.getElementById('toast-container') });
+const nav = document.getElementById('canvas-navigation');
+const toast = document.getElementById('toast-container');
+const search = nav.querySelector('.canvas-node-search');
+const frame = () => new Promise(resolve => setTimeout(resolve, 50));
+const sample = () => ({ toastBottom: toast.getBoundingClientRect().bottom, navTop: nav.getBoundingClientRect().top, searchTop: search.getBoundingClientRect().top, settingsBottom: innerHeight - toast.getBoundingClientRect().bottom });
+await frame();
+const normal = sample();
+nav.classList.add('search-open');
+await frame();
+const searching = sample();
+nav.classList.remove('search-open');
+const panel = document.getElementById('prompt-agent-panel');
+panel.classList.add('active');
+panel.style.width = '440px';
+document.body.style.setProperty('--prompt-agent-width', '440px');
+document.getElementById('main-layout').style.setProperty('--prompt-agent-width', '440px');
+await frame();
+const withPanel = sample();
+document.getElementById('settings-modal').classList.remove('hidden');
+await frame();
+const withSettings = sample();
+const result = document.createElement('pre'); result.id = 'surface-result';
+result.textContent = JSON.stringify({ normal, searching, withPanel, withSettings });
+document.body.append(result);
+</script></body></html>

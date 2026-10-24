@@ -223,6 +223,7 @@ body.sidebar-pinned #side-bar {
  *   --floating-notices-left-offset / --floating-notices-width-limit via body:has(#panel.active).
  * - New bottom-right modal footer actions should extend --toast-bottom-offset via the modal's visible state
  *   selector, for example body:has(#modal:not(.hidden)) or body:has(#modal.active).
+ * - Canvas navigation sets --toast-canvas-bottom-offset from its measured top edge, including expanded search.
  * - If a legacy direct-positioning selector still overrides the variable result, add one bridge rule here on the
  *   real container instead of scattering new hard-coded offsets back into legacy modules or feature-local CSS.
  */
@@ -263,11 +264,10 @@ body.sidebar-pinned {
 
 #toast-container {
     right: var(--toast-right-offset);
-    bottom: var(--toast-bottom-offset);
+    bottom: max(var(--toast-bottom-offset), var(--toast-canvas-bottom-offset, 0px));
     transition:
         top var(--motion-standard),
         right var(--motion-standard),
-        bottom var(--motion-standard),
         left var(--motion-standard);
 }
 

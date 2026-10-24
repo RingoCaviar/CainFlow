@@ -6,6 +6,31 @@ export function createToastControllerApi({
     documentRef = document,
     setTimeoutRef = setTimeout
 }) {
+    const navigation = documentRef.getElementById?.('canvas-navigation');
+    const windowRef = documentRef.defaultView;
+    if (container && navigation && windowRef && documentRef.body?.style) {
+        const search = navigation.querySelector('.canvas-node-search');
+        const syncNavigationClearance = () => {
+            const navigationTop = navigation.getBoundingClientRect().top;
+            const searchTop = navigation.classList.contains('search-open')
+                ? search?.getBoundingClientRect().top ?? navigationTop
+                : navigationTop;
+            const clearance = Math.max(0, Math.ceil(windowRef.innerHeight - Math.min(navigationTop, searchTop) + 12));
+            documentRef.body.style.setProperty('--toast-canvas-bottom-offset', `${clearance}px`);
+        };
+        syncNavigationClearance();
+        windowRef.addEventListener('resize', syncNavigationClearance);
+        if (windowRef.ResizeObserver) {
+            const observer = new windowRef.ResizeObserver(syncNavigationClearance);
+            observer.observe(navigation);
+            if (search) observer.observe(search);
+        }
+        if (windowRef.MutationObserver) {
+            const observer = new windowRef.MutationObserver(syncNavigationClearance);
+            observer.observe(navigation, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+
     function showToast(message, type = 'info', duration = 3000) {
         if (!container) return;
         const toast = documentRef.createElement('div');
