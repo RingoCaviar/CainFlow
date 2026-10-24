@@ -1,0 +1,38 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/13-drawers-history-log.css">
+<link rel="stylesheet" href="../../css/features/preview-controls.css">
+</head><body><pre id="surface-result"></pre><script type="module">
+import { createHistoryPreviewApi } from '../../js/features/history/history-preview.js';
+const result = {};
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.body.appendChild(document.importNode(page.getElementById('history-preview-modal'), true));
+    const image = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="red"/></svg>')}`;
+    const item = { id: 1, image, prompt: '预览测试', model: 'test', timestamp: Date.now() };
+    const api = createHistoryPreviewApi({ getHistory: async () => [item], getHistoryMetadata: async () => [item],
+        getHistoryEntry: async () => item, getHistoryImageBlob: async () => null, deleteHistoryEntry: async () => {},
+        getImageResolution: async () => '200 × 100', downloadImage: async () => {}, copyToClipboard: () => {},
+        copyImageToClipboard: async () => {}, renderHistoryList: () => {}, showToast: () => {}, documentRef: document, windowRef: window });
+    api.initHistoryPreview();
+    await api.openHistoryPreview(item);
+    const modal = document.getElementById('history-preview-modal');
+    const img = document.getElementById('history-preview-img');
+    const actions = modal.querySelector('.preview-action-list');
+    result.folded = getComputedStyle(actions).visibility === 'hidden';
+    modal.querySelector('.preview-action-reveal').click();
+    result.revealed = getComputedStyle(actions).visibility === 'visible';
+    const before = img.style.transform;
+    document.getElementById('btn-preview-zoom-in').click();
+    result.zoomIn = img.style.transform !== before;
+    const enlarged = img.style.transform;
+    document.getElementById('btn-preview-zoom-out').click();
+    result.zoomOut = img.style.transform !== enlarged;
+    document.getElementById('btn-preview-zoom-in').click();
+    document.getElementById('btn-preview-fit').click();
+    result.fit = img.style.transform === before;
+    document.getElementById('btn-close-preview').click();
+    result.closed = modal.classList.contains('hidden');
+} catch (error) { result.error = error.stack || error.message; }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

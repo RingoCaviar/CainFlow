@@ -1,0 +1,109 @@
+/* Shared controls for node, Agent, and history image previews. */
+.fullscreen-overlay .fullscreen-action-dock,
+#history-preview-modal .preview-action-dock {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#history-preview-modal .preview-action-dock { top: 24px; right: 24px; }
+
+.preview-action-dock .preview-action-list {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(12px);
+    transition: max-width 260ms ease, opacity 180ms ease, transform 260ms ease, visibility 260ms;
+    white-space: nowrap;
+}
+
+.preview-action-dock:is(:hover, :focus-within, .is-expanded) .preview-action-list {
+    max-width: 350px;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+.preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) {
+    position: relative;
+    top: auto;
+    right: auto;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0;
+    font-size: 24px;
+    transform: none;
+}
+
+.preview-action-dock .preview-action-list > .fullscreen-description-btn {
+    width: auto;
+    min-width: 44px;
+    padding: 0 10px;
+    font-size: 14px;
+}
+
+.preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-paint-btn):hover,
+.preview-action-dock .preview-action-list > .btn-close-preview:hover { transform: none; }
+
+.preview-action-reveal,
+.preview-zoom-controls button {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    height: 40px;
+    min-width: 40px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 20px;
+    background: rgba(30, 30, 46, 0.82);
+    color: #fff;
+    font: inherit;
+    font-size: 20px;
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+}
+
+.preview-action-reveal:hover,
+.preview-action-reveal:focus-visible,
+.preview-zoom-controls button:hover,
+.preview-zoom-controls button:focus-visible {
+    background: rgba(75, 75, 95, 0.92);
+    outline: 2px solid rgba(255, 255, 255, 0.65);
+    outline-offset: 2px;
+}
+
+.preview-action-reveal { font-size: 26px; line-height: 1; }
+.preview-action-dock:is(:hover, :focus-within, .is-expanded) .preview-action-reveal { background: rgba(75, 75, 95, 0.92); }
+
+.preview-zoom-controls {
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.preview-zoom-controls button:last-child { font-size: 13px; }
+
+@media (max-width: 520px) {
+    .preview-action-dock .preview-action-list { gap: 4px; }
+    .preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) { width: 34px; height: 34px; min-width: 34px; }
+    .preview-action-dock .preview-action-list > .fullscreen-description-btn { width: auto; min-width: 38px; padding: 0 5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .preview-action-dock .preview-action-list { transition-duration: 0ms; }
+}

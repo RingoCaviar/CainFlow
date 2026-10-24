@@ -1,9 +1,9 @@
 /**
  * 定义应用版本、仓库信息、存储键名与默认配置等前端共享常量。
  */
-export const APP_VERSION_NUMBER = '3.8.5';
+export const APP_VERSION_NUMBER = '3.8.6';
 export const APP_VERSION = `v${APP_VERSION_NUMBER}`;
-export const APP_ASSET_VERSION = `${APP_VERSION_NUMBER}-model-count`;
+export const APP_ASSET_VERSION = `${APP_VERSION_NUMBER}-preview-controls`;
 export const GITHUB_REPO = 'RingoCaviar/CainFlow';
 export const STORAGE_KEY = 'nodeflow_ai_state';
 export const LOG_STORAGE_KEY = 'cainflow_logs_state';

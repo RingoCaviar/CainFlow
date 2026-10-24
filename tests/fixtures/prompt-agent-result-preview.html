@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN" data-app-theme="light">
-<head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css"><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css"><link rel="stylesheet" href="../../css/features/image-cropper.css">
+<head><meta charset="utf-8"><link rel="stylesheet" href="../../css/modules/00-foundation.css"><link rel="stylesheet" href="../../css/modules/02-buttons.css"><link rel="stylesheet" href="../../css/prompt-agent.css"><link rel="stylesheet" href="../../css/themes.css"><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css"><link rel="stylesheet" href="../../css/features/image-cropper.css"><link rel="stylesheet" href="../../css/features/preview-controls.css">
 <style>body { margin: 0; padding: 20px; background: var(--bg-canvas); } #prompt-agent-panel { position: relative; inset: auto; height: 720px; } #surface-result { display: none; }</style></head>
 <body><pre id="surface-result"></pre>
 <script type="module">
@@ -48,6 +48,17 @@ try {
     result.selectedCorrectBatch = displayed.src === old[1];
     result.hasNodeEditor = Boolean(overlay.querySelector('.fullscreen-paint-btn'));
     result.thumbnails = overlay.querySelectorAll('.fullscreen-thumb-item').length;
+    const actions = overlay.querySelector('.preview-action-list');
+    result.folded = getComputedStyle(actions).visibility === 'hidden';
+    overlay.querySelector('.preview-action-reveal').click();
+    result.revealed = getComputedStyle(actions).visibility === 'visible';
+    overlay.querySelector('.preview-action-reveal').click();
+    const zoomStart = displayed.style.transform;
+    overlay.querySelector('.preview-zoom-in').click();
+    const zoomIn = displayed.style.transform !== zoomStart;
+    overlay.querySelector('.preview-zoom-out').click();
+    overlay.querySelector('.preview-zoom-fit').click();
+    result.zoomButtons = zoomIn && displayed.style.transform === 'translate(0px, 0px) scale(1)';
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
     result.previousImage = displayed.src === old[0];
     const before = displayed.style.transform;

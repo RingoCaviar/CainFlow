@@ -3110,6 +3110,8 @@ export function createMediaControllerApi({
         overlay.classList.toggle('has-paint-action', Boolean(nodeId));
         overlay.classList.toggle('has-crop-action', canCropImageImport);
         overlay.innerHTML = `
+            <div class="preview-action-dock fullscreen-action-dock">
+                <div class="preview-action-list" role="toolbar" aria-label="预览操作">
             <div class="fullscreen-close" title="关闭 (Esc)">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </div>
@@ -3117,6 +3119,12 @@ export function createMediaControllerApi({
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
             ${canDescribe ? '<button type="button" class="fullscreen-description-btn" title="添加图片介绍" aria-label="添加图片介绍">介绍</button>' : ''}
+            ${nodeId ? `<div class="fullscreen-paint-btn" title="绘制/编辑">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </div>` : ''}
+                </div>
+                <button class="preview-action-reveal" type="button" aria-label="展开预览操作" aria-expanded="false" title="预览操作">⋯</button>
+            </div>
             ${canDescribe ? `<div class="fullscreen-description-dialog hidden" role="dialog" aria-modal="true" aria-label="添加图片介绍">
                 <label for="fullscreen-description-input">图片介绍</label>
                 <textarea id="fullscreen-description-input" maxlength="2000" placeholder="描述图片中的主体、风格或用途"></textarea>
@@ -3129,10 +3137,11 @@ export function createMediaControllerApi({
                 <button type="button" class="fullscreen-image-copy-menu-item">复制图片</button>
             </div>
             ${renderFullscreenCropControls(canCropImageImport)}
-            ${nodeId ? `
-            <div class="fullscreen-paint-btn" title="绘制/编辑">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            </div>` : ''}
+            <div class="preview-zoom-controls" role="toolbar" aria-label="预览缩放">
+                <button type="button" class="preview-zoom-out" title="缩小" aria-label="缩小">−</button>
+                <button type="button" class="preview-zoom-in" title="放大" aria-label="放大">+</button>
+                <button type="button" class="preview-zoom-fit" title="适应屏幕" aria-label="适应屏幕">适应</button>
+            </div>
             <div class="fullscreen-stage">
                 <div class="fullscreen-img-wrapper">
                     <img src="${images[currentIndex] || src}" alt="全屏预览" draggable="false" />
@@ -3144,6 +3153,12 @@ export function createMediaControllerApi({
                 </aside>` : ''}
             </div>`;
         documentRef.body.appendChild(overlay);
+        overlay.querySelector('.preview-action-reveal').addEventListener('click', event => {
+            const expanded = overlay.querySelector('.preview-action-dock').classList.toggle('is-expanded');
+            event.currentTarget.setAttribute('aria-expanded', String(expanded));
+        });
+        const cropButton = overlay.querySelector('.fullscreen-crop-btn');
+        if (cropButton) overlay.querySelector('.preview-action-list').appendChild(cropButton);
         const img = overlay.querySelector('img');
         const iw = overlay.querySelector('.fullscreen-img-wrapper');
         const imageContextMenu = overlay.querySelector('.fullscreen-image-context-menu');
@@ -3168,6 +3183,14 @@ export function createMediaControllerApi({
             fsY = 0;
             updateFsT();
         };
+        const changeZoom = factor => {
+            if (cropper?.isActive()) return;
+            fsZoom = Math.max(0.1, Math.min(20, fsZoom * factor));
+            updateFsT();
+        };
+        overlay.querySelector('.preview-zoom-out').addEventListener('click', () => changeZoom(0.8));
+        overlay.querySelector('.preview-zoom-in').addEventListener('click', () => changeZoom(1.25));
+        overlay.querySelector('.preview-zoom-fit').addEventListener('click', resetTransform);
         const syncNodePreviewIndex = () => {
             if (!nodeId || !context.node) return;
             context.node.imagePreviewIndex = currentIndex;

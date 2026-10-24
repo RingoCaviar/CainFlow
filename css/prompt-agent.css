@@ -281,10 +281,14 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 }
 
 .prompt-agent-composer { display: flex; flex-direction: column; align-items: stretch; padding: 6px; gap: 4px; position: relative; flex: none; border-top: 1px solid var(--border-color); border-bottom: 0; }
-.prompt-agent-input-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: end; gap: 4px; min-width: 0; }
+.prompt-agent-input-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 4px; min-width: 0; }
 .prompt-agent-input-row > #prompt-agent-add-reference { grid-column: 1; }
-.prompt-agent-input-row > #prompt-agent-input { grid-column: 2; }
+.prompt-agent-input-row > .prompt-agent-input-wrap { grid-column: 2; }
 .prompt-agent-input-row > :is(#prompt-agent-send, #prompt-agent-cancel) { grid-column: 3; grid-row: 1; min-height: 28px; }
+.prompt-agent-input-wrap { position: relative; min-width: 0; }
+.prompt-agent-input-resize { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: ns-resize; z-index: 1; }
+.prompt-agent-input-resize::before { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; transform: rotate(-45deg); }
+.prompt-agent-input-resize:hover, .prompt-agent-input-resize:focus-visible { color: var(--text-primary); background: var(--panel-bg-soft); }
 .prompt-agent-input-row:has(#prompt-agent-cancel:not([hidden])) #prompt-agent-send { display: none; }
 .prompt-agent-composer.is-dragging-reference { outline: 2px solid var(--text-link); outline-offset: -4px; }
 .prompt-agent-references,
@@ -488,10 +492,10 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     min-width: 0;
     min-height: 42px;
     max-height: 150px;
-    resize: vertical;
+    resize: none;
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    padding: 6px;
+    padding: 6px 24px 6px 6px;
     background: var(--bg-input, var(--bg-dark));
     color: var(--text-primary);
     font: inherit;

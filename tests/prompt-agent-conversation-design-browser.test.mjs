@@ -43,7 +43,7 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                 const a=input.getBoundingClientRect(), b=send.getBoundingClientRect();
                 const plus=document.getElementById('prompt-agent-add-reference').getBoundingClientRect();
                 return panel.scrollWidth<=panel.clientWidth+1 && plus.right<=a.left && a.right<=b.left
-                    && Math.abs(a.bottom-b.bottom)<=2 && Math.abs(a.bottom-plus.bottom)<=2
+                    && Math.abs((a.top+a.bottom)/2-(b.top+b.bottom)/2)<=2 && Math.abs((a.top+a.bottom)/2-(plus.top+plus.bottom)/2)<=2
                     && send.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2));})()`), `${theme}: input and actions fit and remain clickable`);
             const fit = await evaluate(`(()=>{const panel=document.getElementById('prompt-agent-panel'), name=document.querySelector('.prompt-agent-settings .prompt-agent-model-trigger');
                 return {nameOverflow:name.scrollWidth>name.clientWidth, ellipsis:getComputedStyle(name).textOverflow,
@@ -63,7 +63,8 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                 return panel.scrollWidth<=panel.clientWidth+1 && plan.scrollWidth<=plan.clientWidth+1
                     && document.getElementById('prompt-agent-send').getBoundingClientRect().height>=28;})()`), `${viewport}px viewport: long plan and composer fit`);
         }
+        assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input'),handle=document.getElementById('prompt-agent-input-resize'),a=input.getBoundingClientRect(),b=handle.getBoundingClientRect(),before=a.height;handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));return b.top>=a.top&&b.top<a.top+22&&b.right<=a.right&&input.getBoundingClientRect().height>before})()`), 'upper-right resize handle increases the input height');
         await evaluate("document.getElementById('prompt-agent-cancel').hidden=false;document.getElementById('prompt-agent-send').disabled=true");
-        assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input').getBoundingClientRect(),cancel=document.getElementById('prompt-agent-cancel'),r=cancel.getBoundingClientRect();return getComputedStyle(document.getElementById('prompt-agent-send')).display==='none'&&input.right<=r.left&&Math.abs(input.bottom-r.bottom)<=2&&cancel.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`), 'stop request replaces Send at the right of the text box');
+        assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input').getBoundingClientRect(),cancel=document.getElementById('prompt-agent-cancel'),r=cancel.getBoundingClientRect();return getComputedStyle(document.getElementById('prompt-agent-send')).display==='none'&&input.right<=r.left&&Math.abs((input.top+input.bottom)/2-(r.top+r.bottom)/2)<=2&&cancel.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`), 'stop request replaces Send at the right of the text box');
     });
 });

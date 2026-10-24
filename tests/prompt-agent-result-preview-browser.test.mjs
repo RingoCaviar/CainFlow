@@ -8,7 +8,7 @@ test('restored Agent result thumbnails fit narrow and wide panels in every theme
             const result = await runUiFixture(`tests/fixtures/prompt-agent-result-preview.html?theme=${theme}&width=${width}`);
             assert.equal(result.error, undefined);
             assert.ok(result.panelFits && result.clickOpens, `${theme} ${width}px`);
-            assert.ok(result.selectedCorrectBatch && result.previousImage && result.zoomed && result.closed && result.nodeUnchanged);
+            assert.ok(result.selectedCorrectBatch && result.previousImage && result.zoomed && result.zoomButtons && result.folded && result.revealed && result.closed && result.nodeUnchanged);
         }
     }
 });
@@ -19,6 +19,6 @@ test('an independent Agent batch previews the chosen image, supports zoom and na
     assert.deepEqual(result, {
         panelFits: true, clickOpens: true,
         selectedCorrectBatch: true, hasNodeEditor: false, thumbnails: 2,
-        previousImage: true, zoomed: true, closed: true, nodeUnchanged: true
+        previousImage: true, zoomed: true, zoomButtons: true, folded: true, revealed: true, closed: true, nodeUnchanged: true
     });
 });

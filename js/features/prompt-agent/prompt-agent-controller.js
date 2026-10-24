@@ -1728,6 +1728,27 @@ export function createPromptAgentController({
             new MutationObserverClass(updateScrollBottomButton).observe(messages, { childList: true, subtree: true, characterData: true });
         }
         const { button, closeButton, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
+        const resizeHandle = documentRef.getElementById('prompt-agent-input-resize');
+        if (input && resizeHandle) {
+            const setHeight = height => { input.style.height = `${Math.max(42, Math.min(150, height))}px`; };
+            let resizeStart = null;
+            resizeHandle.addEventListener('pointerdown', event => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                resizeStart = { y: event.clientY, height: input.getBoundingClientRect().height };
+                resizeHandle.setPointerCapture?.(event.pointerId);
+            });
+            resizeHandle.addEventListener('pointermove', event => {
+                if (resizeStart) setHeight(resizeStart.height + resizeStart.y - event.clientY);
+            });
+            resizeHandle.addEventListener('pointerup', () => { resizeStart = null; });
+            resizeHandle.addEventListener('lostpointercapture', () => { resizeStart = null; });
+            resizeHandle.addEventListener('keydown', event => {
+                if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                event.preventDefault();
+                setHeight(input.getBoundingClientRect().height + (event.key === 'ArrowUp' ? 12 : -12));
+            });
+        }
         if (input && canvasAdapter) canvasMentions = attachCanvasMentions({ documentRef, input, adapter: canvasAdapter });
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);

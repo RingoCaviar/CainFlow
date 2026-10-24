@@ -398,6 +398,8 @@ export function createHistoryPreviewApi({
         const modal = documentRef.getElementById('history-preview-modal');
         const viewport = documentRef.getElementById('preview-viewport');
         if (!modal) return;
+        modal.querySelector('.preview-action-dock')?.classList.remove('is-expanded');
+        modal.querySelector('.preview-action-reveal')?.setAttribute('aria-expanded', 'false');
         documentRef.body?.classList.add('preview-active');
         modal.classList.toggle('history-preview-from-fullscreen', options.fromFullscreen === true);
         modal.classList.add('history-preview-ignore-chrome');
@@ -492,6 +494,11 @@ export function createHistoryPreviewApi({
     }
 
     function initHistoryPreview() {
+        const actionDock = documentRef.querySelector('#history-preview-modal .preview-action-dock');
+        actionDock?.querySelector('.preview-action-reveal')?.addEventListener('click', event => {
+            const expanded = actionDock.classList.toggle('is-expanded');
+            event.currentTarget.setAttribute('aria-expanded', String(expanded));
+        });
         const previewViewport = documentRef.getElementById('preview-viewport');
         if (previewViewport) {
             previewViewport.addEventListener('contextmenu', (event) => {
@@ -550,6 +557,15 @@ export function createHistoryPreviewApi({
         });
 
         documentRef.getElementById('btn-close-preview')?.addEventListener('click', closeHistoryPreview);
+        documentRef.getElementById('btn-preview-zoom-out')?.addEventListener('click', () => {
+            previewState.scale = Math.max(0.1, previewState.scale * 0.8);
+            updatePreviewTransform();
+        });
+        documentRef.getElementById('btn-preview-zoom-in')?.addEventListener('click', () => {
+            previewState.scale = Math.min(20, previewState.scale * 1.25);
+            updatePreviewTransform();
+        });
+        documentRef.getElementById('btn-preview-fit')?.addEventListener('click', fitCurrentPreviewMedia);
         documentRef.getElementById('btn-prev-preview')?.addEventListener('click', (e) => {
             e.stopPropagation();
             navigateHistory(-1);

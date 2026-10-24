@@ -5,6 +5,7 @@ import { AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
 import { videoTimeoutMinutesToSeconds } from '../execution/async-media-execution.js';
 import { getPromptAgentCacheUsage } from '../prompt-agent/prompt-agent-cache-usage.js';
 import { getAvailablePromptAgentModels } from '../prompt-agent/prompt-agent-model.js';
+import { getModelProviders } from '../execution/provider-request-utils.js';
 import { createPromptAgentModelMenus } from '../prompt-agent/prompt-agent-model-menu.js';
 import { readAutoCompactTokens, readCompactionModelId, writeAutoCompactTokens, writeCompactionModelId } from '../prompt-agent/auto-compact-preference.js';
 import {
@@ -12,6 +13,12 @@ import {
     migrateLegacyBrowserStorage,
     scanLegacyBrowserStorage
 } from '../../services/browser-storage-migration.js';
+
+function compactionModelLabel(model, providers) {
+    const modelName = model.name && model.name !== model.modelId ? `${model.name} · ${model.modelId}` : model.modelId;
+    const providerNames = getModelProviders(model, providers).map(provider => provider.name || provider.id);
+    return `${modelName} · ${providerNames.join(' / ')}`;
+}
 
 export function createGeneralSettings({ ctx, dialogs }) {
     const {
@@ -380,7 +387,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
                         <div class="general-settings-compaction-control">
                             <select id="setting-agent-compaction-model" aria-label="Agent 上下文压缩模型">
                                 <option value="" ${compactionModelId ? '' : 'selected'}>跟随 Agent 对话模型（默认）</option>
-                                ${compactionModels.map(model => `<option value="${dialogs.escapeHtml(model.id)}" ${model.id === compactionModelId ? 'selected' : ''}>${dialogs.escapeHtml(model.name && model.name !== model.modelId ? `${model.name} · ${model.modelId}` : model.modelId)}</option>`).join('')}
+                                ${compactionModels.map(model => `<option value="${dialogs.escapeHtml(model.id)}" ${model.id === compactionModelId ? 'selected' : ''}>${dialogs.escapeHtml(compactionModelLabel(model, state.providers || []))}</option>`).join('')}
                                 ${compactionModelId && !compactionModels.some(model => model.id === compactionModelId)
                                     ? `<option value="${dialogs.escapeHtml(compactionModelId)}" selected disabled>已选压缩模型不可用，请重新选择</option>` : ''}
                             </select>
@@ -736,7 +743,7 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 const available = getAvailablePromptAgentModels(state.models || [], state.providers || []);
                 compactionSelect.innerHTML = [
                     '<option value="">跟随 Agent 对话模型（默认）</option>',
-                    ...available.map(model => `<option value="${dialogs.escapeHtml(model.id)}">${dialogs.escapeHtml(model.name && model.name !== model.modelId ? `${model.name} · ${model.modelId}` : model.modelId)}</option>`),
+                    ...available.map(model => `<option value="${dialogs.escapeHtml(model.id)}">${dialogs.escapeHtml(compactionModelLabel(model, state.providers || []))}</option>`),
                     ...(selectedId && !available.some(model => model.id === selectedId)
                         ? [`<option value="${dialogs.escapeHtml(selectedId)}" disabled>已选压缩模型不可用，请重新选择</option>`] : [])
                 ].join('');

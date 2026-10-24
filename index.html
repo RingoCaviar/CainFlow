@@ -64,6 +64,7 @@
     <link rel="stylesheet" href="css/features/menu-dialog-theme-skin.css">
     <link rel="stylesheet" href="css/features/node-canvas-theme-skin.css">
     <link rel="stylesheet" href="css/features/button-edges.css">
+    <link rel="stylesheet" href="css/features/preview-controls.css">
     <script type="module">
         import { APP_VERSION, APP_VERSION_NUMBER } from './js/core/constants.js';
 
@@ -397,7 +398,10 @@
                     </section>
                     <div class="prompt-agent-input-row">
                         <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加参考图" title="从场景、历史或本地添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
-                        <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
+                        <div class="prompt-agent-input-wrap">
+                            <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
+                            <button id="prompt-agent-input-resize" class="prompt-agent-input-resize" type="button" aria-label="调整 Agent 输入框高度" title="向上拖动以增高输入框；方向键也可调整"></button>
+                        </div>
                         <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
                         <button id="prompt-agent-cancel" class="btn btn-secondary" type="button" hidden>停止请求</button>
                     </div>
@@ -1335,19 +1339,27 @@
         <div id="preview-viewport" class="preview-viewport">
             <img id="history-preview-img" src="" draggable="false" />
         </div>
-        <div class="preview-controls">
-            <button id="btn-delete-preview" class="btn-close-preview" style="right: 136px;" title="从此历史记录中删除 (Delete)">
+        <div class="preview-controls preview-action-dock">
+            <div class="preview-action-list" role="toolbar" aria-label="预览操作">
+            <button id="btn-delete-preview" class="btn-close-preview" title="从此历史记录中删除 (Delete)" aria-label="删除此历史记录">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-sm">
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                 </svg>
             </button>
-            <button id="btn-download-preview" class="btn-close-preview" style="right: 80px;" title="下载此媒体">
+            <button id="btn-download-preview" class="btn-close-preview" title="下载此媒体" aria-label="下载此媒体">
                 <svg class="icon-sm">
                     <use href="#icon-download" />
                 </svg>
             </button>
-            <button id="btn-close-preview" class="btn-close-preview" title="关闭 (Esc)">&times;</button>
+            <button id="btn-close-preview" class="btn-close-preview" title="关闭 (Esc)" aria-label="关闭预览">&times;</button>
+            </div>
+            <button class="preview-action-reveal" type="button" aria-label="展开预览操作" aria-expanded="false" title="预览操作">⋯</button>
+        </div>
+        <div class="preview-zoom-controls" role="toolbar" aria-label="预览缩放">
+            <button id="btn-preview-zoom-out" type="button" title="缩小" aria-label="缩小">−</button>
+            <button id="btn-preview-zoom-in" type="button" title="放大" aria-label="放大">+</button>
+            <button id="btn-preview-fit" type="button" title="适应屏幕" aria-label="适应屏幕">适应</button>
         </div>
         <!-- Navigation Buttons -->
         <button id="btn-prev-preview" class="preview-nav-btn prev" title="上一张 (←)">
