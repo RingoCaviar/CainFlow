@@ -95,6 +95,7 @@ import { createPromptAgentReferenceSource } from '../features/prompt-agent/promp
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentResultPersistence } from '../features/prompt-agent/prompt-agent-result-persistence.js';
+import { createPromptAgentResultMediaAdapter } from '../features/prompt-agent/prompt-agent-result-media.js';
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
 import { createAgentWebImageReader } from '../features/prompt-agent/prompt-agent-web-image.js';
 import { createPromptAgentCompaction } from '../features/prompt-agent/prompt-agent-compaction.js';
@@ -946,7 +947,14 @@ const getPromptAgentModelId = promptAgentModelPreference.get;
 const setPromptAgentModelId = promptAgentModelPreference.set;
 migrateAutoCompactTokens(diskStorage, state.models, getPromptAgentModelId());
 const promptAgentResultPersistence = createPromptAgentResultPersistence({
-    saveWorkflowNodeMediaAssets, releaseWorkflowNodeMediaAssets, cancelWorkflowNodeMediaOperation, getImageAsset
+    media: createPromptAgentResultMediaAdapter({
+        saveWorkflowNodeMediaAssets, releaseWorkflowNodeMediaAssets, cancelWorkflowNodeMediaOperation, getImageAsset
+    }),
+    mutateConversation: (workflowId, reducer) => workflowManagerApi.mutatePromptAgentByWorkflowId(workflowId, reducer),
+    saveConversation: () => flushSessionToDisk(getSessionManagerApi(), diskStorage),
+    onChange: workflowId => {
+        if (workflowManagerApi.getActiveWorkflowId() === workflowId) registry.promptAgentController?.refreshResults();
+    }
 });
 const readAgentWebImage = createAgentWebImageReader();
 const captureAgentRequestConfig = (modelId) => {
@@ -1004,9 +1012,7 @@ const promptAgentController = createPromptAgentController({
     executionAdapter: promptAgentExecutionAdapter,
     getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
     mutateWorkflowConversation: (workflowId, reducer) => workflowManagerApi.mutatePromptAgentByWorkflowId(workflowId, reducer),
-    retainRunResults: (result) => promptAgentResultPersistence.retain(result),
-    releaseRunResults: (result) => promptAgentResultPersistence.release(result),
-    saveConversation: () => flushSessionToDisk(getSessionManagerApi(), diskStorage),
+    resultPersistence: promptAgentResultPersistence,
     loadResultImages: (keys) => Promise.all(keys.map(async (key) => {
         try { return await getImageAsset(key) || null; } catch { return null; }
     })),

@@ -289,4 +289,13 @@ node --test tests/prompt-agent-cache-usage.test.mjs tests/cache-usage-media-dist
 - 浏览器检查七个主题、300px Agent 面板与 640px 窗口，验证清单无横向溢出、节点引用浮层在视口内及 Enter 选择引用不会发送消息。逐步骤模型使用共享菜单与浮层管理。
 - 既有单图方案卡兼容；新单图回复转换成画布方案。真实供应商选图、超大图性能和线上接口能力不由受控测试证明。测试不修改用户的本地 `Default.json`，不调用付费模型。
 - 2026-10-22 最终验证：Node 回归 1117 通过、0 失败，2 项既有可选浏览器请求测试跳过；保留用户已修改的默认工作流，因此未运行依赖其原始内容的默认模板测试。完整应用及原图读取专项 14 项通过，截图检查 light/dark/pink，全部七主题自动检查布局。
+
+## Agent Conversation 结果保存 module（prompt-agent#060）
+
+- 历史 Prompt Plan 与 Canvas action plan 共用结果保存 module 的 `save`、`retry`、`clear`、`read` interface；controller 保留生成调度和 DOM 展示，媒体读写由内部 adapter 完成。
+- 最新会话记录仍是唯一持久权威。保存与重试按 Workflow identity/runId 定位当前或归档的 run，保留完整有序批次和 completionOrder，不覆盖保存期间新增的会话，不复活清空或删除的记录。
+- 同一 run 的重复保存与重试共享可等待任务，等待引用交接和状态保存结束；不同 run 独立进行。保存失败保留原图和临时引用，重试不重新生成。交接已经完成后，状态标记保存失败不能重新保留图片。
+- 清空保留模型、尺寸、Provider、思考与联网设置；迟到的原图保留结果等待 durable clear 后才释放。清空失败时保留待清理引用，后续清空可再次完成清理。
+- `prompt-agent-result-lifecycle.test.mjs` 的 16 项行为测试直接跨 module interface，`prompt-agent-result-media.test.mjs` 保留 5 项媒体 adapter 契约，`prompt-agent-result-controller.test.mjs` 保留 2 项界面接线验证。完整应用测试额外确认刷新后仍能恢复结果图片。
+- 2026-10-24 验证：`node --test --test-concurrency=2 tests/prompt-agent-*.test.mjs tests/disk-storage-concurrent-save.test.mjs tests/application-module-parse.test.mjs`，332 项全部通过，0 失败、0 跳过；包含完整应用浏览器回归，使用受控 Provider 与隔离的临时存储，未调用真实计费模型。
 - 2026-10-23（model-settings#003）：模型卡片不再显示 Agent 搜索能力、单模型压缩阈值或思考兼容模板。Agent 联网开关与画布节点开关分别控制实际请求；旧模型声明不阻断 Agent 联网。自动压缩阈值位于常规设置，由全部工作流共用并独立持久化；旧模型阈值仅保留在存档中，不参与计算。思考选项仍由 Agent 和节点控制，旧模型思考字段保留以兼容既有请求。

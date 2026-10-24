@@ -68,6 +68,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await send('Page.reload'); await waitFor('window.__cainflowAppReady === true');
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-result-image'))");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
         await evaluate("window.testExitCount=0; window.pywebview={api:{finish_close:async()=>{window.testExitCount++}}}; window.confirm=message=>{window.testExitError=message;return false}; window.cainflowPrepareExit()");
         assert.equal(await evaluate('window.testExitCount'), 1, await evaluate('window.testExitError || \"desktop exit persisted\"'));

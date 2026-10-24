@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createPromptAgentResultPersistence } from '../js/features/prompt-agent/prompt-agent-result-persistence.js';
+import { createPromptAgentResultMediaAdapter } from '../js/features/prompt-agent/prompt-agent-result-media.js';
 
 const images = ['data:image/png;base64,YQ==', 'data:image/png;base64,Yg=='];
 
 test('Agent retains a complete ordered batch under a distinct per-run temporary owner', async () => {
     const calls = [];
-    const service = createPromptAgentResultPersistence({
+    const service = createPromptAgentResultMediaAdapter({
         saveWorkflowNodeMediaAssets: async (values, workflowId, consumer, operationId) => {
             calls.push({ values, workflowId, consumer, operationId });
             return values.map((_, i) => ({ asset_key: `media:${i}`, mediaTemporaryOwnerId: JSON.stringify([workflowId, consumer, operationId]) }));
@@ -23,7 +23,7 @@ test('Agent retains a complete ordered batch under a distinct per-run temporary 
 
 test('keys-only retention never skips a missing image position or makes a partial batch', async () => {
     let materializations = 0;
-    const service = createPromptAgentResultPersistence({
+    const service = createPromptAgentResultMediaAdapter({
         getImageAsset: async (key) => key === 'media:a' ? images[0] : '',
         saveWorkflowNodeMediaAssets: async () => { materializations++; return []; }
     });
@@ -36,7 +36,7 @@ test('keys-only retention never skips a missing image position or makes a partia
 test('remote and released previews retain the complete authoritative local batch without a remote request', async () => {
     const reads = [];
     const writes = [];
-    const service = createPromptAgentResultPersistence({
+    const service = createPromptAgentResultMediaAdapter({
         getImageAsset: async (key) => { reads.push(key); return images[key === 'media:a' ? 0 : 1]; },
         saveWorkflowNodeMediaAssets: async (values, workflowId, consumer, operationId) => {
             writes.push(values);
@@ -52,7 +52,7 @@ test('remote and released previews retain the complete authoritative local batch
 
 test('save failure stays retryable with the same operation identity and does not regenerate', async () => {
     const operations = [];
-    const service = createPromptAgentResultPersistence({
+    const service = createPromptAgentResultMediaAdapter({
         saveWorkflowNodeMediaAssets: async (values, workflowId, consumer, operationId) => {
             operations.push(operationId);
             if (operations.length === 1) throw new Error('disk full');
@@ -66,7 +66,7 @@ test('save failure stays retryable with the same operation identity and does not
 
 test('release fences only this run, never its source node or another workflow', async () => {
     const calls = [];
-    const service = createPromptAgentResultPersistence({ cancelWorkflowNodeMediaOperation: async (...args) => (calls.push(args), true) });
+    const service = createPromptAgentResultMediaAdapter({ cancelWorkflowNodeMediaOperation: async (...args) => (calls.push(args), true) });
     await service.release({ workflowId: 'wf', runId: 'run', mediaOwnershipTemporaryOwners: [{ ownerId: '["other","node","op"]', assetKeys: ['media:other'] }] });
     assert.deepEqual(calls, [['wf', 'prompt-agent-result:run', 'run']]);
 });

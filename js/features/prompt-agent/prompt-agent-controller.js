@@ -7,6 +7,7 @@ import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
 import { measurePromptAgentContext, countPromptText } from './prompt-agent-token-budget.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
+import { createPromptAgentResultPersistence } from './prompt-agent-result-persistence.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
 import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
 import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
@@ -106,9 +107,7 @@ export function createPromptAgentController({
     onStateChange = () => {},
     getWorkflowId = () => '',
     mutateWorkflowConversation = null,
-    retainRunResults = null,
-    releaseRunResults = async () => {},
-    saveConversation = async () => {},
+    resultPersistence = null,
     loadResultImages = async () => [],
     openResultPreview = () => {},
     createRunId = () => globalThis.crypto?.randomUUID?.() || `agent-run-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -153,9 +152,20 @@ export function createPromptAgentController({
     const promptPlanActionStates = new Set();
     const runViews = new Map();
     const activeRuns = new Map();
-    const runImages = new Map();
-    const savingRuns = new Set();
     const runKey = (workflowId, runId) => `${workflowId}\0${runId}`;
+    const results = resultPersistence || createPromptAgentResultPersistence({
+        mutateConversation: (workflowId, reducer) => {
+            if (mutateWorkflowConversation) return mutateWorkflowConversation(workflowId, reducer);
+            if (getWorkflowId() !== workflowId) return false;
+            const next = reducer(conversationStore.snapshot());
+            if (!next) return false;
+            conversationStore.restore(next);
+            conversationRevision += 1;
+            onStateChange();
+            return true;
+        },
+        onChange: workflowId => { if (getWorkflowId() === workflowId) refreshRunViews(); }
+    });
 
     function getElements() {
         return {
@@ -533,18 +543,13 @@ export function createPromptAgentController({
         closeCommandMenu();
         if (name === '/clear') {
             const clearedWorkflowId = getWorkflowId();
-            const oldSnapshot = conversationStore.snapshot();
-            const clearedRuns = [...(oldSnapshot.archivedMessages || []), ...(oldSnapshot.messages || [])]
-                .flatMap((message) => message.runs || []);
             cancelRequest({ silent: true });
             workflowRevision += 1;
             importQueue = Promise.resolve();
             const clearedRevision = workflowRevision;
             canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
-            conversationStore.clear();
+            const clearing = results.clear(clearedWorkflowId);
             tokenObservation = null;
-            const prefix = `${getWorkflowId()}\0`;
-            for (const key of runImages.keys()) if (key.startsWith(prefix)) runImages.delete(key);
             pendingReferenceImages = [];
             referencePickerError = '';
             if (input) input.value = '';
@@ -552,12 +557,9 @@ export function createPromptAgentController({
             renderConversation();
             renderPendingReferences();
             setCommandStatus('已清空上下文，可以开始新的对话。');
-            onStateChange();
             input?.focus?.();
             try {
-                await saveConversation();
-                const released = await Promise.all(clearedRuns.map((run) => releaseRunResults({ ...run, workflowId: clearedWorkflowId })));
-                if (released.some((value) => value === false)) throw new Error('媒体清理待重试');
+                await clearing;
             } catch {
                 if (workflowRevision === clearedRevision && getWorkflowId() === clearedWorkflowId) {
                     setCommandStatus('上下文已清空，但保存或媒体清理失败，请稍后重试保存工作流。');
@@ -1247,63 +1249,6 @@ export function createPromptAgentController({
         return found;
     }
 
-    async function persistRun(workflowId, runId, result, revision) {
-        const key = runKey(workflowId, runId);
-        if (savingRuns.has(key)) return;
-        savingRuns.add(key);
-        let retained = result.mediaOwnershipTemporaryOwners?.length
-            ? { ...result, persistenceStatus: 'retained', persistenceError: '' } : result;
-        let handoffComplete = false;
-        try {
-            if (!readRun(workflowId, runId, revision)) return;
-            // Capture completion before asynchronous ownership/save work. Retrying
-            // persistence must never make an older batch appear newer.
-            mutateRun(workflowId, runId, run => { run.status = 'completed'; }, revision);
-            if (result.images?.length) runImages.set(key, result.images.slice());
-            if (retainRunResults && !result.mediaOwnershipTemporaryOwners?.length && result.persistenceStatus !== 'saved') {
-                retained = { ...result, ...await retainRunResults({ workflowId, runId,
-                    images: result.images || runImages.get(key) || [], mediaAssetKeys: result.mediaAssetKeys || [] }) };
-            }
-            const accepted = mutateRun(workflowId, runId, (run) => Object.assign(run, {
-                status: 'completed', mediaAssetKeys: retained.mediaAssetKeys || [],
-                persistenceStatus: retained.persistenceStatus || 'retained',
-                persistenceError: retained.persistenceError || '',
-                mediaOwnershipTemporaryOwners: retained.mediaOwnershipTemporaryOwners || []
-            }), revision);
-            if (!accepted) {
-                await releaseRunResults({ workflowId, runId, ...retained });
-                runImages.delete(key);
-                return;
-            }
-            if (retained.persistenceStatus === 'failed') return;
-            await saveConversation();
-            if (!readRun(workflowId, runId, revision)) {
-                await releaseRunResults({ workflowId, runId, ...retained });
-                return;
-            }
-            if (await releaseRunResults({ workflowId, runId, ...retained }) === false) {
-                throw new Error('图片已保存，媒体引用交接尚未完成，请重试保存。');
-            }
-            handoffComplete = true;
-            mutateRun(workflowId, runId, (run) => Object.assign(run, {
-                persistenceStatus: 'saved', persistenceError: '', mediaOwnershipTemporaryOwners: []
-            }), revision);
-            await saveConversation();
-        } catch (error) {
-            // The first flush already committed the pictures and the release
-            // completed. A failed cleanup-status flush must not rematerialize
-            // this now-fenced operation when the user returns to the result.
-            if (handoffComplete) return;
-            mutateRun(workflowId, runId, (run) => Object.assign(run, {
-                status: 'completed', persistenceStatus: 'failed',
-                persistenceError: error?.message || '本地保存失败'
-            }), revision);
-        } finally {
-            savingRuns.delete(key);
-            if (getWorkflowId() === workflowId) refreshRunViews();
-        }
-    }
-
     function renderCompletedRun(runState, result, images = result?.images || []) {
         clearElement(runState);
         runState.textContent = result.persistenceStatus === 'failed'
@@ -1351,8 +1296,8 @@ export function createPromptAgentController({
     }
 
     function renderRunView(view, run) {
-        const { element, workflowId, revision } = view;
-        const key = runKey(workflowId, run.runId);
+        const { element, workflowId } = view;
+        const transient = results.read(workflowId, run.runId);
         const token = {};
         view.token = token;
         const renderImages = (images) => {
@@ -1363,15 +1308,13 @@ export function createPromptAgentController({
                 retry.type = 'button';
                 retry.className = 'btn btn-secondary';
                 retry.textContent = '重试保存';
-                retry.disabled = savingRuns.has(key);
-                retry.addEventListener('click', () => persistRun(workflowId, run.runId, {
-                    ...run, images: runImages.get(key) || images
-                }, revision));
+                retry.disabled = transient.saving;
+                retry.addEventListener('click', () => results.retry(workflowId, run.runId));
                 element.appendChild(retry);
             }
         };
         if (run.status === 'completed') {
-            const images = runImages.get(key);
+            const images = transient.images;
             if (images) renderImages(images);
             else if (run.mediaAssetKeys?.length) {
                 clearElement(element);
@@ -1474,14 +1417,14 @@ export function createPromptAgentController({
                     if (entry && !entry.error && completion.outcome === 'completed'
                         && completion.started !== false && completion.executed !== false) {
                         retainedByRuntime = true;
-                        await persistRun(workflowId, runId, entry, revision);
+                        await results.save(workflowId, runId, entry);
                     }
                     return completion;
                 }
             });
             if (result?.status === 'stopped') {
                 mutateRun(workflowId, runId, (run) => { run.status = 'stopped'; }, revision);
-            } else if (!retainedByRuntime) await persistRun(workflowId, runId, result, revision);
+            } else if (!retainedByRuntime) await results.save(workflowId, runId, result);
         } catch (error) {
             const recorded = mutateRun(workflowId, runId, (run) => Object.assign(run, {
                 status: 'failed', error: error?.message || '未知错误'
@@ -1542,7 +1485,7 @@ export function createPromptAgentController({
                     const completion = await canvasAdapter.execute(plan, { retry, retainResults: async result => {
                         for (const entry of result.nodeResults || []) {
                             const record = resultRuns.get(entry.nodeId);
-                            if (record && !entry.error && (entry.images?.length || entry.mediaAssetKeys?.length)) await persistRun(workflowId, record.runId, entry, revision);
+                            if (record && !entry.error && (entry.images?.length || entry.mediaAssetKeys?.length)) await results.save(workflowId, record.runId, entry);
                         }
                         return result;
                     } });
@@ -2033,6 +1976,6 @@ export function createPromptAgentController({
 
     return {
         init, open, close, toggle, submit, cancelRequest, removeNodeReferences,
-        restoreWorkflow, snapshotWorkflow, syncWorkflowState, refreshActionStates, refreshModels: renderModelOptions
+        restoreWorkflow, snapshotWorkflow, syncWorkflowState, refreshActionStates, refreshResults: refreshRunViews, refreshModels: renderModelOptions
     };
 }
