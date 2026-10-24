@@ -40,7 +40,14 @@ export async function withAppBrowser(session, task) {
         await send('Page.enable');
         await send('Runtime.enable');
         await send('Page.navigate', { url: server.baseUrl });
-        await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)"); await delay(500);
+        try {
+            await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+        } catch (error) {
+            if (!String(error).includes('Failed to fetch dynamically imported module')) throw error;
+            await send('Page.reload', { ignoreCache: true });
+            await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+        }
+        await delay(500);
         return await task({ evaluate, send, waitFor, server });
     } finally {
         socket?.close(); browser.kill();
